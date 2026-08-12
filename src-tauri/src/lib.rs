@@ -32,7 +32,9 @@ pub fn run() {
             get_app_info,
             dataset::pick_and_load_csv,
             dataset::get_dataset_page,
-            dataset::get_dataset_profile
+            dataset::get_dataset_profile,
+            dataset::remove_duplicates,
+            dataset::undo_last_change
         ])
         .run(tauri::generate_context!())
         .expect("Columnia no pudo iniciar el runtime de escritorio");

@@ -324,13 +324,17 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 - [x] Implementar una vista previa paginada sin enviar el dataset completo a
   React: páginas de 50 filas obtenidas desde la sesión Rust.
 - [ ] Ejecutar una receta lazy con limpieza, tipos, filtro y columna calculada.
+- [x] Implementar la primera transformación reversible: eliminar duplicados
+  exactos preservando la primera aparición, sin modificar el archivo original.
+- [ ] Sustituir el historial provisional de un nivel por una receta reproducible
+  con múltiples operaciones y deshacer/rehacer.
 - [ ] Implementar cancelación cooperativa y exportación atómica CSV/Parquet.
 - [ ] Comparar tiempo y RAM con `dataprepv1.1`.
 
 **Gate:** ninguna arquitectura se declara definitiva hasta superar el benchmark
 y validar los casos difíciles de Excel.
 
-**Avance 2026-08-12:** `npm run build`, diecisiete pruebas Vitest y nueve pruebas Rust
+**Avance 2026-08-12:** `npm run build`, dieciocho pruebas Vitest y diez pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
 rutas desde React, valida un límite provisional de 100 MB, carga el CSV con
 Polars, conserva la sesión en memoria y devuelve esquema, metadatos y un máximo
@@ -347,6 +351,10 @@ cuántos valores no cumplen; todavía no transforma los datos.
 Para columnas numéricas calcula desviación estándar muestral, cuartiles,
 mediana y posibles outliers con la regla IQR de 1.5; exige al menos cuatro
 valores antes de reportar outliers.
+La primera transformación elimina duplicados exactos de la sesión, conserva el
+orden y la primera aparición, actualiza la vista previa e invalida el perfil. El
+archivo original permanece intacto y existe un único punto de deshacer; este
+historial es provisional hasta introducir recetas reproducibles.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -529,6 +537,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-12 | Detección de filas duplicadas y métricas específicas de columnas textuales añadidas al perfil | Implementada |
 | 2026-08-12 | Sugerencias conservadoras de tipos ocultos en columnas textuales, sin transformación automática | Implementada |
 | 2026-08-12 | Perfil numérico avanzado con desviación muestral, cuartiles, mediana y outliers IQR | Implementada |
+| 2026-08-12 | Primera transformación reversible: eliminar duplicados exactos en sesión con un nivel de deshacer | Implementada |
 
 ## 10. Fuentes de esta revisión
 

@@ -73,10 +73,18 @@ pub struct DatasetProfile {
     columns: Vec<ColumnProfile>,
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetMutation {
+    dataset: DatasetPreview,
+    affected_row_count: usize,
+}
+
 struct LoadedDataset {
-    _path: PathBuf,
+    path: PathBuf,
     frame: DataFrame,
     profile: Option<DatasetProfile>,
+    undo_frame: Option<DataFrame>,
 }
 
 #[derive(Default)]
@@ -466,16 +474,10 @@ fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
     })
 }
 
-fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
-    let file_size_bytes = validate_csv(path)?;
-    let frame = CsvReadOptions::default()
-        .with_has_header(true)
-        .with_infer_schema_length(Some(100))
-        .try_into_reader_with_file_path(Some(path.to_path_buf()))
-        .map_err(|error| format!("No se pudo abrir el CSV: {error}"))?
-        .finish()
-        .map_err(|error| format!("No se pudo interpretar el CSV: {error}"))?;
-
+fn dataset_preview(path: &Path, frame: &DataFrame) -> Result<DatasetPreview, String> {
+    let file_size_bytes = fs::metadata(path)
+        .map_err(|error| format!("No se pudieron leer los metadatos del archivo: {error}"))?
+        .len();
     let columns = frame
         .columns()
         .iter()
@@ -484,10 +486,9 @@ fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
             data_type: column.dtype().to_string(),
         })
         .collect();
+    let rows = dataset_page(frame, 0, PREVIEW_ROW_LIMIT)?.rows;
 
-    let rows = dataset_page(&frame, 0, PREVIEW_ROW_LIMIT)?.rows;
-
-    let preview = DatasetPreview {
+    Ok(DatasetPreview {
         file_name: path
             .file_name()
             .and_then(|name| name.to_str())
@@ -498,7 +499,28 @@ fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
         column_count: frame.width(),
         columns,
         rows,
-    };
+    })
+}
+
+fn remove_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
+    let cleaned = frame
+        .unique_stable(None, UniqueKeepStrategy::First, None)
+        .map_err(|error| format!("No se pudieron eliminar las filas duplicadas: {error}"))?;
+    let affected_row_count = frame.height().saturating_sub(cleaned.height());
+    Ok((cleaned, affected_row_count))
+}
+
+fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
+    validate_csv(path)?;
+    let frame = CsvReadOptions::default()
+        .with_has_header(true)
+        .with_infer_schema_length(Some(100))
+        .try_into_reader_with_file_path(Some(path.to_path_buf()))
+        .map_err(|error| format!("No se pudo abrir el CSV: {error}"))?
+        .finish()
+        .map_err(|error| format!("No se pudo interpretar el CSV: {error}"))?;
+
+    let preview = dataset_preview(path, &frame)?;
 
     Ok((frame, preview))
 }
@@ -528,9 +550,10 @@ pub async fn pick_and_load_csv(
         .lock()
         .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
     *current = Some(LoadedDataset {
-        _path: path,
+        path,
         frame,
         profile: None,
+        undo_frame: None,
     });
 
     Ok(Some(preview))
@@ -575,6 +598,58 @@ pub async fn get_dataset_profile(app: AppHandle) -> Result<DatasetProfile, Strin
     })
     .await
     .map_err(|error| format!("El análisis de calidad se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo CSV.".to_owned()
+        })?;
+        let (cleaned, affected_row_count) = remove_duplicate_rows(&dataset.frame)?;
+
+        if affected_row_count > 0 {
+            dataset.undo_frame = Some(dataset.frame.clone());
+            dataset.frame = cleaned;
+            dataset.profile = None;
+        }
+
+        Ok(DatasetMutation {
+            dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+            affected_row_count,
+        })
+    })
+    .await
+    .map_err(|error| format!("La eliminación de duplicados se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn undo_last_change(app: AppHandle) -> Result<DatasetPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo CSV.".to_owned()
+        })?;
+        let previous = dataset
+            .undo_frame
+            .take()
+            .ok_or_else(|| "No hay un cambio disponible para deshacer.".to_owned())?;
+
+        dataset.frame = previous;
+        dataset.profile = None;
+        dataset_preview(&dataset.path, &dataset.frame)
+    })
+    .await
+    .map_err(|error| format!("No se pudo deshacer el cambio: {error}"))?
 }
 
 #[cfg(test)]
@@ -738,6 +813,23 @@ mod tests {
         assert_eq!(value.median, Some(12.0));
         assert_eq!(value.third_quartile, Some(13.0));
         assert_eq!(value.outlier_count, Some(1));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn removes_only_additional_duplicate_rows_and_preserves_order() {
+        let path = temporary_csv("city,value\nSanto Domingo,1\nSantiago,2\nSanto Domingo,1\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let (cleaned, affected_row_count) =
+            remove_duplicate_rows(&frame).expect("los duplicados deben eliminarse");
+        let page = dataset_page(&cleaned, 0, 50).expect("la vista previa debe generarse");
+
+        assert_eq!(affected_row_count, 1);
+        assert_eq!(cleaned.height(), 2);
+        assert_eq!(page.rows[0][0].as_deref(), Some("Santo Domingo"));
+        assert_eq!(page.rows[1][0].as_deref(), Some("Santiago"));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }

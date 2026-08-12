@@ -1,7 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getAppInfo, getDatasetPage, getDatasetProfile, pickAndLoadCsv } from "./bridge";
+import {
+  getAppInfo,
+  getDatasetPage,
+  getDatasetProfile,
+  pickAndLoadCsv,
+  removeDuplicates,
+  undoLastChange,
+} from "./bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -58,5 +65,15 @@ describe("desktop bridge", () => {
     });
 
     expect(invoke).toHaveBeenCalledWith("get_dataset_profile");
+  });
+
+  it("aplica y deshace transformaciones mediante comandos sin argumentos", async () => {
+    vi.mocked(invoke).mockResolvedValue({});
+
+    await removeDuplicates();
+    await undoLastChange();
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "remove_duplicates");
+    expect(invoke).toHaveBeenNthCalledWith(2, "undo_last_change");
   });
 });

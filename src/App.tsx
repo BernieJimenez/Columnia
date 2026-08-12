@@ -5,6 +5,8 @@ import {
   getDatasetPage,
   getDatasetProfile,
   pickAndLoadCsv,
+  removeDuplicates,
+  undoLastChange,
   type AppInfo,
   type DatasetPreview,
   type DatasetProfile,
@@ -36,6 +38,12 @@ type ProfileStatus =
   | { kind: "ready"; profile: DatasetProfile }
   | { kind: "error"; message: string };
 
+type ChangeStatus =
+  | { kind: "idle" }
+  | { kind: "working"; action: "apply" | "undo" }
+  | { kind: "applied"; affectedRowCount: number }
+  | { kind: "error"; message: string; canUndo: boolean };
+
 function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
@@ -50,6 +58,7 @@ export function App() {
   const [status, setStatus] = useState<AppStatus>({ kind: "loading" });
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
+  const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -75,6 +84,7 @@ export function App() {
   async function selectCsv() {
     setDatasetStatus({ kind: "loading" });
     setProfileStatus({ kind: "idle" });
+    setChangeStatus({ kind: "idle" });
     try {
       const dataset = await pickAndLoadCsv();
       setDatasetStatus(
@@ -85,6 +95,41 @@ export function App() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setDatasetStatus({ kind: "error", message });
+    }
+  }
+
+  async function applyDuplicateRemoval() {
+    if (datasetStatus.kind !== "ready") return;
+
+    setChangeStatus({ kind: "working", action: "apply" });
+    try {
+      const result = await removeDuplicates();
+      setDatasetStatus({
+        kind: "ready",
+        dataset: result.dataset,
+        pageOffset: 0,
+        pageLoading: false,
+      });
+      setProfileStatus({ kind: "idle" });
+      setChangeStatus({ kind: "applied", affectedRowCount: result.affectedRowCount });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setChangeStatus({ kind: "error", message, canUndo: false });
+    }
+  }
+
+  async function undoChange() {
+    if (datasetStatus.kind !== "ready") return;
+
+    setChangeStatus({ kind: "working", action: "undo" });
+    try {
+      const dataset = await undoLastChange();
+      setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
+      setProfileStatus({ kind: "idle" });
+      setChangeStatus({ kind: "idle" });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setChangeStatus({ kind: "error", message, canUndo: true });
     }
   }
 
@@ -156,7 +201,8 @@ export function App() {
             disabled={
               !isDesktopReady ||
               datasetStatus.kind === "loading" ||
-              profileStatus.kind === "loading"
+              profileStatus.kind === "loading" ||
+              changeStatus.kind === "working"
             }
           >
             {datasetStatus.kind === "loading" ? "Cargando…" : "Seleccionar CSV"}
@@ -184,11 +230,18 @@ export function App() {
           <DatasetView
             dataset={datasetStatus.dataset}
             pageOffset={datasetStatus.pageOffset}
-            pageLoading={datasetStatus.pageLoading || profileStatus.kind === "loading"}
+            pageLoading={
+              datasetStatus.pageLoading ||
+              profileStatus.kind === "loading" ||
+              changeStatus.kind === "working"
+            }
             pageError={datasetStatus.pageError}
             profileStatus={profileStatus}
+            changeStatus={changeStatus}
             onPageChange={changePage}
             onAnalyzeQuality={analyzeQuality}
+            onRemoveDuplicates={applyDuplicateRemoval}
+            onUndoChange={undoChange}
           />
         )}
       </section>
@@ -202,8 +255,11 @@ interface DatasetViewProps {
   pageLoading: boolean;
   pageError?: string;
   profileStatus: ProfileStatus;
+  changeStatus: ChangeStatus;
   onPageChange: (offset: number) => void;
   onAnalyzeQuality: () => void;
+  onRemoveDuplicates: () => void;
+  onUndoChange: () => void;
 }
 
 function DatasetView({
@@ -212,8 +268,11 @@ function DatasetView({
   pageLoading,
   pageError,
   profileStatus,
+  changeStatus,
   onPageChange,
   onAnalyzeQuality,
+  onRemoveDuplicates,
+  onUndoChange,
 }: DatasetViewProps) {
   const pageEnd = pageOffset + dataset.rows.length;
   const hasPrevious = pageOffset > 0;
@@ -287,6 +346,7 @@ function DatasetView({
           No se pudo cambiar de página: {pageError}
         </p>
       )}
+      <ChangeFeedback status={changeStatus} onUndo={onUndoChange} />
       <section className="quality" aria-labelledby="quality-title">
         <div className="quality__header">
           <div>
@@ -317,13 +377,25 @@ function DatasetView({
             No se pudo calcular el perfil: {profileStatus.message}
           </p>
         )}
-        {profileStatus.kind === "ready" && <QualityProfile profile={profileStatus.profile} />}
+        {profileStatus.kind === "ready" && (
+          <QualityProfile
+            profile={profileStatus.profile}
+            busy={changeStatus.kind === "working"}
+            onRemoveDuplicates={onRemoveDuplicates}
+          />
+        )}
       </section>
     </div>
   );
 }
 
-function QualityProfile({ profile }: { profile: DatasetProfile }) {
+interface QualityProfileProps {
+  profile: DatasetProfile;
+  busy: boolean;
+  onRemoveDuplicates: () => void;
+}
+
+function QualityProfile({ profile, busy, onRemoveDuplicates }: QualityProfileProps) {
   const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
 
@@ -335,6 +407,14 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
           <dd>
             {profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)
           </dd>
+          <button
+            className="inline-action"
+            type="button"
+            onClick={onRemoveDuplicates}
+            disabled={profile.duplicateRowCount === 0 || busy}
+          >
+            Eliminar duplicados
+          </button>
         </div>
         <div>
           <dt>Filas analizadas</dt>
@@ -475,6 +555,42 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
         </>
       )}
     </>
+  );
+}
+
+function ChangeFeedback({ status, onUndo }: { status: ChangeStatus; onUndo: () => void }) {
+  if (status.kind === "idle") return null;
+
+  if (status.kind === "working") {
+    return (
+      <p className="notice" role="status">
+        {status.action === "apply" ? "Eliminando duplicados…" : "Deshaciendo cambio…"}
+      </p>
+    );
+  }
+
+  if (status.kind === "error") {
+    return (
+      <div className="change-feedback change-feedback--error" role="alert">
+        <span>{status.message}</span>
+        {status.canUndo && (
+          <button type="button" onClick={onUndo}>
+            Reintentar deshacer
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="change-feedback" role="status">
+      <span>
+        Se eliminaron {status.affectedRowCount.toLocaleString()} filas duplicadas adicionales.
+      </span>
+      <button type="button" onClick={onUndo}>
+        Deshacer
+      </button>
+    </div>
   );
 }
 

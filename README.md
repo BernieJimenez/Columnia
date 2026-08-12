@@ -51,6 +51,11 @@ Para columnas numéricas, el perfil añade desviación estándar muestral, Q1,
 mediana, Q3 y posibles outliers mediante la regla IQR de 1.5. Los nulos y
 valores no finitos se excluyen; no se señalan outliers con menos de cuatro datos.
 
+Cuando el perfil encuentra duplicados exactos, **Eliminar duplicados** conserva
+la primera aparición y elimina las repeticiones posteriores de la sesión activa.
+El CSV original no se modifica. La operación ofrece un nivel de **Deshacer** y
+el perfil debe recalcularse sobre el resultado.
+
 Validación rápida y completamente local:
 
 ```powershell

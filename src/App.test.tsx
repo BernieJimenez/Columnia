@@ -135,6 +135,25 @@ describe("App", () => {
         },
       ],
     });
+    const removeSpy = vi.spyOn(bridge, "removeDuplicates").mockResolvedValue({
+      affectedRowCount: 1,
+      dataset: {
+        fileName: "calidad.csv",
+        fileSizeBytes: 1024,
+        rowCount: 2,
+        columnCount: 1,
+        columns: [{ name: "temperature", dataType: "Int64" }],
+        rows: [["30"], ["28"]],
+      },
+    });
+    const undoSpy = vi.spyOn(bridge, "undoLastChange").mockResolvedValue({
+      fileName: "calidad.csv",
+      fileSizeBytes: 1024,
+      rowCount: 3,
+      columnCount: 1,
+      columns: [{ name: "temperature", dataType: "Int64" }],
+      rows: [["30"], [null], ["28"]],
+    });
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
@@ -147,6 +166,16 @@ describe("App", () => {
     expect(screen.getByRole("cell", { name: "66.7%" })).toBeInTheDocument();
     expect(screen.getByText("1 (33.3%)")).toBeInTheDocument();
     expect(profileSpy).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados" }));
+    expect(
+      await screen.findByText("Se eliminaron 1 filas duplicadas adicionales."),
+    ).toBeInTheDocument();
+    expect(removeSpy).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
+    expect(await screen.findByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
+    expect(undoSpy).toHaveBeenCalledOnce();
   });
 
   it("presenta las métricas específicas de columnas de texto", async () => {

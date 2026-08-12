@@ -55,6 +55,11 @@ export interface DatasetProfile {
   columns: ColumnProfile[];
 }
 
+export interface DatasetMutation {
+  dataset: DatasetPreview;
+  affectedRowCount: number;
+}
+
 export function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
 }
@@ -69,4 +74,12 @@ export function getDatasetPage(offset: number, limit: number): Promise<DatasetPa
 
 export function getDatasetProfile(): Promise<DatasetProfile> {
   return invoke<DatasetProfile>("get_dataset_profile");
+}
+
+export function removeDuplicates(): Promise<DatasetMutation> {
+  return invoke<DatasetMutation>("remove_duplicates");
+}
+
+export function undoLastChange(): Promise<DatasetPreview> {
+  return invoke<DatasetPreview>("undo_last_change");
 }
