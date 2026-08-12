@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 export interface AppInfo {
   name: string;
@@ -60,20 +60,42 @@ export interface DatasetMutation {
   affectedRowCount: number;
 }
 
+export interface OperationProgress {
+  operation: "load" | "profile";
+  stage: string;
+  percent: number;
+}
+
+export type CancellableOperation = OperationProgress["operation"];
+
+type ProgressHandler = (progress: OperationProgress) => void;
+
+function progressChannel(onProgress?: ProgressHandler): Channel<OperationProgress> {
+  return new Channel<OperationProgress>((progress) => onProgress?.(progress));
+}
+
 export function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
 }
 
-export function pickAndLoadCsv(): Promise<DatasetPreview | null> {
-  return invoke<DatasetPreview | null>("pick_and_load_csv");
+export function pickAndLoadCsv(onProgress?: ProgressHandler): Promise<DatasetPreview | null> {
+  return invoke<DatasetPreview | null>("pick_and_load_csv", {
+    onProgress: progressChannel(onProgress),
+  });
 }
 
 export function getDatasetPage(offset: number, limit: number): Promise<DatasetPage> {
   return invoke<DatasetPage>("get_dataset_page", { offset, limit });
 }
 
-export function getDatasetProfile(): Promise<DatasetProfile> {
-  return invoke<DatasetProfile>("get_dataset_profile");
+export function getDatasetProfile(onProgress?: ProgressHandler): Promise<DatasetProfile> {
+  return invoke<DatasetProfile>("get_dataset_profile", {
+    onProgress: progressChannel(onProgress),
+  });
+}
+
+export function cancelOperation(operation: CancellableOperation): Promise<void> {
+  return invoke<void>("cancel_operation", { operation });
 }
 
 export function removeDuplicates(): Promise<DatasetMutation> {

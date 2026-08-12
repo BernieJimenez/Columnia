@@ -6,6 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
+- Versión actual del prototipo: `0.4.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -300,7 +301,8 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 
 - [ ] Elegir licencia y modelo de distribución de Columnia.
 - [ ] Definir Windows x64 como objetivo inicial o aprobar una matriz distinta.
-- [ ] Definir versionado SemVer, formato de tags y fuente de verdad de versión.
+- [x] Adoptar SemVer para el prototipo y verificar localmente que npm, Cargo y
+  Tauri mantengan la misma versión. Los tags se definirán antes del primer release.
 - [ ] Crear ADR para Tauri/Rust, motores de datos y frontera UI/backend.
 - [ ] Definir política local de ramas, revisión y commits.
 - [ ] Crear una lista local de dependencias desactualizadas y auditorías; no
@@ -317,7 +319,8 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 - [x] Abrir el shell Tauri en Windows y completar un smoke de arranque.
 - [ ] Completar la revisión visual sistemática del shell en Windows.
 - [x] Crear el primer comando Tauri tipado de selección y carga CSV.
-- [ ] Añadir un canal de eventos de progreso para operaciones largas.
+- [x] Añadir un canal Tauri tipado de progreso para carga CSV y perfilado. El
+  progreso de lectura es por fases; el perfil avanza por columnas.
 - [ ] Leer y perfilar CSV, Excel y Parquet con datasets representativos. La carga
   y el perfil inicial de CSV ya funcionan; faltan perfiles avanzados, Excel y
   Parquet.
@@ -328,15 +331,17 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
   exactos preservando la primera aparición, sin modificar el archivo original.
 - [ ] Sustituir el historial provisional de un nivel por una receta reproducible
   con múltiples operaciones y deshacer/rehacer.
-- [ ] Implementar cancelación cooperativa y exportación atómica CSV/Parquet.
+- [x] Implementar cancelación cooperativa para carga CSV y perfilado, conservando
+  el dataset anterior cuando se cancela una sustitución.
+- [ ] Implementar exportación atómica CSV/Parquet.
 - [ ] Comparar tiempo y RAM con `dataprepv1.1`.
 
 **Gate:** ninguna arquitectura se declara definitiva hasta superar el benchmark
 y validar los casos difíciles de Excel.
 
-**Avance 2026-08-12:** `npm run build`, dieciocho pruebas Vitest y diez pruebas Rust
+**Avance 2026-08-12:** `npm run build`, veintidós pruebas Vitest y quince pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
-rutas desde React, valida un límite provisional de 100 MB, carga el CSV con
+rutas desde React, valida un límite provisional de 500 MB, carga el CSV con
 Polars, conserva la sesión en memoria y devuelve esquema, metadatos y un máximo
 de 50 filas. `get_dataset_page` permite navegar en páginas de 50 filas, limita
 cada solicitud a un máximo de 200 y rechaza accesos sin una sesión activa.
@@ -355,6 +360,23 @@ La primera transformación elimina duplicados exactos de la sesión, conserva el
 orden y la primera aparición, actualiza la vista previa e invalida el perfil. El
 archivo original permanece intacto y existe un único punto de deshacer; este
 historial es provisional hasta introducir recetas reproducibles.
+La interfaz usa un panel lateral para separar Datos y Calidad y evitar una única
+pantalla creciente. El límite de carga se elevó a 500 MB a petición del usuario,
+con una advertencia visible: todavía se materializa el dataset completo y el uso
+real de RAM puede ser bastante mayor hasta incorporar streaming.
+La carga y sustitución del CSV pertenece exclusivamente a la vista Datos. Calidad
+consume el dataset activo y no presenta controles ni mensajes para seleccionar
+otro archivo.
+La versión 0.3.0 incorpora un canal IPC tipado para informar el progreso de la
+carga CSV y el análisis de calidad. La interfaz muestra la etapa y el porcentaje
+solo dentro de Datos o Calidad, según la operación activa. El progreso de carga
+es honesto por fases; el perfil informa avance real al completar cada columna.
+La versión 0.4.0 añade cancelación cooperativa mediante generaciones atómicas
+independientes para carga y perfilado. El perfil comprueba la cancelación entre
+columnas. La lectura CSV de Polars se puede descartar al terminar la fase activa,
+pero no interrumpir dentro del parser; la interfaz lo refleja como “Cancelando”.
+Si se cancela la selección o sustitución, Columnia recupera el dataset anterior
+en lugar de dejar la sesión vacía.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -485,7 +507,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | --- | --- |
 | Arranque en caliente hasta UI utilizable | ≤ 2 segundos en equipo de referencia |
 | Primera vista previa | ≤ 3 segundos para CSV de 100 MB |
-| Memoria durante preview | Prototipo: límite de 100 MB; objetivo final: no materializar el dataset completo |
+| Memoria durante preview | Prototipo: límite de 500 MB con advertencia; objetivo final: no materializar el dataset completo |
 | Cancelación visible | Confirmación de cancelación ≤ 1 segundo |
 | Operación larga | Progreso real o estado indeterminado honesto; nunca UI congelada |
 | Cobertura | Umbral por decidir después de clasificar código crítico |
@@ -538,6 +560,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-12 | Sugerencias conservadoras de tipos ocultos en columnas textuales, sin transformación automática | Implementada |
 | 2026-08-12 | Perfil numérico avanzado con desviación muestral, cuartiles, mediana y outliers IQR | Implementada |
 | 2026-08-12 | Primera transformación reversible: eliminar duplicados exactos en sesión con un nivel de deshacer | Implementada |
+| 2026-08-12 | Versión 0.2.0 sincronizada entre npm, Cargo y Tauri mediante prueba local | Implementada |
+| 2026-08-12 | Navegación lateral por vistas y límite provisional de CSV elevado a 500 MB con advertencia de RAM | Implementada |
+| 2026-08-12 | Calidad reutiliza exclusivamente el dataset activo; la selección de CSV queda aislada en Datos | Implementada |
+| 2026-08-12 | Versión 0.3.0: progreso tipado por canal Tauri para carga CSV y perfilado por columnas | Implementada |
+| 2026-08-12 | Versión 0.4.0: cancelación cooperativa aislada por operación y recuperación del dataset previo | Implementada |
 
 ## 10. Fuentes de esta revisión
 

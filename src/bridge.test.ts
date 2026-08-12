@@ -1,7 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cancelOperation,
   getAppInfo,
   getDatasetPage,
   getDatasetProfile,
@@ -10,7 +11,16 @@ import {
   undoLastChange,
 } from "./bridge";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  Channel: class<T> {
+    onmessage: (message: T) => void;
+
+    constructor(onmessage: (message: T) => void) {
+      this.onmessage = onmessage;
+    }
+  },
+}));
 
 describe("desktop bridge", () => {
   beforeEach(() => vi.mocked(invoke).mockReset());
@@ -33,9 +43,26 @@ describe("desktop bridge", () => {
   it("solicita la selección nativa sin entregar una ruta desde React", async () => {
     vi.mocked(invoke).mockResolvedValue(null);
 
-    await expect(pickAndLoadCsv()).resolves.toBeNull();
+    const onProgress = vi.fn();
+    await expect(pickAndLoadCsv(onProgress)).resolves.toBeNull();
 
-    expect(invoke).toHaveBeenCalledWith("pick_and_load_csv");
+    expect(invoke).toHaveBeenCalledWith("pick_and_load_csv", {
+      onProgress: expect.any(Channel),
+    });
+    const args = vi.mocked(invoke).mock.calls[0][1] as {
+      onProgress: Channel<{
+        operation: "load";
+        stage: string;
+        percent: number;
+      }>;
+    };
+    const channel = args.onProgress;
+    channel.onmessage({ operation: "load", stage: "Validando archivo", percent: 10 });
+    expect(onProgress).toHaveBeenCalledWith({
+      operation: "load",
+      stage: "Validando archivo",
+      percent: 10,
+    });
   });
 
   it("solicita una página por posición sin volver a entregar la ruta", async () => {
@@ -64,7 +91,9 @@ describe("desktop bridge", () => {
       columns: [],
     });
 
-    expect(invoke).toHaveBeenCalledWith("get_dataset_profile");
+    expect(invoke).toHaveBeenCalledWith("get_dataset_profile", {
+      onProgress: expect.any(Channel),
+    });
   });
 
   it("aplica y deshace transformaciones mediante comandos sin argumentos", async () => {
@@ -75,5 +104,13 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenNthCalledWith(1, "remove_duplicates");
     expect(invoke).toHaveBeenNthCalledWith(2, "undo_last_change");
+  });
+
+  it("cancela únicamente la operación indicada", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+
+    await cancelOperation("profile");
+
+    expect(invoke).toHaveBeenCalledWith("cancel_operation", { operation: "profile" });
   });
 });

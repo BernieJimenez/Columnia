@@ -5,7 +5,9 @@ transformar y entregar datasets confiables.
 
 El proyecto está en su primer hito técnico. Actualmente contiene el shell Tauri
 2, una interfaz React/TypeScript y el primer corte vertical del motor Polars:
-selección nativa, carga local y vista previa de archivos CSV de hasta 100 MB.
+selección nativa, carga local y vista previa de archivos CSV de hasta 500 MB.
+Este límite es provisional: el CSV aún se materializa en memoria y un archivo
+grande puede requerir bastante más RAM durante perfiles y transformaciones.
 
 ## Plataformas objetivo
 
@@ -36,6 +38,12 @@ npm run tauri dev
 En la ventana de Columnia, usa **Seleccionar CSV**. Rust abre el diálogo nativo,
 valida y conserva el dataset en la sesión; React recibe solamente el esquema,
 los metadatos y las primeras 50 filas.
+Durante la carga se muestra el avance por fases. El perfil de calidad informa el
+porcentaje conforme termina cada columna; ambos canales permanecen dentro del
+equipo mediante IPC de Tauri.
+Las operaciones activas se pueden cancelar. El perfil se detiene entre columnas;
+la lectura CSV se descarta después de terminar la fase que Polars tenga en curso.
+Cancelar una sustitución conserva el dataset que ya estaba activo.
 La vista permite recorrer el dataset en páginas de 50 filas sin volver a abrir
 el archivo ni enviar su ruta al frontend.
 El botón **Analizar calidad** calcula en Rust los nulos, la completitud y los

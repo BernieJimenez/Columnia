@@ -1,18 +1,43 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 use chrono::NaiveDate;
 use polars::prelude::*;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
-const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 100 * 1024 * 1024;
+const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 500 * 1024 * 1024;
+const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationProgress {
+    operation: &'static str,
+    stage: &'static str,
+    percent: u8,
+}
+
+fn send_progress(
+    channel: &Channel<OperationProgress>,
+    operation: &'static str,
+    stage: &'static str,
+    percent: u8,
+) {
+    let _ = channel.send(OperationProgress {
+        operation,
+        stage,
+        percent,
+    });
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +115,48 @@ struct LoadedDataset {
 #[derive(Default)]
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
+    load_generation: AtomicU64,
+    profile_generation: AtomicU64,
+}
+
+impl DatasetState {
+    fn begin_load(&self) -> u64 {
+        self.load_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
+    fn begin_profile(&self) -> u64 {
+        self.profile_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
+    fn load_was_cancelled(&self, generation: u64) -> bool {
+        self.load_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn profile_was_cancelled(&self, generation: u64) -> bool {
+        self.profile_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn cancel(&self, operation: &str) -> Result<(), String> {
+        let generation = match operation {
+            "load" => &self.load_generation,
+            "profile" => &self.profile_generation,
+            _ => return Err("La operación indicada no admite cancelación.".to_owned()),
+        };
+        generation.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+fn ensure_not_cancelled(cancelled: bool) -> Result<(), String> {
+    if cancelled {
+        Err(OPERATION_CANCELLED_MESSAGE.to_owned())
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_csv(path: &Path) -> Result<u64, String> {
@@ -110,6 +177,12 @@ fn validate_csv(path: &Path) -> Result<u64, String> {
         .map_err(|error| format!("No se pudieron leer los metadatos del archivo: {error}"))?
         .len();
 
+    validate_file_size(size)?;
+
+    Ok(size)
+}
+
+fn validate_file_size(size: u64) -> Result<(), String> {
     if size > PROTOTYPE_FILE_LIMIT_BYTES {
         return Err(format!(
             "El CSV supera el límite temporal de {} MB. La carga por streaming se incorporará en un próximo hito.",
@@ -117,7 +190,7 @@ fn validate_csv(path: &Path) -> Result<u64, String> {
         ));
     }
 
-    Ok(size)
+    Ok(())
 }
 
 fn preview_value(value: AnyValue<'_>) -> Option<String> {
@@ -365,8 +438,18 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
     }))
 }
 
-fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
+fn profile_dataset_with_progress<F, C>(
+    frame: &DataFrame,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<DatasetProfile, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let row_count = frame.height();
+    report("Detectando filas duplicadas", 10);
     let distinct_row_count = frame
         .unique::<Vec<String>, String>(None, UniqueKeepStrategy::First, None)
         .map_err(|error| format!("No se pudieron detectar las filas duplicadas: {error}"))?
@@ -377,94 +460,102 @@ fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
     } else {
         (duplicate_row_count as f64 / row_count as f64) * 100.0
     };
-    let columns = frame
-        .columns()
-        .iter()
-        .map(|column| {
-            let null_count = column.null_count();
-            let unique_count = column
-                .n_unique()
-                .map_err(|error| format!("No se pudieron contar los valores únicos: {error}"))?
-                .saturating_sub(usize::from(null_count > 0));
-            let completeness_percentage = if row_count == 0 {
-                100.0
-            } else {
-                ((row_count - null_count) as f64 / row_count as f64) * 100.0
-            };
+    ensure_not_cancelled(is_cancelled())?;
+    let source_columns = frame.columns();
+    let mut columns = Vec::with_capacity(source_columns.len());
+    for (column_index, column) in source_columns.iter().enumerate() {
+        ensure_not_cancelled(is_cancelled())?;
+        let null_count = column.null_count();
+        let unique_count = column
+            .n_unique()
+            .map_err(|error| format!("No se pudieron contar los valores únicos: {error}"))?
+            .saturating_sub(usize::from(null_count > 0));
+        let completeness_percentage = if row_count == 0 {
+            100.0
+        } else {
+            ((row_count - null_count) as f64 / row_count as f64) * 100.0
+        };
 
-            let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
-                let minimum = column
-                    .min_reduce()
-                    .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
-                    .into_value();
-                let maximum = column
-                    .max_reduce()
-                    .map_err(|error| format!("No se pudo calcular el máximo: {error}"))?
-                    .into_value();
-                let mean = column
-                    .mean_reduce()
-                    .map_err(|error| format!("No se pudo calcular el promedio: {error}"))?
-                    .into_value();
+        let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
+            let minimum = column
+                .min_reduce()
+                .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
+                .into_value();
+            let maximum = column
+                .max_reduce()
+                .map_err(|error| format!("No se pudo calcular el máximo: {error}"))?
+                .into_value();
+            let mean = column
+                .mean_reduce()
+                .map_err(|error| format!("No se pudo calcular el promedio: {error}"))?
+                .into_value();
 
-                (
-                    preview_value(minimum),
-                    preview_value(maximum),
-                    numeric_value(mean),
-                )
-            } else {
-                (None, None, None)
-            };
-            let text_statistics = text_statistics(column)?;
-            let numeric_statistics = numeric_statistics(column)?;
+            (
+                preview_value(minimum),
+                preview_value(maximum),
+                numeric_value(mean),
+            )
+        } else {
+            (None, None, None)
+        };
+        let text_statistics = text_statistics(column)?;
+        let numeric_statistics = numeric_statistics(column)?;
 
-            Ok(ColumnProfile {
-                name: column.name().to_string(),
-                data_type: column.dtype().to_string(),
-                null_count,
-                completeness_percentage,
-                unique_count,
-                minimum,
-                maximum,
-                mean,
-                empty_count: text_statistics
-                    .as_ref()
-                    .map(|statistics| statistics.empty_count),
-                minimum_length: text_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.minimum_length),
-                maximum_length: text_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.maximum_length),
-                average_length: text_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.average_length),
-                suggested_type: text_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.suggested_type),
-                type_match_percentage: text_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.type_match_percentage),
-                invalid_type_count: text_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.invalid_type_count),
-                standard_deviation: numeric_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.standard_deviation),
-                first_quartile: numeric_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.first_quartile),
-                median: numeric_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.median),
-                third_quartile: numeric_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.third_quartile),
-                outlier_count: numeric_statistics
-                    .as_ref()
-                    .map(|statistics| statistics.outlier_count),
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+        columns.push(ColumnProfile {
+            name: column.name().to_string(),
+            data_type: column.dtype().to_string(),
+            null_count,
+            completeness_percentage,
+            unique_count,
+            minimum,
+            maximum,
+            mean,
+            empty_count: text_statistics
+                .as_ref()
+                .map(|statistics| statistics.empty_count),
+            minimum_length: text_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.minimum_length),
+            maximum_length: text_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.maximum_length),
+            average_length: text_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.average_length),
+            suggested_type: text_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.suggested_type),
+            type_match_percentage: text_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.type_match_percentage),
+            invalid_type_count: text_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.invalid_type_count),
+            standard_deviation: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.standard_deviation),
+            first_quartile: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.first_quartile),
+            median: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.median),
+            third_quartile: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.third_quartile),
+            outlier_count: numeric_statistics
+                .as_ref()
+                .map(|statistics| statistics.outlier_count),
+        });
+
+        let completed_columns = column_index + 1;
+        let percent = 20 + ((completed_columns * 80) / source_columns.len()) as u8;
+        report("Analizando columnas", percent);
+    }
+
+    if source_columns.is_empty() {
+        report("Perfil completado", 100);
+    }
 
     Ok(DatasetProfile {
         row_count,
@@ -472,6 +563,11 @@ fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
         duplicate_percentage,
         columns,
     })
+}
+
+#[cfg(test)]
+fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
+    profile_dataset_with_progress(frame, |_, _| {}, || false)
 }
 
 fn dataset_preview(path: &Path, frame: &DataFrame) -> Result<DatasetPreview, String> {
@@ -510,8 +606,20 @@ fn remove_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String
     Ok((cleaned, affected_row_count))
 }
 
-fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
+fn load_csv_with_progress<F, C>(
+    path: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview), String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    report("Validando archivo", 10);
     validate_csv(path)?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Leyendo y detectando columnas", 25);
     let frame = CsvReadOptions::default()
         .with_has_header(true)
         .with_infer_schema_length(Some(100))
@@ -520,16 +628,26 @@ fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
         .finish()
         .map_err(|error| format!("No se pudo interpretar el CSV: {error}"))?;
 
+    ensure_not_cancelled(is_cancelled())?;
+    report("Preparando vista previa", 85);
     let preview = dataset_preview(path, &frame)?;
+    report("Preparando sesión", 95);
 
     Ok((frame, preview))
+}
+
+#[cfg(test)]
+fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
+    load_csv_with_progress(path, |_, _| {}, || false)
 }
 
 #[tauri::command]
 pub async fn pick_and_load_csv(
     app: AppHandle,
-    state: State<'_, DatasetState>,
+    on_progress: Channel<OperationProgress>,
 ) -> Result<Option<DatasetPreview>, String> {
+    let generation = app.state::<DatasetState>().begin_load();
+    send_progress(&on_progress, "load", "Esperando selección", 0);
     let selection = app
         .dialog()
         .file()
@@ -543,20 +661,31 @@ pub async fn pick_and_load_csv(
     let path = selection
         .into_path()
         .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
-    let (frame, preview) = load_csv(&path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let (frame, preview) = load_csv_with_progress(
+            &path,
+            |stage, percent| send_progress(&on_progress, "load", stage, percent),
+            || app.state::<DatasetState>().load_was_cancelled(generation),
+        )?;
+        let state = app.state::<DatasetState>();
+        ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        *current = Some(LoadedDataset {
+            path,
+            frame,
+            profile: None,
+            undo_frame: None,
+        });
+        drop(current);
+        send_progress(&on_progress, "load", "Dataset listo", 100);
 
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-    *current = Some(LoadedDataset {
-        path,
-        frame,
-        profile: None,
-        undo_frame: None,
-    });
-
-    Ok(Some(preview))
+        Ok(Some(preview))
+    })
+    .await
+    .map_err(|error| format!("La carga del CSV se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -577,7 +706,11 @@ pub fn get_dataset_page(
 }
 
 #[tauri::command]
-pub async fn get_dataset_profile(app: AppHandle) -> Result<DatasetProfile, String> {
+pub async fn get_dataset_profile(
+    app: AppHandle,
+    on_progress: Channel<OperationProgress>,
+) -> Result<DatasetProfile, String> {
+    let generation = app.state::<DatasetState>().begin_profile();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -589,15 +722,28 @@ pub async fn get_dataset_profile(app: AppHandle) -> Result<DatasetProfile, Strin
         })?;
 
         if let Some(profile) = &dataset.profile {
+            send_progress(&on_progress, "profile", "Perfil disponible", 100);
             return Ok(profile.clone());
         }
 
-        let profile = profile_dataset(&dataset.frame)?;
+        let profile = profile_dataset_with_progress(
+            &dataset.frame,
+            |stage, percent| send_progress(&on_progress, "profile", stage, percent),
+            || {
+                app.state::<DatasetState>()
+                    .profile_was_cancelled(generation)
+            },
+        )?;
         dataset.profile = Some(profile.clone());
         Ok(profile)
     })
     .await
     .map_err(|error| format!("El análisis de calidad se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub fn cancel_operation(state: State<'_, DatasetState>, operation: String) -> Result<(), String> {
+    state.cancel(&operation)
 }
 
 #[tauri::command]
@@ -696,6 +842,30 @@ mod tests {
     }
 
     #[test]
+    fn reports_ordered_csv_loading_phases() {
+        let path = temporary_csv("city\nSanto Domingo\n");
+        let mut updates = Vec::new();
+
+        load_csv_with_progress(
+            &path,
+            |stage, percent| updates.push((stage, percent)),
+            || false,
+        )
+        .expect("el CSV debe cargar");
+
+        assert_eq!(
+            updates,
+            vec![
+                ("Validando archivo", 10),
+                ("Leyendo y detectando columnas", 25),
+                ("Preparando vista previa", 85),
+                ("Preparando sesión", 95),
+            ]
+        );
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
     fn rejects_non_csv_files() {
         let path = std::env::temp_dir().join("columnia-invalid-dataset.txt");
         File::create(&path).expect("se debe poder crear el archivo temporal");
@@ -704,6 +874,16 @@ mod tests {
 
         assert!(error.contains("solo admite archivos CSV"));
         fs::remove_file(path).expect("se debe limpiar el archivo temporal");
+    }
+
+    #[test]
+    fn accepts_500_megabytes_and_rejects_the_next_byte() {
+        assert_eq!(validate_file_size(PROTOTYPE_FILE_LIMIT_BYTES), Ok(()));
+
+        let error = validate_file_size(PROTOTYPE_FILE_LIMIT_BYTES + 1)
+            .expect_err("un byte sobre el límite debe rechazarse");
+
+        assert!(error.contains("500 MB"));
     }
 
     #[test]
@@ -765,6 +945,65 @@ mod tests {
         assert_eq!(temperature.outlier_count, Some(1));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn reports_profile_progress_per_column() {
+        let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let mut updates = Vec::new();
+
+        profile_dataset_with_progress(
+            &frame,
+            |stage, percent| {
+                updates.push((stage, percent));
+            },
+            || false,
+        )
+        .expect("el perfil debe calcularse");
+
+        assert_eq!(updates.first(), Some(&("Detectando filas duplicadas", 10)));
+        assert_eq!(updates.last(), Some(&("Analizando columnas", 100)));
+        assert!(updates.windows(2).all(|pair| pair[0].1 <= pair[1].1));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn stops_profile_at_a_cooperative_cancellation_point() {
+        use std::cell::Cell;
+
+        let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let checks = Cell::new(0);
+
+        let error = profile_dataset_with_progress(
+            &frame,
+            |_, _| {},
+            || {
+                checks.set(checks.get() + 1);
+                checks.get() >= 2
+            },
+        )
+        .expect_err("el perfil debe detenerse al cancelar");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+        assert_eq!(checks.get(), 2);
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn invalidates_only_the_requested_operation_generation() {
+        let state = DatasetState::default();
+        let load_generation = state.begin_load();
+        let profile_generation = state.begin_profile();
+
+        state
+            .cancel("profile")
+            .expect("el perfil debe poder cancelarse");
+
+        assert!(!state.load_was_cancelled(load_generation));
+        assert!(state.profile_was_cancelled(profile_generation));
+        assert!(state.cancel("unknown").is_err());
     }
 
     #[test]

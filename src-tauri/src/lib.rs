@@ -33,6 +33,7 @@ pub fn run() {
             dataset::pick_and_load_csv,
             dataset::get_dataset_page,
             dataset::get_dataset_profile,
+            dataset::cancel_operation,
             dataset::remove_duplicates,
             dataset::undo_last_change
         ])
