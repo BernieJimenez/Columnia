@@ -23,8 +23,8 @@ probar Columnia localmente en ese sistema.
 - Rust estable instalado mediante `rustup`.
 - Dependencias nativas de Tauri para el sistema operativo correspondiente.
 
-La máquina actual todavía no tiene Rust/Cargo instalado. Por eso el frontend se
-puede validar, pero el shell nativo aún no se ha compilado.
+La máquina de desarrollo actual ya dispone de Rust/Cargo, WebView2 y las Build
+Tools de Visual Studio. El shell nativo se compila localmente en Windows.
 
 ## Desarrollo local
 
@@ -47,4 +47,3 @@ La validación completa añade el build nativo sin empaquetar:
 
 No se utilizan CI, GitHub Actions ni workflows. Consulta [ROADMAP.md](ROADMAP.md)
 para conocer las decisiones y fases previstas.
-

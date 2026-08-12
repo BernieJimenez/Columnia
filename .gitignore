@@ -2,8 +2,8 @@ node_modules/
 dist/
 coverage/
 src-tauri/target/
+src-tauri/gen/schemas/
 .idea/
 .DS_Store
 Thumbs.db
 *.log
-

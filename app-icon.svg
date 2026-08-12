@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Columnia</title>
+  <desc id="desc">Tres columnas organizadas dentro de una superficie de datos</desc>
+  <rect width="512" height="512" rx="112" fill="#0e4d55"/>
+  <path d="M128 112h256c26.51 0 48 21.49 48 48v192c0 26.51-21.49 48-48 48H128c-26.51 0-48-21.49-48-48V160c0-26.51 21.49-48 48-48Z" fill="#edf2ef"/>
+  <path d="M112 184h288M112 256h288M112 328h288" stroke="#9eb8b4" stroke-width="20" stroke-linecap="round"/>
+  <path d="M184 144v224M256 144v224M328 144v224" stroke="#16847d" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="26" fill="#d8a75e"/>
+</svg>
+

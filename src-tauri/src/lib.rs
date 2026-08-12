@@ -42,4 +42,3 @@ mod tests {
         assert!(["windows", "macos", "linux"].contains(&info.platform));
     }
 }
-

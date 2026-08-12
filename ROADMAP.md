@@ -313,7 +313,9 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 
 - [x] Crear el scaffold Tauri 2 + React + TypeScript + Vite.
 - [x] Crear y probar en frontend el primer comando Tauri tipado (`get_app_info`).
-- [ ] Compilar y abrir el shell Tauri localmente; bloqueado hasta instalar Rust.
+- [x] Compilar el shell Tauri localmente en Windows.
+- [x] Abrir el shell Tauri en Windows y completar un smoke de arranque.
+- [ ] Completar la revisión visual sistemática del shell en Windows.
 - [ ] Crear un comando Tauri tipado de carga y un canal de eventos de progreso.
 - [ ] Leer y perfilar CSV, Excel y Parquet con datasets representativos.
 - [ ] Implementar vista previa paginada sin enviar el dataset completo a React.
@@ -324,9 +326,12 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 **Gate:** ninguna arquitectura se declara definitiva hasta superar el benchmark
 y validar los casos difíciles de Excel.
 
-**Avance 2026-08-12:** `npm run build` y las dos primeras pruebas Vitest pasan.
-El equipo actual dispone de Node.js 24 y npm 11, pero no de `rustc`/`cargo`; por
-eso todavía no se ha verificado el binario nativo.
+**Avance 2026-08-12:** `npm run build`, ocho pruebas Vitest y la primera prueba
+Rust pasan. `tauri build --debug --no-bundle` genera correctamente
+`src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
+arranque. La primera compilación reveló que el
+scaffold no contenía los iconos requeridos por Tauri; se añadió un SVG maestro,
+se generaron los recursos multiplataforma y una prueba impide su regresión.
 
 ### Fase I2 — Frontera de seguridad del escritorio
 
@@ -496,6 +501,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-12 | Diseñar Columnia para Windows, macOS y Linux; verificar cada plataforma localmente | Aprobada |
 | 2026-08-12 | Arquitectura base Rust + Tauri 2 + React + TypeScript + Vite; Polars y DuckDB se incorporarán tras el scaffold | Aprobada |
 | 2026-08-12 | Scaffold inicial creado; frontend compilado y probado localmente | Implementada |
+| 2026-08-12 | Icono maestro y recursos Tauri multiplataforma generados; build nativo Windows verificado | Implementada |
 
 ## 10. Fuentes de esta revisión
 
