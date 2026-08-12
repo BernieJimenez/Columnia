@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+mod dataset;
+
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
@@ -24,7 +26,14 @@ fn get_app_info() -> AppInfo {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_app_info])
+        .plugin(tauri_plugin_dialog::init())
+        .manage(dataset::DatasetState::default())
+        .invoke_handler(tauri::generate_handler![
+            get_app_info,
+            dataset::pick_and_load_csv,
+            dataset::get_dataset_page,
+            dataset::get_dataset_profile
+        ])
         .run(tauri::generate_context!())
         .expect("Columnia no pudo iniciar el runtime de escritorio");
 }

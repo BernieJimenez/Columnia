@@ -5,7 +5,7 @@
 
 ## Estado general
 
-- Etapa actual: Fase I0 y arranque de la Fase I1.
+- Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -316,9 +316,13 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 - [x] Compilar el shell Tauri localmente en Windows.
 - [x] Abrir el shell Tauri en Windows y completar un smoke de arranque.
 - [ ] Completar la revisión visual sistemática del shell en Windows.
-- [ ] Crear un comando Tauri tipado de carga y un canal de eventos de progreso.
-- [ ] Leer y perfilar CSV, Excel y Parquet con datasets representativos.
-- [ ] Implementar vista previa paginada sin enviar el dataset completo a React.
+- [x] Crear el primer comando Tauri tipado de selección y carga CSV.
+- [ ] Añadir un canal de eventos de progreso para operaciones largas.
+- [ ] Leer y perfilar CSV, Excel y Parquet con datasets representativos. La carga
+  y el perfil inicial de CSV ya funcionan; faltan perfiles avanzados, Excel y
+  Parquet.
+- [x] Implementar una vista previa paginada sin enviar el dataset completo a
+  React: páginas de 50 filas obtenidas desde la sesión Rust.
 - [ ] Ejecutar una receta lazy con limpieza, tipos, filtro y columna calculada.
 - [ ] Implementar cancelación cooperativa y exportación atómica CSV/Parquet.
 - [ ] Comparar tiempo y RAM con `dataprepv1.1`.
@@ -326,8 +330,18 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 **Gate:** ninguna arquitectura se declara definitiva hasta superar el benchmark
 y validar los casos difíciles de Excel.
 
-**Avance 2026-08-12:** `npm run build`, ocho pruebas Vitest y la primera prueba
-Rust pasan. `tauri build --debug --no-bundle` genera correctamente
+**Avance 2026-08-12:** `npm run build`, quince pruebas Vitest y siete pruebas Rust
+pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
+rutas desde React, valida un límite provisional de 100 MB, carga el CSV con
+Polars, conserva la sesión en memoria y devuelve esquema, metadatos y un máximo
+de 50 filas. `get_dataset_page` permite navegar en páginas de 50 filas, limita
+cada solicitud a un máximo de 200 y rechaza accesos sin una sesión activa.
+`get_dataset_profile` calcula en un hilo de trabajo nulos, completitud, valores
+únicos no nulos y, para columnas numéricas, mínimo, máximo y promedio. El perfil
+también identifica filas duplicadas adicionales y mide vacíos y longitudes en
+columnas de texto usando caracteres Unicode. Se conserva en caché durante la
+sesión para evitar trabajo repetido.
+`tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
 scaffold no contenía los iconos requeridos por Tauri; se añadió un SVG maestro,
@@ -457,7 +471,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | --- | --- |
 | Arranque en caliente hasta UI utilizable | ≤ 2 segundos en equipo de referencia |
 | Primera vista previa | ≤ 3 segundos para CSV de 100 MB |
-| Memoria durante preview | No materializar el dataset completo |
+| Memoria durante preview | Prototipo: límite de 100 MB; objetivo final: no materializar el dataset completo |
 | Cancelación visible | Confirmación de cancelación ≤ 1 segundo |
 | Operación larga | Progreso real o estado indeterminado honesto; nunca UI congelada |
 | Cobertura | Umbral por decidir después de clasificar código crítico |
@@ -482,7 +496,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Establecer que Columnia no dependerá de certificados o servicios de pago.
 - [ ] Aprobar el updater gratuito firmado de Tauri o decidir no incluir
   actualizaciones dentro de la app.
-- [ ] Ejecutar el prototipo técnico de la Fase I1.
+- [x] Ejecutar el primer corte vertical CSV del prototipo técnico de la Fase I1.
+- [ ] Completar el prototipo técnico con paginación/streaming, progreso,
+  cancelación, Excel, Parquet y benchmark.
 
 ## 9. Registro de decisiones
 
@@ -502,6 +518,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-12 | Arquitectura base Rust + Tauri 2 + React + TypeScript + Vite; Polars y DuckDB se incorporarán tras el scaffold | Aprobada |
 | 2026-08-12 | Scaffold inicial creado; frontend compilado y probado localmente | Implementada |
 | 2026-08-12 | Icono maestro y recursos Tauri multiplataforma generados; build nativo Windows verificado | Implementada |
+| 2026-08-12 | Primer corte vertical CSV: diálogo nativo en Rust, Polars, sesión local y preview de 50 filas con límite provisional de 100 MB | Implementada |
+| 2026-08-12 | Paginación por sesión y perfil inicial de calidad por columna ejecutados localmente en Rust | Implementada |
+| 2026-08-12 | Detección de filas duplicadas y métricas específicas de columnas textuales añadidas al perfil | Implementada |
 
 ## 10. Fuentes de esta revisión
 
