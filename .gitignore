@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+src-tauri/target/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
