@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -124,6 +124,14 @@ describe("App", () => {
           minimumLength: null,
           maximumLength: null,
           averageLength: null,
+          suggestedType: null,
+          typeMatchPercentage: null,
+          invalidTypeCount: null,
+          standardDeviation: 1.414,
+          firstQuartile: 28.5,
+          median: 29,
+          thirdQuartile: 29.5,
+          outlierCount: 0,
         },
       ],
     });
@@ -132,8 +140,10 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
     fireEvent.click(await screen.findByRole("button", { name: "Analizar calidad" }));
 
-    expect(await screen.findByRole("region", { name: "Perfil de calidad por columna" })).toBeInTheDocument();
-    expect(screen.getByRole("rowheader", { name: /temperature/ })).toBeInTheDocument();
+    const generalProfile = await screen.findByRole("region", {
+      name: "Perfil de calidad por columna",
+    });
+    expect(within(generalProfile).getByRole("rowheader", { name: /temperature/ })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "66.7%" })).toBeInTheDocument();
     expect(screen.getByText("1 (33.3%)")).toBeInTheDocument();
     expect(profileSpy).toHaveBeenCalledOnce();
@@ -175,6 +185,14 @@ describe("App", () => {
           minimumLength: 2,
           maximumLength: 13,
           averageLength: 7.5,
+          suggestedType: null,
+          typeMatchPercentage: null,
+          invalidTypeCount: null,
+          standardDeviation: null,
+          firstQuartile: null,
+          median: null,
+          thirdQuartile: null,
+          outlierCount: null,
         },
       ],
     });
@@ -185,5 +203,118 @@ describe("App", () => {
 
     expect(await screen.findByRole("region", { name: "Perfil de columnas de texto" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "7.5" })).toBeInTheDocument();
+  });
+
+  it("muestra una sugerencia conservadora de tipo para texto", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.1.0",
+      platform: "windows",
+    });
+    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+      fileName: "fechas.csv",
+      fileSizeBytes: 256,
+      rowCount: 10,
+      columnCount: 1,
+      columns: [{ name: "date_added", dataType: "String" }],
+      rows: [["September 9, 2019"]],
+    });
+    vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
+      rowCount: 10,
+      duplicateRowCount: 0,
+      duplicatePercentage: 0,
+      columns: [
+        {
+          name: "date_added",
+          dataType: "String",
+          nullCount: 0,
+          completenessPercentage: 100,
+          uniqueCount: 10,
+          minimum: null,
+          maximum: null,
+          mean: null,
+          emptyCount: 0,
+          minimumLength: 7,
+          maximumLength: 18,
+          averageLength: 16,
+          suggestedType: "date",
+          typeMatchPercentage: 90,
+          invalidTypeCount: 1,
+          standardDeviation: null,
+          firstQuartile: null,
+          median: null,
+          thirdQuartile: null,
+          outlierCount: null,
+        },
+      ],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Analizar calidad" }));
+
+    expect(await screen.findByRole("cell", { name: "Fecha" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "90.0%" })).toBeInTheDocument();
+  });
+
+  it("presenta cuartiles y outliers en una tabla numérica separada", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.1.0",
+      platform: "windows",
+    });
+    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+      fileName: "numeros.csv",
+      fileSizeBytes: 128,
+      rowCount: 5,
+      columnCount: 1,
+      columns: [{ name: "value", dataType: "Int64" }],
+      rows: [["10"], ["11"], ["12"], ["13"], ["100"]],
+    });
+    vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
+      rowCount: 5,
+      duplicateRowCount: 0,
+      duplicatePercentage: 0,
+      columns: [
+        {
+          name: "value",
+          dataType: "Int64",
+          nullCount: 0,
+          completenessPercentage: 100,
+          uniqueCount: 5,
+          minimum: "10",
+          maximum: "100",
+          mean: 29.2,
+          emptyCount: null,
+          minimumLength: null,
+          maximumLength: null,
+          averageLength: null,
+          suggestedType: null,
+          typeMatchPercentage: null,
+          invalidTypeCount: null,
+          standardDeviation: 39.592,
+          firstQuartile: 11,
+          median: 12,
+          thirdQuartile: 13,
+          outlierCount: 1,
+        },
+      ],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Analizar calidad" }));
+
+    expect(await screen.findByRole("region", { name: "Perfil de columnas numéricas" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "39.592" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "1" })).toBeInTheDocument();
   });
 });

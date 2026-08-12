@@ -4,6 +4,7 @@ use std::{
     sync::Mutex,
 };
 
+use chrono::NaiveDate;
 use polars::prelude::*;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -53,6 +54,14 @@ pub struct ColumnProfile {
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
     average_length: Option<f64>,
+    suggested_type: Option<&'static str>,
+    type_match_percentage: Option<f64>,
+    invalid_type_count: Option<usize>,
+    standard_deviation: Option<f64>,
+    first_quartile: Option<f64>,
+    median: Option<f64>,
+    third_quartile: Option<f64>,
+    outlier_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -143,7 +152,7 @@ fn dataset_page(frame: &DataFrame, offset: usize, limit: usize) -> Result<Datase
 }
 
 fn numeric_value(value: AnyValue<'_>) -> Option<f64> {
-    match value {
+    let value = match value {
         AnyValue::UInt8(value) => Some(value.into()),
         AnyValue::UInt16(value) => Some(value.into()),
         AnyValue::UInt32(value) => Some(value.into()),
@@ -157,14 +166,158 @@ fn numeric_value(value: AnyValue<'_>) -> Option<f64> {
         AnyValue::Float32(value) => Some(value.into()),
         AnyValue::Float64(value) => Some(value),
         _ => None,
-    }
+    };
+    value.filter(|number| number.is_finite())
 }
 
-type TextStatistics = (Option<usize>, Option<usize>, Option<usize>, Option<f64>);
+struct NumericStatistics {
+    standard_deviation: Option<f64>,
+    first_quartile: Option<f64>,
+    median: Option<f64>,
+    third_quartile: Option<f64>,
+    outlier_count: usize,
+}
 
-fn text_statistics(column: &Column) -> Result<TextStatistics, String> {
+fn linear_quantile(sorted_values: &[f64], quantile: f64) -> Option<f64> {
+    if sorted_values.is_empty() {
+        return None;
+    }
+
+    let position = (sorted_values.len() - 1) as f64 * quantile;
+    let lower_index = position.floor() as usize;
+    let upper_index = position.ceil() as usize;
+    let weight = position - lower_index as f64;
+    Some(
+        sorted_values[lower_index]
+            + (sorted_values[upper_index] - sorted_values[lower_index]) * weight,
+    )
+}
+
+fn numeric_statistics(column: &Column) -> Result<Option<NumericStatistics>, String> {
+    if !column.dtype().is_primitive_numeric() {
+        return Ok(None);
+    }
+
+    let mut values = (0..column.len())
+        .map(|index| {
+            column
+                .get(index)
+                .map_err(|error| format!("No se pudo analizar la columna numérica: {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter_map(numeric_value)
+        .collect::<Vec<_>>();
+    values.sort_by(f64::total_cmp);
+
+    let first_quartile = linear_quantile(&values, 0.25);
+    let median = linear_quantile(&values, 0.5);
+    let third_quartile = linear_quantile(&values, 0.75);
+    let standard_deviation = if values.len() < 2 {
+        None
+    } else {
+        let mean = values.iter().sum::<f64>() / values.len() as f64;
+        let variance = values
+            .iter()
+            .map(|value| (value - mean).powi(2))
+            .sum::<f64>()
+            / (values.len() - 1) as f64;
+        Some(variance.sqrt())
+    };
+    let outlier_count = if values.len() < 4 {
+        0
+    } else {
+        let q1 = first_quartile.expect("cuatro valores siempre producen Q1");
+        let q3 = third_quartile.expect("cuatro valores siempre producen Q3");
+        let interquartile_range = q3 - q1;
+        let lower_bound = q1 - 1.5 * interquartile_range;
+        let upper_bound = q3 + 1.5 * interquartile_range;
+        values
+            .iter()
+            .filter(|value| **value < lower_bound || **value > upper_bound)
+            .count()
+    };
+
+    Ok(Some(NumericStatistics {
+        standard_deviation,
+        first_quartile,
+        median,
+        third_quartile,
+        outlier_count,
+    }))
+}
+
+struct TextStatistics {
+    empty_count: usize,
+    minimum_length: Option<usize>,
+    maximum_length: Option<usize>,
+    average_length: Option<f64>,
+    suggested_type: Option<&'static str>,
+    type_match_percentage: Option<f64>,
+    invalid_type_count: Option<usize>,
+}
+
+fn is_supported_date(value: &str) -> bool {
+    const DATE_FORMATS: &[&str] = &["%Y-%m-%d", "%Y/%m/%d", "%B %d, %Y", "%b %d, %Y"];
+
+    DATE_FORMATS
+        .iter()
+        .any(|format| NaiveDate::parse_from_str(value, format).is_ok())
+}
+
+fn suggest_text_type(values: &[&str]) -> (Option<&'static str>, Option<f64>, Option<usize>) {
+    if values.len() < 3 {
+        return (None, None, None);
+    }
+
+    let boolean_count = values
+        .iter()
+        .filter(|value| {
+            matches!(
+                value.to_lowercase().as_str(),
+                "true" | "false" | "yes" | "no" | "si" | "sí"
+            )
+        })
+        .count();
+    let integer_count = values
+        .iter()
+        .filter(|value| value.parse::<i64>().is_ok())
+        .count();
+    let decimal_count = values
+        .iter()
+        .filter(|value| value.parse::<f64>().is_ok_and(|number| number.is_finite()))
+        .count();
+    let date_count = values
+        .iter()
+        .filter(|value| is_supported_date(value))
+        .count();
+
+    let mut best = ("boolean", boolean_count);
+    for candidate in [
+        ("integer", integer_count),
+        ("decimal", decimal_count),
+        ("date", date_count),
+    ] {
+        if candidate.1 > best.1 {
+            best = candidate;
+        }
+    }
+
+    let match_percentage = (best.1 as f64 / values.len() as f64) * 100.0;
+    if match_percentage < 90.0 {
+        return (None, None, None);
+    }
+
+    (
+        Some(best.0),
+        Some(match_percentage),
+        Some(values.len() - best.1),
+    )
+}
+
+fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
     if column.dtype() != &DataType::String {
-        return Ok((None, None, None, None));
+        return Ok(None);
     }
 
     let values = column
@@ -175,10 +328,15 @@ fn text_statistics(column: &Column) -> Result<TextStatistics, String> {
     let mut total_length = 0;
     let mut minimum_length: Option<usize> = None;
     let mut maximum_length: Option<usize> = None;
+    let mut non_empty_values = Vec::new();
 
     for value in values.iter().flatten() {
         let length = value.chars().count();
-        empty_count += usize::from(value.trim().is_empty());
+        let trimmed = value.trim();
+        empty_count += usize::from(trimmed.is_empty());
+        if !trimmed.is_empty() {
+            non_empty_values.push(trimmed);
+        }
         value_count += 1;
         total_length += length;
         minimum_length = Some(minimum_length.map_or(length, |current| current.min(length)));
@@ -186,12 +344,17 @@ fn text_statistics(column: &Column) -> Result<TextStatistics, String> {
     }
 
     let average_length = (value_count > 0).then(|| total_length as f64 / value_count as f64);
-    Ok((
-        Some(empty_count),
+    let (suggested_type, type_match_percentage, invalid_type_count) =
+        suggest_text_type(&non_empty_values);
+    Ok(Some(TextStatistics {
+        empty_count,
         minimum_length,
         maximum_length,
         average_length,
-    ))
+        suggested_type,
+        type_match_percentage,
+        invalid_type_count,
+    }))
 }
 
 fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
@@ -243,8 +406,8 @@ fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
             } else {
                 (None, None, None)
             };
-            let (empty_count, minimum_length, maximum_length, average_length) =
-                text_statistics(column)?;
+            let text_statistics = text_statistics(column)?;
+            let numeric_statistics = numeric_statistics(column)?;
 
             Ok(ColumnProfile {
                 name: column.name().to_string(),
@@ -255,10 +418,42 @@ fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
                 minimum,
                 maximum,
                 mean,
-                empty_count,
-                minimum_length,
-                maximum_length,
-                average_length,
+                empty_count: text_statistics
+                    .as_ref()
+                    .map(|statistics| statistics.empty_count),
+                minimum_length: text_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.minimum_length),
+                maximum_length: text_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.maximum_length),
+                average_length: text_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.average_length),
+                suggested_type: text_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.suggested_type),
+                type_match_percentage: text_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.type_match_percentage),
+                invalid_type_count: text_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.invalid_type_count),
+                standard_deviation: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.standard_deviation),
+                first_quartile: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.first_quartile),
+                median: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.median),
+                third_quartile: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.third_quartile),
+                outlier_count: numeric_statistics
+                    .as_ref()
+                    .map(|statistics| statistics.outlier_count),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -481,12 +676,18 @@ mod tests {
         assert_eq!(city.minimum_length, Some(8));
         assert_eq!(city.maximum_length, Some(13));
         assert!((city.average_length.unwrap() - 9.25).abs() < 0.001);
+        assert_eq!(city.suggested_type, None);
         assert_eq!(temperature.null_count, 1);
         assert_eq!(temperature.completeness_percentage, 80.0);
         assert_eq!(temperature.minimum.as_deref(), Some("25"));
         assert_eq!(temperature.maximum.as_deref(), Some("30"));
         assert_eq!(temperature.mean, Some(27.75));
         assert_eq!(temperature.empty_count, None);
+        assert_eq!(temperature.first_quartile, Some(27.25));
+        assert_eq!(temperature.median, Some(28.0));
+        assert_eq!(temperature.third_quartile, Some(28.5));
+        assert!((temperature.standard_deviation.unwrap() - 2.061_552).abs() < 0.001);
+        assert_eq!(temperature.outlier_count, Some(1));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
@@ -503,6 +704,40 @@ mod tests {
         assert_eq!(text.minimum_length, Some(2));
         assert_eq!(text.maximum_length, Some(9));
         assert_eq!(text.average_length, Some(5.0));
+        assert_eq!(text.suggested_type, None);
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn suggests_dates_and_reports_values_that_do_not_match() {
+        let path = temporary_csv(
+            "date_added\n\"September 9, 2019\"\n\"September 10, 2019\"\n\"September 11, 2019\"\n\"September 12, 2019\"\n\"September 13, 2019\"\n\"September 14, 2019\"\n\"September 15, 2019\"\n\"September 16, 2019\"\n\"September 17, 2019\"\nunknown\n",
+        );
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        let date = &profile.columns[0];
+
+        assert_eq!(date.suggested_type, Some("date"));
+        assert_eq!(date.type_match_percentage, Some(90.0));
+        assert_eq!(date.invalid_type_count, Some(1));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn detects_numeric_outliers_with_the_iqr_rule() {
+        let path = temporary_csv("value\n10\n11\n12\n13\n100\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        let value = &profile.columns[0];
+
+        assert_eq!(value.first_quartile, Some(11.0));
+        assert_eq!(value.median, Some(12.0));
+        assert_eq!(value.third_quartile, Some(13.0));
+        assert_eq!(value.outlier_count, Some(1));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }

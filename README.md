@@ -44,6 +44,12 @@ mínimo, máximo y promedio; el resultado se reutiliza durante la sesión.
 El mismo análisis cuenta filas duplicadas adicionales y, para texto, cadenas
 vacías y longitudes mínima, máxima y promedio. Las cadenas compuestas solo por
 espacios se consideran vacías.
+Para columnas de texto con al menos tres valores, Columnia sugiere tipos
+booleano, entero, decimal o fecha cuando al menos el 90% coincide. La sugerencia
+es informativa: en este hito no transforma el dataset.
+Para columnas numéricas, el perfil añade desviación estándar muestral, Q1,
+mediana, Q3 y posibles outliers mediante la regla IQR de 1.5. Los nulos y
+valores no finitos se excluyen; no se señalan outliers con menos de cuatro datos.
 
 Validación rápida y completamente local:
 

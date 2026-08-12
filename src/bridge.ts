@@ -38,6 +38,14 @@ export interface ColumnProfile {
   minimumLength: number | null;
   maximumLength: number | null;
   averageLength: number | null;
+  suggestedType: "boolean" | "integer" | "decimal" | "date" | null;
+  typeMatchPercentage: number | null;
+  invalidTypeCount: number | null;
+  standardDeviation: number | null;
+  firstQuartile: number | null;
+  median: number | null;
+  thirdQuartile: number | null;
+  outlierCount: number | null;
 }
 
 export interface DatasetProfile {

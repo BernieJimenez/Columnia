@@ -309,7 +309,7 @@ function DatasetView({
         {profileStatus.kind === "idle" && (
           <p className="quality__hint">
             Calcula duplicados, completitud, valores únicos y estadísticas numéricas y textuales
-            sin enviar datos fuera del equipo.
+            y detecta tipos ocultos sin enviar datos fuera del equipo.
           </p>
         )}
         {profileStatus.kind === "error" && (
@@ -325,6 +325,7 @@ function DatasetView({
 
 function QualityProfile({ profile }: { profile: DatasetProfile }) {
   const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
+  const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
 
   return (
     <>
@@ -381,11 +382,51 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
         </table>
       </div>
       <p className="profile-note">El conteo de valores únicos excluye los nulos.</p>
+      {numericColumns.length > 0 && (
+        <>
+          <h4 className="text-profile-title">Detalle de columnas numéricas</h4>
+          <div
+            className="profile-region profile-region--detail"
+            role="region"
+            tabIndex={0}
+            aria-label="Perfil de columnas numéricas"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Columna</th>
+                  <th scope="col">Desv. estándar</th>
+                  <th scope="col">Q1</th>
+                  <th scope="col">Mediana</th>
+                  <th scope="col">Q3</th>
+                  <th scope="col">Posibles outliers</th>
+                </tr>
+              </thead>
+              <tbody>
+                {numericColumns.map((column) => (
+                  <tr key={column.name}>
+                    <th scope="row">{column.name}</th>
+                    <td>{formatStatistic(column.standardDeviation)}</td>
+                    <td>{formatStatistic(column.firstQuartile)}</td>
+                    <td>{formatStatistic(column.median)}</td>
+                    <td>{formatStatistic(column.thirdQuartile)}</td>
+                    <td>{column.outlierCount?.toLocaleString() ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="profile-note">
+            Posibles outliers usa la regla IQR de 1.5× y requiere al menos cuatro valores. La
+            desviación estándar es muestral.
+          </p>
+        </>
+      )}
       {textColumns.length > 0 && (
         <>
           <h4 className="text-profile-title">Detalle de columnas de texto</h4>
           <div
-            className="profile-region profile-region--text"
+            className="profile-region profile-region--detail"
             role="region"
             tabIndex={0}
             aria-label="Perfil de columnas de texto"
@@ -398,6 +439,9 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
                   <th scope="col">Longitud mínima</th>
                   <th scope="col">Longitud máxima</th>
                   <th scope="col">Longitud promedio</th>
+                  <th scope="col">Tipo sugerido</th>
+                  <th scope="col">Coincidencia</th>
+                  <th scope="col">No coinciden</th>
                 </tr>
               </thead>
               <tbody>
@@ -412,16 +456,43 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
                         maximumFractionDigits: 1,
                       }) ?? "—"}
                     </td>
+                    <td>{suggestedTypeLabel(column.suggestedType)}</td>
+                    <td>
+                      {column.typeMatchPercentage === null
+                        ? "—"
+                        : `${column.typeMatchPercentage.toFixed(1)}%`}
+                    </td>
+                    <td>{column.invalidTypeCount?.toLocaleString() ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <p className="profile-note">
-            “Vacíos” incluye cadenas sin caracteres o compuestas solamente por espacios.
+            “Vacíos” incluye cadenas sin caracteres o compuestas solamente por espacios. Las
+            sugerencias requieren al menos tres valores y una coincidencia del 90%.
           </p>
         </>
       )}
     </>
   );
+}
+
+function suggestedTypeLabel(type: string | null): string {
+  switch (type) {
+    case "boolean":
+      return "Booleano";
+    case "integer":
+      return "Entero";
+    case "decimal":
+      return "Decimal";
+    case "date":
+      return "Fecha";
+    default:
+      return "—";
+  }
+}
+
+function formatStatistic(value: number | null): string {
+  return value?.toLocaleString(undefined, { maximumFractionDigits: 3 }) ?? "—";
 }

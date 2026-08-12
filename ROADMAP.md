@@ -330,7 +330,7 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 **Gate:** ninguna arquitectura se declara definitiva hasta superar el benchmark
 y validar los casos difíciles de Excel.
 
-**Avance 2026-08-12:** `npm run build`, quince pruebas Vitest y siete pruebas Rust
+**Avance 2026-08-12:** `npm run build`, diecisiete pruebas Vitest y nueve pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
 rutas desde React, valida un límite provisional de 100 MB, carga el CSV con
 Polars, conserva la sesión en memoria y devuelve esquema, metadatos y un máximo
@@ -341,6 +341,12 @@ cada solicitud a un máximo de 200 y rechaza accesos sin una sesión activa.
 también identifica filas duplicadas adicionales y mide vacíos y longitudes en
 columnas de texto usando caracteres Unicode. Se conserva en caché durante la
 sesión para evitar trabajo repetido.
+El perfil propone de forma informativa tipos booleano, entero, decimal o fecha
+para columnas de texto con al menos tres valores y 90% de coincidencia, y expone
+cuántos valores no cumplen; todavía no transforma los datos.
+Para columnas numéricas calcula desviación estándar muestral, cuartiles,
+mediana y posibles outliers con la regla IQR de 1.5; exige al menos cuatro
+valores antes de reportar outliers.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -521,6 +527,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-12 | Primer corte vertical CSV: diálogo nativo en Rust, Polars, sesión local y preview de 50 filas con límite provisional de 100 MB | Implementada |
 | 2026-08-12 | Paginación por sesión y perfil inicial de calidad por columna ejecutados localmente en Rust | Implementada |
 | 2026-08-12 | Detección de filas duplicadas y métricas específicas de columnas textuales añadidas al perfil | Implementada |
+| 2026-08-12 | Sugerencias conservadoras de tipos ocultos en columnas textuales, sin transformación automática | Implementada |
+| 2026-08-12 | Perfil numérico avanzado con desviación muestral, cuartiles, mediana y outliers IQR | Implementada |
 
 ## 10. Fuentes de esta revisión
 
