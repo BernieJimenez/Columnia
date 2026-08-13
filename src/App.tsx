@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import {
   applySafeCorrections,
+  applyTransformRecipe,
   cancelOperation,
   discardDatasetSelection,
   exportDataset,
@@ -25,6 +26,7 @@ import {
   type ExportResult,
   type OperationProgress,
   type SpreadsheetHeaderMode,
+  type TransformRecipe,
 } from "./bridge";
 
 type AppStatus =
@@ -62,7 +64,7 @@ type ProfileStatus =
 
 type ChangeStatus =
   | { kind: "idle" }
-  | { kind: "working"; action: "safe" | "duplicates" | "columns" | "trim" | "text" | "undo" | "redo" }
+  | { kind: "working"; action: "safe" | "duplicates" | "columns" | "trim" | "text" | "transform" | "undo" | "redo" }
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
 
@@ -339,6 +341,37 @@ export function App() {
     }
   }
 
+  async function applyStructuralTransforms(recipe: TransformRecipe) {
+    if (datasetStatus.kind !== "ready") return;
+
+    setChangeStatus({ kind: "working", action: "transform" });
+    try {
+      const result = await applyTransformRecipe(recipe);
+      setDatasetStatus({
+        kind: "ready",
+        dataset: result.dataset,
+        pageOffset: 0,
+        pageLoading: false,
+      });
+      setProfileStatus({ kind: "idle" });
+      const total =
+        result.renamedColumnCount +
+        result.convertedColumnCount +
+        result.parsedDateColumnCount;
+      setChangeStatus({
+        kind: "applied",
+        message:
+          total === 0
+            ? "La receta no produjo cambios en el dataset."
+            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones y ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas.`,
+      });
+      if (total > 0) setHistoryStatus({ canUndo: true, canRedo: false });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setChangeStatus({ kind: "error", message });
+    }
+  }
+
   async function undoChange() {
     if (datasetStatus.kind !== "ready") return;
 
@@ -586,6 +619,7 @@ export function App() {
               onNormalizeText={(columns, removeAccents) =>
                 applyTextChange("text", () => normalizeTextValues(columns, removeAccents))
               }
+              onApplyTransforms={applyStructuralTransforms}
               onUndo={undoChange}
               onRedo={redoChange}
             />
@@ -877,6 +911,7 @@ interface PreparePhaseProps {
   onApplyRecommended: () => void;
   onTrimText: () => void;
   onNormalizeText: (columns: string[], removeAccents: boolean) => void;
+  onApplyTransforms: (recipe: TransformRecipe) => void;
   onUndo: () => void;
   onRedo: () => void;
 }
@@ -893,6 +928,7 @@ function PreparePhase({
   onApplyRecommended,
   onTrimText,
   onNormalizeText,
+  onApplyTransforms,
   onUndo,
   onRedo,
 }: PreparePhaseProps) {
@@ -901,6 +937,7 @@ function PreparePhase({
   const textColumns = dataset.columns.filter((column) => column.dataType === "String" && column.name !== "_cambios");
   const [selectedTextColumns, setSelectedTextColumns] = useState<string[]>([]);
   const [removeAccents, setRemoveAccents] = useState(true);
+  const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
 
   useEffect(() => {
     const available = new Set(textColumns.map((column) => column.name));
@@ -911,7 +948,7 @@ function PreparePhase({
     <>
       <header className="phase-header phase-header--compact">
         <div>
-          <p className="eyebrow">Preparar · Correcciones</p>
+          <p className="eyebrow">Preparar · {activeTab === "corrections" ? "Correcciones" : "Transformaciones"}</p>
           <h2>{dataset.fileName}</h2>
           <p>Aplica cambios controlados al dataset activo. Cada corrección indica su impacto.</p>
         </div>
@@ -923,6 +960,64 @@ function PreparePhase({
         onRedo={onRedo}
       />
       <ChangeFeedback status={changeStatus} />
+      <div className="stage-tabs" role="tablist" aria-label="Herramientas de preparación">
+        <button
+          id="prepare-corrections-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "corrections"}
+          aria-controls="prepare-corrections-panel"
+          tabIndex={activeTab === "corrections" ? 0 : -1}
+          className={activeTab === "corrections" ? "stage-tab--active" : undefined}
+          onClick={() => setActiveTab("corrections")}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+              event.preventDefault();
+              setActiveTab("transformations");
+              document.getElementById("prepare-transformations-tab")?.focus();
+            }
+          }}
+        >
+          Correcciones
+        </button>
+        <button
+          id="prepare-transformations-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "transformations"}
+          aria-controls="prepare-transformations-panel"
+          tabIndex={activeTab === "transformations" ? 0 : -1}
+          className={activeTab === "transformations" ? "stage-tab--active" : undefined}
+          onClick={() => setActiveTab("transformations")}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+              event.preventDefault();
+              setActiveTab("corrections");
+              document.getElementById("prepare-corrections-tab")?.focus();
+            }
+          }}
+        >
+          Transformaciones
+        </button>
+      </div>
+      {activeTab === "transformations" ? (
+        <div
+          id="prepare-transformations-panel"
+          role="tabpanel"
+          aria-labelledby="prepare-transformations-tab"
+        >
+          <TransformRecipeEditor
+            dataset={dataset}
+            busy={changing}
+            onApply={onApplyTransforms}
+          />
+        </div>
+      ) : (
+      <div
+        id="prepare-corrections-panel"
+        role="tabpanel"
+        aria-labelledby="prepare-corrections-tab"
+      >
       <section className="recommended-batch" aria-labelledby="recommended-batch-title">
         <div>
           <p className="step">Aplicación agrupada</p>
@@ -1051,7 +1146,187 @@ function PreparePhase({
           No se pudo analizar la calidad: {profileStatus.message}
         </p>
       )}
+      </div>
+      )}
     </>
+  );
+}
+
+function TransformRecipeEditor({
+  dataset,
+  busy,
+  onApply,
+}: {
+  dataset: DatasetPreview;
+  busy: boolean;
+  onApply: (recipe: TransformRecipe) => void;
+}) {
+  type RenameDraft = TransformRecipe["renames"][number];
+  type CastDraft = TransformRecipe["casts"][number];
+  type DateDraft = TransformRecipe["dateParses"][number];
+
+  const [renames, setRenames] = useState<RenameDraft[]>([{ from: "", to: "" }]);
+  const [casts, setCasts] = useState<CastDraft[]>([{ column: "", target: "string" }]);
+  const [dateParses, setDateParses] = useState<DateDraft[]>([
+    { column: "", format: "iso8601", target: "date" },
+  ]);
+
+  useEffect(() => {
+    setRenames([{ from: "", to: "" }]);
+    setCasts([{ column: "", target: "string" }]);
+    setDateParses([{ column: "", format: "iso8601", target: "date" }]);
+  }, [dataset.columns]);
+
+  const activeRenames = renames.filter((item) => item.from || item.to);
+  const activeCasts = casts.filter((item) => item.column);
+  const activeDateParses = dateParses.filter((item) => item.column);
+  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length;
+  const invalid = activeRenames.some((item) => !item.from || !item.to.trim());
+
+  function columnOptions() {
+    return dataset.columns.map((column) => (
+      <option key={column.name} value={column.name}>
+        {column.name}
+      </option>
+    ));
+  }
+
+  function submitRecipe() {
+    if (operationCount === 0 || invalid) return;
+    onApply({
+      renames: activeRenames.map((item) => ({ from: item.from, to: item.to.trim() })),
+      casts: activeCasts,
+      dateParses: activeDateParses,
+    });
+  }
+
+  return (
+    <section className="transform-recipe" aria-labelledby="transform-recipe-title">
+      <div className="transform-recipe__intro">
+        <div>
+          <p className="step">Receta estructural</p>
+          <h3 id="transform-recipe-title">Preparar estructura y tipos</h3>
+          <p>
+            Configura varios cambios y aplícalos juntos. Si una operación no es válida, no se
+            modifica ninguna columna.
+          </p>
+        </div>
+        <span aria-live="polite">{operationCount} operaciones listas</span>
+      </div>
+
+      <div className="transform-recipe__grid">
+        <fieldset>
+          <legend>Renombrar columnas</legend>
+          {renames.map((rename, index) => (
+            <div className="recipe-row recipe-row--rename" key={`rename-${index}`}>
+              <label>
+                <span>Columna</span>
+                <select
+                  aria-label={`Columna para renombrar ${index + 1}`}
+                  value={rename.from}
+                  onChange={(event) =>
+                    setRenames((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, from: event.target.value } : item,
+                      ),
+                    )
+                  }
+                >
+                  <option value="">Selecciona…</option>
+                  {columnOptions()}
+                </select>
+              </label>
+              <label>
+                <span>Nuevo nombre</span>
+                <input
+                  aria-label={`Nuevo nombre ${index + 1}`}
+                  value={rename.to}
+                  onChange={(event) =>
+                    setRenames((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, to: event.target.value } : item,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <button type="button" aria-label={`Quitar renombre ${index + 1}`} onClick={() => setRenames((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+            </div>
+          ))}
+          <button type="button" className="recipe-add" onClick={() => setRenames((current) => [...current, { from: "", to: "" }])}>+ Añadir renombre</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Convertir tipos</legend>
+          {casts.map((cast, index) => (
+            <div className="recipe-row" key={`cast-${index}`}>
+              <label>
+                <span>Columna</span>
+                <select aria-label={`Columna para convertir ${index + 1}`} value={cast.column} onChange={(event) => setCasts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}>
+                  <option value="">Selecciona…</option>
+                  {columnOptions()}
+                </select>
+              </label>
+              <label>
+                <span>Tipo destino</span>
+                <select aria-label={`Tipo destino ${index + 1}`} value={cast.target} onChange={(event) => setCasts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, target: event.target.value as CastDraft["target"] } : item))}>
+                  <option value="string">Texto</option>
+                  <option value="integer">Entero</option>
+                  <option value="decimal">Decimal</option>
+                  <option value="boolean">Booleano</option>
+                </select>
+              </label>
+              <button type="button" aria-label={`Quitar conversión ${index + 1}`} onClick={() => setCasts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+            </div>
+          ))}
+          <button type="button" className="recipe-add" onClick={() => setCasts((current) => [...current, { column: "", target: "string" }])}>+ Añadir conversión</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Interpretar fechas</legend>
+          {dateParses.map((dateParse, index) => (
+            <div className="recipe-row recipe-row--date" key={`date-${index}`}>
+              <label>
+                <span>Columna</span>
+                <select aria-label={`Columna de fecha ${index + 1}`} value={dateParse.column} onChange={(event) => setDateParses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}>
+                  <option value="">Selecciona…</option>
+                  {columnOptions()}
+                </select>
+              </label>
+              <label>
+                <span>Formato origen</span>
+                <select aria-label={`Formato de fecha ${index + 1}`} value={dateParse.format} onChange={(event) => setDateParses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, format: event.target.value as DateDraft["format"] } : item))}>
+                  <option value="iso8601">ISO 8601</option>
+                  <option value="ymd">AAAA-MM-DD</option>
+                  <option value="dmy">DD/MM/AAAA</option>
+                  <option value="mdy">MM/DD/AAAA</option>
+                </select>
+              </label>
+              <label>
+                <span>Tipo destino</span>
+                <select aria-label={`Tipo de fecha destino ${index + 1}`} value={dateParse.target} onChange={(event) => setDateParses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, target: event.target.value as DateDraft["target"] } : item))}>
+                  <option value="date">Fecha</option>
+                  <option value="datetime">Fecha y hora</option>
+                </select>
+              </label>
+              <button type="button" aria-label={`Quitar fecha ${index + 1}`} onClick={() => setDateParses((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+            </div>
+          ))}
+          <button type="button" className="recipe-add" onClick={() => setDateParses((current) => [...current, { column: "", format: "iso8601", target: "date" }])}>+ Añadir fecha</button>
+        </fieldset>
+      </div>
+
+      {invalid && <p className="recipe-error" role="alert">Completa el nombre nuevo de cada columna seleccionada.</p>}
+      <div className="transform-recipe__footer">
+        <p>
+          Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
+          decimal usa punto y las fechas ambiguas requieren formato explícito.
+        </p>
+        <button type="button" className="primary-action" onClick={submitRecipe} disabled={busy || operationCount === 0 || invalid}>
+          {busy ? "Aplicando receta…" : "Aplicar receta"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -1435,9 +1710,11 @@ function ChangeFeedback({ status }: { status: ChangeStatus }) {
             ? "Recortando espacios exteriores…"
             : status.action === "text"
               ? "Normalizando texto seleccionado…"
-              : status.action === "undo"
-                ? "Deshaciendo cambio…"
-                : "Rehaciendo cambio…";
+              : status.action === "transform"
+                ? "Aplicando receta estructural…"
+                : status.action === "undo"
+                  ? "Deshaciendo cambio…"
+                  : "Rehaciendo cambio…";
     return (
       <p className="notice" role="status">
         {message}

@@ -724,4 +724,74 @@ describe("App", () => {
     expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function));
     expect(JSON.stringify(loadSpy.mock.calls)).not.toContain("C:\\\\");
   });
+
+  it("construye y aplica una receta estructural mediante una sola operación atómica", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.15.0", platform: "windows",
+    });
+    const original: DatasetPreview = {
+      fileName: "ventas.csv",
+      fileSizeBytes: 256,
+      rowCount: 1,
+      columnCount: 2,
+      columns: [
+        { name: "Total venta", dataType: "String" },
+        { name: "fecha", dataType: "String" },
+      ],
+      rows: [["10.50", "31-12-2026"]],
+    };
+    mockDatasetLoad(original);
+    const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
+      dataset: {
+        ...original,
+        columns: [
+          { name: "total", dataType: "Float64" },
+          { name: "fecha", dataType: "Date" },
+        ],
+      },
+      renamedColumnCount: 1,
+      convertedColumnCount: 1,
+      parsedDateColumnCount: 1,
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+
+    const correctionsTab = screen.getByRole("tab", { name: "Correcciones" });
+    const transformationsTab = screen.getByRole("tab", { name: "Transformaciones" });
+    expect(correctionsTab).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(correctionsTab, { key: "ArrowRight" });
+    expect(transformationsTab).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), {
+      target: { value: "Total venta" },
+    });
+    fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), {
+      target: { value: "total" },
+    });
+    fireEvent.change(screen.getByLabelText("Columna para convertir 1"), {
+      target: { value: "Total venta" },
+    });
+    fireEvent.change(screen.getByLabelText("Tipo destino 1"), {
+      target: { value: "decimal" },
+    });
+    fireEvent.change(screen.getByLabelText("Columna de fecha 1"), {
+      target: { value: "fecha" },
+    });
+    fireEvent.change(screen.getByLabelText("Formato de fecha 1"), {
+      target: { value: "dmy" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+
+    expect(applySpy).toHaveBeenCalledOnce();
+    expect(applySpy).toHaveBeenCalledWith({
+      renames: [{ from: "Total venta", to: "total" }],
+      casts: [{ column: "Total venta", target: "decimal" }],
+      dateParses: [{ column: "fecha", format: "dmy", target: "date" }],
+    });
+    expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones y 1 fechas interpretadas/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+  });
 });

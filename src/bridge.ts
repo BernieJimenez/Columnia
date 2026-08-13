@@ -116,6 +116,23 @@ export interface SafeCorrectionsResult {
   renames: ColumnRename[];
 }
 
+export type TransformTarget = "string" | "integer" | "decimal" | "boolean";
+export type DateInputFormat = "iso8601" | "ymd" | "dmy" | "mdy";
+export type DateTarget = "date" | "datetime";
+
+export interface TransformRecipe {
+  renames: Array<{ from: string; to: string }>;
+  casts: Array<{ column: string; target: TransformTarget }>;
+  dateParses: Array<{ column: string; format: DateInputFormat; target: DateTarget }>;
+}
+
+export interface TransformRecipeResult {
+  dataset: DatasetPreview;
+  renamedColumnCount: number;
+  convertedColumnCount: number;
+  parsedDateColumnCount: number;
+}
+
 export interface OperationProgress {
   operation: "load" | "profile" | "export";
   stage: string;
@@ -208,6 +225,10 @@ export function normalizeTextValues(
 
 export function applySafeCorrections(): Promise<SafeCorrectionsResult> {
   return invoke<SafeCorrectionsResult>("apply_safe_corrections");
+}
+
+export function applyTransformRecipe(recipe: TransformRecipe): Promise<TransformRecipeResult> {
+  return invoke<TransformRecipeResult>("apply_transform_recipe", { recipe });
 }
 
 export function undoLastChange(): Promise<HistoryResult> {

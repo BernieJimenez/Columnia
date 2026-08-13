@@ -124,6 +124,14 @@ o el dataset permanece intacto. El historial está limitado honestamente a una
 revisión mientras se diseña almacenamiento temporal con presupuesto de disco
 para datasets grandes.
 
+La pestaña **Transformaciones** permite construir una receta estructural con
+varios renombres, conversiones de tipo y parseos de fecha. La receta se aplica
+una sola vez y en orden determinista: renombres, tipos y fechas. Las conversiones
+son estrictas —un valor inválido cancela el lote completo—, los nulos se preservan
+y un resultado correcto ocupa una única revisión de Deshacer/Rehacer. Esta receta
+es todavía una operación inmediata de sesión; no se guarda ni se ejecuta de forma
+lazy.
+
 Validación rápida y completamente local:
 
 ```powershell

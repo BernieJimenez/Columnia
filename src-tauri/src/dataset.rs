@@ -10,7 +10,7 @@ use std::{
 };
 
 use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -215,6 +215,74 @@ pub struct SafeCorrectionsResult {
     affected_row_count: usize,
     renamed_column_count: usize,
     renames: Vec<ColumnRename>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeRename {
+    from: String,
+    to: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RecipeCastTarget {
+    String,
+    Integer,
+    Decimal,
+    Boolean,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeCast {
+    column: String,
+    target: RecipeCastTarget,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RecipeDateFormat {
+    Ymd,
+    Dmy,
+    Mdy,
+    Iso8601,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RecipeDateTarget {
+    Date,
+    Datetime,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeDateParse {
+    column: String,
+    format: RecipeDateFormat,
+    target: RecipeDateTarget,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TransformRecipe {
+    #[serde(default)]
+    renames: Vec<RecipeRename>,
+    #[serde(default)]
+    casts: Vec<RecipeCast>,
+    #[serde(default)]
+    date_parses: Vec<RecipeDateParse>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TransformRecipeResult {
+    dataset: DatasetPreview,
+    renamed_column_count: usize,
+    converted_column_count: usize,
+    parsed_date_column_count: usize,
+    changed: bool,
 }
 
 struct LoadedDataset {
@@ -2205,6 +2273,356 @@ fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
     })
 }
 
+fn strict_column_text(column: &Column) -> Result<Vec<Option<String>>, String> {
+    (0..column.len())
+        .map(|row| {
+            column
+                .get(row)
+                .map(preview_value)
+                .map_err(|error| format!("No se pudo leer la fila {}: {error}", row + 1))
+        })
+        .collect()
+}
+
+fn recipe_column<'a>(frame: &'a DataFrame, name: &str) -> Result<&'a Column, String> {
+    frame
+        .column(name)
+        .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
+}
+
+fn strict_cast_column(column: &Column, target: RecipeCastTarget) -> Result<Column, String> {
+    let name = column.name().clone();
+    let values = strict_column_text(column)?;
+    let invalid = |row: usize, value: &str, target: &str| {
+        format!(
+            "La columna '{}' no se puede convertir a {target}: fila {}, valor '{}'.",
+            name,
+            row + 1,
+            value
+        )
+    };
+
+    match target {
+        RecipeCastTarget::String => Ok(Series::new(name, values).into_column()),
+        RecipeCastTarget::Integer => {
+            let parsed = values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| {
+                    value
+                        .as_deref()
+                        .map(|value| {
+                            value
+                                .trim()
+                                .parse::<i64>()
+                                .map_err(|_| invalid(row, value, "entero"))
+                        })
+                        .transpose()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(name, parsed).into_column())
+        }
+        RecipeCastTarget::Decimal => {
+            let parsed = values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| {
+                    value
+                        .as_deref()
+                        .map(|value| {
+                            value
+                                .trim()
+                                .parse::<f64>()
+                                .ok()
+                                .filter(|number| number.is_finite())
+                                .ok_or_else(|| invalid(row, value, "decimal"))
+                        })
+                        .transpose()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(name, parsed).into_column())
+        }
+        RecipeCastTarget::Boolean => {
+            let parsed = values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| {
+                    value
+                        .as_deref()
+                        .map(|value| match value.trim().to_ascii_lowercase().as_str() {
+                            "true" => Ok(true),
+                            "false" => Ok(false),
+                            _ => Err(invalid(row, value, "booleano (true/false)")),
+                        })
+                        .transpose()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(name, parsed).into_column())
+        }
+    }
+}
+
+fn parse_recipe_datetime(value: &str, format: RecipeDateFormat) -> Result<NaiveDateTime, ()> {
+    let value = value.trim();
+    let date_format = match format {
+        RecipeDateFormat::Ymd => Some("%Y-%m-%d"),
+        RecipeDateFormat::Dmy => Some("%d/%m/%Y"),
+        RecipeDateFormat::Mdy => Some("%m/%d/%Y"),
+        RecipeDateFormat::Iso8601 => None,
+    };
+    if let Some(format) = date_format {
+        return NaiveDate::parse_from_str(value, format)
+            .ok()
+            .and_then(|date| date.and_hms_opt(0, 0, 0))
+            .ok_or(());
+    }
+
+    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        return date.and_hms_opt(0, 0, 0).ok_or(());
+    }
+    DateTime::parse_from_rfc3339(value)
+        .map(|date| date.naive_utc())
+        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S%.f"))
+        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f"))
+        .map_err(|_| ())
+}
+
+fn strict_date_column(
+    column: &Column,
+    format: RecipeDateFormat,
+    target: RecipeDateTarget,
+) -> Result<Column, String> {
+    let name = column.name().clone();
+    let values = strict_column_text(column)?;
+    let parsed = values
+        .iter()
+        .enumerate()
+        .map(|(row, value)| {
+            value
+                .as_deref()
+                .map(|value| {
+                    parse_recipe_datetime(value, format).map_err(|_| {
+                        format!(
+                            "La columna '{}' contiene una fecha inválida en la fila {}: '{}'.",
+                            name,
+                            row + 1,
+                            value
+                        )
+                    })
+                })
+                .transpose()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    match target {
+        RecipeDateTarget::Date => {
+            let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("la época Unix es válida");
+            let days = parsed
+                .into_iter()
+                .map(|value| value.map(|value| (value.date() - epoch).num_days() as i32))
+                .collect::<Vec<_>>();
+            Ok(Series::new(name, days)
+                .cast(&polars::prelude::DataType::Date)
+                .map_err(|error| format!("No se pudo crear la columna de fecha: {error}"))?
+                .into_column())
+        }
+        RecipeDateTarget::Datetime => {
+            let milliseconds = parsed
+                .into_iter()
+                .map(|value| value.map(|value| value.and_utc().timestamp_millis()))
+                .collect::<Vec<_>>();
+            Ok(Series::new(name, milliseconds)
+                .cast(&polars::prelude::DataType::Datetime(
+                    TimeUnit::Milliseconds,
+                    None,
+                ))
+                .map_err(|error| format!("No se pudo crear la columna de fecha y hora: {error}"))?
+                .into_column())
+        }
+    }
+}
+
+fn apply_recipe_to_frame(
+    source: &DataFrame,
+    recipe: &TransformRecipe,
+) -> Result<(DataFrame, usize, usize, usize), String> {
+    let mut candidate = source.clone();
+    let mut rename_sources = HashSet::new();
+    let rename_map = recipe
+        .renames
+        .iter()
+        .map(|rename| {
+            if rename.from.trim().is_empty() || rename.to.trim().is_empty() {
+                return Err("Los nombres de columna no pueden estar vacíos.".to_owned());
+            }
+            if rename.to != rename.to.trim() {
+                return Err(
+                    "El nuevo nombre de columna no puede tener espacios exteriores.".to_owned(),
+                );
+            }
+            if !rename_sources.insert(rename.from.as_str()) {
+                return Err(format!(
+                    "La columna '{}' aparece en más de un renombrado.",
+                    rename.from
+                ));
+            }
+            recipe_column(source, &rename.from)?;
+            Ok((rename.from.as_str(), rename.to.as_str()))
+        })
+        .collect::<Result<HashMap<_, _>, String>>()?;
+    let final_names = source
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            rename_map
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(name.as_str())
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    let mut unique_names = HashSet::new();
+    if final_names.iter().any(|name| !unique_names.insert(name)) {
+        return Err("Los renombrados producirían nombres de columna duplicados.".to_owned());
+    }
+    let renamed_count = source
+        .get_column_names()
+        .iter()
+        .zip(&final_names)
+        .filter(|(before, after)| before.as_str() != after.as_str())
+        .count();
+    if renamed_count > 0 {
+        candidate
+            .set_column_names(&final_names)
+            .map_err(|error| format!("No se pudieron aplicar los renombrados: {error}"))?;
+    }
+
+    let mut cast_columns = HashSet::new();
+    let mut cast_count = 0;
+    for cast in &recipe.casts {
+        let effective_name = rename_map
+            .get(cast.column.as_str())
+            .copied()
+            .unwrap_or(cast.column.as_str());
+        if !cast_columns.insert(effective_name) {
+            return Err(format!(
+                "La columna '{}' aparece en más de una conversión.",
+                cast.column
+            ));
+        }
+        let column = recipe_column(&candidate, effective_name)?;
+        let already_target = matches!(
+            (column.dtype(), cast.target),
+            (polars::prelude::DataType::String, RecipeCastTarget::String)
+                | (polars::prelude::DataType::Int64, RecipeCastTarget::Integer)
+                | (
+                    polars::prelude::DataType::Float64,
+                    RecipeCastTarget::Decimal
+                )
+                | (
+                    polars::prelude::DataType::Boolean,
+                    RecipeCastTarget::Boolean
+                )
+        );
+        if !already_target {
+            let converted = strict_cast_column(column, cast.target)?;
+            candidate
+                .replace(effective_name, converted)
+                .map_err(|error| format!("No se pudo convertir '{}': {error}", effective_name))?;
+            cast_count += 1;
+        }
+    }
+
+    let mut date_columns = HashSet::new();
+    let mut date_count = 0;
+    for parse in &recipe.date_parses {
+        let effective_name = rename_map
+            .get(parse.column.as_str())
+            .copied()
+            .unwrap_or(parse.column.as_str());
+        if cast_columns.contains(effective_name) {
+            return Err(format!(
+                "La columna '{}' no puede convertirse y parsearse como fecha en la misma receta.",
+                parse.column
+            ));
+        }
+        if !date_columns.insert(effective_name) {
+            return Err(format!(
+                "La columna '{}' aparece en más de un parseo de fecha.",
+                parse.column
+            ));
+        }
+        let column = recipe_column(&candidate, effective_name)?;
+        let already_target = matches!(
+            (column.dtype(), parse.target),
+            (polars::prelude::DataType::Date, RecipeDateTarget::Date)
+                | (
+                    polars::prelude::DataType::Datetime(_, _),
+                    RecipeDateTarget::Datetime
+                )
+        );
+        if !already_target {
+            let converted = strict_date_column(column, parse.format, parse.target)?;
+            candidate
+                .replace(effective_name, converted)
+                .map_err(|error| {
+                    format!(
+                        "No se pudo convertir la fecha '{}': {error}",
+                        effective_name
+                    )
+                })?;
+            date_count += 1;
+        }
+    }
+
+    Ok((candidate, renamed_count, cast_count, date_count))
+}
+
+fn apply_recipe_to_dataset(
+    dataset: &mut LoadedDataset,
+    recipe: &TransformRecipe,
+) -> Result<TransformRecipeResult, String> {
+    let (candidate, renamed_column_count, converted_column_count, parsed_date_column_count) =
+        apply_recipe_to_frame(&dataset.frame, recipe)?;
+    let changed = renamed_column_count + converted_column_count + parsed_date_column_count > 0;
+    // Build every fallible response value before publishing the candidate. This keeps the
+    // transaction atomic even if, for example, the source file disappeared after loading.
+    let preview = dataset_preview(&dataset.path, &candidate)?;
+    if changed {
+        dataset.undo_frame = Some(dataset.frame.clone());
+        dataset.redo_frame = None;
+        dataset.frame = candidate;
+        dataset.profile = None;
+    }
+    Ok(TransformRecipeResult {
+        dataset: preview,
+        renamed_column_count,
+        converted_column_count,
+        parsed_date_column_count,
+        changed,
+    })
+}
+
+#[tauri::command]
+pub async fn apply_transform_recipe(
+    app: AppHandle,
+    recipe: TransformRecipe,
+) -> Result<TransformRecipeResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        apply_recipe_to_dataset(dataset, &recipe)
+    })
+    .await
+    .map_err(|error| format!("La receta estructural se interrumpió: {error}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -2967,5 +3385,218 @@ mod tests {
         assert_eq!(preview.rows[0][0].as_deref(), Some("184467440737095516160"));
         assert_eq!(preview.rows[1][0].as_deref(), Some("1"));
         fs::remove_file(path).expect("se debe limpiar el JSON temporal");
+    }
+
+    #[test]
+    fn structural_recipe_applies_swapped_renames_strict_casts_and_dates_in_order() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("amount".into(), [Some("10.50"), None]).into_column(),
+                Series::new("count".into(), [Some("42"), Some("-7")]).into_column(),
+                Series::new("enabled".into(), [Some("TRUE"), Some("false")]).into_column(),
+                Series::new("day".into(), [Some("31/12/2025"), Some("01/01/2026")]).into_column(),
+                Series::new("left".into(), ["L1", "L2"]).into_column(),
+                Series::new("right".into(), ["R1", "R2"]).into_column(),
+            ],
+        )
+        .expect("el frame debe ser válido");
+        let recipe = TransformRecipe {
+            renames: vec![
+                RecipeRename {
+                    from: "left".into(),
+                    to: "right".into(),
+                },
+                RecipeRename {
+                    from: "right".into(),
+                    to: "left".into(),
+                },
+                RecipeRename {
+                    from: "count".into(),
+                    to: "units".into(),
+                },
+            ],
+            casts: vec![
+                RecipeCast {
+                    column: "amount".into(),
+                    target: RecipeCastTarget::Decimal,
+                },
+                // References the pre-rename name deliberately.
+                RecipeCast {
+                    column: "count".into(),
+                    target: RecipeCastTarget::Integer,
+                },
+                RecipeCast {
+                    column: "enabled".into(),
+                    target: RecipeCastTarget::Boolean,
+                },
+            ],
+            date_parses: vec![RecipeDateParse {
+                column: "day".into(),
+                format: RecipeDateFormat::Dmy,
+                target: RecipeDateTarget::Date,
+            }],
+        };
+
+        let (result, renamed, converted, dates) =
+            apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
+        assert_eq!((renamed, converted, dates), (3, 3, 1));
+        assert_eq!(
+            result.column("units").unwrap().dtype(),
+            &polars::prelude::DataType::Int64
+        );
+        assert_eq!(
+            result.column("amount").unwrap().dtype(),
+            &polars::prelude::DataType::Float64
+        );
+        assert_eq!(
+            result.column("enabled").unwrap().dtype(),
+            &polars::prelude::DataType::Boolean
+        );
+        assert_eq!(
+            result.column("day").unwrap().dtype(),
+            &polars::prelude::DataType::Date
+        );
+        assert_eq!(
+            dataset_page(&result, 0, 2).unwrap().rows[0][4].as_deref(),
+            Some("L1")
+        );
+        assert_eq!(
+            dataset_page(&result, 0, 2).unwrap().rows[0][5].as_deref(),
+            Some("R1")
+        );
+    }
+
+    #[test]
+    fn structural_recipe_supports_all_explicit_date_formats_and_datetime_targets() {
+        for (value, format) in [
+            ("2025-12-31", RecipeDateFormat::Ymd),
+            ("31/12/2025", RecipeDateFormat::Dmy),
+            ("12/31/2025", RecipeDateFormat::Mdy),
+            ("2025-12-31T23:15:30Z", RecipeDateFormat::Iso8601),
+        ] {
+            let column = Series::new("when".into(), [value]).into_column();
+            let converted = strict_date_column(&column, format, RecipeDateTarget::Datetime)
+                .expect("el formato explícito debe aceptarse");
+            assert!(matches!(
+                converted.dtype(),
+                polars::prelude::DataType::Datetime(_, _)
+            ));
+        }
+    }
+
+    #[test]
+    fn structural_recipe_rolls_back_fully_on_invalid_value_and_does_not_create_undo() {
+        let path = temporary_csv("count\n1\nnot-an-integer\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let original = frame.clone();
+        let mut dataset = LoadedDataset {
+            path: path.clone(),
+            frame,
+            profile: None,
+            undo_frame: None,
+            redo_frame: None,
+        };
+        let recipe = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "count".into(),
+                to: "units".into(),
+            }],
+            casts: vec![RecipeCast {
+                column: "count".into(),
+                target: RecipeCastTarget::Integer,
+            }],
+            date_parses: vec![],
+        };
+
+        let error = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect_err("un valor inválido debe abortar toda la receta");
+        assert!(error.contains("fila 2"));
+        assert!(dataset.frame.equals_missing(&original));
+        assert!(dataset.undo_frame.is_none());
+        assert!(dataset.redo_frame.is_none());
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+
+        let metadata_error = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "count".into(),
+                    to: "units".into(),
+                }],
+                casts: vec![],
+                date_parses: vec![],
+            },
+        )
+        .expect_err("un fallo al preparar la respuesta también debe abortar");
+        assert!(metadata_error.contains("metadatos"));
+        assert!(dataset.frame.equals_missing(&original));
+        assert!(dataset.undo_frame.is_none());
+    }
+
+    #[test]
+    fn empty_or_already_satisfied_recipe_is_a_noop_without_history() {
+        let path = temporary_csv("value\n1\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let mut dataset = LoadedDataset {
+            path: path.clone(),
+            frame,
+            profile: None,
+            undo_frame: None,
+            redo_frame: None,
+        };
+        let result = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "value".into(),
+                    to: "value".into(),
+                }],
+                casts: vec![],
+                date_parses: vec![],
+            },
+        )
+        .expect("una receta ya satisfecha debe ser válida");
+        assert!(!result.changed);
+        assert!(dataset.undo_frame.is_none());
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn structural_recipe_rejects_cross_step_conflicts_and_final_name_collisions() {
+        let frame = DataFrame::new(
+            1,
+            vec![
+                Series::new("a".into(), ["2025-01-01"]).into_column(),
+                Series::new("b".into(), ["value"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let conflict = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "a".into(),
+                target: RecipeCastTarget::String,
+            }],
+            date_parses: vec![RecipeDateParse {
+                column: "a".into(),
+                format: RecipeDateFormat::Ymd,
+                target: RecipeDateTarget::Date,
+            }],
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&frame, &conflict)
+            .unwrap_err()
+            .contains("misma receta"));
+
+        let collision = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "a".into(),
+                to: "b".into(),
+            }],
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&frame, &collision)
+            .unwrap_err()
+            .contains("duplicados"));
     }
 }

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cancelOperation,
   applySafeCorrections,
+  applyTransformRecipe,
   exportDataset,
   getAppInfo,
   getDatasetPage,
@@ -17,6 +18,7 @@ import {
   redoLastChange,
   trimTextValues,
   undoLastChange,
+  type TransformRecipe,
 } from "./bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -139,6 +141,25 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(5, "apply_safe_corrections");
     expect(invoke).toHaveBeenNthCalledWith(6, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(7, "redo_last_change");
+  });
+
+  it("envía una receta estructural completa en una sola invocación", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: {},
+      renamedColumnCount: 1,
+      convertedColumnCount: 1,
+      parsedDateColumnCount: 1,
+    });
+    const recipe: TransformRecipe = {
+      renames: [{ from: "Total venta", to: "total" }],
+      casts: [{ column: "total", target: "decimal" }],
+      dateParses: [{ column: "fecha", format: "dmy", target: "date" }],
+    };
+
+    await applyTransformRecipe(recipe);
+
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("apply_transform_recipe", { recipe });
   });
 
   it("cancela únicamente la operación indicada", async () => {

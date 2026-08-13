@@ -42,6 +42,7 @@ pub fn run() {
             dataset::trim_text_values,
             dataset::normalize_text_values,
             dataset::apply_safe_corrections,
+            dataset::apply_transform_recipe,
             dataset::undo_last_change,
             dataset::redo_last_change
         ])

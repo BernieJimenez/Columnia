@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.14.0`.
+- Versión actual del prototipo: `0.15.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -453,6 +453,15 @@ UTF-8 acotada y consciente de comillas; TSV fuerza tabulador, UTF-8 BOM se acept
 y bytes inválidos se rechazan sin sustitución. Además, `tools/check.ps1` aporta
 perfiles Fast, Full y Release, y pruebas locales fijan la CSP y capability mínima.
 No se añade CI, workflows ni servicios de pago.
+La versión 0.15.0 abre `Transformaciones` dentro de Preparar con una receta
+estructural por lote. El usuario puede definir varios renombres, conversiones
+estrictas de tipo y parseos explícitos de fecha; Rust los valida y ejecuta en el
+orden renombrar → tipos → fechas sobre un candidato aislado. La publicación es
+atómica: un fallo conserva intactos dataset, perfil e historial, mientras un
+éxito genera una sola revisión reversible. Los renombres simultáneos permiten
+intercambios de nombres y las referencias posteriores se resuelven contra el
+esquema anterior a la receta. Este hito aún no implica ejecución lazy, recetas
+persistentes ni historial multinivel.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -654,6 +663,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.12.0: carga JSON de registros/JSON Lines con esquema tabular conservador | Implementada |
 | 2026-08-13 | Versión 0.13.0: fidelidad léxica CSV con perfil numérico semántico y protección de identificadores | Implementada |
 | 2026-08-13 | Versión 0.14.0: opciones Excel, delimitadores/UTF-8 conservadores y gates locales de seguridad/calidad | Implementada |
+| 2026-08-13 | Versión 0.15.0: receta estructural atómica para renombres, tipos y fechas en Preparar | Implementada |
 
 ## 10. Fuentes de esta revisión
 
