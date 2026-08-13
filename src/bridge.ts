@@ -119,11 +119,25 @@ export interface SafeCorrectionsResult {
 export type TransformTarget = "string" | "integer" | "decimal" | "boolean";
 export type DateInputFormat = "iso8601" | "ymd" | "dmy" | "mdy";
 export type DateTarget = "date" | "datetime";
+export type FilterOperator =
+  | "eq" | "neq" | "gt" | "lt" | "gte" | "lte"
+  | "contains" | "not_contains" | "is_null" | "not_null";
+export type CalculationOperation =
+  | "add" | "subtract" | "multiply" | "divide" | "concat"
+  | "year" | "month" | "day";
+export type CalculationOperand = { kind: "literal" | "column"; value: string };
 
 export interface TransformRecipe {
   renames: Array<{ from: string; to: string }>;
   casts: Array<{ column: string; target: TransformTarget }>;
   dateParses: Array<{ column: string; format: DateInputFormat; target: DateTarget }>;
+  filters: Array<{ column: string; operator: FilterOperator; value: string | null }>;
+  calculatedColumn: {
+    name: string;
+    source: string;
+    operation: CalculationOperation;
+    operand: CalculationOperand | null;
+  } | null;
 }
 
 export interface TransformRecipeResult {
@@ -131,6 +145,8 @@ export interface TransformRecipeResult {
   renamedColumnCount: number;
   convertedColumnCount: number;
   parsedDateColumnCount: number;
+  removedRowCount: number;
+  calculatedColumnCount: number;
 }
 
 export interface OperationProgress {

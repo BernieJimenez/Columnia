@@ -357,13 +357,15 @@ export function App() {
       const total =
         result.renamedColumnCount +
         result.convertedColumnCount +
-        result.parsedDateColumnCount;
+        result.parsedDateColumnCount +
+        result.removedRowCount +
+        result.calculatedColumnCount;
       setChangeStatus({
         kind: "applied",
         message:
           total === 0
             ? "La receta no produjo cambios en el dataset."
-            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones y ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas.`,
+            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas y ${result.calculatedColumnCount.toLocaleString()} columnas calculadas.`,
       });
       if (total > 0) setHistoryStatus({ canUndo: true, canRedo: false });
     } catch (error: unknown) {
@@ -1164,12 +1166,34 @@ function TransformRecipeEditor({
   type RenameDraft = TransformRecipe["renames"][number];
   type CastDraft = TransformRecipe["casts"][number];
   type DateDraft = TransformRecipe["dateParses"][number];
+  type FilterDraft = TransformRecipe["filters"][number];
+  type CalculationDraft = NonNullable<TransformRecipe["calculatedColumn"]>;
 
   const [renames, setRenames] = useState<RenameDraft[]>([{ from: "", to: "" }]);
   const [casts, setCasts] = useState<CastDraft[]>([{ column: "", target: "string" }]);
   const [dateParses, setDateParses] = useState<DateDraft[]>([
     { column: "", format: "iso8601", target: "date" },
   ]);
+  const [filters, setFilters] = useState<FilterDraft[]>([]);
+  const [calculationEnabled, setCalculationEnabled] = useState(false);
+  const [calculation, setCalculation] = useState<CalculationDraft>({
+    name: "",
+    source: "",
+    operation: "add",
+    operand: { kind: "literal", value: "" },
+  });
+  const [pendingConfirmation, setPendingConfirmation] = useState<TransformRecipe | null>(null);
+  const datasetSignature = `${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => `${column.name}:${column.dataType}`).join("|")}`;
+
+  useEffect(() => {
+    setRenames([{ from: "", to: "" }]);
+    setCasts([{ column: "", target: "string" }]);
+    setDateParses([{ column: "", format: "iso8601", target: "date" }]);
+    setFilters([]);
+    setCalculationEnabled(false);
+    setPendingConfirmation(null);
+    setCalculation({ name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
+  }, [datasetSignature]);
 
   useEffect(() => {
     setRenames([{ from: "", to: "" }]);
@@ -1180,8 +1204,24 @@ function TransformRecipeEditor({
   const activeRenames = renames.filter((item) => item.from || item.to);
   const activeCasts = casts.filter((item) => item.column);
   const activeDateParses = dateParses.filter((item) => item.column);
-  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length;
-  const invalid = activeRenames.some((item) => !item.from || !item.to.trim());
+  const activeFilters = filters.filter((item) => item.column);
+  const operandRequired = !["year", "month", "day"].includes(calculation.operation);
+  const calculationInvalid =
+    calculationEnabled &&
+    (!calculation.name.trim() ||
+      !calculation.source ||
+      (operandRequired && calculation.operation !== "concat" && !calculation.operand?.value.trim()) ||
+      (calculation.operand?.kind === "column" && !calculation.operand.value));
+  const calculationValid =
+    !calculationEnabled ||
+    !calculationInvalid;
+  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0);
+  const renameInvalid = activeRenames.some((item) => !item.from || !item.to.trim());
+  const filterInvalid = activeFilters.some((item) =>
+    !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
+  );
+  const invalid = renameInvalid || filterInvalid ||
+    !calculationValid;
 
   function columnOptions() {
     return dataset.columns.map((column) => (
@@ -1193,11 +1233,24 @@ function TransformRecipeEditor({
 
   function submitRecipe() {
     if (operationCount === 0 || invalid) return;
-    onApply({
+    const recipe: TransformRecipe = {
       renames: activeRenames.map((item) => ({ from: item.from, to: item.to.trim() })),
       casts: activeCasts,
       dateParses: activeDateParses,
-    });
+      filters: activeFilters.map((item) => ({
+        ...item,
+        value: ["is_null", "not_null"].includes(item.operator) ? null : item.value,
+      })),
+      calculatedColumn: calculationEnabled
+        ? {
+            ...calculation,
+            name: calculation.name.trim(),
+            operand: operandRequired ? calculation.operand : null,
+          }
+        : null,
+    };
+    if (recipe.filters.length > 0) setPendingConfirmation(recipe);
+    else onApply(recipe);
   }
 
   return (
@@ -1314,9 +1367,51 @@ function TransformRecipeEditor({
           ))}
           <button type="button" className="recipe-add" onClick={() => setDateParses((current) => [...current, { column: "", format: "iso8601", target: "date" }])}>+ Añadir fecha</button>
         </fieldset>
+
+        <fieldset>
+          <legend>Filtrar filas (AND)</legend>
+          <p className="recipe-hint">
+            Todas las condiciones deben cumplirse. Puedes añadir hasta 3 filtros. Mayor que,
+            menor que, mayor o igual y menor o igual son comparaciones numéricas estrictas; para
+            fechas, extrae primero año, mes o día. La comparación directa de fechas se incorporará
+            cuando exista conversión compatible.
+          </p>
+          {filters.map((filter, index) => {
+            const unary = ["is_null", "not_null"].includes(filter.operator);
+            return (
+              <div className="recipe-row recipe-row--date" key={`filter-${index}`}>
+                <label><span>Columna</span><select aria-label={`Columna del filtro ${index + 1}`} value={filter.column} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}><option value="">Selecciona…</option>{columnOptions()}</select></label>
+                <label><span>Condición</span><select aria-label={`Operador del filtro ${index + 1}`} value={filter.operator} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, operator: event.target.value as FilterDraft["operator"], value: ["is_null", "not_null"].includes(event.target.value) ? null : (item.value ?? "") } : item))}>
+                  <option value="eq">Igual a</option><option value="neq">Distinto de</option><option value="gt">Mayor que</option><option value="lt">Menor que</option><option value="gte">Mayor o igual</option><option value="lte">Menor o igual</option><option value="contains">Contiene</option><option value="not_contains">No contiene</option><option value="is_null">Es nulo</option><option value="not_null">No es nulo</option>
+                </select></label>
+                <label><span>Valor</span><input aria-label={`Valor del filtro ${index + 1}`} value={filter.value ?? ""} disabled={unary} placeholder={unary ? "No requerido" : "Valor estricto"} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} /></label>
+                <button type="button" aria-label={`Quitar filtro ${index + 1}`} onClick={() => setFilters((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              </div>
+            );
+          })}
+          {filters.length < 3 && <button type="button" className="recipe-add" onClick={() => setFilters((current) => [...current, { column: "", operator: "eq", value: "" }])}>+ Añadir filtro AND</button>}
+        </fieldset>
+
+        <fieldset>
+          <legend>Columna calculada</legend>
+          <label className="option-toggle"><input type="checkbox" checked={calculationEnabled} onChange={(event) => setCalculationEnabled(event.target.checked)} />Crear una columna en esta receta</label>
+          {calculationEnabled && (
+            <div className="calculation-grid">
+              <label><span>Nombre nuevo</span><input aria-label="Nombre de la columna calculada" value={calculation.name} onChange={(event) => setCalculation((current) => ({ ...current, name: event.target.value }))} /></label>
+              <label><span>Columna origen</span><select aria-label="Columna origen del cálculo" value={calculation.source} onChange={(event) => setCalculation((current) => ({ ...current, source: event.target.value }))}><option value="">Selecciona…</option>{columnOptions()}</select></label>
+              <label><span>Operación</span><select aria-label="Operación calculada" value={calculation.operation} onChange={(event) => { const operation = event.target.value as CalculationDraft["operation"]; setCalculation((current) => ({ ...current, operation, operand: ["year", "month", "day"].includes(operation) ? null : (current.operand ?? { kind: "literal", value: "" }) })); }}>
+                <option value="add">Sumar</option><option value="subtract">Restar</option><option value="multiply">Multiplicar</option><option value="divide">Dividir</option><option value="concat">Concatenar</option><option value="year">Extraer año</option><option value="month">Extraer mes</option><option value="day">Extraer día</option>
+              </select></label>
+              {operandRequired && <><label><span>Operando</span><select aria-label="Origen del operando" value={calculation.operand?.kind ?? "literal"} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: event.target.value as "literal" | "column", value: "" } }))}><option value="literal">Valor fijo</option><option value="column">Columna</option></select></label>{calculation.operand?.kind === "column" ? <label><span>Columna operando</span><select aria-label="Columna operando" value={calculation.operand.value} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: "column", value: event.target.value } }))}><option value="">Selecciona…</option>{columnOptions()}</select></label> : <label><span>Valor fijo</span><input aria-label="Valor fijo del cálculo" value={calculation.operand?.value ?? ""} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: "literal", value: event.target.value } }))} /></label>}</>}
+            </div>
+          )}
+          <p className="recipe-hint">La evaluación es estricta: tipos incompatibles o división por cero cancelan toda la receta.</p>
+        </fieldset>
       </div>
 
-      {invalid && <p className="recipe-error" role="alert">Completa el nombre nuevo de cada columna seleccionada.</p>}
+      {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
+      {filterInvalid && <p className="recipe-error" role="alert">Filtros: las comparaciones numéricas y de contenido requieren un valor.</p>}
+      {calculationInvalid && <p className="recipe-error" role="alert">Columna calculada: completa el nombre, el origen y el operando requerido.</p>}
       <div className="transform-recipe__footer">
         <p>
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
@@ -1326,6 +1421,16 @@ function TransformRecipeEditor({
           {busy ? "Aplicando receta…" : "Aplicar receta"}
         </button>
       </div>
+      {pendingConfirmation && (
+        <div className="sheet-dialog" role="presentation">
+          <section className="sheet-dialog__panel" role="alertdialog" aria-modal="true" aria-labelledby="filter-confirm-title" aria-describedby="filter-confirm-description">
+            <p className="step">Cambio de alto impacto</p>
+            <h3 id="filter-confirm-title">Confirmar filtrado de filas</h3>
+            <p id="filter-confirm-description">Se aplicarán {pendingConfirmation.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final depende de los datos.</p>
+            <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" onClick={() => { const recipe = pendingConfirmation; setPendingConfirmation(null); onApply(recipe); }}>Confirmar y aplicar</button></div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

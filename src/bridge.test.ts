@@ -154,6 +154,13 @@ describe("desktop bridge", () => {
       renames: [{ from: "Total venta", to: "total" }],
       casts: [{ column: "total", target: "decimal" }],
       dateParses: [{ column: "fecha", format: "dmy", target: "date" }],
+      filters: [{ column: "total", operator: "gte", value: "10" }],
+      calculatedColumn: {
+        name: "total_doble",
+        source: "total",
+        operation: "multiply",
+        operand: { kind: "literal", value: "2" },
+      },
     };
 
     await applyTransformRecipe(recipe);

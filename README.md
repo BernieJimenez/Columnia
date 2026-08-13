@@ -132,6 +132,13 @@ y un resultado correcto ocupa una única revisión de Deshacer/Rehacer. Esta rec
 es todavía una operación inmediata de sesión; no se guarda ni se ejecuta de forma
 lazy.
 
+La receta también admite hasta tres **filtros AND** y una **columna calculada**.
+Como los filtros pueden eliminar filas, Columnia muestra una confirmación antes
+de ejecutar. Los cálculos aceptan otra columna o un valor fijo de forma
+explícita, con suma, resta, multiplicación, división, concatenación y extracción
+de año, mes o día. El motor preserva nulos y cancela el lote completo ante
+conversiones imprecisas, división por cero, infinitos o fechas no representables.
+
 Validación rápida y completamente local:
 
 ```powershell

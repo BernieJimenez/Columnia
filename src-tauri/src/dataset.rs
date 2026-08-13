@@ -10,7 +10,7 @@ use std::{
 };
 
 use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
-use chrono::{DateTime, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -264,6 +264,67 @@ pub struct RecipeDateParse {
     target: RecipeDateTarget,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RecipeFilterOperator {
+    Eq,
+    Neq,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
+    Contains,
+    NotContains,
+    IsNull,
+    NotNull,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeFilter {
+    column: String,
+    operator: RecipeFilterOperator,
+    #[serde(default)]
+    value: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CalculatedOperation {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Concat,
+    Year,
+    Month,
+    Day,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CalculatedOperandKind {
+    Literal,
+    Column,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CalculatedOperand {
+    kind: CalculatedOperandKind,
+    value: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CalculatedColumnRecipe {
+    name: String,
+    source: String,
+    operation: CalculatedOperation,
+    #[serde(default)]
+    operand: Option<CalculatedOperand>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransformRecipe {
@@ -273,6 +334,10 @@ pub struct TransformRecipe {
     casts: Vec<RecipeCast>,
     #[serde(default)]
     date_parses: Vec<RecipeDateParse>,
+    #[serde(default)]
+    filters: Vec<RecipeFilter>,
+    #[serde(default)]
+    calculated_column: Option<CalculatedColumnRecipe>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -282,6 +347,8 @@ pub struct TransformRecipeResult {
     renamed_column_count: usize,
     converted_column_count: usize,
     parsed_date_column_count: usize,
+    removed_row_count: usize,
+    calculated_column_count: usize,
     changed: bool,
 }
 
@@ -2442,10 +2509,359 @@ fn strict_date_column(
     }
 }
 
+fn remapped_name<'a>(name: &'a str, renames: &HashMap<&'a str, &'a str>) -> &'a str {
+    renames.get(name).copied().unwrap_or(name)
+}
+
+fn strict_f64(value: &str, context: &str) -> Result<f64, String> {
+    let trimmed = value.trim();
+    if !trimmed.contains(['.', 'e', 'E'])
+        && trimmed
+            .parse::<i128>()
+            .is_ok_and(|integer| integer.unsigned_abs() > (1_u128 << 53))
+    {
+        return Err(format!(
+            "{context} excede la precisión numérica segura: '{value}'."
+        ));
+    }
+    trimmed
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
+        .ok_or_else(|| format!("{context} debe ser un número finito: '{value}'."))
+}
+
+fn apply_recipe_filters(
+    frame: DataFrame,
+    filters: &[RecipeFilter],
+    renames: &HashMap<&str, &str>,
+) -> Result<(DataFrame, usize), String> {
+    if filters.len() > 3 {
+        return Err("La receta admite como máximo tres filtros combinados con AND.".into());
+    }
+    let original_height = frame.height();
+    let mut combined_mask = vec![true; original_height];
+    for filter in filters {
+        let name = remapped_name(&filter.column, renames);
+        let values = strict_column_text(recipe_column(&frame, name)?)?;
+        let unary = matches!(
+            filter.operator,
+            RecipeFilterOperator::IsNull | RecipeFilterOperator::NotNull
+        );
+        if unary != filter.value.is_none() {
+            return Err(format!(
+                "El filtro '{}' {} un valor.",
+                filter.column,
+                if unary { "no acepta" } else { "requiere" }
+            ));
+        }
+        let literal = filter.value.as_deref().unwrap_or_default();
+        if matches!(
+            filter.operator,
+            RecipeFilterOperator::Gt
+                | RecipeFilterOperator::Lt
+                | RecipeFilterOperator::Gte
+                | RecipeFilterOperator::Lte
+                | RecipeFilterOperator::Contains
+                | RecipeFilterOperator::NotContains
+        ) && literal.is_empty()
+        {
+            return Err(format!(
+                "El filtro '{}' requiere un valor no vacío.",
+                filter.column
+            ));
+        }
+
+        let numeric_literal = if matches!(
+            filter.operator,
+            RecipeFilterOperator::Gt
+                | RecipeFilterOperator::Lt
+                | RecipeFilterOperator::Gte
+                | RecipeFilterOperator::Lte
+        ) {
+            if matches!(
+                recipe_column(&frame, name)?.dtype(),
+                polars::prelude::DataType::Date | polars::prelude::DataType::Datetime(_, _)
+            ) {
+                return Err(format!(
+                    "La comparación numérica de '{name}' no admite fechas en este hito."
+                ));
+            }
+            Some(strict_f64(literal, "El valor del filtro")?)
+        } else {
+            None
+        };
+        let numeric_values = if numeric_literal.is_some() {
+            Some(
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(row, value)| {
+                        value
+                            .as_deref()
+                            .map(|value| {
+                                strict_f64(
+                                    value,
+                                    &format!("La fila {} de la columna '{name}'", row + 1),
+                                )
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        } else {
+            None
+        };
+        let needle = literal.to_lowercase();
+        let mask = values
+            .iter()
+            .enumerate()
+            .map(|(row, value)| match filter.operator {
+                RecipeFilterOperator::IsNull => value.is_none(),
+                RecipeFilterOperator::NotNull => value.is_some(),
+                RecipeFilterOperator::Eq => value.as_deref() == Some(literal),
+                RecipeFilterOperator::Neq => value.as_deref().is_some_and(|value| value != literal),
+                RecipeFilterOperator::Contains => value
+                    .as_deref()
+                    .is_some_and(|value| value.to_lowercase().contains(&needle)),
+                RecipeFilterOperator::NotContains => value
+                    .as_deref()
+                    .is_some_and(|value| !value.to_lowercase().contains(&needle)),
+                RecipeFilterOperator::Gt => numeric_values.as_ref().unwrap()[row]
+                    .is_some_and(|value| value > numeric_literal.unwrap()),
+                RecipeFilterOperator::Lt => numeric_values.as_ref().unwrap()[row]
+                    .is_some_and(|value| value < numeric_literal.unwrap()),
+                RecipeFilterOperator::Gte => numeric_values.as_ref().unwrap()[row]
+                    .is_some_and(|value| value >= numeric_literal.unwrap()),
+                RecipeFilterOperator::Lte => numeric_values.as_ref().unwrap()[row]
+                    .is_some_and(|value| value <= numeric_literal.unwrap()),
+            })
+            .collect::<Vec<_>>();
+        combined_mask
+            .iter_mut()
+            .zip(mask)
+            .for_each(|(combined, current)| *combined &= current);
+    }
+    let filtered = frame
+        .filter(&BooleanChunked::from_slice("filter".into(), &combined_mask))
+        .map_err(|error| format!("No se pudieron aplicar los filtros: {error}"))?;
+    let removed = original_height.saturating_sub(filtered.height());
+    Ok((filtered, removed))
+}
+
+fn date_parts(column: &Column, operation: CalculatedOperation) -> Result<Vec<Option<i32>>, String> {
+    let name = column.name();
+    match column.dtype() {
+        polars::prelude::DataType::Date => {
+            let physical = column
+                .cast(&polars::prelude::DataType::Int32)
+                .map_err(|error| error.to_string())?;
+            let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+            Ok((0..physical.len())
+                .map(|row| {
+                    let days = match physical.get(row).map_err(|error| error.to_string())? {
+                        AnyValue::Null => None,
+                        AnyValue::Int32(value) => Some(value),
+                        _ => {
+                            return Err("La fecha no tiene una representación física válida.".into())
+                        }
+                    };
+                    let date = days
+                        .map(|days| {
+                            epoch
+                                .checked_add_signed(chrono::Duration::days(days.into()))
+                                .ok_or_else(|| {
+                                    format!(
+                                        "La fecha de la fila {} está fuera del rango admitido.",
+                                        row + 1
+                                    )
+                                })
+                        })
+                        .transpose()?;
+                    Ok(date.map(|date| match operation {
+                        CalculatedOperation::Year => date.year(),
+                        CalculatedOperation::Month => date.month() as i32,
+                        CalculatedOperation::Day => date.day() as i32,
+                        _ => unreachable!(),
+                    }))
+                })
+                .collect::<Result<Vec<_>, String>>()?)
+        }
+        polars::prelude::DataType::Datetime(unit, _) => {
+            let physical = column
+                .cast(&polars::prelude::DataType::Int64)
+                .map_err(|error| error.to_string())?;
+            let divisor = match unit {
+                TimeUnit::Nanoseconds => 1_000_000_000,
+                TimeUnit::Microseconds => 1_000_000,
+                TimeUnit::Milliseconds => 1_000,
+            };
+            Ok((0..physical.len())
+                .map(|row| {
+                    let raw = match physical.get(row).map_err(|error| error.to_string())? {
+                        AnyValue::Null => None,
+                        AnyValue::Int64(value) => Some(value),
+                        _ => {
+                            return Err(
+                                "La fecha y hora no tiene una representación física válida.".into(),
+                            )
+                        }
+                    };
+                    let date = raw
+                        .map(|raw| {
+                            DateTime::from_timestamp(
+                                raw.div_euclid(divisor),
+                                (raw.rem_euclid(divisor) as u64 * (1_000_000_000 / divisor as u64))
+                                    as u32,
+                            )
+                            .ok_or_else(|| {
+                                format!(
+                                    "La fecha y hora de la fila {} está fuera del rango admitido.",
+                                    row + 1
+                                )
+                            })
+                        })
+                        .transpose()?;
+                    Ok(date.map(|date| match operation {
+                        CalculatedOperation::Year => date.year(),
+                        CalculatedOperation::Month => date.month() as i32,
+                        CalculatedOperation::Day => date.day() as i32,
+                        _ => unreachable!(),
+                    }))
+                })
+                .collect::<Result<Vec<_>, String>>()?)
+        }
+        _ => Err(format!(
+            "La columna '{name}' debe ser date o datetime para extraer componentes."
+        )),
+    }
+}
+
+fn add_calculated_column(
+    frame: &mut DataFrame,
+    calculation: &CalculatedColumnRecipe,
+    renames: &HashMap<&str, &str>,
+) -> Result<(), String> {
+    if calculation.name.trim().is_empty() || calculation.name != calculation.name.trim() {
+        return Err(
+            "El nombre de la columna calculada no puede estar vacío ni tener espacios exteriores."
+                .into(),
+        );
+    }
+    if frame.column(&calculation.name).is_ok() {
+        return Err(format!(
+            "La columna calculada '{}' ya existe.",
+            calculation.name
+        ));
+    }
+    let source_name = remapped_name(&calculation.source, renames);
+    let source = recipe_column(frame, source_name)?;
+    let unary = matches!(
+        calculation.operation,
+        CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day
+    );
+    if unary != calculation.operand.is_none() {
+        return Err(if unary {
+            "year, month y day no aceptan operando.".into()
+        } else {
+            "La operación calculada requiere un operando.".into()
+        });
+    }
+    let column = if unary {
+        Series::new(
+            calculation.name.clone().into(),
+            date_parts(source, calculation.operation)?,
+        )
+        .into_column()
+    } else {
+        let source_values = strict_column_text(source)?;
+        let operand = calculation.operand.as_ref().unwrap();
+        let operand_values = match operand.kind {
+            CalculatedOperandKind::Literal => vec![Some(operand.value.clone()); frame.height()],
+            CalculatedOperandKind::Column => strict_column_text(recipe_column(
+                frame,
+                remapped_name(&operand.value, renames),
+            )?)?,
+        };
+        match calculation.operation {
+            CalculatedOperation::Concat => Series::new(
+                calculation.name.clone().into(),
+                source_values
+                    .iter()
+                    .zip(&operand_values)
+                    .map(|(left, right)| {
+                        left.as_ref()
+                            .zip(right.as_ref())
+                            .map(|(left, right)| format!("{left}{right}"))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+            CalculatedOperation::Add
+            | CalculatedOperation::Subtract
+            | CalculatedOperation::Multiply
+            | CalculatedOperation::Divide => {
+                if operand.kind == CalculatedOperandKind::Literal && operand.value.is_empty() {
+                    return Err("El operando numérico no puede estar vacío.".into());
+                }
+                let values = source_values
+                    .iter()
+                    .zip(&operand_values)
+                    .enumerate()
+                    .map(|(row, (left, right))| {
+                        left.as_deref()
+                            .zip(right.as_deref())
+                            .map(|(left, right)| {
+                                let left = strict_f64(
+                                    left,
+                                    &format!("La fila {} de '{source_name}'", row + 1),
+                                )?;
+                                let right = strict_f64(
+                                    right,
+                                    &format!("El operando de la fila {}", row + 1),
+                                )?;
+                                if calculation.operation == CalculatedOperation::Divide
+                                    && right == 0.0
+                                {
+                                    return Err(format!(
+                                        "División por cero en la fila {}.",
+                                        row + 1
+                                    ));
+                                }
+                                let result = match calculation.operation {
+                                    CalculatedOperation::Add => left + right,
+                                    CalculatedOperation::Subtract => left - right,
+                                    CalculatedOperation::Multiply => left * right,
+                                    CalculatedOperation::Divide => left / right,
+                                    _ => unreachable!(),
+                                };
+                                if !result.is_finite() {
+                                    return Err(format!(
+                                        "El cálculo produjo un valor no finito en la fila {}.",
+                                        row + 1
+                                    ));
+                                }
+                                Ok(result)
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                Series::new(calculation.name.clone().into(), values).into_column()
+            }
+            _ => unreachable!(),
+        }
+    };
+    frame
+        .with_column(column)
+        .map_err(|error| format!("No se pudo agregar la columna calculada: {error}"))?;
+    Ok(())
+}
+
 fn apply_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
-) -> Result<(DataFrame, usize, usize, usize), String> {
+) -> Result<(DataFrame, usize, usize, usize, usize, usize), String> {
     let mut candidate = source.clone();
     let mut rename_sources = HashSet::new();
     let rename_map = recipe
@@ -2470,6 +2886,25 @@ fn apply_recipe_to_frame(
             Ok((rename.from.as_str(), rename.to.as_str()))
         })
         .collect::<Result<HashMap<_, _>, String>>()?;
+    for cast in &recipe.casts {
+        recipe_column(source, &cast.column)?;
+    }
+    for parse in &recipe.date_parses {
+        recipe_column(source, &parse.column)?;
+    }
+    for filter in &recipe.filters {
+        recipe_column(source, &filter.column)?;
+    }
+    if let Some(calculation) = &recipe.calculated_column {
+        recipe_column(source, &calculation.source)?;
+        if let Some(CalculatedOperand {
+            kind: CalculatedOperandKind::Column,
+            value,
+        }) = &calculation.operand
+        {
+            recipe_column(source, value)?;
+        }
+    }
     let final_names = source
         .get_column_names()
         .iter()
@@ -2575,16 +3010,43 @@ fn apply_recipe_to_frame(
         }
     }
 
-    Ok((candidate, renamed_count, cast_count, date_count))
+    let (mut candidate, removed_row_count) =
+        apply_recipe_filters(candidate, &recipe.filters, &rename_map)?;
+    let calculated_column_count = if let Some(calculation) = &recipe.calculated_column {
+        add_calculated_column(&mut candidate, calculation, &rename_map)?;
+        1
+    } else {
+        0
+    };
+
+    Ok((
+        candidate,
+        renamed_count,
+        cast_count,
+        date_count,
+        removed_row_count,
+        calculated_column_count,
+    ))
 }
 
 fn apply_recipe_to_dataset(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
-    let (candidate, renamed_column_count, converted_column_count, parsed_date_column_count) =
-        apply_recipe_to_frame(&dataset.frame, recipe)?;
-    let changed = renamed_column_count + converted_column_count + parsed_date_column_count > 0;
+    let (
+        candidate,
+        renamed_column_count,
+        converted_column_count,
+        parsed_date_column_count,
+        removed_row_count,
+        calculated_column_count,
+    ) = apply_recipe_to_frame(&dataset.frame, recipe)?;
+    let changed = renamed_column_count
+        + converted_column_count
+        + parsed_date_column_count
+        + removed_row_count
+        + calculated_column_count
+        > 0;
     // Build every fallible response value before publishing the candidate. This keeps the
     // transaction atomic even if, for example, the source file disappeared after loading.
     let preview = dataset_preview(&dataset.path, &candidate)?;
@@ -2599,6 +3061,8 @@ fn apply_recipe_to_dataset(
         renamed_column_count,
         converted_column_count,
         parsed_date_column_count,
+        removed_row_count,
+        calculated_column_count,
         changed,
     })
 }
@@ -3436,11 +3900,13 @@ mod tests {
                 format: RecipeDateFormat::Dmy,
                 target: RecipeDateTarget::Date,
             }],
+            ..Default::default()
         };
 
-        let (result, renamed, converted, dates) =
+        let (result, renamed, converted, dates, removed, calculated) =
             apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
         assert_eq!((renamed, converted, dates), (3, 3, 1));
+        assert_eq!((removed, calculated), (0, 0));
         assert_eq!(
             result.column("units").unwrap().dtype(),
             &polars::prelude::DataType::Int64
@@ -3507,6 +3973,7 @@ mod tests {
                 target: RecipeCastTarget::Integer,
             }],
             date_parses: vec![],
+            ..Default::default()
         };
 
         let error = apply_recipe_to_dataset(&mut dataset, &recipe)
@@ -3515,6 +3982,32 @@ mod tests {
         assert!(dataset.frame.equals_missing(&original));
         assert!(dataset.undo_frame.is_none());
         assert!(dataset.redo_frame.is_none());
+
+        let calculation_error = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "count".into(),
+                    to: "units".into(),
+                }],
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: "ratio".into(),
+                    source: "count".into(),
+                    operation: CalculatedOperation::Divide,
+                    operand: Some(CalculatedOperand {
+                        kind: CalculatedOperandKind::Literal,
+                        value: "0".into(),
+                    }),
+                }),
+                ..Default::default()
+            },
+        )
+        .expect_err("el cálculo inválido debe abortar también el renombrado");
+        assert!(
+            calculation_error.contains("División por cero") || calculation_error.contains("número")
+        );
+        assert!(dataset.frame.equals_missing(&original));
+        assert!(dataset.undo_frame.is_none());
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 
         let metadata_error = apply_recipe_to_dataset(
@@ -3526,6 +4019,7 @@ mod tests {
                 }],
                 casts: vec![],
                 date_parses: vec![],
+                ..Default::default()
             },
         )
         .expect_err("un fallo al preparar la respuesta también debe abortar");
@@ -3554,6 +4048,7 @@ mod tests {
                 }],
                 casts: vec![],
                 date_parses: vec![],
+                ..Default::default()
             },
         )
         .expect("una receta ya satisfecha debe ser válida");
@@ -3598,5 +4093,219 @@ mod tests {
         assert!(apply_recipe_to_frame(&frame, &collision)
             .unwrap_err()
             .contains("duplicados"));
+    }
+
+    #[test]
+    fn recipe_filters_use_stable_and_null_safe_semantics() {
+        let frame = DataFrame::new(
+            4,
+            vec![
+                Series::new(
+                    "city".into(),
+                    [
+                        Some("Santo Domingo"),
+                        Some("Santiago"),
+                        None,
+                        Some("santo cielo"),
+                    ],
+                )
+                .into_column(),
+                Series::new(
+                    "amount".into(),
+                    [Some("10"), Some("20"), Some("30"), Some("40")],
+                )
+                .into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            filters: vec![
+                RecipeFilter {
+                    column: "city".into(),
+                    operator: RecipeFilterOperator::Contains,
+                    value: Some("SANTO".into()),
+                },
+                RecipeFilter {
+                    column: "amount".into(),
+                    operator: RecipeFilterOperator::Gte,
+                    value: Some("20".into()),
+                },
+            ],
+            ..Default::default()
+        };
+        let (result, _, _, _, removed, _) = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(removed, 3);
+        assert_eq!(
+            dataset_page(&result, 0, 10).unwrap().rows[0][0].as_deref(),
+            Some("santo cielo")
+        );
+
+        let null_filter = TransformRecipe {
+            filters: vec![RecipeFilter {
+                column: "city".into(),
+                operator: RecipeFilterOperator::IsNull,
+                value: None,
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            apply_recipe_to_frame(&frame, &null_filter)
+                .unwrap()
+                .0
+                .height(),
+            1
+        );
+    }
+
+    #[test]
+    fn recipe_filters_validate_the_same_input_independent_of_order() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("group".into(), ["keep", "discard"]).into_column(),
+                Series::new("amount".into(), ["10", "invalid"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let selective = RecipeFilter {
+            column: "group".into(),
+            operator: RecipeFilterOperator::Eq,
+            value: Some("keep".into()),
+        };
+        let numeric = RecipeFilter {
+            column: "amount".into(),
+            operator: RecipeFilterOperator::Gt,
+            value: Some("5".into()),
+        };
+
+        for filters in [
+            vec![selective.clone(), numeric.clone()],
+            vec![numeric.clone(), selective.clone()],
+        ] {
+            let error = apply_recipe_to_frame(
+                &frame,
+                &TransformRecipe {
+                    filters,
+                    ..Default::default()
+                },
+            )
+            .expect_err("el valor inválido debe rechazarse sin importar el orden");
+            assert!(error.contains("fila 2"));
+        }
+    }
+
+    #[test]
+    fn recipe_calculation_remaps_column_operands_and_preserves_nulls() {
+        let frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("price".into(), [Some("10"), None, Some("5")]).into_column(),
+                Series::new("quantity".into(), [Some("2"), Some("3"), Some("4")]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "quantity".into(),
+                to: "units".into(),
+            }],
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "total".into(),
+                source: "price".into(),
+                operation: CalculatedOperation::Multiply,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Column,
+                    value: "quantity".into(),
+                }),
+            }),
+            ..Default::default()
+        };
+        let (result, _, _, _, _, calculated) = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(calculated, 1);
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][2].as_deref(), Some("20.0"));
+        assert_eq!(rows[1][2], None);
+        assert_eq!(rows[2][2].as_deref(), Some("20.0"));
+    }
+
+    #[test]
+    fn recipe_rejects_division_by_zero_precision_loss_and_too_many_filters() {
+        let frame = DataFrame::new(
+            1,
+            vec![Series::new("value".into(), ["9007199254740993"]).into_column()],
+        )
+        .unwrap();
+        let divide = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "result".into(),
+                source: "value".into(),
+                operation: CalculatedOperation::Divide,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Literal,
+                    value: "0".into(),
+                }),
+            }),
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&frame, &divide)
+            .unwrap_err()
+            .contains("precisión"));
+
+        let safe =
+            DataFrame::new(1, vec![Series::new("value".into(), ["1"]).into_column()]).unwrap();
+        assert!(apply_recipe_to_frame(&safe, &divide)
+            .unwrap_err()
+            .contains("División por cero"));
+        let too_many = TransformRecipe {
+            filters: (0..4)
+                .map(|_| RecipeFilter {
+                    column: "value".into(),
+                    operator: RecipeFilterOperator::Eq,
+                    value: Some("1".into()),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&safe, &too_many)
+            .unwrap_err()
+            .contains("máximo tres"));
+    }
+
+    #[test]
+    fn calculated_datetime_parts_support_values_before_unix_epoch() {
+        let datetime = Series::new("when".into(), [Some(-1_i64)])
+            .cast(&polars::prelude::DataType::Datetime(
+                TimeUnit::Milliseconds,
+                None,
+            ))
+            .unwrap()
+            .into_column();
+        let frame = DataFrame::new(1, vec![datetime]).unwrap();
+        let recipe = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "year".into(),
+                source: "when".into(),
+                operation: CalculatedOperation::Year,
+                operand: None,
+            }),
+            ..Default::default()
+        };
+        let result = apply_recipe_to_frame(&frame, &recipe).unwrap().0;
+        assert_eq!(
+            dataset_page(&result, 0, 1).unwrap().rows[0][1].as_deref(),
+            Some("1969")
+        );
+
+        let extreme = Series::new("when".into(), [Some(i64::MAX)])
+            .cast(&polars::prelude::DataType::Datetime(
+                TimeUnit::Milliseconds,
+                None,
+            ))
+            .unwrap()
+            .into_column();
+        let extreme_frame = DataFrame::new(1, vec![extreme]).unwrap();
+        assert!(apply_recipe_to_frame(&extreme_frame, &recipe)
+            .unwrap_err()
+            .contains("fuera del rango"));
     }
 }

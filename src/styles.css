@@ -86,6 +86,11 @@ button, input, select, textarea { font: inherit; }
 .transform-recipe__footer { margin-top: 14px; }
 .transform-recipe__footer p { font-size: .78rem; }
 .recipe-error { margin: 12px 0 0; color: #87362f; font-size: .8rem; }
+.recipe-hint { margin: 0; color: #627770; font-size: .76rem; }
+.calculation-grid { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 8px; }
+.calculation-grid label { display: grid; gap: 4px; min-width: 0; }
+.calculation-grid label span { color: #627770; font-size: .7rem; font-weight: 750; }
+.calculation-grid input, .calculation-grid select { min-width: 0; width: 100%; padding: 8px 9px; border: 1px solid #afc2bd; border-radius: 3px; background: white; color: #18343a; }
 .workspace__intro { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
 .workspace h2 { margin: 7px 0 7px; font-size: clamp(1.65rem, 3vw, 2.6rem); letter-spacing: -.035em; }
 .workspace__intro p:last-child { margin: 0; color: #587078; }
@@ -191,6 +196,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .export-actions button { flex: 1; }
   .change-feedback { align-items: stretch; flex-direction: column; }
   .recipe-row, .recipe-row--date { grid-template-columns: 1fr; }
+  .calculation-grid { grid-template-columns: 1fr; }
   .recipe-row > button { justify-self: end; }
 }
 
@@ -228,7 +234,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .transform-recipe fieldset { border-color: #426067; background: #17343a; }
   .transform-recipe legend { color: #c6d8d4; }
   .recipe-row label span { color: #afc2bd; }
-  .recipe-row input, .recipe-row select { border-color: #527078; background: #214249; color: #edf5f2; }
+  .recipe-row input, .recipe-row select, .calculation-grid input, .calculation-grid select { border-color: #527078; background: #214249; color: #edf5f2; }
+  .calculation-grid label span, .recipe-hint { color: #afc2bd; }
   .recipe-row > button, .recipe-add { color: #7bd2c8; }
   .metrics div { border-color: #426067; background: #214249; }
   .metrics dt { color: #afc2bd; }

@@ -753,6 +753,8 @@ describe("App", () => {
       renamedColumnCount: 1,
       convertedColumnCount: 1,
       parsedDateColumnCount: 1,
+      removedRowCount: 0,
+      calculatedColumnCount: 0,
     });
 
     render(<App />);
@@ -790,8 +792,50 @@ describe("App", () => {
       renames: [{ from: "Total venta", to: "total" }],
       casts: [{ column: "Total venta", target: "decimal" }],
       dateParses: [{ column: "fecha", format: "dmy", target: "date" }],
+      filters: [],
+      calculatedColumn: null,
     });
-    expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones y 1 fechas interpretadas/)).toBeInTheDocument();
+    expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+  });
+
+  it("confirma filtros AND y combina una columna calculada en la misma receta", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.16.0", platform: "windows" });
+    const original: DatasetPreview = {
+      fileName: "pedidos.csv", fileSizeBytes: 300, rowCount: 20, columnCount: 2,
+      columns: [{ name: "total", dataType: "Float64" }, { name: "estado", dataType: "String" }],
+      rows: [["10", "activo"]],
+    };
+    mockDatasetLoad(original);
+    const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
+      dataset: { ...original, rowCount: 12, columnCount: 3 },
+      renamedColumnCount: 0, convertedColumnCount: 0, parsedDateColumnCount: 0,
+      removedRowCount: 8, calculatedColumnCount: 1,
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    expect(screen.getByText(/comparaciones numéricas estrictas/)).toHaveTextContent(/extrae primero año, mes o día/);
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir filtro AND" }));
+    fireEvent.change(screen.getByLabelText("Columna del filtro 1"), { target: { value: "estado" } });
+    fireEvent.change(screen.getByLabelText("Operador del filtro 1"), { target: { value: "not_null" } });
+    expect(screen.getByLabelText("Valor del filtro 1")).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Crear una columna en esta receta" }));
+    fireEvent.change(screen.getByLabelText("Nombre de la columna calculada"), { target: { value: "doble" } });
+    fireEvent.change(screen.getByLabelText("Columna origen del cálculo"), { target: { value: "total" } });
+    fireEvent.change(screen.getByLabelText("Operación calculada"), { target: { value: "multiply" } });
+    fireEvent.change(screen.getByLabelText("Valor fijo del cálculo"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Confirmar filtrado de filas" });
+    expect(within(dialog).getByText(/1 filtros unidos por AND sobre 20 filas/)).toBeInTheDocument();
+    expect(applySpy).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(applySpy).toHaveBeenCalledOnce();
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ column: "estado", operator: "not_null", value: null }],
+      calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
+    }));
   });
 });
