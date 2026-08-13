@@ -24,6 +24,7 @@ import {
   type ExportFormat,
   type ExportResult,
   type OperationProgress,
+  type SpreadsheetHeaderMode,
 } from "./bridge";
 
 type AppStatus =
@@ -113,7 +114,9 @@ export function App() {
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [sheetSelection, setSheetSelection] = useState<DatasetSourceInspection | null>(null);
   const [selectedSheetId, setSelectedSheetId] = useState("");
+  const [spreadsheetHeaderMode, setSpreadsheetHeaderMode] = useState<SpreadsheetHeaderMode>("firstRow");
   const [importError, setImportError] = useState<string | null>(null);
+  const [importInspecting, setImportInspecting] = useState(false);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -136,7 +139,11 @@ export function App() {
     };
   }, []);
 
-  async function loadSelection(source: DatasetSourceInspection, sheetId: string | null) {
+  async function loadSelection(
+    source: DatasetSourceInspection,
+    sheetId: string | null,
+    headerMode: SpreadsheetHeaderMode | null = null,
+  ) {
     const previous = datasetStatus.kind === "ready" ? datasetStatus : undefined;
     setDatasetStatus({
       kind: "loading",
@@ -146,7 +153,7 @@ export function App() {
     });
     setImportError(null);
     try {
-      const dataset = await loadDatasetSelection(source.selectionId, sheetId, (progress) => {
+      const dataset = await loadDatasetSelection(source.selectionId, sheetId, headerMode, (progress) => {
         setDatasetStatus((current) =>
           current.kind === "loading" ? { ...current, progress } : current,
         );
@@ -172,18 +179,22 @@ export function App() {
   async function selectDataset() {
     setImportError(null);
     setActivePhase("load");
+    setImportInspecting(true);
     try {
       const source = await pickDatasetSource();
       if (!source) return;
-      if (source.sheets.length > 1) {
+      if (source.format === "excel") {
         setSheetSelection(source);
         setSelectedSheetId(source.defaultSheetId ?? source.sheets[0]?.id ?? "");
+        setSpreadsheetHeaderMode("firstRow");
         return;
       }
       await loadSelection(source, source.sheets[0]?.id ?? null);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setImportError(message);
+    } finally {
+      setImportInspecting(false);
     }
   }
 
@@ -533,12 +544,15 @@ export function App() {
               datasetStatus={datasetStatus}
               sheetSelection={sheetSelection}
               selectedSheetId={selectedSheetId}
+              spreadsheetHeaderMode={spreadsheetHeaderMode}
               importError={importError}
+              importInspecting={importInspecting}
               isDesktopReady={isDesktopReady}
               onSelect={selectDataset}
               onSheetChange={setSelectedSheetId}
+              onHeaderModeChange={setSpreadsheetHeaderMode}
               onConfirmSheet={() => {
-                if (sheetSelection) void loadSelection(sheetSelection, selectedSheetId);
+                if (sheetSelection) void loadSelection(sheetSelection, selectedSheetId, spreadsheetHeaderMode);
               }}
               onCancelSheet={() => void cancelSheetSelection()}
               onCancel={() => cancelActiveOperation("load")}
@@ -596,10 +610,13 @@ interface LoadPhaseProps {
   datasetStatus: DatasetStatus;
   sheetSelection: DatasetSourceInspection | null;
   selectedSheetId: string;
+  spreadsheetHeaderMode: SpreadsheetHeaderMode;
   importError: string | null;
+  importInspecting: boolean;
   isDesktopReady: boolean;
   onSelect: () => void;
   onSheetChange: (sheetId: string) => void;
+  onHeaderModeChange: (mode: SpreadsheetHeaderMode) => void;
   onConfirmSheet: () => void;
   onCancelSheet: () => void;
   onCancel: () => void;
@@ -610,10 +627,13 @@ function LoadPhase({
   datasetStatus,
   sheetSelection,
   selectedSheetId,
+  spreadsheetHeaderMode,
   importError,
+  importInspecting,
   isDesktopReady,
   onSelect,
   onSheetChange,
+  onHeaderModeChange,
   onConfirmSheet,
   onCancelSheet,
   onCancel,
@@ -632,7 +652,7 @@ function LoadPhase({
           <p className="eyebrow">Cargar · Fuente local</p>
           <h2>{current ? current.fileName : "Selecciona un dataset"}</h2>
           <p>
-            Se admiten CSV, TSV, Parquet, Excel y ODS de hasta 500 MB. El procesamiento se realiza
+            Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta 500 MB. El procesamiento se realiza
             localmente y tus datos no salen del equipo.
           </p>
         </div>
@@ -640,9 +660,15 @@ function LoadPhase({
           className="primary-action"
           type="button"
           onClick={onSelect}
-          disabled={!isDesktopReady || datasetStatus.kind === "loading" || Boolean(sheetSelection)}
+          disabled={
+            !isDesktopReady || importInspecting || datasetStatus.kind === "loading" || Boolean(sheetSelection)
+          }
         >
-          {current ? "Seleccionar otro dataset" : "Seleccionar dataset"}
+          {importInspecting
+            ? "Inspeccionando…"
+            : current
+              ? "Seleccionar otro dataset"
+              : "Seleccionar dataset"}
         </button>
       </header>
 
@@ -652,6 +678,9 @@ function LoadPhase({
           cancelRequested={datasetStatus.cancelRequested}
           onCancel={onCancel}
         />
+      )}
+      {importInspecting && (
+        <p className="notice" role="status">Esperando la selección y verificando el formato local…</p>
       )}
       {datasetStatus.kind === "error" && (
         <p className="notice notice--error" role="alert">
@@ -669,6 +698,12 @@ function LoadPhase({
             <p className="eyebrow">Libro seleccionado</p>
             <h3 id="sheet-title">Elegir hoja de {sheetSelection.fileName}</h3>
             <p>Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar.</p>
+            {sheetSelection.isCompressedContainer && (
+              <p className="notice" role="note">
+                Los libros comprimidos pueden ocupar bastante más memoria al abrirse que su tamaño en disco.
+                Cierra otras aplicaciones si el archivo es grande.
+              </p>
+            )}
             <label htmlFor="workbook-sheet">Hoja</label>
             <select
               id="workbook-sheet"
@@ -679,6 +714,27 @@ function LoadPhase({
                 <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
               ))}
             </select>
+            <fieldset className="sheet-dialog__options">
+              <legend>Encabezados</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="spreadsheet-header-mode"
+                  checked={spreadsheetHeaderMode === "firstRow"}
+                  onChange={() => onHeaderModeChange("firstRow")}
+                />
+                Usar la primera fila como encabezados
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="spreadsheet-header-mode"
+                  checked={spreadsheetHeaderMode === "generated"}
+                  onChange={() => onHeaderModeChange("generated")}
+                />
+                Generar encabezados (column_1, column_2…)
+              </label>
+            </fieldset>
             <div className="sheet-dialog__actions">
               <button type="button" className="secondary-action" onClick={onCancelSheet}>Cancelar</button>
               <button type="button" className="primary-action" onClick={onConfirmSheet} disabled={!selectedSheetId}>

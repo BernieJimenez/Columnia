@@ -1,6 +1,7 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
+    io::{BufReader, Read},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -12,6 +13,7 @@ use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Re
 use chrono::NaiveDate;
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
@@ -20,6 +22,7 @@ const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
 const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 500 * 1024 * 1024;
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
+const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -107,6 +110,14 @@ pub struct DatasetSourceInspection {
     format: &'static str,
     sheets: Vec<WorkbookSheet>,
     default_sheet_id: Option<String>,
+    is_compressed_container: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SpreadsheetHeaderMode {
+    FirstRow,
+    Generated,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -289,11 +300,21 @@ fn dataset_extension(path: &Path) -> Result<String, String> {
         .filter(|extension| {
             matches!(
                 extension.as_str(),
-                "csv" | "tsv" | "parquet" | "xlsx" | "xls" | "xlsb" | "ods"
+                "csv"
+                    | "tsv"
+                    | "txt"
+                    | "json"
+                    | "jsonl"
+                    | "ndjson"
+                    | "parquet"
+                    | "xlsx"
+                    | "xls"
+                    | "xlsb"
+                    | "ods"
             )
         })
         .ok_or_else(|| {
-            "Columnia admite CSV, TSV, Parquet y libros Excel/ODS en esta versión.".to_owned()
+            "Columnia admite CSV, TSV, TXT delimitado, JSON, Parquet y libros Excel/ODS en esta versión.".to_owned()
         })
 }
 
@@ -382,11 +403,40 @@ fn numeric_value(value: AnyValue<'_>) -> Option<f64> {
 }
 
 struct NumericStatistics {
+    minimum: Option<f64>,
+    maximum: Option<f64>,
+    mean: Option<f64>,
     standard_deviation: Option<f64>,
     first_quartile: Option<f64>,
     median: Option<f64>,
     third_quartile: Option<f64>,
     outlier_count: usize,
+}
+
+fn has_identifier_leading_zero(value: &str) -> bool {
+    let unsigned = value
+        .strip_prefix('+')
+        .or_else(|| value.strip_prefix('-'))
+        .unwrap_or(value);
+    let mut characters = unsigned.chars();
+    matches!((characters.next(), characters.next()), (Some('0'), Some(next)) if next.is_ascii_digit())
+}
+
+fn semantic_numeric_value(value: &str) -> Option<f64> {
+    let value = value.trim();
+    if value.is_empty() || has_identifier_leading_zero(value) {
+        return None;
+    }
+    if !value.contains('.') && !value.contains('e') && !value.contains('E') {
+        let integer = value.parse::<i128>().ok()?;
+        if integer.unsigned_abs() > (1_u128 << 53) {
+            return None;
+        }
+    }
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
 }
 
 fn linear_quantile(sorted_values: &[f64], quantile: f64) -> Option<f64> {
@@ -405,21 +455,46 @@ fn linear_quantile(sorted_values: &[f64], quantile: f64) -> Option<f64> {
 }
 
 fn numeric_statistics(column: &Column) -> Result<Option<NumericStatistics>, String> {
-    if !column.dtype().is_primitive_numeric() {
+    let mut values = if column.dtype().is_primitive_numeric() {
+        (0..column.len())
+            .map(|index| {
+                column
+                    .get(index)
+                    .map_err(|error| format!("No se pudo analizar la columna numérica: {error}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(numeric_value)
+            .collect::<Vec<_>>()
+    } else if column.dtype() == &DataType::String {
+        let text = column
+            .str()
+            .map_err(|error| format!("No se pudo analizar texto numérico: {error}"))?;
+        let non_empty = text
+            .iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        if non_empty.is_empty() {
+            return Ok(None);
+        }
+        let parsed = non_empty
+            .iter()
+            .map(|value| semantic_numeric_value(value))
+            .collect::<Option<Vec<_>>>();
+        let Some(parsed) = parsed else {
+            return Ok(None);
+        };
+        parsed
+    } else {
         return Ok(None);
-    }
-
-    let mut values = (0..column.len())
-        .map(|index| {
-            column
-                .get(index)
-                .map_err(|error| format!("No se pudo analizar la columna numérica: {error}"))
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter_map(numeric_value)
-        .collect::<Vec<_>>();
+    };
     values.sort_by(f64::total_cmp);
+
+    let minimum = values.first().copied();
+    let maximum = values.last().copied();
+    let mean = (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64);
 
     let first_quartile = linear_quantile(&values, 0.25);
     let median = linear_quantile(&values, 0.5);
@@ -450,6 +525,9 @@ fn numeric_statistics(column: &Column) -> Result<Option<NumericStatistics>, Stri
     };
 
     Ok(Some(NumericStatistics {
+        minimum,
+        maximum,
+        mean,
         standard_deviation,
         first_quartile,
         median,
@@ -492,11 +570,11 @@ fn suggest_text_type(values: &[&str]) -> (Option<&'static str>, Option<f64>, Opt
         .count();
     let integer_count = values
         .iter()
-        .filter(|value| value.parse::<i64>().is_ok())
+        .filter(|value| !has_identifier_leading_zero(value) && value.parse::<i64>().is_ok())
         .count();
     let decimal_count = values
         .iter()
-        .filter(|value| value.parse::<f64>().is_ok_and(|number| number.is_finite()))
+        .filter(|value| semantic_numeric_value(value).is_some())
         .count();
     let date_count = values
         .iter()
@@ -606,6 +684,8 @@ where
             ((row_count - null_count) as f64 / row_count as f64) * 100.0
         };
 
+        let text_statistics = text_statistics(column)?;
+        let numeric_statistics = numeric_statistics(column)?;
         let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
             let minimum = column
                 .min_reduce()
@@ -625,11 +705,15 @@ where
                 preview_value(maximum),
                 numeric_value(mean),
             )
+        } else if let Some(statistics) = numeric_statistics.as_ref() {
+            (
+                statistics.minimum.map(|value| value.to_string()),
+                statistics.maximum.map(|value| value.to_string()),
+                statistics.mean,
+            )
         } else {
             (None, None, None)
         };
-        let text_statistics = text_statistics(column)?;
-        let numeric_statistics = numeric_statistics(column)?;
 
         columns.push(ColumnProfile {
             name: column.name().to_string(),
@@ -1110,34 +1194,47 @@ fn spreadsheet_cells_to_column(name: &str, cells: &[&Data]) -> Result<Column, St
     }
 }
 
-fn spreadsheet_range_to_frame(range: &Range<Data>) -> Result<DataFrame, String> {
+fn spreadsheet_range_to_frame(
+    range: &Range<Data>,
+    header_mode: SpreadsheetHeaderMode,
+) -> Result<DataFrame, String> {
     if range.is_empty() {
         return Err("La hoja seleccionada está vacía.".to_owned());
     }
     let width = range.width();
     let height = range.height();
-    let headers = unique_spreadsheet_headers(
-        (0..width)
-            .map(|column| {
-                range
-                    .get((0, column))
-                    .map(ToString::to_string)
-                    .unwrap_or_default()
-            })
-            .collect(),
-    );
+    let data_start = usize::from(header_mode == SpreadsheetHeaderMode::FirstRow);
+    let headers = match header_mode {
+        SpreadsheetHeaderMode::FirstRow => unique_spreadsheet_headers(
+            (0..width)
+                .map(|column| {
+                    range
+                        .get((0, column))
+                        .map(ToString::to_string)
+                        .unwrap_or_default()
+                })
+                .collect(),
+        ),
+        SpreadsheetHeaderMode::Generated => {
+            (1..=width).map(|index| format!("column_{index}")).collect()
+        }
+    };
     let mut columns = Vec::with_capacity(width);
     for (column_index, name) in headers.iter().enumerate() {
-        let cells = (1..height)
+        let cells = (data_start..height)
             .map(|row| range.get((row, column_index)).expect("rango rectangular"))
             .collect::<Vec<_>>();
         columns.push(spreadsheet_cells_to_column(name, &cells)?);
     }
-    DataFrame::new(height.saturating_sub(1), columns)
+    DataFrame::new(height.saturating_sub(data_start), columns)
         .map_err(|error| format!("No se pudo construir el dataset desde la hoja: {error}"))
 }
 
-fn load_spreadsheet_sheet(path: &Path, sheet_name: &str) -> Result<DataFrame, String> {
+fn load_spreadsheet_sheet(
+    path: &Path,
+    sheet_name: &str,
+    header_mode: SpreadsheetHeaderMode,
+) -> Result<DataFrame, String> {
     let mut workbook = open_workbook_auto(path)
         .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
     if !workbook.sheet_names().iter().any(|name| name == sheet_name) {
@@ -1146,7 +1243,296 @@ fn load_spreadsheet_sheet(path: &Path, sheet_name: &str) -> Result<DataFrame, St
     let range = workbook
         .worksheet_range(sheet_name)
         .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
-    spreadsheet_range_to_frame(&range)
+    spreadsheet_range_to_frame(&range, header_mode)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JsonColumnKind {
+    Null,
+    Boolean,
+    Int64,
+    Float64,
+    String,
+}
+
+fn json_value_kind(value: &JsonValue) -> JsonColumnKind {
+    match value {
+        JsonValue::Null => JsonColumnKind::Null,
+        JsonValue::Bool(_) => JsonColumnKind::Boolean,
+        JsonValue::Number(number) if number.as_i64().is_some() => JsonColumnKind::Int64,
+        JsonValue::Number(number)
+            if number
+                .to_string()
+                .chars()
+                .any(|character| matches!(character, '.' | 'e' | 'E'))
+                && number.as_f64().is_some_and(f64::is_finite) =>
+        {
+            JsonColumnKind::Float64
+        }
+        JsonValue::Number(_)
+        | JsonValue::String(_)
+        | JsonValue::Array(_)
+        | JsonValue::Object(_) => JsonColumnKind::String,
+    }
+}
+
+fn merge_json_kinds(left: JsonColumnKind, right: JsonColumnKind) -> JsonColumnKind {
+    use JsonColumnKind::*;
+    match (left, right) {
+        (Null, kind) | (kind, Null) => kind,
+        (left, right) if left == right => left,
+        (Int64, Float64) | (Float64, Int64) => Float64,
+        _ => String,
+    }
+}
+
+fn json_value_as_text(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::Null => None,
+        JsonValue::String(value) => Some(value.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+fn json_records_to_frame(records: &[JsonMap<String, JsonValue>]) -> Result<DataFrame, String> {
+    if records.is_empty() {
+        return Err("El JSON no contiene registros.".to_owned());
+    }
+    let mut seen = HashSet::new();
+    let mut names = Vec::new();
+    for record in records {
+        for name in record.keys() {
+            if seen.insert(name.clone()) {
+                names.push(name.clone());
+            }
+        }
+    }
+    if names.is_empty() {
+        return Err("Los registros JSON no contienen campos.".to_owned());
+    }
+
+    let mut columns = Vec::with_capacity(names.len());
+    for name in names {
+        let values = records
+            .iter()
+            .map(|record| record.get(&name).unwrap_or(&JsonValue::Null))
+            .collect::<Vec<_>>();
+        let mut kind = values.iter().fold(JsonColumnKind::Null, |kind, value| {
+            merge_json_kinds(kind, json_value_kind(value))
+        });
+        if kind == JsonColumnKind::Float64
+            && values.iter().any(|value| {
+                value
+                    .as_i64()
+                    .is_some_and(|number| number.unsigned_abs() > (1_u64 << 53))
+            })
+        {
+            kind = JsonColumnKind::String;
+        }
+        let column_name = name.as_str().into();
+        let column = match kind {
+            JsonColumnKind::Null => {
+                Column::full_null(column_name, values.len(), &polars::prelude::DataType::Null)
+            }
+            JsonColumnKind::Boolean => Series::new(
+                column_name,
+                values
+                    .iter()
+                    .map(|value| value.as_bool())
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+            JsonColumnKind::Int64 => Series::new(
+                column_name,
+                values
+                    .iter()
+                    .map(|value| value.as_i64())
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+            JsonColumnKind::Float64 => Series::new(
+                column_name,
+                values
+                    .iter()
+                    .map(|value| value.as_f64())
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+            JsonColumnKind::String => Series::new(
+                column_name,
+                values
+                    .iter()
+                    .map(|value| json_value_as_text(value))
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+        };
+        columns.push(column);
+    }
+    DataFrame::new(records.len(), columns)
+        .map_err(|error| format!("No se pudo construir el dataset JSON: {error}"))
+}
+
+fn load_json_records(path: &Path) -> Result<DataFrame, String> {
+    let file =
+        fs::File::open(path).map_err(|error| format!("No se pudo abrir el JSON: {error}"))?;
+    let mut values =
+        serde_json::Deserializer::from_reader(BufReader::new(file)).into_iter::<JsonValue>();
+    let first = values
+        .next()
+        .transpose()
+        .map_err(|error| format!("El JSON no es válido: {error}"))?
+        .ok_or_else(|| "El archivo JSON está vacío.".to_owned())?;
+
+    let records = match first {
+        JsonValue::Array(items) => {
+            if values.next().is_some() {
+                return Err("Un arreglo JSON debe ser el único valor del archivo.".to_owned());
+            }
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| match value {
+                    JsonValue::Object(record) => Ok(record),
+                    _ => Err(format!("El registro JSON {} no es un objeto.", index + 1)),
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        }
+        JsonValue::Object(record) => {
+            let mut records = vec![record];
+            for (index, value) in values.enumerate() {
+                let value = value.map_err(|error| format!("JSON Lines inválido: {error}"))?;
+                match value {
+                    JsonValue::Object(record) => records.push(record),
+                    _ => {
+                        return Err(format!(
+                            "La línea JSON {} no contiene un objeto.",
+                            index + 2
+                        ))
+                    }
+                }
+            }
+            records
+        }
+        _ => {
+            return Err(
+                "El JSON debe ser un arreglo de objetos o contener un objeto por línea.".to_owned(),
+            )
+        }
+    };
+    json_records_to_frame(&records)
+}
+
+fn read_utf8_delimited_sample(path: &Path) -> Result<(String, bool), String> {
+    let file_size = fs::metadata(path)
+        .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?
+        .len();
+    let mut bytes = Vec::with_capacity(DELIMITED_SAMPLE_BYTES as usize);
+    fs::File::open(path)
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
+        .take(DELIMITED_SAMPLE_BYTES)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?;
+    let complete = file_size <= bytes.len() as u64;
+
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+    match std::str::from_utf8(bytes) {
+        Ok(sample) => Ok((sample.to_owned(), complete)),
+        Err(error) if !complete && error.error_len().is_none() => {
+            // La muestra puede terminar a mitad de un carácter UTF-8. Solo se
+            // descarta esa cola incompleta; un byte inválido interior se rechaza.
+            let valid = &bytes[..error.valid_up_to()];
+            Ok((std::str::from_utf8(valid).unwrap_or_default().to_owned(), false))
+        }
+        Err(_) => Err(
+            "El archivo delimitado no contiene UTF-8 válido. Columnia no sustituye caracteres ni aplica codificaciones heredadas automáticamente."
+                .to_owned(),
+        ),
+    }
+}
+
+fn delimited_field_counts(sample: &str, delimiter: char, complete: bool) -> Vec<usize> {
+    let mut counts = Vec::new();
+    let mut fields = 1usize;
+    let mut in_quotes = false;
+    let mut has_content = false;
+    let mut chars = sample.chars().peekable();
+
+    while let Some(character) = chars.next() {
+        match character {
+            '"' if in_quotes && chars.peek() == Some(&'"') => {
+                has_content = true;
+                chars.next();
+            }
+            '"' => {
+                in_quotes = !in_quotes;
+                has_content = true;
+            }
+            value if value == delimiter && !in_quotes => {
+                fields += 1;
+                has_content = true;
+            }
+            '\n' if !in_quotes => {
+                if has_content {
+                    counts.push(fields);
+                    if counts.len() == 24 {
+                        break;
+                    }
+                }
+                fields = 1;
+                has_content = false;
+            }
+            '\r' if !in_quotes => {}
+            value => has_content |= !value.is_whitespace(),
+        }
+    }
+
+    if complete && !in_quotes && has_content && counts.len() < 24 {
+        counts.push(fields);
+    }
+    counts
+}
+
+fn detect_delimiter(path: &Path, extension: &str) -> Result<u8, String> {
+    if extension == "tsv" {
+        // La extensión explícita tiene prioridad sobre cualquier carácter que
+        // aparezca dentro de los valores.
+        read_utf8_delimited_sample(path)?;
+        return Ok(b'\t');
+    }
+
+    let (sample, complete) = read_utf8_delimited_sample(path)?;
+    let candidates = [(b',', ','), (b';', ';'), (b'\t', '\t'), (b'|', '|')];
+    let mut valid = candidates
+        .into_iter()
+        .filter_map(|(byte, delimiter)| {
+            let counts = delimited_field_counts(&sample, delimiter, complete);
+            let first = *counts.first()?;
+            (counts.len() >= 2 && first > 1 && counts.iter().all(|count| *count == first))
+                .then_some((byte, first))
+        })
+        .collect::<Vec<_>>();
+    valid.sort_unstable_by_key(|(_, field_count)| std::cmp::Reverse(*field_count));
+
+    match valid.as_slice() {
+        [(delimiter, _)] => Ok(*delimiter),
+        [(delimiter, best), (_, second), ..] if best > second => Ok(*delimiter),
+        _ => Ok(b','),
+    }
+}
+
+fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
+    let separator = detect_delimiter(path, extension)?;
+    CsvReadOptions::default()
+        .with_has_header(true)
+        .with_infer_schema_length(Some(0))
+        .map_parse_options(|options| options.with_separator(separator))
+        .try_into_reader_with_file_path(Some(path.to_path_buf()))
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
+        .finish()
+        .map_err(|error| {
+            format!("No se pudo interpretar el archivo delimitado como UTF-8: {error}")
+        })
 }
 
 #[cfg(test)]
@@ -1167,13 +1553,7 @@ where
     }
     ensure_not_cancelled(is_cancelled())?;
     report("Leyendo y detectando columnas", 25);
-    let frame = CsvReadOptions::default()
-        .with_has_header(true)
-        .with_infer_schema_length(Some(100))
-        .try_into_reader_with_file_path(Some(path.to_path_buf()))
-        .map_err(|error| format!("No se pudo abrir el CSV: {error}"))?
-        .finish()
-        .map_err(|error| format!("No se pudo interpretar el CSV: {error}"))?;
+    let frame = read_delimited_frame(path, &extension)?;
 
     ensure_not_cancelled(is_cancelled())?;
     report("Preparando vista previa", 85);
@@ -1199,21 +1579,7 @@ where
     report("Leyendo y detectando columnas", 25);
 
     let frame = match extension.as_str() {
-        "csv" | "tsv" => {
-            let separator = if extension == "tsv" { b'\t' } else { b',' };
-            CsvReadOptions::default()
-                .with_has_header(true)
-                .with_infer_schema_length(if extension == "tsv" {
-                    Some(0)
-                } else {
-                    Some(100)
-                })
-                .map_parse_options(|options| options.with_separator(separator))
-                .try_into_reader_with_file_path(Some(path.to_path_buf()))
-                .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
-                .finish()
-                .map_err(|error| format!("No se pudo interpretar el archivo delimitado: {error}"))?
-        }
+        "csv" | "tsv" | "txt" => read_delimited_frame(path, &extension)?,
         "parquet" => {
             let file = fs::File::open(path)
                 .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
@@ -1223,6 +1589,7 @@ where
                 .finish()
                 .map_err(|error| format!("No se pudo interpretar el Parquet: {error}"))?
         }
+        "json" | "jsonl" | "ndjson" => load_json_records(path)?,
         extension if spreadsheet_extensions(extension) => {
             return Err("Selecciona primero una hoja del libro.".to_owned())
         }
@@ -1317,7 +1684,10 @@ pub async fn pick_dataset_source(
         .file()
         .add_filter(
             "Datasets compatibles",
-            &["csv", "tsv", "parquet", "xlsx", "xls", "xlsb", "ods"],
+            &[
+                "csv", "tsv", "txt", "json", "jsonl", "ndjson", "parquet", "xlsx", "xls", "xlsb",
+                "ods",
+            ],
         )
         .blocking_pick_file();
 
@@ -1348,6 +1718,8 @@ pub async fn pick_dataset_source(
         "excel"
     } else if extension == "parquet" {
         "parquet"
+    } else if matches!(extension.as_str(), "json" | "jsonl" | "ndjson") {
+        "json"
     } else if extension == "tsv" {
         "tsv"
     } else {
@@ -1382,6 +1754,7 @@ pub async fn pick_dataset_source(
         } else {
             None
         },
+        is_compressed_container: matches!(extension.as_str(), "xlsx" | "xlsb" | "ods"),
     }))
 }
 
@@ -1390,6 +1763,7 @@ pub async fn load_dataset_selection(
     app: AppHandle,
     selection_id: String,
     sheet_id: Option<String>,
+    header_mode: Option<SpreadsheetHeaderMode>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<DatasetPreview, String> {
     let generation = app.state::<DatasetState>().begin_load();
@@ -1418,6 +1792,8 @@ pub async fn load_dataset_selection(
         }
         let extension = dataset_extension(&pending.path)?;
         let (frame, preview) = if spreadsheet_extensions(&extension) {
+            let header_mode = header_mode
+                .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
             let index = sheet_id
                 .as_deref()
                 .ok_or_else(|| "Selecciona una hoja del libro.".to_owned())?
@@ -1428,7 +1804,7 @@ pub async fn load_dataset_selection(
                 .get(index)
                 .ok_or_else(|| "La hoja seleccionada no existe en el libro.".to_owned())?;
             send_progress(&on_progress, "load", "Leyendo hoja", 25);
-            let frame = load_spreadsheet_sheet(&pending.path, sheet_name)?;
+            let frame = load_spreadsheet_sheet(&pending.path, sheet_name, header_mode)?;
             ensure_not_cancelled(app.state::<DatasetState>().load_was_cancelled(generation))?;
             send_progress(&on_progress, "load", "Preparando vista previa", 85);
             let preview = dataset_preview(&pending.path, &frame)?;
@@ -1436,6 +1812,9 @@ pub async fn load_dataset_selection(
         } else {
             if sheet_id.is_some() {
                 return Err("Este formato no utiliza hojas.".to_owned());
+            }
+            if header_mode.is_some() {
+                return Err("Este formato no utiliza opciones de encabezado de Excel.".to_owned());
             }
             load_dataset_with_progress(
                 &pending.path,
@@ -1852,6 +2231,10 @@ mod tests {
     }
 
     fn temporary_delimited(extension: &str, contents: &str) -> PathBuf {
+        temporary_delimited_bytes(extension, contents.as_bytes())
+    }
+
+    fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("el reloj del sistema debe ser válido")
@@ -1861,7 +2244,7 @@ mod tests {
             std::process::id()
         ));
         let mut file = File::create(&path).expect("se debe crear el archivo temporal");
-        file.write_all(contents.as_bytes())
+        file.write_all(contents)
             .expect("se debe escribir el archivo temporal");
         path
     }
@@ -1880,6 +2263,7 @@ mod tests {
         assert_eq!(preview.row_count, 2);
         assert_eq!(preview.column_count, 2);
         assert_eq!(preview.columns[0].name, "city");
+        assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
         assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
@@ -1910,13 +2294,13 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_dataset_files() {
-        let path = std::env::temp_dir().join("columnia-invalid-dataset.txt");
+        let path = std::env::temp_dir().join("columnia-invalid-dataset.bin");
         File::create(&path).expect("se debe poder crear el archivo temporal");
 
         let error = validate_dataset_file(&path)
             .expect_err("un archivo que no es un dataset compatible debe rechazarse");
 
-        assert!(error.contains("admite CSV, TSV, Parquet y libros Excel/ODS"));
+        assert!(error.contains("admite CSV, TSV, TXT delimitado, JSON, Parquet y libros Excel/ODS"));
         fs::remove_file(path).expect("se debe limpiar el archivo temporal");
     }
 
@@ -1981,12 +2365,38 @@ mod tests {
         assert_eq!(temperature.minimum.as_deref(), Some("25"));
         assert_eq!(temperature.maximum.as_deref(), Some("30"));
         assert_eq!(temperature.mean, Some(27.75));
-        assert_eq!(temperature.empty_count, None);
+        assert_eq!(temperature.empty_count, Some(0));
+        assert_eq!(temperature.suggested_type, Some("integer"));
         assert_eq!(temperature.first_quartile, Some(27.25));
         assert_eq!(temperature.median, Some(28.0));
         assert_eq!(temperature.third_quartile, Some(28.5));
         assert!((temperature.standard_deviation.unwrap() - 2.061_552).abs() < 0.001);
         assert_eq!(temperature.outlier_count, Some(1));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn csv_preserves_lexical_values_and_does_not_profile_identifiers_as_numbers() {
+        let path = temporary_csv(
+            "identifier,amount,huge\n00123,1.00,184467440737095516160\n00456,2.50,184467440737095516161\n00789,3.00,184467440737095516162\n",
+        );
+        let (frame, preview) =
+            load_csv(&path).expect("el CSV debe cargar sin inferencia destructiva");
+        let profile = profile_dataset(&frame).expect("el perfil semántico debe calcularse");
+
+        assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
+        assert_eq!(preview.rows[0][0].as_deref(), Some("00123"));
+        assert_eq!(preview.rows[0][1].as_deref(), Some("1.00"));
+        assert_eq!(preview.rows[0][2].as_deref(), Some("184467440737095516160"));
+        assert_eq!(profile.columns[0].suggested_type, None);
+        assert_eq!(profile.columns[0].mean, None);
+        assert_eq!(profile.columns[0].outlier_count, None);
+        assert_eq!(profile.columns[1].suggested_type, Some("decimal"));
+        assert_eq!(profile.columns[1].minimum.as_deref(), Some("1"));
+        assert!((profile.columns[1].mean.unwrap() - 2.166_666).abs() < 0.001);
+        assert_eq!(profile.columns[2].suggested_type, None);
+        assert_eq!(profile.columns[2].mean, None);
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
@@ -2372,6 +2782,64 @@ mod tests {
     }
 
     #[test]
+    fn detects_semicolon_csv_and_ignores_delimiters_inside_quotes() {
+        let path = temporary_delimited(
+            "csv",
+            "id;place;amount\n00123;\"Santo Domingo, RD\";1.00\n00007;Santiago;2.50\n",
+        );
+
+        let (frame, preview) = load_dataset_with_progress(&path, |_, _| {}, || false)
+            .expect("el CSV con punto y coma debe cargar");
+
+        assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
+        assert_eq!(preview.column_count, 3);
+        assert_eq!(preview.rows[0][0].as_deref(), Some("00123"));
+        assert_eq!(preview.rows[0][1].as_deref(), Some("Santo Domingo, RD"));
+        assert_eq!(preview.rows[0][2].as_deref(), Some("1.00"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn accepts_utf8_bom_without_including_it_in_the_header() {
+        let path = temporary_delimited("csv", "\u{feff}id;city\n001;Santo Domingo\n002;Santiago\n");
+
+        let (frame, preview) = load_dataset_with_progress(&path, |_, _| {}, || false)
+            .expect("el CSV UTF-8 con BOM debe cargar");
+
+        assert_eq!(frame.get_column_names()[0].as_str(), "id");
+        assert_eq!(preview.rows[0][0].as_deref(), Some("001"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn detects_pipe_delimited_txt_without_numeric_inference() {
+        let path = temporary_delimited(
+            "txt",
+            "code|description|amount\n0001|alpha|1.00\n0002|beta|2.50\n",
+        );
+
+        let (frame, preview) = load_dataset_with_progress(&path, |_, _| {}, || false)
+            .expect("el TXT delimitado debe cargar");
+
+        assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
+        assert_eq!(preview.column_count, 3);
+        assert_eq!(preview.rows[0][0].as_deref(), Some("0001"));
+        assert_eq!(preview.rows[0][2].as_deref(), Some("1.00"));
+        fs::remove_file(path).expect("se debe limpiar el TXT temporal");
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_instead_of_replacing_characters() {
+        let path = temporary_delimited_bytes("csv", b"id,city\n001,Santo Domingo\n002,Bogot\xe1\n");
+
+        let error = load_dataset_with_progress(&path, |_, _| {}, || false)
+            .expect_err("los bytes que no son UTF-8 deben rechazarse");
+
+        assert!(error.contains("UTF-8 válido"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
     fn converts_spreadsheet_range_with_unique_headers_and_safe_types() {
         let mut range = Range::<Data>::new((0, 0), (2, 3));
         range.set_value((0, 0), Data::String("id".to_owned()));
@@ -2387,7 +2855,8 @@ mod tests {
         range.set_value((1, 3), Data::Bool(true));
         range.set_value((2, 3), Data::Bool(false));
 
-        let frame = spreadsheet_range_to_frame(&range).expect("la hoja debe convertirse");
+        let frame = spreadsheet_range_to_frame(&range, SpreadsheetHeaderMode::FirstRow)
+            .expect("la hoja debe convertirse");
         assert_eq!(frame.height(), 2);
         assert_eq!(
             frame
@@ -2404,5 +2873,99 @@ mod tests {
         let page = dataset_page(&frame, 0, 50).expect("debe generarse la vista previa");
         assert_eq!(page.rows[0][1].as_deref(), Some("001"));
         assert_eq!(page.rows[1][1].as_deref(), Some("#DIV/0!"));
+    }
+
+    #[test]
+    fn generates_spreadsheet_headers_without_consuming_the_first_row() {
+        let mut range = Range::<Data>::new((0, 0), (1, 1));
+        range.set_value((0, 0), Data::String("001".to_owned()));
+        range.set_value((0, 1), Data::String("Santo Domingo".to_owned()));
+        range.set_value((1, 0), Data::String("002".to_owned()));
+        range.set_value((1, 1), Data::String("Santiago".to_owned()));
+
+        let frame = spreadsheet_range_to_frame(&range, SpreadsheetHeaderMode::Generated)
+            .expect("la hoja debe usar encabezados generados");
+
+        assert_eq!(frame.height(), 2);
+        assert_eq!(
+            frame
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["column_1", "column_2"]
+        );
+        let page = dataset_page(&frame, 0, 50).expect("debe conservar la primera fila");
+        assert_eq!(page.rows[0][0].as_deref(), Some("001"));
+        assert_eq!(page.rows[0][1].as_deref(), Some("Santo Domingo"));
+    }
+
+    #[test]
+    fn loads_json_record_array_with_union_of_fields_and_nested_values() {
+        let path = temporary_delimited(
+            "json",
+            r#"[
+                {"id": 1, "active": true, "meta": {"city": "Santo Domingo"}},
+                {"id": 2, "amount": 1.5, "active": null, "meta": ["a", "b"]}
+            ]"#,
+        );
+
+        let (frame, preview) = load_dataset_with_progress(&path, |_, _| {}, || false)
+            .expect("el arreglo JSON debe cargar");
+
+        assert_eq!(frame.height(), 2);
+        assert_eq!(
+            frame
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["active", "id", "meta", "amount"]
+        );
+        assert_eq!(frame.dtypes()[0], polars::prelude::DataType::Boolean);
+        assert_eq!(frame.dtypes()[1], polars::prelude::DataType::Int64);
+        assert_eq!(frame.dtypes()[2], polars::prelude::DataType::String);
+        assert_eq!(frame.dtypes()[3], polars::prelude::DataType::Float64);
+        assert_eq!(
+            preview.rows[0][2].as_deref(),
+            Some(r#"{"city":"Santo Domingo"}"#)
+        );
+        assert_eq!(preview.rows[0][3], None);
+
+        fs::remove_file(path).expect("se debe limpiar el JSON temporal");
+    }
+
+    #[test]
+    fn loads_json_lines_and_rejects_non_object_records() {
+        let valid = temporary_delimited(
+            "jsonl",
+            "{\"code\":\"001\",\"value\":10}\n{\"code\":\"002\",\"value\":20}\n",
+        );
+        let (_, preview) = load_dataset_with_progress(&valid, |_, _| {}, || false)
+            .expect("JSON Lines debe cargar");
+        assert_eq!(preview.rows[0][0].as_deref(), Some("001"));
+        fs::remove_file(valid).expect("se debe limpiar JSON Lines");
+
+        let invalid = temporary_delimited("json", "[{\"id\":1}, 2]");
+        let error = load_dataset_with_progress(&invalid, |_, _| {}, || false)
+            .expect_err("los registros escalares deben rechazarse");
+        assert!(error.contains("registro JSON 2 no es un objeto"));
+        fs::remove_file(invalid).expect("se debe limpiar el JSON inválido");
+    }
+
+    #[test]
+    fn preserves_json_integers_larger_than_u64_as_text() {
+        let path = temporary_delimited(
+            "json",
+            "[{\"identifier\":184467440737095516160},{\"identifier\":1}]",
+        );
+
+        let (frame, preview) = load_dataset_with_progress(&path, |_, _| {}, || false)
+            .expect("el entero JSON grande debe preservarse");
+
+        assert_eq!(frame.dtypes()[0], polars::prelude::DataType::String);
+        assert_eq!(preview.rows[0][0].as_deref(), Some("184467440737095516160"));
+        assert_eq!(preview.rows[1][0].as_deref(), Some("1"));
+        fs::remove_file(path).expect("se debe limpiar el JSON temporal");
     }
 }

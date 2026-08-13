@@ -1,6 +1,6 @@
 [package]
 name = "columnia"
-version = "0.11.0"
+version = "0.14.0"
 description = "Estación local para preparar datos confiables"
 edition = "2021"
 
@@ -16,6 +16,7 @@ calamine = { version = "0.36.1", default-features = false, features = ["chrono"]
 chrono = { version = "0.4.45", default-features = false }
 polars = { version = "0.54.4", default-features = false, features = ["csv", "fmt", "parquet", "dtype-slim"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2.7.2"
 tempfile = "3"

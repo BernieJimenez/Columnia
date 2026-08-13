@@ -83,6 +83,9 @@ button, input, select, textarea { font: inherit; }
 .sheet-dialog__panel h3 { margin: 6px 0 8px; }
 .sheet-dialog__panel label { display: block; margin: 22px 0 8px; color: #47625f; font-size: .8rem; font-weight: 800; text-transform: uppercase; }
 .sheet-dialog__panel select { width: 100%; padding: 11px 12px; border: 1px solid #8eaaa3; color: #18343a; background: #fff; }
+.sheet-dialog__options { display: grid; gap: 10px; margin: 20px 0 0; padding: 0; border: 0; }
+.sheet-dialog__options legend { margin-bottom: 8px; color: #47625f; font-size: .8rem; font-weight: 800; text-transform: uppercase; }
+.sheet-dialog__options label { display: flex; align-items: center; gap: 9px; margin: 0; color: inherit; font-size: .9rem; font-weight: 600; text-transform: none; }
 .sheet-dialog__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .operation-progress { margin-top: 22px; padding: 14px 16px; border: 1px solid #b8c9c4; background: #eef4f1; }
 .operation-progress div { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 9px; color: #31535a; font-size: .84rem; }

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -17,3 +17,27 @@ describe("Tauri desktop assets", () => {
   });
 });
 
+describe("Tauri desktop security boundary", () => {
+  it("keeps production CSP local-only and blocks embedded remote content", () => {
+    const config = JSON.parse(
+      readFileSync(resolve(projectRoot, "src-tauri/tauri.conf.json"), "utf8"),
+    ) as { app: { security: { csp: Record<string, string> } } };
+    const csp = config.app.security.csp;
+
+    expect(csp["default-src"]).toBe("'self'");
+    expect(csp["script-src"]).toBe("'self'");
+    expect(csp["object-src"]).toBe("'none'");
+    expect(csp["frame-src"]).toBe("'none'");
+    expect(csp["connect-src"]).not.toMatch(/https:|wss:/);
+  });
+
+  it("grants the main window no filesystem, shell, network or opener capability", () => {
+    const capability = JSON.parse(
+      readFileSync(resolve(projectRoot, "src-tauri/capabilities/main.json"), "utf8"),
+    ) as { windows: string[]; permissions: string[] };
+
+    expect(capability.windows).toEqual(["main"]);
+    expect(capability.permissions).toEqual(["core:default"]);
+    expect(capability.permissions.join(" ")).not.toMatch(/fs:|shell:|http:|opener:/);
+  });
+});

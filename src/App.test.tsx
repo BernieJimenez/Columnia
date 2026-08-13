@@ -22,6 +22,7 @@ function mockDatasetLoad(dataset: DatasetPreview) {
     format: "csv",
     sheets: [],
     defaultSheetId: null,
+    isCompressedContainer: false,
   });
   return vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue(dataset);
 }
@@ -75,7 +76,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     expect(screen.getByRole("button", { name: "Seleccionar otro dataset" })).toBeInTheDocument();
-    expect(screen.getByText(/Se admiten CSV, TSV, Parquet, Excel y ODS de hasta 500 MB/)).toBeInTheDocument();
+    expect(screen.getByText(/Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta 500 MB/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
   });
 
@@ -131,8 +132,9 @@ describe("App", () => {
     vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
       selectionId: "selection-progress", fileName: "progreso.csv", fileSizeBytes: 128,
       format: "csv", sheets: [], defaultSheetId: null,
+      isCompressedContainer: false,
     });
-    vi.spyOn(bridge, "loadDatasetSelection").mockImplementation((_selectionId, _sheetId, onProgress) => {
+    vi.spyOn(bridge, "loadDatasetSelection").mockImplementation((_selectionId, _sheetId, _headerMode, onProgress) => {
       onProgress?.({ operation: "load", stage: "Leyendo y detectando columnas", percent: 25 });
       return loadPromise;
     });
@@ -200,11 +202,11 @@ describe("App", () => {
       rejectReplacement = reject;
     });
     vi.spyOn(bridge, "pickDatasetSource")
-      .mockResolvedValueOnce({ selectionId: "selection-active", fileName: "activo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null })
-      .mockResolvedValueOnce({ selectionId: "selection-replacement", fileName: "nuevo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null });
+      .mockResolvedValueOnce({ selectionId: "selection-active", fileName: "activo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false })
+      .mockResolvedValueOnce({ selectionId: "selection-replacement", fileName: "nuevo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false });
     vi.spyOn(bridge, "loadDatasetSelection")
       .mockResolvedValueOnce(activeDataset)
-      .mockImplementationOnce((_selectionId, _sheetId, onProgress) => {
+      .mockImplementationOnce((_selectionId, _sheetId, _headerMode, onProgress) => {
         onProgress?.({ operation: "load", stage: "Leyendo y detectando columnas", percent: 25 });
         return replacementPromise;
       });
@@ -697,6 +699,7 @@ describe("App", () => {
       format: "excel",
       sheets: [{ id: "0", name: "Resumen" }, { id: "1", name: "Ventas 2026" }],
       defaultSheetId: "0",
+      isCompressedContainer: true,
     });
     const loadSpy = vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
       fileName: "ventas.xlsx",
@@ -711,12 +714,14 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     const dialog = await screen.findByRole("dialog", { name: /Elegir hoja de ventas.xlsx/ });
     expect(within(dialog).getByRole("option", { name: "Ventas 2026" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("note")).toHaveTextContent(/ocupar bastante más memoria/);
     expect(loadSpy).not.toHaveBeenCalled();
     fireEvent.change(within(dialog).getByLabelText("Hoja"), { target: { value: "1" } });
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Generar encabezados/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Cargar hoja" }));
 
     expect(await screen.findByRole("heading", { name: "ventas.xlsx" })).toBeInTheDocument();
-    expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", expect.any(Function));
+    expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function));
     expect(JSON.stringify(loadSpy.mock.calls)).not.toContain("C:\\\\");
   });
 });

@@ -20,7 +20,7 @@ export interface DatasetPreview {
   rows: Array<Array<string | null>>;
 }
 
-export type DatasetFormat = "csv" | "tsv" | "parquet" | "excel";
+export type DatasetFormat = "csv" | "tsv" | "json" | "parquet" | "excel";
 
 export interface WorkbookSheet {
   id: string;
@@ -34,7 +34,10 @@ export interface DatasetSourceInspection {
   format: DatasetFormat;
   sheets: WorkbookSheet[];
   defaultSheetId: string | null;
+  isCompressedContainer: boolean;
 }
+
+export type SpreadsheetHeaderMode = "firstRow" | "generated";
 
 export interface DatasetPage {
   offset: number;
@@ -145,11 +148,13 @@ export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {
 export function loadDatasetSelection(
   selectionId: string,
   sheetId: string | null,
+  headerMode: SpreadsheetHeaderMode | null,
   onProgress?: ProgressHandler,
 ): Promise<DatasetPreview> {
   return invoke<DatasetPreview>("load_dataset_selection", {
     selectionId,
     sheetId,
+    headerMode,
     onProgress: progressChannel(onProgress),
   });
 }

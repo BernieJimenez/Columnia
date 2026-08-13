@@ -1,24 +1,25 @@
-[CmdletBinding()]
 param(
-    [ValidateSet("Fast", "Full")]
+    [ValidateSet("Fast", "Full", "Release")]
     [string]$Profile = "Fast"
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot ".."))
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$TauriRoot = Join-Path $ProjectRoot "src-tauri"
 
 function Invoke-Checked {
     param(
-        [Parameter(Mandatory)] [string]$Command,
-        [Parameter(Mandatory)] [string[]]$Arguments,
-        [Parameter(Mandatory)] [string]$WorkingDirectory
+        [string]$Label,
+        [string]$WorkingDirectory,
+        [scriptblock]$Command
     )
 
+    Write-Host "[$Label]"
     Push-Location $WorkingDirectory
     try {
-        & $Command @Arguments
+        & $Command
         if ($LASTEXITCODE -ne 0) {
-            throw "Falló: $Command $($Arguments -join ' ') (código $LASTEXITCODE)"
+            throw "$Label falló con código $LASTEXITCODE."
         }
     }
     finally {
@@ -26,22 +27,18 @@ function Invoke-Checked {
     }
 }
 
-Invoke-Checked -Command "npm" -Arguments @("run", "build") -WorkingDirectory $projectRoot
-Invoke-Checked -Command "npm" -Arguments @("test") -WorkingDirectory $projectRoot
+Invoke-Checked "Rust format" $TauriRoot { cargo fmt -- --check }
+Invoke-Checked "Rust check" $TauriRoot { cargo check }
+Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run }
+Invoke-Checked "Frontend build" $ProjectRoot { npm run build }
 
-$cargo = Get-Command cargo -ErrorAction SilentlyContinue
-if (-not $cargo) {
-    throw "Rust/Cargo no está instalado. Instala rustup y vuelve a ejecutar tools/check.ps1."
+if ($Profile -in @("Full", "Release")) {
+    Invoke-Checked "Rust clippy" $TauriRoot { cargo clippy --all-targets -- -D warnings }
+    Invoke-Checked "Rust tests" $TauriRoot { cargo test --lib }
 }
 
-$rustRoot = Join-Path $projectRoot "src-tauri"
-Invoke-Checked -Command "cargo" -Arguments @("fmt", "--check") -WorkingDirectory $rustRoot
-Invoke-Checked -Command "cargo" -Arguments @("clippy", "--all-targets", "--", "-D", "warnings") -WorkingDirectory $rustRoot
-Invoke-Checked -Command "cargo" -Arguments @("test") -WorkingDirectory $rustRoot
-
-if ($Profile -eq "Full") {
-    Invoke-Checked -Command "npm" -Arguments @("run", "tauri", "build", "--", "--no-bundle") -WorkingDirectory $projectRoot
+if ($Profile -eq "Release") {
+    Invoke-Checked "Tauri release build" $ProjectRoot { npm run tauri build -- --no-bundle }
 }
 
-Write-Host "Validación local $Profile completada." -ForegroundColor Green
-
+Write-Host "Validación local $Profile completada."

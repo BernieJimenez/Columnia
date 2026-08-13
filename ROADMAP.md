@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.11.0`.
+- Versión actual del prototipo: `0.14.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -321,9 +321,8 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 - [x] Crear el primer comando Tauri tipado de selección y carga CSV.
 - [x] Añadir un canal Tauri tipado de progreso para carga CSV y perfilado. El
   progreso de lectura es por fases; el perfil avanza por columnas.
-- [ ] Leer y perfilar CSV, Excel y Parquet con datasets representativos. La carga
-  y el perfil inicial de CSV ya funcionan; faltan perfiles avanzados, Excel y
-  Parquet.
+- [x] Leer y perfilar CSV, TSV, JSON, Excel/ODS y Parquet con fixtures sintéticos
+  representativos, conservando tipos nativos donde el formato sí aporta esquema.
 - [x] Implementar una vista previa paginada sin enviar el dataset completo a
   React: páginas de 50 filas obtenidas desde la sesión Rust.
 - [ ] Ejecutar una receta lazy con limpieza, tipos, filtro y columna calculada.
@@ -429,9 +428,31 @@ nulos preservados y tipos seguros para booleanos, enteros, decimales, fechas y
 duraciones; las mezclas incompatibles y los errores de celda se conservan como
 texto. La sustitución sigue siendo transaccional y no borra el dataset activo si
 se cancela o falla. TSV usa tabulador fijo y se lee como texto para conservar
-ceros iniciales, enteros grandes y formatos como `1.00`. CSV mantiene por ahora
-su inferencia existente; unificar fidelidad léxica y perfil numérico semántico
-queda registrado para un hito posterior.
+ceros iniciales, enteros grandes y formatos como `1.00`.
+La versión 0.12.0 completa los formatos de entrada del flujo de referencia con
+JSON de registros y JSON Lines. Solo se aceptan objetos tabulares: los campos se
+unen en orden determinista, las ausencias quedan como nulos y los valores
+anidados se preservan serializados como JSON. Los escalares o arreglos con
+registros no-objeto se rechazan con un error explícito. La carga mantiene el
+token opaco, el límite provisional de 500 MB y la publicación transaccional del
+dataset activo. El hito I1 de lectura y perfilado multiformato queda completado
+con fixtures sintéticos locales.
+La versión 0.13.0 elimina la inferencia destructiva de CSV: todas sus columnas se
+leen como texto para conservar exactamente identificadores con ceros iniciales,
+enteros grandes y literales decimales como `1.00`. El perfil recupera estadísticas
+numéricas semánticas solo cuando todos los valores no vacíos pueden convertirse
+sin confundir identificadores ni exceder la precisión entera exacta de `f64`.
+Así, mínimo, máximo, promedio, dispersión, cuartiles y outliers siguen disponibles
+para medidas textuales seguras, mientras códigos como `00123` permanecen texto y
+no generan sugerencias numéricas engañosas.
+La versión 0.14.0 completa tres frentes paralelos. Los libros permiten elegir
+entre usar la primera fila como encabezado o conservarla como datos con nombres
+generados; los contenedores comprimidos muestran una advertencia de memoria.
+CSV/TXT detectan conservadoramente `,`, `;`, tabulador o `|` sobre una muestra
+UTF-8 acotada y consciente de comillas; TSV fuerza tabulador, UTF-8 BOM se acepta
+y bytes inválidos se rechazan sin sustitución. Además, `tools/check.ps1` aporta
+perfiles Fast, Full y Release, y pruebas locales fijan la CSP y capability mínima.
+No se añade CI, workflows ni servicios de pago.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -440,11 +461,14 @@ se generaron los recursos multiplataforma y una prueba impide su regresión.
 
 ### Fase I2 — Frontera de seguridad del escritorio
 
-- [ ] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota.
-- [ ] Crear capabilities separadas por ventana y conceder solo permisos usados.
-- [ ] Mantener red en Rust; el frontend no realizará peticiones externas directas.
+- [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
+  cubierta por una prueba local de regresión.
+- [x] Crear una capability exclusiva para la ventana principal y conceder solo
+  `core:default`; filesystem, shell, HTTP y opener permanecen fuera del frontend.
+- [x] Mantener red fuera del frontend; la CSP de producción no admite conexiones
+  HTTP(S)/WebSocket externas y una prueba impide ampliarla accidentalmente.
 - [ ] Validar y canonicalizar toda ruta antes de leer, escribir, abrir o ejecutar.
-- [ ] Usar selectores nativos; el frontend recibe handles/identificadores, no
+- [x] Usar selectores nativos; el frontend recibe handles/identificadores, no
   autoridad global sobre el filesystem.
 - [ ] Implementar instancia única y política de recuperación de sesión.
 - [ ] Actualizar threat model para datasets, SQL, fórmulas de Excel y updater.
@@ -454,11 +478,11 @@ se generaron los recursos multiplataforma y una prueba impide su regresión.
 
 ### Fase I3 — Calidad local reproducible
 
-- [ ] Crear `tools/check.ps1` como entrada única para `cargo fmt --check`, Clippy
+- [x] Crear `tools/check.ps1` como entrada única para `cargo fmt --check`, Clippy
   con warnings como errores, `cargo test`, TypeScript, Vitest y build Tauri.
-- [ ] Añadir perfiles rápido, completo y release; el perfil release siempre
+- [x] Añadir perfiles rápido, completo y release; el perfil release siempre
   ejecutará todos los gates.
-- [ ] Ejecutar las pruebas puras de forma local sin requerir abrir la ventana.
+- [x] Ejecutar las pruebas puras de forma local sin requerir abrir la ventana.
 - [ ] Mocks oficiales/controlados de Tauri para pruebas del frontend.
 - [ ] Generar tipos TypeScript desde contratos Rust o verificar su deriva dentro
   de `tools/check.ps1`.
@@ -627,6 +651,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.9.0: Deshacer/Rehacer de una revisión y aplicación atómica de correcciones recomendadas | Implementada |
 | 2026-08-13 | Versión 0.10.0: carga local CSV/Parquet con preservación de esquema Parquet y lector de baja memoria | Implementada |
 | 2026-08-13 | Versión 0.11.0: TSV fiel y carga Excel/ODS con selección de hoja mediante token opaco | Implementada |
+| 2026-08-13 | Versión 0.12.0: carga JSON de registros/JSON Lines con esquema tabular conservador | Implementada |
+| 2026-08-13 | Versión 0.13.0: fidelidad léxica CSV con perfil numérico semántico y protección de identificadores | Implementada |
+| 2026-08-13 | Versión 0.14.0: opciones Excel, delimitadores/UTF-8 conservadores y gates locales de seguridad/calidad | Implementada |
 
 ## 10. Fuentes de esta revisión
 

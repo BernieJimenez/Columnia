@@ -59,11 +59,12 @@ describe("desktop bridge", () => {
   it("carga una selección opaca y permite descartarla sin entregar rutas", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ fileName: "libro.xlsx" }).mockResolvedValueOnce(undefined);
     const onProgress = vi.fn();
-    await loadDatasetSelection("selection-1", "2", onProgress);
+    await loadDatasetSelection("selection-1", "2", "generated", onProgress);
 
     expect(invoke).toHaveBeenCalledWith("load_dataset_selection", {
       selectionId: "selection-1",
       sheetId: "2",
+      headerMode: "generated",
       onProgress: expect.any(Channel),
     });
     const args = vi.mocked(invoke).mock.calls[0][1] as {

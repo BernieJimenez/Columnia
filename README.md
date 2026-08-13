@@ -5,7 +5,7 @@ transformar y entregar datasets confiables.
 
 El proyecto está en su primer hito técnico. Actualmente contiene el shell Tauri
 2, una interfaz React/TypeScript y el primer corte vertical del motor Polars:
-selección nativa, carga local y vista previa de CSV, TSV, Parquet, Excel y ODS de hasta
+selección nativa, carga local y vista previa de CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta
 500 MB. Los libros con varias hojas muestran un selector antes de cargar y React
 solo recibe un identificador opaco, nunca la ruta local. Este límite es provisional:
 el dataset aún se materializa en memoria y un archivo
@@ -39,13 +39,26 @@ npm install
 npm run tauri dev
 ```
 
+La validación permanece completamente local. Desde PowerShell:
+
+```powershell
+.\tools\check.ps1 -Profile Fast
+.\tools\check.ps1 -Profile Full
+.\tools\check.ps1 -Profile Release
+```
+
+`Fast` comprueba formato, compilación Rust, pruebas frontend y build web. `Full`
+añade Clippy con warnings como errores y las pruebas Rust. `Release` agrega el
+binario Tauri optimizado sin crear instaladores ni usar servicios externos.
+
 El flujo principal replica el orden de `dataprepv1.1`: **Cargar → Revisar →
 Preparar → Entregar**. Cada acción aparece únicamente en la etapa que le
 corresponde.
 
 En **Cargar**, usa **Seleccionar dataset**. Rust abre el diálogo nativo para CSV,
-TSV, Parquet, XLSX, XLS, XLSB u ODS. En libros con varias hojas permite elegir
-una; en libros de una sola hoja la carga continúa automáticamente. Rust valida y
+TSV, TXT delimitado, JSON/JSON Lines, Parquet, XLSX, XLS, XLSB u ODS. En cada libro permite
+elegir la hoja y decidir si la primera fila contiene encabezados o debe conservarse
+como datos generando `column_1`, `column_2`, etc. Rust valida y
 conserva el dataset en la sesión; React recibe solamente el esquema,
 los metadatos y las primeras 50 filas.
 Durante la carga se muestra el avance por fases. El perfil de calidad informa el
@@ -57,6 +70,17 @@ Cancelar una selección de hoja o una sustitución conserva el dataset que ya es
 TSV usa tabuladores estrictos y conserva valores léxicos como ceros iniciales y
 decimales formateados. Excel/ODS conserva booleanos, enteros, decimales, fechas y
 duraciones cuando una columna es compatible; las mezclas inseguras quedan como texto.
+CSV también conserva todas sus columnas físicamente como texto porque el formato
+no contiene un esquema confiable. Calidad calcula estadísticas numéricas semánticas
+cuando todos los valores no vacíos son números seguros; identificadores con ceros
+iniciales y enteros que perderían precisión quedan excluidos de esa interpretación.
+CSV y TXT detectan de forma conservadora coma, punto y coma, tabulador o `|`,
+respetando delimitadores dentro de campos entrecomillados. TSV fuerza tabulador.
+Se acepta UTF-8 con o sin BOM; bytes inválidos se rechazan sin sustituir caracteres.
+XLSX, XLSB y ODS advierten que su tamaño comprimido puede requerir bastante más RAM.
+JSON admite un arreglo de objetos o un objeto por línea (`.jsonl`/`.ndjson`).
+Los campos ausentes quedan como nulos y los objetos o arreglos anidados se conservan
+como texto JSON, sin aplanarlos ni descartar su contenido silenciosamente.
 
 Desde **Entregar**, el dataset activo puede exportarse a CSV o Parquet. Rust abre
 el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
