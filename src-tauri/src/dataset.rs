@@ -341,6 +341,24 @@ pub struct FindReplaceRecipe {
     replace: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SplitColumnRecipe {
+    source: String,
+    delimiter: String,
+    names: Vec<String>,
+    drop_source: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MergeColumnsRecipe {
+    sources: Vec<String>,
+    name: String,
+    separator: String,
+    drop_sources: bool,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransformRecipe {
@@ -358,6 +376,10 @@ pub struct TransformRecipe {
     find_replace: Option<FindReplaceRecipe>,
     #[serde(default)]
     keep_columns: Option<Vec<String>>,
+    #[serde(default)]
+    split_column: Option<SplitColumnRecipe>,
+    #[serde(default)]
+    merge_columns: Option<MergeColumnsRecipe>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -371,6 +393,9 @@ pub struct TransformRecipeResult {
     calculated_column_count: usize,
     replaced_cell_count: usize,
     dropped_column_count: usize,
+    split_column_count: usize,
+    merged_column_count: usize,
+    dropped_source_column_count: usize,
     changed: bool,
 }
 
@@ -2984,6 +3009,139 @@ fn apply_keep_columns(
     ))
 }
 
+fn apply_split_column(
+    frame: &mut DataFrame,
+    split: &SplitColumnRecipe,
+    renames: &HashMap<&str, &str>,
+) -> Result<(usize, usize), String> {
+    if split.delimiter.is_empty() {
+        return Err("El delimitador de división no puede estar vacío.".into());
+    }
+    if !(2..=16).contains(&split.names.len()) {
+        return Err("La división requiere entre 2 y 16 columnas de destino.".into());
+    }
+    let source_name = remapped_name(&split.source, renames);
+    let source = recipe_column(frame, source_name)?;
+    if source.dtype() != &polars::prelude::DataType::String {
+        return Err(format!(
+            "La columna '{source_name}' debe ser de texto para dividirse."
+        ));
+    }
+    let mut unique = HashSet::new();
+    let names = split
+        .names
+        .iter()
+        .map(|name| {
+            let trimmed = name.trim();
+            if trimmed.is_empty() || trimmed != name {
+                return Err(
+                    "Los nombres divididos no pueden estar vacíos ni tener espacios exteriores."
+                        .into(),
+                );
+            }
+            if !unique.insert(trimmed) {
+                return Err(format!("El nombre dividido '{trimmed}' está duplicado."));
+            }
+            if frame.column(trimmed).is_ok() {
+                return Err(format!("La columna dividida '{trimmed}' ya existe."));
+            }
+            Ok(trimmed.to_owned())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let source_values = strict_column_text(source)?;
+    let mut outputs = vec![Vec::with_capacity(frame.height()); names.len()];
+    for value in source_values {
+        if let Some(value) = value {
+            let parts = value
+                .splitn(names.len(), &split.delimiter)
+                .collect::<Vec<_>>();
+            for (index, output) in outputs.iter_mut().enumerate() {
+                output.push(parts.get(index).map(|part| (*part).to_owned()));
+            }
+        } else {
+            outputs.iter_mut().for_each(|output| output.push(None));
+        }
+    }
+    for (name, values) in names.into_iter().zip(outputs) {
+        frame
+            .with_column(Series::new(name.into(), values).into_column())
+            .map_err(|error| format!("No se pudo crear una columna dividida: {error}"))?;
+    }
+    let dropped = if split.drop_source {
+        frame
+            .drop_in_place(source_name)
+            .map_err(|error| format!("No se pudo descartar '{source_name}': {error}"))?;
+        1
+    } else {
+        0
+    };
+    Ok((split.names.len(), dropped))
+}
+
+fn apply_merge_columns(
+    frame: &mut DataFrame,
+    merge: &MergeColumnsRecipe,
+    renames: &HashMap<&str, &str>,
+) -> Result<(usize, usize), String> {
+    if !(2..=16).contains(&merge.sources.len()) {
+        return Err("La unión requiere entre 2 y 16 columnas fuente.".into());
+    }
+    if merge.name.trim().is_empty() || merge.name != merge.name.trim() {
+        return Err(
+            "El nombre de la columna unida no puede estar vacío ni tener espacios exteriores."
+                .into(),
+        );
+    }
+    if frame.column(&merge.name).is_ok() {
+        return Err(format!("La columna unida '{}' ya existe.", merge.name));
+    }
+    let mut unique = HashSet::new();
+    let sources = merge
+        .sources
+        .iter()
+        .map(|source| {
+            if !unique.insert(source) {
+                return Err(format!("La columna fuente '{source}' está duplicada."));
+            }
+            let effective = remapped_name(source, renames).to_owned();
+            let column = recipe_column(frame, &effective)?;
+            if column.dtype() != &polars::prelude::DataType::String {
+                return Err(format!(
+                    "La columna '{effective}' debe ser de texto para unirse."
+                ));
+            }
+            Ok(effective)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let columns = sources
+        .iter()
+        .map(|name| strict_column_text(recipe_column(frame, name)?))
+        .collect::<Result<Vec<_>, _>>()?;
+    let merged = (0..frame.height())
+        .map(|row| {
+            let values = columns
+                .iter()
+                .filter_map(|column| column[row].as_deref())
+                .collect::<Vec<_>>();
+            (!values.is_empty()).then(|| values.join(&merge.separator))
+        })
+        .collect::<Vec<_>>();
+    frame
+        .with_column(Series::new(merge.name.clone().into(), merged).into_column())
+        .map_err(|error| format!("No se pudo crear la columna unida: {error}"))?;
+    let dropped = if merge.drop_sources {
+        for source in &sources {
+            frame
+                .drop_in_place(source)
+                .map_err(|error| format!("No se pudo descartar '{source}': {error}"))?;
+        }
+        sources.len()
+    } else {
+        0
+    };
+    Ok((1, dropped))
+}
+
 type RecipeFrameOutcome = (
     DataFrame,
     usize,
@@ -2994,6 +3152,9 @@ type RecipeFrameOutcome = (
     usize,
     usize,
     bool,
+    usize,
+    usize,
+    usize,
 );
 
 fn apply_recipe_to_frame(
@@ -3041,6 +3202,14 @@ fn apply_recipe_to_frame(
     if let Some(keep_columns) = &recipe.keep_columns {
         for column in keep_columns {
             recipe_column(source, column)?;
+        }
+    }
+    if let Some(split) = &recipe.split_column {
+        recipe_column(source, &split.source)?;
+    }
+    if let Some(merge) = &recipe.merge_columns {
+        for source_name in &merge.sources {
+            recipe_column(source, source_name)?;
         }
     }
     if let Some(calculation) = &recipe.calculated_column {
@@ -3189,6 +3358,33 @@ fn apply_recipe_to_frame(
     } else {
         0
     };
+    if let (Some(split), Some(merge)) = (&recipe.split_column, &recipe.merge_columns) {
+        if split.drop_source && merge.sources.contains(&split.source) {
+            return Err(format!(
+                "La unión necesita '{}', pero la división la descartaría.",
+                split.source
+            ));
+        }
+    }
+    let (split_column_count, split_dropped) = if let Some(split) = &recipe.split_column {
+        let effective = remapped_name(&split.source, &rename_map);
+        recipe_column(&candidate, effective).map_err(|_| {
+            format!("La columna '{effective}' requerida por split fue descartada por keepColumns.")
+        })?;
+        apply_split_column(&mut candidate, split, &rename_map)?
+    } else {
+        (0, 0)
+    };
+    let (merged_column_count, merge_dropped) = if let Some(merge) = &recipe.merge_columns {
+        for source in &merge.sources {
+            let effective = remapped_name(source, &rename_map);
+            recipe_column(&candidate, effective).map_err(|_| format!("La columna '{effective}' requerida por merge fue descartada por keepColumns o split."))?;
+        }
+        apply_merge_columns(&mut candidate, merge, &rename_map)?
+    } else {
+        (0, 0)
+    };
+    let dropped_source_column_count = split_dropped + merge_dropped;
 
     Ok((
         candidate,
@@ -3200,6 +3396,9 @@ fn apply_recipe_to_frame(
         replaced_cell_count,
         dropped_column_count,
         kept_order_changed,
+        split_column_count,
+        merged_column_count,
+        dropped_source_column_count,
     ))
 }
 
@@ -3217,6 +3416,9 @@ fn apply_recipe_to_dataset(
         replaced_cell_count,
         dropped_column_count,
         kept_order_changed,
+        split_column_count,
+        merged_column_count,
+        dropped_source_column_count,
     ) = apply_recipe_to_frame(&dataset.frame, recipe)?;
     let changed = renamed_column_count
         + converted_column_count
@@ -3226,6 +3428,9 @@ fn apply_recipe_to_dataset(
         + replaced_cell_count
         + dropped_column_count
         + usize::from(kept_order_changed)
+        + split_column_count
+        + merged_column_count
+        + dropped_source_column_count
         > 0;
     // Build every fallible response value before publishing the candidate. This keeps the
     // transaction atomic even if, for example, the source file disappeared after loading.
@@ -3245,6 +3450,9 @@ fn apply_recipe_to_dataset(
         calculated_column_count,
         replaced_cell_count,
         dropped_column_count,
+        split_column_count,
+        merged_column_count,
+        dropped_source_column_count,
         changed,
     })
 }
@@ -4085,7 +4293,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (result, renamed, converted, dates, removed, calculated, _, _, _) =
+        let (result, renamed, converted, dates, removed, calculated, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
         assert_eq!((renamed, converted, dates), (3, 3, 1));
         assert_eq!((removed, calculated), (0, 0));
@@ -4315,7 +4523,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let (result, _, _, _, removed, _, _, _, _) =
+        let (result, _, _, _, removed, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(removed, 3);
         assert_eq!(
@@ -4403,7 +4611,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (result, _, _, _, _, calculated, _, _, _) =
+        let (result, _, _, _, _, calculated, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(calculated, 1);
         let rows = dataset_page(&result, 0, 10).unwrap().rows;
@@ -4512,7 +4720,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (result, _, _, _, _, _, replaced, _, _) =
+        let (result, _, _, _, _, _, replaced, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(replaced, 2);
         let rows = dataset_page(&result, 0, 10).unwrap().rows;
@@ -4595,7 +4803,7 @@ mod tests {
             keep_columns: Some(vec!["c".into(), "a".into()]),
             ..Default::default()
         };
-        let (result, _, _, _, _, _, _, dropped, _) =
+        let (result, _, _, _, _, _, _, dropped, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(dropped, 1);
         assert_eq!(
@@ -4713,6 +4921,268 @@ mod tests {
                 .map(|name| name.as_str())
                 .collect::<Vec<_>>(),
             vec!["a", "b"]
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn split_is_literal_unicode_uses_remainder_and_preserves_missing_null_and_empty() {
+        let frame = DataFrame::new(
+            4,
+            vec![Series::new(
+                "path".into(),
+                [
+                    Some("uno🙂dos🙂tres🙂resto"),
+                    Some("solo"),
+                    None,
+                    Some("a🙂"),
+                ],
+            )
+            .into_column()],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            split_column: Some(SplitColumnRecipe {
+                source: "path".into(),
+                delimiter: "🙂".into(),
+                names: vec!["first".into(), "second".into(), "third".into()],
+                drop_source: false,
+            }),
+            ..Default::default()
+        };
+        let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(outcome.9, 3);
+        let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][3].as_deref(), Some("tres🙂resto"));
+        assert_eq!(rows[1][1].as_deref(), Some("solo"));
+        assert_eq!(rows[1][2], None);
+        assert_eq!(rows[2][1], None);
+        assert_eq!(rows[3][2].as_deref(), Some(""));
+        assert_eq!(rows[3][3], None);
+    }
+
+    #[test]
+    fn merge_preserves_source_order_nulls_empty_strings_and_separator() {
+        let frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("a".into(), [Some("A"), None, None]).into_column(),
+                Series::new("b".into(), [Some(""), Some("B"), None]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            merge_columns: Some(MergeColumnsRecipe {
+                sources: vec!["a".into(), "b".into()],
+                name: "joined".into(),
+                separator: "🙂".into(),
+                drop_sources: true,
+            }),
+            ..Default::default()
+        };
+        let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!((outcome.10, outcome.11), (1, 2));
+        let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("A🙂"));
+        assert_eq!(rows[1][0].as_deref(), Some("B"));
+        assert_eq!(rows[2][0], None);
+    }
+
+    #[test]
+    fn split_merge_remap_renames_and_validate_keep_and_drop_dependencies() {
+        let frame = DataFrame::new(
+            1,
+            vec![
+                Series::new("full".into(), ["A-B"]).into_column(),
+                Series::new("other".into(), ["C"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let success = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "full".into(),
+                to: "renamed".into(),
+            }],
+            keep_columns: Some(vec!["full".into(), "other".into()]),
+            split_column: Some(SplitColumnRecipe {
+                source: "full".into(),
+                delimiter: "-".into(),
+                names: vec!["left".into(), "right".into()],
+                drop_source: false,
+            }),
+            merge_columns: Some(MergeColumnsRecipe {
+                sources: vec!["full".into(), "other".into()],
+                name: "joined".into(),
+                separator: ":".into(),
+                drop_sources: false,
+            }),
+            ..Default::default()
+        };
+        let result = apply_recipe_to_frame(&frame, &success).unwrap().0;
+        assert_eq!(
+            dataset_page(&result, 0, 1).unwrap().rows[0][4].as_deref(),
+            Some("A-B:C")
+        );
+
+        let dropped = TransformRecipe {
+            keep_columns: Some(vec!["other".into()]),
+            split_column: success.split_column.clone(),
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&frame, &dropped)
+            .unwrap_err()
+            .contains("keepColumns"));
+        let conflict = TransformRecipe {
+            split_column: Some(SplitColumnRecipe {
+                drop_source: true,
+                ..success.split_column.unwrap()
+            }),
+            merge_columns: success.merge_columns,
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&frame, &conflict)
+            .unwrap_err()
+            .contains("descartaría"));
+    }
+
+    #[test]
+    fn invalid_split_collision_rolls_back_combined_recipe_without_undo() {
+        let path = temporary_csv("full,existing\nA-B,x\n");
+        let (frame, _) = load_csv(&path).unwrap();
+        let original = frame.clone();
+        let mut dataset = LoadedDataset {
+            path: path.clone(),
+            frame,
+            profile: None,
+            undo_frame: None,
+            redo_frame: None,
+        };
+        let recipe = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("full".into()),
+                find: "A".into(),
+                replace: "Z".into(),
+            }),
+            split_column: Some(SplitColumnRecipe {
+                source: "full".into(),
+                delimiter: "-".into(),
+                names: vec!["existing".into(), "new".into()],
+                drop_source: false,
+            }),
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_dataset(&mut dataset, &recipe).is_err());
+        assert!(dataset.frame.equals_missing(&original));
+        assert!(dataset.undo_frame.is_none());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn split_and_merge_observe_casts_but_reject_non_text_physical_columns() {
+        let frame = DataFrame::new(
+            1,
+            vec![
+                Series::new("number".into(), [12_i64]).into_column(),
+                Series::new("text".into(), ["3-4"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let cast_to_text = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "number".into(),
+                target: RecipeCastTarget::String,
+            }],
+            split_column: Some(SplitColumnRecipe {
+                source: "number".into(),
+                delimiter: "2".into(),
+                names: vec!["one".into(), "two".into()],
+                drop_source: false,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(apply_recipe_to_frame(&frame, &cast_to_text).unwrap().9, 2);
+
+        let cast_away = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "text".into(),
+                target: RecipeCastTarget::Integer,
+            }],
+            split_column: Some(SplitColumnRecipe {
+                source: "text".into(),
+                delimiter: "-".into(),
+                names: vec!["one".into(), "two".into()],
+                drop_source: false,
+            }),
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&frame, &cast_away).is_err());
+    }
+
+    #[test]
+    fn split_and_merge_commit_as_one_undo_revision_with_metadata() {
+        let path = temporary_csv("full,other\nA-B,C\n");
+        let (frame, _) = load_csv(&path).unwrap();
+        let mut dataset = LoadedDataset {
+            path: path.clone(),
+            frame,
+            profile: None,
+            undo_frame: None,
+            redo_frame: None,
+        };
+        let result = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                split_column: Some(SplitColumnRecipe {
+                    source: "full".into(),
+                    delimiter: "-".into(),
+                    names: vec!["left".into(), "right".into()],
+                    drop_source: true,
+                }),
+                merge_columns: Some(MergeColumnsRecipe {
+                    sources: vec!["left".into(), "other".into()],
+                    name: "joined".into(),
+                    separator: ":".into(),
+                    drop_sources: false,
+                }),
+                ..Default::default()
+            },
+        );
+        // References produced by split are intentionally outside the contract.
+        assert!(result.is_err());
+        assert!(dataset.undo_frame.is_none());
+
+        let result = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                split_column: Some(SplitColumnRecipe {
+                    source: "full".into(),
+                    delimiter: "-".into(),
+                    names: vec!["left".into(), "right".into()],
+                    drop_source: true,
+                }),
+                merge_columns: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                result.split_column_count,
+                result.dropped_source_column_count
+            ),
+            (2, 1)
+        );
+        assert!(dataset.undo_frame.is_some());
+        undo_dataset(&mut dataset).unwrap();
+        assert_eq!(
+            dataset
+                .frame
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["full", "other"]
         );
         fs::remove_file(path).unwrap();
     }

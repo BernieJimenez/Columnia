@@ -757,6 +757,7 @@ describe("App", () => {
       calculatedColumnCount: 0,
       replacedCellCount: 0,
       droppedColumnCount: 0,
+      splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
     });
 
     render(<App />);
@@ -798,6 +799,8 @@ describe("App", () => {
       calculatedColumn: null,
       findReplace: null,
       keepColumns: null,
+      splitColumn: null,
+      mergeColumns: null,
     });
     expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
@@ -807,9 +810,9 @@ describe("App", () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.16.0", platform: "windows" });
     const original: DatasetPreview = {
-      fileName: "pedidos.csv", fileSizeBytes: 300, rowCount: 20, columnCount: 2,
-      columns: [{ name: "total", dataType: "Float64" }, { name: "estado", dataType: "String" }],
-      rows: [["10", "activo"]],
+      fileName: "pedidos.csv", fileSizeBytes: 300, rowCount: 20, columnCount: 3,
+      columns: [{ name: "total", dataType: "Float64" }, { name: "estado", dataType: "String" }, { name: "categoria", dataType: "String" }],
+      rows: [["10", "activo-norte", "A"]],
     };
     mockDatasetLoad(original);
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
@@ -817,6 +820,7 @@ describe("App", () => {
       renamedColumnCount: 0, convertedColumnCount: 0, parsedDateColumnCount: 0,
       removedRowCount: 8, calculatedColumnCount: 1,
       replacedCellCount: 0, droppedColumnCount: 0,
+      splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -836,12 +840,21 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Columna para buscar"), { target: { value: "estado" } });
     fireEvent.change(screen.getByLabelText("Texto a buscar"), { target: { value: " " } });
     expect(screen.getByLabelText("Texto de reemplazo")).toHaveValue("");
-    const keepGroup = screen.getByRole("group", { name: "Seleccionar columnas a conservar" });
-    fireEvent.click(within(keepGroup).getByRole("checkbox", { name: "estado" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dividir una columna" }));
+    fireEvent.change(screen.getByLabelText("Columna para dividir"), { target: { value: "estado" } });
+    fireEvent.change(screen.getByLabelText("Delimitador para dividir"), { target: { value: "-" } });
+    fireEvent.change(screen.getByLabelText("Nombres de columnas divididas"), { target: { value: "estado_base, zona" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Combinar columnas" }));
+    const mergeGroup = screen.getByRole("group", { name: "Columnas para combinar" });
+    fireEvent.click(within(mergeGroup).getByRole("checkbox", { name: "estado" }));
+    fireEvent.click(within(mergeGroup).getByRole("checkbox", { name: "categoria" }));
+    fireEvent.change(screen.getByLabelText("Nombre de columna combinada"), { target: { value: "estado_categoria" } });
+    fireEvent.change(screen.getByLabelText("Separador para combinar"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Eliminar columnas origen" }));
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     let dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     expect(within(dialog).getByText(/1 filtros unidos por AND sobre 20 filas/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Se descartarán 1 columnas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/En total se eliminarán 2 columnas originales/)).toBeInTheDocument();
     expect(applySpy).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(applySpy).not.toHaveBeenCalled();
@@ -853,7 +866,45 @@ describe("App", () => {
       filters: [{ column: "estado", operator: "not_null", value: null }],
       calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
       findReplace: { scope: "column", column: "estado", find: " ", replace: "" },
-      keepColumns: ["total"],
+      keepColumns: null,
+      splitColumn: { source: "estado", delimiter: "-", names: ["estado_base", "zona"], dropSource: false },
+      mergeColumns: { sources: ["estado", "categoria"], name: "estado_categoria", separator: "", dropSources: true },
     }));
+  });
+
+  it("actualiza columnas de texto por conversiones y confirma dropSource por sí solo", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.18.0", platform: "windows" });
+    const original: DatasetPreview = {
+      fileName: "tipos.csv", fileSizeBytes: 100, rowCount: 3, columnCount: 2,
+      columns: [{ name: "codigo", dataType: "Int64" }, { name: "descripcion", dataType: "String" }],
+      rows: [["1", "A-B"]],
+    };
+    mockDatasetLoad(original);
+    const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+
+    fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "codigo" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir conversión" }));
+    fireEvent.change(screen.getByLabelText("Columna para convertir 2"), { target: { value: "descripcion" } });
+    fireEvent.change(screen.getByLabelText("Tipo destino 2"), { target: { value: "integer" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dividir una columna" }));
+    const source = screen.getByLabelText("Columna para dividir");
+    expect(within(source).getByRole("option", { name: "codigo" })).toBeInTheDocument();
+    expect(within(source).queryByRole("option", { name: "descripcion" })).not.toBeInTheDocument();
+
+    fireEvent.change(source, { target: { value: "codigo" } });
+    fireEvent.change(screen.getByLabelText("Delimitador para dividir"), { target: { value: " " } });
+    fireEvent.change(screen.getByLabelText("Nombres de columnas divididas"), { target: { value: "parte_1, parte_2" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Eliminar columna origen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+
+    const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
+    expect(within(dialog).getByText(/En total se eliminarán 1 columnas originales/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(applySpy).not.toHaveBeenCalled();
   });
 });

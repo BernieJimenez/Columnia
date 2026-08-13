@@ -361,13 +361,16 @@ export function App() {
         result.removedRowCount +
         result.calculatedColumnCount +
         result.replacedCellCount +
-        result.droppedColumnCount;
+        result.droppedColumnCount +
+        result.splitColumnCount +
+        result.mergedColumnCount +
+        result.droppedSourceColumnCount;
       setChangeStatus({
         kind: "applied",
         message:
           total === 0
             ? "La receta no produjo cambios en el dataset."
-            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas y ${result.droppedColumnCount.toLocaleString()} columnas descartadas.`,
+            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas y ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas.`,
       });
       if (total > 0) setHistoryStatus({ canUndo: true, canRedo: false });
     } catch (error: unknown) {
@@ -1172,6 +1175,8 @@ function TransformRecipeEditor({
   type FilterDraft = TransformRecipe["filters"][number];
   type CalculationDraft = NonNullable<TransformRecipe["calculatedColumn"]>;
   type FindReplaceDraft = NonNullable<TransformRecipe["findReplace"]>;
+  type SplitDraft = NonNullable<TransformRecipe["splitColumn"]>;
+  type MergeDraft = NonNullable<TransformRecipe["mergeColumns"]>;
 
   const [renames, setRenames] = useState<RenameDraft[]>([{ from: "", to: "" }]);
   const [casts, setCasts] = useState<CastDraft[]>([{ column: "", target: "string" }]);
@@ -1190,7 +1195,11 @@ function TransformRecipeEditor({
   const [findReplaceEnabled, setFindReplaceEnabled] = useState(false);
   const [findReplace, setFindReplace] = useState<FindReplaceDraft>({ scope: "column", column: null, find: "", replace: "" });
   const [keptColumns, setKeptColumns] = useState<string[]>(dataset.columns.map((column) => column.name));
-  const searchableTextColumns = dataset.columns.filter((column) => column.dataType === "String");
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [split, setSplit] = useState<SplitDraft>({ source: "", delimiter: "", names: [], dropSource: false });
+  const [splitNamesInput, setSplitNamesInput] = useState("");
+  const [mergeEnabled, setMergeEnabled] = useState(false);
+  const [merge, setMerge] = useState<MergeDraft>({ sources: [], name: "", separator: "", dropSources: false });
   const datasetSignature = `${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => `${column.name}:${column.dataType}`).join("|")}`;
 
   useEffect(() => {
@@ -1203,6 +1212,11 @@ function TransformRecipeEditor({
     setFindReplaceEnabled(false);
     setFindReplace({ scope: "column", column: null, find: "", replace: "" });
     setKeptColumns(dataset.columns.map((column) => column.name));
+    setSplitEnabled(false);
+    setSplit({ source: "", delimiter: "", names: [], dropSource: false });
+    setSplitNamesInput("");
+    setMergeEnabled(false);
+    setMerge({ sources: [], name: "", separator: "", dropSources: false });
     setCalculation({ name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
   }, [datasetSignature]);
 
@@ -1216,6 +1230,11 @@ function TransformRecipeEditor({
   const activeCasts = casts.filter((item) => item.column);
   const activeDateParses = dateParses.filter((item) => item.column);
   const activeFilters = filters.filter((item) => item.column);
+  const searchableTextColumns = dataset.columns.filter((column) => {
+    if (activeDateParses.some((item) => item.column === column.name)) return false;
+    const cast = [...activeCasts].reverse().find((item) => item.column === column.name);
+    return cast ? cast.target === "string" : column.dataType === "String";
+  });
   const operandRequired = !["year", "month", "day"].includes(calculation.operation);
   const calculationInvalid =
     calculationEnabled &&
@@ -1232,12 +1251,19 @@ function TransformRecipeEditor({
   const findReplaceInvalid = findReplaceEnabled &&
     (!findReplace.find || searchableTextColumns.length === 0 || (findReplace.scope === "column" && !findReplace.column));
   const dropsColumns = keptColumns.length < dataset.columns.length;
-  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0);
+  const parsedSplitNames = splitNamesInput.split(",").map((name) => name.trim()).filter(Boolean);
+  const postRenameNames = new Set(dataset.columns.map((column) => activeRenames.find((item) => item.from === column.name)?.to.trim() || column.name));
+  const calculatedName = calculationEnabled ? calculation.name.trim() : "";
+  const splitInvalid = splitEnabled && (!split.source || !split.delimiter || parsedSplitNames.length < 2 || parsedSplitNames.length > 16 || new Set(parsedSplitNames).size !== parsedSplitNames.length || parsedSplitNames.some((name) => postRenameNames.has(name) || name === calculatedName));
+  const mergeInvalid = mergeEnabled && (merge.sources.length < 2 || merge.sources.length > 16 || !merge.name.trim() || postRenameNames.has(merge.name.trim()) || merge.name.trim() === calculatedName || parsedSplitNames.includes(merge.name.trim()));
+  const sourceConflict = splitEnabled && mergeEnabled && split.dropSource && merge.sources.includes(split.source);
+  const sourceNotKept = (splitEnabled && !keptColumns.includes(split.source)) || (mergeEnabled && merge.sources.some((source) => !keptColumns.includes(source)));
+  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0) + (splitEnabled ? 1 : 0) + (mergeEnabled ? 1 : 0);
   const renameInvalid = activeRenames.some((item) => !item.from || !item.to.trim());
   const filterInvalid = activeFilters.some((item) =>
     !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
   );
-  const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped ||
+  const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped || splitInvalid || mergeInvalid || sourceConflict || sourceNotKept ||
     !calculationValid;
 
   function columnOptions() {
@@ -1267,8 +1293,10 @@ function TransformRecipeEditor({
         : null,
       findReplace: findReplaceEnabled ? findReplace : null,
       keepColumns: dropsColumns ? dataset.columns.map((column) => column.name).filter((name) => keptColumns.includes(name)) : null,
+      splitColumn: splitEnabled ? { ...split, names: parsedSplitNames } : null,
+      mergeColumns: mergeEnabled ? { ...merge, name: merge.name.trim() } : null,
     };
-    if (recipe.filters.length > 0 || recipe.keepColumns !== null) setPendingConfirmation(recipe);
+    if (recipe.filters.length > 0 || recipe.keepColumns !== null || recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources) setPendingConfirmation(recipe);
     else onApply(recipe);
   }
 
@@ -1447,6 +1475,28 @@ function TransformRecipeEditor({
           </div>
           <p className="recipe-hint">Se conserva el orden actual. Debe permanecer al menos una columna.</p>
         </fieldset>
+
+        <fieldset>
+          <legend>Dividir columna de texto</legend>
+          <label className="option-toggle"><input type="checkbox" checked={splitEnabled} onChange={(event) => setSplitEnabled(event.target.checked)} />Dividir una columna</label>
+          {splitEnabled && <div className="calculation-grid">
+            <label><span>Columna origen</span><select aria-label="Columna para dividir" value={split.source} onChange={(event) => setSplit((current) => ({ ...current, source: event.target.value }))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
+            <label><span>Delimitador literal</span><input aria-label="Delimitador para dividir" value={split.delimiter} onChange={(event) => setSplit((current) => ({ ...current, delimiter: event.target.value }))} /></label>
+            <label className="calculation-grid__wide"><span>Nombres separados por coma</span><input aria-label="Nombres de columnas divididas" value={splitNamesInput} placeholder="nombre, apellido" onChange={(event) => setSplitNamesInput(event.target.value)} /></label>
+            <label className="option-toggle"><input type="checkbox" checked={split.dropSource} onChange={(event) => setSplit((current) => ({ ...current, dropSource: event.target.checked }))} />Eliminar columna origen</label>
+          </div>}
+          <p className="recipe-hint">Define entre 2 y 16 nombres únicos. La última columna recibe el resto; las partes faltantes quedan como null.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Combinar columnas de texto</legend>
+          <label className="option-toggle"><input type="checkbox" checked={mergeEnabled} onChange={(event) => setMergeEnabled(event.target.checked)} />Combinar columnas</label>
+          {mergeEnabled && <>
+            <div className="keep-columns" role="group" aria-label="Columnas para combinar">{searchableTextColumns.map((column) => <label key={column.name}><input type="checkbox" checked={merge.sources.includes(column.name)} onChange={(event) => setMerge((current) => ({ ...current, sources: event.target.checked ? searchableTextColumns.map((item) => item.name).filter((name) => current.sources.includes(name) || name === column.name) : current.sources.filter((name) => name !== column.name) }))} />{column.name}</label>)}</div>
+            <div className="calculation-grid"><label><span>Nombre nuevo</span><input aria-label="Nombre de columna combinada" value={merge.name} onChange={(event) => setMerge((current) => ({ ...current, name: event.target.value }))} /></label><label><span>Separador</span><input aria-label="Separador para combinar" value={merge.separator} placeholder="Vacío permitido" onChange={(event) => setMerge((current) => ({ ...current, separator: event.target.value }))} /></label><label className="option-toggle"><input type="checkbox" checked={merge.dropSources} onChange={(event) => setMerge((current) => ({ ...current, dropSources: event.target.checked }))} />Eliminar columnas origen</label></div>
+          </>}
+          <p className="recipe-hint">Selecciona entre 2 y 16 columnas existentes. Los valores null se omiten; si todos son null, el resultado queda null.</p>
+        </fieldset>
       </div>
 
       {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
@@ -1455,6 +1505,10 @@ function TransformRecipeEditor({
       {calculationSourceDropped && <p className="recipe-error" role="alert">Columna calculada: conserva la columna origen y la columna usada como operando.</p>}
       {findReplaceInvalid && <p className="recipe-error" role="alert">Buscar y reemplazar: selecciona el alcance y escribe un texto de búsqueda; el reemplazo puede quedar vacío.</p>}
       {keptColumns.length === 0 && <p className="recipe-error" role="alert">Columnas: conserva al menos una columna.</p>}
+      {splitInvalid && <p className="recipe-error" role="alert">Dividir: selecciona una columna, un delimitador no vacío y entre 2 y 16 nombres únicos que no colisionen.</p>}
+      {mergeInvalid && <p className="recipe-error" role="alert">Combinar: selecciona entre 2 y 16 columnas y usa un nombre nuevo sin colisiones.</p>}
+      {sourceConflict && <p className="recipe-error" role="alert">Dependencias: no elimines al dividir una columna que también usarás para combinar.</p>}
+      {sourceNotKept && <p className="recipe-error" role="alert">Dependencias: conserva todas las columnas usadas para dividir o combinar.</p>}
       <div className="transform-recipe__footer">
         <p>
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
@@ -1471,7 +1525,7 @@ function TransformRecipeEditor({
             <h3 id="filter-confirm-title">Confirmar cambios de alto impacto</h3>
             <p id="filter-confirm-description">
               {pendingConfirmation.filters.length > 0 && <>La receta aplicará {pendingConfirmation.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final de filas depende de los datos. </>}
-              {pendingConfirmation.keepColumns !== null && <>Se descartarán {dataset.columnCount - pendingConfirmation.keepColumns.length} columnas.</>}
+              {(pendingConfirmation.keepColumns !== null || pendingConfirmation.splitColumn?.dropSource || pendingConfirmation.mergeColumns?.dropSources) && <> En total se eliminarán {new Set([...(pendingConfirmation.keepColumns ? dataset.columns.map((column) => column.name).filter((name) => !pendingConfirmation.keepColumns?.includes(name)) : []), ...(pendingConfirmation.splitColumn?.dropSource ? [pendingConfirmation.splitColumn.source] : []), ...(pendingConfirmation.mergeColumns?.dropSources ? pendingConfirmation.mergeColumns.sources : [])]).size} columnas originales, sin contar dos veces las fuentes compartidas.</>}
             </p>
             <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" onClick={() => { const recipe = pendingConfirmation; setPendingConfirmation(null); onApply(recipe); }}>Confirmar y aplicar</button></div>
           </section>

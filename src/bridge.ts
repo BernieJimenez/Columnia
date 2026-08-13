@@ -146,6 +146,18 @@ export interface TransformRecipe {
     replace: string;
   } | null;
   keepColumns: string[] | null;
+  splitColumn: {
+    source: string;
+    delimiter: string;
+    names: string[];
+    dropSource: boolean;
+  } | null;
+  mergeColumns: {
+    sources: string[];
+    name: string;
+    separator: string;
+    dropSources: boolean;
+  } | null;
 }
 
 export interface TransformRecipeResult {
@@ -157,6 +169,9 @@ export interface TransformRecipeResult {
   calculatedColumnCount: number;
   replacedCellCount: number;
   droppedColumnCount: number;
+  splitColumnCount: number;
+  mergedColumnCount: number;
+  droppedSourceColumnCount: number;
 }
 
 export interface OperationProgress {

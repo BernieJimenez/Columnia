@@ -145,6 +145,12 @@ regulares ni convierte silenciosamente columnas numéricas. También puedes eleg
 qué columnas conservar. El descarte solicita confirmación y la receta rechaza
 eliminar columnas que todavía necesita un cálculo posterior.
 
+**Dividir columna** usa un separador literal y nombres de salida explícitos; la
+última salida conserva cualquier resto. **Combinar columnas** une entre dos y
+dieciséis campos de texto en el orden seleccionado, omitiendo nulos sin confundirlos
+con cadenas vacías. La eliminación opcional de las columnas fuente requiere
+confirmación y permanece incluida en la misma operación reversible.
+
 Validación rápida y completamente local:
 
 ```powershell

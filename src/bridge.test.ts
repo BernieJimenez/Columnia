@@ -168,6 +168,8 @@ describe("desktop bridge", () => {
         replace: "",
       },
       keepColumns: ["total", "estado"],
+      splitColumn: { source: "estado", delimiter: "-", names: ["estado", "detalle"], dropSource: true },
+      mergeColumns: { sources: ["nombre", "apellido"], name: "nombre_completo", separator: " ", dropSources: false },
     };
 
     await applyTransformRecipe(recipe);
