@@ -20,6 +20,22 @@ export interface DatasetPreview {
   rows: Array<Array<string | null>>;
 }
 
+export type DatasetFormat = "csv" | "tsv" | "parquet" | "excel";
+
+export interface WorkbookSheet {
+  id: string;
+  name: string;
+}
+
+export interface DatasetSourceInspection {
+  selectionId: string;
+  fileName: string;
+  fileSizeBytes: number;
+  format: DatasetFormat;
+  sheets: WorkbookSheet[];
+  defaultSheetId: string | null;
+}
+
 export interface DatasetPage {
   offset: number;
   rows: Array<Array<string | null>>;
@@ -60,13 +76,57 @@ export interface DatasetMutation {
   affectedRowCount: number;
 }
 
+export interface ColumnRename {
+  from: string;
+  to: string;
+}
+
+export interface ColumnNormalizationResult {
+  dataset: DatasetPreview;
+  renamedColumnCount: number;
+  renames: ColumnRename[];
+}
+
+export interface ChangedTextColumn {
+  name: string;
+  changedCellCount: number;
+}
+
+export interface TextCleaningResult {
+  dataset: DatasetPreview;
+  affectedRowCount: number;
+  changedCellCount: number;
+  changedColumns: ChangedTextColumn[];
+}
+
+export interface HistoryResult {
+  dataset: DatasetPreview;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export interface SafeCorrectionsResult {
+  dataset: DatasetPreview;
+  changedCellCount: number;
+  affectedRowCount: number;
+  renamedColumnCount: number;
+  renames: ColumnRename[];
+}
+
 export interface OperationProgress {
-  operation: "load" | "profile";
+  operation: "load" | "profile" | "export";
   stage: string;
   percent: number;
 }
 
 export type CancellableOperation = OperationProgress["operation"];
+export type ExportFormat = "csv" | "parquet";
+
+export interface ExportResult {
+  fileName: string;
+  fileSizeBytes: number;
+  format: "CSV" | "Parquet";
+}
 
 type ProgressHandler = (progress: OperationProgress) => void;
 
@@ -78,10 +138,24 @@ export function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
 }
 
-export function pickAndLoadCsv(onProgress?: ProgressHandler): Promise<DatasetPreview | null> {
-  return invoke<DatasetPreview | null>("pick_and_load_csv", {
+export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {
+  return invoke<DatasetSourceInspection | null>("pick_dataset_source");
+}
+
+export function loadDatasetSelection(
+  selectionId: string,
+  sheetId: string | null,
+  onProgress?: ProgressHandler,
+): Promise<DatasetPreview> {
+  return invoke<DatasetPreview>("load_dataset_selection", {
+    selectionId,
+    sheetId,
     onProgress: progressChannel(onProgress),
   });
+}
+
+export function discardDatasetSelection(selectionId: string): Promise<void> {
+  return invoke<void>("discard_dataset_selection", { selectionId });
 }
 
 export function getDatasetPage(offset: number, limit: number): Promise<DatasetPage> {
@@ -98,10 +172,43 @@ export function cancelOperation(operation: CancellableOperation): Promise<void> 
   return invoke<void>("cancel_operation", { operation });
 }
 
+export function exportDataset(
+  format: ExportFormat,
+  onProgress?: ProgressHandler,
+): Promise<ExportResult | null> {
+  return invoke<ExportResult | null>("export_dataset", {
+    format,
+    onProgress: progressChannel(onProgress),
+  });
+}
+
 export function removeDuplicates(): Promise<DatasetMutation> {
   return invoke<DatasetMutation>("remove_duplicates");
 }
 
-export function undoLastChange(): Promise<DatasetPreview> {
-  return invoke<DatasetPreview>("undo_last_change");
+export function normalizeColumnNames(): Promise<ColumnNormalizationResult> {
+  return invoke<ColumnNormalizationResult>("normalize_column_names");
+}
+
+export function trimTextValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("trim_text_values");
+}
+
+export function normalizeTextValues(
+  columns: string[],
+  removeAccents: boolean,
+): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("normalize_text_values", { columns, removeAccents });
+}
+
+export function applySafeCorrections(): Promise<SafeCorrectionsResult> {
+  return invoke<SafeCorrectionsResult>("apply_safe_corrections");
+}
+
+export function undoLastChange(): Promise<HistoryResult> {
+  return invoke<HistoryResult>("undo_last_change");
+}
+
+export function redoLastChange(): Promise<HistoryResult> {
+  return invoke<HistoryResult>("redo_last_change");
 }

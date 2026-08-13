@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -7,11 +8,13 @@ use std::{
     },
 };
 
+use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
 use chrono::NaiveDate;
 use polars::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
@@ -24,6 +27,37 @@ pub struct OperationProgress {
     operation: &'static str,
     stage: &'static str,
     percent: u8,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportFormat {
+    Csv,
+    Parquet,
+}
+
+impl ExportFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Csv => "csv",
+            Self::Parquet => "parquet",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Csv => "CSV",
+            Self::Parquet => "Parquet",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    file_name: String,
+    file_size_bytes: u64,
+    format: &'static str,
 }
 
 fn send_progress(
@@ -55,6 +89,24 @@ pub struct DatasetPreview {
     column_count: usize,
     columns: Vec<DatasetColumn>,
     rows: Vec<Vec<Option<String>>>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkbookSheet {
+    id: String,
+    name: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetSourceInspection {
+    selection_id: String,
+    file_name: String,
+    file_size_bytes: u64,
+    format: &'static str,
+    sheets: Vec<WorkbookSheet>,
+    default_sheet_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -105,18 +157,78 @@ pub struct DatasetMutation {
     affected_row_count: usize,
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnRename {
+    from: String,
+    to: String,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnNormalizationResult {
+    dataset: DatasetPreview,
+    renamed_column_count: usize,
+    renames: Vec<ColumnRename>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedTextColumn {
+    name: String,
+    changed_cell_count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TextCleaningResult {
+    dataset: DatasetPreview,
+    affected_row_count: usize,
+    changed_cell_count: usize,
+    changed_columns: Vec<ChangedTextColumn>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryResult {
+    dataset: DatasetPreview,
+    can_undo: bool,
+    can_redo: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SafeCorrectionsResult {
+    dataset: DatasetPreview,
+    changed_cell_count: usize,
+    affected_row_count: usize,
+    renamed_column_count: usize,
+    renames: Vec<ColumnRename>,
+}
+
 struct LoadedDataset {
     path: PathBuf,
     frame: DataFrame,
     profile: Option<DatasetProfile>,
     undo_frame: Option<DataFrame>,
+    redo_frame: Option<DataFrame>,
+}
+
+#[derive(Clone)]
+struct PendingSelection {
+    id: String,
+    path: PathBuf,
+    file_size_bytes: u64,
+    sheets: Vec<String>,
 }
 
 #[derive(Default)]
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
+    pending_selection: Mutex<Option<PendingSelection>>,
     load_generation: AtomicU64,
     profile_generation: AtomicU64,
+    export_generation: AtomicU64,
 }
 
 impl DatasetState {
@@ -132,6 +244,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_export(&self) -> u64 {
+        self.export_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn load_was_cancelled(&self, generation: u64) -> bool {
         self.load_generation.load(Ordering::SeqCst) != generation
     }
@@ -140,10 +258,15 @@ impl DatasetState {
         self.profile_generation.load(Ordering::SeqCst) != generation
     }
 
+    fn export_was_cancelled(&self, generation: u64) -> bool {
+        self.export_generation.load(Ordering::SeqCst) != generation
+    }
+
     fn cancel(&self, operation: &str) -> Result<(), String> {
         let generation = match operation {
             "load" => &self.load_generation,
             "profile" => &self.profile_generation,
+            "export" => &self.export_generation,
             _ => return Err("La operación indicada no admite cancelación.".to_owned()),
         };
         generation.fetch_add(1, Ordering::SeqCst);
@@ -159,19 +282,26 @@ fn ensure_not_cancelled(cancelled: bool) -> Result<(), String> {
     }
 }
 
-fn validate_csv(path: &Path) -> Result<u64, String> {
+fn dataset_extension(path: &Path) -> Result<String, String> {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|extension| {
+            matches!(
+                extension.as_str(),
+                "csv" | "tsv" | "parquet" | "xlsx" | "xls" | "xlsb" | "ods"
+            )
+        })
+        .ok_or_else(|| {
+            "Columnia admite CSV, TSV, Parquet y libros Excel/ODS en esta versión.".to_owned()
+        })
+}
+
+fn validate_dataset_file(path: &Path) -> Result<(u64, String), String> {
     if !path.is_file() {
         return Err("El archivo seleccionado no existe o no es un archivo regular.".into());
     }
-
-    let is_csv = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("csv"));
-
-    if !is_csv {
-        return Err("Columnia solo admite archivos CSV en este primer hito.".into());
-    }
+    let extension = dataset_extension(path)?;
 
     let size = fs::metadata(path)
         .map_err(|error| format!("No se pudieron leer los metadatos del archivo: {error}"))?
@@ -179,13 +309,13 @@ fn validate_csv(path: &Path) -> Result<u64, String> {
 
     validate_file_size(size)?;
 
-    Ok(size)
+    Ok((size, extension))
 }
 
 fn validate_file_size(size: u64) -> Result<(), String> {
     if size > PROTOTYPE_FILE_LIMIT_BYTES {
         return Err(format!(
-            "El CSV supera el límite temporal de {} MB. La carga por streaming se incorporará en un próximo hito.",
+            "El archivo supera el límite temporal de {} MB. La carga por streaming se incorporará en un próximo hito.",
             PROTOTYPE_FILE_LIMIT_BYTES / 1024 / 1024
         ));
     }
@@ -606,6 +736,420 @@ fn remove_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String
     Ok((cleaned, affected_row_count))
 }
 
+fn normalize_column_name(name: &str) -> String {
+    let decomposed = name
+        .nfd()
+        .filter(|character| !is_combining_mark(*character));
+    let mut normalized = String::new();
+    let mut pending_separator = false;
+
+    for character in decomposed.flat_map(char::to_lowercase) {
+        if character.is_whitespace() || character == '-' {
+            pending_separator = true;
+            continue;
+        }
+        if character.is_alphanumeric() || character == '_' {
+            if pending_separator {
+                normalized.push('_');
+                pending_separator = false;
+            }
+            normalized.push(character);
+        }
+    }
+
+    if normalized.is_empty() {
+        normalized.push_str("unnamed");
+    } else if normalized
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_digit())
+    {
+        normalized.insert_str(0, "col_");
+    }
+    normalized
+}
+
+fn normalized_column_names(frame: &DataFrame) -> (Vec<String>, Vec<ColumnRename>) {
+    let mut unique = Vec::with_capacity(frame.width());
+    let mut counts = std::collections::HashMap::<String, usize>::new();
+    let mut renames = Vec::new();
+
+    for column in frame.get_column_names() {
+        let original = column.as_str();
+        let base = normalize_column_name(original);
+        let count = counts.entry(base.clone()).or_insert(0);
+        *count += 1;
+        let mut candidate = if *count == 1 {
+            base.clone()
+        } else {
+            format!("{base}_{}", *count)
+        };
+        while unique.contains(&candidate) {
+            *count += 1;
+            candidate = format!("{base}_{}", *count);
+        }
+        if original != candidate {
+            renames.push(ColumnRename {
+                from: original.to_owned(),
+                to: candidate.clone(),
+            });
+        }
+        unique.push(candidate);
+    }
+
+    (unique, renames)
+}
+
+#[derive(Clone, Copy)]
+enum TextCleaningMode {
+    Trim,
+    Normalize { remove_accents: bool },
+}
+
+fn normalize_text_value(value: &str, remove_accents: bool) -> String {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lowered = collapsed.chars().flat_map(char::to_lowercase);
+    if remove_accents {
+        lowered
+            .collect::<String>()
+            .nfd()
+            .filter(|character| !is_combining_mark(*character))
+            .collect()
+    } else {
+        lowered.collect()
+    }
+}
+
+fn clean_text_columns(
+    frame: &DataFrame,
+    selected_columns: Option<&[String]>,
+    mode: TextCleaningMode,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    if selected_columns.is_some_and(|columns| columns.is_empty()) {
+        return Err("Selecciona al menos una columna de texto.".to_owned());
+    }
+
+    let column_names = match selected_columns {
+        Some(columns) => columns.to_vec(),
+        None => frame
+            .columns()
+            .iter()
+            .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+            .map(|column| column.name().to_string())
+            .collect(),
+    };
+
+    for name in column_names {
+        if name == "_cambios" {
+            return Err("La columna de trazabilidad _cambios no se modifica.".to_owned());
+        }
+        let column = frame
+            .column(&name)
+            .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))?;
+        if column.dtype() != &DataType::String {
+            return Err(format!("La columna '{name}' no es de texto."));
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let mut column_changes = 0;
+        let transformed: Vec<Option<String>> = values
+            .iter()
+            .enumerate()
+            .map(|(row_index, value)| {
+                value.map(|original| {
+                    let next = match mode {
+                        TextCleaningMode::Trim => original.trim().to_owned(),
+                        TextCleaningMode::Normalize { remove_accents } => {
+                            normalize_text_value(original, remove_accents)
+                        }
+                    };
+                    if next != original {
+                        column_changes += 1;
+                        changed_cell_count += 1;
+                        changed_rows[row_index] = true;
+                    }
+                    next
+                })
+            })
+            .collect();
+
+        if column_changes > 0 {
+            cleaned
+                .replace(&name, Column::new(name.clone().into(), transformed))
+                .map_err(|error| format!("No se pudo actualizar la columna '{name}': {error}"))?;
+            changed_columns.push(ChangedTextColumn {
+                name,
+                changed_cell_count: column_changes,
+            });
+        }
+    }
+
+    Ok((
+        cleaned,
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
+fn safe_corrected_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ColumnRename>), String> {
+    let (mut candidate, affected_row_count, changed_cell_count, _) =
+        clean_text_columns(frame, None, TextCleaningMode::Trim)?;
+    let (names, renames) = normalized_column_names(&candidate);
+    if !renames.is_empty() {
+        candidate
+            .set_column_names(&names)
+            .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
+    }
+    Ok((candidate, affected_row_count, changed_cell_count, renames))
+}
+
+fn spreadsheet_extensions(extension: &str) -> bool {
+    matches!(extension, "xlsx" | "xls" | "xlsb" | "ods")
+}
+
+fn inspect_workbook(path: &Path) -> Result<Vec<String>, String> {
+    let workbook = open_workbook_auto(path)
+        .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+    let sheets = workbook.sheet_names();
+    if sheets.is_empty() {
+        return Err("El libro no contiene hojas disponibles.".to_owned());
+    }
+    Ok(sheets)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpreadsheetColumnKind {
+    Null,
+    Boolean,
+    Int64,
+    Float64,
+    Datetime,
+    Duration,
+    String,
+}
+
+fn spreadsheet_cell_kind(cell: &Data) -> SpreadsheetColumnKind {
+    match cell {
+        Data::Empty => SpreadsheetColumnKind::Null,
+        Data::Bool(_) => SpreadsheetColumnKind::Boolean,
+        Data::Int(_) => SpreadsheetColumnKind::Int64,
+        Data::Float(_) => SpreadsheetColumnKind::Float64,
+        Data::DateTime(value) if value.is_duration() => SpreadsheetColumnKind::Duration,
+        Data::DateTime(_) => SpreadsheetColumnKind::Datetime,
+        Data::DateTimeIso(_) if cell.as_datetime().is_some() => SpreadsheetColumnKind::Datetime,
+        Data::DurationIso(_) if cell.as_duration().is_some() => SpreadsheetColumnKind::Duration,
+        Data::String(_) | Data::DateTimeIso(_) | Data::DurationIso(_) | Data::Error(_) => {
+            SpreadsheetColumnKind::String
+        }
+    }
+}
+
+fn merge_spreadsheet_kinds(
+    left: SpreadsheetColumnKind,
+    right: SpreadsheetColumnKind,
+) -> SpreadsheetColumnKind {
+    use SpreadsheetColumnKind::*;
+    match (left, right) {
+        (Null, kind) | (kind, Null) => kind,
+        (left, right) if left == right => left,
+        (Int64, Float64) | (Float64, Int64) => Float64,
+        _ => String,
+    }
+}
+
+fn unique_spreadsheet_headers(headers: Vec<String>) -> Vec<String> {
+    let mut occurrences = HashMap::<String, usize>::new();
+    headers
+        .into_iter()
+        .enumerate()
+        .map(|(index, header)| {
+            let trimmed = header.trim();
+            let base = if trimmed.is_empty() {
+                format!("column_{}", index + 1)
+            } else {
+                trimmed.to_owned()
+            };
+            let count = occurrences.entry(base.clone()).or_default();
+            *count += 1;
+            if *count == 1 {
+                base
+            } else {
+                format!("{base}_{}", *count)
+            }
+        })
+        .collect()
+}
+
+fn spreadsheet_cells_to_column(name: &str, cells: &[&Data]) -> Result<Column, String> {
+    let mut kind = cells
+        .iter()
+        .fold(SpreadsheetColumnKind::Null, |kind, cell| {
+            merge_spreadsheet_kinds(kind, spreadsheet_cell_kind(cell))
+        });
+    if kind == SpreadsheetColumnKind::Float64
+        && cells
+            .iter()
+            .any(|cell| matches!(cell, Data::Int(value) if value.unsigned_abs() > (1_u64 << 53)))
+    {
+        kind = SpreadsheetColumnKind::String;
+    }
+    let column_name = name.into();
+    let incompatible =
+        |value: &Data| format!("La columna '{name}' contiene un valor incompatible: {value}");
+
+    match kind {
+        SpreadsheetColumnKind::Null => Ok(Column::full_null(
+            column_name,
+            cells.len(),
+            &polars::prelude::DataType::Null,
+        )),
+        SpreadsheetColumnKind::Boolean => {
+            let values = cells
+                .iter()
+                .map(|cell| match cell {
+                    Data::Empty => Ok(None),
+                    Data::Bool(value) => Ok(Some(*value)),
+                    other => Err(incompatible(other)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(column_name, values).into_column())
+        }
+        SpreadsheetColumnKind::Int64 => {
+            let values = cells
+                .iter()
+                .map(|cell| match cell {
+                    Data::Empty => Ok(None),
+                    Data::Int(value) => Ok(Some(*value)),
+                    other => Err(incompatible(other)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(column_name, values).into_column())
+        }
+        SpreadsheetColumnKind::Float64 => {
+            let values = cells
+                .iter()
+                .map(|cell| match cell {
+                    Data::Empty => Ok(None),
+                    Data::Int(value) if value.unsigned_abs() <= (1_u64 << 53) => {
+                        Ok(Some(*value as f64))
+                    }
+                    Data::Int(_) => Err(format!(
+                        "La columna '{name}' mezcla decimales con enteros que perderían precisión."
+                    )),
+                    Data::Float(value) => Ok(Some(*value)),
+                    other => Err(incompatible(other)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(column_name, values).into_column())
+        }
+        SpreadsheetColumnKind::Datetime => {
+            let values = cells
+                .iter()
+                .map(|cell| match cell {
+                    Data::Empty => Ok(None),
+                    Data::DateTime(value) if !value.is_duration() => value
+                        .as_datetime()
+                        .map(|value| Some(value.and_utc().timestamp_millis()))
+                        .ok_or_else(|| incompatible(cell)),
+                    Data::DateTimeIso(_) => cell
+                        .as_datetime()
+                        .map(|value| Some(value.and_utc().timestamp_millis()))
+                        .ok_or_else(|| incompatible(cell)),
+                    other => Err(incompatible(other)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(column_name, values)
+                .cast(&polars::prelude::DataType::Datetime(
+                    TimeUnit::Milliseconds,
+                    None,
+                ))
+                .map_err(|error| format!("No se pudo conservar una fecha de '{name}': {error}"))?
+                .into_column())
+        }
+        SpreadsheetColumnKind::Duration => {
+            let values = cells
+                .iter()
+                .map(|cell| match cell {
+                    Data::Empty => Ok(None),
+                    Data::DateTime(value) if value.is_duration() => value
+                        .as_duration()
+                        .map(|value| Some(value.num_milliseconds()))
+                        .ok_or_else(|| incompatible(cell)),
+                    Data::DurationIso(_) => cell
+                        .as_duration()
+                        .map(|value| Some(value.num_milliseconds()))
+                        .ok_or_else(|| incompatible(cell)),
+                    other => Err(incompatible(other)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Series::new(column_name, values)
+                .cast(&polars::prelude::DataType::Duration(TimeUnit::Milliseconds))
+                .map_err(|error| format!("No se pudo conservar una duración de '{name}': {error}"))?
+                .into_column())
+        }
+        SpreadsheetColumnKind::String => Ok(Series::new(
+            column_name,
+            cells
+                .iter()
+                .map(|cell| match cell {
+                    Data::Empty => None,
+                    value => Some(value.to_string()),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_column()),
+    }
+}
+
+fn spreadsheet_range_to_frame(range: &Range<Data>) -> Result<DataFrame, String> {
+    if range.is_empty() {
+        return Err("La hoja seleccionada está vacía.".to_owned());
+    }
+    let width = range.width();
+    let height = range.height();
+    let headers = unique_spreadsheet_headers(
+        (0..width)
+            .map(|column| {
+                range
+                    .get((0, column))
+                    .map(ToString::to_string)
+                    .unwrap_or_default()
+            })
+            .collect(),
+    );
+    let mut columns = Vec::with_capacity(width);
+    for (column_index, name) in headers.iter().enumerate() {
+        let cells = (1..height)
+            .map(|row| range.get((row, column_index)).expect("rango rectangular"))
+            .collect::<Vec<_>>();
+        columns.push(spreadsheet_cells_to_column(name, &cells)?);
+    }
+    DataFrame::new(height.saturating_sub(1), columns)
+        .map_err(|error| format!("No se pudo construir el dataset desde la hoja: {error}"))
+}
+
+fn load_spreadsheet_sheet(path: &Path, sheet_name: &str) -> Result<DataFrame, String> {
+    let mut workbook = open_workbook_auto(path)
+        .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+    if !workbook.sheet_names().iter().any(|name| name == sheet_name) {
+        return Err("La hoja seleccionada ya no está disponible en el libro.".to_owned());
+    }
+    let range = workbook
+        .worksheet_range(sheet_name)
+        .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+    spreadsheet_range_to_frame(&range)
+}
+
+#[cfg(test)]
 fn load_csv_with_progress<F, C>(
     path: &Path,
     mut report: F,
@@ -617,7 +1161,10 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     report("Validando archivo", 10);
-    validate_csv(path)?;
+    let (_, extension) = validate_dataset_file(path)?;
+    if extension != "csv" {
+        return Err("El lector CSV recibió un formato diferente.".to_owned());
+    }
     ensure_not_cancelled(is_cancelled())?;
     report("Leyendo y detectando columnas", 25);
     let frame = CsvReadOptions::default()
@@ -636,22 +1183,142 @@ where
     Ok((frame, preview))
 }
 
+fn load_dataset_with_progress<F, C>(
+    path: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview), String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    report("Validando archivo", 10);
+    let (_, extension) = validate_dataset_file(path)?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Leyendo y detectando columnas", 25);
+
+    let frame = match extension.as_str() {
+        "csv" | "tsv" => {
+            let separator = if extension == "tsv" { b'\t' } else { b',' };
+            CsvReadOptions::default()
+                .with_has_header(true)
+                .with_infer_schema_length(if extension == "tsv" {
+                    Some(0)
+                } else {
+                    Some(100)
+                })
+                .map_parse_options(|options| options.with_separator(separator))
+                .try_into_reader_with_file_path(Some(path.to_path_buf()))
+                .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
+                .finish()
+                .map_err(|error| format!("No se pudo interpretar el archivo delimitado: {error}"))?
+        }
+        "parquet" => {
+            let file = fs::File::open(path)
+                .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
+            ParquetReader::new(file)
+                .set_low_memory(true)
+                .read_parallel(ParallelStrategy::None)
+                .finish()
+                .map_err(|error| format!("No se pudo interpretar el Parquet: {error}"))?
+        }
+        extension if spreadsheet_extensions(extension) => {
+            return Err("Selecciona primero una hoja del libro.".to_owned())
+        }
+        _ => unreachable!("la extensión fue validada"),
+    };
+
+    ensure_not_cancelled(is_cancelled())?;
+    report("Preparando vista previa", 85);
+    let preview = dataset_preview(path, &frame)?;
+    report("Preparando sesión", 95);
+    Ok((frame, preview))
+}
+
 #[cfg(test)]
 fn load_csv(path: &Path) -> Result<(DataFrame, DatasetPreview), String> {
     load_csv_with_progress(path, |_, _| {}, || false)
 }
 
+fn path_with_extension(mut path: PathBuf, format: ExportFormat) -> PathBuf {
+    let has_expected_extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(format.extension()));
+    if !has_expected_extension {
+        path.set_extension(format.extension());
+    }
+    path
+}
+
+fn export_frame_atomic<F, C>(
+    frame: &DataFrame,
+    destination: &Path,
+    format: ExportFormat,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    report("Preparando archivo temporal", 10);
+    let temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo crear el archivo temporal: {error}"))?;
+    let mut output_frame = frame.clone();
+
+    report("Escribiendo dataset", 25);
+    match format {
+        ExportFormat::Csv => CsvWriter::new(temporary.as_file())
+            .finish(&mut output_frame)
+            .map_err(|error| format!("No se pudo escribir el CSV: {error}"))?,
+        ExportFormat::Parquet => ParquetWriter::new(temporary.as_file())
+            .finish(&mut output_frame)
+            .map(|_| ())
+            .map_err(|error| format!("No se pudo escribir Parquet: {error}"))?,
+    }
+
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+
+    let file_size_bytes = fs::metadata(destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset")
+            .to_owned(),
+        file_size_bytes,
+        format: format.label(),
+    })
+}
+
 #[tauri::command]
-pub async fn pick_and_load_csv(
+pub async fn pick_dataset_source(
     app: AppHandle,
-    on_progress: Channel<OperationProgress>,
-) -> Result<Option<DatasetPreview>, String> {
-    let generation = app.state::<DatasetState>().begin_load();
-    send_progress(&on_progress, "load", "Esperando selección", 0);
+) -> Result<Option<DatasetSourceInspection>, String> {
     let selection = app
         .dialog()
         .file()
-        .add_filter("Archivo CSV", &["csv"])
+        .add_filter(
+            "Datasets compatibles",
+            &["csv", "tsv", "parquet", "xlsx", "xls", "xlsb", "ods"],
+        )
         .blocking_pick_file();
 
     let Some(selection) = selection else {
@@ -661,31 +1328,167 @@ pub async fn pick_and_load_csv(
     let path = selection
         .into_path()
         .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
+    let (file_size_bytes, extension) = validate_dataset_file(&path)?;
+    let sheets = if spreadsheet_extensions(&extension) {
+        let path = path.clone();
+        tauri::async_runtime::spawn_blocking(move || inspect_workbook(&path))
+            .await
+            .map_err(|error| format!("La inspección del libro se interrumpió: {error}"))??
+    } else {
+        Vec::new()
+    };
+    let state = app.state::<DatasetState>();
+    let selection_id = format!("selection-{}", state.begin_load());
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset")
+        .to_owned();
+    let format = if spreadsheet_extensions(&extension) {
+        "excel"
+    } else if extension == "parquet" {
+        "parquet"
+    } else if extension == "tsv" {
+        "tsv"
+    } else {
+        "csv"
+    };
+    let workbook_sheets = sheets
+        .iter()
+        .enumerate()
+        .map(|(index, name)| WorkbookSheet {
+            id: index.to_string(),
+            name: name.clone(),
+        })
+        .collect();
+    *state
+        .pending_selection
+        .lock()
+        .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())? =
+        Some(PendingSelection {
+            id: selection_id.clone(),
+            path,
+            file_size_bytes,
+            sheets,
+        });
+    Ok(Some(DatasetSourceInspection {
+        selection_id,
+        file_name,
+        file_size_bytes,
+        format,
+        sheets: workbook_sheets,
+        default_sheet_id: if spreadsheet_extensions(&extension) {
+            Some("0".to_owned())
+        } else {
+            None
+        },
+    }))
+}
+
+#[tauri::command]
+pub async fn load_dataset_selection(
+    app: AppHandle,
+    selection_id: String,
+    sheet_id: Option<String>,
+    on_progress: Channel<OperationProgress>,
+) -> Result<DatasetPreview, String> {
+    let generation = app.state::<DatasetState>().begin_load();
+    let pending = {
+        let state = app.state::<DatasetState>();
+        let selection = state
+            .pending_selection
+            .lock()
+            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let pending = selection
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+        if pending.id != selection_id {
+            return Err("La selección no coincide con el archivo pendiente.".to_owned());
+        }
+        pending
+    };
     tauri::async_runtime::spawn_blocking(move || {
-        let (frame, preview) = load_csv_with_progress(
-            &path,
-            |stage, percent| send_progress(&on_progress, "load", stage, percent),
-            || app.state::<DatasetState>().load_was_cancelled(generation),
-        )?;
+        send_progress(&on_progress, "load", "Validando archivo", 10);
+        let current_size = validate_dataset_file(&pending.path)?.0;
+        if current_size != pending.file_size_bytes {
+            return Err(
+                "El archivo cambió después de seleccionarlo; vuelve a elegirlo.".to_owned(),
+            );
+        }
+        let extension = dataset_extension(&pending.path)?;
+        let (frame, preview) = if spreadsheet_extensions(&extension) {
+            let index = sheet_id
+                .as_deref()
+                .ok_or_else(|| "Selecciona una hoja del libro.".to_owned())?
+                .parse::<usize>()
+                .map_err(|_| "La hoja seleccionada no es válida.".to_owned())?;
+            let sheet_name = pending
+                .sheets
+                .get(index)
+                .ok_or_else(|| "La hoja seleccionada no existe en el libro.".to_owned())?;
+            send_progress(&on_progress, "load", "Leyendo hoja", 25);
+            let frame = load_spreadsheet_sheet(&pending.path, sheet_name)?;
+            ensure_not_cancelled(app.state::<DatasetState>().load_was_cancelled(generation))?;
+            send_progress(&on_progress, "load", "Preparando vista previa", 85);
+            let preview = dataset_preview(&pending.path, &frame)?;
+            (frame, preview)
+        } else {
+            if sheet_id.is_some() {
+                return Err("Este formato no utiliza hojas.".to_owned());
+            }
+            load_dataset_with_progress(
+                &pending.path,
+                |stage, percent| send_progress(&on_progress, "load", stage, percent),
+                || app.state::<DatasetState>().load_was_cancelled(generation),
+            )?
+        };
         let state = app.state::<DatasetState>();
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
-        let mut current = state
+        *state
             .current
             .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        *current = Some(LoadedDataset {
-            path,
-            frame,
-            profile: None,
-            undo_frame: None,
-        });
-        drop(current);
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())? =
+            Some(LoadedDataset {
+                path: pending.path,
+                frame,
+                profile: None,
+                undo_frame: None,
+                redo_frame: None,
+            });
+        let mut selection = state
+            .pending_selection
+            .lock()
+            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        if selection
+            .as_ref()
+            .is_some_and(|value| value.id == selection_id)
+        {
+            *selection = None;
+        }
         send_progress(&on_progress, "load", "Dataset listo", 100);
-
-        Ok(Some(preview))
+        Ok(preview)
     })
     .await
-    .map_err(|error| format!("La carga del CSV se interrumpió: {error}"))?
+    .map_err(|error| format!("La carga del dataset se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub fn discard_dataset_selection(
+    state: State<'_, DatasetState>,
+    selection_id: String,
+) -> Result<(), String> {
+    let mut selection = state
+        .pending_selection
+        .lock()
+        .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+    if selection
+        .as_ref()
+        .is_some_and(|pending| pending.id == selection_id)
+    {
+        *selection = None;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -698,9 +1501,9 @@ pub fn get_dataset_page(
         .current
         .lock()
         .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-    let dataset = current
-        .as_ref()
-        .ok_or_else(|| "No hay un dataset activo. Selecciona primero un archivo CSV.".to_owned())?;
+    let dataset = current.as_ref().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
 
     dataset_page(&dataset.frame, offset, limit)
 }
@@ -718,7 +1521,7 @@ pub async fn get_dataset_profile(
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo CSV.".to_owned()
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
 
         if let Some(profile) = &dataset.profile {
@@ -747,6 +1550,64 @@ pub fn cancel_operation(state: State<'_, DatasetState>, operation: String) -> Re
 }
 
 #[tauri::command]
+pub async fn export_dataset(
+    app: AppHandle,
+    format: ExportFormat,
+    on_progress: Channel<OperationProgress>,
+) -> Result<Option<ExportResult>, String> {
+    let generation = app.state::<DatasetState>().begin_export();
+    let (frame, suggested_name) = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_ref().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let stem = dataset
+            .path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("dataset");
+        (
+            dataset.frame.clone(),
+            format!("{stem}-columnia.{}", format.extension()),
+        )
+    };
+
+    send_progress(&on_progress, "export", "Esperando destino", 0);
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter(format.label(), &[format.extension()])
+        .set_file_name(suggested_name)
+        .blocking_save_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let destination = path_with_extension(
+        selection
+            .into_path()
+            .map_err(|error| format!("No se pudo resolver el destino: {error}"))?,
+        format,
+    );
+
+    tauri::async_runtime::spawn_blocking(move || {
+        export_frame_atomic(
+            &frame,
+            &destination,
+            format,
+            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+            || app.state::<DatasetState>().export_was_cancelled(generation),
+        )
+        .map(Some)
+    })
+    .await
+    .map_err(|error| format!("La exportación se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -755,12 +1616,13 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo CSV.".to_owned()
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         let (cleaned, affected_row_count) = remove_duplicate_rows(&dataset.frame)?;
 
         if affected_row_count > 0 {
             dataset.undo_frame = Some(dataset.frame.clone());
+            dataset.redo_frame = None;
             dataset.frame = cleaned;
             dataset.profile = None;
         }
@@ -775,7 +1637,7 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
 }
 
 #[tauri::command]
-pub async fn undo_last_change(app: AppHandle) -> Result<DatasetPreview, String> {
+pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -783,19 +1645,185 @@ pub async fn undo_last_change(app: AppHandle) -> Result<DatasetPreview, String> 
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo CSV.".to_owned()
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        let previous = dataset
-            .undo_frame
-            .take()
-            .ok_or_else(|| "No hay un cambio disponible para deshacer.".to_owned())?;
+        let (names, renames) = normalized_column_names(&dataset.frame);
 
-        dataset.frame = previous;
+        if !renames.is_empty() {
+            let previous = dataset.frame.clone();
+            dataset
+                .frame
+                .set_column_names(&names)
+                .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
+            dataset.undo_frame = Some(previous);
+            dataset.redo_frame = None;
+            dataset.profile = None;
+        }
+
+        Ok(ColumnNormalizationResult {
+            dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+            renamed_column_count: renames.len(),
+            renames,
+        })
+    })
+    .await
+    .map_err(|error| format!("La normalización de columnas se interrumpió: {error}"))?
+}
+
+fn apply_text_cleaning(
+    app: AppHandle,
+    selected_columns: Option<Vec<String>>,
+    mode: TextCleaningMode,
+) -> Result<TextCleaningResult, String> {
+    let state = app.state::<DatasetState>();
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
+        clean_text_columns(&dataset.frame, selected_columns.as_deref(), mode)?;
+
+    if changed_cell_count > 0 {
+        dataset.undo_frame = Some(dataset.frame.clone());
+        dataset.redo_frame = None;
+        dataset.frame = cleaned;
         dataset.profile = None;
-        dataset_preview(&dataset.path, &dataset.frame)
+    }
+
+    Ok(TextCleaningResult {
+        dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    })
+}
+
+#[tauri::command]
+pub async fn trim_text_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_text_cleaning(app, None, TextCleaningMode::Trim)
+    })
+    .await
+    .map_err(|error| format!("La limpieza de espacios se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn normalize_text_values(
+    app: AppHandle,
+    columns: Vec<String>,
+    remove_accents: bool,
+) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_text_cleaning(
+            app,
+            Some(columns),
+            TextCleaningMode::Normalize { remove_accents },
+        )
+    })
+    .await
+    .map_err(|error| format!("La normalización de texto se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn apply_safe_corrections(app: AppHandle) -> Result<SafeCorrectionsResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+
+        let (candidate, affected_row_count, changed_cell_count, renames) =
+            safe_corrected_frame(&dataset.frame)?;
+        let renamed_column_count = renames.len();
+
+        if changed_cell_count > 0 || renamed_column_count > 0 {
+            dataset.undo_frame = Some(dataset.frame.clone());
+            dataset.redo_frame = None;
+            dataset.frame = candidate;
+            dataset.profile = None;
+        }
+
+        Ok(SafeCorrectionsResult {
+            dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+            changed_cell_count,
+            affected_row_count,
+            renamed_column_count,
+            renames,
+        })
+    })
+    .await
+    .map_err(|error| format!("Las correcciones recomendadas se interrumpieron: {error}"))?
+}
+
+#[tauri::command]
+pub async fn undo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        undo_dataset(dataset)
     })
     .await
     .map_err(|error| format!("No se pudo deshacer el cambio: {error}"))?
+}
+
+fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
+    let previous = dataset
+        .undo_frame
+        .take()
+        .ok_or_else(|| "No hay un cambio disponible para deshacer.".to_owned())?;
+    let changed = std::mem::replace(&mut dataset.frame, previous);
+    dataset.redo_frame = Some(changed);
+    dataset.profile = None;
+    Ok(HistoryResult {
+        dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+        can_undo: dataset.undo_frame.is_some(),
+        can_redo: true,
+    })
+}
+
+#[tauri::command]
+pub async fn redo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        redo_dataset(dataset)
+    })
+    .await
+    .map_err(|error| format!("No se pudo rehacer el cambio: {error}"))?
+}
+
+fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
+    let next = dataset
+        .redo_frame
+        .take()
+        .ok_or_else(|| "No hay un cambio disponible para rehacer.".to_owned())?;
+    let unchanged = std::mem::replace(&mut dataset.frame, next);
+    dataset.undo_frame = Some(unchanged);
+    dataset.profile = None;
+    Ok(HistoryResult {
+        dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+        can_undo: true,
+        can_redo: dataset.redo_frame.is_some(),
+    })
 }
 
 #[cfg(test)]
@@ -820,6 +1848,21 @@ mod tests {
         let mut file = File::create(&path).expect("se debe poder crear el CSV temporal");
         file.write_all(contents.as_bytes())
             .expect("se debe poder escribir el CSV temporal");
+        path
+    }
+
+    fn temporary_delimited(extension: &str, contents: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("el reloj del sistema debe ser válido")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "columnia-delimited-test-{}-{nonce}.{extension}",
+            std::process::id()
+        ));
+        let mut file = File::create(&path).expect("se debe crear el archivo temporal");
+        file.write_all(contents.as_bytes())
+            .expect("se debe escribir el archivo temporal");
         path
     }
 
@@ -866,13 +1909,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_csv_files() {
+    fn rejects_unsupported_dataset_files() {
         let path = std::env::temp_dir().join("columnia-invalid-dataset.txt");
         File::create(&path).expect("se debe poder crear el archivo temporal");
 
-        let error = validate_csv(&path).expect_err("un archivo que no es CSV debe rechazarse");
+        let error = validate_dataset_file(&path)
+            .expect_err("un archivo que no es un dataset compatible debe rechazarse");
 
-        assert!(error.contains("solo admite archivos CSV"));
+        assert!(error.contains("admite CSV, TSV, Parquet y libros Excel/ODS"));
         fs::remove_file(path).expect("se debe limpiar el archivo temporal");
     }
 
@@ -996,6 +2040,7 @@ mod tests {
         let state = DatasetState::default();
         let load_generation = state.begin_load();
         let profile_generation = state.begin_profile();
+        let export_generation = state.begin_export();
 
         state
             .cancel("profile")
@@ -1003,7 +2048,89 @@ mod tests {
 
         assert!(!state.load_was_cancelled(load_generation));
         assert!(state.profile_was_cancelled(profile_generation));
+        assert!(!state.export_was_cancelled(export_generation));
         assert!(state.cancel("unknown").is_err());
+    }
+
+    #[test]
+    fn exports_csv_by_atomically_replacing_the_destination() {
+        let source = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
+        let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let destination = directory.path().join("resultado.csv");
+        fs::write(&destination, "contenido anterior").expect("se debe preparar el destino");
+        let mut updates = Vec::new();
+
+        let result = export_frame_atomic(
+            &frame,
+            &destination,
+            ExportFormat::Csv,
+            |stage, percent| updates.push((stage, percent)),
+            || false,
+        )
+        .expect("el CSV debe exportarse");
+
+        let exported = fs::read_to_string(&destination).expect("se debe leer la exportación");
+        assert!(exported.starts_with("city,temperature"));
+        assert!(exported.contains("Santo Domingo,30"));
+        assert_eq!(result.file_name, "resultado.csv");
+        assert_eq!(result.format, "CSV");
+        assert_eq!(updates.last(), Some(&("Exportación lista", 100)));
+        fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn exports_a_valid_parquet_file() {
+        let source = temporary_csv("value\n1\n2\n");
+        let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let destination = directory.path().join("resultado.parquet");
+
+        export_frame_atomic(
+            &frame,
+            &destination,
+            ExportFormat::Parquet,
+            |_, _| {},
+            || false,
+        )
+        .expect("Parquet debe exportarse");
+
+        let bytes = fs::read(destination).expect("se debe leer Parquet");
+        assert!(bytes.starts_with(b"PAR1"));
+        assert!(bytes.ends_with(b"PAR1"));
+        fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn cancellation_keeps_the_previous_export_untouched() {
+        use std::cell::Cell;
+
+        let source = temporary_csv("value\n1\n2\n");
+        let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let destination = directory.path().join("resultado.csv");
+        fs::write(&destination, "exportación anterior")
+            .expect("se debe preparar la exportación anterior");
+        let checks = Cell::new(0);
+
+        let error = export_frame_atomic(
+            &frame,
+            &destination,
+            ExportFormat::Csv,
+            |_, _| {},
+            || {
+                checks.set(checks.get() + 1);
+                checks.get() >= 2
+            },
+        )
+        .expect_err("la exportación debe cancelarse antes de publicarse");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+        assert_eq!(
+            fs::read_to_string(destination).expect("el destino debe conservarse"),
+            "exportación anterior"
+        );
+        fs::remove_file(source).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]
@@ -1071,5 +2198,211 @@ mod tests {
         assert_eq!(page.rows[1][0].as_deref(), Some("Santiago"));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn normalizes_column_names_and_resolves_collisions_deterministically() {
+        let path = temporary_csv("Año Venta,ano-venta,2025 Total,/\n1,2,3,4\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let (names, renames) = normalized_column_names(&frame);
+
+        assert_eq!(
+            names,
+            vec!["ano_venta", "ano_venta_2", "col_2025_total", "unnamed"]
+        );
+        assert_eq!(renames.len(), 4);
+        assert_eq!(renames[0].from, "Año Venta");
+        assert_eq!(renames[0].to, "ano_venta");
+        assert_eq!(renames[1].to, "ano_venta_2");
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn trims_text_without_changing_internal_spaces_case_accents_or_nulls() {
+        let path = temporary_csv("city,note\n\" Bogotá \",\"A  B\"\nLima,\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let (cleaned, rows, cells, columns) =
+            clean_text_columns(&frame, None, TextCleaningMode::Trim)
+                .expect("los espacios deben limpiarse");
+        let page = dataset_page(&cleaned, 0, 50).expect("la vista previa debe generarse");
+
+        assert_eq!(page.rows[0][0].as_deref(), Some("Bogotá"));
+        assert_eq!(page.rows[0][1].as_deref(), Some("A  B"));
+        assert_eq!(page.rows[1][1], None);
+        assert_eq!(rows, 1);
+        assert_eq!(cells, 1);
+        assert_eq!(columns[0].name, "city");
+        assert_eq!(columns[0].changed_cell_count, 1);
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn normalizes_selected_text_and_preserves_unselected_columns() {
+        let path = temporary_csv("city,code\n\"  BOGOTÁ\tNORTE  \",\" Ab C \"\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let selected = vec!["city".to_owned()];
+
+        let (cleaned, rows, cells, columns) = clean_text_columns(
+            &frame,
+            Some(&selected),
+            TextCleaningMode::Normalize {
+                remove_accents: true,
+            },
+        )
+        .expect("el texto seleccionado debe normalizarse");
+        let page = dataset_page(&cleaned, 0, 50).expect("la vista previa debe generarse");
+
+        assert_eq!(page.rows[0][0].as_deref(), Some("bogota norte"));
+        assert_eq!(page.rows[0][1].as_deref(), Some(" Ab C "));
+        assert_eq!(rows, 1);
+        assert_eq!(cells, 1);
+        assert_eq!(columns.len(), 1);
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn undo_and_redo_swap_the_single_reversible_revision() {
+        let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
+        let (original, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (cleaned, _) =
+            remove_duplicate_rows(&original).expect("los duplicados deben eliminarse");
+        let mut dataset = LoadedDataset {
+            path: path.clone(),
+            frame: cleaned,
+            profile: Some(profile_dataset(&original).expect("el perfil debe existir")),
+            undo_frame: Some(original),
+            redo_frame: None,
+        };
+
+        let undone = undo_dataset(&mut dataset).expect("el cambio debe deshacerse");
+        assert_eq!(undone.dataset.row_count, 3);
+        assert!(!undone.can_undo);
+        assert!(undone.can_redo);
+        assert!(dataset.profile.is_none());
+
+        let redone = redo_dataset(&mut dataset).expect("el cambio debe rehacerse");
+        assert_eq!(redone.dataset.row_count, 2);
+        assert!(redone.can_undo);
+        assert!(!redone.can_redo);
+        assert!(redo_dataset(&mut dataset).is_err());
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn applies_safe_corrections_in_one_candidate_frame() {
+        let path = temporary_csv("Año Venta,city\n1,\" Bogotá \"\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let (corrected, rows, cells, renames) =
+            safe_corrected_frame(&frame).expect("las correcciones deben aplicarse");
+        let page = dataset_page(&corrected, 0, 50).expect("la vista previa debe generarse");
+
+        assert_eq!(
+            corrected
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ano_venta", "city"]
+        );
+        assert_eq!(page.rows[0][1].as_deref(), Some("Bogotá"));
+        assert_eq!(rows, 1);
+        assert_eq!(cells, 1);
+        assert_eq!(renames.len(), 1);
+        assert_eq!(renames[0].to, "ano_venta");
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn loads_parquet_preserving_schema_nulls_and_unicode() {
+        let source = temporary_csv("city,value\nSanto Domingo,10\nBogotá,\n");
+        let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let parquet = directory.path().join("dataset.parquet");
+        export_frame_atomic(&frame, &parquet, ExportFormat::Parquet, |_, _| {}, || false)
+            .expect("el Parquet debe escribirse");
+        let mut updates = Vec::new();
+
+        let (loaded, preview) = load_dataset_with_progress(
+            &parquet,
+            |stage, percent| updates.push((stage, percent)),
+            || false,
+        )
+        .expect("el Parquet debe cargarse");
+
+        assert_eq!(loaded.dtypes(), frame.dtypes());
+        assert_eq!(preview.file_name, "dataset.parquet");
+        assert_eq!(preview.row_count, 2);
+        assert_eq!(preview.rows[1][0].as_deref(), Some("Bogotá"));
+        assert_eq!(preview.rows[1][1], None);
+        assert_eq!(updates.first(), Some(&("Validando archivo", 10)));
+        assert_eq!(updates.last(), Some(&("Preparando sesión", 95)));
+
+        fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn loads_tsv_with_tabs_and_preserves_lexical_values() {
+        let path = temporary_delimited(
+            "tsv",
+            "id\tdescription\tamount\n00123\t\"Santo Domingo, RD\"\t1.00\n18446744073709551616\tBogotá\t\n",
+        );
+
+        let (frame, preview) =
+            load_dataset_with_progress(&path, |_, _| {}, || false).expect("el TSV debe cargar");
+
+        assert!(frame
+            .dtypes()
+            .iter()
+            .all(|kind| *kind == polars::prelude::DataType::String));
+        assert_eq!(preview.rows[0][0].as_deref(), Some("00123"));
+        assert_eq!(preview.rows[0][1].as_deref(), Some("Santo Domingo, RD"));
+        assert_eq!(preview.rows[0][2].as_deref(), Some("1.00"));
+        assert_eq!(preview.rows[1][0].as_deref(), Some("18446744073709551616"));
+        assert_eq!(preview.rows[1][2], None);
+
+        fs::remove_file(path).expect("se debe limpiar el TSV temporal");
+    }
+
+    #[test]
+    fn converts_spreadsheet_range_with_unique_headers_and_safe_types() {
+        let mut range = Range::<Data>::new((0, 0), (2, 3));
+        range.set_value((0, 0), Data::String("id".to_owned()));
+        range.set_value((0, 1), Data::String("id".to_owned()));
+        range.set_value((0, 2), Data::Empty);
+        range.set_value((0, 3), Data::String("active".to_owned()));
+        range.set_value((1, 0), Data::Int(1));
+        range.set_value((2, 0), Data::Int(2));
+        range.set_value((1, 1), Data::String("001".to_owned()));
+        range.set_value((2, 1), Data::Error(calamine::CellErrorType::Div0));
+        range.set_value((1, 2), Data::Float(1.5));
+        range.set_value((2, 2), Data::Empty);
+        range.set_value((1, 3), Data::Bool(true));
+        range.set_value((2, 3), Data::Bool(false));
+
+        let frame = spreadsheet_range_to_frame(&range).expect("la hoja debe convertirse");
+        assert_eq!(frame.height(), 2);
+        assert_eq!(
+            frame
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["id", "id_2", "column_3", "active"]
+        );
+        assert_eq!(frame.dtypes()[0], polars::prelude::DataType::Int64);
+        assert_eq!(frame.dtypes()[1], polars::prelude::DataType::String);
+        assert_eq!(frame.dtypes()[2], polars::prelude::DataType::Float64);
+        assert_eq!(frame.dtypes()[3], polars::prelude::DataType::Boolean);
+        let page = dataset_page(&frame, 0, 50).expect("debe generarse la vista previa");
+        assert_eq!(page.rows[0][1].as_deref(), Some("001"));
+        assert_eq!(page.rows[1][1].as_deref(), Some("#DIV/0!"));
     }
 }

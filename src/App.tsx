@@ -1,17 +1,28 @@
 import { useEffect, useState } from "react";
 
 import {
+  applySafeCorrections,
   cancelOperation,
+  discardDatasetSelection,
+  exportDataset,
   getAppInfo,
   getDatasetPage,
   getDatasetProfile,
-  pickAndLoadCsv,
+  normalizeColumnNames,
+  normalizeTextValues,
+  loadDatasetSelection,
+  pickDatasetSource,
   removeDuplicates,
+  redoLastChange,
+  trimTextValues,
   undoLastChange,
   type AppInfo,
   type CancellableOperation,
   type DatasetPreview,
   type DatasetProfile,
+  type DatasetSourceInspection,
+  type ExportFormat,
+  type ExportResult,
   type OperationProgress,
 } from "./bridge";
 
@@ -50,11 +61,32 @@ type ProfileStatus =
 
 type ChangeStatus =
   | { kind: "idle" }
-  | { kind: "working"; action: "apply" | "undo" }
-  | { kind: "applied"; affectedRowCount: number }
-  | { kind: "error"; message: string; canUndo: boolean };
+  | { kind: "working"; action: "safe" | "duplicates" | "columns" | "trim" | "text" | "undo" | "redo" }
+  | { kind: "applied"; message: string }
+  | { kind: "error"; message: string };
 
-type ActiveView = "data" | "quality";
+type HistoryStatus = { canUndo: boolean; canRedo: boolean };
+
+type ExportStatus =
+  | { kind: "idle" }
+  | {
+      kind: "loading";
+      format: ExportFormat;
+      progress: OperationProgress;
+      cancelRequested: boolean;
+    }
+  | { kind: "success"; result: ExportResult }
+  | { kind: "error"; message: string };
+
+const phases = [
+  { id: "load", number: "01", label: "Cargar", description: "Elegir una fuente local" },
+  { id: "review", number: "02", label: "Revisar", description: "Entender señales y calidad" },
+  { id: "prepare", number: "03", label: "Preparar", description: "Corregir y transformar" },
+  { id: "deliver", number: "04", label: "Entregar", description: "Validar y exportar" },
+] as const;
+
+type ActivePhase = (typeof phases)[number]["id"];
+type ReviewTab = "diagnosis" | "preview";
 
 function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -75,7 +107,13 @@ export function App() {
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
-  const [activeView, setActiveView] = useState<ActiveView>("data");
+  const [historyStatus, setHistoryStatus] = useState<HistoryStatus>({ canUndo: false, canRedo: false });
+  const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle" });
+  const [activePhase, setActivePhase] = useState<ActivePhase>("load");
+  const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
+  const [sheetSelection, setSheetSelection] = useState<DatasetSourceInspection | null>(null);
+  const [selectedSheetId, setSelectedSheetId] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -98,42 +136,73 @@ export function App() {
     };
   }, []);
 
-  async function selectCsv() {
+  async function loadSelection(source: DatasetSourceInspection, sheetId: string | null) {
     const previous = datasetStatus.kind === "ready" ? datasetStatus : undefined;
     setDatasetStatus({
       kind: "loading",
-      progress: { operation: "load", stage: "Esperando selección", percent: 0 },
+      progress: { operation: "load", stage: "Preparando carga", percent: 0 },
       cancelRequested: false,
       previous,
     });
-    setProfileStatus({ kind: "idle" });
-    setChangeStatus({ kind: "idle" });
-    setActiveView("data");
+    setImportError(null);
     try {
-      const dataset = await pickAndLoadCsv((progress) => {
+      const dataset = await loadDatasetSelection(source.selectionId, sheetId, (progress) => {
         setDatasetStatus((current) =>
           current.kind === "loading" ? { ...current, progress } : current,
         );
       });
-      setDatasetStatus(
-        dataset
-          ? { kind: "ready", dataset, pageOffset: 0, pageLoading: false }
-          : (previous ?? { kind: "empty" }),
-      );
+      setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
+      setSheetSelection(null);
+      setProfileStatus({ kind: "idle" });
+      setChangeStatus({ kind: "idle" });
+      setHistoryStatus({ canUndo: false, canRedo: false });
+      setExportStatus({ kind: "idle" });
+      setReviewTab("diagnosis");
+      setActivePhase("review");
     } catch (error: unknown) {
+      setDatasetStatus(previous ?? { kind: "empty" });
       if (isCancellationError(error)) {
-        setDatasetStatus(previous ?? { kind: "empty" });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      setDatasetStatus({ kind: "error", message });
+      setImportError(message);
+    }
+  }
+
+  async function selectDataset() {
+    setImportError(null);
+    setActivePhase("load");
+    try {
+      const source = await pickDatasetSource();
+      if (!source) return;
+      if (source.sheets.length > 1) {
+        setSheetSelection(source);
+        setSelectedSheetId(source.defaultSheetId ?? source.sheets[0]?.id ?? "");
+        return;
+      }
+      await loadSelection(source, source.sheets[0]?.id ?? null);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setImportError(message);
+    }
+  }
+
+  async function cancelSheetSelection() {
+    const source = sheetSelection;
+    setSheetSelection(null);
+    if (source) {
+      try {
+        await discardDatasetSelection(source.selectionId);
+      } catch (error: unknown) {
+        setImportError(error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
   async function applyDuplicateRemoval() {
     if (datasetStatus.kind !== "ready") return;
 
-    setChangeStatus({ kind: "working", action: "apply" });
+    setChangeStatus({ kind: "working", action: "duplicates" });
     try {
       const result = await removeDuplicates();
       setDatasetStatus({
@@ -143,10 +212,119 @@ export function App() {
         pageLoading: false,
       });
       setProfileStatus({ kind: "idle" });
-      setChangeStatus({ kind: "applied", affectedRowCount: result.affectedRowCount });
+      setChangeStatus({
+        kind: "applied",
+        message: `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas adicionales.`,
+      });
+      if (result.affectedRowCount > 0) setHistoryStatus({ canUndo: true, canRedo: false });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      setChangeStatus({ kind: "error", message, canUndo: false });
+      setChangeStatus({ kind: "error", message });
+    }
+  }
+
+  async function applyColumnNormalization() {
+    if (datasetStatus.kind !== "ready") return;
+
+    setChangeStatus({ kind: "working", action: "columns" });
+    try {
+      const result = await normalizeColumnNames();
+      setDatasetStatus({
+        kind: "ready",
+        dataset: result.dataset,
+        pageOffset: 0,
+        pageLoading: false,
+      });
+      setProfileStatus({ kind: "idle" });
+      setChangeStatus({
+        kind: "applied",
+        message:
+          result.renamedColumnCount === 0
+            ? "Los nombres de las columnas ya estaban normalizados."
+            : result.renamedColumnCount === 1
+              ? "Se normalizó 1 nombre de columna."
+              : `Se normalizaron ${result.renamedColumnCount.toLocaleString()} nombres de columnas.`,
+      });
+      if (result.renamedColumnCount > 0) setHistoryStatus({ canUndo: true, canRedo: false });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setChangeStatus({ kind: "error", message });
+    }
+  }
+
+  async function applyTextChange(
+    action: "trim" | "text",
+    operation: () => ReturnType<typeof trimTextValues>,
+  ) {
+    if (datasetStatus.kind !== "ready") return;
+
+    setChangeStatus({ kind: "working", action });
+    try {
+      const result = await operation();
+      setDatasetStatus({
+        kind: "ready",
+        dataset: result.dataset,
+        pageOffset: 0,
+        pageLoading: false,
+      });
+      setProfileStatus({ kind: "idle" });
+      const cells =
+        result.changedCellCount === 1
+          ? "1 celda"
+          : `${result.changedCellCount.toLocaleString()} celdas`;
+      const rows =
+        result.affectedRowCount === 1
+          ? "1 fila"
+          : `${result.affectedRowCount.toLocaleString()} filas`;
+      const detail = `${cells} en ${rows}`;
+      setChangeStatus({
+        kind: "applied",
+        message:
+          result.changedCellCount === 0
+            ? "No se encontraron valores que necesitaran esta corrección."
+            : action === "trim"
+              ? `Se recortaron espacios en ${detail}.`
+              : `Se normalizó texto en ${detail}.`,
+      });
+      if (result.changedCellCount > 0) setHistoryStatus({ canUndo: true, canRedo: false });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setChangeStatus({ kind: "error", message });
+    }
+  }
+
+  async function applyRecommendedCorrections() {
+    if (datasetStatus.kind !== "ready") return;
+
+    setChangeStatus({ kind: "working", action: "safe" });
+    try {
+      const result = await applySafeCorrections();
+      setDatasetStatus({
+        kind: "ready",
+        dataset: result.dataset,
+        pageOffset: 0,
+        pageLoading: false,
+      });
+      setProfileStatus({ kind: "idle" });
+      const changed = result.changedCellCount > 0 || result.renamedColumnCount > 0;
+      const changedCells =
+        result.changedCellCount === 1
+          ? "1 celda recortada"
+          : `${result.changedCellCount.toLocaleString()} celdas recortadas`;
+      const renamedColumns =
+        result.renamedColumnCount === 1
+          ? "1 columna renombrada"
+          : `${result.renamedColumnCount.toLocaleString()} columnas renombradas`;
+      setChangeStatus({
+        kind: "applied",
+        message: changed
+          ? `Correcciones recomendadas aplicadas: ${changedCells} y ${renamedColumns}.`
+          : "El dataset ya cumplía las correcciones recomendadas.",
+      });
+      if (changed) setHistoryStatus({ canUndo: true, canRedo: false });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setChangeStatus({ kind: "error", message });
     }
   }
 
@@ -155,13 +333,30 @@ export function App() {
 
     setChangeStatus({ kind: "working", action: "undo" });
     try {
-      const dataset = await undoLastChange();
-      setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
+      const result = await undoLastChange();
+      setDatasetStatus({ kind: "ready", dataset: result.dataset, pageOffset: 0, pageLoading: false });
       setProfileStatus({ kind: "idle" });
-      setChangeStatus({ kind: "idle" });
+      setHistoryStatus({ canUndo: result.canUndo, canRedo: result.canRedo });
+      setChangeStatus({ kind: "applied", message: "Se deshizo el último cambio." });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      setChangeStatus({ kind: "error", message, canUndo: true });
+      setChangeStatus({ kind: "error", message });
+    }
+  }
+
+  async function redoChange() {
+    if (datasetStatus.kind !== "ready") return;
+
+    setChangeStatus({ kind: "working", action: "redo" });
+    try {
+      const result = await redoLastChange();
+      setDatasetStatus({ kind: "ready", dataset: result.dataset, pageOffset: 0, pageLoading: false });
+      setProfileStatus({ kind: "idle" });
+      setHistoryStatus({ canUndo: result.canUndo, canRedo: result.canRedo });
+      setChangeStatus({ kind: "applied", message: "Se rehízo el último cambio." });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setChangeStatus({ kind: "error", message });
     }
   }
 
@@ -193,8 +388,12 @@ export function App() {
       setDatasetStatus((current) =>
         current.kind === "loading" ? { ...current, cancelRequested: true } : current,
       );
-    } else {
+    } else if (operation === "profile") {
       setProfileStatus((current) =>
+        current.kind === "loading" ? { ...current, cancelRequested: true } : current,
+      );
+    } else {
+      setExportStatus((current) =>
         current.kind === "loading" ? { ...current, cancelRequested: true } : current,
       );
     }
@@ -205,9 +404,36 @@ export function App() {
       const message = error instanceof Error ? error.message : String(error);
       if (operation === "load") {
         setDatasetStatus({ kind: "error", message });
-      } else {
+      } else if (operation === "profile") {
         setProfileStatus({ kind: "error", message });
+      } else {
+        setExportStatus({ kind: "error", message });
       }
+    }
+  }
+
+  async function exportActiveDataset(format: ExportFormat) {
+    if (datasetStatus.kind !== "ready") return;
+    setExportStatus({
+      kind: "loading",
+      format,
+      progress: { operation: "export", stage: "Esperando destino", percent: 0 },
+      cancelRequested: false,
+    });
+    try {
+      const result = await exportDataset(format, (progress) => {
+        setExportStatus((current) =>
+          current.kind === "loading" ? { ...current, progress } : current,
+        );
+      });
+      setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
+    } catch (error: unknown) {
+      if (isCancellationError(error)) {
+        setExportStatus({ kind: "idle" });
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setExportStatus({ kind: "error", message });
     }
   }
 
@@ -232,6 +458,16 @@ export function App() {
   }
 
   const isDesktopReady = status.kind === "ready";
+  const readyDataset = datasetStatus.kind === "ready" ? datasetStatus : undefined;
+  const retainedDataset =
+    datasetStatus.kind === "loading" ? datasetStatus.previous : undefined;
+  const activeDataset = readyDataset ?? retainedDataset;
+  const operationBusy =
+    datasetStatus.kind === "loading" ||
+    profileStatus.kind === "loading" ||
+    changeStatus.kind === "working" ||
+    exportStatus.kind === "loading";
+  const activePhaseMeta = phases.find((phase) => phase.id === activePhase) ?? phases[0];
 
   return (
     <main className="shell">
@@ -241,34 +477,34 @@ export function App() {
           <h1 id="app-title">Columnia</h1>
         </div>
 
-        <nav className="side-nav" aria-label="Secciones del dataset">
-          <button
-            type="button"
-            aria-label="Datos"
-            className={activeView === "data" ? "side-nav__active" : undefined}
-            aria-current={activeView === "data" ? "page" : undefined}
-            onClick={() => setActiveView("data")}
-          >
-            <span>01</span>
-            Datos
-          </button>
-          <button
-            type="button"
-            aria-label="Calidad"
-            className={activeView === "quality" ? "side-nav__active" : undefined}
-            aria-current={activeView === "quality" ? "page" : undefined}
-            onClick={() => setActiveView("quality")}
-            disabled={datasetStatus.kind !== "ready"}
-          >
-            <span>02</span>
-            Calidad
-          </button>
+        <nav className="side-nav" aria-label="Flujo de preparación de datos">
+          {phases.map((phase) => {
+            const available = phase.id === "load" || Boolean(activeDataset);
+            return (
+              <button
+                key={phase.id}
+                type="button"
+                aria-label={phase.label}
+                className={activePhase === phase.id ? "side-nav__active" : undefined}
+                aria-current={activePhase === phase.id ? "step" : undefined}
+                onClick={() => setActivePhase(phase.id)}
+                disabled={!available || operationBusy}
+                title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
+              >
+                <span>{phase.number}</span>
+                <span className="side-nav__copy">
+                  <strong>{phase.label}</strong>
+                  <small>{phase.description}</small>
+                </span>
+              </button>
+            );
+          })}
         </nav>
 
         <div className="sidebar__dataset">
           <span>Dataset activo</span>
           <strong>
-            {datasetStatus.kind === "ready" ? datasetStatus.dataset.fileName : "Sin dataset"}
+            {activeDataset ? activeDataset.dataset.fileName : "Sin dataset"}
           </strong>
         </div>
       </aside>
@@ -277,7 +513,7 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="step">Vista actual</p>
-            <p className="page-title">{activeView === "data" ? "Datos" : "Calidad"}</p>
+            <p className="page-title">{activePhaseMeta.label}</p>
           </div>
           <div className={`runtime runtime--${status.kind}`} role="status" aria-live="polite">
             {status.kind === "loading" && "Conectando con Rust…"}
@@ -288,82 +524,65 @@ export function App() {
         </header>
 
         <section
-          className={`workspace workspace--${activeView}`}
-          aria-label={activeView === "data" ? "Datos del dataset" : "Calidad del dataset"}
+          className={`workspace workspace--${activePhase}`}
+          aria-label={`Etapa ${activePhaseMeta.label}`}
         >
-          {activeView === "data" && (
-            <div className="workspace__intro">
-              <div>
-                <p className="step">Dataset activo</p>
-                <h2>
-                  {datasetStatus.kind === "ready"
-                    ? datasetStatus.dataset.fileName
-                    : "Carga tu primer archivo CSV"}
-                </h2>
-                <p>
-                  Se admiten CSV de hasta 500 MB. Los archivos grandes pueden requerir bastante más
-                  memoria mientras completamos el procesamiento por streaming.
-                </p>
-              </div>
-              <button
-                className="primary-action"
-                type="button"
-                onClick={selectCsv}
-                disabled={
-                  !isDesktopReady ||
-                  datasetStatus.kind === "loading" ||
-                  profileStatus.kind === "loading" ||
-                  changeStatus.kind === "working"
-                }
-              >
-                {datasetStatus.kind === "loading" ? "Cargando…" : "Seleccionar CSV"}
-              </button>
-            </div>
-          )}
-
-          {status.kind === "browser" && (
-            <p className="notice">Abre Columnia con Tauri para seleccionar archivos locales.</p>
-          )}
-
-          {datasetStatus.kind === "error" && (
-            <p className="notice notice--error" role="alert">
-              {datasetStatus.message}
-            </p>
-          )}
-
-          {datasetStatus.kind === "loading" && (
-            <OperationProgressView
-              progress={datasetStatus.progress}
-              cancelRequested={datasetStatus.cancelRequested}
+          {activePhase === "load" && (
+            <LoadPhase
+              status={status}
+              datasetStatus={datasetStatus}
+              sheetSelection={sheetSelection}
+              selectedSheetId={selectedSheetId}
+              importError={importError}
+              isDesktopReady={isDesktopReady}
+              onSelect={selectDataset}
+              onSheetChange={setSelectedSheetId}
+              onConfirmSheet={() => {
+                if (sheetSelection) void loadSelection(sheetSelection, selectedSheetId);
+              }}
+              onCancelSheet={() => void cancelSheetSelection()}
               onCancel={() => cancelActiveOperation("load")}
             />
           )}
 
-          {datasetStatus.kind === "empty" && isDesktopReady && (
-            <div className="empty-state">
-              <span aria-hidden="true">CSV</span>
-              <p>Selecciona un archivo para inspeccionar sus columnas y primeras filas.</p>
-            </div>
-          )}
-
-          {datasetStatus.kind === "ready" && (
-            <DatasetView
-              activeView={activeView}
-              dataset={datasetStatus.dataset}
-              pageOffset={datasetStatus.pageOffset}
-              pageLoading={
-                datasetStatus.pageLoading ||
-                profileStatus.kind === "loading" ||
-                changeStatus.kind === "working"
-              }
-              pageError={datasetStatus.pageError}
+          {activePhase === "review" && readyDataset && (
+            <ReviewPhase
+              datasetStatus={readyDataset}
               profileStatus={profileStatus}
-              changeStatus={changeStatus}
+              reviewTab={reviewTab}
+              onTabChange={setReviewTab}
               onPageChange={changePage}
               onAnalyzeQuality={analyzeQuality}
-              onCancelOperation={cancelActiveOperation}
+              onCancelProfile={() => cancelActiveOperation("profile")}
+            />
+          )}
+
+          {activePhase === "prepare" && readyDataset && (
+            <PreparePhase
+              dataset={readyDataset.dataset}
+              profileStatus={profileStatus}
+              changeStatus={changeStatus}
+              historyStatus={historyStatus}
+              onAnalyzeQuality={analyzeQuality}
+              onCancelProfile={() => cancelActiveOperation("profile")}
               onRemoveDuplicates={applyDuplicateRemoval}
-              onUndoChange={undoChange}
+              onNormalizeColumns={applyColumnNormalization}
+              onApplyRecommended={applyRecommendedCorrections}
+              onTrimText={() => applyTextChange("trim", trimTextValues)}
+              onNormalizeText={(columns, removeAccents) =>
+                applyTextChange("text", () => normalizeTextValues(columns, removeAccents))
+              }
+              onUndo={undoChange}
+              onRedo={redoChange}
+            />
+          )}
+
+          {activePhase === "deliver" && readyDataset && (
+            <DeliverPhase
+              dataset={readyDataset.dataset}
+              exportStatus={exportStatus}
+              onExport={exportActiveDataset}
+              onCancel={() => cancelActiveOperation("export")}
             />
           )}
         </section>
@@ -372,98 +591,481 @@ export function App() {
   );
 }
 
-interface DatasetViewProps {
-  activeView: ActiveView;
-  dataset: DatasetPreview;
-  pageOffset: number;
-  pageLoading: boolean;
-  pageError?: string;
-  profileStatus: ProfileStatus;
-  changeStatus: ChangeStatus;
-  onPageChange: (offset: number) => void;
-  onAnalyzeQuality: () => void;
-  onCancelOperation: (operation: CancellableOperation) => void;
-  onRemoveDuplicates: () => void;
-  onUndoChange: () => void;
+interface LoadPhaseProps {
+  status: AppStatus;
+  datasetStatus: DatasetStatus;
+  sheetSelection: DatasetSourceInspection | null;
+  selectedSheetId: string;
+  importError: string | null;
+  isDesktopReady: boolean;
+  onSelect: () => void;
+  onSheetChange: (sheetId: string) => void;
+  onConfirmSheet: () => void;
+  onCancelSheet: () => void;
+  onCancel: () => void;
 }
 
-function DatasetView({
-  activeView,
-  dataset,
-  pageOffset,
-  pageLoading,
-  pageError,
-  profileStatus,
-  changeStatus,
-  onPageChange,
-  onAnalyzeQuality,
-  onCancelOperation,
-  onRemoveDuplicates,
-  onUndoChange,
-}: DatasetViewProps) {
+function LoadPhase({
+  status,
+  datasetStatus,
+  sheetSelection,
+  selectedSheetId,
+  importError,
+  isDesktopReady,
+  onSelect,
+  onSheetChange,
+  onConfirmSheet,
+  onCancelSheet,
+  onCancel,
+}: LoadPhaseProps) {
+  const current =
+    datasetStatus.kind === "ready"
+      ? datasetStatus.dataset
+      : datasetStatus.kind === "loading"
+        ? datasetStatus.previous?.dataset
+        : undefined;
+
   return (
-    <div className={`dataset dataset--${activeView}`}>
-      {activeView === "data" ? (
-        <DataPreview
-          dataset={dataset}
-          pageOffset={pageOffset}
-          pageLoading={pageLoading}
-          pageError={pageError}
-          onPageChange={onPageChange}
+    <>
+      <header className="phase-header">
+        <div>
+          <p className="eyebrow">Cargar · Fuente local</p>
+          <h2>{current ? current.fileName : "Selecciona un dataset"}</h2>
+          <p>
+            Se admiten CSV, TSV, Parquet, Excel y ODS de hasta 500 MB. El procesamiento se realiza
+            localmente y tus datos no salen del equipo.
+          </p>
+        </div>
+        <button
+          className="primary-action"
+          type="button"
+          onClick={onSelect}
+          disabled={!isDesktopReady || datasetStatus.kind === "loading" || Boolean(sheetSelection)}
+        >
+          {current ? "Seleccionar otro dataset" : "Seleccionar dataset"}
+        </button>
+      </header>
+
+      {datasetStatus.kind === "loading" && (
+        <OperationProgressView
+          progress={datasetStatus.progress}
+          cancelRequested={datasetStatus.cancelRequested}
+          onCancel={onCancel}
         />
-      ) : (
-        <>
-          <ChangeFeedback status={changeStatus} onUndo={onUndoChange} />
-          <section className="quality" aria-labelledby="quality-title">
-            <div className="quality__header">
-              <div>
-                <p className="step">Calidad inicial</p>
-                <h3 id="quality-title">Perfil por columna</h3>
-              </div>
-              <button
-                type="button"
-                onClick={onAnalyzeQuality}
-                disabled={profileStatus.kind === "loading" || profileStatus.kind === "ready"}
-              >
-                {profileStatus.kind === "loading"
-                  ? "Analizando…"
-                  : profileStatus.kind === "ready"
-                    ? "Perfil listo"
-                    : "Analizar calidad"}
+      )}
+      {datasetStatus.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo cargar el archivo: {datasetStatus.message}
+        </p>
+      )}
+      {importError && (
+        <p className="notice notice--error" role="alert">
+          No se pudo importar el archivo: {importError}
+        </p>
+      )}
+      {sheetSelection && (
+        <div className="sheet-dialog" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+          <div className="sheet-dialog__panel">
+            <p className="eyebrow">Libro seleccionado</p>
+            <h3 id="sheet-title">Elegir hoja de {sheetSelection.fileName}</h3>
+            <p>Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar.</p>
+            <label htmlFor="workbook-sheet">Hoja</label>
+            <select
+              id="workbook-sheet"
+              value={selectedSheetId}
+              onChange={(event) => onSheetChange(event.target.value)}
+            >
+              {sheetSelection.sheets.map((sheet) => (
+                <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
+              ))}
+            </select>
+            <div className="sheet-dialog__actions">
+              <button type="button" className="secondary-action" onClick={onCancelSheet}>Cancelar</button>
+              <button type="button" className="primary-action" onClick={onConfirmSheet} disabled={!selectedSheetId}>
+                Cargar hoja
               </button>
             </div>
-
-            {profileStatus.kind === "idle" && (
-              <p className="quality__hint">
-                Calcula duplicados, completitud, valores únicos y estadísticas numéricas y
-                textuales y detecta tipos ocultos sin enviar datos fuera del equipo.
-              </p>
-            )}
-            {profileStatus.kind === "loading" && (
-              <OperationProgressView
-                progress={profileStatus.progress}
-                cancelRequested={profileStatus.cancelRequested}
-                onCancel={() => onCancelOperation("profile")}
-              />
-            )}
-            {profileStatus.kind === "error" && (
-              <p className="notice notice--error" role="alert">
-                No se pudo calcular el perfil: {profileStatus.message}
-              </p>
-            )}
-            {profileStatus.kind === "ready" && (
-              <QualityProfile
-                profile={profileStatus.profile}
-                busy={changeStatus.kind === "working"}
-                onRemoveDuplicates={onRemoveDuplicates}
-              />
-            )}
-          </section>
-        </>
+          </div>
+        </div>
       )}
-    </div>
+      {status.kind === "browser" && (
+        <p className="notice" role="status">
+          Abre Columnia con Tauri para seleccionar archivos locales.
+        </p>
+      )}
+      {current && <DatasetMetrics dataset={current} />}
+    </>
   );
 }
+
+interface ReviewPhaseProps {
+  datasetStatus: ReadyDatasetStatus;
+  profileStatus: ProfileStatus;
+  reviewTab: ReviewTab;
+  onTabChange: (tab: ReviewTab) => void;
+  onPageChange: (offset: number) => void;
+  onAnalyzeQuality: () => void;
+  onCancelProfile: () => void;
+}
+
+function ReviewPhase({
+  datasetStatus,
+  profileStatus,
+  reviewTab,
+  onTabChange,
+  onPageChange,
+  onAnalyzeQuality,
+  onCancelProfile,
+}: ReviewPhaseProps) {
+  return (
+    <>
+      <header className="phase-header phase-header--compact">
+        <div>
+          <p className="eyebrow">Revisar · Dataset activo</p>
+          <h2>{datasetStatus.dataset.fileName}</h2>
+          <p>Comprueba la estructura, la calidad y una muestra de los datos antes de modificarlos.</p>
+        </div>
+      </header>
+      <div className="stage-tabs" role="tablist" aria-label="Vistas de revisión">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={reviewTab === "diagnosis"}
+          className={reviewTab === "diagnosis" ? "stage-tab--active" : undefined}
+          onClick={() => onTabChange("diagnosis")}
+        >
+          Diagnóstico
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={reviewTab === "preview"}
+          className={reviewTab === "preview" ? "stage-tab--active" : undefined}
+          onClick={() => onTabChange("preview")}
+        >
+          Vista previa
+        </button>
+      </div>
+
+      {reviewTab === "diagnosis" ? (
+        <QualitySection
+          dataset={datasetStatus.dataset}
+          status={profileStatus}
+          onAnalyze={onAnalyzeQuality}
+          onCancel={onCancelProfile}
+        />
+      ) : (
+        <DataPreview
+          dataset={datasetStatus.dataset}
+          pageOffset={datasetStatus.pageOffset}
+          pageLoading={datasetStatus.pageLoading}
+          pageError={datasetStatus.pageError}
+          onPageChange={onPageChange}
+        />
+      )}
+    </>
+  );
+}
+
+function QualitySection({
+  dataset,
+  status,
+  onAnalyze,
+  onCancel,
+}: {
+  dataset: DatasetPreview;
+  status: ProfileStatus;
+  onAnalyze: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="phase-section" aria-labelledby="quality-title">
+      <div className="section-heading">
+        <div>
+          <p className="step">Calidad inicial</p>
+          <h3 id="quality-title">Perfil por columna</h3>
+        </div>
+        {status.kind !== "loading" && (
+          <button type="button" onClick={onAnalyze}>
+            {status.kind === "ready" ? "Analizar de nuevo" : "Analizar calidad"}
+          </button>
+        )}
+      </div>
+      <DatasetMetrics dataset={dataset} />
+      {status.kind === "loading" && (
+        <OperationProgressView
+          progress={status.progress}
+          cancelRequested={status.cancelRequested}
+          onCancel={onCancel}
+        />
+      )}
+      {status.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo analizar la calidad: {status.message}
+        </p>
+      )}
+      {status.kind === "ready" && <QualityProfile profile={status.profile} />}
+    </section>
+  );
+}
+
+interface PreparePhaseProps {
+  dataset: DatasetPreview;
+  profileStatus: ProfileStatus;
+  changeStatus: ChangeStatus;
+  historyStatus: HistoryStatus;
+  onAnalyzeQuality: () => void;
+  onCancelProfile: () => void;
+  onRemoveDuplicates: () => void;
+  onNormalizeColumns: () => void;
+  onApplyRecommended: () => void;
+  onTrimText: () => void;
+  onNormalizeText: (columns: string[], removeAccents: boolean) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+}
+
+function PreparePhase({
+  dataset,
+  profileStatus,
+  changeStatus,
+  historyStatus,
+  onAnalyzeQuality,
+  onCancelProfile,
+  onRemoveDuplicates,
+  onNormalizeColumns,
+  onApplyRecommended,
+  onTrimText,
+  onNormalizeText,
+  onUndo,
+  onRedo,
+}: PreparePhaseProps) {
+  const duplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.duplicateRowCount : null;
+  const changing = changeStatus.kind === "working";
+  const textColumns = dataset.columns.filter((column) => column.dataType === "String" && column.name !== "_cambios");
+  const [selectedTextColumns, setSelectedTextColumns] = useState<string[]>([]);
+  const [removeAccents, setRemoveAccents] = useState(true);
+
+  useEffect(() => {
+    const available = new Set(textColumns.map((column) => column.name));
+    setSelectedTextColumns((current) => current.filter((name) => available.has(name)));
+  }, [dataset.columns]);
+
+  return (
+    <>
+      <header className="phase-header phase-header--compact">
+        <div>
+          <p className="eyebrow">Preparar · Correcciones</p>
+          <h2>{dataset.fileName}</h2>
+          <p>Aplica cambios controlados al dataset activo. Cada corrección indica su impacto.</p>
+        </div>
+      </header>
+      <HistoryBar
+        status={historyStatus}
+        busy={changing}
+        onUndo={onUndo}
+        onRedo={onRedo}
+      />
+      <ChangeFeedback status={changeStatus} />
+      <section className="recommended-batch" aria-labelledby="recommended-batch-title">
+        <div>
+          <p className="step">Aplicación agrupada</p>
+          <h3 id="recommended-batch-title">Correcciones recomendadas</h3>
+          <p>
+            Recorta espacios exteriores y normaliza los encabezados en una sola operación
+            atómica y reversible.
+          </p>
+        </div>
+        <button type="button" onClick={onApplyRecommended} disabled={changing}>
+          Aplicar recomendadas
+        </button>
+      </section>
+      <section className="prepare-card" aria-labelledby="normalize-columns-title">
+        <div>
+          <p className="step">Recomendada y segura</p>
+          <h3 id="normalize-columns-title">Normalizar nombres de columnas</h3>
+          <p>
+            Convierte los encabezados a nombres consistentes en minúsculas, sin acentos y con
+            guiones bajos. Las colisiones se numeran de forma determinista.
+          </p>
+        </div>
+        <button type="button" onClick={onNormalizeColumns} disabled={changing}>
+          Normalizar columnas
+        </button>
+      </section>
+      <section className="prepare-card" aria-labelledby="trim-text-title">
+        <div>
+          <p className="step">Recomendada y segura</p>
+          <h3 id="trim-text-title">Eliminar espacios exteriores</h3>
+          <p>
+            Recorta espacios al inicio y al final de todas las columnas de texto sin cambiar
+            mayúsculas, acentos ni espacios internos.
+          </p>
+        </div>
+        <button type="button" onClick={onTrimText} disabled={changing || textColumns.length === 0}>
+          Recortar espacios
+        </button>
+      </section>
+      <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title">
+        <div>
+          <p className="step">Requiere selección</p>
+          <h3 id="normalize-text-title">Normalizar texto</h3>
+          <p>
+            Convierte a minúsculas, compacta espacios y, opcionalmente, elimina acentos. Puede
+            unir categorías que antes eran distintas; elige las columnas conscientemente.
+          </p>
+        </div>
+        {textColumns.length > 0 ? (
+          <div className="text-cleaning-options">
+            <fieldset>
+              <legend>Columnas de texto</legend>
+              {textColumns.map((column) => (
+                <label key={column.name}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTextColumns.includes(column.name)}
+                    onChange={(event) =>
+                      setSelectedTextColumns((current) =>
+                        event.target.checked
+                          ? [...current, column.name]
+                          : current.filter((name) => name !== column.name),
+                      )
+                    }
+                  />
+                  {column.name}
+                </label>
+              ))}
+            </fieldset>
+            <label className="option-toggle">
+              <input
+                type="checkbox"
+                checked={removeAccents}
+                onChange={(event) => setRemoveAccents(event.target.checked)}
+              />
+              Eliminar acentos
+            </label>
+            <button
+              type="button"
+              onClick={() => onNormalizeText(selectedTextColumns, removeAccents)}
+              disabled={changing || selectedTextColumns.length === 0}
+            >
+              Normalizar texto seleccionado
+            </button>
+          </div>
+        ) : (
+          <p className="profile-note">Este dataset no contiene columnas de texto.</p>
+        )}
+      </section>
+      {profileStatus.kind === "loading" ? (
+        <OperationProgressView
+          progress={profileStatus.progress}
+          cancelRequested={profileStatus.cancelRequested}
+          onCancel={onCancelProfile}
+        />
+      ) : (
+        <section className="prepare-card" aria-labelledby="duplicates-title">
+          <div>
+            <p className="step">Corrección disponible</p>
+            <h3 id="duplicates-title">Filas duplicadas</h3>
+            <p>
+              {duplicateCount === null
+                ? "Analiza la calidad para identificar duplicados antes de modificar los datos."
+                : duplicateCount === 0
+                  ? "No se detectaron filas duplicadas adicionales."
+                  : `Se detectaron ${duplicateCount.toLocaleString()} filas duplicadas adicionales.`}
+            </p>
+          </div>
+          {duplicateCount === null ? (
+            <button type="button" onClick={onAnalyzeQuality}>
+              Analizar antes de preparar
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onRemoveDuplicates}
+              disabled={duplicateCount === 0 || changing}
+            >
+              Eliminar duplicados
+            </button>
+          )}
+        </section>
+      )}
+      {profileStatus.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo analizar la calidad: {profileStatus.message}
+        </p>
+      )}
+    </>
+  );
+}
+
+function DeliverPhase({
+  dataset,
+  exportStatus,
+  onExport,
+  onCancel,
+}: {
+  dataset: DatasetPreview;
+  exportStatus: ExportStatus;
+  onExport: (format: ExportFormat) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <>
+      <header className="phase-header phase-header--compact">
+        <div>
+          <p className="eyebrow">Entregar · Exportación local</p>
+          <h2>{dataset.fileName}</h2>
+          <p>Genera una copia del dataset preparado. El archivo original nunca se modifica.</p>
+        </div>
+      </header>
+      <DatasetMetrics dataset={dataset} />
+      <section className="export-panel" aria-labelledby="export-title">
+        <div>
+          <p className="step">Formato de entrega</p>
+          <h3 id="export-title">Exportar dataset activo</h3>
+          <p>El destino solo aparece cuando el archivo está completo.</p>
+        </div>
+        <div className="export-actions">
+          <button type="button" onClick={() => onExport("csv")} disabled={exportStatus.kind === "loading"}>
+            Exportar CSV
+          </button>
+          <button type="button" onClick={() => onExport("parquet")} disabled={exportStatus.kind === "loading"}>
+            Exportar Parquet
+          </button>
+        </div>
+      </section>
+      {exportStatus.kind === "loading" && (
+        <OperationProgressView
+          progress={exportStatus.progress}
+          cancelRequested={exportStatus.cancelRequested}
+          onCancel={onCancel}
+        />
+      )}
+      {exportStatus.kind === "success" && (
+        <p className="notice notice--success" role="status">
+          {exportStatus.result.format} exportado como {exportStatus.result.fileName} ({readableFileSize(exportStatus.result.fileSizeBytes)}).
+        </p>
+      )}
+      {exportStatus.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo exportar: {exportStatus.message}
+        </p>
+      )}
+    </>
+  );
+}
+
+function DatasetMetrics({ dataset }: { dataset: DatasetPreview }) {
+  return (
+    <dl className="metrics" aria-label="Resumen del dataset">
+      <div><dt>Filas</dt><dd>{dataset.rowCount.toLocaleString()}</dd></div>
+      <div><dt>Columnas</dt><dd>{dataset.columnCount.toLocaleString()}</dd></div>
+      <div><dt>Tamaño</dt><dd>{readableFileSize(dataset.fileSizeBytes)}</dd></div>
+    </dl>
+  );
+}
+
 
 interface OperationProgressViewProps {
   progress: OperationProgress;
@@ -515,22 +1117,7 @@ function DataPreview({
 
   return (
     <>
-      <dl className="metrics" aria-label="Resumen del dataset">
-        <div>
-          <dt>Filas</dt>
-          <dd>{dataset.rowCount.toLocaleString()}</dd>
-        </div>
-        <div>
-          <dt>Columnas</dt>
-          <dd>{dataset.columnCount.toLocaleString()}</dd>
-        </div>
-        <div>
-          <dt>Tamaño</dt>
-          <dd>{readableFileSize(dataset.fileSizeBytes)}</dd>
-        </div>
-      </dl>
-
-      <div className="table-region" tabIndex={0} aria-label="Vista previa del CSV">
+      <div className="table-region" tabIndex={0} aria-label="Vista previa del dataset">
         <table>
           <thead>
             <tr>
@@ -587,11 +1174,9 @@ function DataPreview({
 
 interface QualityProfileProps {
   profile: DatasetProfile;
-  busy: boolean;
-  onRemoveDuplicates: () => void;
 }
 
-function QualityProfile({ profile, busy, onRemoveDuplicates }: QualityProfileProps) {
+function QualityProfile({ profile }: QualityProfileProps) {
   const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
 
@@ -603,14 +1188,6 @@ function QualityProfile({ profile, busy, onRemoveDuplicates }: QualityProfilePro
           <dd>
             {profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)
           </dd>
-          <button
-            className="inline-action"
-            type="button"
-            onClick={onRemoveDuplicates}
-            disabled={profile.duplicateRowCount === 0 || busy}
-          >
-            Eliminar duplicados
-          </button>
         </div>
         <div>
           <dt>Filas analizadas</dt>
@@ -754,13 +1331,60 @@ function QualityProfile({ profile, busy, onRemoveDuplicates }: QualityProfilePro
   );
 }
 
-function ChangeFeedback({ status, onUndo }: { status: ChangeStatus; onUndo: () => void }) {
+function HistoryBar({
+  status,
+  busy,
+  onUndo,
+  onRedo,
+}: {
+  status: HistoryStatus;
+  busy: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+}) {
+  return (
+    <section className="history-bar" aria-label="Continuidad de trabajo">
+      <div>
+        <strong>Continuidad de trabajo</strong>
+        <small>
+          {status.canUndo || status.canRedo
+            ? "Columnia conserva una revisión reversible de esta sesión."
+            : "Todavía no hay cambios para deshacer o rehacer."}
+        </small>
+      </div>
+      <div className="history-actions">
+        <button type="button" onClick={onUndo} disabled={busy || !status.canUndo}>
+          Deshacer
+        </button>
+        <button type="button" onClick={onRedo} disabled={busy || !status.canRedo}>
+          Rehacer
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ChangeFeedback({ status }: { status: ChangeStatus }) {
   if (status.kind === "idle") return null;
 
   if (status.kind === "working") {
+    const message =
+      status.action === "safe"
+        ? "Aplicando correcciones recomendadas…"
+        : status.action === "duplicates"
+        ? "Eliminando duplicados…"
+        : status.action === "columns"
+          ? "Normalizando nombres de columnas…"
+          : status.action === "trim"
+            ? "Recortando espacios exteriores…"
+            : status.action === "text"
+              ? "Normalizando texto seleccionado…"
+              : status.action === "undo"
+                ? "Deshaciendo cambio…"
+                : "Rehaciendo cambio…";
     return (
       <p className="notice" role="status">
-        {status.action === "apply" ? "Eliminando duplicados…" : "Deshaciendo cambio…"}
+        {message}
       </p>
     );
   }
@@ -769,23 +1393,13 @@ function ChangeFeedback({ status, onUndo }: { status: ChangeStatus; onUndo: () =
     return (
       <div className="change-feedback change-feedback--error" role="alert">
         <span>{status.message}</span>
-        {status.canUndo && (
-          <button type="button" onClick={onUndo}>
-            Reintentar deshacer
-          </button>
-        )}
       </div>
     );
   }
 
   return (
     <div className="change-feedback" role="status">
-      <span>
-        Se eliminaron {status.affectedRowCount.toLocaleString()} filas duplicadas adicionales.
-      </span>
-      <button type="button" onClick={onUndo}>
-        Deshacer
-      </button>
+      <span>{status.message}</span>
     </div>
   );
 }

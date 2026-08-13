@@ -5,9 +5,13 @@ transformar y entregar datasets confiables.
 
 El proyecto está en su primer hito técnico. Actualmente contiene el shell Tauri
 2, una interfaz React/TypeScript y el primer corte vertical del motor Polars:
-selección nativa, carga local y vista previa de archivos CSV de hasta 500 MB.
-Este límite es provisional: el CSV aún se materializa en memoria y un archivo
+selección nativa, carga local y vista previa de CSV, TSV, Parquet, Excel y ODS de hasta
+500 MB. Los libros con varias hojas muestran un selector antes de cargar y React
+solo recibe un identificador opaco, nunca la ruta local. Este límite es provisional:
+el dataset aún se materializa en memoria y un archivo
 grande puede requerir bastante más RAM durante perfiles y transformaciones.
+Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,
+nulos y texto Unicode, y se lee con una configuración conservadora de memoria.
 
 ## Plataformas objetivo
 
@@ -35,16 +39,30 @@ npm install
 npm run tauri dev
 ```
 
-En la ventana de Columnia, usa **Seleccionar CSV**. Rust abre el diálogo nativo,
-valida y conserva el dataset en la sesión; React recibe solamente el esquema,
+El flujo principal replica el orden de `dataprepv1.1`: **Cargar → Revisar →
+Preparar → Entregar**. Cada acción aparece únicamente en la etapa que le
+corresponde.
+
+En **Cargar**, usa **Seleccionar dataset**. Rust abre el diálogo nativo para CSV,
+TSV, Parquet, XLSX, XLS, XLSB u ODS. En libros con varias hojas permite elegir
+una; en libros de una sola hoja la carga continúa automáticamente. Rust valida y
+conserva el dataset en la sesión; React recibe solamente el esquema,
 los metadatos y las primeras 50 filas.
 Durante la carga se muestra el avance por fases. El perfil de calidad informa el
 porcentaje conforme termina cada columna; ambos canales permanecen dentro del
 equipo mediante IPC de Tauri.
 Las operaciones activas se pueden cancelar. El perfil se detiene entre columnas;
-la lectura CSV se descarta después de terminar la fase que Polars tenga en curso.
-Cancelar una sustitución conserva el dataset que ya estaba activo.
-La vista permite recorrer el dataset en páginas de 50 filas sin volver a abrir
+la lectura del dataset se descarta después de terminar la fase que Polars tenga en curso.
+Cancelar una selección de hoja o una sustitución conserva el dataset que ya estaba activo.
+TSV usa tabuladores estrictos y conserva valores léxicos como ceros iniciales y
+decimales formateados. Excel/ODS conserva booleanos, enteros, decimales, fechas y
+duraciones cuando una columna es compatible; las mezclas inseguras quedan como texto.
+
+Desde **Entregar**, el dataset activo puede exportarse a CSV o Parquet. Rust abre
+el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
+El destino se reemplaza únicamente después de completar y sincronizar la
+escritura; cancelar o fallar conserva cualquier archivo anterior.
+En **Revisar**, la vista previa permite recorrer el dataset en páginas de 50 filas sin volver a abrir
 el archivo ni enviar su ruta al frontend.
 El botón **Analizar calidad** calcula en Rust los nulos, la completitud y los
 valores únicos no nulos de cada columna. Para columnas numéricas también muestra
@@ -59,10 +77,28 @@ Para columnas numéricas, el perfil añade desviación estándar muestral, Q1,
 mediana, Q3 y posibles outliers mediante la regla IQR de 1.5. Los nulos y
 valores no finitos se excluyen; no se señalan outliers con menos de cuatro datos.
 
-Cuando el perfil encuentra duplicados exactos, **Eliminar duplicados** conserva
+En **Preparar**, cuando el perfil encuentra duplicados exactos, **Eliminar duplicados** conserva
 la primera aparición y elimina las repeticiones posteriores de la sesión activa.
 El CSV original no se modifica. La operación ofrece un nivel de **Deshacer** y
 el perfil debe recalcularse sobre el resultado.
+
+La corrección **Normalizar nombres de columnas** sigue las reglas del proyecto
+de referencia: minúsculas, eliminación de acentos, `_` para espacios y guiones,
+prefijo `col_` cuando el encabezado comienza con un número y sufijos estables
+cuando dos encabezados producen el mismo nombre. También puede deshacerse.
+
+Columnia también puede **Recortar espacios** exteriores en todas las columnas
+de texto sin modificar su contenido interno. Para una limpieza más profunda,
+**Normalizar texto** permite elegir columnas concretas, convertir a minúsculas,
+compactar espacios y decidir si se eliminan acentos. La interfaz informa cuántas
+celdas y filas cambiaron, conserva los nulos y permite deshacer el resultado.
+
+La barra **Continuidad de trabajo** permite deshacer y rehacer la revisión más
+reciente. **Aplicar recomendadas** agrupa el recorte exterior y la normalización
+de encabezados en una sola operación atómica: ambos cambios se publican juntos
+o el dataset permanece intacto. El historial está limitado honestamente a una
+revisión mientras se diseña almacenamiento temporal con presupuesto de disco
+para datasets grandes.
 
 Validación rápida y completamente local:
 

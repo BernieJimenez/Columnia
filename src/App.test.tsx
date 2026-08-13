@@ -10,10 +10,20 @@ afterEach(() => {
   vi.restoreAllMocks();
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
-
 async function openQualityAndAnalyze() {
-  fireEvent.click(await screen.findByRole("button", { name: "Calidad" }));
   fireEvent.click(await screen.findByRole("button", { name: "Analizar calidad" }));
+}
+
+function mockDatasetLoad(dataset: DatasetPreview) {
+  vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
+    selectionId: "selection-test",
+    fileName: dataset.fileName,
+    fileSizeBytes: dataset.fileSizeBytes,
+    format: "csv",
+    sheets: [],
+    defaultSheetId: null,
+  });
+  return vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue(dataset);
 }
 
 describe("App", () => {
@@ -36,7 +46,7 @@ describe("App", () => {
       version: "0.1.0",
       platform: "windows",
     });
-    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+    mockDatasetLoad({
       fileName: "temperaturas.csv",
       fileSizeBytes: 2048,
       rowCount: 2,
@@ -52,19 +62,21 @@ describe("App", () => {
     });
 
     render(<App />);
-    const button = await screen.findByRole("button", { name: "Seleccionar CSV" });
+    const button = await screen.findByRole("button", { name: "Seleccionar dataset" });
     fireEvent.click(button);
 
     expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Santo Domingo" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
+    expect(screen.getByRole("cell", { name: "Santo Domingo" })).toBeInTheDocument();
     expect(screen.getByText("null")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Calidad" }));
-
-    expect(screen.queryByRole("button", { name: "Seleccionar CSV" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Se admiten CSV de hasta 500 MB/)).not.toBeInTheDocument();
-    expect(screen.getByText("temperaturas.csv")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    expect(screen.getByRole("button", { name: "Seleccionar otro dataset" })).toBeInTheDocument();
+    expect(screen.getByText(/Se admiten CSV, TSV, Parquet, Excel y ODS de hasta 500 MB/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
   });
 
   it("navega por páginas usando el dataset activo en Rust", async () => {
@@ -77,7 +89,7 @@ describe("App", () => {
       version: "0.1.0",
       platform: "windows",
     });
-    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+    mockDatasetLoad({
       fileName: "ciudades.csv",
       fileSizeBytes: 4096,
       rowCount: 75,
@@ -91,7 +103,8 @@ describe("App", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
     fireEvent.click(await screen.findByRole("button", { name: "Siguiente" }));
 
     expect(await screen.findByRole("cell", { name: "Puerto Plata" })).toBeInTheDocument();
@@ -111,11 +124,15 @@ describe("App", () => {
       platform: "windows",
     });
 
-    let resolveLoad!: (dataset: DatasetPreview | null) => void;
-    const loadPromise = new Promise<DatasetPreview | null>((resolve) => {
+    let resolveLoad!: (dataset: DatasetPreview) => void;
+    const loadPromise = new Promise<DatasetPreview>((resolve) => {
       resolveLoad = resolve;
     });
-    vi.spyOn(bridge, "pickAndLoadCsv").mockImplementation((onProgress) => {
+    vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
+      selectionId: "selection-progress", fileName: "progreso.csv", fileSizeBytes: 128,
+      format: "csv", sheets: [], defaultSheetId: null,
+    });
+    vi.spyOn(bridge, "loadDatasetSelection").mockImplementation((_selectionId, _sheetId, onProgress) => {
       onProgress?.({ operation: "load", stage: "Leyendo y detectando columnas", percent: 25 });
       return loadPromise;
     });
@@ -130,7 +147,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
 
     expect(
       await screen.findByRole("progressbar", { name: "Progreso: Leyendo y detectando columnas" }),
@@ -145,7 +162,6 @@ describe("App", () => {
       rows: [["1"]],
     });
     await screen.findByRole("heading", { name: "progreso.csv" });
-    fireEvent.click(screen.getByRole("button", { name: "Calidad" }));
     fireEvent.click(screen.getByRole("button", { name: "Analizar calidad" }));
 
     expect(
@@ -158,7 +174,7 @@ describe("App", () => {
       duplicatePercentage: 0,
       columns: [],
     });
-    expect(await screen.findByRole("button", { name: "Perfil listo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
   });
 
   it("conserva el dataset activo cuando se cancela una sustitución", async () => {
@@ -180,21 +196,25 @@ describe("App", () => {
       rows: [["1"]],
     };
     let rejectReplacement!: (reason: unknown) => void;
-    const replacementPromise = new Promise<DatasetPreview | null>((_resolve, reject) => {
+    const replacementPromise = new Promise<DatasetPreview>((_resolve, reject) => {
       rejectReplacement = reject;
     });
-    vi.spyOn(bridge, "pickAndLoadCsv")
+    vi.spyOn(bridge, "pickDatasetSource")
+      .mockResolvedValueOnce({ selectionId: "selection-active", fileName: "activo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null })
+      .mockResolvedValueOnce({ selectionId: "selection-replacement", fileName: "nuevo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null });
+    vi.spyOn(bridge, "loadDatasetSelection")
       .mockResolvedValueOnce(activeDataset)
-      .mockImplementationOnce((onProgress) => {
+      .mockImplementationOnce((_selectionId, _sheetId, onProgress) => {
         onProgress?.({ operation: "load", stage: "Leyendo y detectando columnas", percent: 25 });
         return replacementPromise;
       });
     const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await screen.findByRole("heading", { name: "activo.csv" });
-    fireEvent.click(screen.getByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
 
     expect(cancelSpy).toHaveBeenCalledWith("load");
@@ -202,6 +222,187 @@ describe("App", () => {
 
     rejectReplacement("Operación cancelada por el usuario.");
     expect(await screen.findByRole("heading", { name: "activo.csv" })).toBeInTheDocument();
+  });
+
+  it("exporta el dataset activo sin solicitar una ruta en la interfaz", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.5.0",
+      platform: "windows",
+    });
+    mockDatasetLoad({
+      fileName: "ventas.csv",
+      fileSizeBytes: 128,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "total", dataType: "Int64" }],
+      rows: [["100"]],
+    });
+    const exportSpy = vi.spyOn(bridge, "exportDataset").mockImplementation(
+      async (format, onProgress) => {
+        onProgress?.({ operation: "export", stage: "Escribiendo dataset", percent: 25 });
+        expect(format).toBe("parquet");
+        return {
+          fileName: "ventas-columnia.parquet",
+          fileSizeBytes: 2048,
+          format: "Parquet",
+        };
+      },
+    );
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("heading", { name: "ventas.csv" });
+    expect(screen.queryByRole("button", { name: "Exportar Parquet" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Parquet" }));
+
+    expect(
+      await screen.findByText(/Parquet exportado como ventas-columnia\.parquet/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
+    expect(exportSpy).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("normaliza los nombres de columnas desde Preparar", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.7.0",
+      platform: "windows",
+    });
+    const original: DatasetPreview = {
+      fileName: "ventas.csv",
+      fileSizeBytes: 128,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "Año Venta", dataType: "Int64" }],
+      rows: [["2026"]],
+    };
+    mockDatasetLoad(original);
+    const normalizeSpy = vi.spyOn(bridge, "normalizeColumnNames").mockResolvedValue({
+      dataset: {
+        ...original,
+        columns: [{ name: "ano_venta", dataType: "Int64" }],
+      },
+      renamedColumnCount: 1,
+      renames: [{ from: "Año Venta", to: "ano_venta" }],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Normalizar columnas" }));
+
+    expect(await screen.findByText("Se normalizó 1 nombre de columna.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
+    expect(normalizeSpy).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
+    expect(screen.getByRole("columnheader", { name: /ano_venta/ })).toBeInTheDocument();
+  });
+
+  it("recorta espacios y normaliza columnas de texto seleccionadas", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.8.0",
+      platform: "windows",
+    });
+    const original: DatasetPreview = {
+      fileName: "clientes.csv",
+      fileSizeBytes: 128,
+      rowCount: 1,
+      columnCount: 2,
+      columns: [
+        { name: "city", dataType: "String" },
+        { name: "code", dataType: "String" },
+      ],
+      rows: [[" Bogotá ", "A1"]],
+    };
+    mockDatasetLoad(original);
+    const trimSpy = vi.spyOn(bridge, "trimTextValues").mockResolvedValue({
+      dataset: { ...original, rows: [["Bogotá", "A1"]] },
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "city", changedCellCount: 1 }],
+    });
+    const normalizeSpy = vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({
+      dataset: { ...original, rows: [["bogota", "A1"]] },
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "city", changedCellCount: 1 }],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Recortar espacios" }));
+
+    expect(await screen.findByText("Se recortaron espacios en 1 celda en 1 fila.")).toBeInTheDocument();
+    expect(trimSpy).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
+    fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
+
+    expect(await screen.findByText("Se normalizó texto en 1 celda en 1 fila.")).toBeInTheDocument();
+    expect(normalizeSpy).toHaveBeenCalledWith(["city"], true);
+  });
+
+  it("aplica las correcciones recomendadas como una sola revisión", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.9.0",
+      platform: "windows",
+    });
+    const original: DatasetPreview = {
+      fileName: "lote.csv",
+      fileSizeBytes: 128,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "Ciudad Nombre", dataType: "String" }],
+      rows: [[" Santo Domingo "]],
+    };
+    mockDatasetLoad(original);
+    const applySpy = vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
+      dataset: {
+        ...original,
+        columns: [{ name: "ciudad_nombre", dataType: "String" }],
+        rows: [["Santo Domingo"]],
+      },
+      changedCellCount: 1,
+      affectedRowCount: 1,
+      renamedColumnCount: 1,
+      renames: [{ from: "Ciudad Nombre", to: "ciudad_nombre" }],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar recomendadas" }));
+
+    expect(
+      await screen.findByText(/Correcciones recomendadas aplicadas: 1 celda recortada y 1 columna renombrada/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
+    expect(applySpy).toHaveBeenCalledOnce();
   });
 
   it("calcula y presenta el perfil de calidad del dataset", async () => {
@@ -214,7 +415,7 @@ describe("App", () => {
       version: "0.1.0",
       platform: "windows",
     });
-    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+    mockDatasetLoad({
       fileName: "calidad.csv",
       fileSizeBytes: 1024,
       rowCount: 3,
@@ -263,16 +464,32 @@ describe("App", () => {
       },
     });
     const undoSpy = vi.spyOn(bridge, "undoLastChange").mockResolvedValue({
-      fileName: "calidad.csv",
-      fileSizeBytes: 1024,
-      rowCount: 3,
-      columnCount: 1,
-      columns: [{ name: "temperature", dataType: "Int64" }],
-      rows: [["30"], [null], ["28"]],
+      dataset: {
+        fileName: "calidad.csv",
+        fileSizeBytes: 1024,
+        rowCount: 3,
+        columnCount: 1,
+        columns: [{ name: "temperature", dataType: "Int64" }],
+        rows: [["30"], [null], ["28"]],
+      },
+      canUndo: false,
+      canRedo: true,
+    });
+    const redoSpy = vi.spyOn(bridge, "redoLastChange").mockResolvedValue({
+      dataset: {
+        fileName: "calidad.csv",
+        fileSizeBytes: 1024,
+        rowCount: 2,
+        columnCount: 1,
+        columns: [{ name: "temperature", dataType: "Int64" }],
+        rows: [["30"], ["28"]],
+      },
+      canUndo: true,
+      canRedo: false,
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
     const generalProfile = await screen.findByRole("region", {
@@ -283,6 +500,7 @@ describe("App", () => {
     expect(screen.getByText("1 (33.3%)")).toBeInTheDocument();
     expect(profileSpy).toHaveBeenCalledOnce();
 
+    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados" }));
     expect(
       await screen.findByText("Se eliminaron 1 filas duplicadas adicionales."),
@@ -290,8 +508,12 @@ describe("App", () => {
     expect(removeSpy).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
-    expect(await screen.findByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Analizar antes de preparar" })).toBeInTheDocument();
     expect(undoSpy).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rehacer" }));
+    expect(await screen.findByText("Se rehízo el último cambio.")).toBeInTheDocument();
+    expect(redoSpy).toHaveBeenCalledOnce();
   });
 
   it("presenta las métricas específicas de columnas de texto", async () => {
@@ -304,7 +526,7 @@ describe("App", () => {
       version: "0.1.0",
       platform: "windows",
     });
-    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+    mockDatasetLoad({
       fileName: "texto.csv",
       fileSizeBytes: 128,
       rowCount: 2,
@@ -343,7 +565,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
     expect(await screen.findByRole("region", { name: "Perfil de columnas de texto" })).toBeInTheDocument();
@@ -360,7 +582,7 @@ describe("App", () => {
       version: "0.1.0",
       platform: "windows",
     });
-    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+    mockDatasetLoad({
       fileName: "fechas.csv",
       fileSizeBytes: 256,
       rowCount: 10,
@@ -399,7 +621,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
     expect(await screen.findByRole("cell", { name: "Fecha" })).toBeInTheDocument();
@@ -416,7 +638,7 @@ describe("App", () => {
       version: "0.1.0",
       platform: "windows",
     });
-    vi.spyOn(bridge, "pickAndLoadCsv").mockResolvedValue({
+    mockDatasetLoad({
       fileName: "numeros.csv",
       fileSizeBytes: 128,
       rowCount: 5,
@@ -455,11 +677,46 @@ describe("App", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar CSV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
     expect(await screen.findByRole("region", { name: "Perfil de columnas numéricas" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "39.592" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "1" })).toBeInTheDocument();
+  });
+
+  it("permite elegir una hoja de Excel sin exponer la ruta al frontend", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.11.0", platform: "windows",
+    });
+    vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
+      selectionId: "opaque-workbook-1",
+      fileName: "ventas.xlsx",
+      fileSizeBytes: 4096,
+      format: "excel",
+      sheets: [{ id: "0", name: "Resumen" }, { id: "1", name: "Ventas 2026" }],
+      defaultSheetId: "0",
+    });
+    const loadSpy = vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
+      fileName: "ventas.xlsx",
+      fileSizeBytes: 4096,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "total", dataType: "Float64" }],
+      rows: [["125.5"]],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const dialog = await screen.findByRole("dialog", { name: /Elegir hoja de ventas.xlsx/ });
+    expect(within(dialog).getByRole("option", { name: "Ventas 2026" })).toBeInTheDocument();
+    expect(loadSpy).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByLabelText("Hoja"), { target: { value: "1" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cargar hoja" }));
+
+    expect(await screen.findByRole("heading", { name: "ventas.xlsx" })).toBeInTheDocument();
+    expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", expect.any(Function));
+    expect(JSON.stringify(loadSpy.mock.calls)).not.toContain("C:\\\\");
   });
 });

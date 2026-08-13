@@ -30,12 +30,20 @@ pub fn run() {
         .manage(dataset::DatasetState::default())
         .invoke_handler(tauri::generate_handler![
             get_app_info,
-            dataset::pick_and_load_csv,
+            dataset::pick_dataset_source,
+            dataset::load_dataset_selection,
+            dataset::discard_dataset_selection,
             dataset::get_dataset_page,
             dataset::get_dataset_profile,
             dataset::cancel_operation,
+            dataset::export_dataset,
             dataset::remove_duplicates,
-            dataset::undo_last_change
+            dataset::normalize_column_names,
+            dataset::trim_text_values,
+            dataset::normalize_text_values,
+            dataset::apply_safe_corrections,
+            dataset::undo_last_change,
+            dataset::redo_last_change
         ])
         .run(tauri::generate_context!())
         .expect("Columnia no pudo iniciar el runtime de escritorio");

@@ -3,11 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelOperation,
+  applySafeCorrections,
+  exportDataset,
   getAppInfo,
   getDatasetPage,
   getDatasetProfile,
-  pickAndLoadCsv,
+  normalizeColumnNames,
+  normalizeTextValues,
+  discardDatasetSelection,
+  loadDatasetSelection,
+  pickDatasetSource,
   removeDuplicates,
+  redoLastChange,
+  trimTextValues,
   undoLastChange,
 } from "./bridge";
 
@@ -43,10 +51,19 @@ describe("desktop bridge", () => {
   it("solicita la selección nativa sin entregar una ruta desde React", async () => {
     vi.mocked(invoke).mockResolvedValue(null);
 
-    const onProgress = vi.fn();
-    await expect(pickAndLoadCsv(onProgress)).resolves.toBeNull();
+    await expect(pickDatasetSource()).resolves.toBeNull();
 
-    expect(invoke).toHaveBeenCalledWith("pick_and_load_csv", {
+    expect(invoke).toHaveBeenCalledWith("pick_dataset_source");
+  });
+
+  it("carga una selección opaca y permite descartarla sin entregar rutas", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ fileName: "libro.xlsx" }).mockResolvedValueOnce(undefined);
+    const onProgress = vi.fn();
+    await loadDatasetSelection("selection-1", "2", onProgress);
+
+    expect(invoke).toHaveBeenCalledWith("load_dataset_selection", {
+      selectionId: "selection-1",
+      sheetId: "2",
       onProgress: expect.any(Channel),
     });
     const args = vi.mocked(invoke).mock.calls[0][1] as {
@@ -62,6 +79,10 @@ describe("desktop bridge", () => {
       operation: "load",
       stage: "Validando archivo",
       percent: 10,
+    });
+    await discardDatasetSelection("selection-1");
+    expect(invoke).toHaveBeenLastCalledWith("discard_dataset_selection", {
+      selectionId: "selection-1",
     });
   });
 
@@ -100,10 +121,23 @@ describe("desktop bridge", () => {
     vi.mocked(invoke).mockResolvedValue({});
 
     await removeDuplicates();
+    await normalizeColumnNames();
+    await trimTextValues();
+    await normalizeTextValues(["city"], true);
+    await applySafeCorrections();
     await undoLastChange();
+    await redoLastChange();
 
     expect(invoke).toHaveBeenNthCalledWith(1, "remove_duplicates");
-    expect(invoke).toHaveBeenNthCalledWith(2, "undo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(2, "normalize_column_names");
+    expect(invoke).toHaveBeenNthCalledWith(3, "trim_text_values");
+    expect(invoke).toHaveBeenNthCalledWith(4, "normalize_text_values", {
+      columns: ["city"],
+      removeAccents: true,
+    });
+    expect(invoke).toHaveBeenNthCalledWith(5, "apply_safe_corrections");
+    expect(invoke).toHaveBeenNthCalledWith(6, "undo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(7, "redo_last_change");
   });
 
   it("cancela únicamente la operación indicada", async () => {
@@ -112,5 +146,23 @@ describe("desktop bridge", () => {
     await cancelOperation("profile");
 
     expect(invoke).toHaveBeenCalledWith("cancel_operation", { operation: "profile" });
+  });
+
+  it("exporta mediante selector nativo sin recibir una ruta de React", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      fileName: "datos-columnia.parquet",
+      fileSizeBytes: 512,
+      format: "Parquet",
+    });
+
+    await expect(exportDataset("parquet")).resolves.toEqual({
+      fileName: "datos-columnia.parquet",
+      fileSizeBytes: 512,
+      format: "Parquet",
+    });
+    expect(invoke).toHaveBeenCalledWith("export_dataset", {
+      format: "parquet",
+      onProgress: expect.any(Channel),
+    });
   });
 });

@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.4.0`.
+- Versión actual del prototipo: `0.11.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -333,13 +333,14 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
   con múltiples operaciones y deshacer/rehacer.
 - [x] Implementar cancelación cooperativa para carga CSV y perfilado, conservando
   el dataset anterior cuando se cancela una sustitución.
-- [ ] Implementar exportación atómica CSV/Parquet.
+- [x] Implementar exportación atómica y cancelable CSV/Parquet mediante selector
+  nativo, sin modificar el archivo original ni exponer rutas a React.
 - [ ] Comparar tiempo y RAM con `dataprepv1.1`.
 
 **Gate:** ninguna arquitectura se declara definitiva hasta superar el benchmark
 y validar los casos difíciles de Excel.
 
-**Avance 2026-08-12:** `npm run build`, veintidós pruebas Vitest y quince pruebas Rust
+**Avance 2026-08-12:** `npm run build`, veinticuatro pruebas Vitest y dieciocho pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
 rutas desde React, valida un límite provisional de 500 MB, carga el CSV con
 Polars, conserva la sesión en memoria y devuelve esquema, metadatos y un máximo
@@ -360,13 +361,17 @@ La primera transformación elimina duplicados exactos de la sesión, conserva el
 orden y la primera aparición, actualiza la vista previa e invalida el perfil. El
 archivo original permanece intacto y existe un único punto de deshacer; este
 historial es provisional hasta introducir recetas reproducibles.
-La interfaz usa un panel lateral para separar Datos y Calidad y evitar una única
-pantalla creciente. El límite de carga se elevó a 500 MB a petición del usuario,
+La interfaz usa un panel lateral y replica el flujo de producto verificado en
+`dataprepv1.1`: Cargar, Revisar, Preparar y Entregar. Esto evita una única
+pantalla creciente y mantiene cada responsabilidad en su etapa. El límite de
+carga se elevó a 500 MB a petición del usuario,
 con una advertencia visible: todavía se materializa el dataset completo y el uso
 real de RAM puede ser bastante mayor hasta incorporar streaming.
-La carga y sustitución del CSV pertenece exclusivamente a la vista Datos. Calidad
-consume el dataset activo y no presenta controles ni mensajes para seleccionar
-otro archivo.
+La carga y sustitución del CSV pertenece exclusivamente a Cargar. Revisar aloja
+el diagnóstico de calidad y la vista previa; Preparar aloja las operaciones que
+modifican la sesión, empezando por eliminar duplicados; Entregar es la única
+etapa que muestra la exportación. Al completar una carga, Columnia avanza a
+Revisar como lo hace el proyecto de referencia.
 La versión 0.3.0 incorpora un canal IPC tipado para informar el progreso de la
 carga CSV y el análisis de calidad. La interfaz muestra la etapa y el porcentaje
 solo dentro de Datos o Calidad, según la operación activa. El progreso de carga
@@ -377,6 +382,56 @@ columnas. La lectura CSV de Polars se puede descartar al terminar la fase activa
 pero no interrumpir dentro del parser; la interfaz lo refleja como “Cancelando”.
 Si se cancela la selección o sustitución, Columnia recupera el dataset anterior
 en lugar de dejar la sesión vacía.
+La versión 0.5.0 exporta el dataset activo a CSV o Parquet. Rust abre el selector
+de destino y React nunca recibe ni propone rutas. La escritura ocurre en un
+temporal dentro de la carpeta elegida, se sincroniza y después reemplaza
+atómicamente el destino. Una cancelación o error elimina el temporal y conserva
+intacto cualquier archivo anterior. La exportación informa progreso y puede
+cancelarse con las mismas garantías cooperativas de la carga.
+La versión 0.6.0 corrige la arquitectura de navegación según `dataprepv1.1` y
+añade pruebas de regresión para impedir que la selección de archivos aparezca
+fuera de Cargar o que la exportación aparezca fuera de Entregar.
+La versión 0.7.0 incorpora en Preparar la primera corrección segura del proyecto
+de referencia: normalizar nombres de columnas. Rust elimina acentos, convierte
+a minúsculas, sustituye espacios y guiones por `_`, protege nombres que empiezan
+con números y resuelve colisiones con sufijos deterministas. El cambio invalida
+el perfil y se integra con el punto de deshacer provisional.
+La versión 0.8.0 agrupa dos correcciones de valores textuales inspiradas en el
+proyecto de referencia. Recortar espacios actúa sobre todas las columnas String
+y conserva mayúsculas, acentos y espacios internos. Normalizar texto exige una
+selección explícita de columnas, compacta espacios, convierte a minúsculas y
+permite decidir si se eliminan acentos. Ambas preservan nulos, cuentan exactamente
+celdas, filas y columnas modificadas, invalidan el perfil y pueden deshacerse.
+La columna `_cambios` se pospone hasta disponer de recetas por lotes y auditoría
+por fila; implementarla como acción independiente no representaría el historial
+real de cambios.
+La versión 0.9.0 añade continuidad explícita en Preparar: Deshacer y Rehacer
+intercambian una única revisión reversible sin mantener una pila de copias de
+hasta 500 MB en RAM. Una mutación nueva descarta la rama de rehacer; los no-op y
+errores conservan el estado previo. También incorpora Aplicar recomendadas, que
+calcula recorte exterior y normalización de encabezados sobre un candidato y
+publica ambas correcciones atómicamente como una sola revisión. El historial
+múltiple se diseñará con snapshots Parquet temporales, límites de entradas y
+presupuesto explícito de disco antes de prometerlo en la interfaz.
+La versión 0.10.0 generaliza Cargar a datasets CSV y Parquet. El selector nativo
+solo anuncia formatos realmente implementados; Parquet conserva su esquema,
+nulos y Unicode y se lee en modo de baja memoria sin paralelización para reducir
+picos. Se compilan Date, Datetime y Duration para preservar tipos temporales del
+formato. El límite eager de 500 MB se mantiene porque el peso comprimido de un
+Parquet no representa su tamaño descomprimido en memoria. Excel se pospone hasta
+separar inspección del libro, selección de hoja y carga, evitando elegir hojas
+silenciosamente o degradar tipos.
+La versión 0.11.0 añade TSV estricto y libros XLSX, XLS, XLSB y ODS. Rust conserva
+la ruta detrás de un identificador opaco: React recibe únicamente el nombre del
+archivo y las hojas disponibles. Una sola hoja se carga directamente; varias
+abren un selector explícito. La hoja elegida se convierte con encabezados únicos,
+nulos preservados y tipos seguros para booleanos, enteros, decimales, fechas y
+duraciones; las mezclas incompatibles y los errores de celda se conservan como
+texto. La sustitución sigue siendo transaccional y no borra el dataset activo si
+se cancela o falla. TSV usa tabulador fijo y se lee como texto para conservar
+ceros iniciales, enteros grandes y formatos como `1.00`. CSV mantiene por ahora
+su inferencia existente; unificar fidelidad léxica y perfil numérico semántico
+queda registrado para un hito posterior.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -565,6 +620,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-12 | Calidad reutiliza exclusivamente el dataset activo; la selección de CSV queda aislada en Datos | Implementada |
 | 2026-08-12 | Versión 0.3.0: progreso tipado por canal Tauri para carga CSV y perfilado por columnas | Implementada |
 | 2026-08-12 | Versión 0.4.0: cancelación cooperativa aislada por operación y recuperación del dataset previo | Implementada |
+| 2026-08-12 | Versión 0.5.0: exportación atómica y cancelable CSV/Parquet mediante selector nativo | Implementada |
+| 2026-08-12 | Versión 0.6.0: flujo Cargar → Revisar → Preparar → Entregar alineado con `dataprepv1.1`; exportación aislada en Entregar | Implementada |
+| 2026-08-12 | Versión 0.7.0: normalización reversible y determinista de nombres de columnas en Preparar | Implementada |
+| 2026-08-12 | Versión 0.8.0: recorte de espacios y normalización explícita de texto con métricas exactas | Implementada |
+| 2026-08-13 | Versión 0.9.0: Deshacer/Rehacer de una revisión y aplicación atómica de correcciones recomendadas | Implementada |
+| 2026-08-13 | Versión 0.10.0: carga local CSV/Parquet con preservación de esquema Parquet y lector de baja memoria | Implementada |
+| 2026-08-13 | Versión 0.11.0: TSV fiel y carga Excel/ODS con selección de hoja mediante token opaco | Implementada |
 
 ## 10. Fuentes de esta revisión
 
