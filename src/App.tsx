@@ -364,13 +364,15 @@ export function App() {
         result.droppedColumnCount +
         result.splitColumnCount +
         result.mergedColumnCount +
-        result.droppedSourceColumnCount;
+        result.droppedSourceColumnCount +
+        result.adjustedOutlierCellCount +
+        result.outlierRemovedRowCount;
       setChangeStatus({
         kind: "applied",
         message:
           total === 0
             ? "La receta no produjo cambios en el dataset."
-            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas y ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas.`,
+            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.outlierRemovedRowCount.toLocaleString()} filas atípicas eliminadas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas, ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas y ${result.adjustedOutlierCellCount.toLocaleString()} outliers ajustados en ${result.outlierColumnCount.toLocaleString()} columnas.`,
       });
       if (total > 0) setHistoryStatus({ canUndo: true, canRedo: false });
     } catch (error: unknown) {
@@ -1177,6 +1179,7 @@ function TransformRecipeEditor({
   type FindReplaceDraft = NonNullable<TransformRecipe["findReplace"]>;
   type SplitDraft = NonNullable<TransformRecipe["splitColumn"]>;
   type MergeDraft = NonNullable<TransformRecipe["mergeColumns"]>;
+  type OutlierDraft = TransformRecipe["outlierTreatments"][number];
 
   const [renames, setRenames] = useState<RenameDraft[]>([{ from: "", to: "" }]);
   const [casts, setCasts] = useState<CastDraft[]>([{ column: "", target: "string" }]);
@@ -1200,6 +1203,7 @@ function TransformRecipeEditor({
   const [splitNamesInput, setSplitNamesInput] = useState("");
   const [mergeEnabled, setMergeEnabled] = useState(false);
   const [merge, setMerge] = useState<MergeDraft>({ sources: [], name: "", separator: "", dropSources: false });
+  const [outlierTreatments, setOutlierTreatments] = useState<OutlierDraft[]>([]);
   const datasetSignature = `${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => `${column.name}:${column.dataType}`).join("|")}`;
 
   useEffect(() => {
@@ -1217,6 +1221,7 @@ function TransformRecipeEditor({
     setSplitNamesInput("");
     setMergeEnabled(false);
     setMerge({ sources: [], name: "", separator: "", dropSources: false });
+    setOutlierTreatments([]);
     setCalculation({ name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
   }, [datasetSignature]);
 
@@ -1234,6 +1239,11 @@ function TransformRecipeEditor({
     if (activeDateParses.some((item) => item.column === column.name)) return false;
     const cast = [...activeCasts].reverse().find((item) => item.column === column.name);
     return cast ? cast.target === "string" : column.dataType === "String";
+  });
+  const numericColumns = dataset.columns.filter((column) => {
+    if (activeDateParses.some((item) => item.column === column.name)) return false;
+    const cast = [...activeCasts].reverse().find((item) => item.column === column.name);
+    return cast ? ["integer", "decimal"].includes(cast.target) : ["Int64", "Float64"].includes(column.dataType);
   });
   const operandRequired = !["year", "month", "day"].includes(calculation.operation);
   const calculationInvalid =
@@ -1258,12 +1268,15 @@ function TransformRecipeEditor({
   const mergeInvalid = mergeEnabled && (merge.sources.length < 2 || merge.sources.length > 16 || !merge.name.trim() || postRenameNames.has(merge.name.trim()) || merge.name.trim() === calculatedName || parsedSplitNames.includes(merge.name.trim()));
   const sourceConflict = splitEnabled && mergeEnabled && split.dropSource && merge.sources.includes(split.source);
   const sourceNotKept = (splitEnabled && !keptColumns.includes(split.source)) || (mergeEnabled && merge.sources.some((source) => !keptColumns.includes(source)));
-  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0) + (splitEnabled ? 1 : 0) + (mergeEnabled ? 1 : 0);
+  const outlierDuplicate = new Set(outlierTreatments.map((item) => item.column)).size !== outlierTreatments.length;
+  const outlierDependencyInvalid = outlierTreatments.some((item) => !keptColumns.includes(item.column) || (splitEnabled && split.dropSource && split.source === item.column) || (mergeEnabled && merge.dropSources && merge.sources.includes(item.column)));
+  const outlierInvalid = outlierTreatments.some((item) => !item.column || !numericColumns.some((column) => column.name === item.column)) || outlierDuplicate || outlierTreatments.length > 16 || outlierDependencyInvalid;
+  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0) + (splitEnabled ? 1 : 0) + (mergeEnabled ? 1 : 0) + outlierTreatments.length;
   const renameInvalid = activeRenames.some((item) => !item.from || !item.to.trim());
   const filterInvalid = activeFilters.some((item) =>
     !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
   );
-  const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped || splitInvalid || mergeInvalid || sourceConflict || sourceNotKept ||
+  const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped || splitInvalid || mergeInvalid || sourceConflict || sourceNotKept || outlierInvalid ||
     !calculationValid;
 
   function columnOptions() {
@@ -1295,8 +1308,9 @@ function TransformRecipeEditor({
       keepColumns: dropsColumns ? dataset.columns.map((column) => column.name).filter((name) => keptColumns.includes(name)) : null,
       splitColumn: splitEnabled ? { ...split, names: parsedSplitNames } : null,
       mergeColumns: mergeEnabled ? { ...merge, name: merge.name.trim() } : null,
+      outlierTreatments,
     };
-    if (recipe.filters.length > 0 || recipe.keepColumns !== null || recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources) setPendingConfirmation(recipe);
+    if (recipe.filters.length > 0 || recipe.keepColumns !== null || recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources || recipe.outlierTreatments.length > 0) setPendingConfirmation(recipe);
     else onApply(recipe);
   }
 
@@ -1497,6 +1511,17 @@ function TransformRecipeEditor({
           </>}
           <p className="recipe-hint">Selecciona entre 2 y 16 columnas existentes. Los valores null se omiten; si todos son null, el resultado queda null.</p>
         </fieldset>
+
+        <fieldset>
+          <legend>Tratar valores atípicos</legend>
+          <p className="recipe-hint">Usa límites IQR de 1.5 con al menos 4 valores finitos. Los null se preservan; valores no finitos cancelan toda la receta. Limitar puede convertir enteros a decimal y rechaza enteros fuera del rango exacto ±2^53 para evitar pérdida de precisión.</p>
+          {outlierTreatments.map((treatment, index) => <div className="recipe-row" key={`outlier-${index}`}>
+            <label><span>Columna numérica</span><select aria-label={`Columna de outliers ${index + 1}`} value={treatment.column} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}><option value="">Selecciona…</option>{numericColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
+            <label><span>Acción</span><select aria-label={`Acción de outliers ${index + 1}`} value={treatment.action} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, action: event.target.value as OutlierDraft["action"] } : item))}><option value="cap">Limitar a los umbrales</option><option value="drop">Eliminar filas</option></select></label>
+            <button type="button" aria-label={`Quitar tratamiento ${index + 1}`} onClick={() => setOutlierTreatments((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+          </div>)}
+          {outlierTreatments.length < 16 && <button type="button" className="recipe-add" onClick={() => setOutlierTreatments((current) => [...current, { column: "", action: "cap" }])}>+ Añadir tratamiento</button>}
+        </fieldset>
       </div>
 
       {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
@@ -1509,6 +1534,9 @@ function TransformRecipeEditor({
       {mergeInvalid && <p className="recipe-error" role="alert">Combinar: selecciona entre 2 y 16 columnas y usa un nombre nuevo sin colisiones.</p>}
       {sourceConflict && <p className="recipe-error" role="alert">Dependencias: no elimines al dividir una columna que también usarás para combinar.</p>}
       {sourceNotKept && <p className="recipe-error" role="alert">Dependencias: conserva todas las columnas usadas para dividir o combinar.</p>}
+      {outlierDuplicate && <p className="recipe-error" role="alert">Outliers: configura una sola acción por columna.</p>}
+      {outlierDependencyInvalid && <p className="recipe-error" role="alert">Outliers: conserva cada columna objetivo y no la elimines como fuente antes del tratamiento.</p>}
+      {outlierInvalid && !outlierDuplicate && !outlierDependencyInvalid && <p className="recipe-error" role="alert">Outliers: selecciona únicamente columnas numéricas elegibles.</p>}
       <div className="transform-recipe__footer">
         <p>
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
@@ -1526,6 +1554,8 @@ function TransformRecipeEditor({
             <p id="filter-confirm-description">
               {pendingConfirmation.filters.length > 0 && <>La receta aplicará {pendingConfirmation.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final de filas depende de los datos. </>}
               {(pendingConfirmation.keepColumns !== null || pendingConfirmation.splitColumn?.dropSource || pendingConfirmation.mergeColumns?.dropSources) && <> En total se eliminarán {new Set([...(pendingConfirmation.keepColumns ? dataset.columns.map((column) => column.name).filter((name) => !pendingConfirmation.keepColumns?.includes(name)) : []), ...(pendingConfirmation.splitColumn?.dropSource ? [pendingConfirmation.splitColumn.source] : []), ...(pendingConfirmation.mergeColumns?.dropSources ? pendingConfirmation.mergeColumns.sources : [])]).size} columnas originales, sin contar dos veces las fuentes compartidas.</>}
+              {pendingConfirmation.outlierTreatments.some((item) => item.action === "cap") && <> Se limitarán valores atípicos en {pendingConfirmation.outlierTreatments.filter((item) => item.action === "cap").length} columnas.</>}
+              {pendingConfirmation.outlierTreatments.some((item) => item.action === "drop") && <> Se podrán eliminar filas atípicas detectadas en {pendingConfirmation.outlierTreatments.filter((item) => item.action === "drop").length} columnas.</>}
             </p>
             <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" onClick={() => { const recipe = pendingConfirmation; setPendingConfirmation(null); onApply(recipe); }}>Confirmar y aplicar</button></div>
           </section>

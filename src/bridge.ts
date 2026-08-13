@@ -158,6 +158,7 @@ export interface TransformRecipe {
     separator: string;
     dropSources: boolean;
   } | null;
+  outlierTreatments: Array<{ column: string; action: "cap" | "drop" }>;
 }
 
 export interface TransformRecipeResult {
@@ -172,6 +173,9 @@ export interface TransformRecipeResult {
   splitColumnCount: number;
   mergedColumnCount: number;
   droppedSourceColumnCount: number;
+  adjustedOutlierCellCount: number;
+  outlierRemovedRowCount: number;
+  outlierColumnCount: number;
 }
 
 export interface OperationProgress {

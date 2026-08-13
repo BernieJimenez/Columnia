@@ -758,6 +758,7 @@ describe("App", () => {
       replacedCellCount: 0,
       droppedColumnCount: 0,
       splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
+      adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,
     });
 
     render(<App />);
@@ -801,6 +802,7 @@ describe("App", () => {
       keepColumns: null,
       splitColumn: null,
       mergeColumns: null,
+      outlierTreatments: [],
     });
     expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
@@ -821,6 +823,7 @@ describe("App", () => {
       removedRowCount: 8, calculatedColumnCount: 1,
       replacedCellCount: 0, droppedColumnCount: 0,
       splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
+      adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -869,6 +872,7 @@ describe("App", () => {
       keepColumns: null,
       splitColumn: { source: "estado", delimiter: "-", names: ["estado_base", "zona"], dropSource: false },
       mergeColumns: { sources: ["estado", "categoria"], name: "estado_categoria", separator: "", dropSources: true },
+      outlierTreatments: [],
     }));
   });
 
@@ -906,5 +910,74 @@ describe("App", () => {
     expect(within(dialog).getByText(/En total se eliminarán 1 columnas originales/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     expect(applySpy).not.toHaveBeenCalled();
+  });
+
+  it("actualiza columnas numéricas por casts y confirma tratamientos de outliers", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.19.0", platform: "windows" });
+    const original: DatasetPreview = {
+      fileName: "metricas.csv", fileSizeBytes: 100, rowCount: 10, columnCount: 3,
+      columns: [{ name: "importe", dataType: "String" }, { name: "cantidad", dataType: "Int64" }, { name: "nota", dataType: "Float64" }],
+      rows: [["10", "2", "9"]],
+    };
+    mockDatasetLoad(original);
+    const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "importe" } });
+    fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir conversión" }));
+    fireEvent.change(screen.getByLabelText("Columna para convertir 2"), { target: { value: "cantidad" } });
+    fireEvent.change(screen.getByLabelText("Tipo destino 2"), { target: { value: "string" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir tratamiento" }));
+    const target = screen.getByLabelText("Columna de outliers 1");
+    expect(within(target).getByRole("option", { name: "importe" })).toBeInTheDocument();
+    expect(within(target).queryByRole("option", { name: "cantidad" })).not.toBeInTheDocument();
+    fireEvent.change(target, { target: { value: "importe" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir tratamiento" }));
+    fireEvent.change(screen.getByLabelText("Columna de outliers 2"), { target: { value: "nota" } });
+    fireEvent.change(screen.getByLabelText("Acción de outliers 2"), { target: { value: "drop" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    let dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
+    expect(within(dialog).getByText(/Se limitarán valores atípicos en 1 columnas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/eliminar filas atípicas detectadas en 1 columnas/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(applySpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ outlierTreatments: [{ column: "importe", action: "cap" }, { column: "nota", action: "drop" }] }));
+  });
+
+  it("no crea historial cuando el tratamiento IQR no encuentra outliers", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.19.0", platform: "windows" });
+    const original: DatasetPreview = {
+      fileName: "estable.csv", fileSizeBytes: 100, rowCount: 4, columnCount: 1,
+      columns: [{ name: "valor", dataType: "Float64" }], rows: [["1"], ["2"], ["3"], ["4"]],
+    };
+    mockDatasetLoad(original);
+    vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
+      dataset: original,
+      renamedColumnCount: 0, convertedColumnCount: 0, parsedDateColumnCount: 0,
+      removedRowCount: 0, calculatedColumnCount: 0, replacedCellCount: 0,
+      droppedColumnCount: 0, splitColumnCount: 0, mergedColumnCount: 0,
+      droppedSourceColumnCount: 0, adjustedOutlierCellCount: 0,
+      outlierRemovedRowCount: 0, outlierColumnCount: 1,
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir tratamiento" }));
+    fireEvent.change(screen.getByLabelText("Columna de outliers 1"), { target: { value: "valor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
+
+    expect(await screen.findByText("La receta no produjo cambios en el dataset.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
   });
 });

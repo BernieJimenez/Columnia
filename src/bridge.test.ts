@@ -170,6 +170,7 @@ describe("desktop bridge", () => {
       keepColumns: ["total", "estado"],
       splitColumn: { source: "estado", delimiter: "-", names: ["estado", "detalle"], dropSource: true },
       mergeColumns: { sources: ["nombre", "apellido"], name: "nombre_completo", separator: " ", dropSources: false },
+      outlierTreatments: [{ column: "total", action: "cap" }],
     };
 
     await applyTransformRecipe(recipe);

@@ -359,6 +359,20 @@ pub struct MergeColumnsRecipe {
     drop_sources: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutlierAction {
+    Cap,
+    Drop,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OutlierTreatment {
+    column: String,
+    action: OutlierAction,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransformRecipe {
@@ -380,6 +394,8 @@ pub struct TransformRecipe {
     split_column: Option<SplitColumnRecipe>,
     #[serde(default)]
     merge_columns: Option<MergeColumnsRecipe>,
+    #[serde(default)]
+    outlier_treatments: Vec<OutlierTreatment>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -396,6 +412,9 @@ pub struct TransformRecipeResult {
     split_column_count: usize,
     merged_column_count: usize,
     dropped_source_column_count: usize,
+    adjusted_outlier_cell_count: usize,
+    outlier_removed_row_count: usize,
+    outlier_column_count: usize,
     changed: bool,
 }
 
@@ -3142,6 +3161,139 @@ fn apply_merge_columns(
     Ok((1, dropped))
 }
 
+fn outlier_linear_quantile(sorted: &[f64], probability: f64) -> f64 {
+    let position = probability * (sorted.len() - 1) as f64;
+    let lower = position.floor() as usize;
+    let upper = position.ceil() as usize;
+    let weight = position - lower as f64;
+    sorted[lower] * (1.0 - weight) + sorted[upper] * weight
+}
+
+fn physical_numeric_values(column: &Column) -> Result<Vec<Option<f64>>, String> {
+    let name = column.name();
+    (0..column.len())
+        .map(|row| {
+            let value = column.get(row).map_err(|error| error.to_string())?;
+            match value {
+                AnyValue::Null => Ok(None),
+                AnyValue::Int64(value) if value.unsigned_abs() <= (1_u64 << 53) => Ok(Some(value as f64)),
+                AnyValue::Int64(value) => Err(format!("La columna '{name}' contiene un entero fuera de la precisión segura en la fila {}: {value}.", row + 1)),
+                AnyValue::Float64(value) if value.is_finite() => Ok(Some(value)),
+                AnyValue::Float64(_) => Err(format!(
+                    "La columna '{name}' contiene NaN o infinito en la fila {}.",
+                    row + 1
+                )),
+                _ => Err(format!("La columna '{name}' debe ser Int64 o Float64 para tratar atípicos.")),
+            }
+        })
+        .collect()
+}
+
+fn apply_outlier_treatments(
+    mut frame: DataFrame,
+    treatments: &[OutlierTreatment],
+    renames: &HashMap<&str, &str>,
+) -> Result<(DataFrame, usize, usize, usize), String> {
+    if treatments.len() > 16 {
+        return Err("La receta admite como máximo 16 tratamientos de atípicos.".into());
+    }
+    let mut unique = HashSet::new();
+    let mut prepared = Vec::with_capacity(treatments.len());
+    for treatment in treatments {
+        if !unique.insert(treatment.column.as_str()) {
+            return Err(format!(
+                "La columna '{}' tiene más de un tratamiento de atípicos.",
+                treatment.column
+            ));
+        }
+        let name = remapped_name(&treatment.column, renames).to_owned();
+        let column = recipe_column(&frame, &name)?;
+        if !matches!(
+            column.dtype(),
+            polars::prelude::DataType::Int64 | polars::prelude::DataType::Float64
+        ) {
+            return Err(format!(
+                "La columna '{name}' debe ser Int64 o Float64 para tratar atípicos."
+            ));
+        }
+        let values = physical_numeric_values(column)?;
+        let mut valid = values.iter().flatten().copied().collect::<Vec<_>>();
+        if valid.len() < 4 {
+            return Err(format!(
+                "La columna '{name}' requiere al menos cuatro valores numéricos válidos."
+            ));
+        }
+        valid.sort_by(f64::total_cmp);
+        let q1 = outlier_linear_quantile(&valid, 0.25);
+        let q3 = outlier_linear_quantile(&valid, 0.75);
+        let iqr = q3 - q1;
+        let lower = q1 - 1.5 * iqr;
+        let upper = q3 + 1.5 * iqr;
+        if ![q1, q3, iqr, lower, upper].into_iter().all(f64::is_finite) {
+            return Err(format!(
+                "Los umbrales IQR de '{name}' exceden el rango numérico finito."
+            ));
+        }
+        prepared.push((name, treatment.action, values, lower, upper));
+    }
+
+    let baseline_height = frame.height();
+    let mut drop_mask = vec![false; baseline_height];
+    let mut adjusted = 0;
+    for (name, action, values, lower, upper) in prepared {
+        match action {
+            OutlierAction::Cap => {
+                let capped = values
+                    .into_iter()
+                    .map(|value| {
+                        value.map(|value| {
+                            let capped = value.clamp(lower, upper);
+                            if capped != value {
+                                adjusted += 1;
+                            }
+                            capped
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if capped
+                    .iter()
+                    .zip((0..baseline_height).map(|row| {
+                        frame
+                            .column(&name)
+                            .unwrap()
+                            .get(row)
+                            .ok()
+                            .and_then(numeric_value)
+                    }))
+                    .any(|(left, right)| *left != right)
+                {
+                    frame
+                        .replace(
+                            &name,
+                            Series::new(name.clone().into(), capped).into_column(),
+                        )
+                        .map_err(|error| format!("No se pudo limitar '{name}': {error}"))?;
+                }
+            }
+            OutlierAction::Drop => {
+                for (row, value) in values.into_iter().enumerate() {
+                    if value.is_some_and(|value| value < lower || value > upper) {
+                        drop_mask[row] = true;
+                    }
+                }
+            }
+        }
+    }
+    let keep = drop_mask.iter().map(|drop| !drop).collect::<Vec<_>>();
+    let removed = drop_mask.iter().filter(|drop| **drop).count();
+    if removed > 0 {
+        frame = frame
+            .filter(&BooleanChunked::from_slice("outliers".into(), &keep))
+            .map_err(|error| format!("No se pudieron retirar filas atípicas: {error}"))?;
+    }
+    Ok((frame, adjusted, removed, treatments.len()))
+}
+
 type RecipeFrameOutcome = (
     DataFrame,
     usize,
@@ -3152,6 +3304,9 @@ type RecipeFrameOutcome = (
     usize,
     usize,
     bool,
+    usize,
+    usize,
+    usize,
     usize,
     usize,
     usize,
@@ -3211,6 +3366,9 @@ fn apply_recipe_to_frame(
         for source_name in &merge.sources {
             recipe_column(source, source_name)?;
         }
+    }
+    for treatment in &recipe.outlier_treatments {
+        recipe_column(source, &treatment.column)?;
     }
     if let Some(calculation) = &recipe.calculated_column {
         recipe_column(source, &calculation.source)?;
@@ -3385,6 +3543,12 @@ fn apply_recipe_to_frame(
         (0, 0)
     };
     let dropped_source_column_count = split_dropped + merge_dropped;
+    for treatment in &recipe.outlier_treatments {
+        let effective = remapped_name(&treatment.column, &rename_map);
+        recipe_column(&candidate, effective).map_err(|_| format!("La columna '{effective}' para tratar atípicos no sobrevivió las etapas estructurales."))?;
+    }
+    let (candidate, adjusted_outlier_cell_count, outlier_removed_row_count, outlier_column_count) =
+        apply_outlier_treatments(candidate, &recipe.outlier_treatments, &rename_map)?;
 
     Ok((
         candidate,
@@ -3399,6 +3563,9 @@ fn apply_recipe_to_frame(
         split_column_count,
         merged_column_count,
         dropped_source_column_count,
+        adjusted_outlier_cell_count,
+        outlier_removed_row_count,
+        outlier_column_count,
     ))
 }
 
@@ -3419,6 +3586,9 @@ fn apply_recipe_to_dataset(
         split_column_count,
         merged_column_count,
         dropped_source_column_count,
+        adjusted_outlier_cell_count,
+        outlier_removed_row_count,
+        outlier_column_count,
     ) = apply_recipe_to_frame(&dataset.frame, recipe)?;
     let changed = renamed_column_count
         + converted_column_count
@@ -3431,6 +3601,8 @@ fn apply_recipe_to_dataset(
         + split_column_count
         + merged_column_count
         + dropped_source_column_count
+        + adjusted_outlier_cell_count
+        + outlier_removed_row_count
         > 0;
     // Build every fallible response value before publishing the candidate. This keeps the
     // transaction atomic even if, for example, the source file disappeared after loading.
@@ -3453,6 +3625,9 @@ fn apply_recipe_to_dataset(
         split_column_count,
         merged_column_count,
         dropped_source_column_count,
+        adjusted_outlier_cell_count,
+        outlier_removed_row_count,
+        outlier_column_count,
         changed,
     })
 }
@@ -4293,7 +4468,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (result, renamed, converted, dates, removed, calculated, _, _, _, _, _, _) =
+        let (result, renamed, converted, dates, removed, calculated, _, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
         assert_eq!((renamed, converted, dates), (3, 3, 1));
         assert_eq!((removed, calculated), (0, 0));
@@ -4470,7 +4645,8 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_recipe_to_frame(&frame, &conflict)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("misma receta"));
 
         let collision = TransformRecipe {
@@ -4481,7 +4657,8 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_recipe_to_frame(&frame, &collision)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("duplicados"));
     }
 
@@ -4523,7 +4700,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let (result, _, _, _, removed, _, _, _, _, _, _, _) =
+        let (result, _, _, _, removed, _, _, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(removed, 3);
         assert_eq!(
@@ -4580,7 +4757,8 @@ mod tests {
                     ..Default::default()
                 },
             )
-            .expect_err("el valor inválido debe rechazarse sin importar el orden");
+            .err()
+            .expect("el valor inválido debe rechazarse sin importar el orden");
             assert!(error.contains("fila 2"));
         }
     }
@@ -4611,7 +4789,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (result, _, _, _, _, calculated, _, _, _, _, _, _) =
+        let (result, _, _, _, _, calculated, _, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(calculated, 1);
         let rows = dataset_page(&result, 0, 10).unwrap().rows;
@@ -4640,13 +4818,15 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_recipe_to_frame(&frame, &divide)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("precisión"));
 
         let safe =
             DataFrame::new(1, vec![Series::new("value".into(), ["1"]).into_column()]).unwrap();
         assert!(apply_recipe_to_frame(&safe, &divide)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("División por cero"));
         let too_many = TransformRecipe {
             filters: (0..4)
@@ -4659,7 +4839,8 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_recipe_to_frame(&safe, &too_many)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("máximo tres"));
     }
 
@@ -4697,7 +4878,8 @@ mod tests {
             .into_column();
         let extreme_frame = DataFrame::new(1, vec![extreme]).unwrap();
         assert!(apply_recipe_to_frame(&extreme_frame, &recipe)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("fuera del rango"));
     }
 
@@ -4720,7 +4902,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (result, _, _, _, _, _, replaced, _, _, _, _, _) =
+        let (result, _, _, _, _, _, replaced, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(replaced, 2);
         let rows = dataset_page(&result, 0, 10).unwrap().rows;
@@ -4803,7 +4985,7 @@ mod tests {
             keep_columns: Some(vec!["c".into(), "a".into()]),
             ..Default::default()
         };
-        let (result, _, _, _, _, _, _, dropped, _, _, _, _) =
+        let (result, _, _, _, _, _, _, dropped, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(dropped, 1);
         assert_eq!(
@@ -4850,7 +5032,8 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_recipe_to_frame(&frame, &calculation)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("descartada"));
 
         let renamed_success = TransformRecipe {
@@ -5030,7 +5213,8 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_recipe_to_frame(&frame, &dropped)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("keepColumns"));
         let conflict = TransformRecipe {
             split_column: Some(SplitColumnRecipe {
@@ -5041,7 +5225,8 @@ mod tests {
             ..Default::default()
         };
         assert!(apply_recipe_to_frame(&frame, &conflict)
-            .unwrap_err()
+            .err()
+            .unwrap()
             .contains("descartaría"));
     }
 
@@ -5184,6 +5369,242 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["full", "other"]
         );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn iqr_cap_uses_linear_quantiles_preserves_nulls_and_strict_boundaries() {
+        let frame = DataFrame::new(
+            6,
+            vec![Series::new(
+                "value".into(),
+                [Some(1_i64), Some(2), Some(3), Some(4), Some(100), None],
+            )
+            .into_column()],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            outlier_treatments: vec![OutlierTreatment {
+                column: "value".into(),
+                action: OutlierAction::Cap,
+            }],
+            ..Default::default()
+        };
+        let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!((outcome.12, outcome.13, outcome.14), (1, 0, 1));
+        assert_eq!(
+            outcome.0.column("value").unwrap().dtype(),
+            &polars::prelude::DataType::Float64
+        );
+        let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(rows[4][0].as_deref(), Some("7.0"));
+        assert_eq!(rows[5][0], None);
+
+        let boundary = DataFrame::new(
+            5,
+            vec![Series::new("value".into(), [1_i64, 2, 3, 4, 7]).into_column()],
+        )
+        .unwrap();
+        let no_op = apply_recipe_to_frame(&boundary, &recipe).unwrap();
+        assert_eq!(no_op.12, 0);
+        assert_eq!(
+            no_op.0.column("value").unwrap().dtype(),
+            &polars::prelude::DataType::Int64
+        );
+        let zero_iqr = DataFrame::new(
+            4,
+            vec![Series::new("value".into(), [5_i64; 4]).into_column()],
+        )
+        .unwrap();
+        assert_eq!(apply_recipe_to_frame(&zero_iqr, &recipe).unwrap().12, 0);
+    }
+
+    #[test]
+    fn iqr_drop_treatments_are_order_independent_and_share_one_baseline() {
+        let frame = DataFrame::new(
+            6,
+            vec![
+                Series::new("a".into(), [1.0, 2.0, 3.0, 4.0, 100.0, 3.0]).into_column(),
+                Series::new("b".into(), [1.0, 2.0, 3.0, 4.0, 3.0, 100.0]).into_column(),
+            ],
+        )
+        .unwrap();
+        let treatments = vec![
+            OutlierTreatment {
+                column: "a".into(),
+                action: OutlierAction::Drop,
+            },
+            OutlierTreatment {
+                column: "b".into(),
+                action: OutlierAction::Drop,
+            },
+        ];
+        let first = apply_recipe_to_frame(
+            &frame,
+            &TransformRecipe {
+                outlier_treatments: treatments.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let second = apply_recipe_to_frame(
+            &frame,
+            &TransformRecipe {
+                outlier_treatments: treatments.into_iter().rev().collect(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!((first.13, first.14), (2, 2));
+        assert!(first.0.equals_missing(&second.0));
+
+        let mixed = apply_recipe_to_frame(
+            &frame,
+            &TransformRecipe {
+                outlier_treatments: vec![
+                    OutlierTreatment {
+                        column: "a".into(),
+                        action: OutlierAction::Cap,
+                    },
+                    OutlierTreatment {
+                        column: "b".into(),
+                        action: OutlierAction::Drop,
+                    },
+                ],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!((mixed.12, mixed.13), (1, 1));
+    }
+
+    #[test]
+    fn iqr_validates_minimum_duplicates_limits_nonfinite_and_precision() {
+        let small = DataFrame::new(
+            3,
+            vec![Series::new("x".into(), [1_i64, 2, 100]).into_column()],
+        )
+        .unwrap();
+        let treatment = OutlierTreatment {
+            column: "x".into(),
+            action: OutlierAction::Cap,
+        };
+        assert!(apply_recipe_to_frame(
+            &small,
+            &TransformRecipe {
+                outlier_treatments: vec![treatment.clone()],
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert!(apply_recipe_to_frame(
+            &small,
+            &TransformRecipe {
+                outlier_treatments: vec![treatment.clone(), treatment.clone()],
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert!(apply_recipe_to_frame(
+            &small,
+            &TransformRecipe {
+                outlier_treatments: vec![treatment.clone(); 17],
+                ..Default::default()
+            }
+        )
+        .is_err());
+
+        let nonfinite = DataFrame::new(
+            4,
+            vec![Series::new("x".into(), [1.0, 2.0, 3.0, f64::INFINITY]).into_column()],
+        )
+        .unwrap();
+        assert!(apply_recipe_to_frame(
+            &nonfinite,
+            &TransformRecipe {
+                outlier_treatments: vec![treatment.clone()],
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap()
+        .contains("infinito"));
+        let precision = DataFrame::new(
+            4,
+            vec![Series::new("x".into(), [1_i64, 2, 3, 9_007_199_254_740_993]).into_column()],
+        )
+        .unwrap();
+        assert!(apply_recipe_to_frame(
+            &precision,
+            &TransformRecipe {
+                outlier_treatments: vec![treatment],
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap()
+        .contains("precisión"));
+        let overflow = DataFrame::new(
+            4,
+            vec![Series::new("x".into(), [-1e308, -5e307, 5e307, 1e308]).into_column()],
+        )
+        .unwrap();
+        assert!(apply_recipe_to_frame(
+            &overflow,
+            &TransformRecipe {
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "x".into(),
+                    action: OutlierAction::Drop
+                }],
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap()
+        .contains("rango numérico"));
+    }
+
+    #[test]
+    fn iqr_remaps_rename_observes_cast_and_keep_and_commits_one_undo() {
+        let path = temporary_csv("value,other\n1,a\n2,b\n3,c\n4,d\n100,e\n");
+        let (frame, _) = load_csv(&path).unwrap();
+        let mut dataset = LoadedDataset {
+            path: path.clone(),
+            frame,
+            profile: None,
+            undo_frame: None,
+            redo_frame: None,
+        };
+        let result = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "value".into(),
+                    to: "amount".into(),
+                }],
+                casts: vec![RecipeCast {
+                    column: "value".into(),
+                    target: RecipeCastTarget::Integer,
+                }],
+                keep_columns: Some(vec!["value".into()]),
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "value".into(),
+                    action: OutlierAction::Cap,
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                result.adjusted_outlier_cell_count,
+                result.outlier_column_count
+            ),
+            (1, 1)
+        );
+        assert!(dataset.undo_frame.is_some());
+        undo_dataset(&mut dataset).unwrap();
+        assert_eq!(dataset.frame.width(), 2);
         fs::remove_file(path).unwrap();
     }
 }

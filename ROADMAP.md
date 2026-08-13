@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.18.0`.
+- Versión actual del prototipo: `0.19.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -486,6 +486,13 @@ siendo valores vacíos. Combinar respeta el orden elegido, omite únicamente los
 nulos y mantiene nula una fila sin ningún valor. Eliminar las fuentes requiere
 confirmación, y el motor valida tipos, renombres, conversiones, colisiones y
 dependencias antes de publicar una sola revisión reversible.
+La versión 0.19.0 incorpora tratamiento IQR de valores atípicos sobre hasta
+dieciséis columnas numéricas: limitar valores a los umbrales o eliminar las
+filas que los exceden. Todos los cuartiles se calculan sobre el mismo estado
+previo para que el orden de las selecciones no altere el resultado. Los nulos y
+límites exactos se conservan; NaN, infinitos, rangos no representables y enteros
+fuera de la precisión exacta se rechazan. Cualquier tratamiento exige
+confirmación y un resultado sin outliers no crea una revisión vacía.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -691,6 +698,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.16.0: filtros AND y columna calculada estricta dentro de la receta atómica | Implementada |
 | 2026-08-13 | Versión 0.17.0: reemplazo literal y selección de columnas dentro de la receta atómica | Implementada |
 | 2026-08-13 | Versión 0.18.0: división y combinación deterministas de columnas de texto | Implementada |
+| 2026-08-13 | Versión 0.19.0: tratamiento IQR atómico para limitar o eliminar outliers | Implementada |
 
 ## 10. Fuentes de esta revisión
 
