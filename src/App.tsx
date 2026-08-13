@@ -359,13 +359,15 @@ export function App() {
         result.convertedColumnCount +
         result.parsedDateColumnCount +
         result.removedRowCount +
-        result.calculatedColumnCount;
+        result.calculatedColumnCount +
+        result.replacedCellCount +
+        result.droppedColumnCount;
       setChangeStatus({
         kind: "applied",
         message:
           total === 0
             ? "La receta no produjo cambios en el dataset."
-            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas y ${result.calculatedColumnCount.toLocaleString()} columnas calculadas.`,
+            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas y ${result.droppedColumnCount.toLocaleString()} columnas descartadas.`,
       });
       if (total > 0) setHistoryStatus({ canUndo: true, canRedo: false });
     } catch (error: unknown) {
@@ -1009,6 +1011,7 @@ function PreparePhase({
           aria-labelledby="prepare-transformations-tab"
         >
           <TransformRecipeEditor
+            key={`${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => column.name).join("|")}:${changeStatus.kind === "applied" ? changeStatus.message : ""}`}
             dataset={dataset}
             busy={changing}
             onApply={onApplyTransforms}
@@ -1168,6 +1171,7 @@ function TransformRecipeEditor({
   type DateDraft = TransformRecipe["dateParses"][number];
   type FilterDraft = TransformRecipe["filters"][number];
   type CalculationDraft = NonNullable<TransformRecipe["calculatedColumn"]>;
+  type FindReplaceDraft = NonNullable<TransformRecipe["findReplace"]>;
 
   const [renames, setRenames] = useState<RenameDraft[]>([{ from: "", to: "" }]);
   const [casts, setCasts] = useState<CastDraft[]>([{ column: "", target: "string" }]);
@@ -1183,6 +1187,10 @@ function TransformRecipeEditor({
     operand: { kind: "literal", value: "" },
   });
   const [pendingConfirmation, setPendingConfirmation] = useState<TransformRecipe | null>(null);
+  const [findReplaceEnabled, setFindReplaceEnabled] = useState(false);
+  const [findReplace, setFindReplace] = useState<FindReplaceDraft>({ scope: "column", column: null, find: "", replace: "" });
+  const [keptColumns, setKeptColumns] = useState<string[]>(dataset.columns.map((column) => column.name));
+  const searchableTextColumns = dataset.columns.filter((column) => column.dataType === "String");
   const datasetSignature = `${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => `${column.name}:${column.dataType}`).join("|")}`;
 
   useEffect(() => {
@@ -1192,6 +1200,9 @@ function TransformRecipeEditor({
     setFilters([]);
     setCalculationEnabled(false);
     setPendingConfirmation(null);
+    setFindReplaceEnabled(false);
+    setFindReplace({ scope: "column", column: null, find: "", replace: "" });
+    setKeptColumns(dataset.columns.map((column) => column.name));
     setCalculation({ name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
   }, [datasetSignature]);
 
@@ -1215,12 +1226,18 @@ function TransformRecipeEditor({
   const calculationValid =
     !calculationEnabled ||
     !calculationInvalid;
-  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0);
+  const calculationSourceDropped = calculationEnabled &&
+    (!keptColumns.includes(calculation.source) ||
+      (calculation.operand?.kind === "column" && !keptColumns.includes(calculation.operand.value)));
+  const findReplaceInvalid = findReplaceEnabled &&
+    (!findReplace.find || searchableTextColumns.length === 0 || (findReplace.scope === "column" && !findReplace.column));
+  const dropsColumns = keptColumns.length < dataset.columns.length;
+  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0);
   const renameInvalid = activeRenames.some((item) => !item.from || !item.to.trim());
   const filterInvalid = activeFilters.some((item) =>
     !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
   );
-  const invalid = renameInvalid || filterInvalid ||
+  const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped ||
     !calculationValid;
 
   function columnOptions() {
@@ -1248,8 +1265,10 @@ function TransformRecipeEditor({
             operand: operandRequired ? calculation.operand : null,
           }
         : null,
+      findReplace: findReplaceEnabled ? findReplace : null,
+      keepColumns: dropsColumns ? dataset.columns.map((column) => column.name).filter((name) => keptColumns.includes(name)) : null,
     };
-    if (recipe.filters.length > 0) setPendingConfirmation(recipe);
+    if (recipe.filters.length > 0 || recipe.keepColumns !== null) setPendingConfirmation(recipe);
     else onApply(recipe);
   }
 
@@ -1407,11 +1426,35 @@ function TransformRecipeEditor({
           )}
           <p className="recipe-hint">La evaluación es estricta: tipos incompatibles o división por cero cancelan toda la receta.</p>
         </fieldset>
+
+        <fieldset>
+          <legend>Buscar y reemplazar literal</legend>
+          <label className="option-toggle"><input type="checkbox" checked={findReplaceEnabled} onChange={(event) => setFindReplaceEnabled(event.target.checked)} />Añadir búsqueda y reemplazo</label>
+          {findReplaceEnabled && <div className="calculation-grid">
+            <label><span>Alcance</span><select aria-label="Alcance de búsqueda" value={findReplace.scope} disabled={searchableTextColumns.length === 0} onChange={(event) => { const scope = event.target.value as FindReplaceDraft["scope"]; setFindReplace((current) => ({ ...current, scope, column: scope === "column" ? current.column : null })); }}><option value="column">Una columna</option><option value="all_text_columns">Todas las columnas de texto</option></select></label>
+            {findReplace.scope === "column" && <label><span>Columna</span><select aria-label="Columna para buscar" value={findReplace.column ?? ""} disabled={searchableTextColumns.length === 0} onChange={(event) => setFindReplace((current) => ({ ...current, column: event.target.value || null }))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>}
+            <label><span>Buscar</span><input aria-label="Texto a buscar" value={findReplace.find} onChange={(event) => setFindReplace((current) => ({ ...current, find: event.target.value }))} /></label>
+            <label><span>Reemplazar por</span><input aria-label="Texto de reemplazo" value={findReplace.replace} placeholder="Vacío elimina la coincidencia" onChange={(event) => setFindReplace((current) => ({ ...current, replace: event.target.value }))} /></label>
+          </div>}
+          <p className="recipe-hint">Busca texto literal, distingue mayúsculas y minúsculas y no interpreta expresiones regulares. Se permite buscar espacios y reemplazar por vacío.</p>
+          {searchableTextColumns.length === 0 && <p className="recipe-error">Este dataset no contiene columnas de texto disponibles.</p>}
+        </fieldset>
+
+        <fieldset>
+          <legend>Columnas a conservar</legend>
+          <div className="keep-columns" role="group" aria-label="Seleccionar columnas a conservar">
+            {dataset.columns.map((column) => <label key={column.name}><input type="checkbox" checked={keptColumns.includes(column.name)} onChange={(event) => setKeptColumns((current) => event.target.checked ? dataset.columns.map((item) => item.name).filter((name) => current.includes(name) || name === column.name) : current.filter((name) => name !== column.name))} />{column.name}</label>)}
+          </div>
+          <p className="recipe-hint">Se conserva el orden actual. Debe permanecer al menos una columna.</p>
+        </fieldset>
       </div>
 
       {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
       {filterInvalid && <p className="recipe-error" role="alert">Filtros: las comparaciones numéricas y de contenido requieren un valor.</p>}
       {calculationInvalid && <p className="recipe-error" role="alert">Columna calculada: completa el nombre, el origen y el operando requerido.</p>}
+      {calculationSourceDropped && <p className="recipe-error" role="alert">Columna calculada: conserva la columna origen y la columna usada como operando.</p>}
+      {findReplaceInvalid && <p className="recipe-error" role="alert">Buscar y reemplazar: selecciona el alcance y escribe un texto de búsqueda; el reemplazo puede quedar vacío.</p>}
+      {keptColumns.length === 0 && <p className="recipe-error" role="alert">Columnas: conserva al menos una columna.</p>}
       <div className="transform-recipe__footer">
         <p>
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
@@ -1425,8 +1468,11 @@ function TransformRecipeEditor({
         <div className="sheet-dialog" role="presentation">
           <section className="sheet-dialog__panel" role="alertdialog" aria-modal="true" aria-labelledby="filter-confirm-title" aria-describedby="filter-confirm-description">
             <p className="step">Cambio de alto impacto</p>
-            <h3 id="filter-confirm-title">Confirmar filtrado de filas</h3>
-            <p id="filter-confirm-description">Se aplicarán {pendingConfirmation.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final depende de los datos.</p>
+            <h3 id="filter-confirm-title">Confirmar cambios de alto impacto</h3>
+            <p id="filter-confirm-description">
+              {pendingConfirmation.filters.length > 0 && <>La receta aplicará {pendingConfirmation.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final de filas depende de los datos. </>}
+              {pendingConfirmation.keepColumns !== null && <>Se descartarán {dataset.columnCount - pendingConfirmation.keepColumns.length} columnas.</>}
+            </p>
             <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" onClick={() => { const recipe = pendingConfirmation; setPendingConfirmation(null); onApply(recipe); }}>Confirmar y aplicar</button></div>
           </section>
         </div>

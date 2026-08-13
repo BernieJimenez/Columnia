@@ -161,6 +161,13 @@ describe("desktop bridge", () => {
         operation: "multiply",
         operand: { kind: "literal", value: "2" },
       },
+      findReplace: {
+        scope: "column",
+        column: "estado",
+        find: "pendiente",
+        replace: "",
+      },
+      keepColumns: ["total", "estado"],
     };
 
     await applyTransformRecipe(recipe);

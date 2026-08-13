@@ -18,7 +18,7 @@ describe("project version", () => {
     const cargoManifest = readFileSync(resolve(projectRoot, "src-tauri/Cargo.toml"), "utf8");
     const cargoVersion = cargoManifest.match(/^version = "([^"]+)"$/m)?.[1];
 
-    expect(packageVersion).toBe("0.16.0");
+    expect(packageVersion).toBe("0.17.0");
     expect(packageLockVersion).toBe(packageVersion);
     expect(tauriVersion).toBe(packageVersion);
     expect(cargoVersion).toBe(packageVersion);

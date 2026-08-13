@@ -139,6 +139,12 @@ explícita, con suma, resta, multiplicación, división, concatenación y extrac
 de año, mes o día. El motor preserva nulos y cancela el lote completo ante
 conversiones imprecisas, división por cero, infinitos o fechas no representables.
 
+**Buscar y reemplazar** trabaja de forma literal y sensible a mayúsculas sobre
+una columna o sobre todas las columnas físicas de texto; no interpreta patrones
+regulares ni convierte silenciosamente columnas numéricas. También puedes elegir
+qué columnas conservar. El descarte solicita confirmación y la receta rechaza
+eliminar columnas que todavía necesita un cálculo posterior.
+
 Validación rápida y completamente local:
 
 ```powershell

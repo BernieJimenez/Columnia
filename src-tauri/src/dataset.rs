@@ -325,6 +325,22 @@ pub struct CalculatedColumnRecipe {
     operand: Option<CalculatedOperand>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FindReplaceScope {
+    Column,
+    AllTextColumns,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FindReplaceRecipe {
+    scope: FindReplaceScope,
+    column: Option<String>,
+    find: String,
+    replace: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransformRecipe {
@@ -338,6 +354,10 @@ pub struct TransformRecipe {
     filters: Vec<RecipeFilter>,
     #[serde(default)]
     calculated_column: Option<CalculatedColumnRecipe>,
+    #[serde(default)]
+    find_replace: Option<FindReplaceRecipe>,
+    #[serde(default)]
+    keep_columns: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -349,6 +369,8 @@ pub struct TransformRecipeResult {
     parsed_date_column_count: usize,
     removed_row_count: usize,
     calculated_column_count: usize,
+    replaced_cell_count: usize,
+    dropped_column_count: usize,
     changed: bool,
 }
 
@@ -2858,10 +2880,126 @@ fn add_calculated_column(
     Ok(())
 }
 
+fn apply_find_replace(
+    frame: &mut DataFrame,
+    recipe: &FindReplaceRecipe,
+    renames: &HashMap<&str, &str>,
+) -> Result<usize, String> {
+    if recipe.find.is_empty() {
+        return Err("El texto buscado no puede estar vacío.".into());
+    }
+    let targets = match recipe.scope {
+        FindReplaceScope::Column => {
+            let column = recipe
+                .column
+                .as_deref()
+                .ok_or_else(|| "La búsqueda por columna requiere una columna.".to_owned())?;
+            vec![remapped_name(column, renames).to_owned()]
+        }
+        FindReplaceScope::AllTextColumns => {
+            if recipe.column.is_some() {
+                return Err(
+                    "La búsqueda en todas las columnas no acepta una columna concreta.".into(),
+                );
+            }
+            frame
+                .columns()
+                .iter()
+                .filter(|column| column.dtype() == &polars::prelude::DataType::String)
+                .map(|column| column.name().to_string())
+                .collect()
+        }
+    };
+    let mut count = 0;
+    for name in targets {
+        let column = recipe_column(frame, &name)?;
+        if column.dtype() != &polars::prelude::DataType::String {
+            return Err(format!(
+                "La columna '{name}' debe ser de texto para buscar y reemplazar."
+            ));
+        }
+        let values = strict_column_text(column)?;
+        let replaced = values
+            .into_iter()
+            .map(|value| {
+                value.map(|value| {
+                    let updated = value.replace(&recipe.find, &recipe.replace);
+                    if updated != value {
+                        count += 1;
+                        updated
+                    } else {
+                        value
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        frame
+            .replace(
+                &name,
+                Series::new(name.clone().into(), replaced).into_column(),
+            )
+            .map_err(|error| format!("No se pudo reemplazar texto en '{name}': {error}"))?;
+    }
+    Ok(count)
+}
+
+fn apply_keep_columns(
+    frame: DataFrame,
+    keep_columns: Option<&[String]>,
+    renames: &HashMap<&str, &str>,
+) -> Result<(DataFrame, usize, bool), String> {
+    let Some(keep_columns) = keep_columns else {
+        return Ok((frame, 0, false));
+    };
+    if keep_columns.is_empty() {
+        return Err("Debes conservar al menos una columna.".into());
+    }
+    let mut seen = HashSet::new();
+    let names = keep_columns
+        .iter()
+        .map(|name| {
+            if !seen.insert(name) {
+                return Err(format!(
+                    "La columna '{name}' aparece más de una vez en la selección."
+                ));
+            }
+            let effective = remapped_name(name, renames).to_owned();
+            recipe_column(&frame, &effective)?;
+            Ok(effective)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let original_width = frame.width();
+    let order_changed = frame
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .ne(names.iter().map(String::as_str));
+    let selected = frame
+        .select(&names)
+        .map_err(|error| format!("No se pudieron conservar las columnas seleccionadas: {error}"))?;
+    Ok((
+        selected,
+        original_width.saturating_sub(names.len()),
+        order_changed,
+    ))
+}
+
+type RecipeFrameOutcome = (
+    DataFrame,
+    usize,
+    usize,
+    usize,
+    usize,
+    usize,
+    usize,
+    usize,
+    bool,
+);
+
 fn apply_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
-) -> Result<(DataFrame, usize, usize, usize, usize, usize), String> {
+) -> Result<RecipeFrameOutcome, String> {
     let mut candidate = source.clone();
     let mut rename_sources = HashSet::new();
     let rename_map = recipe
@@ -2894,6 +3032,16 @@ fn apply_recipe_to_frame(
     }
     for filter in &recipe.filters {
         recipe_column(source, &filter.column)?;
+    }
+    if let Some(find_replace) = &recipe.find_replace {
+        if let Some(column) = &find_replace.column {
+            recipe_column(source, column)?;
+        }
+    }
+    if let Some(keep_columns) = &recipe.keep_columns {
+        for column in keep_columns {
+            recipe_column(source, column)?;
+        }
     }
     if let Some(calculation) = &recipe.calculated_column {
         recipe_column(source, &calculation.source)?;
@@ -3012,7 +3160,30 @@ fn apply_recipe_to_frame(
 
     let (mut candidate, removed_row_count) =
         apply_recipe_filters(candidate, &recipe.filters, &rename_map)?;
+    let replaced_cell_count = if let Some(find_replace) = &recipe.find_replace {
+        apply_find_replace(&mut candidate, find_replace, &rename_map)?
+    } else {
+        0
+    };
+    let (mut candidate, dropped_column_count, kept_order_changed) =
+        apply_keep_columns(candidate, recipe.keep_columns.as_deref(), &rename_map)?;
     let calculated_column_count = if let Some(calculation) = &recipe.calculated_column {
+        let source_name = remapped_name(&calculation.source, &rename_map);
+        recipe_column(&candidate, source_name).map_err(|_| {
+            format!("La columna fuente calculada '{source_name}' fue descartada por keepColumns.")
+        })?;
+        if let Some(CalculatedOperand {
+            kind: CalculatedOperandKind::Column,
+            value,
+        }) = &calculation.operand
+        {
+            let operand_name = remapped_name(value, &rename_map);
+            recipe_column(&candidate, operand_name).map_err(|_| {
+                format!(
+                    "La columna operando calculada '{operand_name}' fue descartada por keepColumns."
+                )
+            })?;
+        }
         add_calculated_column(&mut candidate, calculation, &rename_map)?;
         1
     } else {
@@ -3026,6 +3197,9 @@ fn apply_recipe_to_frame(
         date_count,
         removed_row_count,
         calculated_column_count,
+        replaced_cell_count,
+        dropped_column_count,
+        kept_order_changed,
     ))
 }
 
@@ -3040,12 +3214,18 @@ fn apply_recipe_to_dataset(
         parsed_date_column_count,
         removed_row_count,
         calculated_column_count,
+        replaced_cell_count,
+        dropped_column_count,
+        kept_order_changed,
     ) = apply_recipe_to_frame(&dataset.frame, recipe)?;
     let changed = renamed_column_count
         + converted_column_count
         + parsed_date_column_count
         + removed_row_count
         + calculated_column_count
+        + replaced_cell_count
+        + dropped_column_count
+        + usize::from(kept_order_changed)
         > 0;
     // Build every fallible response value before publishing the candidate. This keeps the
     // transaction atomic even if, for example, the source file disappeared after loading.
@@ -3063,6 +3243,8 @@ fn apply_recipe_to_dataset(
         parsed_date_column_count,
         removed_row_count,
         calculated_column_count,
+        replaced_cell_count,
+        dropped_column_count,
         changed,
     })
 }
@@ -3903,7 +4085,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (result, renamed, converted, dates, removed, calculated) =
+        let (result, renamed, converted, dates, removed, calculated, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
         assert_eq!((renamed, converted, dates), (3, 3, 1));
         assert_eq!((removed, calculated), (0, 0));
@@ -4133,7 +4315,8 @@ mod tests {
             ],
             ..Default::default()
         };
-        let (result, _, _, _, removed, _) = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        let (result, _, _, _, removed, _, _, _, _) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(removed, 3);
         assert_eq!(
             dataset_page(&result, 0, 10).unwrap().rows[0][0].as_deref(),
@@ -4220,7 +4403,8 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (result, _, _, _, _, calculated) = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        let (result, _, _, _, _, calculated, _, _, _) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(calculated, 1);
         let rows = dataset_page(&result, 0, 10).unwrap().rows;
         assert_eq!(rows[0][2].as_deref(), Some("20.0"));
@@ -4307,5 +4491,229 @@ mod tests {
         assert!(apply_recipe_to_frame(&extreme_frame, &recipe)
             .unwrap_err()
             .contains("fuera del rango"));
+    }
+
+    #[test]
+    fn find_replace_is_literal_unicode_null_safe_and_counts_cells() {
+        let frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("text".into(), [Some("á-á"), Some("á"), None]).into_column(),
+                Series::new("number".into(), [1_i64, 2, 3]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("text".into()),
+                find: "á".into(),
+                replace: "🙂".into(),
+            }),
+            ..Default::default()
+        };
+        let (result, _, _, _, _, _, replaced, _, _) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(replaced, 2);
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("🙂-🙂"));
+        assert_eq!(rows[2][0], None);
+        assert_eq!(
+            result.column("number").unwrap().dtype(),
+            &polars::prelude::DataType::Int64
+        );
+        let identical = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("text".into()),
+                find: "á".into(),
+                replace: "á".into(),
+            }),
+            ..Default::default()
+        };
+        assert_eq!(apply_recipe_to_frame(&frame, &identical).unwrap().6, 0);
+    }
+
+    #[test]
+    fn find_replace_all_text_columns_skips_physical_non_text_and_remaps_rename() {
+        let frame = DataFrame::new(
+            1,
+            vec![
+                Series::new("first".into(), ["x value"]).into_column(),
+                Series::new("second".into(), ["x"]).into_column(),
+                Series::new("count".into(), [10_i64]).into_column(),
+            ],
+        )
+        .unwrap();
+        let all = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::AllTextColumns,
+                column: None,
+                find: "x".into(),
+                replace: "y".into(),
+            }),
+            ..Default::default()
+        };
+        assert_eq!(apply_recipe_to_frame(&frame, &all).unwrap().6, 2);
+
+        let renamed = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "first".into(),
+                to: "title".into(),
+            }],
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("first".into()),
+                find: "x".into(),
+                replace: "z".into(),
+            }),
+            ..Default::default()
+        };
+        let result = apply_recipe_to_frame(&frame, &renamed).unwrap().0;
+        assert_eq!(
+            dataset_page(&result, 0, 1).unwrap().rows[0][0].as_deref(),
+            Some("z value")
+        );
+    }
+
+    #[test]
+    fn keep_columns_remaps_reorders_and_reports_drops() {
+        let frame = DataFrame::new(
+            1,
+            vec![
+                Series::new("a".into(), ["A"]).into_column(),
+                Series::new("b".into(), ["B"]).into_column(),
+                Series::new("c".into(), ["C"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "a".into(),
+                to: "alpha".into(),
+            }],
+            keep_columns: Some(vec!["c".into(), "a".into()]),
+            ..Default::default()
+        };
+        let (result, _, _, _, _, _, _, dropped, _) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(dropped, 1);
+        assert_eq!(
+            result
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c", "alpha"]
+        );
+    }
+
+    #[test]
+    fn keep_columns_rejects_empty_duplicate_missing_and_dropped_calculation_source() {
+        let frame = DataFrame::new(
+            1,
+            vec![
+                Series::new("a".into(), ["1"]).into_column(),
+                Series::new("b".into(), ["2"]).into_column(),
+            ],
+        )
+        .unwrap();
+        for keep in [vec![], vec!["a".into(), "a".into()], vec!["missing".into()]] {
+            assert!(apply_recipe_to_frame(
+                &frame,
+                &TransformRecipe {
+                    keep_columns: Some(keep),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        }
+        let calculation = TransformRecipe {
+            keep_columns: Some(vec!["b".into()]),
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "result".into(),
+                source: "a".into(),
+                operation: CalculatedOperation::Add,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Literal,
+                    value: "1".into(),
+                }),
+            }),
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_frame(&frame, &calculation)
+            .unwrap_err()
+            .contains("descartada"));
+
+        let renamed_success = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "a".into(),
+                to: "alpha".into(),
+            }],
+            keep_columns: Some(vec!["a".into()]),
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "result".into(),
+                source: "a".into(),
+                operation: CalculatedOperation::Add,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Literal,
+                    value: "1".into(),
+                }),
+            }),
+            ..Default::default()
+        };
+        let result = apply_recipe_to_frame(&frame, &renamed_success).unwrap().0;
+        assert_eq!(
+            result
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha", "result"]
+        );
+    }
+
+    #[test]
+    fn reorder_only_keep_columns_publishes_one_undo_revision() {
+        let path = temporary_csv("a,b\nA,B\n");
+        let (frame, _) = load_csv(&path).unwrap();
+        let mut dataset = LoadedDataset {
+            path: path.clone(),
+            frame,
+            profile: None,
+            undo_frame: None,
+            redo_frame: None,
+        };
+        let result = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                keep_columns: Some(vec!["b".into(), "a".into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        assert_eq!(result.dropped_column_count, 0);
+        assert_eq!(
+            dataset
+                .frame
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "a"]
+        );
+        assert!(dataset.undo_frame.is_some());
+        undo_dataset(&mut dataset).unwrap();
+        assert_eq!(
+            dataset
+                .frame
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
+        fs::remove_file(path).unwrap();
     }
 }

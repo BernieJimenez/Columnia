@@ -755,6 +755,8 @@ describe("App", () => {
       parsedDateColumnCount: 1,
       removedRowCount: 0,
       calculatedColumnCount: 0,
+      replacedCellCount: 0,
+      droppedColumnCount: 0,
     });
 
     render(<App />);
@@ -794,6 +796,8 @@ describe("App", () => {
       dateParses: [{ column: "fecha", format: "dmy", target: "date" }],
       filters: [],
       calculatedColumn: null,
+      findReplace: null,
+      keepColumns: null,
     });
     expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
@@ -812,6 +816,7 @@ describe("App", () => {
       dataset: { ...original, rowCount: 12, columnCount: 3 },
       renamedColumnCount: 0, convertedColumnCount: 0, parsedDateColumnCount: 0,
       removedRowCount: 8, calculatedColumnCount: 1,
+      replacedCellCount: 0, droppedColumnCount: 0,
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -827,15 +832,28 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Columna origen del cálculo"), { target: { value: "total" } });
     fireEvent.change(screen.getByLabelText("Operación calculada"), { target: { value: "multiply" } });
     fireEvent.change(screen.getByLabelText("Valor fijo del cálculo"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Añadir búsqueda y reemplazo" }));
+    fireEvent.change(screen.getByLabelText("Columna para buscar"), { target: { value: "estado" } });
+    fireEvent.change(screen.getByLabelText("Texto a buscar"), { target: { value: " " } });
+    expect(screen.getByLabelText("Texto de reemplazo")).toHaveValue("");
+    const keepGroup = screen.getByRole("group", { name: "Seleccionar columnas a conservar" });
+    fireEvent.click(within(keepGroup).getByRole("checkbox", { name: "estado" }));
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
-    const dialog = screen.getByRole("alertdialog", { name: "Confirmar filtrado de filas" });
+    let dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     expect(within(dialog).getByText(/1 filtros unidos por AND sobre 20 filas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Se descartarán 1 columnas/)).toBeInTheDocument();
     expect(applySpy).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(applySpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
     expect(applySpy).toHaveBeenCalledOnce();
     expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({
       filters: [{ column: "estado", operator: "not_null", value: null }],
       calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
+      findReplace: { scope: "column", column: "estado", find: " ", replace: "" },
+      keepColumns: ["total"],
     }));
   });
 });

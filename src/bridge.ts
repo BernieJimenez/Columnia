@@ -126,6 +126,7 @@ export type CalculationOperation =
   | "add" | "subtract" | "multiply" | "divide" | "concat"
   | "year" | "month" | "day";
 export type CalculationOperand = { kind: "literal" | "column"; value: string };
+export type FindReplaceScope = "column" | "all_text_columns";
 
 export interface TransformRecipe {
   renames: Array<{ from: string; to: string }>;
@@ -138,6 +139,13 @@ export interface TransformRecipe {
     operation: CalculationOperation;
     operand: CalculationOperand | null;
   } | null;
+  findReplace: {
+    scope: FindReplaceScope;
+    column: string | null;
+    find: string;
+    replace: string;
+  } | null;
+  keepColumns: string[] | null;
 }
 
 export interface TransformRecipeResult {
@@ -147,6 +155,8 @@ export interface TransformRecipeResult {
   parsedDateColumnCount: number;
   removedRowCount: number;
   calculatedColumnCount: number;
+  replacedCellCount: number;
+  droppedColumnCount: number;
 }
 
 export interface OperationProgress {

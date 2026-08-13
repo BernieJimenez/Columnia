@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.16.0`.
+- Versión actual del prototipo: `0.17.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -472,6 +472,13 @@ precisión, división por cero, resultados no finitos y fechas fuera de rango.
 Todo se ejecuta en el orden estructura → filtros → cálculo y ocupa una sola
 revisión reversible. La ejecución continúa siendo eager; el objetivo lazy de
 la Fase I1 permanece abierto.
+La versión 0.17.0 incorpora búsqueda y reemplazo literal sobre una columna de
+texto o todas las columnas físicas de texto, además de selección y orden de las
+columnas finales. Los nulos y tipos no textuales se preservan, el conteo informa
+celdas realmente modificadas y una sustitución sin cambios no consume historial.
+Descartar columnas requiere confirmación y el motor impide eliminar una fuente
+necesaria por una columna calculada posterior. Renombres, filtros, reemplazos,
+selección y cálculo siguen formando una sola publicación atómica y reversible.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -675,6 +682,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.14.0: opciones Excel, delimitadores/UTF-8 conservadores y gates locales de seguridad/calidad | Implementada |
 | 2026-08-13 | Versión 0.15.0: receta estructural atómica para renombres, tipos y fechas en Preparar | Implementada |
 | 2026-08-13 | Versión 0.16.0: filtros AND y columna calculada estricta dentro de la receta atómica | Implementada |
+| 2026-08-13 | Versión 0.17.0: reemplazo literal y selección de columnas dentro de la receta atómica | Implementada |
 
 ## 10. Fuentes de esta revisión
 
