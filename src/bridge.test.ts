@@ -15,8 +15,10 @@ import {
   discardDatasetSelection,
   loadDatasetSelection,
   pickDatasetSource,
+  pickTransformRecipe,
   removeDuplicates,
   redoLastChange,
+  saveTransformRecipe,
   trimTextValues,
   undoLastChange,
   type TransformRecipe,
@@ -181,6 +183,32 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith("apply_transform_recipe", { recipe });
+  });
+
+  it("guarda y carga recetas mediante selectores nativos sin exponer rutas", async () => {
+    const recipe: TransformRecipe = {
+      renames: [{ from: "Total venta", to: "total" }],
+      casts: [{ column: "total", target: "decimal" }],
+      dateParses: [{ column: "fecha", format: "dmy", target: "date" }],
+      filters: [{ column: "total", operator: "gte", value: "10" }],
+      calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
+      findReplace: { scope: "column", column: "estado", find: "P", replace: "Pendiente" },
+      keepColumns: ["total", "fecha", "estado"],
+      splitColumn: { source: "estado", delimiter: "-", names: ["estado", "detalle"], dropSource: false },
+      mergeColumns: { sources: ["estado", "detalle"], name: "estado_detalle", separator: " ", dropSources: false },
+      outlierTreatments: [{ column: "total", action: "cap" }],
+      groupSummary: { groupBy: ["estado"], aggregations: [{ column: "total", operation: "sum" }] },
+      contactNormalizations: [{ column: "correo", kind: "email" }],
+      textExtractions: [{ source: "estado", kind: "first_token", name: "estado_corto", delimiter: null }],
+    };
+    const stored = { version: 1 as const, name: "Ventas", savedAt: "2026-08-14T12:00:00Z", recipe };
+    vi.mocked(invoke).mockResolvedValueOnce(stored).mockResolvedValueOnce(stored);
+
+    await expect(saveTransformRecipe(recipe, "Ventas")).resolves.toEqual(stored);
+    expect(invoke).toHaveBeenNthCalledWith(1, "save_transform_recipe", { recipe, name: "Ventas" });
+    await expect(pickTransformRecipe()).resolves.toEqual(stored);
+    expect(invoke).toHaveBeenNthCalledWith(2, "pick_transform_recipe");
+    expect(vi.mocked(invoke).mock.calls.flatMap((call) => Object.keys((call[1] ?? {}) as object))).not.toContain("path");
   });
 
   it("cancela únicamente la operación indicada", async () => {

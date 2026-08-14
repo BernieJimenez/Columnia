@@ -79,6 +79,13 @@ button, input, select, textarea { font: inherit; }
 .transform-recipe__intro h3 { margin: 5px 0 0; font-size: 1.2rem; }
 .transform-recipe__intro p:last-child, .transform-recipe__footer p { margin: 7px 0 0; color: #627770; }
 .transform-recipe__intro > span { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #8eaaa3; border-radius: 999px; color: #47625f; font-size: .75rem; font-weight: 750; }
+.recipe-files { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; align-items: end; gap: 8px; margin-top: 14px; padding: 10px; border: 1px solid #ced9d5; background: #f8faf8; }
+.recipe-files label { display: grid; gap: 4px; }
+.recipe-files label span { color: #627770; font-size: .7rem; font-weight: 750; }
+.recipe-files input { min-width: 0; width: 100%; padding: 8px 9px; border: 1px solid #afc2bd; border-radius: 3px; background: white; color: #18343a; }
+.recipe-files button { min-height: 35px; padding: 7px 11px; border: 1px solid #27837d; border-radius: 3px; background: transparent; color: #126d68; font-weight: 800; cursor: pointer; }
+.recipe-files button:disabled { cursor: not-allowed; opacity: .5; }
+.recipe-file-status { grid-column: 1 / -1; margin: 2px 0 0; color: #47625f; font-size: .76rem; }
 .transform-recipe__grid { display: grid; gap: 12px; max-height: 45vh; margin-top: 16px; overflow: auto; }
 .transform-recipe fieldset { display: grid; gap: 9px; margin: 0; padding: 12px; border: 1px solid #ced9d5; background: #f8faf8; }
 .transform-recipe legend { padding: 0 6px; color: #31535a; font-size: .8rem; font-weight: 800; }
@@ -207,6 +214,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .export-actions button { flex: 1; }
   .change-feedback { align-items: stretch; flex-direction: column; }
   .recipe-row, .recipe-row--date { grid-template-columns: 1fr; }
+  .recipe-files { grid-template-columns: 1fr; }
+  .recipe-file-status { grid-column: auto; }
   .calculation-grid { grid-template-columns: 1fr; }
   .calculation-grid__wide { grid-column: auto; }
   .recipe-row > button { justify-self: end; }
@@ -243,6 +252,10 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .text-cleaning-options label { background: #214249; }
   .text-cleaning-options .option-toggle { background: transparent; }
   .transform-recipe { border-color: #426067; background: #1d3b41; }
+  .recipe-files { border-color: #426067; background: #17343a; }
+  .recipe-files label span, .recipe-file-status { color: #afc2bd; }
+  .recipe-files input { border-color: #527078; background: #214249; color: #edf5f2; }
+  .recipe-files button { border-color: #6bb8b0; color: #7bd2c8; }
   .transform-recipe__intro p:last-child, .transform-recipe__footer p { color: #b6c9c7; }
   .transform-recipe__intro > span { border-color: #527078; color: #b6c9c7; }
   .transform-recipe fieldset { border-color: #426067; background: #17343a; }

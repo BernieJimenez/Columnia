@@ -25,6 +25,8 @@ const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario."
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 const HISTORY_MAX_ENTRIES: usize = 12;
 const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
+const RECIPE_FILE_VERSION: u32 = 1;
+const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -242,14 +244,14 @@ pub struct SafeCorrectionsResult {
     renames: Vec<ColumnRename>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecipeRename {
     from: String,
     to: String,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RecipeCastTarget {
     String,
@@ -258,14 +260,14 @@ pub enum RecipeCastTarget {
     Boolean,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecipeCast {
     column: String,
     target: RecipeCastTarget,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RecipeDateFormat {
     Ymd,
@@ -274,14 +276,14 @@ pub enum RecipeDateFormat {
     Iso8601,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RecipeDateTarget {
     Date,
     Datetime,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecipeDateParse {
     column: String,
@@ -289,7 +291,7 @@ pub struct RecipeDateParse {
     target: RecipeDateTarget,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RecipeFilterOperator {
     Eq,
@@ -304,7 +306,7 @@ pub enum RecipeFilterOperator {
     NotNull,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecipeFilter {
     column: String,
@@ -313,7 +315,7 @@ pub struct RecipeFilter {
     value: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CalculatedOperation {
     Add,
@@ -326,21 +328,21 @@ pub enum CalculatedOperation {
     Day,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CalculatedOperandKind {
     Literal,
     Column,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CalculatedOperand {
     kind: CalculatedOperandKind,
     value: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CalculatedColumnRecipe {
     name: String,
@@ -350,14 +352,14 @@ pub struct CalculatedColumnRecipe {
     operand: Option<CalculatedOperand>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FindReplaceScope {
     Column,
     AllTextColumns,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FindReplaceRecipe {
     scope: FindReplaceScope,
@@ -366,7 +368,7 @@ pub struct FindReplaceRecipe {
     replace: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SplitColumnRecipe {
     source: String,
@@ -375,7 +377,7 @@ pub struct SplitColumnRecipe {
     drop_source: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MergeColumnsRecipe {
     sources: Vec<String>,
@@ -384,21 +386,21 @@ pub struct MergeColumnsRecipe {
     drop_sources: bool,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OutlierAction {
     Cap,
     Drop,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OutlierTreatment {
     column: String,
     action: OutlierAction,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum SummaryOperation {
     Sum,
@@ -422,21 +424,21 @@ impl SummaryOperation {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SummaryAggregation {
     column: String,
     operation: SummaryOperation,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GroupSummaryRecipe {
     group_by: Vec<String>,
     aggregations: Vec<SummaryAggregation>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ContactKind {
     Email,
@@ -444,14 +446,14 @@ pub enum ContactKind {
     Address,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContactNormalization {
     column: String,
     kind: ContactKind,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionKind {
     FirstToken,
@@ -462,7 +464,7 @@ pub enum ExtractionKind {
     After,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TextExtraction {
     source: String,
@@ -471,7 +473,7 @@ pub struct TextExtraction {
     delimiter: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransformRecipe {
     #[serde(default)]
@@ -500,6 +502,15 @@ pub struct TransformRecipe {
     contact_normalizations: Vec<ContactNormalization>,
     #[serde(default)]
     text_extractions: Vec<TextExtraction>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoredTransformRecipe {
+    version: u32,
+    name: String,
+    saved_at: String,
+    recipe: TransformRecipe,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -2116,6 +2127,189 @@ fn path_with_extension(mut path: PathBuf, format: ExportFormat) -> PathBuf {
     path
 }
 
+fn recipe_path_with_extension(mut path: PathBuf) -> PathBuf {
+    let is_json = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+    if !is_json {
+        path.set_extension("json");
+    }
+    path
+}
+
+fn validate_recipe_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name != name.trim() {
+        return Err(
+            "El nombre de la receta no puede estar vacío ni tener espacios externos.".to_owned(),
+        );
+    }
+    if name.chars().count() > 120 || name.chars().any(char::is_control) {
+        return Err(
+            "El nombre de la receta debe tener hasta 120 caracteres imprimibles.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+fn recipe_suggested_file_name(name: &str) -> String {
+    let safe_name: String = name
+        .chars()
+        .map(|character| match character {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            _ => character,
+        })
+        .collect();
+    format!("{safe_name}.json")
+}
+
+fn current_recipe_timestamp() -> String {
+    DateTime::<chrono::Utc>::from(std::time::SystemTime::now()).to_rfc3339()
+}
+
+fn build_stored_recipe(
+    recipe: TransformRecipe,
+    name: String,
+) -> Result<StoredTransformRecipe, String> {
+    validate_recipe_name(&name)?;
+    let document = StoredTransformRecipe {
+        version: RECIPE_FILE_VERSION,
+        name,
+        saved_at: current_recipe_timestamp(),
+        recipe,
+    };
+    validate_stored_recipe(&document)?;
+    Ok(document)
+}
+
+fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result<(), String> {
+    if document.version != RECIPE_FILE_VERSION {
+        return Err(format!(
+            "La receta usa la versión {}, pero Columnia admite exactamente la versión {}.",
+            document.version, RECIPE_FILE_VERSION
+        ));
+    }
+    validate_recipe_name(&document.name)?;
+    DateTime::parse_from_rfc3339(&document.saved_at)
+        .map_err(|_| "La receta no incluye una fecha de guardado RFC 3339 válida.".to_owned())?;
+    validate_recipe_structure(&document.recipe)?;
+    let encoded = serde_json::to_vec(document)
+        .map_err(|error| format!("No se pudo validar la receta: {error}"))?;
+    if encoded.len() as u64 > RECIPE_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "La receta supera el límite local de {} bytes.",
+            RECIPE_FILE_LIMIT_BYTES
+        ));
+    }
+    Ok(())
+}
+
+fn validate_recipe_structure(recipe: &TransformRecipe) -> Result<(), String> {
+    let bounded = [
+        (recipe.renames.len(), 256, "renombres"),
+        (recipe.casts.len(), 256, "conversiones"),
+        (recipe.date_parses.len(), 256, "fechas"),
+        (recipe.filters.len(), 3, "filtros"),
+        (
+            recipe.outlier_treatments.len(),
+            16,
+            "tratamientos de atípicos",
+        ),
+        (
+            recipe.contact_normalizations.len(),
+            16,
+            "normalizaciones de contacto",
+        ),
+        (recipe.text_extractions.len(), 16, "extracciones de texto"),
+    ];
+    for (count, maximum, operation) in bounded {
+        if count > maximum {
+            return Err(format!(
+                "La receta contiene demasiados {operation}: máximo {maximum}."
+            ));
+        }
+    }
+    if recipe
+        .keep_columns
+        .as_ref()
+        .is_some_and(|columns| columns.len() > 512)
+    {
+        return Err("La receta puede conservar como máximo 512 columnas.".to_owned());
+    }
+    if recipe
+        .split_column
+        .as_ref()
+        .is_some_and(|split| split.names.len() > 16)
+    {
+        return Err("Una división puede crear como máximo 16 columnas.".to_owned());
+    }
+    if recipe
+        .merge_columns
+        .as_ref()
+        .is_some_and(|merge| merge.sources.len() > 16)
+    {
+        return Err("Una combinación puede usar como máximo 16 columnas.".to_owned());
+    }
+    if let Some(summary) = &recipe.group_summary {
+        if summary.group_by.len() > 8 || summary.aggregations.len() > 32 {
+            return Err(
+                "Un resumen admite hasta 8 columnas de grupo y 32 agregaciones.".to_owned(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn save_recipe_atomic(document: &StoredTransformRecipe, destination: &Path) -> Result<(), String> {
+    validate_stored_recipe(document)?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de la receta.".to_owned())?;
+    let temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar el archivo de receta: {error}"))?;
+    serde_json::to_writer_pretty(temporary.as_file(), document)
+        .map_err(|error| format!("No se pudo escribir la receta: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la receta: {error}"))?;
+    temporary
+        .persist(destination)
+        .map_err(|error| format!("No se pudo publicar la receta: {}", error.error))?;
+    Ok(())
+}
+
+fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
+    let file = File::open(path).map_err(|error| format!("No se pudo abrir la receta: {error}"))?;
+    let size = file
+        .metadata()
+        .map_err(|error| format!("No se pudo verificar la receta: {error}"))?
+        .len();
+    if size > RECIPE_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "La receta supera el límite local de {} bytes.",
+            RECIPE_FILE_LIMIT_BYTES
+        ));
+    }
+
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(RECIPE_FILE_LIMIT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("No se pudo leer la receta: {error}"))?;
+    if bytes.len() as u64 > RECIPE_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "La receta supera el límite local de {} bytes.",
+            RECIPE_FILE_LIMIT_BYTES
+        ));
+    }
+    let json = std::str::from_utf8(&bytes)
+        .map_err(|_| "La receta no contiene texto UTF-8 válido.".to_owned())?;
+    let document: StoredTransformRecipe = serde_json::from_str(json)
+        .map_err(|error| format!("La receta JSON no es válida: {error}"))?;
+    validate_stored_recipe(&document)?;
+    Ok(document)
+}
+
 fn export_frame_atomic<F, C>(
     frame: &DataFrame,
     destination: &Path,
@@ -2481,6 +2675,56 @@ pub async fn export_dataset(
     })
     .await
     .map_err(|error| format!("La exportación se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn save_transform_recipe(
+    app: AppHandle,
+    recipe: TransformRecipe,
+    name: String,
+) -> Result<Option<StoredTransformRecipe>, String> {
+    let document = build_stored_recipe(recipe, name)?;
+    let suggested_name = recipe_suggested_file_name(&document.name);
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Receta Columnia", &["json"])
+        .set_file_name(suggested_name)
+        .blocking_save_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let destination = recipe_path_with_extension(
+        selection
+            .into_path()
+            .map_err(|error| format!("No se pudo resolver el destino de la receta: {error}"))?,
+    );
+    let saved = document.clone();
+    tauri::async_runtime::spawn_blocking(move || save_recipe_atomic(&document, &destination))
+        .await
+        .map_err(|error| format!("El guardado de la receta se interrumpió: {error}"))??;
+    Ok(Some(saved))
+}
+
+#[tauri::command]
+pub async fn pick_transform_recipe(
+    app: AppHandle,
+) -> Result<Option<StoredTransformRecipe>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Receta Columnia", &["json"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo resolver la receta seleccionada: {error}"))?;
+    let loaded = tauri::async_runtime::spawn_blocking(move || load_recipe_file(&path))
+        .await
+        .map_err(|error| format!("La carga de la receta se interrumpió: {error}"))??;
+    Ok(Some(loaded))
 }
 
 #[tauri::command]
@@ -4594,6 +4838,164 @@ mod tests {
         file.write_all(contents.as_bytes())
             .expect("se debe poder escribir el CSV temporal");
         path
+    }
+
+    fn complete_stored_recipe() -> StoredTransformRecipe {
+        build_stored_recipe(
+            TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "old".to_owned(),
+                    to: "new".to_owned(),
+                }],
+                casts: vec![RecipeCast {
+                    column: "amount".to_owned(),
+                    target: RecipeCastTarget::Decimal,
+                }],
+                date_parses: vec![RecipeDateParse {
+                    column: "created".to_owned(),
+                    format: RecipeDateFormat::Iso8601,
+                    target: RecipeDateTarget::Datetime,
+                }],
+                filters: vec![RecipeFilter {
+                    column: "status".to_owned(),
+                    operator: RecipeFilterOperator::Eq,
+                    value: Some("active".to_owned()),
+                }],
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: "total".to_owned(),
+                    source: "amount".to_owned(),
+                    operation: CalculatedOperation::Multiply,
+                    operand: Some(CalculatedOperand {
+                        kind: CalculatedOperandKind::Literal,
+                        value: "2".to_owned(),
+                    }),
+                }),
+                find_replace: Some(FindReplaceRecipe {
+                    scope: FindReplaceScope::Column,
+                    column: Some("city".to_owned()),
+                    find: "SD".to_owned(),
+                    replace: "Santo Domingo".to_owned(),
+                }),
+                keep_columns: Some(vec!["new".to_owned(), "total".to_owned()]),
+                split_column: Some(SplitColumnRecipe {
+                    source: "full_name".to_owned(),
+                    delimiter: " ".to_owned(),
+                    names: vec!["first_name".to_owned(), "last_name".to_owned()],
+                    drop_source: true,
+                }),
+                merge_columns: Some(MergeColumnsRecipe {
+                    sources: vec!["city".to_owned(), "country".to_owned()],
+                    name: "location".to_owned(),
+                    separator: ", ".to_owned(),
+                    drop_sources: false,
+                }),
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "amount".to_owned(),
+                    action: OutlierAction::Cap,
+                }],
+                group_summary: Some(GroupSummaryRecipe {
+                    group_by: vec!["country".to_owned()],
+                    aggregations: vec![SummaryAggregation {
+                        column: "amount".to_owned(),
+                        operation: SummaryOperation::Mean,
+                    }],
+                }),
+                contact_normalizations: vec![ContactNormalization {
+                    column: "email".to_owned(),
+                    kind: ContactKind::Email,
+                }],
+                text_extractions: vec![TextExtraction {
+                    source: "code".to_owned(),
+                    kind: ExtractionKind::Digits,
+                    name: "code_number".to_owned(),
+                    delimiter: None,
+                }],
+            },
+            "Limpieza completa".to_owned(),
+        )
+        .expect("la receta de prueba debe ser válida")
+    }
+
+    #[test]
+    fn recipe_file_roundtrips_every_supported_operation_without_exposing_a_path() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let destination = directory.path().join("limpieza.json");
+        let expected = complete_stored_recipe();
+
+        save_recipe_atomic(&expected, &destination).expect("la receta debe guardarse");
+        let loaded = load_recipe_file(&destination).expect("la receta debe volver a cargar");
+
+        assert_eq!(loaded, expected);
+        let public_json = serde_json::to_value(&loaded).expect("la respuesta debe serializarse");
+        assert_eq!(public_json["version"], RECIPE_FILE_VERSION);
+        assert!(public_json.get("path").is_none());
+        assert!(!public_json
+            .to_string()
+            .contains(&directory.path().display().to_string()));
+    }
+
+    #[test]
+    fn recipe_save_atomically_replaces_the_destination_and_leaves_no_temporary_file() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let destination = directory.path().join("recipe.json");
+        fs::write(&destination, "contenido anterior").expect("se debe preparar el destino");
+        let document = complete_stored_recipe();
+
+        save_recipe_atomic(&document, &destination).expect("la receta debe reemplazarse");
+
+        assert_eq!(load_recipe_file(&destination).unwrap(), document);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn recipe_load_rejects_future_versions_corruption_unknown_fields_and_oversize() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("recipe.json");
+
+        fs::write(
+            &path,
+            r#"{"version":2,"name":"Futura","savedAt":"2026-01-01T00:00:00Z","recipe":{}}"#,
+        )
+        .unwrap();
+        assert!(load_recipe_file(&path).unwrap_err().contains("versión 2"));
+
+        fs::write(&path, b"{not-json").unwrap();
+        assert!(load_recipe_file(&path)
+            .unwrap_err()
+            .contains("JSON no es válida"));
+
+        fs::write(
+            &path,
+            r#"{"version":1,"name":"Extra","savedAt":"2026-01-01T00:00:00Z","recipe":{},"sourcePath":"secret.csv"}"#,
+        )
+        .unwrap();
+        assert!(load_recipe_file(&path)
+            .unwrap_err()
+            .contains("unknown field"));
+
+        fs::write(
+            &path,
+            r#"{"version":1,"name":"Fecha mala","savedAt":"ayer","recipe":{}}"#,
+        )
+        .unwrap();
+        assert!(load_recipe_file(&path).unwrap_err().contains("RFC 3339"));
+
+        let mut excessive = complete_stored_recipe();
+        excessive.recipe.filters = vec![
+            RecipeFilter {
+                column: "status".to_owned(),
+                operator: RecipeFilterOperator::IsNull,
+                value: None,
+            };
+            4
+        ];
+        fs::write(&path, serde_json::to_vec(&excessive).unwrap()).unwrap();
+        assert!(load_recipe_file(&path).unwrap_err().contains("máximo 3"));
+
+        fs::write(&path, vec![b' '; RECIPE_FILE_LIMIT_BYTES as usize + 1]).unwrap();
+        assert!(load_recipe_file(&path)
+            .unwrap_err()
+            .contains("supera el límite"));
     }
 
     fn temporary_delimited(extension: &str, contents: &str) -> PathBuf {

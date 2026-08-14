@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.22.0`.
+- Versión actual del prototipo: `0.23.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -330,7 +330,9 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
   exactos preservando la primera aparición, sin modificar el archivo original.
 - [x] Sustituir el historial provisional de un nivel por hasta doce revisiones
   locales con deshacer/rehacer, snapshots Parquet y presupuesto explícito.
-- [ ] Persistir y volver a ejecutar recetas reproducibles entre sesiones.
+- [x] Guardar y cargar recetas estructurales JSON versionadas entre sesiones,
+  sin exponer rutas al frontend ni aplicarlas automáticamente.
+- [ ] Añadir biblioteca local, migraciones y ejecución por lotes de recetas.
 - [x] Implementar cancelación cooperativa para carga CSV y perfilado, conservando
   el dataset anterior cuando se cancela una sustitución.
 - [x] Implementar exportación atómica y cancelable CSV/Parquet mediante selector
@@ -516,6 +518,13 @@ a Deshacer corta la rama futura, mientras los no-op la conservan. El presupuesto
 de disco es 1 GiB: si un único snapshot lo supera, la operación puede continuar,
 pero la interfaz desactiva la reversión y explica la degradación. Los temporales
 pertenecen a la sesión y se limpian al reemplazarla o cerrar Columnia.
+La versión 0.23.0 permite guardar y cargar el borrador completo de Transformaciones
+como JSON v1. Los selectores y las rutas permanecen exclusivamente en Rust; el
+archivo está limitado a 1 MiB, debe ser UTF-8, usa campos estrictos y rechaza
+versiones futuras. El guardado se realiza mediante un temporal sincronizado y
+reemplazo atómico. Cargar solo hidrata el editor —con confirmación si hay trabajo
+sin guardar— y nunca modifica ni ejecuta el dataset hasta que el usuario pulse
+Aplicar receta.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -725,6 +734,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.20.0: agrupación estable y resúmenes tipados como etapa final | Implementada |
 | 2026-08-13 | Versión 0.21.0: normalización de contactos y extracción literal Unicode | Implementada |
 | 2026-08-13 | Versión 0.22.0: historial local multinivel con snapshots Parquet y presupuesto explícito | Implementada |
+| 2026-08-14 | Versión 0.23.0: recetas estructurales JSON v1 guardables y cargables localmente | Implementada |
 
 ## 10. Fuentes de esta revisión
 

@@ -129,9 +129,10 @@ La pestaña **Transformaciones** permite construir una receta estructural con
 varios renombres, conversiones de tipo y parseos de fecha. La receta se aplica
 una sola vez y en orden determinista: renombres, tipos y fechas. Las conversiones
 son estrictas —un valor inválido cancela el lote completo—, los nulos se preservan
-y un resultado correcto ocupa una única revisión de Deshacer/Rehacer. Esta receta
-es todavía una operación inmediata de sesión; no se guarda ni se ejecuta de forma
-lazy.
+y un resultado correcto ocupa una única revisión de Deshacer/Rehacer. El borrador
+puede guardarse y cargarse como una receta JSON v1 mediante selectores nativos;
+la ruta nunca llega a React y una receta cargada no se aplica automáticamente.
+La ejecución sigue siendo inmediata y no lazy.
 
 La receta también admite hasta tres **filtros AND** y una **columna calculada**.
 Como los filtros pueden eliminar filas, Columnia muestra una confirmación antes

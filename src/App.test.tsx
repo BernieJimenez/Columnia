@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -820,6 +820,101 @@ describe("App", () => {
     });
     expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+  });
+
+  it("guarda el borrador de receta por el bridge sin entregar rutas", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.23.0", platform: "windows" });
+    const original: DatasetPreview = {
+      fileName: "ventas.csv", fileSizeBytes: 256, rowCount: 1, columnCount: 2,
+      columns: [{ name: "total", dataType: "Float64" }, { name: "estado", dataType: "String" }],
+      rows: [["10", "pendiente"]],
+    };
+    mockDatasetLoad(original);
+    const saveSpy = vi.spyOn(bridge, "saveTransformRecipe").mockResolvedValue({
+      version: 1, name: "Limpieza ventas", savedAt: "2026-08-14T12:00:00Z",
+      recipe: { renames: [{ from: "estado", to: "situacion" }], casts: [], dateParses: [], filters: [], calculatedColumn: null, findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null, outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [] },
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    expect(screen.getByRole("button", { name: "Guardar receta" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "estado" } });
+    fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), { target: { value: "situacion" } });
+    fireEvent.change(screen.getByLabelText("Nombre de la receta"), { target: { value: "Limpieza ventas" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar receta" }));
+
+    expect(await screen.findByText(/Receta guardada: Limpieza ventas/)).toBeInTheDocument();
+    expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ renames: [{ from: "estado", to: "situacion" }] }), "Limpieza ventas");
+    expect(JSON.stringify(saveSpy.mock.calls)).not.toMatch(/path|\\\\/i);
+    fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), { target: { value: "estado_final" } });
+    expect(screen.queryByText(/Receta guardada: Limpieza ventas/)).not.toBeInTheDocument();
+  });
+
+  it("carga una receta completa como borrador editable, confirma reemplazos y nunca la aplica", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.23.0", platform: "windows" });
+    const original: DatasetPreview = {
+      fileName: "ventas.csv", fileSizeBytes: 256, rowCount: 4, columnCount: 4,
+      columns: [
+        { name: "total", dataType: "Float64" }, { name: "estado", dataType: "String" },
+        { name: "correo", dataType: "String" }, { name: "fecha", dataType: "String" },
+      ], rows: [["10", "P-norte", "A@B.COM", "2026-08-14"]],
+    };
+    mockDatasetLoad(original);
+    const fullRecipe: bridge.TransformRecipe = {
+      renames: [{ from: "estado", to: "situacion" }], casts: [{ column: "total", target: "decimal" }],
+      dateParses: [{ column: "fecha", format: "ymd", target: "date" }], filters: [{ column: "total", operator: "gte", value: "10" }],
+      calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
+      findReplace: { scope: "column", column: "estado", find: "P", replace: "Pendiente" }, keepColumns: ["total", "estado", "correo", "fecha"],
+      splitColumn: { source: "estado", delimiter: "-", names: ["estado_base", "zona"], dropSource: false },
+      mergeColumns: { sources: ["estado", "correo"], name: "contacto", separator: " ", dropSources: false },
+      outlierTreatments: [{ column: "total", action: "cap" }], groupSummary: null,
+      contactNormalizations: [{ column: "correo", kind: "email" }],
+      textExtractions: [{ source: "estado", kind: "first_token", name: "estado_corto", delimiter: null }],
+    };
+    const pickSpy = vi.spyOn(bridge, "pickTransformRecipe")
+      .mockResolvedValueOnce({ version: 1, name: "Receta completa", savedAt: "2026-08-14T12:00:00Z", recipe: fullRecipe })
+      .mockResolvedValueOnce({ version: 1, name: "Otra receta", savedAt: "2026-08-14T12:01:00Z", recipe: { ...fullRecipe, renames: [{ from: "estado", to: "otro" }] } })
+      .mockResolvedValueOnce(null);
+    const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+
+    expect(await screen.findByDisplayValue("Receta completa")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nuevo nombre 1")).toHaveValue("situacion");
+    expect(screen.getByLabelText("Nombres de columnas divididas")).toHaveValue("estado_base, zona");
+    expect(screen.getByLabelText("Nombre de extracción 1")).toHaveValue("estado_corto");
+    expect(applySpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledOnce());
+    expect(screen.getByLabelText("Nombre de la receta")).toHaveValue("Receta completa");
+    expect(screen.getByLabelText("Nuevo nombre 1")).toHaveValue("situacion");
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+    await waitFor(() => expect(pickSpy).toHaveBeenCalledTimes(3));
+    expect(screen.getByLabelText("Nombre de la receta")).toHaveValue("Receta completa");
+    expect(applySpy).not.toHaveBeenCalled();
+  });
+
+  it("presenta inline los errores al cargar una receta", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.23.0", platform: "windows" });
+    mockDatasetLoad({ fileName: "datos.csv", fileSizeBytes: 10, rowCount: 1, columnCount: 1, columns: [{ name: "dato", dataType: "String" }], rows: [["a"]] });
+    vi.spyOn(bridge, "pickTransformRecipe").mockRejectedValue(new Error("JSON inválido"));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo completar la operación: JSON inválido");
   });
 
   it("confirma filtros AND y combina una columna calculada en la misma receta", async () => {

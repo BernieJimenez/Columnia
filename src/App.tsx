@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   applySafeCorrections,
@@ -14,8 +14,10 @@ import {
   normalizeTextValues,
   loadDatasetSelection,
   pickDatasetSource,
+  pickTransformRecipe,
   removeDuplicates,
   redoLastChange,
+  saveTransformRecipe,
   trimTextValues,
   undoLastChange,
   type AppInfo,
@@ -27,9 +29,24 @@ import {
   type ExportResult,
   type OperationProgress,
   type HistoryState,
+  type LoadedRecipe,
   type SpreadsheetHeaderMode,
   type TransformRecipe,
 } from "./bridge";
+
+function isLoadedRecipe(value: unknown): value is LoadedRecipe {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<LoadedRecipe>;
+  const recipe = candidate.recipe as Partial<TransformRecipe> | undefined;
+  return candidate.version === 1 && typeof candidate.name === "string" &&
+    typeof candidate.savedAt === "string" && !!recipe &&
+    Array.isArray(recipe.renames) && Array.isArray(recipe.casts) &&
+    Array.isArray(recipe.dateParses) && Array.isArray(recipe.filters) &&
+    Array.isArray(recipe.outlierTreatments) && Array.isArray(recipe.contactNormalizations) &&
+    Array.isArray(recipe.textExtractions) && "calculatedColumn" in recipe &&
+    "findReplace" in recipe && "keepColumns" in recipe && "splitColumn" in recipe &&
+    "mergeColumns" in recipe && "groupSummary" in recipe;
+}
 
 type AppStatus =
   | { kind: "loading" }
@@ -1230,6 +1247,15 @@ function TransformRecipeEditor({
   const [groupSummary, setGroupSummary] = useState<GroupSummaryDraft>({ groupBy: [], aggregations: [] });
   const [contacts, setContacts] = useState<ContactDraft[]>([]);
   const [extractions, setExtractions] = useState<ExtractionDraft[]>([]);
+  const [recipeName, setRecipeName] = useState("Mi receta");
+  const [recipeFileStatus, setRecipeFileStatus] = useState<
+    | { kind: "idle" }
+    | { kind: "working"; action: "save" | "load" }
+    | { kind: "success"; message: string }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+  const acknowledgedRecipeFingerprint = useRef<string | null>(null);
+  const recipeBusy = busy || recipeFileStatus.kind === "working";
   const datasetSignature = `${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => `${column.name}:${column.dataType}`).join("|")}`;
 
   useEffect(() => {
@@ -1252,6 +1278,9 @@ function TransformRecipeEditor({
     setGroupSummary({ groupBy: [], aggregations: [] });
     setContacts([]);
     setExtractions([]);
+    setRecipeName("Mi receta");
+    setRecipeFileStatus({ kind: "idle" });
+    acknowledgedRecipeFingerprint.current = null;
     setCalculation({ name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
   }, [datasetSignature]);
 
@@ -1341,9 +1370,8 @@ function TransformRecipeEditor({
     ));
   }
 
-  function submitRecipe() {
-    if (operationCount === 0 || invalid) return;
-    const recipe: TransformRecipe = {
+  function buildRecipe(): TransformRecipe {
+    return {
       renames: activeRenames.map((item) => ({ from: item.from, to: item.to.trim() })),
       casts: activeCasts,
       dateParses: activeDateParses,
@@ -1367,8 +1395,86 @@ function TransformRecipeEditor({
       contactNormalizations: contacts,
       textExtractions: extractions.map((item) => ({ ...item, name: item.name.trim(), delimiter: ["before", "after"].includes(item.kind) ? item.delimiter : null })),
     };
+  }
+
+  const draftFingerprint = JSON.stringify(buildRecipe());
+  useEffect(() => {
+    if (recipeFileStatus.kind !== "success") return;
+    if (acknowledgedRecipeFingerprint.current === null) {
+      acknowledgedRecipeFingerprint.current = draftFingerprint;
+      return;
+    }
+    if (acknowledgedRecipeFingerprint.current !== draftFingerprint) {
+      setRecipeFileStatus({ kind: "idle" });
+    }
+  }, [draftFingerprint, recipeFileStatus.kind]);
+
+  function submitRecipe() {
+    if (operationCount === 0 || invalid) return;
+    const recipe = buildRecipe();
     if (recipe.filters.length > 0 || recipe.keepColumns !== null || recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources || recipe.outlierTreatments.length > 0 || recipe.groupSummary || recipe.contactNormalizations.length > 0) setPendingConfirmation(recipe);
     else onApply(recipe);
+  }
+
+  async function saveRecipeDraft() {
+    if (recipeBusy || operationCount === 0 || invalid || !recipeName.trim()) return;
+    setRecipeFileStatus({ kind: "working", action: "save" });
+    try {
+      const saved = await saveTransformRecipe(buildRecipe(), recipeName.trim());
+      if (saved) acknowledgedRecipeFingerprint.current = draftFingerprint;
+      setRecipeFileStatus(saved
+        ? { kind: "success", message: `Receta guardada: ${saved.name}. Los cambios posteriores no se guardan automáticamente.` }
+        : { kind: "idle" });
+    } catch (error) {
+      setRecipeFileStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  function replaceDraft(loaded: LoadedRecipe) {
+    const recipe = loaded.recipe;
+    setRenames(recipe.renames.length > 0 ? recipe.renames : [{ from: "", to: "" }]);
+    setCasts(recipe.casts.length > 0 ? recipe.casts : [{ column: "", target: "string" }]);
+    setDateParses(recipe.dateParses.length > 0 ? recipe.dateParses : [{ column: "", format: "iso8601", target: "date" }]);
+    setFilters(recipe.filters);
+    setCalculationEnabled(recipe.calculatedColumn !== null);
+    setCalculation(recipe.calculatedColumn ?? { name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
+    setFindReplaceEnabled(recipe.findReplace !== null);
+    setFindReplace(recipe.findReplace ?? { scope: "column", column: null, find: "", replace: "" });
+    setKeptColumns(recipe.keepColumns ?? dataset.columns.map((column) => column.name));
+    setSplitEnabled(recipe.splitColumn !== null);
+    setSplit(recipe.splitColumn ?? { source: "", delimiter: "", names: [], dropSource: false });
+    setSplitNamesInput(recipe.splitColumn?.names.join(", ") ?? "");
+    setMergeEnabled(recipe.mergeColumns !== null);
+    setMerge(recipe.mergeColumns ?? { sources: [], name: "", separator: "", dropSources: false });
+    setOutlierTreatments(recipe.outlierTreatments);
+    setGroupEnabled(recipe.groupSummary !== null);
+    setGroupSummary(recipe.groupSummary ?? { groupBy: [], aggregations: [] });
+    setContacts(recipe.contactNormalizations);
+    setExtractions(recipe.textExtractions);
+    setPendingConfirmation(null);
+    setRecipeName(loaded.name);
+  }
+
+  async function loadRecipeDraft() {
+    if (recipeBusy) return;
+    setRecipeFileStatus({ kind: "working", action: "load" });
+    try {
+      const loaded = await pickTransformRecipe();
+      if (loaded === null) {
+        setRecipeFileStatus({ kind: "idle" });
+        return;
+      }
+      if (!isLoadedRecipe(loaded)) throw new Error("El archivo no contiene una receta compatible con Columnia.");
+      if (operationCount > 0 && !window.confirm("La receta cargada reemplazará el borrador actual. ¿Deseas continuar?")) {
+        setRecipeFileStatus({ kind: "idle" });
+        return;
+      }
+      replaceDraft(loaded);
+      acknowledgedRecipeFingerprint.current = null;
+      setRecipeFileStatus({ kind: "success", message: `Receta cargada: ${loaded.name}. Revísala antes de aplicarla.` });
+    } catch (error) {
+      setRecipeFileStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   return (
@@ -1383,6 +1489,24 @@ function TransformRecipeEditor({
           </p>
         </div>
         <span aria-live="polite">{operationCount} operaciones listas</span>
+      </div>
+
+      <div className="recipe-files" aria-label="Archivo de receta">
+        <label>
+          <span>Nombre de la receta</span>
+          <input aria-label="Nombre de la receta" value={recipeName} maxLength={80}
+            disabled={recipeBusy}
+            onChange={(event) => { setRecipeName(event.target.value); if (recipeFileStatus.kind !== "working") setRecipeFileStatus({ kind: "idle" }); }} />
+        </label>
+        <button type="button" onClick={saveRecipeDraft}
+          disabled={recipeBusy || operationCount === 0 || invalid || !recipeName.trim()}>
+          {recipeFileStatus.kind === "working" && recipeFileStatus.action === "save" ? "Guardando…" : "Guardar receta"}
+        </button>
+        <button type="button" onClick={loadRecipeDraft} disabled={recipeBusy}>
+          {recipeFileStatus.kind === "working" && recipeFileStatus.action === "load" ? "Cargando…" : "Cargar receta"}
+        </button>
+        {recipeFileStatus.kind === "success" && <p className="recipe-file-status" role="status">{recipeFileStatus.message}</p>}
+        {recipeFileStatus.kind === "error" && <p className="recipe-error recipe-file-status" role="alert">No se pudo completar la operación: {recipeFileStatus.message}</p>}
       </div>
 
       <div className="transform-recipe__grid">
@@ -1634,7 +1758,7 @@ function TransformRecipeEditor({
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
           decimal usa punto y las fechas ambiguas requieren formato explícito.
         </p>
-        <button type="button" className="primary-action" onClick={submitRecipe} disabled={busy || operationCount === 0 || invalid}>
+        <button type="button" className="primary-action" onClick={submitRecipe} disabled={recipeBusy || operationCount === 0 || invalid}>
           {busy ? "Aplicando receta…" : "Aplicar receta"}
         </button>
       </div>

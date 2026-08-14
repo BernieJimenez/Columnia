@@ -194,6 +194,15 @@ export interface TransformRecipe {
   }>;
 }
 
+export interface SavedRecipe {
+  version: 1;
+  name: string;
+  savedAt: string;
+  recipe: TransformRecipe;
+}
+
+export type LoadedRecipe = SavedRecipe;
+
 export interface TransformRecipeResult {
   dataset: DatasetPreview;
   renamedColumnCount: number;
@@ -313,6 +322,17 @@ export function applySafeCorrections(): Promise<SafeCorrectionsResult> {
 
 export function applyTransformRecipe(recipe: TransformRecipe): Promise<TransformRecipeResult> {
   return invoke<TransformRecipeResult>("apply_transform_recipe", { recipe });
+}
+
+export function saveTransformRecipe(
+  recipe: TransformRecipe,
+  name: string,
+): Promise<SavedRecipe | null> {
+  return invoke<SavedRecipe | null>("save_transform_recipe", { recipe, name });
+}
+
+export function pickTransformRecipe(): Promise<LoadedRecipe | null> {
+  return invoke<LoadedRecipe | null>("pick_transform_recipe");
 }
 
 export function undoLastChange(): Promise<HistoryResult> {
