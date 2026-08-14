@@ -102,10 +102,29 @@ export interface TextCleaningResult {
   changedColumns: ChangedTextColumn[];
 }
 
-export interface HistoryResult {
-  dataset: DatasetPreview;
+export interface HistoryEntryState {
+  index: number;
+  label: string;
+  isCurrent: boolean;
+}
+
+export interface HistoryState {
   canUndo: boolean;
   canRedo: boolean;
+  currentIndex: number;
+  entryCount: number;
+  entries: HistoryEntryState[];
+  snapshotsEnabled: boolean;
+  degradedReason: string | null;
+  maxEntries: number;
+  diskBytes: number;
+  diskBudgetBytes: number;
+}
+
+export interface HistoryResult {
+  dataset: DatasetPreview;
+  history: HistoryState;
+  message: string;
 }
 
 export interface SafeCorrectionsResult {
@@ -159,6 +178,20 @@ export interface TransformRecipe {
     dropSources: boolean;
   } | null;
   outlierTreatments: Array<{ column: string; action: "cap" | "drop" }>;
+  groupSummary: {
+    groupBy: string[];
+    aggregations: Array<{
+      column: string;
+      operation: "sum" | "mean" | "min" | "max" | "count" | "count_unique";
+    }>;
+  } | null;
+  contactNormalizations: Array<{ column: string; kind: "email" | "phone" | "address" }>;
+  textExtractions: Array<{
+    source: string;
+    kind: "first_token" | "last_token" | "digits" | "letters" | "before" | "after";
+    name: string;
+    delimiter: string | null;
+  }>;
 }
 
 export interface TransformRecipeResult {
@@ -176,6 +209,12 @@ export interface TransformRecipeResult {
   adjustedOutlierCellCount: number;
   outlierRemovedRowCount: number;
   outlierColumnCount: number;
+  groupCount: number;
+  aggregatedColumnCount: number;
+  collapsedRowCount: number;
+  normalizedContactCellCount: number;
+  normalizedContactColumnCount: number;
+  extractedColumnCount: number;
 }
 
 export interface OperationProgress {
@@ -282,4 +321,8 @@ export function undoLastChange(): Promise<HistoryResult> {
 
 export function redoLastChange(): Promise<HistoryResult> {
   return invoke<HistoryResult>("redo_last_change");
+}
+
+export function getHistoryState(): Promise<HistoryState> {
+  return invoke<HistoryState>("get_history_state");
 }

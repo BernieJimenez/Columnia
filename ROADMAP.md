@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.19.0`.
+- Versión actual del prototipo: `0.22.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -328,8 +328,9 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 - [ ] Ejecutar una receta lazy con limpieza, tipos, filtro y columna calculada.
 - [x] Implementar la primera transformación reversible: eliminar duplicados
   exactos preservando la primera aparición, sin modificar el archivo original.
-- [ ] Sustituir el historial provisional de un nivel por una receta reproducible
-  con múltiples operaciones y deshacer/rehacer.
+- [x] Sustituir el historial provisional de un nivel por hasta doce revisiones
+  locales con deshacer/rehacer, snapshots Parquet y presupuesto explícito.
+- [ ] Persistir y volver a ejecutar recetas reproducibles entre sesiones.
 - [x] Implementar cancelación cooperativa para carga CSV y perfilado, conservando
   el dataset anterior cuando se cancela una sustitución.
 - [x] Implementar exportación atómica y cancelable CSV/Parquet mediante selector
@@ -493,6 +494,28 @@ previo para que el orden de las selecciones no altere el resultado. Los nulos y
 límites exactos se conservan; NaN, infinitos, rangos no representables y enteros
 fuera de la precisión exacta se rechazan. Cualquier tratamiento exige
 confirmación y un resultado sin outliers no crea una revisión vacía.
+La versión 0.20.0 añade agrupación y resumen como etapa final y exclusiva de
+granularidad. Permite entre una y ocho claves y hasta treinta y dos agregaciones:
+suma, promedio, mínimo, máximo, conteo de filas y valores únicos. Los grupos
+mantienen el orden de primera aparición y admiten claves nulas. El motor preserva
+tipos en mínimos y máximos, comprueba overflow y precisión, y define expresamente
+los resultados para grupos completamente nulos. Como reemplaza las filas por un
+resumen, siempre requiere confirmación y genera una sola revisión reversible.
+La versión 0.21.0 incorpora normalización explícita de correos, teléfonos y
+direcciones, además de extracción literal de tokens, dígitos, letras y segmentos
+separados por delimitadores. Las reglas son Unicode y preservan nulos; los
+teléfonos conservan únicamente un `+` inicial y dígitos ASCII, y las direcciones
+solo compactan espacios sin cambiar arbitrariamente las mayúsculas. Se evita
+regex libre en este hito. Contactos se procesan antes de agrupar, mientras las
+extracciones y el resumen agrupado son incompatibles dentro de una misma receta.
+La versión 0.22.0 sustituye el historial de una sola revisión por una línea local
+de hasta doce estados. Cada estado se escribe primero como Parquet temporal,
+se sincroniza y solo entonces se publica; Deshacer y Rehacer restauran también
+tipos y nulos sin mover el cursor ante un archivo corrupto. Una mutación posterior
+a Deshacer corta la rama futura, mientras los no-op la conservan. El presupuesto
+de disco es 1 GiB: si un único snapshot lo supera, la operación puede continuar,
+pero la interfaz desactiva la reversión y explica la degradación. Los temporales
+pertenecen a la sesión y se limpian al reemplazarla o cerrar Columnia.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -699,6 +722,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.17.0: reemplazo literal y selección de columnas dentro de la receta atómica | Implementada |
 | 2026-08-13 | Versión 0.18.0: división y combinación deterministas de columnas de texto | Implementada |
 | 2026-08-13 | Versión 0.19.0: tratamiento IQR atómico para limitar o eliminar outliers | Implementada |
+| 2026-08-13 | Versión 0.20.0: agrupación estable y resúmenes tipados como etapa final | Implementada |
+| 2026-08-13 | Versión 0.21.0: normalización de contactos y extracción literal Unicode | Implementada |
+| 2026-08-13 | Versión 0.22.0: historial local multinivel con snapshots Parquet y presupuesto explícito | Implementada |
 
 ## 10. Fuentes de esta revisión
 

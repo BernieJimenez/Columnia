@@ -103,8 +103,8 @@ valores no finitos se excluyen; no se señalan outliers con menos de cuatro dato
 
 En **Preparar**, cuando el perfil encuentra duplicados exactos, **Eliminar duplicados** conserva
 la primera aparición y elimina las repeticiones posteriores de la sesión activa.
-El CSV original no se modifica. La operación ofrece un nivel de **Deshacer** y
-el perfil debe recalcularse sobre el resultado.
+El archivo original no se modifica. La operación queda registrada en el historial
+de **Deshacer/Rehacer** y el perfil debe recalcularse sobre el resultado.
 
 La corrección **Normalizar nombres de columnas** sigue las reglas del proyecto
 de referencia: minúsculas, eliminación de acentos, `_` para espacios y guiones,
@@ -117,12 +117,13 @@ de texto sin modificar su contenido interno. Para una limpieza más profunda,
 compactar espacios y decidir si se eliminan acentos. La interfaz informa cuántas
 celdas y filas cambiaron, conserva los nulos y permite deshacer el resultado.
 
-La barra **Continuidad de trabajo** permite deshacer y rehacer la revisión más
-reciente. **Aplicar recomendadas** agrupa el recorte exterior y la normalización
-de encabezados en una sola operación atómica: ambos cambios se publican juntos
-o el dataset permanece intacto. El historial está limitado honestamente a una
-revisión mientras se diseña almacenamiento temporal con presupuesto de disco
-para datasets grandes.
+La barra **Continuidad de trabajo** permite recorrer hasta doce revisiones con
+Deshacer y Rehacer. Cada revisión se guarda localmente como un snapshot Parquet
+temporal, con un presupuesto total de 1 GiB; se elimina al cerrar o reemplazar la
+sesión. Si un único snapshot excede ese presupuesto, Columnia aplica el cambio,
+desactiva honestamente la reversión y muestra el motivo. **Aplicar recomendadas**
+agrupa el recorte exterior y la normalización de encabezados en una sola operación
+atómica: ambos cambios se publican juntos o el dataset permanece intacto.
 
 La pestaña **Transformaciones** permite construir una receta estructural con
 varios renombres, conversiones de tipo y parseos de fecha. La receta se aplica
@@ -156,6 +157,18 @@ previo. Puedes limitar valores o eliminar filas en columnas diferentes; los
 nulos se conservan y cualquier acción requiere confirmación. Para evitar pérdida
 silenciosa, el motor rechaza infinitos, NaN y enteros fuera del rango exacto que
 puede representar durante el cálculo.
+
+**Agrupar y resumir** reemplaza la granularidad del dataset por grupos estables,
+ordenados según su primera aparición. Admite claves nulas y agregaciones de suma,
+promedio, mínimo, máximo, conteo de filas y valores únicos. El motor conserva los
+tipos compatibles, controla overflow y precisión, y solicita confirmación antes
+de sustituir el dataset por el resumen.
+
+La receta puede normalizar **correos, teléfonos y direcciones** mediante reglas
+explícitas y extraer tokens, dígitos, letras o segmentos antes/después de un
+delimitador literal. Las operaciones preservan nulos y admiten Unicode. Las
+direcciones no cambian automáticamente de capitalización y la extracción no
+acepta expresiones regulares libres en este hito.
 
 Validación rápida y completamente local:
 

@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fs::{self, File},
     io::{BufReader, Read},
     path::{Path, PathBuf},
     sync::{
@@ -23,6 +23,8 @@ const MAX_PAGE_SIZE: usize = 200;
 const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 500 * 1024 * 1024;
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
+const HISTORY_MAX_ENTRIES: usize = 12;
+const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -203,8 +205,31 @@ pub struct TextCleaningResult {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryResult {
     dataset: DatasetPreview,
+    history: HistoryState,
+    message: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntryState {
+    index: usize,
+    label: String,
+    is_current: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryState {
     can_undo: bool,
     can_redo: bool,
+    current_index: usize,
+    entry_count: usize,
+    entries: Vec<HistoryEntryState>,
+    snapshots_enabled: bool,
+    degraded_reason: Option<String>,
+    max_entries: usize,
+    disk_bytes: u64,
+    disk_budget_bytes: u64,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -373,6 +398,79 @@ pub struct OutlierTreatment {
     action: OutlierAction,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum SummaryOperation {
+    Sum,
+    Mean,
+    Min,
+    Max,
+    Count,
+    CountUnique,
+}
+
+impl SummaryOperation {
+    fn suffix(self) -> &'static str {
+        match self {
+            Self::Sum => "sum",
+            Self::Mean => "mean",
+            Self::Min => "min",
+            Self::Max => "max",
+            Self::Count => "count",
+            Self::CountUnique => "count_unique",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SummaryAggregation {
+    column: String,
+    operation: SummaryOperation,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GroupSummaryRecipe {
+    group_by: Vec<String>,
+    aggregations: Vec<SummaryAggregation>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ContactKind {
+    Email,
+    Phone,
+    Address,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContactNormalization {
+    column: String,
+    kind: ContactKind,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtractionKind {
+    FirstToken,
+    LastToken,
+    Digits,
+    Letters,
+    Before,
+    After,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TextExtraction {
+    source: String,
+    kind: ExtractionKind,
+    name: String,
+    delimiter: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransformRecipe {
@@ -396,6 +494,12 @@ pub struct TransformRecipe {
     merge_columns: Option<MergeColumnsRecipe>,
     #[serde(default)]
     outlier_treatments: Vec<OutlierTreatment>,
+    #[serde(default)]
+    group_summary: Option<GroupSummaryRecipe>,
+    #[serde(default)]
+    contact_normalizations: Vec<ContactNormalization>,
+    #[serde(default)]
+    text_extractions: Vec<TextExtraction>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -415,6 +519,12 @@ pub struct TransformRecipeResult {
     adjusted_outlier_cell_count: usize,
     outlier_removed_row_count: usize,
     outlier_column_count: usize,
+    group_count: usize,
+    aggregated_column_count: usize,
+    collapsed_row_count: usize,
+    normalized_contact_cell_count: usize,
+    normalized_contact_column_count: usize,
+    extracted_column_count: usize,
     changed: bool,
 }
 
@@ -422,8 +532,194 @@ struct LoadedDataset {
     path: PathBuf,
     frame: DataFrame,
     profile: Option<DatasetProfile>,
-    undo_frame: Option<DataFrame>,
-    redo_frame: Option<DataFrame>,
+    history: HistoryManager,
+}
+
+#[derive(Debug)]
+struct HistoryEntry {
+    label: String,
+    path: PathBuf,
+    bytes: u64,
+}
+
+#[derive(Debug)]
+struct HistoryManager {
+    directory: tempfile::TempDir,
+    entries: Vec<HistoryEntry>,
+    cursor: usize,
+    snapshots_enabled: bool,
+    degraded_reason: Option<String>,
+    current_label: String,
+    next_id: u64,
+    max_entries: usize,
+    disk_budget_bytes: u64,
+}
+
+impl HistoryManager {
+    fn new(frame: &DataFrame) -> Result<Self, String> {
+        Self::with_limits(frame, HISTORY_MAX_ENTRIES, HISTORY_DISK_BUDGET_BYTES)
+    }
+
+    fn with_limits(
+        frame: &DataFrame,
+        max_entries: usize,
+        disk_budget_bytes: u64,
+    ) -> Result<Self, String> {
+        let directory = tempfile::tempdir()
+            .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
+        let mut manager = Self {
+            directory,
+            entries: Vec::new(),
+            cursor: 0,
+            snapshots_enabled: true,
+            degraded_reason: None,
+            current_label: "Dataset original".to_owned(),
+            next_id: 0,
+            max_entries: max_entries.max(1),
+            disk_budget_bytes,
+        };
+        manager.record(frame, "Dataset original")?;
+        Ok(manager)
+    }
+
+    fn disk_bytes(&self) -> u64 {
+        self.entries.iter().map(|entry| entry.bytes).sum()
+    }
+
+    fn state(&self) -> HistoryState {
+        let entries = if self.snapshots_enabled {
+            self.entries
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| HistoryEntryState {
+                    index,
+                    label: entry.label.clone(),
+                    is_current: index == self.cursor,
+                })
+                .collect()
+        } else {
+            vec![HistoryEntryState {
+                index: 0,
+                label: self.current_label.clone(),
+                is_current: true,
+            }]
+        };
+        let entry_count = entries.len();
+        HistoryState {
+            can_undo: self.snapshots_enabled && self.cursor > 0,
+            can_redo: self.snapshots_enabled && self.cursor + 1 < self.entries.len(),
+            current_index: if self.snapshots_enabled {
+                self.cursor
+            } else {
+                0
+            },
+            entry_count,
+            entries,
+            snapshots_enabled: self.snapshots_enabled,
+            degraded_reason: self.degraded_reason.clone(),
+            max_entries: self.max_entries,
+            disk_bytes: self.disk_bytes(),
+            disk_budget_bytes: self.disk_budget_bytes,
+        }
+    }
+
+    fn disable_for_size(&mut self, label: &str, bytes: u64) {
+        for entry in self.entries.drain(..) {
+            let _ = fs::remove_file(entry.path);
+        }
+        self.cursor = 0;
+        self.snapshots_enabled = false;
+        self.current_label = label.to_owned();
+        self.degraded_reason = Some(format!(
+            "El snapshot requiere {bytes} bytes y supera el límite local de {} bytes. El cambio se aplicó sin historial reversible.",
+            self.disk_budget_bytes
+        ));
+    }
+
+    fn record(&mut self, frame: &DataFrame, label: &str) -> Result<(), String> {
+        self.current_label = label.to_owned();
+        if !self.snapshots_enabled {
+            return Ok(());
+        }
+
+        let temporary = tempfile::NamedTempFile::new_in(self.directory.path())
+            .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
+        let mut snapshot = frame.clone();
+        ParquetWriter::new(temporary.as_file())
+            .finish(&mut snapshot)
+            .map_err(|error| format!("No se pudo escribir el snapshot del historial: {error}"))?;
+        temporary.as_file().sync_all().map_err(|error| {
+            format!("No se pudo sincronizar el snapshot del historial: {error}")
+        })?;
+        let bytes = temporary
+            .as_file()
+            .metadata()
+            .map_err(|error| format!("No se pudo verificar el snapshot del historial: {error}"))?
+            .len();
+        if bytes > self.disk_budget_bytes {
+            drop(temporary);
+            self.disable_for_size(label, bytes);
+            return Ok(());
+        }
+
+        let destination = self
+            .directory
+            .path()
+            .join(format!("snapshot-{:020}.parquet", self.next_id));
+        temporary.persist(&destination).map_err(|error| {
+            format!(
+                "No se pudo publicar el snapshot del historial: {}",
+                error.error
+            )
+        })?;
+
+        // Solo después de publicar el snapshot se descarta una posible rama de rehacer.
+        let branch_start = self.cursor.saturating_add(1).min(self.entries.len());
+        let removed = self.entries.split_off(branch_start);
+        for entry in removed {
+            let _ = fs::remove_file(entry.path);
+        }
+        self.entries.push(HistoryEntry {
+            label: label.to_owned(),
+            path: destination,
+            bytes,
+        });
+        self.cursor = self.entries.len() - 1;
+        self.next_id = self.next_id.wrapping_add(1);
+
+        while self.entries.len() > self.max_entries || self.disk_bytes() > self.disk_budget_bytes {
+            let entry = self.entries.remove(0);
+            let _ = fs::remove_file(entry.path);
+            self.cursor = self.cursor.saturating_sub(1);
+        }
+        Ok(())
+    }
+
+    fn restore(&self, index: usize) -> Result<DataFrame, String> {
+        let entry = self
+            .entries
+            .get(index)
+            .ok_or_else(|| "La revisión solicitada ya no está disponible.".to_owned())?;
+        let file = File::open(&entry.path)
+            .map_err(|error| format!("No se pudo abrir el snapshot del historial: {error}"))?;
+        ParquetReader::new(file)
+            .set_low_memory(true)
+            .read_parallel(ParallelStrategy::None)
+            .finish()
+            .map_err(|error| format!("No se pudo restaurar el snapshot del historial: {error}"))
+    }
+}
+
+fn publish_candidate(
+    dataset: &mut LoadedDataset,
+    candidate: DataFrame,
+    label: &str,
+) -> Result<DatasetPreview, String> {
+    let preview = dataset_preview(&dataset.path, &candidate)?;
+    dataset.history.record(&candidate, label)?;
+    dataset.frame = candidate;
+    dataset.profile = None;
+    Ok(preview)
 }
 
 #[derive(Clone)]
@@ -2025,6 +2321,7 @@ pub async fn load_dataset_selection(
         };
         let state = app.state::<DatasetState>();
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        let history = HistoryManager::new(&frame)?;
         *state
             .current
             .lock()
@@ -2033,8 +2330,7 @@ pub async fn load_dataset_selection(
                 path: pending.path,
                 frame,
                 profile: None,
-                undo_frame: None,
-                redo_frame: None,
+                history,
             });
         let mut selection = state
             .pending_selection
@@ -2200,15 +2496,14 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
         })?;
         let (cleaned, affected_row_count) = remove_duplicate_rows(&dataset.frame)?;
 
-        if affected_row_count > 0 {
-            dataset.undo_frame = Some(dataset.frame.clone());
-            dataset.redo_frame = None;
-            dataset.frame = cleaned;
-            dataset.profile = None;
-        }
+        let preview = if affected_row_count > 0 {
+            publish_candidate(dataset, cleaned, "Eliminar filas duplicadas")?
+        } else {
+            dataset_preview(&dataset.path, &dataset.frame)?
+        };
 
         Ok(DatasetMutation {
-            dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+            dataset: preview,
             affected_row_count,
         })
     })
@@ -2229,19 +2524,18 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
         })?;
         let (names, renames) = normalized_column_names(&dataset.frame);
 
-        if !renames.is_empty() {
-            let previous = dataset.frame.clone();
-            dataset
-                .frame
+        let preview = if !renames.is_empty() {
+            let mut candidate = dataset.frame.clone();
+            candidate
                 .set_column_names(&names)
                 .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
-            dataset.undo_frame = Some(previous);
-            dataset.redo_frame = None;
-            dataset.profile = None;
-        }
+            publish_candidate(dataset, candidate, "Normalizar nombres de columnas")?
+        } else {
+            dataset_preview(&dataset.path, &dataset.frame)?
+        };
 
         Ok(ColumnNormalizationResult {
-            dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+            dataset: preview,
             renamed_column_count: renames.len(),
             renames,
         })
@@ -2266,15 +2560,18 @@ fn apply_text_cleaning(
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         clean_text_columns(&dataset.frame, selected_columns.as_deref(), mode)?;
 
-    if changed_cell_count > 0 {
-        dataset.undo_frame = Some(dataset.frame.clone());
-        dataset.redo_frame = None;
-        dataset.frame = cleaned;
-        dataset.profile = None;
-    }
+    let label = match mode {
+        TextCleaningMode::Trim => "Recortar espacios",
+        TextCleaningMode::Normalize { .. } => "Normalizar texto",
+    };
+    let preview = if changed_cell_count > 0 {
+        publish_candidate(dataset, cleaned, label)?
+    } else {
+        dataset_preview(&dataset.path, &dataset.frame)?
+    };
 
     Ok(TextCleaningResult {
-        dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+        dataset: preview,
         affected_row_count,
         changed_cell_count,
         changed_columns,
@@ -2323,15 +2620,14 @@ pub async fn apply_safe_corrections(app: AppHandle) -> Result<SafeCorrectionsRes
             safe_corrected_frame(&dataset.frame)?;
         let renamed_column_count = renames.len();
 
-        if changed_cell_count > 0 || renamed_column_count > 0 {
-            dataset.undo_frame = Some(dataset.frame.clone());
-            dataset.redo_frame = None;
-            dataset.frame = candidate;
-            dataset.profile = None;
-        }
+        let preview = if changed_cell_count > 0 || renamed_column_count > 0 {
+            publish_candidate(dataset, candidate, "Aplicar correcciones recomendadas")?
+        } else {
+            dataset_preview(&dataset.path, &dataset.frame)?
+        };
 
         Ok(SafeCorrectionsResult {
-            dataset: dataset_preview(&dataset.path, &dataset.frame)?,
+            dataset: preview,
             changed_cell_count,
             affected_row_count,
             renamed_column_count,
@@ -2360,17 +2656,19 @@ pub async fn undo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
 }
 
 fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
-    let previous = dataset
-        .undo_frame
-        .take()
-        .ok_or_else(|| "No hay un cambio disponible para deshacer.".to_owned())?;
-    let changed = std::mem::replace(&mut dataset.frame, previous);
-    dataset.redo_frame = Some(changed);
+    if !dataset.history.state().can_undo {
+        return Err("No hay un cambio disponible para deshacer.".to_owned());
+    }
+    let target = dataset.history.cursor - 1;
+    let previous = dataset.history.restore(target)?;
+    let preview = dataset_preview(&dataset.path, &previous)?;
+    dataset.frame = previous;
+    dataset.history.cursor = target;
     dataset.profile = None;
     Ok(HistoryResult {
-        dataset: dataset_preview(&dataset.path, &dataset.frame)?,
-        can_undo: dataset.undo_frame.is_some(),
-        can_redo: true,
+        dataset: preview,
+        history: dataset.history.state(),
+        message: "Se deshizo el último cambio.".to_owned(),
     })
 }
 
@@ -2392,18 +2690,32 @@ pub async fn redo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
 }
 
 fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
-    let next = dataset
-        .redo_frame
-        .take()
-        .ok_or_else(|| "No hay un cambio disponible para rehacer.".to_owned())?;
-    let unchanged = std::mem::replace(&mut dataset.frame, next);
-    dataset.undo_frame = Some(unchanged);
+    if !dataset.history.state().can_redo {
+        return Err("No hay un cambio disponible para rehacer.".to_owned());
+    }
+    let target = dataset.history.cursor + 1;
+    let next = dataset.history.restore(target)?;
+    let preview = dataset_preview(&dataset.path, &next)?;
+    dataset.frame = next;
+    dataset.history.cursor = target;
     dataset.profile = None;
     Ok(HistoryResult {
-        dataset: dataset_preview(&dataset.path, &dataset.frame)?,
-        can_undo: true,
-        can_redo: dataset.redo_frame.is_some(),
+        dataset: preview,
+        history: dataset.history.state(),
+        message: "Se rehízo el último cambio.".to_owned(),
     })
+}
+
+#[tauri::command]
+pub fn get_history_state(state: State<'_, DatasetState>) -> Result<HistoryState, String> {
+    let current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_ref().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    Ok(dataset.history.state())
 }
 
 fn strict_column_text(column: &Column) -> Result<Vec<Option<String>>, String> {
@@ -3294,6 +3606,529 @@ fn apply_outlier_treatments(
     Ok((frame, adjusted, removed, treatments.len()))
 }
 
+fn apply_group_summary(
+    frame: DataFrame,
+    summary: &GroupSummaryRecipe,
+    renames: &HashMap<&str, &str>,
+) -> Result<(DataFrame, usize, usize, usize), String> {
+    if summary.group_by.is_empty() || summary.group_by.len() > 8 {
+        return Err("Agrupar requiere entre 1 y 8 columnas clave.".into());
+    }
+    if summary.aggregations.is_empty() || summary.aggregations.len() > 32 {
+        return Err("Resumir requiere entre 1 y 32 agregaciones.".into());
+    }
+    let groups = summary
+        .group_by
+        .iter()
+        .map(|name| remapped_name(name, renames).to_owned())
+        .collect::<Vec<_>>();
+    let mut group_unique = HashSet::new();
+    for name in &groups {
+        if !group_unique.insert(name) {
+            return Err(format!("La clave de grupo '{name}' está duplicada."));
+        }
+        recipe_column(&frame, name)?;
+    }
+    let mut aggregation_unique = HashSet::new();
+    let mut output_names = HashSet::new();
+    let aggregations = summary
+        .aggregations
+        .iter()
+        .map(|aggregation| {
+            let name = remapped_name(&aggregation.column, renames).to_owned();
+            if !aggregation_unique.insert((name.clone(), aggregation.operation)) {
+                return Err(format!(
+                    "La agregación '{}_{}' está duplicada.",
+                    name,
+                    aggregation.operation.suffix()
+                ));
+            }
+            let output = format!("{}_{}", name, aggregation.operation.suffix());
+            if group_unique.contains(&output) || !output_names.insert(output.clone()) {
+                return Err(format!(
+                    "El nombre de salida '{output}' colisiona con otra columna."
+                ));
+            }
+            let column = recipe_column(&frame, &name)?;
+            match aggregation.operation {
+                SummaryOperation::Sum | SummaryOperation::Mean
+                    if !matches!(
+                        column.dtype(),
+                        polars::prelude::DataType::Int64 | polars::prelude::DataType::Float64
+                    ) =>
+                {
+                    return Err(format!(
+                        "La agregación {} requiere que '{name}' sea Int64 o Float64.",
+                        aggregation.operation.suffix()
+                    ))
+                }
+                SummaryOperation::Min | SummaryOperation::Max
+                    if !matches!(
+                        column.dtype(),
+                        polars::prelude::DataType::Int64
+                            | polars::prelude::DataType::Float64
+                            | polars::prelude::DataType::String
+                            | polars::prelude::DataType::Date
+                            | polars::prelude::DataType::Datetime(_, _)
+                    ) =>
+                {
+                    return Err(format!(
+                        "La agregación {} no admite el tipo de '{name}'.",
+                        aggregation.operation.suffix()
+                    ))
+                }
+                _ => {}
+            }
+            Ok((name, output, aggregation.operation))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let mut positions: HashMap<Vec<Option<String>>, usize> = HashMap::new();
+    let mut buckets: Vec<Vec<IdxSize>> = Vec::new();
+    for row in 0..frame.height() {
+        let key = groups
+            .iter()
+            .map(|name| {
+                match frame
+                    .column(name)
+                    .unwrap()
+                    .get(row)
+                    .map_err(|error| error.to_string())?
+                {
+                    AnyValue::Null => Ok(None),
+                    AnyValue::Float64(value) if !value.is_finite() => Err(format!(
+                        "La clave de grupo '{name}' contiene NaN o infinito."
+                    )),
+                    AnyValue::Float64(0.0) => Ok(Some("0".into())),
+                    value => Ok(Some(value.to_string())),
+                }
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let index = if let Some(index) = positions.get(&key) {
+            *index
+        } else {
+            let index = buckets.len();
+            positions.insert(key, index);
+            buckets.push(Vec::new());
+            index
+        };
+        buckets[index].push(row as IdxSize);
+    }
+    let first_rows = buckets.iter().map(|rows| rows[0]).collect::<Vec<_>>();
+    let mut columns = groups
+        .iter()
+        .map(|name| {
+            frame
+                .column(name)
+                .unwrap()
+                .take_slice(&first_rows)
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for (name, output, operation) in aggregations {
+        let source = frame.column(&name).map_err(|error| error.to_string())?;
+        let result = match operation {
+            SummaryOperation::Count => Series::new(
+                output.clone().into(),
+                buckets
+                    .iter()
+                    .map(|rows| rows.len() as i64)
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+            SummaryOperation::CountUnique => {
+                let counts = buckets
+                    .iter()
+                    .map(|rows| {
+                        let mut unique = HashSet::new();
+                        for row in rows {
+                            match source.get(*row as usize).unwrap() {
+                                AnyValue::Null => {}
+                                AnyValue::Float64(value) if !value.is_finite() => {
+                                    return Err(format!(
+                                        "La columna '{name}' contiene NaN o infinito."
+                                    ));
+                                }
+                                AnyValue::Float64(0.0) => {
+                                    unique.insert("0".to_owned());
+                                }
+                                value => {
+                                    unique.insert(value.to_string());
+                                }
+                            }
+                        }
+                        Ok(unique.len() as i64)
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                Series::new(output.clone().into(), counts).into_column()
+            }
+            SummaryOperation::Sum if source.dtype() == &polars::prelude::DataType::Int64 => {
+                let values = buckets
+                    .iter()
+                    .map(|rows| {
+                        rows.iter().try_fold(0_i64, |total, row| {
+                            match source.get(*row as usize).unwrap() {
+                                AnyValue::Null => Ok(total),
+                                AnyValue::Int64(value) => total
+                                    .checked_add(value)
+                                    .ok_or_else(|| format!("La suma de '{name}' desbordó Int64.")),
+                                _ => unreachable!(),
+                            }
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                Series::new(output.clone().into(), values).into_column()
+            }
+            SummaryOperation::Sum | SummaryOperation::Mean => {
+                let is_mean = operation == SummaryOperation::Mean;
+                let values = buckets
+                    .iter()
+                    .map(|rows| {
+                        let mut sum = 0.0;
+                        let mut count = 0;
+                        for row in rows {
+                            match source.get(*row as usize).unwrap() {
+                                AnyValue::Null => {}
+                                AnyValue::Int64(value) => {
+                                    if value.unsigned_abs() > (1_u64 << 53) {
+                                        return Err(format!(
+                                            "La media de '{name}' excede la precisión segura."
+                                        ));
+                                    }
+                                    sum += value as f64;
+                                    count += 1;
+                                }
+                                AnyValue::Float64(value) if value.is_finite() => {
+                                    sum += value;
+                                    count += 1;
+                                }
+                                AnyValue::Float64(_) => {
+                                    return Err(format!(
+                                        "La columna '{name}' contiene NaN o infinito."
+                                    ))
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        if !sum.is_finite() {
+                            return Err(format!(
+                                "La agregación de '{name}' produjo un valor no finito."
+                            ));
+                        }
+                        Ok(if is_mean {
+                            (count > 0).then(|| sum / count as f64)
+                        } else {
+                            Some(sum)
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                Series::new(output.clone().into(), values).into_column()
+            }
+            SummaryOperation::Min | SummaryOperation::Max => {
+                let take_max = operation == SummaryOperation::Max;
+                let selected = buckets
+                    .iter()
+                    .map(|rows| {
+                        let mut best: Option<(IdxSize, AnyValue<'_>)> = None;
+                        for row in rows {
+                            let value = source.get(*row as usize).unwrap();
+                            if !matches!(value, AnyValue::Null) {
+                                if matches!(value, AnyValue::Float64(v) if !v.is_finite()) {
+                                    return Err(format!(
+                                        "La columna '{name}' contiene NaN o infinito."
+                                    ));
+                                }
+                                let better = best.as_ref().is_none_or(|(_, current)| {
+                                    match (&value, current) {
+                                        (AnyValue::Int64(a), AnyValue::Int64(b)) => {
+                                            if take_max {
+                                                a > b
+                                            } else {
+                                                a < b
+                                            }
+                                        }
+                                        (AnyValue::Float64(a), AnyValue::Float64(b)) => {
+                                            if take_max {
+                                                a > b
+                                            } else {
+                                                a < b
+                                            }
+                                        }
+                                        _ => {
+                                            if take_max {
+                                                value.to_string() > current.to_string()
+                                            } else {
+                                                value.to_string() < current.to_string()
+                                            }
+                                        }
+                                    }
+                                });
+                                if better {
+                                    best = Some((*row, value));
+                                }
+                            }
+                        }
+                        Ok(best.map(|(row, _)| row))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                match source.dtype() {
+                    polars::prelude::DataType::Int64 => Series::new(
+                        output.clone().into(),
+                        selected
+                            .iter()
+                            .map(|row| {
+                                row.map(|row| match source.get(row as usize).unwrap() {
+                                    AnyValue::Int64(value) => value,
+                                    _ => unreachable!(),
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_column(),
+                    polars::prelude::DataType::Float64 => Series::new(
+                        output.clone().into(),
+                        selected
+                            .iter()
+                            .map(|row| {
+                                row.map(|row| match source.get(row as usize).unwrap() {
+                                    AnyValue::Float64(value) => value,
+                                    _ => unreachable!(),
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_column(),
+                    polars::prelude::DataType::String => Series::new(
+                        output.clone().into(),
+                        selected
+                            .iter()
+                            .map(|row| {
+                                row.map(|row| match source.get(row as usize).unwrap() {
+                                    AnyValue::String(value) => value.to_owned(),
+                                    AnyValue::StringOwned(value) => value.to_string(),
+                                    _ => unreachable!(),
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_column(),
+                    polars::prelude::DataType::Date => {
+                        let physical = source
+                            .cast(&polars::prelude::DataType::Int32)
+                            .map_err(|error| error.to_string())?;
+                        Series::new(
+                            output.clone().into(),
+                            selected
+                                .iter()
+                                .map(|row| {
+                                    row.map(|row| match physical.get(row as usize).unwrap() {
+                                        AnyValue::Int32(value) => value,
+                                        _ => unreachable!(),
+                                    })
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                        .cast(&polars::prelude::DataType::Date)
+                        .map_err(|error| error.to_string())?
+                        .into_column()
+                    }
+                    polars::prelude::DataType::Datetime(unit, zone) => {
+                        let physical = source
+                            .cast(&polars::prelude::DataType::Int64)
+                            .map_err(|error| error.to_string())?;
+                        Series::new(
+                            output.clone().into(),
+                            selected
+                                .iter()
+                                .map(|row| {
+                                    row.map(|row| match physical.get(row as usize).unwrap() {
+                                        AnyValue::Int64(value) => value,
+                                        _ => unreachable!(),
+                                    })
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                        .cast(&polars::prelude::DataType::Datetime(*unit, zone.clone()))
+                        .map_err(|error| error.to_string())?
+                        .into_column()
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        };
+        columns.push(result);
+    }
+    let group_count = buckets.len();
+    let collapsed = frame.height().saturating_sub(group_count);
+    Ok((
+        DataFrame::new(group_count, columns).map_err(|error| error.to_string())?,
+        group_count,
+        summary.aggregations.len(),
+        collapsed,
+    ))
+}
+
+fn apply_contact_normalizations(
+    frame: &mut DataFrame,
+    treatments: &[ContactNormalization],
+    renames: &HashMap<&str, &str>,
+) -> Result<(usize, usize), String> {
+    if treatments.len() > 16 {
+        return Err("La receta admite como máximo 16 normalizaciones de contacto.".into());
+    }
+    let mut unique = HashSet::new();
+    let mut changed_cells = 0;
+    for treatment in treatments {
+        if !unique.insert(treatment.column.as_str()) {
+            return Err(format!(
+                "La columna '{}' tiene más de una normalización de contacto.",
+                treatment.column
+            ));
+        }
+        let name = remapped_name(&treatment.column, renames).to_owned();
+        let column = recipe_column(frame, &name)?;
+        if column.dtype() != &polars::prelude::DataType::String {
+            return Err(format!(
+                "La columna '{name}' debe ser de texto para normalizar contactos."
+            ));
+        }
+        let values = strict_column_text(column)?
+            .into_iter()
+            .map(|value| {
+                value.map(|value| {
+                    let normalized = match treatment.kind {
+                        ContactKind::Email => value.trim().to_lowercase(),
+                        ContactKind::Phone => {
+                            let trimmed = value.trim();
+                            let plus = trimmed.starts_with('+');
+                            let digits = trimmed
+                                .chars()
+                                .filter(char::is_ascii_digit)
+                                .collect::<String>();
+                            if plus {
+                                format!("+{digits}")
+                            } else {
+                                digits
+                            }
+                        }
+                        ContactKind::Address => {
+                            value.split_whitespace().collect::<Vec<_>>().join(" ")
+                        }
+                    };
+                    if normalized != value {
+                        changed_cells += 1;
+                    }
+                    normalized
+                })
+            })
+            .collect::<Vec<_>>();
+        frame
+            .replace(
+                &name,
+                Series::new(name.clone().into(), values).into_column(),
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    Ok((changed_cells, treatments.len()))
+}
+
+fn first_run(value: &str, matches: impl Fn(char) -> bool) -> Option<String> {
+    let mut output = String::new();
+    let mut started = false;
+    for character in value.chars() {
+        if matches(character) {
+            started = true;
+            output.push(character);
+        } else if started {
+            break;
+        }
+    }
+    started.then_some(output)
+}
+
+fn apply_text_extractions(
+    frame: &mut DataFrame,
+    extractions: &[TextExtraction],
+    renames: &HashMap<&str, &str>,
+) -> Result<usize, String> {
+    if extractions.len() > 16 {
+        return Err("La receta admite como máximo 16 extracciones de texto.".into());
+    }
+    let mut names = HashSet::new();
+    for extraction in extractions {
+        if extraction.name.trim().is_empty() || extraction.name != extraction.name.trim() {
+            return Err(
+                "El nombre extraído no puede estar vacío ni tener espacios exteriores.".into(),
+            );
+        }
+        if !names.insert(extraction.name.as_str()) {
+            return Err(format!(
+                "La columna extraída '{}' está duplicada.",
+                extraction.name
+            ));
+        }
+        if frame.column(&extraction.name).is_ok() {
+            return Err(format!(
+                "La columna extraída '{}' ya existe.",
+                extraction.name
+            ));
+        }
+        let delimiter_based = matches!(
+            extraction.kind,
+            ExtractionKind::Before | ExtractionKind::After
+        );
+        if delimiter_based != extraction.delimiter.is_some() {
+            return Err(format!(
+                "La extracción '{}' {} delimitador.",
+                extraction.name,
+                if delimiter_based {
+                    "requiere"
+                } else {
+                    "no acepta"
+                }
+            ));
+        }
+        if extraction.delimiter.as_deref().is_some_and(str::is_empty) {
+            return Err("El delimitador de extracción no puede estar vacío.".into());
+        }
+        let source_name = remapped_name(&extraction.source, renames);
+        let source = recipe_column(frame, source_name)?;
+        if source.dtype() != &polars::prelude::DataType::String {
+            return Err(format!(
+                "La columna '{source_name}' debe ser de texto para extraerse."
+            ));
+        }
+        let values = strict_column_text(source)?
+            .into_iter()
+            .map(|value| {
+                value.and_then(|value| match extraction.kind {
+                    ExtractionKind::FirstToken => {
+                        value.split_whitespace().next().map(str::to_owned)
+                    }
+                    ExtractionKind::LastToken => value.split_whitespace().last().map(str::to_owned),
+                    ExtractionKind::Digits => {
+                        first_run(&value, |character| character.is_ascii_digit())
+                    }
+                    ExtractionKind::Letters => first_run(&value, char::is_alphabetic),
+                    ExtractionKind::Before => value
+                        .find(extraction.delimiter.as_deref().unwrap())
+                        .map(|index| value[..index].to_owned()),
+                    ExtractionKind::After => value
+                        .find(extraction.delimiter.as_deref().unwrap())
+                        .map(|index| {
+                            value[index + extraction.delimiter.as_deref().unwrap().len()..]
+                                .to_owned()
+                        }),
+                })
+            })
+            .collect::<Vec<_>>();
+        frame
+            .with_column(Series::new(extraction.name.clone().into(), values).into_column())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(extractions.len())
+}
+
 type RecipeFrameOutcome = (
     DataFrame,
     usize,
@@ -3304,6 +4139,12 @@ type RecipeFrameOutcome = (
     usize,
     usize,
     bool,
+    usize,
+    usize,
+    usize,
+    usize,
+    usize,
+    usize,
     usize,
     usize,
     usize,
@@ -3369,6 +4210,26 @@ fn apply_recipe_to_frame(
     }
     for treatment in &recipe.outlier_treatments {
         recipe_column(source, &treatment.column)?;
+    }
+    if let Some(summary) = &recipe.group_summary {
+        for name in &summary.group_by {
+            recipe_column(source, name)?;
+        }
+        for aggregation in &summary.aggregations {
+            recipe_column(source, &aggregation.column)?;
+        }
+    }
+    if recipe.group_summary.is_some() && !recipe.text_extractions.is_empty() {
+        return Err(
+            "No se puede combinar extracción de texto con agrupar/resumir en la misma receta."
+                .into(),
+        );
+    }
+    for treatment in &recipe.contact_normalizations {
+        recipe_column(source, &treatment.column)?;
+    }
+    for extraction in &recipe.text_extractions {
+        recipe_column(source, &extraction.source)?;
     }
     if let Some(calculation) = &recipe.calculated_column {
         recipe_column(source, &calculation.source)?;
@@ -3549,6 +4410,45 @@ fn apply_recipe_to_frame(
     }
     let (candidate, adjusted_outlier_cell_count, outlier_removed_row_count, outlier_column_count) =
         apply_outlier_treatments(candidate, &recipe.outlier_treatments, &rename_map)?;
+    let mut candidate = candidate;
+    for treatment in &recipe.contact_normalizations {
+        let effective = remapped_name(&treatment.column, &rename_map);
+        recipe_column(&candidate, effective).map_err(|_| {
+            format!(
+                "La columna '{effective}' para contactos no sobrevivió las etapas estructurales."
+            )
+        })?;
+    }
+    for extraction in &recipe.text_extractions {
+        let effective = remapped_name(&extraction.source, &rename_map);
+        recipe_column(&candidate, effective).map_err(|_| {
+            format!(
+                "La columna '{effective}' para extracción no sobrevivió las etapas estructurales."
+            )
+        })?;
+    }
+    let (normalized_contact_cell_count, normalized_contact_column_count) =
+        apply_contact_normalizations(&mut candidate, &recipe.contact_normalizations, &rename_map)?;
+    let extracted_column_count =
+        apply_text_extractions(&mut candidate, &recipe.text_extractions, &rename_map)?;
+    let (candidate, group_count, aggregated_column_count, collapsed_row_count) = if let Some(
+        summary,
+    ) =
+        &recipe.group_summary
+    {
+        for name in summary.group_by.iter().chain(
+            summary
+                .aggregations
+                .iter()
+                .map(|aggregation| &aggregation.column),
+        ) {
+            let effective = remapped_name(name, &rename_map);
+            recipe_column(&candidate, effective).map_err(|_| format!("La columna '{effective}' requerida por agrupar/resumir no sobrevivió las etapas anteriores."))?;
+        }
+        apply_group_summary(candidate, summary, &rename_map)?
+    } else {
+        (candidate, 0, 0, 0)
+    };
 
     Ok((
         candidate,
@@ -3566,6 +4466,12 @@ fn apply_recipe_to_frame(
         adjusted_outlier_cell_count,
         outlier_removed_row_count,
         outlier_column_count,
+        group_count,
+        aggregated_column_count,
+        collapsed_row_count,
+        normalized_contact_cell_count,
+        normalized_contact_column_count,
+        extracted_column_count,
     ))
 }
 
@@ -3589,6 +4495,12 @@ fn apply_recipe_to_dataset(
         adjusted_outlier_cell_count,
         outlier_removed_row_count,
         outlier_column_count,
+        group_count,
+        aggregated_column_count,
+        collapsed_row_count,
+        normalized_contact_cell_count,
+        normalized_contact_column_count,
+        extracted_column_count,
     ) = apply_recipe_to_frame(&dataset.frame, recipe)?;
     let changed = renamed_column_count
         + converted_column_count
@@ -3603,16 +4515,17 @@ fn apply_recipe_to_dataset(
         + dropped_source_column_count
         + adjusted_outlier_cell_count
         + outlier_removed_row_count
+        + usize::from(recipe.group_summary.is_some())
+        + normalized_contact_cell_count
+        + extracted_column_count
         > 0;
     // Build every fallible response value before publishing the candidate. This keeps the
     // transaction atomic even if, for example, the source file disappeared after loading.
-    let preview = dataset_preview(&dataset.path, &candidate)?;
-    if changed {
-        dataset.undo_frame = Some(dataset.frame.clone());
-        dataset.redo_frame = None;
-        dataset.frame = candidate;
-        dataset.profile = None;
-    }
+    let preview = if changed {
+        publish_candidate(dataset, candidate, "Aplicar receta de transformación")?
+    } else {
+        dataset_preview(&dataset.path, &dataset.frame)?
+    };
     Ok(TransformRecipeResult {
         dataset: preview,
         renamed_column_count,
@@ -3628,6 +4541,12 @@ fn apply_recipe_to_dataset(
         adjusted_outlier_cell_count,
         outlier_removed_row_count,
         outlier_column_count,
+        group_count,
+        aggregated_column_count,
+        collapsed_row_count,
+        normalized_contact_cell_count,
+        normalized_contact_column_count,
+        extracted_column_count,
         changed,
     })
 }
@@ -3679,6 +4598,16 @@ mod tests {
 
     fn temporary_delimited(extension: &str, contents: &str) -> PathBuf {
         temporary_delimited_bytes(extension, contents.as_bytes())
+    }
+
+    fn loaded_dataset(path: PathBuf, frame: DataFrame) -> LoadedDataset {
+        let history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
+        LoadedDataset {
+            path,
+            frame,
+            profile: None,
+            history,
+        }
     }
 
     fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> PathBuf {
@@ -4123,32 +5052,145 @@ mod tests {
     }
 
     #[test]
-    fn undo_and_redo_swap_the_single_reversible_revision() {
+    fn undo_and_redo_restore_disk_backed_revisions() {
         let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
         let (original, _) = load_csv(&path).expect("el CSV debe cargar");
         let (cleaned, _) =
             remove_duplicate_rows(&original).expect("los duplicados deben eliminarse");
-        let mut dataset = LoadedDataset {
-            path: path.clone(),
-            frame: cleaned,
-            profile: Some(profile_dataset(&original).expect("el perfil debe existir")),
-            undo_frame: Some(original),
-            redo_frame: None,
-        };
+        let mut dataset = loaded_dataset(path.clone(), original.clone());
+        publish_candidate(&mut dataset, cleaned, "Eliminar filas duplicadas").unwrap();
+        dataset.profile = Some(profile_dataset(&original).expect("el perfil debe existir"));
 
         let undone = undo_dataset(&mut dataset).expect("el cambio debe deshacerse");
         assert_eq!(undone.dataset.row_count, 3);
-        assert!(!undone.can_undo);
-        assert!(undone.can_redo);
+        assert!(!undone.history.can_undo);
+        assert!(undone.history.can_redo);
         assert!(dataset.profile.is_none());
 
         let redone = redo_dataset(&mut dataset).expect("el cambio debe rehacerse");
         assert_eq!(redone.dataset.row_count, 2);
-        assert!(redone.can_undo);
-        assert!(!redone.can_redo);
+        assert!(redone.history.can_undo);
+        assert!(!redone.history.can_redo);
         assert!(redo_dataset(&mut dataset).is_err());
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn history_supports_multiple_steps_and_truncates_redo_only_on_real_branch() {
+        let path = temporary_csv("value\n1\n");
+        let (original, _) = load_csv(&path).unwrap();
+        let mut dataset = loaded_dataset(path.clone(), original);
+        for (value, label) in [(2_i64, "Paso dos"), (3, "Paso tres")] {
+            let candidate =
+                DataFrame::new(1, vec![Series::new("value".into(), [value]).into()]).unwrap();
+            publish_candidate(&mut dataset, candidate, label).unwrap();
+        }
+        assert_eq!(dataset.history.state().entry_count, 3);
+        undo_dataset(&mut dataset).unwrap();
+        assert!(dataset.history.state().can_redo);
+
+        // Una receta sin cambios no crea una etapa ni elimina la rama de rehacer.
+        let result = apply_recipe_to_dataset(&mut dataset, &TransformRecipe::default()).unwrap();
+        assert!(!result.changed);
+        assert_eq!(dataset.history.state().entry_count, 3);
+        assert!(dataset.history.state().can_redo);
+
+        let branch = DataFrame::new(1, vec![Series::new("value".into(), [4_i64]).into()]).unwrap();
+        publish_candidate(&mut dataset, branch, "Rama nueva").unwrap();
+        let state = dataset.history.state();
+        assert_eq!(state.entry_count, 3);
+        assert_eq!(state.current_index, 2);
+        assert!(!state.can_redo);
+        assert_eq!(state.entries[2].label, "Rama nueva");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn history_evicts_old_snapshots_by_count_and_disables_an_oversize_snapshot() {
+        let original =
+            DataFrame::new(1, vec![Series::new("value".into(), [0_i64]).into()]).unwrap();
+        let mut limited = HistoryManager::with_limits(&original, 3, u64::MAX).unwrap();
+        for value in 1_i64..=4 {
+            let frame =
+                DataFrame::new(1, vec![Series::new("value".into(), [value]).into()]).unwrap();
+            limited.record(&frame, &format!("Paso {value}")).unwrap();
+        }
+        let state = limited.state();
+        assert_eq!(state.entry_count, 3);
+        assert_eq!(state.current_index, 2);
+        assert_eq!(state.entries[0].label, "Paso 2");
+
+        let exact_snapshot_budget = HistoryManager::with_limits(&original, 12, u64::MAX)
+            .unwrap()
+            .disk_bytes();
+        let mut budgeted =
+            HistoryManager::with_limits(&original, 12, exact_snapshot_budget).unwrap();
+        budgeted
+            .record(&original, "Dentro del presupuesto")
+            .unwrap();
+        let state = budgeted.state();
+        assert!(state.snapshots_enabled);
+        assert_eq!(state.entry_count, 1);
+        assert_eq!(state.entries[0].label, "Dentro del presupuesto");
+        assert!(state.disk_bytes <= exact_snapshot_budget);
+
+        let disabled = HistoryManager::with_limits(&original, 12, 0).unwrap();
+        let state = disabled.state();
+        assert!(!state.snapshots_enabled);
+        assert!(!state.can_undo);
+        assert_eq!(state.entry_count, 1);
+        assert_eq!(state.disk_bytes, 0);
+        assert!(state.degraded_reason.unwrap().contains("supera el límite"));
+    }
+
+    #[test]
+    fn corrupt_restore_and_snapshot_io_failure_leave_dataset_and_cursor_unchanged() {
+        let path = temporary_csv("value\n1\n");
+        let (original, _) = load_csv(&path).unwrap();
+        let mut dataset = loaded_dataset(path.clone(), original.clone());
+        let changed = DataFrame::new(1, vec![Series::new("value".into(), [2_i64]).into()]).unwrap();
+        publish_candidate(&mut dataset, changed, "Cambio").unwrap();
+        let before = dataset.frame.clone();
+        let cursor = dataset.history.cursor;
+        fs::write(&dataset.history.entries[0].path, b"not parquet").unwrap();
+        assert!(undo_dataset(&mut dataset).is_err());
+        assert_eq!(dataset.history.cursor, cursor);
+        assert!(dataset.frame.equals_missing(&before));
+
+        let fresh_path = temporary_csv("value\n1\n");
+        let (fresh, _) = load_csv(&fresh_path).unwrap();
+        let mut io_failure = loaded_dataset(fresh_path.clone(), fresh.clone());
+        fs::remove_dir_all(io_failure.history.directory.path()).unwrap();
+        let candidate =
+            DataFrame::new(1, vec![Series::new("value".into(), [9_i64]).into()]).unwrap();
+        assert!(publish_candidate(&mut io_failure, candidate, "No publicable").is_err());
+        assert!(io_failure.frame.equals_missing(&fresh));
+        assert_eq!(io_failure.history.cursor, 0);
+        fs::remove_file(path).unwrap();
+        fs::remove_file(fresh_path).unwrap();
+    }
+
+    #[test]
+    fn replacing_a_loaded_dataset_removes_the_previous_snapshot_directory() {
+        let first_path = temporary_csv("value\n1\n");
+        let second_path = temporary_csv("value\n2\n");
+        let (first, _) = load_csv(&first_path).unwrap();
+        let (second, _) = load_csv(&second_path).unwrap();
+        let mut current = Some(loaded_dataset(first_path.clone(), first));
+        let old_directory = current
+            .as_ref()
+            .unwrap()
+            .history
+            .directory
+            .path()
+            .to_path_buf();
+        assert!(old_directory.exists());
+        current = Some(loaded_dataset(second_path.clone(), second));
+        assert!(!old_directory.exists());
+        drop(current);
+        fs::remove_file(first_path).unwrap();
+        fs::remove_file(second_path).unwrap();
     }
 
     #[test]
@@ -4468,8 +5510,29 @@ mod tests {
             ..Default::default()
         };
 
-        let (result, renamed, converted, dates, removed, calculated, _, _, _, _, _, _, _, _, _) =
-            apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
+        let (
+            result,
+            renamed,
+            converted,
+            dates,
+            removed,
+            calculated,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        ) = apply_recipe_to_frame(&frame, &recipe).expect("la receta debe ser atómica y válida");
         assert_eq!((renamed, converted, dates), (3, 3, 1));
         assert_eq!((removed, calculated), (0, 0));
         assert_eq!(
@@ -4521,13 +5584,7 @@ mod tests {
         let path = temporary_csv("count\n1\nnot-an-integer\n");
         let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
         let original = frame.clone();
-        let mut dataset = LoadedDataset {
-            path: path.clone(),
-            frame,
-            profile: None,
-            undo_frame: None,
-            redo_frame: None,
-        };
+        let mut dataset = loaded_dataset(path.clone(), frame);
         let recipe = TransformRecipe {
             renames: vec![RecipeRename {
                 from: "count".into(),
@@ -4545,8 +5602,8 @@ mod tests {
             .expect_err("un valor inválido debe abortar toda la receta");
         assert!(error.contains("fila 2"));
         assert!(dataset.frame.equals_missing(&original));
-        assert!(dataset.undo_frame.is_none());
-        assert!(dataset.redo_frame.is_none());
+        assert!(!dataset.history.state().can_undo);
+        assert!(!dataset.history.state().can_redo);
 
         let calculation_error = apply_recipe_to_dataset(
             &mut dataset,
@@ -4572,7 +5629,7 @@ mod tests {
             calculation_error.contains("División por cero") || calculation_error.contains("número")
         );
         assert!(dataset.frame.equals_missing(&original));
-        assert!(dataset.undo_frame.is_none());
+        assert!(!dataset.history.state().can_undo);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 
         let metadata_error = apply_recipe_to_dataset(
@@ -4590,20 +5647,14 @@ mod tests {
         .expect_err("un fallo al preparar la respuesta también debe abortar");
         assert!(metadata_error.contains("metadatos"));
         assert!(dataset.frame.equals_missing(&original));
-        assert!(dataset.undo_frame.is_none());
+        assert!(!dataset.history.state().can_undo);
     }
 
     #[test]
     fn empty_or_already_satisfied_recipe_is_a_noop_without_history() {
         let path = temporary_csv("value\n1\n");
         let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
-        let mut dataset = LoadedDataset {
-            path: path.clone(),
-            frame,
-            profile: None,
-            undo_frame: None,
-            redo_frame: None,
-        };
+        let mut dataset = loaded_dataset(path.clone(), frame);
         let result = apply_recipe_to_dataset(
             &mut dataset,
             &TransformRecipe {
@@ -4618,7 +5669,7 @@ mod tests {
         )
         .expect("una receta ya satisfecha debe ser válida");
         assert!(!result.changed);
-        assert!(dataset.undo_frame.is_none());
+        assert!(!dataset.history.state().can_undo);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
@@ -4700,7 +5751,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let (result, _, _, _, removed, _, _, _, _, _, _, _, _, _, _) =
+        let (result, _, _, _, removed, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(removed, 3);
         assert_eq!(
@@ -4789,7 +5840,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (result, _, _, _, _, calculated, _, _, _, _, _, _, _, _, _) =
+        let (result, _, _, _, _, calculated, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(calculated, 1);
         let rows = dataset_page(&result, 0, 10).unwrap().rows;
@@ -4902,7 +5953,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (result, _, _, _, _, _, replaced, _, _, _, _, _, _, _, _) =
+        let (result, _, _, _, _, _, replaced, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(replaced, 2);
         let rows = dataset_page(&result, 0, 10).unwrap().rows;
@@ -4985,7 +6036,7 @@ mod tests {
             keep_columns: Some(vec!["c".into(), "a".into()]),
             ..Default::default()
         };
-        let (result, _, _, _, _, _, _, dropped, _, _, _, _, _, _, _) =
+        let (result, _, _, _, _, _, _, dropped, _, _, _, _, _, _, _, _, _, _, _, _, _) =
             apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!(dropped, 1);
         assert_eq!(
@@ -5068,13 +6119,7 @@ mod tests {
     fn reorder_only_keep_columns_publishes_one_undo_revision() {
         let path = temporary_csv("a,b\nA,B\n");
         let (frame, _) = load_csv(&path).unwrap();
-        let mut dataset = LoadedDataset {
-            path: path.clone(),
-            frame,
-            profile: None,
-            undo_frame: None,
-            redo_frame: None,
-        };
+        let mut dataset = loaded_dataset(path.clone(), frame);
         let result = apply_recipe_to_dataset(
             &mut dataset,
             &TransformRecipe {
@@ -5094,7 +6139,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["b", "a"]
         );
-        assert!(dataset.undo_frame.is_some());
+        assert!(dataset.history.state().can_undo);
         undo_dataset(&mut dataset).unwrap();
         assert_eq!(
             dataset
@@ -5235,13 +6280,7 @@ mod tests {
         let path = temporary_csv("full,existing\nA-B,x\n");
         let (frame, _) = load_csv(&path).unwrap();
         let original = frame.clone();
-        let mut dataset = LoadedDataset {
-            path: path.clone(),
-            frame,
-            profile: None,
-            undo_frame: None,
-            redo_frame: None,
-        };
+        let mut dataset = loaded_dataset(path.clone(), frame);
         let recipe = TransformRecipe {
             find_replace: Some(FindReplaceRecipe {
                 scope: FindReplaceScope::Column,
@@ -5259,7 +6298,7 @@ mod tests {
         };
         assert!(apply_recipe_to_dataset(&mut dataset, &recipe).is_err());
         assert!(dataset.frame.equals_missing(&original));
-        assert!(dataset.undo_frame.is_none());
+        assert!(!dataset.history.state().can_undo);
         fs::remove_file(path).unwrap();
     }
 
@@ -5308,13 +6347,7 @@ mod tests {
     fn split_and_merge_commit_as_one_undo_revision_with_metadata() {
         let path = temporary_csv("full,other\nA-B,C\n");
         let (frame, _) = load_csv(&path).unwrap();
-        let mut dataset = LoadedDataset {
-            path: path.clone(),
-            frame,
-            profile: None,
-            undo_frame: None,
-            redo_frame: None,
-        };
+        let mut dataset = loaded_dataset(path.clone(), frame);
         let result = apply_recipe_to_dataset(
             &mut dataset,
             &TransformRecipe {
@@ -5335,7 +6368,7 @@ mod tests {
         );
         // References produced by split are intentionally outside the contract.
         assert!(result.is_err());
-        assert!(dataset.undo_frame.is_none());
+        assert!(!dataset.history.state().can_undo);
 
         let result = apply_recipe_to_dataset(
             &mut dataset,
@@ -5358,7 +6391,7 @@ mod tests {
             ),
             (2, 1)
         );
-        assert!(dataset.undo_frame.is_some());
+        assert!(dataset.history.state().can_undo);
         undo_dataset(&mut dataset).unwrap();
         assert_eq!(
             dataset
@@ -5568,13 +6601,7 @@ mod tests {
     fn iqr_remaps_rename_observes_cast_and_keep_and_commits_one_undo() {
         let path = temporary_csv("value,other\n1,a\n2,b\n3,c\n4,d\n100,e\n");
         let (frame, _) = load_csv(&path).unwrap();
-        let mut dataset = LoadedDataset {
-            path: path.clone(),
-            frame,
-            profile: None,
-            undo_frame: None,
-            redo_frame: None,
-        };
+        let mut dataset = loaded_dataset(path.clone(), frame);
         let result = apply_recipe_to_dataset(
             &mut dataset,
             &TransformRecipe {
@@ -5602,9 +6629,440 @@ mod tests {
             ),
             (1, 1)
         );
-        assert!(dataset.undo_frame.is_some());
+        assert!(dataset.history.state().can_undo);
         undo_dataset(&mut dataset).unwrap();
         assert_eq!(dataset.frame.width(), 2);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn group_summary_is_stable_supports_null_keys_and_count_semantics() {
+        let frame = DataFrame::new(
+            5,
+            vec![
+                Series::new(
+                    "group".into(),
+                    [Some("B"), None, Some("B"), None, Some("A")],
+                )
+                .into_column(),
+                Series::new("value".into(), [Some(2_i64), None, Some(4), Some(8), None])
+                    .into_column(),
+                Series::new(
+                    "label".into(),
+                    [Some("z"), Some("x"), Some("a"), Some("x"), None],
+                )
+                .into_column(),
+            ],
+        )
+        .unwrap();
+        let summary = GroupSummaryRecipe {
+            group_by: vec!["group".into()],
+            aggregations: vec![
+                SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                },
+                SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Mean,
+                },
+                SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Count,
+                },
+                SummaryAggregation {
+                    column: "label".into(),
+                    operation: SummaryOperation::CountUnique,
+                },
+                SummaryAggregation {
+                    column: "label".into(),
+                    operation: SummaryOperation::Min,
+                },
+            ],
+        };
+        let (result, groups, aggregations, collapsed) =
+            apply_group_summary(frame, &summary, &HashMap::new()).unwrap();
+        assert_eq!((groups, aggregations, collapsed), (3, 5, 2));
+        assert_eq!(
+            result
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "group",
+                "value_sum",
+                "value_mean",
+                "value_count",
+                "label_count_unique",
+                "label_min"
+            ]
+        );
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("B"));
+        assert_eq!(rows[1][0], None);
+        assert_eq!(rows[0][1].as_deref(), Some("6"));
+        assert_eq!(rows[1][1].as_deref(), Some("8"));
+        assert_eq!(rows[2][1].as_deref(), Some("0"));
+        assert_eq!(rows[1][3].as_deref(), Some("2"));
+        assert_eq!(rows[1][4].as_deref(), Some("1"));
+        assert_eq!(rows[2][5], None);
+    }
+
+    #[test]
+    fn group_summary_min_max_preserve_types_and_handle_negative_and_all_null_groups() {
+        let dates = Series::new("date".into(), [Some(0_i32), Some(1), None, None])
+            .cast(&polars::prelude::DataType::Date)
+            .unwrap()
+            .into_column();
+        let datetimes = Series::new("time".into(), [Some(-1_i64), Some(1), None, None])
+            .cast(&polars::prelude::DataType::Datetime(
+                TimeUnit::Milliseconds,
+                None,
+            ))
+            .unwrap()
+            .into_column();
+        let frame = DataFrame::new(
+            4,
+            vec![
+                Series::new("g".into(), ["x", "x", "n", "n"]).into_column(),
+                Series::new("number".into(), [Some(-2_i64), Some(-10), None, None]).into_column(),
+                dates,
+                datetimes,
+            ],
+        )
+        .unwrap();
+        let summary = GroupSummaryRecipe {
+            group_by: vec!["g".into()],
+            aggregations: vec![
+                SummaryAggregation {
+                    column: "number".into(),
+                    operation: SummaryOperation::Min,
+                },
+                SummaryAggregation {
+                    column: "number".into(),
+                    operation: SummaryOperation::Max,
+                },
+                SummaryAggregation {
+                    column: "date".into(),
+                    operation: SummaryOperation::Min,
+                },
+                SummaryAggregation {
+                    column: "time".into(),
+                    operation: SummaryOperation::Max,
+                },
+            ],
+        };
+        let result = apply_group_summary(frame, &summary, &HashMap::new())
+            .unwrap()
+            .0;
+        assert_eq!(
+            result.column("number_min").unwrap().dtype(),
+            &polars::prelude::DataType::Int64
+        );
+        assert_eq!(
+            result.column("date_min").unwrap().dtype(),
+            &polars::prelude::DataType::Date
+        );
+        assert!(matches!(
+            result.column("time_max").unwrap().dtype(),
+            polars::prelude::DataType::Datetime(_, _)
+        ));
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][1].as_deref(), Some("-10"));
+        assert_eq!(rows[0][2].as_deref(), Some("-2"));
+        assert_eq!(rows[1][1], None);
+        assert_eq!(rows[1][3], None);
+    }
+
+    #[test]
+    fn group_summary_rejects_overflow_precision_nonfinite_duplicates_and_missing_dependencies() {
+        let overflow = DataFrame::new(
+            2,
+            vec![
+                Series::new("g".into(), ["x", "x"]).into_column(),
+                Series::new("v".into(), [i64::MAX, 1]).into_column(),
+            ],
+        )
+        .unwrap();
+        let sum = GroupSummaryRecipe {
+            group_by: vec!["g".into()],
+            aggregations: vec![SummaryAggregation {
+                column: "v".into(),
+                operation: SummaryOperation::Sum,
+            }],
+        };
+        assert!(apply_group_summary(overflow, &sum, &HashMap::new())
+            .err()
+            .unwrap()
+            .contains("desbordó"));
+        let zeros = DataFrame::new(
+            3,
+            vec![
+                Series::new("g".into(), ["x", "x", "x"]).into_column(),
+                Series::new("v".into(), [-0.0, 0.0, f64::NAN]).into_column(),
+            ],
+        )
+        .unwrap();
+        let unique = GroupSummaryRecipe {
+            group_by: vec!["g".into()],
+            aggregations: vec![SummaryAggregation {
+                column: "v".into(),
+                operation: SummaryOperation::CountUnique,
+            }],
+        };
+        assert!(apply_group_summary(zeros, &unique, &HashMap::new()).is_err());
+        let signed_zero = DataFrame::new(
+            3,
+            vec![
+                Series::new("g".into(), ["x", "x", "x"]).into_column(),
+                Series::new("v".into(), [Some(-0.0), Some(0.0), None]).into_column(),
+            ],
+        )
+        .unwrap();
+        let result = apply_group_summary(signed_zero, &unique, &HashMap::new())
+            .unwrap()
+            .0;
+        assert_eq!(
+            dataset_page(&result, 0, 1).unwrap().rows[0][1].as_deref(),
+            Some("1")
+        );
+        let precision = DataFrame::new(
+            2,
+            vec![
+                Series::new("g".into(), ["x", "x"]).into_column(),
+                Series::new("v".into(), [9_007_199_254_740_993_i64, 1]).into_column(),
+            ],
+        )
+        .unwrap();
+        let mean = GroupSummaryRecipe {
+            group_by: vec!["g".into()],
+            aggregations: vec![SummaryAggregation {
+                column: "v".into(),
+                operation: SummaryOperation::Mean,
+            }],
+        };
+        assert!(apply_group_summary(precision, &mean, &HashMap::new())
+            .err()
+            .unwrap()
+            .contains("precisión"));
+    }
+
+    #[test]
+    fn group_summary_runs_after_outliers_and_commits_one_undo_revision() {
+        let path = temporary_csv("g,v\na,1\na,2\na,3\na,4\na,100\n");
+        let (frame, _) = load_csv(&path).unwrap();
+        let mut dataset = loaded_dataset(path.clone(), frame);
+        let result = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                casts: vec![RecipeCast {
+                    column: "v".into(),
+                    target: RecipeCastTarget::Integer,
+                }],
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "v".into(),
+                    action: OutlierAction::Drop,
+                }],
+                group_summary: Some(GroupSummaryRecipe {
+                    group_by: vec!["g".into()],
+                    aggregations: vec![SummaryAggregation {
+                        column: "v".into(),
+                        operation: SummaryOperation::Sum,
+                    }],
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                result.group_count,
+                result.aggregated_column_count,
+                result.collapsed_row_count
+            ),
+            (1, 1, 3)
+        );
+        assert_eq!(
+            dataset_page(&dataset.frame, 0, 1).unwrap().rows[0][1].as_deref(),
+            Some("10")
+        );
+        assert!(dataset.history.state().can_undo);
+        undo_dataset(&mut dataset).unwrap();
+        assert_eq!(dataset.frame.height(), 5);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn contacts_normalize_unicode_phone_and_address_and_count_changed_cells() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("email".into(), [Some(" İ@EXAMPLE.COM "), None]).into_column(),
+                Series::new("phone".into(), [" +1 (809) 555-01 ", "1+2"]).into_column(),
+                Series::new("address".into(), ["  Calle\u{a0}Uno\u{2003}Norte ", "ok"])
+                    .into_column(),
+            ],
+        )
+        .unwrap();
+        let mut candidate = frame;
+        let (cells, columns) = apply_contact_normalizations(
+            &mut candidate,
+            &[
+                ContactNormalization {
+                    column: "email".into(),
+                    kind: ContactKind::Email,
+                },
+                ContactNormalization {
+                    column: "phone".into(),
+                    kind: ContactKind::Phone,
+                },
+                ContactNormalization {
+                    column: "address".into(),
+                    kind: ContactKind::Address,
+                },
+            ],
+            &HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!((cells, columns), (4, 3));
+        let rows = dataset_page(&candidate, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("i\u{307}@example.com"));
+        assert_eq!(rows[0][1].as_deref(), Some("+180955501"));
+        assert_eq!(rows[1][1].as_deref(), Some("12"));
+        assert_eq!(rows[0][2].as_deref(), Some("Calle Uno Norte"));
+        assert_eq!(rows[1][2].as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn text_extractions_cover_unicode_tokens_runs_delimiters_and_all_null() {
+        let mut frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("text".into(), [Some("  José Pérez 123🙂resto"), None]).into_column(),
+                Series::new("arabic".into(), [Some("١٢ abc 45"), None]).into_column(),
+            ],
+        )
+        .unwrap();
+        let extractions = vec![
+            TextExtraction {
+                source: "text".into(),
+                kind: ExtractionKind::FirstToken,
+                name: "first".into(),
+                delimiter: None,
+            },
+            TextExtraction {
+                source: "text".into(),
+                kind: ExtractionKind::LastToken,
+                name: "last".into(),
+                delimiter: None,
+            },
+            TextExtraction {
+                source: "text".into(),
+                kind: ExtractionKind::Letters,
+                name: "letters".into(),
+                delimiter: None,
+            },
+            TextExtraction {
+                source: "arabic".into(),
+                kind: ExtractionKind::Digits,
+                name: "digits".into(),
+                delimiter: None,
+            },
+            TextExtraction {
+                source: "text".into(),
+                kind: ExtractionKind::Before,
+                name: "before".into(),
+                delimiter: Some("🙂".into()),
+            },
+            TextExtraction {
+                source: "text".into(),
+                kind: ExtractionKind::After,
+                name: "after".into(),
+                delimiter: Some("🙂".into()),
+            },
+            TextExtraction {
+                source: "text".into(),
+                kind: ExtractionKind::Before,
+                name: "missing".into(),
+                delimiter: Some("NO".into()),
+            },
+        ];
+        assert_eq!(
+            apply_text_extractions(&mut frame, &extractions, &HashMap::new()).unwrap(),
+            7
+        );
+        let rows = dataset_page(&frame, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][2].as_deref(), Some("José"));
+        assert_eq!(rows[0][4].as_deref(), Some("José"));
+        assert_eq!(rows[0][5].as_deref(), Some("45"));
+        assert_eq!(rows[0][7].as_deref(), Some("resto"));
+        assert_eq!(rows[0][8], None);
+        assert_eq!(rows[1][8], None);
+        assert_eq!(
+            frame.column("missing").unwrap().dtype(),
+            &polars::prelude::DataType::String
+        );
+    }
+
+    #[test]
+    fn contacts_and_extractions_validate_remap_keep_group_conflict_and_rollback() {
+        let path = temporary_csv("contact,other\n A@B.COM ,x\n");
+        let (frame, _) = load_csv(&path).unwrap();
+        let original = frame.clone();
+        let mut dataset = loaded_dataset(path.clone(), frame);
+        let success = apply_recipe_to_dataset(
+            &mut dataset,
+            &TransformRecipe {
+                renames: vec![RecipeRename {
+                    from: "contact".into(),
+                    to: "email".into(),
+                }],
+                keep_columns: Some(vec!["contact".into()]),
+                contact_normalizations: vec![ContactNormalization {
+                    column: "contact".into(),
+                    kind: ContactKind::Email,
+                }],
+                text_extractions: vec![TextExtraction {
+                    source: "contact".into(),
+                    kind: ExtractionKind::Before,
+                    name: "user".into(),
+                    delimiter: Some("@".into()),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                success.normalized_contact_cell_count,
+                success.normalized_contact_column_count,
+                success.extracted_column_count
+            ),
+            (1, 1, 1)
+        );
+        assert!(dataset.history.state().can_undo);
+        undo_dataset(&mut dataset).unwrap();
+        assert!(dataset.frame.equals_missing(&original));
+
+        let conflict = TransformRecipe {
+            text_extractions: vec![TextExtraction {
+                source: "contact".into(),
+                kind: ExtractionKind::FirstToken,
+                name: "new".into(),
+                delimiter: None,
+            }],
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["contact".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "other".into(),
+                    operation: SummaryOperation::Count,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(apply_recipe_to_dataset(&mut dataset, &conflict).is_err());
+        assert!(!dataset.history.state().can_undo);
         fs::remove_file(path).unwrap();
     }
 }

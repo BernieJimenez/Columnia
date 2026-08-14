@@ -9,6 +9,7 @@ import {
   getAppInfo,
   getDatasetPage,
   getDatasetProfile,
+  getHistoryState,
   normalizeColumnNames,
   normalizeTextValues,
   loadDatasetSelection,
@@ -25,6 +26,7 @@ import {
   type ExportFormat,
   type ExportResult,
   type OperationProgress,
+  type HistoryState,
   type SpreadsheetHeaderMode,
   type TransformRecipe,
 } from "./bridge";
@@ -68,7 +70,10 @@ type ChangeStatus =
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
 
-type HistoryStatus = { canUndo: boolean; canRedo: boolean };
+const EMPTY_HISTORY: HistoryState = {
+  canUndo: false, canRedo: false, currentIndex: 0, entryCount: 0, entries: [],
+  snapshotsEnabled: true, degradedReason: null, maxEntries: 0, diskBytes: 0, diskBudgetBytes: 0,
+};
 
 type ExportStatus =
   | { kind: "idle" }
@@ -110,7 +115,7 @@ export function App() {
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
-  const [historyStatus, setHistoryStatus] = useState<HistoryStatus>({ canUndo: false, canRedo: false });
+  const [historyStatus, setHistoryStatus] = useState<HistoryState>(EMPTY_HISTORY);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle" });
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
@@ -141,6 +146,16 @@ export function App() {
     };
   }, []);
 
+  async function refreshHistory() {
+    try {
+      const history = await getHistoryState();
+      setHistoryStatus(history);
+      return history;
+    } catch {
+      return historyStatus;
+    }
+  }
+
   async function loadSelection(
     source: DatasetSourceInspection,
     sheetId: string | null,
@@ -164,7 +179,7 @@ export function App() {
       setSheetSelection(null);
       setProfileStatus({ kind: "idle" });
       setChangeStatus({ kind: "idle" });
-      setHistoryStatus({ canUndo: false, canRedo: false });
+      await refreshHistory();
       setExportStatus({ kind: "idle" });
       setReviewTab("diagnosis");
       setActivePhase("review");
@@ -229,7 +244,7 @@ export function App() {
         kind: "applied",
         message: `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas adicionales.`,
       });
-      if (result.affectedRowCount > 0) setHistoryStatus({ canUndo: true, canRedo: false });
+      await refreshHistory();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -258,7 +273,7 @@ export function App() {
               ? "Se normalizó 1 nombre de columna."
               : `Se normalizaron ${result.renamedColumnCount.toLocaleString()} nombres de columnas.`,
       });
-      if (result.renamedColumnCount > 0) setHistoryStatus({ canUndo: true, canRedo: false });
+      await refreshHistory();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -299,7 +314,7 @@ export function App() {
               ? `Se recortaron espacios en ${detail}.`
               : `Se normalizó texto en ${detail}.`,
       });
-      if (result.changedCellCount > 0) setHistoryStatus({ canUndo: true, canRedo: false });
+      await refreshHistory();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -334,7 +349,7 @@ export function App() {
           ? `Correcciones recomendadas aplicadas: ${changedCells} y ${renamedColumns}.`
           : "El dataset ya cumplía las correcciones recomendadas.",
       });
-      if (changed) setHistoryStatus({ canUndo: true, canRedo: false });
+      await refreshHistory();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -366,15 +381,19 @@ export function App() {
         result.mergedColumnCount +
         result.droppedSourceColumnCount +
         result.adjustedOutlierCellCount +
-        result.outlierRemovedRowCount;
+        result.outlierRemovedRowCount +
+        result.collapsedRowCount +
+        result.aggregatedColumnCount +
+        result.normalizedContactCellCount +
+        result.extractedColumnCount;
       setChangeStatus({
         kind: "applied",
         message:
           total === 0
             ? "La receta no produjo cambios en el dataset."
-            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.outlierRemovedRowCount.toLocaleString()} filas atípicas eliminadas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas, ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas y ${result.adjustedOutlierCellCount.toLocaleString()} outliers ajustados en ${result.outlierColumnCount.toLocaleString()} columnas.`,
+            : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.outlierRemovedRowCount.toLocaleString()} filas atípicas eliminadas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas, ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas, ${result.adjustedOutlierCellCount.toLocaleString()} outliers ajustados, ${result.normalizedContactCellCount.toLocaleString()} contactos normalizados en ${result.normalizedContactColumnCount.toLocaleString()} columnas, ${result.extractedColumnCount.toLocaleString()} columnas extraídas y resumen de ${result.groupCount.toLocaleString()} grupos con ${result.aggregatedColumnCount.toLocaleString()} agregaciones.`,
       });
-      if (total > 0) setHistoryStatus({ canUndo: true, canRedo: false });
+      await refreshHistory();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -389,8 +408,8 @@ export function App() {
       const result = await undoLastChange();
       setDatasetStatus({ kind: "ready", dataset: result.dataset, pageOffset: 0, pageLoading: false });
       setProfileStatus({ kind: "idle" });
-      setHistoryStatus({ canUndo: result.canUndo, canRedo: result.canRedo });
-      setChangeStatus({ kind: "applied", message: "Se deshizo el último cambio." });
+      setHistoryStatus(result.history);
+      setChangeStatus({ kind: "applied", message: result.message });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -405,8 +424,8 @@ export function App() {
       const result = await redoLastChange();
       setDatasetStatus({ kind: "ready", dataset: result.dataset, pageOffset: 0, pageLoading: false });
       setProfileStatus({ kind: "idle" });
-      setHistoryStatus({ canUndo: result.canUndo, canRedo: result.canRedo });
-      setChangeStatus({ kind: "applied", message: "Se rehízo el último cambio." });
+      setHistoryStatus(result.history);
+      setChangeStatus({ kind: "applied", message: result.message });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -912,7 +931,7 @@ interface PreparePhaseProps {
   dataset: DatasetPreview;
   profileStatus: ProfileStatus;
   changeStatus: ChangeStatus;
-  historyStatus: HistoryStatus;
+  historyStatus: HistoryState;
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
   onRemoveDuplicates: () => void;
@@ -1180,6 +1199,9 @@ function TransformRecipeEditor({
   type SplitDraft = NonNullable<TransformRecipe["splitColumn"]>;
   type MergeDraft = NonNullable<TransformRecipe["mergeColumns"]>;
   type OutlierDraft = TransformRecipe["outlierTreatments"][number];
+  type GroupSummaryDraft = NonNullable<TransformRecipe["groupSummary"]>;
+  type ContactDraft = TransformRecipe["contactNormalizations"][number];
+  type ExtractionDraft = TransformRecipe["textExtractions"][number];
 
   const [renames, setRenames] = useState<RenameDraft[]>([{ from: "", to: "" }]);
   const [casts, setCasts] = useState<CastDraft[]>([{ column: "", target: "string" }]);
@@ -1204,6 +1226,10 @@ function TransformRecipeEditor({
   const [mergeEnabled, setMergeEnabled] = useState(false);
   const [merge, setMerge] = useState<MergeDraft>({ sources: [], name: "", separator: "", dropSources: false });
   const [outlierTreatments, setOutlierTreatments] = useState<OutlierDraft[]>([]);
+  const [groupEnabled, setGroupEnabled] = useState(false);
+  const [groupSummary, setGroupSummary] = useState<GroupSummaryDraft>({ groupBy: [], aggregations: [] });
+  const [contacts, setContacts] = useState<ContactDraft[]>([]);
+  const [extractions, setExtractions] = useState<ExtractionDraft[]>([]);
   const datasetSignature = `${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => `${column.name}:${column.dataType}`).join("|")}`;
 
   useEffect(() => {
@@ -1222,6 +1248,10 @@ function TransformRecipeEditor({
     setMergeEnabled(false);
     setMerge({ sources: [], name: "", separator: "", dropSources: false });
     setOutlierTreatments([]);
+    setGroupEnabled(false);
+    setGroupSummary({ groupBy: [], aggregations: [] });
+    setContacts([]);
+    setExtractions([]);
     setCalculation({ name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
   }, [datasetSignature]);
 
@@ -1245,6 +1275,13 @@ function TransformRecipeEditor({
     const cast = [...activeCasts].reverse().find((item) => item.column === column.name);
     return cast ? ["integer", "decimal"].includes(cast.target) : ["Int64", "Float64"].includes(column.dataType);
   });
+  function effectiveName(name: string) { return activeRenames.find((item) => item.from === name)?.to.trim() || name; }
+  function effectiveType(name: string) {
+    if (activeDateParses.some((item) => item.column === name)) return activeDateParses.find((item) => item.column === name)?.target === "date" ? "Date" : "Datetime";
+    const cast = [...activeCasts].reverse().find((item) => item.column === name);
+    if (cast) return cast.target === "integer" ? "Int64" : cast.target === "decimal" ? "Float64" : cast.target === "string" ? "String" : "Boolean";
+    return dataset.columns.find((column) => column.name === name)?.dataType ?? "";
+  }
   const operandRequired = !["year", "month", "day"].includes(calculation.operation);
   const calculationInvalid =
     calculationEnabled &&
@@ -1271,12 +1308,29 @@ function TransformRecipeEditor({
   const outlierDuplicate = new Set(outlierTreatments.map((item) => item.column)).size !== outlierTreatments.length;
   const outlierDependencyInvalid = outlierTreatments.some((item) => !keptColumns.includes(item.column) || (splitEnabled && split.dropSource && split.source === item.column) || (mergeEnabled && merge.dropSources && merge.sources.includes(item.column)));
   const outlierInvalid = outlierTreatments.some((item) => !item.column || !numericColumns.some((column) => column.name === item.column)) || outlierDuplicate || outlierTreatments.length > 16 || outlierDependencyInvalid;
-  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0) + (splitEnabled ? 1 : 0) + (mergeEnabled ? 1 : 0) + outlierTreatments.length;
+  const groupPairs = groupSummary.aggregations.map((item) => `${item.column}:${item.operation}`);
+  const groupOutputs = groupSummary.aggregations.map((item) => `${effectiveName(item.column)}_${item.operation}`);
+  const groupDependenciesInvalid = [...groupSummary.groupBy, ...groupSummary.aggregations.map((item) => item.column)].some((name) => !keptColumns.includes(name) || (splitEnabled && split.dropSource && split.source === name) || (mergeEnabled && merge.dropSources && merge.sources.includes(name)));
+  const groupOperationInvalid = groupSummary.aggregations.some((item) => {
+    const dtype = effectiveType(item.column);
+    if (!item.column) return true;
+    if (["sum", "mean"].includes(item.operation)) return !["Int64", "Float64"].includes(dtype);
+    if (["min", "max"].includes(item.operation)) return !["Int64", "Float64", "String", "Date", "Datetime"].includes(dtype);
+    return false;
+  });
+  const groupInvalid = groupEnabled && (groupSummary.groupBy.length < 1 || groupSummary.groupBy.length > 8 || groupSummary.aggregations.length < 1 || groupSummary.aggregations.length > 32 || new Set(groupPairs).size !== groupPairs.length || new Set(groupOutputs).size !== groupOutputs.length || groupOutputs.some((name) => groupSummary.groupBy.map(effectiveName).includes(name)) || groupDependenciesInvalid || groupOperationInvalid);
+  const contactDuplicate = new Set(contacts.map((item) => item.column)).size !== contacts.length;
+  const extractionNames = extractions.map((item) => item.name.trim());
+  const contactDependencyInvalid = contacts.some((item) => !keptColumns.includes(item.column) || (splitEnabled && split.dropSource && split.source === item.column) || (mergeEnabled && merge.dropSources && merge.sources.includes(item.column)));
+  const extractionDependencyInvalid = extractions.some((item) => !keptColumns.includes(item.source) || (splitEnabled && split.dropSource && split.source === item.source) || (mergeEnabled && merge.dropSources && merge.sources.includes(item.source)));
+  const contactInvalid = contacts.some((item) => !item.column || !searchableTextColumns.some((column) => column.name === item.column)) || contactDuplicate || contacts.length > 16 || contactDependencyInvalid;
+  const extractionInvalid = extractions.length > 16 || (groupEnabled && extractions.length > 0) || extractionDependencyInvalid || new Set(extractionNames).size !== extractionNames.length || extractions.some((item) => !item.source || !searchableTextColumns.some((column) => column.name === item.source) || !item.name.trim() || item.name !== item.name.trim() || postRenameNames.has(item.name.trim()) || item.name.trim() === calculatedName || parsedSplitNames.includes(item.name.trim()) || item.name.trim() === merge.name.trim() || (["before", "after"].includes(item.kind) && !item.delimiter));
+  const operationCount = activeRenames.length + activeCasts.length + activeDateParses.length + activeFilters.length + (calculationEnabled ? 1 : 0) + (findReplaceEnabled ? 1 : 0) + (dropsColumns ? 1 : 0) + (splitEnabled ? 1 : 0) + (mergeEnabled ? 1 : 0) + outlierTreatments.length + (groupEnabled ? 1 : 0) + contacts.length + extractions.length;
   const renameInvalid = activeRenames.some((item) => !item.from || !item.to.trim());
   const filterInvalid = activeFilters.some((item) =>
     !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
   );
-  const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped || splitInvalid || mergeInvalid || sourceConflict || sourceNotKept || outlierInvalid ||
+  const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped || splitInvalid || mergeInvalid || sourceConflict || sourceNotKept || outlierInvalid || groupInvalid || contactInvalid || extractionInvalid ||
     !calculationValid;
 
   function columnOptions() {
@@ -1309,8 +1363,11 @@ function TransformRecipeEditor({
       splitColumn: splitEnabled ? { ...split, names: parsedSplitNames } : null,
       mergeColumns: mergeEnabled ? { ...merge, name: merge.name.trim() } : null,
       outlierTreatments,
+      groupSummary: groupEnabled ? groupSummary : null,
+      contactNormalizations: contacts,
+      textExtractions: extractions.map((item) => ({ ...item, name: item.name.trim(), delimiter: ["before", "after"].includes(item.kind) ? item.delimiter : null })),
     };
-    if (recipe.filters.length > 0 || recipe.keepColumns !== null || recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources || recipe.outlierTreatments.length > 0) setPendingConfirmation(recipe);
+    if (recipe.filters.length > 0 || recipe.keepColumns !== null || recipe.splitColumn?.dropSource || recipe.mergeColumns?.dropSources || recipe.outlierTreatments.length > 0 || recipe.groupSummary || recipe.contactNormalizations.length > 0) setPendingConfirmation(recipe);
     else onApply(recipe);
   }
 
@@ -1522,6 +1579,37 @@ function TransformRecipeEditor({
           </div>)}
           {outlierTreatments.length < 16 && <button type="button" className="recipe-add" onClick={() => setOutlierTreatments((current) => [...current, { column: "", action: "cap" }])}>+ Añadir tratamiento</button>}
         </fieldset>
+
+        <fieldset>
+          <legend>Resumen agrupado</legend>
+          <label className="option-toggle"><input type="checkbox" checked={groupEnabled} onChange={(event) => setGroupEnabled(event.target.checked)} />Reemplazar el dataset por un resumen</label>
+          {groupEnabled && <>
+            <div className="keep-columns" role="group" aria-label="Columnas para agrupar">{dataset.columns.map((column) => <label key={column.name}><input type="checkbox" checked={groupSummary.groupBy.includes(column.name)} disabled={!groupSummary.groupBy.includes(column.name) && groupSummary.groupBy.length >= 8} onChange={(event) => setGroupSummary((current) => ({ ...current, groupBy: event.target.checked ? dataset.columns.map((item) => item.name).filter((name) => current.groupBy.includes(name) || name === column.name) : current.groupBy.filter((name) => name !== column.name) }))} />{effectiveName(column.name)}</label>)}</div>
+            {groupSummary.aggregations.map((aggregation, index) => {
+              const dtype = effectiveType(aggregation.column);
+              const numeric = ["Int64", "Float64"].includes(dtype);
+              const orderable = numeric || ["String", "Date", "Datetime"].includes(dtype);
+              return <div className="recipe-row" key={`aggregation-${index}`}><label><span>Columna</span><select aria-label={`Columna de agregación ${index + 1}`} value={aggregation.column} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value, operation: "count" } : item) }))}><option value="">Selecciona…</option>{dataset.columns.map((column) => <option key={column.name} value={column.name}>{effectiveName(column.name)}</option>)}</select></label><label><span>Operación</span><select aria-label={`Operación de agregación ${index + 1}`} value={aggregation.operation} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, operation: event.target.value as GroupSummaryDraft["aggregations"][number]["operation"] } : item) }))}>{numeric && <><option value="sum">Suma</option><option value="mean">Promedio</option></>}{orderable && <><option value="min">Mínimo</option><option value="max">Máximo</option></>}<option value="count">Contar filas</option><option value="count_unique">Contar únicos</option></select></label><span className="recipe-output" aria-label={`Salida ${index + 1}`}>{aggregation.column ? `${effectiveName(aggregation.column)}_${aggregation.operation}` : "—"}</span><button type="button" aria-label={`Quitar agregación ${index + 1}`} onClick={() => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.filter((_, itemIndex) => itemIndex !== index) }))}>×</button></div>;
+            })}
+            {groupSummary.aggregations.length < 32 && <button type="button" className="recipe-add" onClick={() => setGroupSummary((current) => ({ ...current, aggregations: [...current.aggregations, { column: "", operation: "count" }] }))}>+ Añadir agregación</button>}
+          </>}
+          <p className="recipe-hint">Los grupos null forman un grupo propio. Contar filas incluye null; contar únicos excluye null. Se conserva el orden de primera aparición y el resumen reemplaza la granularidad actual.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Normalizar datos de contacto</legend>
+          {contacts.map((contact, index) => <div className="recipe-row" key={`contact-${index}`}><label><span>Columna de texto</span><select aria-label={`Columna de contacto ${index + 1}`} value={contact.column} onChange={(event) => setContacts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label><label><span>Regla</span><select aria-label={`Regla de contacto ${index + 1}`} value={contact.kind} onChange={(event) => setContacts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, kind: event.target.value as ContactDraft["kind"] } : item))}><option value="email">Email: recortar y minúsculas</option><option value="phone">Teléfono: + opcional y dígitos ASCII</option><option value="address">Dirección: compactar espacios</option></select></label><button type="button" aria-label={`Quitar contacto ${index + 1}`} onClick={() => setContacts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}
+          {contacts.length < 16 && <button type="button" className="recipe-add" onClick={() => setContacts((current) => [...current, { column: "", kind: "email" }])}>+ Añadir contacto</button>}
+          <p className="recipe-hint">Email recorta y pasa a minúsculas; teléfono conserva un + inicial opcional y dígitos ASCII; dirección compacta espacios sin aplicar título.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Extraer texto</legend>
+          {extractions.map((extraction, index) => <div className="recipe-row recipe-row--date" key={`extraction-${index}`}><label><span>Origen</span><select aria-label={`Columna de extracción ${index + 1}`} value={extraction.source} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, source: event.target.value } : item))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label><label><span>Extracción</span><select aria-label={`Regla de extracción ${index + 1}`} value={extraction.kind} onChange={(event) => { const kind = event.target.value as ExtractionDraft["kind"]; setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, kind, delimiter: ["before", "after"].includes(kind) ? "" : null } : item)); }}><option value="first_token">Primer token</option><option value="last_token">Último token</option><option value="digits">Dígitos</option><option value="letters">Letras</option><option value="before">Antes de delimitador</option><option value="after">Después de delimitador</option></select></label><label><span>Nombre nuevo</span><input aria-label={`Nombre de extracción ${index + 1}`} value={extraction.name} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} /></label>{["before", "after"].includes(extraction.kind) && <label><span>Delimitador literal</span><input aria-label={`Delimitador de extracción ${index + 1}`} value={extraction.delimiter ?? ""} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, delimiter: event.target.value } : item))} /></label>}<button type="button" aria-label={`Quitar extracción ${index + 1}`} onClick={() => setExtractions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}
+          {extractions.length < 16 && <button type="button" className="recipe-add" disabled={groupEnabled} onClick={() => setExtractions((current) => [...current, { source: "", kind: "first_token", name: "", delimiter: null }])}>+ Añadir extracción</button>}
+          <p className="recipe-hint">Las extracciones crean columnas nuevas desde entradas originales. Antes/después requiere delimitador literal no vacío; se permiten espacios.</p>
+          {groupEnabled && <p className="recipe-error">Las extracciones no son compatibles con un resumen agrupado en la misma receta; las normalizaciones de contacto sí.</p>}
+        </fieldset>
       </div>
 
       {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
@@ -1537,6 +1625,10 @@ function TransformRecipeEditor({
       {outlierDuplicate && <p className="recipe-error" role="alert">Outliers: configura una sola acción por columna.</p>}
       {outlierDependencyInvalid && <p className="recipe-error" role="alert">Outliers: conserva cada columna objetivo y no la elimines como fuente antes del tratamiento.</p>}
       {outlierInvalid && !outlierDuplicate && !outlierDependencyInvalid && <p className="recipe-error" role="alert">Outliers: selecciona únicamente columnas numéricas elegibles.</p>}
+      {groupInvalid && <p className="recipe-error" role="alert">Resumen: elige entre 1 y 8 claves, agrega al menos una operación, evita pares o salidas duplicadas y conserva todas las columnas utilizadas.</p>}
+      {contactDuplicate && <p className="recipe-error" role="alert">Contactos: configura una sola regla por columna.</p>}
+      {contactInvalid && !contactDuplicate && <p className="recipe-error" role="alert">Contactos: usa columnas de texto que sobrevivan a la receta.</p>}
+      {extractionInvalid && <p className="recipe-error" role="alert">Extracciones: completa entradas y nombres únicos sin colisiones, conserva sus fuentes y no las combines con un resumen.</p>}
       <div className="transform-recipe__footer">
         <p>
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;
@@ -1556,6 +1648,8 @@ function TransformRecipeEditor({
               {(pendingConfirmation.keepColumns !== null || pendingConfirmation.splitColumn?.dropSource || pendingConfirmation.mergeColumns?.dropSources) && <> En total se eliminarán {new Set([...(pendingConfirmation.keepColumns ? dataset.columns.map((column) => column.name).filter((name) => !pendingConfirmation.keepColumns?.includes(name)) : []), ...(pendingConfirmation.splitColumn?.dropSource ? [pendingConfirmation.splitColumn.source] : []), ...(pendingConfirmation.mergeColumns?.dropSources ? pendingConfirmation.mergeColumns.sources : [])]).size} columnas originales, sin contar dos veces las fuentes compartidas.</>}
               {pendingConfirmation.outlierTreatments.some((item) => item.action === "cap") && <> Se limitarán valores atípicos en {pendingConfirmation.outlierTreatments.filter((item) => item.action === "cap").length} columnas.</>}
               {pendingConfirmation.outlierTreatments.some((item) => item.action === "drop") && <> Se podrán eliminar filas atípicas detectadas en {pendingConfirmation.outlierTreatments.filter((item) => item.action === "drop").length} columnas.</>}
+              {pendingConfirmation.groupSummary && <> El dataset será reemplazado por un resumen de {pendingConfirmation.groupSummary.groupBy.length} claves y {pendingConfirmation.groupSummary.aggregations.length} agregaciones sobre {dataset.rowCount.toLocaleString()} filas actuales.</>}
+              {pendingConfirmation.contactNormalizations.length > 0 && <> Se normalizarán valores de contacto en {pendingConfirmation.contactNormalizations.length} columnas.</>}
             </p>
             <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" onClick={() => { const recipe = pendingConfirmation; setPendingConfirmation(null); onApply(recipe); }}>Confirmar y aplicar</button></div>
           </section>
@@ -1903,7 +1997,7 @@ function HistoryBar({
   onUndo,
   onRedo,
 }: {
-  status: HistoryStatus;
+  status: HistoryState;
   busy: boolean;
   onUndo: () => void;
   onRedo: () => void;
@@ -1913,16 +2007,30 @@ function HistoryBar({
       <div>
         <strong>Continuidad de trabajo</strong>
         <small>
-          {status.canUndo || status.canRedo
-            ? "Columnia conserva una revisión reversible de esta sesión."
-            : "Todavía no hay cambios para deshacer o rehacer."}
+          {status.snapshotsEnabled
+            ? status.entryCount > 0
+              ? `Etapa actual: ${status.entries.find((entry) => entry.isCurrent)?.label ?? "Dataset cargado"} · ${status.currentIndex + 1} de ${status.entryCount}`
+              : "Todavía no hay etapas guardadas."
+            : status.degradedReason ?? "El historial reversible no está disponible."}
         </small>
+        {status.entries.length > 0 && (
+          <details className="history-details">
+            <summary>Ver etapas ({status.entryCount})</summary>
+            <ol>
+              {status.entries.slice(-12).map((entry) => (
+                <li key={entry.index} aria-current={entry.isCurrent ? "step" : undefined}>
+                  <span>{entry.label}</span>{entry.isCurrent && <strong>Actual</strong>}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
       </div>
       <div className="history-actions">
-        <button type="button" onClick={onUndo} disabled={busy || !status.canUndo}>
+        <button type="button" onClick={onUndo} disabled={busy || !status.snapshotsEnabled || !status.canUndo}>
           Deshacer
         </button>
-        <button type="button" onClick={onRedo} disabled={busy || !status.canRedo}>
+        <button type="button" onClick={onRedo} disabled={busy || !status.snapshotsEnabled || !status.canRedo}>
           Rehacer
         </button>
       </div>

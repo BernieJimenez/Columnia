@@ -9,6 +9,7 @@ import {
   getAppInfo,
   getDatasetPage,
   getDatasetProfile,
+  getHistoryState,
   normalizeColumnNames,
   normalizeTextValues,
   discardDatasetSelection,
@@ -171,6 +172,9 @@ describe("desktop bridge", () => {
       splitColumn: { source: "estado", delimiter: "-", names: ["estado", "detalle"], dropSource: true },
       mergeColumns: { sources: ["nombre", "apellido"], name: "nombre_completo", separator: " ", dropSources: false },
       outlierTreatments: [{ column: "total", action: "cap" }],
+      groupSummary: { groupBy: ["estado"], aggregations: [{ column: "total", operation: "sum" }] },
+      contactNormalizations: [{ column: "correo", kind: "email" }],
+      textExtractions: [{ source: "nombre", kind: "first_token", name: "primer_nombre", delimiter: null }],
     };
 
     await applyTransformRecipe(recipe);
@@ -185,6 +189,12 @@ describe("desktop bridge", () => {
     await cancelOperation("profile");
 
     expect(invoke).toHaveBeenCalledWith("cancel_operation", { operation: "profile" });
+  });
+
+  it("consulta el historial real mantenido por Rust", async () => {
+    vi.mocked(invoke).mockResolvedValue({ canUndo: true, canRedo: false, currentIndex: 1 });
+    await getHistoryState();
+    expect(invoke).toHaveBeenCalledWith("get_history_state");
   });
 
   it("exporta mediante selector nativo sin recibir una ruta de React", async () => {

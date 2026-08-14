@@ -55,6 +55,13 @@ button, input, select, textarea { font: inherit; }
 .history-actions { display: flex; flex: 0 0 auto; gap: 8px; }
 .history-actions button { padding: 7px 11px; border: 1px solid #126d68; border-radius: 4px; background: transparent; color: #126d68; font-size: .78rem; font-weight: 750; cursor: pointer; }
 .history-actions button:disabled { cursor: not-allowed; opacity: .4; }
+.history-details { margin-top: 7px; color: #627770; font-size: .75rem; }
+.history-details summary { cursor: pointer; font-weight: 750; }
+.history-details ol { display: grid; gap: 4px; max-height: 180px; margin: 7px 0 0; padding-left: 20px; overflow: auto; }
+.history-details li { padding: 3px 5px; }
+.history-details li[aria-current="step"] { color: #126d68; background: #e3f0ec; }
+.history-details li span { margin-right: 8px; }
+.history-details li strong { font-size: .66rem; text-transform: uppercase; }
 .recommended-batch { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 16px; padding: 18px 20px; border: 1px solid #79aaa1; background: #e8f4f0; }
 .recommended-batch h3 { margin: 5px 0 0; font-size: 1.15rem; }
 .recommended-batch p:last-child { margin: 7px 0 0; color: #526c68; }
@@ -94,6 +101,7 @@ button, input, select, textarea { font: inherit; }
 .calculation-grid input, .calculation-grid select { min-width: 0; width: 100%; padding: 8px 9px; border: 1px solid #afc2bd; border-radius: 3px; background: white; color: #18343a; }
 .keep-columns { display: flex; flex-wrap: wrap; gap: 7px; }
 .keep-columns label { display: flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 3px; background: #eef4f1; font-size: .8rem; }
+.recipe-output { align-self: center; overflow: hidden; color: #627770; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .workspace__intro { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
 .workspace h2 { margin: 7px 0 7px; font-size: clamp(1.65rem, 3vw, 2.6rem); letter-spacing: -.035em; }
 .workspace__intro p:last-child { margin: 0; color: #587078; }
@@ -226,6 +234,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .history-bar { border-color: #426067; background: #214249; }
   .history-bar small { color: #afc2bd; }
   .history-actions button { border-color: #7bd2c8; color: #7bd2c8; }
+  .history-details { color: #afc2bd; }
+  .history-details li[aria-current="step"] { color: #7bd2c8; background: #183b41; }
   .recommended-batch { border-color: #527e76; background: #21463f; }
   .recommended-batch p:last-child { color: #c6d8d4; }
   .text-cleaning-options fieldset { border-color: #426067; }

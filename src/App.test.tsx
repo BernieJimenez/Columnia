@@ -3,7 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import * as bridge from "./bridge";
-import type { DatasetPreview, DatasetProfile } from "./bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState } from "./bridge";
+
+function historyState(overrides: Partial<HistoryState> = {}): HistoryState {
+  return {
+    canUndo: true, canRedo: false, currentIndex: 1, entryCount: 2,
+    entries: [{ index: 0, label: "Dataset cargado", isCurrent: false }, { index: 1, label: "Cambio", isCurrent: true }],
+    snapshotsEnabled: true, degradedReason: null, maxEntries: 12, diskBytes: 100,
+    diskBudgetBytes: 1024, ...overrides,
+  };
+}
 
 afterEach(() => {
   cleanup();
@@ -15,6 +24,7 @@ async function openQualityAndAnalyze() {
 }
 
 function mockDatasetLoad(dataset: DatasetPreview) {
+  vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
   vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
     selectionId: "selection-test",
     fileName: dataset.fileName,
@@ -474,8 +484,8 @@ describe("App", () => {
         columns: [{ name: "temperature", dataType: "Int64" }],
         rows: [["30"], [null], ["28"]],
       },
-      canUndo: false,
-      canRedo: true,
+      history: historyState({ canUndo: false, canRedo: true, currentIndex: 0 }),
+      message: "Se deshizo el último cambio.",
     });
     const redoSpy = vi.spyOn(bridge, "redoLastChange").mockResolvedValue({
       dataset: {
@@ -486,8 +496,8 @@ describe("App", () => {
         columns: [{ name: "temperature", dataType: "Int64" }],
         rows: [["30"], ["28"]],
       },
-      canUndo: true,
-      canRedo: false,
+      history: historyState({ canUndo: true, canRedo: false, currentIndex: 1 }),
+      message: "Se rehízo el último cambio.",
     });
 
     render(<App />);
@@ -759,6 +769,8 @@ describe("App", () => {
       droppedColumnCount: 0,
       splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
       adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,
+      groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
+      normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
     });
 
     render(<App />);
@@ -803,6 +815,8 @@ describe("App", () => {
       splitColumn: null,
       mergeColumns: null,
       outlierTreatments: [],
+      groupSummary: null,
+      contactNormalizations: [], textExtractions: [],
     });
     expect(await screen.findByText(/Receta aplicada: 1 renombres, 1 conversiones, 1 fechas interpretadas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
@@ -824,6 +838,8 @@ describe("App", () => {
       replacedCellCount: 0, droppedColumnCount: 0,
       splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
       adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,
+      groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
+      normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -873,6 +889,8 @@ describe("App", () => {
       splitColumn: { source: "estado", delimiter: "-", names: ["estado_base", "zona"], dropSource: false },
       mergeColumns: { sources: ["estado", "categoria"], name: "estado_categoria", separator: "", dropSources: true },
       outlierTreatments: [],
+      groupSummary: null,
+      contactNormalizations: [], textExtractions: [],
     }));
   });
 
@@ -959,6 +977,7 @@ describe("App", () => {
       columns: [{ name: "valor", dataType: "Float64" }], rows: [["1"], ["2"], ["3"], ["4"]],
     };
     mockDatasetLoad(original);
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({ canUndo: false, canRedo: false, currentIndex: 0, entryCount: 1, entries: [{ index: 0, label: "Dataset cargado", isCurrent: true }] }));
     vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset: original,
       renamedColumnCount: 0, convertedColumnCount: 0, parsedDateColumnCount: 0,
@@ -966,6 +985,8 @@ describe("App", () => {
       droppedColumnCount: 0, splitColumnCount: 0, mergedColumnCount: 0,
       droppedSourceColumnCount: 0, adjustedOutlierCellCount: 0,
       outlierRemovedRowCount: 0, outlierColumnCount: 1,
+      groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
+      normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
@@ -979,5 +1000,107 @@ describe("App", () => {
 
     expect(await screen.findByText("La receta no produjo cambios en el dataset.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
+  });
+
+  it("confirma y aplica un resumen agrupado respetando tipos efectivos", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.20.0", platform: "windows" });
+    const original: DatasetPreview = {
+      fileName: "ventas.csv", fileSizeBytes: 120, rowCount: 6, columnCount: 3,
+      columns: [{ name: "region", dataType: "String" }, { name: "importe", dataType: "String" }, { name: "nota", dataType: "String" }], rows: [["Norte", "10", "A"]],
+    };
+    mockDatasetLoad(original);
+    const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
+      dataset: { ...original, rowCount: 2, columnCount: 3 }, renamedColumnCount: 0,
+      convertedColumnCount: 1, parsedDateColumnCount: 0, removedRowCount: 0,
+      calculatedColumnCount: 0, replacedCellCount: 0, droppedColumnCount: 0,
+      splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
+      adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,
+      groupCount: 2, aggregatedColumnCount: 2, collapsedRowCount: 4,
+      normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "importe" } });
+    fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Reemplazar el dataset por un resumen" }));
+    const keys = screen.getByRole("group", { name: "Columnas para agrupar" });
+    fireEvent.click(within(keys).getByRole("checkbox", { name: "region" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir agregación" }));
+    fireEvent.change(screen.getByLabelText("Columna de agregación 1"), { target: { value: "importe" } });
+    expect(within(screen.getByLabelText("Operación de agregación 1")).getByRole("option", { name: "Suma" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Operación de agregación 1"), { target: { value: "sum" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir agregación" }));
+    fireEvent.change(screen.getByLabelText("Columna de agregación 2"), { target: { value: "nota" } });
+    fireEvent.change(screen.getByLabelText("Operación de agregación 2"), { target: { value: "count_unique" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
+    expect(within(dialog).getByText(/resumen de 1 claves y 2 agregaciones sobre 6 filas/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(applySpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ groupSummary: { groupBy: ["region"], aggregations: [{ column: "importe", operation: "sum" }, { column: "nota", operation: "count_unique" }] } }));
+    expect(await screen.findByText(/resumen de 2 grupos con 2 agregaciones/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+  });
+
+  it("combina contacto y extracción textual con tipos efectivos", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.21.0", platform: "windows" });
+    const original: DatasetPreview = { fileName: "clientes.csv", fileSizeBytes: 80, rowCount: 2, columnCount: 2, columns: [{ name: "correo", dataType: "String" }, { name: "codigo", dataType: "Int64" }], rows: [[" A@B.COM ", "12-34"]] };
+    mockDatasetLoad(original);
+    const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
+      dataset: { ...original, columnCount: 3 }, renamedColumnCount: 0, convertedColumnCount: 1,
+      parsedDateColumnCount: 0, removedRowCount: 0, calculatedColumnCount: 0, replacedCellCount: 0,
+      droppedColumnCount: 0, splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
+      adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,
+      groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
+      normalizedContactCellCount: 1, normalizedContactColumnCount: 1, extractedColumnCount: 1,
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "codigo" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir contacto" }));
+    fireEvent.change(screen.getByLabelText("Columna de contacto 1"), { target: { value: "correo" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir extracción" }));
+    const source = screen.getByLabelText("Columna de extracción 1");
+    expect(within(source).getByRole("option", { name: "codigo" })).toBeInTheDocument();
+    fireEvent.change(source, { target: { value: "codigo" } });
+    fireEvent.change(screen.getByLabelText("Regla de extracción 1"), { target: { value: "before" } });
+    fireEvent.change(screen.getByLabelText("Nombre de extracción 1"), { target: { value: "prefijo" } });
+    fireEvent.change(screen.getByLabelText("Delimitador de extracción 1"), { target: { value: "-" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
+    expect(within(dialog).getByText(/normalizarán valores de contacto en 1 columnas/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(applySpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ contactNormalizations: [{ column: "correo", kind: "email" }], textExtractions: [{ source: "codigo", kind: "before", name: "prefijo", delimiter: "-" }] }));
+    expect(await screen.findByText(/1 contactos normalizados en 1 columnas, 1 columnas extraídas/)).toBeInTheDocument();
+  });
+
+  it("muestra el estado degradado del historial entregado por Rust", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.22.0", platform: "windows" });
+    const dataset: DatasetPreview = { fileName: "sin-snapshots.csv", fileSizeBytes: 20, rowCount: 1, columnCount: 1, columns: [{ name: "valor", dataType: "String" }], rows: [["A"]] };
+    mockDatasetLoad(dataset);
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({
+      canUndo: false, canRedo: false, snapshotsEnabled: false,
+      degradedReason: "No hay espacio disponible para snapshots.", currentIndex: 0,
+      entryCount: 1, entries: [{ index: 0, label: "Dataset cargado", isCurrent: true }],
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    expect(screen.getByText("No hay espacio disponible para snapshots.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
+    expect(screen.getByText("Ver etapas (1)")).toBeInTheDocument();
   });
 });
