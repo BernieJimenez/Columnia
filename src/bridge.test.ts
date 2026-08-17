@@ -21,6 +21,8 @@ import {
   saveTransformRecipe,
   trimTextValues,
   undoLastChange,
+  validateQualityRules,
+  type QualityRule,
   type TransformRecipe,
 } from "./bridge";
 
@@ -232,14 +234,33 @@ describe("desktop bridge", () => {
       format: "Parquet",
     });
 
-    await expect(exportDataset("parquet")).resolves.toEqual({
+    const qualityRules: QualityRule[] = [{ column: "total", kind: "not_null", maxInvalid: 0 }];
+    await expect(exportDataset("parquet", qualityRules, false)).resolves.toEqual({
       fileName: "datos-columnia.parquet",
       fileSizeBytes: 512,
       format: "Parquet",
     });
     expect(invoke).toHaveBeenCalledWith("export_dataset", {
       format: "parquet",
+      qualityRules,
+      allowUnvalidated: false,
       onProgress: expect.any(Channel),
     });
+  });
+
+  it("valida reglas sin enviar muestras ni valores al backend", async () => {
+    const qualityRules: QualityRule[] = [
+      { column: "total", kind: "numeric_range", maxInvalidPct: 1.5, min: 0, max: 1000 },
+    ];
+    vi.mocked(invoke).mockResolvedValue({
+      passed: true, rowCount: 20, totalRules: 1, failedRules: 0,
+      rules: [{ ...qualityRules[0], checkedCount: 20, invalidCount: 0, invalidPct: 0, passed: true }],
+    });
+
+    await validateQualityRules(qualityRules);
+
+    expect(invoke).toHaveBeenCalledWith("validate_quality_rules", { qualityRules });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("rows");
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
   });
 });

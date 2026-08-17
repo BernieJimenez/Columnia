@@ -151,6 +151,24 @@ button, input, select, textarea { font: inherit; }
 .export-actions { display: flex; flex: 0 0 auto; gap: 8px; }
 .export-actions button { padding: 8px 11px; border: 1px solid #126d68; border-radius: 4px; background: transparent; color: #126d68; font-size: .8rem; font-weight: 750; cursor: pointer; }
 .export-actions button:disabled { cursor: wait; opacity: .48; }
+.quality-contract { margin-bottom: 18px; padding: 16px; border: 1px solid #ced9d5; background: #f8faf9; }
+.quality-contract__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.quality-contract__header h3 { margin: 4px 0; font-size: 1rem; }
+.quality-contract__header p:last-child, .quality-contract__unvalidated p { margin: 5px 0 0; color: #627770; font-size: .8rem; }
+.quality-contract__toggle, .quality-contract__unvalidated label { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 700; }
+.quality-rules { display: grid; gap: 8px; margin-top: 14px; }
+.quality-rule { display: grid; grid-template-columns: minmax(130px, 1.2fr) minmax(130px, 1fr) minmax(140px, 1fr) minmax(120px, .8fr) repeat(2, minmax(100px, .7fr)) auto; align-items: end; gap: 8px; margin: 0; padding: 10px; border: 1px solid #ced9d5; }
+.quality-rule legend { padding: 0 4px; color: #627770; font-size: .72rem; font-weight: 800; }
+.quality-rule label { display: grid; gap: 4px; color: #526b65; font-size: .7rem; font-weight: 750; }
+.quality-rule select, .quality-rule input { min-width: 0; padding: 7px 8px; border: 1px solid #aebfba; border-radius: 3px; background: #fff; color: #173f45; }
+.quality-rule__remove, .quality-contract__actions button { padding: 7px 10px; border: 1px solid #126d68; border-radius: 4px; background: transparent; color: #126d68; font-weight: 750; cursor: pointer; }
+.quality-rule__remove { border-color: #a6574f; color: #93473f; }
+.quality-contract__actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.quality-contract__actions span { margin-left: auto; color: #627770; font-size: .75rem; }
+.quality-contract__unvalidated { display: grid; gap: 8px; margin-top: 14px; padding: 12px; border-left: 3px solid #bd7621; background: #fff7e9; }
+.quality-gate { display: grid; gap: 4px; margin-top: 12px; padding: 11px 13px; border-left: 3px solid #a6574f; background: #fff1ef; font-size: .8rem; }
+.quality-gate--passed { border-color: #27816f; background: #edf8f3; }
+.quality-gate ul { margin: 4px 0 0; padding-left: 18px; }
 .table-region { max-height: 53vh; overflow: auto; border: 1px solid #b8c9c4; background: white; }
 table { width: 100%; border-collapse: collapse; font-size: .88rem; }
 th, td { min-width: 140px; padding: 10px 12px; border-right: 1px solid #dce4e1; border-bottom: 1px solid #dce4e1; text-align: left; white-space: nowrap; }
@@ -212,6 +230,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .quality-summary { grid-template-columns: 1fr; }
   .export-panel { align-items: stretch; flex-direction: column; }
   .export-actions button { flex: 1; }
+  .quality-contract__header { flex-direction: column; }
+  .quality-rule { grid-template-columns: 1fr 1fr; }
   .change-feedback { align-items: stretch; flex-direction: column; }
   .recipe-row, .recipe-row--date { grid-template-columns: 1fr; }
   .recipe-files { grid-template-columns: 1fr; }
@@ -271,6 +291,15 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .export-panel { border-color: #426067; background: #1d3b41; }
   .export-panel p:last-child { color: #b6c9c7; }
   .export-actions button { border-color: #7bd2c8; color: #7bd2c8; }
+  .quality-contract { border-color: #426067; background: #19363c; }
+  .quality-contract__header p:last-child, .quality-contract__unvalidated p { color: #b6c9c7; }
+  .quality-rule { border-color: #426067; }
+  .quality-rule legend, .quality-rule label, .quality-contract__actions span { color: #afc2bd; }
+  .quality-rule select, .quality-rule input { border-color: #526f75; background: #102c32; color: #e4eeeb; }
+  .quality-rule__remove, .quality-contract__actions button { border-color: #7bd2c8; color: #7bd2c8; }
+  .quality-contract__unvalidated { background: #3c321f; }
+  .quality-gate { background: #452d2b; }
+  .quality-gate--passed { background: #173e37; }
   .table-region { border-color: #426067; background: #17343a; }
   th { background: #23474e; color: #edf5f2; }
   th, td { border-color: #38575d; }

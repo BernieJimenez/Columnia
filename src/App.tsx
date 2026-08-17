@@ -20,6 +20,7 @@ import {
   saveTransformRecipe,
   trimTextValues,
   undoLastChange,
+  validateQualityRules,
   type AppInfo,
   type CancellableOperation,
   type DatasetPreview,
@@ -28,6 +29,9 @@ import {
   type ExportFormat,
   type ExportResult,
   type OperationProgress,
+  type QualityRule,
+  type QualityRuleKind,
+  type QualityValidationResult,
   type HistoryState,
   type LoadedRecipe,
   type SpreadsheetHeaderMode,
@@ -103,6 +107,13 @@ type ExportStatus =
   | { kind: "success"; result: ExportResult }
   | { kind: "error"; message: string };
 
+type QualityGateStatus =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; result: QualityValidationResult }
+  | { kind: "stale"; result: QualityValidationResult }
+  | { kind: "error"; message: string };
+
 const phases = [
   { id: "load", number: "01", label: "Cargar", description: "Elegir una fuente local" },
   { id: "review", number: "02", label: "Revisar", description: "Entender señales y calidad" },
@@ -134,6 +145,9 @@ export function App() {
   const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
   const [historyStatus, setHistoryStatus] = useState<HistoryState>(EMPTY_HISTORY);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle" });
+  const [qualityRules, setQualityRules] = useState<QualityRule[]>([]);
+  const [qualityGateStatus, setQualityGateStatus] = useState<QualityGateStatus>({ kind: "idle" });
+  const [allowUnvalidatedExport, setAllowUnvalidatedExport] = useState(false);
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [sheetSelection, setSheetSelection] = useState<DatasetSourceInspection | null>(null);
@@ -141,6 +155,24 @@ export function App() {
   const [spreadsheetHeaderMode, setSpreadsheetHeaderMode] = useState<SpreadsheetHeaderMode>("firstRow");
   const [importError, setImportError] = useState<string | null>(null);
   const [importInspecting, setImportInspecting] = useState(false);
+  const deliveryDatasetFingerprint = datasetStatus.kind === "ready"
+    ? JSON.stringify({
+        fileName: datasetStatus.dataset.fileName,
+        rowCount: datasetStatus.dataset.rowCount,
+        columns: datasetStatus.dataset.columns,
+        rows: datasetStatus.dataset.rows,
+      })
+    : null;
+  const previousDeliveryFingerprint = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (deliveryDatasetFingerprint === null) return;
+    if (previousDeliveryFingerprint.current !== null &&
+        previousDeliveryFingerprint.current !== deliveryDatasetFingerprint) {
+      invalidateDeliveryGate();
+    }
+    previousDeliveryFingerprint.current = deliveryDatasetFingerprint;
+  }, [deliveryDatasetFingerprint]);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -173,6 +205,14 @@ export function App() {
     }
   }
 
+  function invalidateDeliveryGate() {
+    setQualityGateStatus((current) => current.kind === "ready" || current.kind === "stale"
+      ? { kind: "stale", result: current.result }
+      : { kind: "idle" });
+    setAllowUnvalidatedExport(false);
+    setExportStatus({ kind: "idle" });
+  }
+
   async function loadSelection(
     source: DatasetSourceInspection,
     sheetId: string | null,
@@ -197,6 +237,7 @@ export function App() {
       setProfileStatus({ kind: "idle" });
       setChangeStatus({ kind: "idle" });
       await refreshHistory();
+      invalidateDeliveryGate();
       setExportStatus({ kind: "idle" });
       setReviewTab("diagnosis");
       setActivePhase("review");
@@ -262,6 +303,7 @@ export function App() {
         message: `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas adicionales.`,
       });
       await refreshHistory();
+      invalidateDeliveryGate();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -291,6 +333,7 @@ export function App() {
               : `Se normalizaron ${result.renamedColumnCount.toLocaleString()} nombres de columnas.`,
       });
       await refreshHistory();
+      invalidateDeliveryGate();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -332,6 +375,7 @@ export function App() {
               : `Se normalizó texto en ${detail}.`,
       });
       await refreshHistory();
+      invalidateDeliveryGate();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -367,6 +411,7 @@ export function App() {
           : "El dataset ya cumplía las correcciones recomendadas.",
       });
       await refreshHistory();
+      invalidateDeliveryGate();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -411,6 +456,7 @@ export function App() {
             : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.outlierRemovedRowCount.toLocaleString()} filas atípicas eliminadas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas, ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas, ${result.adjustedOutlierCellCount.toLocaleString()} outliers ajustados, ${result.normalizedContactCellCount.toLocaleString()} contactos normalizados en ${result.normalizedContactColumnCount.toLocaleString()} columnas, ${result.extractedColumnCount.toLocaleString()} columnas extraídas y resumen de ${result.groupCount.toLocaleString()} grupos con ${result.aggregatedColumnCount.toLocaleString()} agregaciones.`,
       });
       await refreshHistory();
+      invalidateDeliveryGate();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setChangeStatus({ kind: "error", message });
@@ -426,6 +472,7 @@ export function App() {
       setDatasetStatus({ kind: "ready", dataset: result.dataset, pageOffset: 0, pageLoading: false });
       setProfileStatus({ kind: "idle" });
       setHistoryStatus(result.history);
+      invalidateDeliveryGate();
       setChangeStatus({ kind: "applied", message: result.message });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -442,6 +489,7 @@ export function App() {
       setDatasetStatus({ kind: "ready", dataset: result.dataset, pageOffset: 0, pageLoading: false });
       setProfileStatus({ kind: "idle" });
       setHistoryStatus(result.history);
+      invalidateDeliveryGate();
       setChangeStatus({ kind: "applied", message: result.message });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -501,7 +549,11 @@ export function App() {
     }
   }
 
-  async function exportActiveDataset(format: ExportFormat) {
+  async function exportActiveDataset(
+    format: ExportFormat,
+    rules: QualityRule[],
+    allowUnvalidated: boolean,
+  ) {
     if (datasetStatus.kind !== "ready") return;
     setExportStatus({
       kind: "loading",
@@ -510,7 +562,7 @@ export function App() {
       cancelRequested: false,
     });
     try {
-      const result = await exportDataset(format, (progress) => {
+      const result = await exportDataset(format, rules, allowUnvalidated, (progress) => {
         setExportStatus((current) =>
           current.kind === "loading" ? { ...current, progress } : current,
         );
@@ -555,6 +607,7 @@ export function App() {
     datasetStatus.kind === "loading" ||
     profileStatus.kind === "loading" ||
     changeStatus.kind === "working" ||
+    qualityGateStatus.kind === "loading" ||
     exportStatus.kind === "loading";
   const activePhaseMeta = phases.find((phase) => phase.id === activePhase) ?? phases[0];
 
@@ -674,6 +727,19 @@ export function App() {
             <DeliverPhase
               dataset={readyDataset.dataset}
               exportStatus={exportStatus}
+              qualityRules={qualityRules}
+              qualityGateStatus={qualityGateStatus}
+              allowUnvalidatedExport={allowUnvalidatedExport}
+              onRulesChange={(rules) => {
+                setQualityRules(rules);
+                setQualityGateStatus((current) => current.kind === "ready" || current.kind === "stale"
+                  ? { kind: "stale", result: current.result }
+                  : { kind: "idle" });
+                setAllowUnvalidatedExport(false);
+                setExportStatus({ kind: "idle" });
+              }}
+              onGateStatusChange={setQualityGateStatus}
+              onAllowUnvalidatedChange={setAllowUnvalidatedExport}
               onExport={exportActiveDataset}
               onCancel={() => cancelActiveOperation("export")}
             />
@@ -1786,14 +1852,60 @@ function TransformRecipeEditor({
 function DeliverPhase({
   dataset,
   exportStatus,
+  qualityRules,
+  qualityGateStatus,
+  allowUnvalidatedExport,
+  onRulesChange,
+  onGateStatusChange,
+  onAllowUnvalidatedChange,
   onExport,
   onCancel,
 }: {
   dataset: DatasetPreview;
   exportStatus: ExportStatus;
-  onExport: (format: ExportFormat) => void;
+  qualityRules: QualityRule[];
+  qualityGateStatus: QualityGateStatus;
+  allowUnvalidatedExport: boolean;
+  onRulesChange: (rules: QualityRule[]) => void;
+  onGateStatusChange: (status: QualityGateStatus) => void;
+  onAllowUnvalidatedChange: (allowed: boolean) => void;
+  onExport: (format: ExportFormat, rules: QualityRule[], allowUnvalidated: boolean) => void;
   onCancel: () => void;
 }) {
+  const contractEnabled = qualityRules.length > 0;
+  const validationError = validateQualityRuleDraft(qualityRules, dataset);
+  const gatePassed = qualityGateStatus.kind === "ready" && qualityGateStatus.result.passed;
+  const exportAllowed = contractEnabled ? gatePassed : allowUnvalidatedExport;
+  const busy = exportStatus.kind === "loading" || qualityGateStatus.kind === "loading";
+
+  function addRule() {
+    if (qualityRules.length >= 16 || dataset.columns.length === 0) return;
+    onRulesChange([...qualityRules, {
+      column: dataset.columns[0].name,
+      kind: "not_null",
+      maxInvalid: 0,
+    }]);
+  }
+
+  function updateRule(index: number, update: Partial<QualityRule>) {
+    onRulesChange(qualityRules.map((rule, ruleIndex) =>
+      ruleIndex === index ? { ...rule, ...update } : rule));
+  }
+
+  async function runQualityGate() {
+    if (validationError || qualityRules.length === 0) return;
+    onGateStatusChange({ kind: "loading" });
+    try {
+      const result = await validateQualityRules(qualityRules);
+      onGateStatusChange({ kind: "ready", result });
+    } catch (error: unknown) {
+      onGateStatusChange({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   return (
     <>
       <header className="phase-header phase-header--compact">
@@ -1804,6 +1916,126 @@ function DeliverPhase({
         </div>
       </header>
       <DatasetMetrics dataset={dataset} />
+      <section className="quality-contract" aria-labelledby="quality-contract-title">
+        <div className="quality-contract__header">
+          <div>
+            <p className="step">Control de entrega</p>
+            <h3 id="quality-contract-title">Contrato de calidad</h3>
+            <p>Define hasta 16 comprobaciones locales. Los resultados solo muestran conteos.</p>
+          </div>
+          <label className="quality-contract__toggle">
+            <input
+              type="checkbox"
+              checked={contractEnabled}
+              disabled={busy || dataset.columns.length === 0}
+              onChange={(event) => event.target.checked ? addRule() : onRulesChange([])}
+            />
+            Validar antes de exportar
+          </label>
+        </div>
+
+        {contractEnabled ? (
+          <>
+            <div className="quality-rules">
+              {qualityRules.map((rule, index) => {
+                const percentageTolerance = rule.maxInvalidPct !== undefined;
+                return (
+                  <fieldset className="quality-rule" key={index} disabled={busy}>
+                    <legend>Regla {index + 1}</legend>
+                    <label>Columna
+                      <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
+                        onChange={(event) => updateRule(index, { column: event.target.value })}>
+                        {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
+                      </select>
+                    </label>
+                    <label>Comprobación
+                      <select aria-label={`Comprobación regla ${index + 1}`} value={rule.kind}
+                        onChange={(event) => {
+                          const kind = event.target.value as QualityRuleKind;
+                          updateRule(index, kind === "numeric_range"
+                            ? { kind, min: undefined, max: undefined }
+                            : { kind, min: undefined, max: undefined });
+                        }}>
+                        <option value="not_null">Sin nulos</option>
+                        <option value="non_empty">Texto no vacío</option>
+                        <option value="unique">Valores únicos</option>
+                        <option value="numeric_range">Rango numérico</option>
+                      </select>
+                    </label>
+                    <label>Tolerancia
+                      <select aria-label={`Tolerancia regla ${index + 1}`} value={percentageTolerance ? "percentage" : "count"}
+                        onChange={(event) => updateRule(index, event.target.value === "percentage"
+                          ? { maxInvalid: undefined, maxInvalidPct: 0 }
+                          : { maxInvalid: 0, maxInvalidPct: undefined })}>
+                        <option value="count">Máximo inválidos</option>
+                        <option value="percentage">Máximo porcentaje</option>
+                      </select>
+                    </label>
+                    <label>{percentageTolerance ? "Porcentaje máximo" : "Inválidos máximos"}
+                      <input type="number" min="0" max={percentageTolerance ? "100" : undefined}
+                        step={percentageTolerance ? "0.1" : "1"}
+                        aria-label={`${percentageTolerance ? "Porcentaje" : "Inválidos"} regla ${index + 1}`}
+                        value={percentageTolerance ? rule.maxInvalidPct ?? 0 : rule.maxInvalid ?? 0}
+                        onChange={(event) => updateRule(index, percentageTolerance
+                          ? { maxInvalidPct: Number(event.target.value) }
+                          : { maxInvalid: Number(event.target.value) })} />
+                    </label>
+                    {rule.kind === "numeric_range" && (
+                      <>
+                        <label>Mínimo inclusivo
+                          <input type="number" aria-label={`Mínimo regla ${index + 1}`}
+                            value={rule.min ?? ""}
+                            onChange={(event) => updateRule(index, { min: event.target.value === "" ? undefined : Number(event.target.value) })} />
+                        </label>
+                        <label>Máximo inclusivo
+                          <input type="number" aria-label={`Máximo regla ${index + 1}`}
+                            value={rule.max ?? ""}
+                            onChange={(event) => updateRule(index, { max: event.target.value === "" ? undefined : Number(event.target.value) })} />
+                        </label>
+                      </>
+                    )}
+                    <button type="button" className="quality-rule__remove" aria-label={`Eliminar regla ${index + 1}`}
+                      onClick={() => onRulesChange(qualityRules.filter((_, ruleIndex) => ruleIndex !== index))}>Eliminar</button>
+                  </fieldset>
+                );
+              })}
+            </div>
+            <div className="quality-contract__actions">
+              <button type="button" onClick={addRule} disabled={busy || qualityRules.length >= 16}>Añadir regla</button>
+              <button type="button" className="primary-action" onClick={() => void runQualityGate()}
+                disabled={busy || Boolean(validationError)}>Validar contrato</button>
+              <span>{qualityRules.length}/16 reglas</span>
+            </div>
+            {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
+          </>
+        ) : (
+          <div className="quality-contract__unvalidated">
+            <strong>Entrega no validada</strong>
+            <p>No hay reglas activas. Confirma explícitamente esta decisión para habilitar la exportación durante esta sesión.</p>
+            <label>
+              <input type="checkbox" checked={allowUnvalidatedExport} disabled={busy}
+                onChange={(event) => onAllowUnvalidatedChange(event.target.checked)} />
+              Entiendo y deseo exportar sin contrato de calidad
+            </label>
+          </div>
+        )}
+
+        {qualityGateStatus.kind === "loading" && <p className="notice" role="status">Validando contrato localmente…</p>}
+        {qualityGateStatus.kind === "error" && <p className="notice notice--error" role="alert">No se pudo validar: {qualityGateStatus.message}</p>}
+        {(qualityGateStatus.kind === "ready" || qualityGateStatus.kind === "stale") && (
+          <div className={`quality-gate quality-gate--${qualityGateStatus.result.passed ? "passed" : "failed"}`} role="status">
+            <strong>{qualityGateStatus.kind === "stale"
+              ? "Resultado desactualizado"
+              : qualityGateStatus.result.passed ? "Contrato aprobado" : "Contrato fallido"}</strong>
+            <span>{qualityGateStatus.result.failedRules} de {qualityGateStatus.result.totalRules} reglas fallaron · {qualityGateStatus.result.rowCount.toLocaleString()} filas comprobadas</span>
+            <ul>
+              {qualityGateStatus.result.rules.map((result, index) => (
+                <li key={index}>{result.column}: {result.invalidCount.toLocaleString()} inválidos ({result.invalidPct.toFixed(2)}%) · {result.passed ? "aprobada" : "fallida"}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
       <section className="export-panel" aria-labelledby="export-title">
         <div>
           <p className="step">Formato de entrega</p>
@@ -1811,10 +2043,10 @@ function DeliverPhase({
           <p>El destino solo aparece cuando el archivo está completo.</p>
         </div>
         <div className="export-actions">
-          <button type="button" onClick={() => onExport("csv")} disabled={exportStatus.kind === "loading"}>
+          <button type="button" onClick={() => onExport("csv", qualityRules, !contractEnabled && allowUnvalidatedExport)} disabled={busy || !exportAllowed}>
             Exportar CSV
           </button>
-          <button type="button" onClick={() => onExport("parquet")} disabled={exportStatus.kind === "loading"}>
+          <button type="button" onClick={() => onExport("parquet", qualityRules, !contractEnabled && allowUnvalidatedExport)} disabled={busy || !exportAllowed}>
             Exportar Parquet
           </button>
         </div>
@@ -1838,6 +2070,41 @@ function DeliverPhase({
       )}
     </>
   );
+}
+
+function validateQualityRuleDraft(rules: QualityRule[], dataset: DatasetPreview): string | null {
+  if (rules.length > 16) return "El contrato admite como máximo 16 reglas.";
+  const columns = new Set(dataset.columns.map((column) => column.name));
+  for (const [index, rule] of rules.entries()) {
+    const label = `Regla ${index + 1}`;
+    if (!columns.has(rule.column)) return `${label}: selecciona una columna existente.`;
+    const hasCount = rule.maxInvalid !== undefined;
+    const hasPercentage = rule.maxInvalidPct !== undefined;
+    if (hasCount === hasPercentage) return `${label}: activa exactamente una tolerancia.`;
+    if (hasCount && (!Number.isInteger(rule.maxInvalid) || (rule.maxInvalid ?? -1) < 0)) {
+      return `${label}: el máximo de inválidos debe ser un entero igual o mayor que cero.`;
+    }
+    if (hasPercentage && (!Number.isFinite(rule.maxInvalidPct) || (rule.maxInvalidPct ?? -1) < 0 || (rule.maxInvalidPct ?? 101) > 100)) {
+      return `${label}: el porcentaje debe estar entre 0 y 100.`;
+    }
+    if (rule.kind === "numeric_range") {
+      if (rule.min === undefined && rule.max === undefined) return `${label}: indica al menos un límite numérico.`;
+      if (rule.min !== undefined && !Number.isFinite(rule.min)) return `${label}: el mínimo debe ser finito.`;
+      if (rule.max !== undefined && !Number.isFinite(rule.max)) return `${label}: el máximo debe ser finito.`;
+      const dataType = dataset.columns.find((column) => column.name === rule.column)?.dataType.toLowerCase() ?? "";
+      if (dataType.includes("int") &&
+          ((rule.min !== undefined && !Number.isSafeInteger(rule.min)) ||
+           (rule.max !== undefined && !Number.isSafeInteger(rule.max)))) {
+        return `${label}: los límites de una columna entera deben ser enteros seguros.`;
+      }
+      if (rule.min !== undefined && rule.max !== undefined && rule.min > rule.max) {
+        return `${label}: el mínimo no puede superar el máximo.`;
+      }
+    } else if (rule.min !== undefined || rule.max !== undefined) {
+      return `${label}: los límites solo se permiten para rangos numéricos.`;
+    }
+  }
+  return null;
 }
 
 function DatasetMetrics({ dataset }: { dataset: DatasetPreview }) {

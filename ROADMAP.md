@@ -6,7 +6,7 @@
 ## Estado general
 
 - Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.23.0`.
+- Versión actual del prototipo: `0.24.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -525,6 +525,13 @@ versiones futuras. El guardado se realiza mediante un temporal sincronizado y
 reemplazo atómico. Cargar solo hidrata el editor —con confirmación si hay trabajo
 sin guardar— y nunca modifica ni ejecuta el dataset hasta que el usuario pulse
 Aplicar receta.
+La versión 0.24.0 añade contratos de calidad a Entregar. Se pueden combinar hasta
+dieciséis reglas exactas de no nulo, texto no vacío, unicidad y rango numérico,
+con tolerancia por conteo o porcentaje. La interfaz invalida resultados anteriores
+al cambiar reglas o dataset y no muestra valores sensibles. La protección también
+vive en Rust: antes de abrir el selector, la exportación vuelve a validar sobre el
+mismo snapshot que escribirá y bloquea cualquier regla fallida. Exportar sin una
+política requiere confirmación explícita y la validación respeta la cancelación.
 `tauri build --debug --no-bundle` genera correctamente
 `src-tauri/target/debug/columnia.exe`, que permanece estable durante el smoke de
 arranque. La primera compilación reveló que el
@@ -735,6 +742,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.21.0: normalización de contactos y extracción literal Unicode | Implementada |
 | 2026-08-13 | Versión 0.22.0: historial local multinivel con snapshots Parquet y presupuesto explícito | Implementada |
 | 2026-08-14 | Versión 0.23.0: recetas estructurales JSON v1 guardables y cargables localmente | Implementada |
+| 2026-08-15 | Versión 0.24.0: contratos de calidad exactos y compuerta obligatoria antes de exportar | Implementada |
 
 ## 10. Fuentes de esta revisión
 

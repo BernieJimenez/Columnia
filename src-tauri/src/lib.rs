@@ -35,6 +35,7 @@ pub fn run() {
             dataset::discard_dataset_selection,
             dataset::get_dataset_page,
             dataset::get_dataset_profile,
+            dataset::validate_quality_rules,
             dataset::cancel_operation,
             dataset::export_dataset,
             dataset::save_transform_recipe,

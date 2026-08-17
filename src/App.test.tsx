@@ -255,9 +255,11 @@ describe("App", () => {
       rows: [["100"]],
     });
     const exportSpy = vi.spyOn(bridge, "exportDataset").mockImplementation(
-      async (format, onProgress) => {
+      async (format, qualityRules, allowUnvalidated, onProgress) => {
         onProgress?.({ operation: "export", stage: "Escribiendo dataset", percent: 25 });
         expect(format).toBe("parquet");
+        expect(qualityRules).toEqual([]);
+        expect(allowUnvalidated).toBe(true);
         return {
           fileName: "ventas-columnia.parquet",
           fileSizeBytes: 2048,
@@ -271,6 +273,8 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "ventas.csv" });
     expect(screen.queryByRole("button", { name: "Exportar Parquet" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    expect(screen.getByRole("button", { name: "Exportar Parquet" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo y deseo exportar sin contrato/ }));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Parquet" }));
 
     expect(
@@ -279,6 +283,65 @@ describe("App", () => {
     expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
     expect(exportSpy).toHaveBeenCalledOnce();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("valida un contrato aprobado y envía sus reglas al exportar", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.24.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 10, columnCount: 1,
+      columns: [{ name: "total", dataType: "Int64" }], rows: [["100"]],
+    });
+    const validationSpy = vi.spyOn(bridge, "validateQualityRules").mockResolvedValue({
+      passed: true, rowCount: 10, totalRules: 1, failedRules: 0,
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0, checkedCount: 10, invalidCount: 0, invalidPct: 0, passed: true }],
+    });
+    const exportSpy = vi.spyOn(bridge, "exportDataset").mockResolvedValue(null);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Entregar" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+
+    expect(await screen.findByText("Contrato aprobado")).toBeInTheDocument();
+    expect(validationSpy).toHaveBeenCalledWith([{ column: "total", kind: "not_null", maxInvalid: 0 }]);
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(
+      "csv", [{ column: "total", kind: "not_null", maxInvalid: 0 }], false, expect.any(Function),
+    ));
+  });
+
+  it("bloquea la exportación cuando el contrato falla o cambia después de validarse", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.24.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "clientes.csv", fileSizeBytes: 128, rowCount: 4, columnCount: 1,
+      columns: [{ name: "correo", dataType: "String" }], rows: [[null]],
+    });
+    vi.spyOn(bridge, "validateQualityRules")
+      .mockResolvedValueOnce({
+        passed: false, rowCount: 4, totalRules: 1, failedRules: 1,
+        rules: [{ column: "correo", kind: "not_null", maxInvalid: 0, checkedCount: 4, invalidCount: 1, invalidPct: 25, passed: false }],
+      })
+      .mockResolvedValueOnce({
+        passed: true, rowCount: 4, totalRules: 1, failedRules: 0,
+        rules: [{ column: "correo", kind: "not_null", maxInvalid: 0, checkedCount: 4, invalidCount: 0, invalidPct: 0, passed: true }],
+      });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Entregar" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    expect(await screen.findByText("Contrato fallido")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    expect(await screen.findByText("Contrato aprobado")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos regla 1" }), { target: { value: "1" } });
+    expect(screen.getByText("Resultado desactualizado")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
   });
 
   it("normaliza los nombres de columnas desde Preparar", async () => {

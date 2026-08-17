@@ -235,6 +235,32 @@ export interface OperationProgress {
 export type CancellableOperation = OperationProgress["operation"];
 export type ExportFormat = "csv" | "parquet";
 
+export type QualityRuleKind = "not_null" | "non_empty" | "unique" | "numeric_range";
+
+export interface QualityRule {
+  column: string;
+  kind: QualityRuleKind;
+  maxInvalid?: number;
+  maxInvalidPct?: number;
+  min?: number;
+  max?: number;
+}
+
+export interface QualityRuleResult extends QualityRule {
+  checkedCount: number;
+  invalidCount: number;
+  invalidPct: number;
+  passed: boolean;
+}
+
+export interface QualityValidationResult {
+  passed: boolean;
+  rowCount: number;
+  totalRules: number;
+  failedRules: number;
+  rules: QualityRuleResult[];
+}
+
 export interface ExportResult {
   fileName: string;
   fileSizeBytes: number;
@@ -289,12 +315,22 @@ export function cancelOperation(operation: CancellableOperation): Promise<void> 
 
 export function exportDataset(
   format: ExportFormat,
+  qualityRules: QualityRule[],
+  allowUnvalidated: boolean,
   onProgress?: ProgressHandler,
 ): Promise<ExportResult | null> {
   return invoke<ExportResult | null>("export_dataset", {
     format,
+    qualityRules,
+    allowUnvalidated,
     onProgress: progressChannel(onProgress),
   });
+}
+
+export function validateQualityRules(
+  qualityRules: QualityRule[],
+): Promise<QualityValidationResult> {
+  return invoke<QualityValidationResult>("validate_quality_rules", { qualityRules });
 }
 
 export function removeDuplicates(): Promise<DatasetMutation> {

@@ -67,6 +67,54 @@ pub struct ExportResult {
     format: &'static str,
 }
 
+const MAX_QUALITY_RULES: usize = 16;
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityRuleKind {
+    NotNull,
+    NonEmpty,
+    Unique,
+    NumericRange,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualityRule {
+    column: String,
+    kind: QualityRuleKind,
+    max_invalid: Option<usize>,
+    max_invalid_pct: Option<f64>,
+    min: Option<f64>,
+    max: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityRuleResult {
+    column: String,
+    kind: QualityRuleKind,
+    max_invalid: Option<usize>,
+    max_invalid_pct: Option<f64>,
+    min: Option<f64>,
+    max: Option<f64>,
+    checked_count: usize,
+    invalid_count: usize,
+    invalid_pct: f64,
+    passed: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityValidationResult {
+    passed: bool,
+    row_count: usize,
+    total_rules: usize,
+    failed_rules: usize,
+    rules: Vec<QualityRuleResult>,
+}
+
 fn send_progress(
     channel: &Channel<OperationProgress>,
     operation: &'static str,
@@ -2310,6 +2358,230 @@ fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
     Ok(document)
 }
 
+fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Result<(), String> {
+    if rule.column.trim().is_empty() {
+        return Err("La columna de una regla de calidad no puede estar vacía.".to_owned());
+    }
+    let column = frame.column(&rule.column).map_err(|_| {
+        format!(
+            "La columna '{}' de la regla de calidad no existe.",
+            rule.column
+        )
+    })?;
+    if rule.max_invalid.is_none() && rule.max_invalid_pct.is_none() {
+        return Err(format!(
+            "La regla de '{}' debe indicar maxInvalid, maxInvalidPct o ambos.",
+            rule.column
+        ));
+    }
+    if let Some(value) = rule.max_invalid_pct {
+        if !value.is_finite() || !(0.0..=100.0).contains(&value) {
+            return Err(format!(
+                "maxInvalidPct de '{}' debe estar entre 0 y 100.",
+                rule.column
+            ));
+        }
+    }
+    for (name, value) in [("min", rule.min), ("max", rule.max)] {
+        if value.is_some_and(|number| !number.is_finite()) {
+            return Err(format!(
+                "{name} de '{}' debe ser un número finito.",
+                rule.column
+            ));
+        }
+    }
+    if rule
+        .min
+        .zip(rule.max)
+        .is_some_and(|(minimum, maximum)| minimum > maximum)
+    {
+        return Err(format!(
+            "min no puede ser mayor que max en la regla de '{}'.",
+            rule.column
+        ));
+    }
+    if rule.kind == QualityRuleKind::NumericRange && rule.min.is_none() && rule.max.is_none() {
+        return Err(format!(
+            "La regla numeric_range de '{}' debe indicar min, max o ambos.",
+            rule.column
+        ));
+    }
+    if rule.kind == QualityRuleKind::NumericRange && column.dtype() == &DataType::Int64 {
+        for (name, value) in [("min", rule.min), ("max", rule.max)] {
+            if value.is_some_and(|number| {
+                number.fract() != 0.0 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&number)
+            }) {
+                return Err(format!(
+                    "{name} de '{}' debe ser un entero seguro para una columna Int64.",
+                    rule.column
+                ));
+            }
+        }
+    }
+    match rule.kind {
+        QualityRuleKind::NonEmpty if column.dtype() != &DataType::String => Err(format!(
+            "La regla non_empty solo admite columnas String; '{}' es {}.",
+            rule.column,
+            column.dtype()
+        )),
+        QualityRuleKind::NumericRange
+            if !matches!(column.dtype(), DataType::Int64 | DataType::Float64) =>
+        {
+            Err(format!(
+                "La regla numeric_range solo admite columnas Int64 o Float64; '{}' es {}.",
+                rule.column,
+                column.dtype()
+            ))
+        }
+        QualityRuleKind::NotNull | QualityRuleKind::NonEmpty | QualityRuleKind::Unique
+            if rule.min.is_some() || rule.max.is_some() =>
+        {
+            Err(format!(
+                "Los límites min y max solo se admiten en reglas numeric_range ('{}').",
+                rule.column
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn evaluate_quality_rules(
+    frame: &DataFrame,
+    quality_rules: &[QualityRule],
+) -> Result<QualityValidationResult, String> {
+    evaluate_quality_rules_with_cancel(frame, quality_rules, || false)
+}
+
+fn evaluate_quality_rules_with_cancel<C>(
+    frame: &DataFrame,
+    quality_rules: &[QualityRule],
+    is_cancelled: C,
+) -> Result<QualityValidationResult, String>
+where
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    if quality_rules.len() > MAX_QUALITY_RULES {
+        return Err(format!(
+            "Se admiten como máximo {MAX_QUALITY_RULES} reglas de calidad."
+        ));
+    }
+    for rule in quality_rules {
+        ensure_not_cancelled(is_cancelled())?;
+        validate_quality_rule_definition(frame, rule)?;
+    }
+
+    let row_count = frame.height();
+    let mut results = Vec::with_capacity(quality_rules.len());
+    for rule in quality_rules {
+        ensure_not_cancelled(is_cancelled())?;
+        let column = frame
+            .column(&rule.column)
+            .map_err(|error| error.to_string())?;
+        let invalid_count = match rule.kind {
+            QualityRuleKind::NotNull => column.null_count(),
+            QualityRuleKind::NonEmpty => column
+                .str()
+                .map_err(|error| error.to_string())?
+                .iter()
+                .filter(|value| value.is_none_or(|text| text.trim().is_empty()))
+                .count(),
+            QualityRuleKind::Unique => {
+                let distinct_including_null = column
+                    .n_unique()
+                    .map_err(|error| format!("No se pudo evaluar unique: {error}"))?;
+                let distinct_non_null =
+                    distinct_including_null.saturating_sub(usize::from(column.null_count() > 0));
+                row_count.saturating_sub(distinct_non_null)
+            }
+            QualityRuleKind::NumericRange => match column.dtype() {
+                DataType::Int64 => column
+                    .i64()
+                    .map_err(|error| error.to_string())?
+                    .iter()
+                    .filter(|value| {
+                        value.is_none_or(|number| {
+                            rule.min.is_some_and(|minimum| number < minimum as i64)
+                                || rule.max.is_some_and(|maximum| number > maximum as i64)
+                        })
+                    })
+                    .count(),
+                DataType::Float64 => column
+                    .f64()
+                    .map_err(|error| error.to_string())?
+                    .iter()
+                    .filter(|value| {
+                        value.is_none_or(|number| {
+                            !number.is_finite()
+                                || rule.min.is_some_and(|minimum| number < minimum)
+                                || rule.max.is_some_and(|maximum| number > maximum)
+                        })
+                    })
+                    .count(),
+                _ => unreachable!("el tipo numérico ya fue validado"),
+            },
+        };
+        let invalid_pct = if row_count == 0 {
+            0.0
+        } else {
+            invalid_count as f64 * 100.0 / row_count as f64
+        };
+        let passed = rule
+            .max_invalid
+            .is_none_or(|maximum| invalid_count <= maximum)
+            && rule
+                .max_invalid_pct
+                .is_none_or(|maximum| invalid_pct <= maximum);
+        results.push(QualityRuleResult {
+            column: rule.column.clone(),
+            kind: rule.kind,
+            max_invalid: rule.max_invalid,
+            max_invalid_pct: rule.max_invalid_pct,
+            min: rule.min,
+            max: rule.max,
+            checked_count: row_count,
+            invalid_count,
+            invalid_pct,
+            passed,
+        });
+    }
+    let failed_rules = results.iter().filter(|result| !result.passed).count();
+    Ok(QualityValidationResult {
+        passed: failed_rules == 0,
+        row_count,
+        total_rules: results.len(),
+        failed_rules,
+        rules: results,
+    })
+}
+
+fn enforce_export_quality_with_cancel<C>(
+    frame: &DataFrame,
+    quality_rules: &[QualityRule],
+    allow_unvalidated: bool,
+    is_cancelled: C,
+) -> Result<Option<QualityValidationResult>, String>
+where
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    if quality_rules.is_empty() {
+        return if allow_unvalidated {
+            Ok(None)
+        } else {
+            Err("La exportación sin reglas de calidad requiere confirmación explícita.".to_owned())
+        };
+    }
+    let validation = evaluate_quality_rules_with_cancel(frame, quality_rules, is_cancelled)?;
+    if !validation.passed {
+        return Err(format!(
+            "La exportación fue bloqueada: {} de {} reglas de calidad fallaron.",
+            validation.failed_rules, validation.total_rules
+        ));
+    }
+    Ok(Some(validation))
+}
+
 fn export_frame_atomic<F, C>(
     frame: &DataFrame,
     destination: &Path,
@@ -2620,12 +2892,37 @@ pub fn cancel_operation(state: State<'_, DatasetState>, operation: String) -> Re
 }
 
 #[tauri::command]
+pub async fn validate_quality_rules(
+    app: AppHandle,
+    quality_rules: Vec<QualityRule>,
+) -> Result<QualityValidationResult, String> {
+    let frame = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        current
+            .as_ref()
+            .ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?
+            .frame
+            .clone()
+    };
+    tauri::async_runtime::spawn_blocking(move || evaluate_quality_rules(&frame, &quality_rules))
+        .await
+        .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn export_dataset(
     app: AppHandle,
     format: ExportFormat,
+    quality_rules: Vec<QualityRule>,
+    allow_unvalidated: bool,
     on_progress: Channel<OperationProgress>,
 ) -> Result<Option<ExportResult>, String> {
-    let generation = app.state::<DatasetState>().begin_export();
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -2645,6 +2942,27 @@ pub async fn export_dataset(
             format!("{stem}-columnia.{}", format.extension()),
         )
     };
+
+    // La compuerta se evalúa sobre el mismo snapshot que después será escrito y
+    // antes de abrir el selector, para que una exportación bloqueada no solicite destino.
+    let generation = app.state::<DatasetState>().begin_export();
+    let validation_app = app.clone();
+    let (frame, suggested_name) = tauri::async_runtime::spawn_blocking(move || {
+        enforce_export_quality_with_cancel(&frame, &quality_rules, allow_unvalidated, || {
+            validation_app
+                .state::<DatasetState>()
+                .export_was_cancelled(generation)
+        })?;
+        ensure_not_cancelled(
+            validation_app
+                .state::<DatasetState>()
+                .export_was_cancelled(generation),
+        )?;
+        Ok::<_, String>((frame, suggested_name))
+    })
+    .await
+    .map_err(|error| format!("La validación previa a la exportación se interrumpió: {error}"))??;
+    ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
 
     send_progress(&on_progress, "export", "Esperando destino", 0);
     let selection = app
@@ -7466,5 +7784,200 @@ mod tests {
         assert!(apply_recipe_to_dataset(&mut dataset, &conflict).is_err());
         assert!(!dataset.history.state().can_undo);
         fs::remove_file(path).unwrap();
+    }
+
+    fn quality_rule(column: &str, kind: QualityRuleKind) -> QualityRule {
+        QualityRule {
+            column: column.to_owned(),
+            kind,
+            max_invalid: Some(0),
+            max_invalid_pct: None,
+            min: None,
+            max: None,
+        }
+    }
+
+    #[test]
+    fn quality_rules_apply_explicit_null_duplicate_empty_and_range_semantics() {
+        let frame = df![
+            "text" => &[Some("a"), Some("  "), None, Some("a"), Some("b")],
+            "integer" => &[Some(1_i64), Some(2), None, Some(4), Some(5)],
+            "decimal" => &[Some(1.0_f64), Some(f64::NAN), Some(f64::INFINITY), None, Some(5.0)]
+        ]
+        .unwrap();
+        let mut non_empty = quality_rule("text", QualityRuleKind::NonEmpty);
+        non_empty.max_invalid = Some(2);
+        let mut unique = quality_rule("text", QualityRuleKind::Unique);
+        unique.max_invalid = Some(2);
+        let mut integer_range = quality_rule("integer", QualityRuleKind::NumericRange);
+        integer_range.min = Some(1.0);
+        integer_range.max = Some(4.0);
+        integer_range.max_invalid = Some(2);
+        let mut float_range = quality_rule("decimal", QualityRuleKind::NumericRange);
+        float_range.min = Some(0.0);
+        float_range.max_invalid = Some(3);
+
+        let result = evaluate_quality_rules(
+            &frame,
+            &[
+                quality_rule("text", QualityRuleKind::NotNull),
+                non_empty,
+                unique,
+                integer_range,
+                float_range,
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(result.row_count, 5);
+        assert_eq!(result.total_rules, 5);
+        assert_eq!(result.rules[0].invalid_count, 1);
+        assert!(!result.rules[0].passed);
+        assert_eq!(result.rules[1].invalid_count, 2);
+        assert_eq!(result.rules[2].invalid_count, 2);
+        assert_eq!(result.rules[3].invalid_count, 2);
+        assert_eq!(result.rules[4].invalid_count, 3);
+        assert!(result.rules[1..].iter().all(|rule| rule.passed));
+        assert_eq!(result.failed_rules, 1);
+        assert!(!result.passed);
+    }
+
+    #[test]
+    fn quality_tolerances_are_inclusive_and_both_must_pass() {
+        let frame = df!["value" => &[Some(1_i64), None, Some(3), Some(4)]].unwrap();
+        let mut boundary = quality_rule("value", QualityRuleKind::NotNull);
+        boundary.max_invalid = Some(1);
+        boundary.max_invalid_pct = Some(25.0);
+        let result = evaluate_quality_rules(&frame, &[boundary.clone()]).unwrap();
+        assert!(result.passed);
+        assert_eq!(result.rules[0].invalid_pct, 25.0);
+
+        boundary.max_invalid_pct = Some(24.999);
+        let result = evaluate_quality_rules(&frame, &[boundary]).unwrap();
+        assert!(!result.passed);
+    }
+
+    #[test]
+    fn quality_rule_definitions_reject_invalid_contracts_and_types() {
+        let frame = df!["text" => &["a"], "number" => &[1_i64]].unwrap();
+        let mut missing_tolerance = quality_rule("text", QualityRuleKind::NotNull);
+        missing_tolerance.max_invalid = None;
+        assert!(evaluate_quality_rules(&frame, &[missing_tolerance]).is_err());
+
+        let mut bad_pct = quality_rule("text", QualityRuleKind::NotNull);
+        bad_pct.max_invalid_pct = Some(100.1);
+        assert!(evaluate_quality_rules(&frame, &[bad_pct]).is_err());
+
+        let mut bad_bounds = quality_rule("number", QualityRuleKind::NumericRange);
+        bad_bounds.min = Some(2.0);
+        bad_bounds.max = Some(1.0);
+        assert!(evaluate_quality_rules(&frame, &[bad_bounds]).is_err());
+
+        let no_bounds = quality_rule("number", QualityRuleKind::NumericRange);
+        assert!(evaluate_quality_rules(&frame, &[no_bounds]).is_err());
+
+        let mut non_finite = quality_rule("number", QualityRuleKind::NumericRange);
+        non_finite.min = Some(f64::NAN);
+        assert!(evaluate_quality_rules(&frame, &[non_finite]).is_err());
+        assert!(evaluate_quality_rules(
+            &frame,
+            &[quality_rule("missing", QualityRuleKind::NotNull)]
+        )
+        .is_err());
+        assert!(evaluate_quality_rules(
+            &frame,
+            &[quality_rule("number", QualityRuleKind::NonEmpty)]
+        )
+        .is_err());
+        assert!(evaluate_quality_rules(
+            &frame,
+            &[quality_rule("text", QualityRuleKind::NumericRange)]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn integer_ranges_compare_large_values_exactly_and_reject_unsafe_bounds() {
+        let frame = df![
+            "number" => &[9_007_199_254_740_992_i64, 9_007_199_254_740_993_i64, i64::MAX, i64::MIN]
+        ]
+        .unwrap();
+        let mut rule = quality_rule("number", QualityRuleKind::NumericRange);
+        rule.max = Some(MAX_SAFE_INTEGER);
+        rule.max_invalid = Some(4);
+        let result = evaluate_quality_rules(&frame, &[rule]).unwrap();
+        assert_eq!(result.rules[0].invalid_count, 3);
+        assert!(result.rules[0].passed);
+
+        let mut unsafe_bound = quality_rule("number", QualityRuleKind::NumericRange);
+        unsafe_bound.max = Some(9_007_199_254_740_992.0);
+        assert!(evaluate_quality_rules(&frame, &[unsafe_bound]).is_err());
+    }
+
+    #[test]
+    fn quality_contract_limits_rules_and_denies_unknown_or_negative_fields() {
+        let frame = df!["value" => &[1_i64]].unwrap();
+        let rules = vec![quality_rule("value", QualityRuleKind::NotNull); MAX_QUALITY_RULES];
+        assert!(evaluate_quality_rules(&frame, &rules).is_ok());
+        let too_many = vec![quality_rule("value", QualityRuleKind::NotNull); MAX_QUALITY_RULES + 1];
+        assert!(evaluate_quality_rules(&frame, &too_many).is_err());
+
+        assert!(serde_json::from_str::<QualityRule>(
+            r#"{"column":"value","kind":"not_null","maxInvalid":0,"extra":true}"#
+        )
+        .is_err());
+        assert!(serde_json::from_str::<QualityRule>(
+            r#"{"column":"value","kind":"not_null","maxInvalid":-1}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn quality_result_exposes_counts_without_samples_or_cell_values() {
+        let frame = df!["secret" => &[Some("private-value"), None]].unwrap();
+        let result =
+            evaluate_quality_rules(&frame, &[quality_rule("secret", QualityRuleKind::NotNull)])
+                .unwrap();
+        let json = serde_json::to_value(result).unwrap();
+        let encoded = json.to_string();
+        assert!(!encoded.contains("private-value"));
+        assert!(!encoded.contains("sample"));
+        assert_eq!(json["rules"][0]["checkedCount"], 2);
+        assert_eq!(json["rules"][0]["invalidCount"], 1);
+    }
+
+    #[test]
+    fn export_quality_gate_blocks_before_destination_and_requires_explicit_bypass() {
+        use std::cell::Cell;
+
+        let frame = df!["value" => &[Some(1_i64), None]].unwrap();
+        assert!(enforce_export_quality_with_cancel(&frame, &[], false, || false).is_err());
+        assert_eq!(
+            enforce_export_quality_with_cancel(&frame, &[], true, || false).unwrap(),
+            None
+        );
+
+        let failing = quality_rule("value", QualityRuleKind::NotNull);
+        assert!(enforce_export_quality_with_cancel(&frame, &[failing], false, || false).is_err());
+
+        let mut passing = quality_rule("value", QualityRuleKind::NotNull);
+        passing.max_invalid = Some(1);
+        assert!(
+            enforce_export_quality_with_cancel(&frame, &[passing], false, || false)
+                .unwrap()
+                .is_some()
+        );
+
+        let checks = Cell::new(0_usize);
+        let cancelled = enforce_export_quality_with_cancel(
+            &frame,
+            &[quality_rule("value", QualityRuleKind::NotNull)],
+            false,
+            || {
+                checks.set(checks.get() + 1);
+                checks.get() >= 2
+            },
+        );
+        assert_eq!(cancelled.unwrap_err(), OPERATION_CANCELLED_MESSAGE);
     }
 }

@@ -86,6 +86,12 @@ Desde **Entregar**, el dataset activo puede exportarse a CSV o Parquet. Rust abr
 el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
 El destino se reemplaza únicamente después de completar y sincronizar la
 escritura; cancelar o fallar conserva cualquier archivo anterior.
+Antes de exportar puede definirse un **contrato de calidad** de hasta dieciséis
+reglas exactas: no nulo, texto no vacío, unicidad o rango numérico inclusivo.
+Cada regla admite una tolerancia por cantidad o porcentaje y el resultado solo
+expone conteos, nunca muestras de los datos. Rust vuelve a evaluar el contrato
+sobre el mismo snapshot que escribirá antes de abrir el selector. Si no existen
+reglas, la entrega no validada requiere una confirmación explícita.
 En **Revisar**, la vista previa permite recorrer el dataset en páginas de 50 filas sin volver a abrir
 el archivo ni enviar su ruta al frontend.
 El botón **Analizar calidad** calcula en Rust los nulos, la completitud y los
