@@ -3,6 +3,9 @@
 Columnia será una estación local multiplataforma para revisar, limpiar,
 transformar y entregar datasets confiables.
 
+Para entender rápidamente la arquitectura, el estado implementado, los riesgos
+y las reglas de trabajo, consulta el [contexto vivo del proyecto](CONTEXTO.md).
+
 El proyecto está en su primer hito técnico. Actualmente contiene el shell Tauri
 2, una interfaz React/TypeScript y el primer corte vertical del motor Polars:
 selección nativa, carga local y vista previa de CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta
