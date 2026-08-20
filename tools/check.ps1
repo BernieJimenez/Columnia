@@ -18,6 +18,14 @@ $ShortCommit = (git -C $ProjectRoot rev-parse --short HEAD).Trim()
 $Branch = (git -C $ProjectRoot branch --show-current).Trim()
 $TreeDirty = @(git -C $ProjectRoot status --porcelain).Count -gt 0
 $ProjectVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
+$SbomRelativePath = ".local/validation/columnia.cdx.json"
+$SbomPath = Join-Path $ProjectRoot ".local\validation\columnia.cdx.json"
+$SbomEvidence = [ordered]@{
+    status = if ($Profile -eq "Release") { "pending" } else { "not-requested" }
+    path = if ($Profile -eq "Release") { $SbomRelativePath } else { $null }
+    sha256 = $null
+    componentCount = $null
+}
 
 if ([string]::IsNullOrWhiteSpace($ReportPath)) {
     $Timestamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
@@ -131,6 +139,13 @@ try {
     }
 
     if ($Profile -eq "Release") {
+        Invoke-Checked "CycloneDX SBOM" $ProjectRoot {
+            & (Join-Path $ProjectRoot "tools\generate-sbom.ps1") -OutputPath $SbomPath
+        }
+        $SbomDocument = Get-Content -LiteralPath $SbomPath -Raw | ConvertFrom-Json
+        $SbomEvidence.status = "available"
+        $SbomEvidence.sha256 = (Get-FileHash -LiteralPath $SbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $SbomEvidence.componentCount = @($SbomDocument.components).Count
         Invoke-Checked "Tauri release build" $ProjectRoot { npm run tauri build -- --no-bundle }
     }
 
@@ -139,6 +154,9 @@ try {
 }
 catch {
     $FailureMessage = $_.Exception.Message
+    if ($Profile -eq "Release" -and $SbomEvidence.status -eq "pending") {
+        $SbomEvidence.status = "failed"
+    }
     throw
 }
 finally {
@@ -162,6 +180,7 @@ finally {
         tools = $ToolVersions
         environment = $RuntimeEnvironment
         lockfiles = $LockfileFingerprints
+        sbom = $SbomEvidence
         steps = $StepResults
         error = $FailureMessage
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding utf8

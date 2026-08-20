@@ -188,10 +188,17 @@ Validación rápida y completamente local:
 .\tools\check.ps1 -Profile Fast
 ```
 
-La validación completa añade el build nativo sin empaquetar:
+La validación completa añade Clippy y las pruebas Rust:
 
 ```powershell
 .\tools\check.ps1 -Profile Full
+```
+
+El perfil de distribución genera un SBOM CycloneDX reproducible y compila el
+binario Tauri optimizado sin crear instaladores:
+
+```powershell
+.\tools\check.ps1 -Profile Release
 ```
 
 No se utilizan CI, GitHub Actions ni workflows. Consulta [ROADMAP.md](ROADMAP.md)

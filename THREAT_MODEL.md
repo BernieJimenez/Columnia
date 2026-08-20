@@ -72,7 +72,7 @@ No objetivos actuales:
 | Exportación | Sobrescritura parcial, enlace de destino, entrega inválida, fórmulas de hoja de cálculo, fuga a ruta equivocada | Canonicaliza la carpeta; valida el destino; rechaza destinos no regulares y enlaces; escribe y sincroniza un temporal antes de reemplazar; cancelación no destruye el archivo previo; calidad exige reglas o bypass explícito; CSV antepone apóstrofo a texto con prefijos de fórmula y Parquet conserva el frame original | La persona aún puede elegir un destino sensible o confirmar un bypass. No existe clasificación de datos ni prevención de exfiltración local. La neutralización CSV cambia deliberadamente la representación exportada de esas celdas de texto. |
 | Errores, resultados y evidencia local | Filtrar celdas, rutas o contenido en mensajes/reportes | Los resultados de calidad devuelven conteos sin muestras; los reportes de gates no incluyen rutas ni contenido y usan hashes de lockfiles | No existe una política global verificada para todo mensaje de error o futuro logging. Cada nuevo diagnóstico debe revisarse por fuga de datos. |
 | Instancia única | Carreras de apertura, ventana inaccesible, abuso por proceso local | Plugin oficial de escritorio registrado primero; la segunda apertura muestra, desminimiza y enfoca `main`; los errores de ventana no causan panic | No protege frente a un proceso local hostil ni constituye autenticación. Los argumentos de la segunda instancia no se procesan actualmente. |
-| Dependencias y distribución | Paquete comprometido, versión vulnerable, binario manipulado | npm y Cargo usan lockfiles; gates verifican coherencia de manifiestos y registran hashes SHA-256 | No hay CI, SBOM, escaneo de vulnerabilidades, firma/updater autenticado ni validación de empaquetado documentados como implementados. |
+| Dependencias y distribución | Paquete comprometido, versión vulnerable, binario manipulado | npm y Cargo usan lockfiles; gates verifican coherencia, procedencia oficial, integridad criptográfica e identidades contradictorias; Release genera offline un SBOM CycloneDX reproducible y un binario optimizado sin bundle | No hay CI, escaneo de vulnerabilidades, firma/updater autenticado ni validación de instaladores documentados como implementados. El SBOM inventaría seguridad si no se revisa o consume. |
 
 ## Controles actuales que no deben degradarse
 
@@ -86,13 +86,14 @@ No objetivos actuales:
 - Gate automático de paridad IPC y validación local Fast, Full y Release.
 - Neutralización de fórmulas en texto CSV sin modificar columnas tipadas ni exportaciones Parquet.
 - Presupuestos semánticos de recetas y reglas de calidad aplicados por Rust en todas sus entradas.
+- SBOM reproducible y gates offline que fijan registros oficiales, checksums y ausencia de fuentes Git.
 
 ## Riesgos residuales prioritarios
 
 La prioridad es orientativa; no sustituye una evaluación formal de severidad y probabilidad.
 
 1. **Agotamiento de recursos por entrada no confiable:** el dataset se materializa en memoria y algunas operaciones crean copias completas. Falta un presupuesto efectivo de RAM, CPU y expansión por formato.
-2. **Cadena de suministro y distribución:** faltan SBOM, escaneo periódico, procedencia de artefactos y actualización autenticada.
+2. **Cadena de suministro y distribución:** el SBOM y la procedencia de lockfiles ya tienen evidencia local; faltan escaneo periódico de vulnerabilidades, firma/procedencia del artefacto e actualización autenticada.
 3. **Datos temporales en disco:** los snapshots Parquet son efímeros, pero no existe una garantía de cifrado ni borrado seguro.
 4. **Cobertura adversarial de parsers:** falta verificar archivos comprimidos o patológicos y expansión de memoria por formato; los presupuestos semánticos actuales no limitan el JSON bruto antes de deserializar.
 5. **Cobertura multiplataforma:** las garantías de rutas y empaquetado deben verificarse también en macOS y Linux.

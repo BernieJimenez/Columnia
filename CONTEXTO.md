@@ -15,7 +15,7 @@
 | Persistencia actual | Dataset y perfil en memoria; historial en snapshots Parquet temporales |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-20, rama `master`, commit base `5eff4d2` |
+| Última revisión de este documento | 2026-08-20, rama `master`, commit base `2395f9c` |
 
 ## Para qué existe este documento
 
@@ -88,6 +88,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
 | `tools/check.ps1` | Entrada única para los gates locales Fast, Full y Release; genera evidencia JSON auditable en `.local/validation/`. |
+| `tools/generate-sbom.ps1` | Genera offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles. |
 | `README.md` | Descripción funcional y guía de uso/desarrollo. |
 | `THREAT_MODEL.md` | Activos, fronteras de confianza, amenazas, controles implementados y riesgos residuales. |
 | `ROADMAP.md` | Plan, decisiones históricas, fases y pendientes. No sustituye la inspección del código. |
@@ -258,15 +259,17 @@ npm run tauri dev
 | --- | --- |
 | Fast | `cargo fmt --check`, `cargo check`, Vitest y build TypeScript/Vite |
 | Full | Fast + Clippy con warnings como errores + pruebas Rust de biblioteca |
-| Release | Full + build Tauri optimizado sin bundle |
+| Release | Full + SBOM CycloneDX reproducible + build Tauri optimizado sin bundle |
 
-Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error.
+Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas absolutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error. En Release añade el estado, ruta relativa, SHA-256 y cantidad de componentes del SBOM.
 
 Las pruebas frontend verifican además que `package-lock.json` refleje exactamente la versión y las dependencias raíz de `package.json`, y que el paquete local de `Cargo.lock` coincida con `Cargo.toml`. No requieren red ni reescriben lockfiles.
 
 Los gates estáticos verifican que la CSP de producción permanezca local, que desarrollo solo añada el servidor loopback configurado y que la ventana `main` conserve exclusivamente `core:default`, sin permisos de filesystem, shell, HTTP u opener.
 
-Al revisar este documento había 56 pruebas frontend y 87 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
+
+Al revisar este documento había 60 pruebas frontend y 87 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -278,6 +281,8 @@ Al revisar este documento había 56 pruebas frontend y 87 pruebas Rust; las rama
 - Formatos, perfiles, transformaciones, historial temporal, contratos y exportación descritos arriba.
 - CSP restrictiva, capability mínima y validación local centralizada.
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
+- Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
+- SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
 
 ### Planeado o pendiente
 
@@ -286,8 +291,8 @@ Al revisar este documento había 56 pruebas frontend y 87 pruebas Rust; las rama
 - SQLite, proyectos y recuperación de sesión;
 - CLI y automatización sin interfaz;
 - joins, comparación de datasets y destinos de bases de datos;
-- E2E, accesibilidad, pruebas visuales y presupuestos medibles; los reportes básicos de gates locales ya existen;
-- supply chain, SBOM, empaquetado Windows y updater autenticado;
+- E2E, auditoría manual con lector de pantalla/zoom/alto contraste, pruebas visuales y presupuestos medibles;
+- escaneo de vulnerabilidades, empaquetado Windows y updater autenticado; SBOM y gates offline básicos ya existen;
 - verificación real en macOS y Linux.
 
 Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el código antes de afirmar que una fase está completa.
@@ -339,6 +344,8 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-20 | Release genera un SBOM CycloneDX 1.6 reproducible y reporta su hash/cantidad; gates offline exigen procedencia e integridad de npm y Cargo. | `tools/generate-sbom.ps1`, `tools/check.ps1`, `src/supply-chain.test.ts` |
+| 2026-08-20 | La UI incorpora una primera base WCAG verificable para landmarks, tabs, estados, foco y diálogos; queda pendiente validación manual con tecnologías de asistencia. | `src/App.tsx`, `src/styles.css`, `src/App.test.tsx` |
 | 2026-08-20 | La exportación CSV neutraliza fórmulas únicamente en texto; los tipos no textuales y Parquet conservan sus valores. | `src-tauri/src/dataset.rs` |
 | 2026-08-20 | Rust aplica presupuestos semánticos explícitos a recetas y reglas de calidad en todos sus comandos de entrada. | `src-tauri/src/dataset.rs` |
 | 2026-08-20 | Se incorporó un threat model vivo y gates que impiden ampliar silenciosamente CSP o capabilities. | `THREAT_MODEL.md`, `src/tauri-assets.test.ts` |

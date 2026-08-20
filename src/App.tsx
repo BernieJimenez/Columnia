@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import {
   applySafeCorrections,
@@ -136,6 +136,79 @@ function readableFileSize(bytes: number): string {
 
 function isCancellationError(error: unknown): boolean {
   return String(error).includes("cancelada por el usuario");
+}
+
+const DIALOG_FOCUSABLE =
+  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+function ModalDialog({
+  role,
+  labelledBy,
+  describedBy,
+  onDismiss,
+  children,
+}: {
+  role: "dialog" | "alertdialog";
+  labelledBy: string;
+  describedBy?: string;
+  onDismiss: () => void;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const panel = panelRef.current;
+    const firstFocusable = panel?.querySelector<HTMLElement>(DIALOG_FOCUSABLE);
+    (firstFocusable ?? panel)?.focus();
+
+    return () => previouslyFocused?.focus();
+  }, []);
+
+  function keepFocusInside(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onDismiss();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE));
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) {
+      event.preventDefault();
+      panel.focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  return (
+    <div className="sheet-dialog" role="presentation">
+      <div
+        ref={panelRef}
+        className="sheet-dialog__panel"
+        role={role}
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
+        tabIndex={-1}
+        onKeyDown={keepFocusInside}
+      >
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export function App() {
@@ -612,7 +685,8 @@ export function App() {
   const activePhaseMeta = phases.find((phase) => phase.id === activePhase) ?? phases[0];
 
   return (
-    <main className="shell">
+    <div className="shell">
+      <a className="skip-link" href="#main-content">Saltar al contenido principal</a>
       <aside className="sidebar" aria-label="Navegación principal">
         <div className="brand">
           <p className="eyebrow">Estación local de datos</p>
@@ -651,13 +725,18 @@ export function App() {
         </div>
       </aside>
 
-      <div className="main-content">
+      <main id="main-content" className="main-content" tabIndex={-1}>
         <header className="topbar">
           <div>
             <p className="step">Vista actual</p>
             <p className="page-title">{activePhaseMeta.label}</p>
           </div>
-          <div className={`runtime runtime--${status.kind}`} role="status" aria-live="polite">
+          <div
+            className={`runtime runtime--${status.kind}`}
+            role={status.kind === "error" ? "alert" : "status"}
+            aria-live={status.kind === "error" ? "assertive" : "polite"}
+            aria-atomic="true"
+          >
             {status.kind === "loading" && "Conectando con Rust…"}
             {status.kind === "browser" && "Vista web · motor no conectado"}
             {status.kind === "ready" && `${status.info.version} · ${status.info.platform}`}
@@ -668,6 +747,7 @@ export function App() {
         <section
           className={`workspace workspace--${activePhase}`}
           aria-label={`Etapa ${activePhaseMeta.label}`}
+          aria-busy={operationBusy}
         >
           {activePhase === "load" && (
             <LoadPhase
@@ -745,8 +825,8 @@ export function App() {
             />
           )}
         </section>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
 
@@ -838,11 +918,15 @@ function LoadPhase({
         </p>
       )}
       {sheetSelection && (
-        <div className="sheet-dialog" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
-          <div className="sheet-dialog__panel">
+        <ModalDialog
+          role="dialog"
+          labelledBy="sheet-title"
+          describedBy="sheet-description"
+          onDismiss={onCancelSheet}
+        >
             <p className="eyebrow">Libro seleccionado</p>
             <h3 id="sheet-title">Elegir hoja de {sheetSelection.fileName}</h3>
-            <p>Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar.</p>
+            <p id="sheet-description">Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar.</p>
             {sheetSelection.isCompressedContainer && (
               <p className="notice" role="note">
                 Los libros comprimidos pueden ocupar bastante más memoria al abrirse que su tamaño en disco.
@@ -886,8 +970,7 @@ function LoadPhase({
                 Cargar hoja
               </button>
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       )}
       {status.kind === "browser" && (
         <p className="notice" role="status">
@@ -929,40 +1012,66 @@ function ReviewPhase({
       </header>
       <div className="stage-tabs" role="tablist" aria-label="Vistas de revisión">
         <button
+          id="review-diagnosis-tab"
           type="button"
           role="tab"
           aria-selected={reviewTab === "diagnosis"}
+          aria-controls="review-diagnosis-panel"
+          tabIndex={reviewTab === "diagnosis" ? 0 : -1}
           className={reviewTab === "diagnosis" ? "stage-tab--active" : undefined}
           onClick={() => onTabChange("diagnosis")}
+          onKeyDown={(event) => {
+            if (["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) {
+              event.preventDefault();
+              const nextTab = event.key === "ArrowRight" || event.key === "End" ? "preview" : "diagnosis";
+              onTabChange(nextTab);
+              document.getElementById(`review-${nextTab}-tab`)?.focus();
+            }
+          }}
         >
           Diagnóstico
         </button>
         <button
+          id="review-preview-tab"
           type="button"
           role="tab"
           aria-selected={reviewTab === "preview"}
+          aria-controls="review-preview-panel"
+          tabIndex={reviewTab === "preview" ? 0 : -1}
           className={reviewTab === "preview" ? "stage-tab--active" : undefined}
           onClick={() => onTabChange("preview")}
+          onKeyDown={(event) => {
+            if (["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) {
+              event.preventDefault();
+              const nextTab = event.key === "ArrowLeft" || event.key === "Home" ? "diagnosis" : "preview";
+              onTabChange(nextTab);
+              document.getElementById(`review-${nextTab}-tab`)?.focus();
+            }
+          }}
         >
           Vista previa
         </button>
       </div>
 
       {reviewTab === "diagnosis" ? (
-        <QualitySection
-          dataset={datasetStatus.dataset}
-          status={profileStatus}
-          onAnalyze={onAnalyzeQuality}
-          onCancel={onCancelProfile}
-        />
+        <div id="review-diagnosis-panel" role="tabpanel" aria-labelledby="review-diagnosis-tab">
+          <QualitySection
+            dataset={datasetStatus.dataset}
+            status={profileStatus}
+            onAnalyze={onAnalyzeQuality}
+            onCancel={onCancelProfile}
+          />
+        </div>
       ) : (
-        <DataPreview
-          dataset={datasetStatus.dataset}
-          pageOffset={datasetStatus.pageOffset}
-          pageLoading={datasetStatus.pageLoading}
-          pageError={datasetStatus.pageError}
-          onPageChange={onPageChange}
-        />
+        <div id="review-preview-panel" role="tabpanel" aria-labelledby="review-preview-tab">
+          <DataPreview
+            dataset={datasetStatus.dataset}
+            pageOffset={datasetStatus.pageOffset}
+            pageLoading={datasetStatus.pageLoading}
+            pageError={datasetStatus.pageError}
+            onPageChange={onPageChange}
+          />
+        </div>
       )}
     </>
   );
@@ -1829,8 +1938,12 @@ function TransformRecipeEditor({
         </button>
       </div>
       {pendingConfirmation && (
-        <div className="sheet-dialog" role="presentation">
-          <section className="sheet-dialog__panel" role="alertdialog" aria-modal="true" aria-labelledby="filter-confirm-title" aria-describedby="filter-confirm-description">
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="filter-confirm-title"
+          describedBy="filter-confirm-description"
+          onDismiss={() => setPendingConfirmation(null)}
+        >
             <p className="step">Cambio de alto impacto</p>
             <h3 id="filter-confirm-title">Confirmar cambios de alto impacto</h3>
             <p id="filter-confirm-description">
@@ -1842,8 +1955,7 @@ function TransformRecipeEditor({
               {pendingConfirmation.contactNormalizations.length > 0 && <> Se normalizarán valores de contacto en {pendingConfirmation.contactNormalizations.length} columnas.</>}
             </p>
             <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" onClick={() => { const recipe = pendingConfirmation; setPendingConfirmation(null); onApply(recipe); }}>Confirmar y aplicar</button></div>
-          </section>
-        </div>
+        </ModalDialog>
       )}
     </section>
   );
@@ -2130,7 +2242,7 @@ function OperationProgressView({
   onCancel,
 }: OperationProgressViewProps) {
   return (
-    <div className="operation-progress" role="status" aria-live="polite">
+    <div className="operation-progress" role="status" aria-live="polite" aria-atomic="true">
       <div>
         <span>{progress.stage}</span>
         <strong>{progress.percent}%</strong>

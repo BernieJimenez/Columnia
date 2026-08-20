@@ -42,6 +42,12 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "Columnia" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Flujo de preparación de datos" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Saltar al contenido principal" })).toHaveAttribute(
+      "href",
+      "#main-content",
+    );
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
     expect(
       await screen.findByText(/Abre Columnia con Tauri para seleccionar archivos locales/),
     ).toBeInTheDocument();
@@ -80,7 +86,19 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
+    const diagnosisTab = screen.getByRole("tab", { name: "Diagnóstico" });
+    const previewTab = screen.getByRole("tab", { name: "Vista previa" });
+    expect(diagnosisTab).toHaveAttribute("aria-controls", "review-diagnosis-panel");
+    expect(diagnosisTab).toHaveAttribute("tabindex", "0");
+    diagnosisTab.focus();
+    fireEvent.keyDown(diagnosisTab, { key: "ArrowRight" });
+    expect(previewTab).toHaveFocus();
+    expect(previewTab).toHaveAttribute("aria-selected", "true");
+    expect(previewTab).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tabpanel", { name: "Vista previa" })).toHaveAttribute(
+      "id",
+      "review-preview-panel",
+    );
     expect(screen.getByRole("cell", { name: "Santo Domingo" })).toBeInTheDocument();
     expect(screen.getByText("null")).toBeInTheDocument();
 
@@ -784,14 +802,24 @@ describe("App", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const selectDataset = await screen.findByRole("button", { name: "Seleccionar dataset" });
+    selectDataset.focus();
+    fireEvent.click(selectDataset);
     const dialog = await screen.findByRole("dialog", { name: /Elegir hoja de ventas.xlsx/ });
     expect(within(dialog).getByRole("option", { name: "Ventas 2026" })).toBeInTheDocument();
     expect(within(dialog).getByRole("note")).toHaveTextContent(/ocupar bastante más memoria/);
+    const sheetSelect = within(dialog).getByLabelText("Hoja");
+    const loadSheet = within(dialog).getByRole("button", { name: "Cargar hoja" });
+    expect(sheetSelect).toHaveFocus();
+    loadSheet.focus();
+    fireEvent.keyDown(loadSheet, { key: "Tab" });
+    expect(sheetSelect).toHaveFocus();
+    fireEvent.keyDown(sheetSelect, { key: "Tab", shiftKey: true });
+    expect(loadSheet).toHaveFocus();
     expect(loadSpy).not.toHaveBeenCalled();
-    fireEvent.change(within(dialog).getByLabelText("Hoja"), { target: { value: "1" } });
+    fireEvent.change(sheetSelect, { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("radio", { name: /Generar encabezados/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cargar hoja" }));
+    fireEvent.click(loadSheet);
 
     expect(await screen.findByRole("heading", { name: "ventas.xlsx" })).toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function));
@@ -1030,14 +1058,19 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Nombre de columna combinada"), { target: { value: "estado_categoria" } });
     fireEvent.change(screen.getByLabelText("Separador para combinar"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Eliminar columnas origen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    const applyRecipeButton = screen.getByRole("button", { name: "Aplicar receta" });
+    applyRecipeButton.focus();
+    fireEvent.click(applyRecipeButton);
     let dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     expect(within(dialog).getByText(/1 filtros unidos por AND sobre 20 filas/)).toBeInTheDocument();
     expect(within(dialog).getByText(/En total se eliminarán 2 columnas originales/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Cancelar" })).toHaveFocus();
     expect(applySpy).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(applyRecipeButton).toHaveFocus();
     expect(applySpy).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    fireEvent.click(applyRecipeButton);
     dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
     expect(applySpy).toHaveBeenCalledOnce();
