@@ -874,11 +874,28 @@ fn dataset_extension(path: &Path) -> Result<String, String> {
         })
 }
 
+#[cfg(not(windows))]
+fn is_symbolic_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
+#[cfg(windows)]
+fn is_symbolic_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+
+    metadata.file_type().is_symlink()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
 fn canonicalize_existing_file(path: &Path, label: &str) -> Result<PathBuf, String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|error| format!("No se pudo verificar {label}: {error}"))?;
-    if metadata.file_type().is_symlink() {
-        return Err(format!("{label} no puede ser un enlace simbólico."));
+    if is_symbolic_link_or_reparse_point(&metadata) {
+        return Err(format!(
+            "{label} no puede ser un enlace simbólico o punto de reanálisis."
+        ));
     }
     if !metadata.is_file() {
         return Err(format!("{label} no existe o no es un archivo regular."));
@@ -910,9 +927,9 @@ fn canonicalize_write_destination(path: &Path, label: &str) -> Result<PathBuf, S
     }
 
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
+        Ok(metadata) if is_symbolic_link_or_reparse_point(&metadata) => {
             return Err(format!(
-                "El destino de {label} no puede ser un enlace simbólico."
+                "El destino de {label} no puede ser un enlace simbólico o punto de reanálisis."
             ));
         }
         Ok(metadata) if !metadata.is_file() => {
@@ -5519,6 +5536,47 @@ mod tests {
         assert!(read_error.contains("enlace simbólico"));
         assert!(write_error.contains("enlace simbólico"));
         assert!(dangling_error.contains("enlace simbólico"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_windows_reparse_points_including_dangling_links() {
+        use std::io::ErrorKind;
+        use std::os::windows::fs::symlink_file;
+
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let target = directory.path().join("target.csv");
+        let link = directory.path().join("link.csv");
+        let dangling_link = directory.path().join("dangling.csv");
+        fs::write(&target, "value\n1\n").expect("se debe crear el archivo real");
+
+        match symlink_file(&target, &link) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => return,
+            Err(error) => panic!("no se pudo crear el enlace simbólico de prueba: {error}"),
+        }
+        match symlink_file(directory.path().join("missing.csv"), &dangling_link) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => return,
+            Err(error) => {
+                panic!("no se pudo crear el enlace simbólico colgante de prueba: {error}")
+            }
+        }
+
+        let read_error = canonicalize_existing_file(&link, "el dataset seleccionado")
+            .expect_err("una lectura no debe seguir reparse points");
+        let write_error = canonicalize_write_destination(&link, "la exportación")
+            .expect_err("una escritura no debe seguir reparse points");
+        let dangling_read_error =
+            canonicalize_existing_file(&dangling_link, "el dataset seleccionado")
+                .expect_err("una lectura no debe aceptar enlaces simbólicos colgantes");
+        let dangling_write_error = canonicalize_write_destination(&dangling_link, "la exportación")
+            .expect_err("una escritura no debe aceptar enlaces simbólicos colgantes");
+
+        assert!(read_error.contains("punto de reanálisis"));
+        assert!(write_error.contains("punto de reanálisis"));
+        assert!(dangling_read_error.contains("punto de reanálisis"));
+        assert!(dangling_write_error.contains("punto de reanálisis"));
     }
 
     #[test]

@@ -42,12 +42,46 @@ function Get-ToolVersion {
     }
 }
 
+function Get-LockfileFingerprint {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return [ordered]@{
+            status = "unavailable"
+            sha256 = $null
+        }
+    }
+
+    try {
+        return [ordered]@{
+            status = "available"
+            sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
+    catch {
+        return [ordered]@{
+            status = "unavailable"
+            sha256 = $null
+        }
+    }
+}
+
 $ToolVersions = [ordered]@{
     powershell = $PSVersionTable.PSVersion.ToString()
     node = Get-ToolVersion { node --version }
     npm = Get-ToolVersion { npm --version }
     rustc = Get-ToolVersion { rustc --version }
     cargo = Get-ToolVersion { cargo --version }
+}
+
+$RuntimeEnvironment = [ordered]@{
+    operatingSystem = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription.Trim()
+    architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+}
+
+$LockfileFingerprints = [ordered]@{
+    packageLock = Get-LockfileFingerprint (Join-Path $ProjectRoot "package-lock.json")
+    cargoLock = Get-LockfileFingerprint (Join-Path $TauriRoot "Cargo.lock")
 }
 
 function Invoke-Checked {
@@ -126,6 +160,8 @@ finally {
             dirty = $TreeDirty
         }
         tools = $ToolVersions
+        environment = $RuntimeEnvironment
+        lockfiles = $LockfileFingerprints
         steps = $StepResults
         error = $FailureMessage
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding utf8
