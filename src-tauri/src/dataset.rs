@@ -27,6 +27,8 @@ const HISTORY_MAX_ENTRIES: usize = 12;
 const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
 const RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
+const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
+const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -68,6 +70,8 @@ pub struct ExportResult {
 }
 
 const MAX_QUALITY_RULES: usize = 16;
+const MAX_QUALITY_COLUMN_CHARS: usize = 256;
+const MAX_QUALITY_TOTAL_TEXT_CHARS: usize = 2 * 1024;
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -2323,7 +2327,148 @@ fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result<(), String
     Ok(())
 }
 
+fn validate_semantic_text_budget<'a, I>(
+    payload: &str,
+    fields: I,
+    maximum_field_chars: usize,
+    maximum_total_chars: usize,
+) -> Result<(), String>
+where
+    I: IntoIterator<Item = (&'static str, &'a str)>,
+{
+    let mut total_chars = 0_usize;
+    for (field, value) in fields {
+        let field_chars = value.chars().count();
+        if field_chars > maximum_field_chars {
+            return Err(format!(
+                "El campo {field} del {payload} supera el límite de {maximum_field_chars} caracteres."
+            ));
+        }
+        total_chars = total_chars.saturating_add(field_chars);
+        if total_chars > maximum_total_chars {
+            return Err(format!(
+                "El {payload} supera el presupuesto semántico de {maximum_total_chars} caracteres."
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_recipe_text_budget(recipe: &TransformRecipe) -> Result<(), String> {
+    let mut fields: Vec<(&'static str, &str)> = Vec::new();
+    for rename in &recipe.renames {
+        fields.extend([
+            ("from de renombre", rename.from.as_str()),
+            ("to de renombre", rename.to.as_str()),
+        ]);
+    }
+    for cast in &recipe.casts {
+        fields.push(("column de conversión", cast.column.as_str()));
+    }
+    for date_parse in &recipe.date_parses {
+        fields.push(("column de fecha", date_parse.column.as_str()));
+    }
+    for filter in &recipe.filters {
+        fields.push(("column de filtro", filter.column.as_str()));
+        if let Some(value) = &filter.value {
+            fields.push(("value de filtro", value.as_str()));
+        }
+    }
+    if let Some(calculation) = &recipe.calculated_column {
+        fields.extend([
+            ("name de cálculo", calculation.name.as_str()),
+            ("source de cálculo", calculation.source.as_str()),
+        ]);
+        if let Some(operand) = &calculation.operand {
+            fields.push(("value de operando", operand.value.as_str()));
+        }
+    }
+    if let Some(replacement) = &recipe.find_replace {
+        if let Some(column) = &replacement.column {
+            fields.push(("column de reemplazo", column.as_str()));
+        }
+        fields.extend([
+            ("find de reemplazo", replacement.find.as_str()),
+            ("replace de reemplazo", replacement.replace.as_str()),
+        ]);
+    }
+    if let Some(columns) = &recipe.keep_columns {
+        fields.extend(
+            columns
+                .iter()
+                .map(|column| ("keepColumns", column.as_str())),
+        );
+    }
+    if let Some(split) = &recipe.split_column {
+        fields.extend([
+            ("source de división", split.source.as_str()),
+            ("delimiter de división", split.delimiter.as_str()),
+        ]);
+        fields.extend(
+            split
+                .names
+                .iter()
+                .map(|name| ("names de división", name.as_str())),
+        );
+    }
+    if let Some(merge) = &recipe.merge_columns {
+        fields.extend(
+            merge
+                .sources
+                .iter()
+                .map(|source| ("sources de combinación", source.as_str())),
+        );
+        fields.extend([
+            ("name de combinación", merge.name.as_str()),
+            ("separator de combinación", merge.separator.as_str()),
+        ]);
+    }
+    fields.extend(
+        recipe
+            .outlier_treatments
+            .iter()
+            .map(|treatment| ("column de atípicos", treatment.column.as_str())),
+    );
+    if let Some(summary) = &recipe.group_summary {
+        fields.extend(
+            summary
+                .group_by
+                .iter()
+                .map(|column| ("groupBy", column.as_str())),
+        );
+        fields.extend(
+            summary
+                .aggregations
+                .iter()
+                .map(|aggregation| ("column de agregación", aggregation.column.as_str())),
+        );
+    }
+    fields.extend(
+        recipe
+            .contact_normalizations
+            .iter()
+            .map(|normalization| ("column de contacto", normalization.column.as_str())),
+    );
+    for extraction in &recipe.text_extractions {
+        fields.extend([
+            ("source de extracción", extraction.source.as_str()),
+            ("name de extracción", extraction.name.as_str()),
+        ]);
+        if let Some(delimiter) = &extraction.delimiter {
+            fields.push(("delimiter de extracción", delimiter.as_str()));
+        }
+    }
+
+    validate_semantic_text_budget(
+        "payload de receta",
+        fields,
+        MAX_RECIPE_TEXT_FIELD_CHARS,
+        MAX_RECIPE_TOTAL_TEXT_CHARS,
+    )
+}
+
 fn validate_recipe_structure(recipe: &TransformRecipe) -> Result<(), String> {
+    validate_recipe_text_budget(recipe)?;
     let bounded = [
         (recipe.renames.len(), 256, "renombres"),
         (recipe.casts.len(), 256, "conversiones"),
@@ -2431,6 +2576,22 @@ fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
     Ok(document)
 }
 
+fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), String> {
+    if quality_rules.len() > MAX_QUALITY_RULES {
+        return Err(format!(
+            "Se admiten como máximo {MAX_QUALITY_RULES} reglas de calidad."
+        ));
+    }
+    validate_semantic_text_budget(
+        "payload de reglas de calidad",
+        quality_rules
+            .iter()
+            .map(|rule| ("column", rule.column.as_str())),
+        MAX_QUALITY_COLUMN_CHARS,
+        MAX_QUALITY_TOTAL_TEXT_CHARS,
+    )
+}
+
 fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Result<(), String> {
     if rule.column.trim().is_empty() {
         return Err("La columna de una regla de calidad no puede estar vacía.".to_owned());
@@ -2534,11 +2695,7 @@ where
     C: Fn() -> bool,
 {
     ensure_not_cancelled(is_cancelled())?;
-    if quality_rules.len() > MAX_QUALITY_RULES {
-        return Err(format!(
-            "Se admiten como máximo {MAX_QUALITY_RULES} reglas de calidad."
-        ));
-    }
+    validate_quality_rules_payload(quality_rules)?;
     for rule in quality_rules {
         ensure_not_cancelled(is_cancelled())?;
         validate_quality_rule_definition(frame, rule)?;
@@ -2638,6 +2795,7 @@ where
     C: Fn() -> bool,
 {
     ensure_not_cancelled(is_cancelled())?;
+    validate_quality_rules_payload(quality_rules)?;
     if quality_rules.is_empty() {
         return if allow_unvalidated {
             Ok(None)
@@ -2653,6 +2811,53 @@ where
         ));
     }
     Ok(Some(validation))
+}
+
+fn starts_with_spreadsheet_formula_prefix(value: &str) -> bool {
+    matches!(
+        value.chars().next(),
+        Some('=' | '+' | '-' | '@' | '\t' | '\r' | '\n')
+    )
+}
+
+fn neutralize_spreadsheet_formula(value: &str) -> String {
+    if starts_with_spreadsheet_formula_prefix(value) {
+        format!("'{value}")
+    } else {
+        value.to_owned()
+    }
+}
+
+fn csv_formula_safe_frame(frame: &DataFrame) -> Result<DataFrame, String> {
+    let mut safe = frame.clone();
+    let text_columns = frame
+        .columns()
+        .iter()
+        .filter(|column| column.dtype() == &DataType::String)
+        .map(|column| column.name().as_str().to_owned())
+        .collect::<Vec<_>>();
+
+    for name in text_columns {
+        let values = frame
+            .column(&name)
+            .and_then(|column| column.str())
+            .map_err(|_| "No se pudo preparar texto seguro para CSV.".to_owned())?
+            .iter()
+            .map(|value| value.map(neutralize_spreadsheet_formula))
+            .collect::<Vec<_>>();
+        safe.replace(&name, Column::new(name.clone().into(), values))
+            .map_err(|_| "No se pudo proteger una columna de texto para CSV.".to_owned())?;
+    }
+    Ok(safe)
+}
+
+fn frame_for_export(frame: &DataFrame, format: ExportFormat) -> Result<DataFrame, String> {
+    match format {
+        // CSV suele abrirse en hojas de cálculo: una comilla inicial fuerza texto y evita
+        // ejecutar celdas controladas por datos. Parquet conserva los valores originales.
+        ExportFormat::Csv => csv_formula_safe_frame(frame),
+        ExportFormat::Parquet => Ok(frame.clone()),
+    }
 }
 
 fn export_frame_atomic<F, C>(
@@ -2674,7 +2879,7 @@ where
     report("Preparando archivo temporal", 10);
     let temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo crear el archivo temporal: {error}"))?;
-    let mut output_frame = frame.clone();
+    let mut output_frame = frame_for_export(frame, format)?;
 
     report("Escribiendo dataset", 25);
     match format {
@@ -2970,6 +3175,7 @@ pub async fn validate_quality_rules(
     app: AppHandle,
     quality_rules: Vec<QualityRule>,
 ) -> Result<QualityValidationResult, String> {
+    validate_quality_rules_payload(&quality_rules)?;
     let frame = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -2997,6 +3203,7 @@ pub async fn export_dataset(
     allow_unvalidated: bool,
     on_progress: Channel<OperationProgress>,
 ) -> Result<Option<ExportResult>, String> {
+    validate_quality_rules_payload(&quality_rules)?;
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -5115,6 +5322,7 @@ fn apply_recipe_to_dataset(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
+    validate_recipe_structure(recipe)?;
     let (
         candidate,
         renamed_column_count,
@@ -5192,6 +5400,7 @@ pub async fn apply_transform_recipe(
     app: AppHandle,
     recipe: TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
+    validate_recipe_structure(&recipe)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -5388,6 +5597,48 @@ mod tests {
         assert!(load_recipe_file(&path)
             .unwrap_err()
             .contains("supera el límite"));
+    }
+
+    #[test]
+    fn recipe_semantic_budget_accepts_boundaries_and_rejects_large_apply_and_save_payloads() {
+        let boundary_value = "x".repeat(MAX_RECIPE_TEXT_FIELD_CHARS);
+        let boundary = TransformRecipe {
+            keep_columns: Some(vec![boundary_value.clone(); 16]),
+            ..Default::default()
+        };
+        assert_eq!(
+            boundary
+                .keep_columns
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|value| value.chars().count())
+                .sum::<usize>(),
+            MAX_RECIPE_TOTAL_TEXT_CHARS
+        );
+        validate_recipe_structure(&boundary).expect("el límite exacto debe admitirse");
+
+        let oversized_field = TransformRecipe {
+            keep_columns: Some(vec!["x".repeat(MAX_RECIPE_TEXT_FIELD_CHARS + 1)]),
+            ..Default::default()
+        };
+        let save_error = build_stored_recipe(oversized_field, "Receta grande".to_owned())
+            .expect_err("guardar debe rechazar un campo desproporcionado");
+        assert!(save_error.contains(&MAX_RECIPE_TEXT_FIELD_CHARS.to_string()));
+        assert!(!save_error.contains(&"x".repeat(32)));
+
+        let oversized_total = TransformRecipe {
+            keep_columns: Some(vec![boundary_value; 17]),
+            ..Default::default()
+        };
+        let path = temporary_csv("value\n1\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let mut dataset = loaded_dataset(path.clone(), frame);
+        let apply_error = apply_recipe_to_dataset(&mut dataset, &oversized_total)
+            .expect_err("aplicar debe rechazar el presupuesto total excedido");
+        assert!(apply_error.contains(&MAX_RECIPE_TOTAL_TEXT_CHARS.to_string()));
+        assert!(!apply_error.contains(&"x".repeat(32)));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     fn temporary_delimited(extension: &str, contents: &str) -> PathBuf {
@@ -5762,6 +6013,67 @@ mod tests {
         assert_eq!(result.format, "CSV");
         assert_eq!(updates.last(), Some(&("Exportación lista", 100)));
         fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn csv_export_neutralizes_spreadsheet_formulas_and_parquet_preserves_values() {
+        let dangerous = [
+            "=SUM(A1:A2)",
+            "+cmd",
+            "-2+3",
+            "@SUM(A1:A2)",
+            "\tformula",
+            "\rformula",
+            "\nformula",
+        ];
+        let benign = ["text", "123", "  =not-a-prefix", "'already-text"];
+        let values = dangerous
+            .iter()
+            .chain(benign.iter())
+            .copied()
+            .map(Some)
+            .chain(std::iter::once(None))
+            .collect::<Vec<_>>();
+        let mut numbers = (0_i64..)
+            .take(dangerous.len() + benign.len() + 1)
+            .collect::<Vec<_>>();
+        numbers[0] = -12;
+        let frame = DataFrame::new(
+            values.len(),
+            vec![
+                Series::new("text".into(), values).into_column(),
+                Series::new("number".into(), numbers).into_column(),
+            ],
+        )
+        .unwrap();
+
+        let csv = frame_for_export(&frame, ExportFormat::Csv).expect("CSV debe protegerse");
+        let exported_text = csv
+            .column("text")
+            .unwrap()
+            .str()
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>();
+        for (index, value) in dangerous.iter().enumerate() {
+            assert_eq!(exported_text[index], Some(format!("'{value}").as_str()));
+        }
+        for (offset, value) in benign.iter().enumerate() {
+            assert_eq!(exported_text[dangerous.len() + offset], Some(*value));
+        }
+        assert_eq!(exported_text.last(), Some(&None));
+        assert_eq!(
+            csv.column("number").unwrap(),
+            frame.column("number").unwrap()
+        );
+        assert_eq!(
+            csv.column("number").unwrap().i64().unwrap().get(0),
+            Some(-12)
+        );
+
+        let parquet = frame_for_export(&frame, ExportFormat::Parquet)
+            .expect("Parquet debe conservar los valores originales");
+        assert!(parquet.equals_missing(&frame));
     }
 
     #[test]
@@ -8109,6 +8421,40 @@ mod tests {
             r#"{"column":"value","kind":"not_null","maxInvalid":-1}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn quality_semantic_budget_accepts_boundaries_and_rejects_validate_and_export_payloads() {
+        let boundary_column = "c".repeat(MAX_QUALITY_COLUMN_CHARS);
+        let boundary_rules = vec![
+            quality_rule(&boundary_column, QualityRuleKind::NotNull);
+            MAX_QUALITY_TOTAL_TEXT_CHARS / MAX_QUALITY_COLUMN_CHARS
+        ];
+        validate_quality_rules_payload(&boundary_rules)
+            .expect("el presupuesto exacto de calidad debe admitirse");
+
+        let oversized_column = "c".repeat(MAX_QUALITY_COLUMN_CHARS + 1);
+        let field_error = validate_quality_rules_payload(&[quality_rule(
+            &oversized_column,
+            QualityRuleKind::NotNull,
+        )])
+        .expect_err("un nombre desproporcionado debe rechazarse");
+        assert!(field_error.contains(&MAX_QUALITY_COLUMN_CHARS.to_string()));
+        assert!(!field_error.contains(&"c".repeat(32)));
+
+        let oversized_total = vec![
+            quality_rule(&boundary_column, QualityRuleKind::NotNull);
+            MAX_QUALITY_TOTAL_TEXT_CHARS / MAX_QUALITY_COLUMN_CHARS + 1
+        ];
+        let frame = df!["value" => &[1_i64]].unwrap();
+        let validation_error = evaluate_quality_rules(&frame, &oversized_total)
+            .expect_err("validar debe rechazar el total excedido antes de consultar columnas");
+        assert!(validation_error.contains(&MAX_QUALITY_TOTAL_TEXT_CHARS.to_string()));
+        let export_error =
+            enforce_export_quality_with_cancel(&frame, &oversized_total, false, || false)
+                .expect_err("exportar debe aplicar el mismo presupuesto");
+        assert_eq!(export_error, validation_error);
+        assert!(!export_error.contains(&"c".repeat(32)));
     }
 
     #[test]

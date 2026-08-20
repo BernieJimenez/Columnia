@@ -15,7 +15,7 @@
 | Persistencia actual | Dataset y perfil en memoria; historial en snapshots Parquet temporales |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-20, rama `master`, commit base `87ebb8a` |
+| Última revisión de este documento | 2026-08-20, rama `master`, commit base `5eff4d2` |
 
 ## Para qué existe este documento
 
@@ -89,6 +89,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
 | `tools/check.ps1` | Entrada única para los gates locales Fast, Full y Release; genera evidencia JSON auditable en `.local/validation/`. |
 | `README.md` | Descripción funcional y guía de uso/desarrollo. |
+| `THREAT_MODEL.md` | Activos, fronteras de confianza, amenazas, controles implementados y riesgos residuales. |
 | `ROADMAP.md` | Plan, decisiones históricas, fases y pendientes. No sustituye la inspección del código. |
 | `.codegraph/` | Índice semántico local del repositorio. Úsalo antes de búsquedas textuales para entender símbolos y rutas de llamadas. |
 | `.agents/skills/` | Skills locales disponibles para tareas especializadas del repositorio. |
@@ -210,6 +211,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 ### Entrega
 
 - exportación atómica a CSV o Parquet;
+- neutralización de fórmulas en columnas de texto al exportar CSV; Parquet conserva los valores originales;
 - cancelación cooperativa;
 - contratos de hasta 16 reglas: no nulo, texto no vacío, unicidad y rango numérico inclusivo;
 - tolerancia por cantidad y/o porcentaje;
@@ -231,7 +233,7 @@ No rompas estas reglas sin una decisión explícita documentada:
 - Una transformación compuesta debe ser atómica.
 - No añadas CI, GitHub Actions, telemetría o servicios de pago como requisito sin revertir expresamente las decisiones vigentes.
 
-La canonicalización cubre todos los puntos actuales de entrada por diálogo para datasets, recetas y exportaciones, con pruebas de segmentos `..`, directorios, symlinks en Unix y reparse points válidos o colgantes en Windows. La prueba Windows se omite limpiamente si el sistema no concede permiso para crear symlinks. Siguen pendientes fórmulas y payloads grandes, además del threat model actualizado.
+La canonicalización cubre todos los puntos actuales de entrada por diálogo para datasets, recetas y exportaciones, con pruebas de segmentos `..`, directorios, symlinks en Unix y reparse points válidos o colgantes en Windows. La prueba Windows se omite limpiamente si el sistema no concede permiso para crear symlinks. Rust limita los payloads semánticos de receta a 4.096 caracteres por campo y 65.536 acumulados; las reglas de calidad conservan el máximo de 16 y admiten hasta 256 caracteres por columna y 2.048 acumulados. Estos presupuestos se aplican antes de validar/exportar o aplicar/guardar, pero no sustituyen un límite de memoria del transporte IPC.
 
 ## Desarrollo y validación
 
@@ -262,7 +264,9 @@ Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, esta
 
 Las pruebas frontend verifican además que `package-lock.json` refleje exactamente la versión y las dependencias raíz de `package.json`, y que el paquete local de `Cargo.lock` coincida con `Cargo.toml`. No requieren red ni reescriben lockfiles.
 
-Al revisar este documento había 55 pruebas frontend y 84 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Los gates estáticos verifican que la CSP de producción permanezca local, que desarrollo solo añada el servidor loopback configurado y que la ventana `main` conserve exclusivamente `core:default`, sin permisos de filesystem, shell, HTTP u opener.
+
+Al revisar este documento había 56 pruebas frontend y 87 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -273,6 +277,7 @@ Al revisar este documento había 55 pruebas frontend y 84 pruebas Rust; las rama
 - Flujo Cargar → Revisar → Preparar → Entregar.
 - Formatos, perfiles, transformaciones, historial temporal, contratos y exportación descritos arriba.
 - CSP restrictiva, capability mínima y validación local centralizada.
+- Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 
 ### Planeado o pendiente
 
@@ -334,6 +339,9 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-20 | La exportación CSV neutraliza fórmulas únicamente en texto; los tipos no textuales y Parquet conservan sus valores. | `src-tauri/src/dataset.rs` |
+| 2026-08-20 | Rust aplica presupuestos semánticos explícitos a recetas y reglas de calidad en todos sus comandos de entrada. | `src-tauri/src/dataset.rs` |
+| 2026-08-20 | Se incorporó un threat model vivo y gates que impiden ampliar silenciosamente CSP o capabilities. | `THREAT_MODEL.md`, `src/tauri-assets.test.ts` |
 | 2026-08-20 | El escritorio usa el plugin oficial de instancia única; una segunda apertura restaura y enfoca `main` sin ampliar capabilities. | `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml` |
 | 2026-08-20 | `TransformRecipe` y sus 14 subestructuras tienen contratos TypeScript nominales; 39 estructuras comparan campos y tipos con Rust. | `src/bridge.ts`, `src/ipc-contract.test.ts` |
 | 2026-08-20 | Los gates locales comprueban que ambos lockfiles representen las versiones y dependencias raíz de sus manifiestos. | `src/version-sync.test.ts` |
@@ -351,6 +359,7 @@ Al actualizarlo:
 ## Documentos relacionados
 
 - [README.md](README.md): visión funcional y uso actual.
+- [THREAT_MODEL.md](THREAT_MODEL.md): fronteras de confianza, amenazas, controles y riesgos residuales.
 - [ROADMAP.md](ROADMAP.md): planificación, decisiones históricas y pendientes.
 - [package.json](package.json): scripts y dependencias frontend.
 - [src-tauri/Cargo.toml](src-tauri/Cargo.toml): dependencias del motor nativo.

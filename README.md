@@ -5,6 +5,8 @@ transformar y entregar datasets confiables.
 
 Para entender rápidamente la arquitectura, el estado implementado, los riesgos
 y las reglas de trabajo, consulta el [contexto vivo del proyecto](CONTEXTO.md).
+Las fronteras de confianza, amenazas y controles se mantienen en el
+[threat model vivo](THREAT_MODEL.md).
 
 El proyecto está en su primer hito técnico. Actualmente contiene el shell Tauri
 2, una interfaz React/TypeScript y el primer corte vertical del motor Polars:
