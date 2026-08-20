@@ -135,63 +135,128 @@ export interface SafeCorrectionsResult {
   renames: ColumnRename[];
 }
 
-export type TransformTarget = "string" | "integer" | "decimal" | "boolean";
-export type DateInputFormat = "iso8601" | "ymd" | "dmy" | "mdy";
-export type DateTarget = "date" | "datetime";
-export type FilterOperator =
+export type RecipeCastTarget = "string" | "integer" | "decimal" | "boolean";
+export type RecipeDateFormat = "iso8601" | "ymd" | "dmy" | "mdy";
+export type RecipeDateTarget = "date" | "datetime";
+export type RecipeFilterOperator =
   | "eq" | "neq" | "gt" | "lt" | "gte" | "lte"
   | "contains" | "not_contains" | "is_null" | "not_null";
-export type CalculationOperation =
+export type CalculatedOperation =
   | "add" | "subtract" | "multiply" | "divide" | "concat"
   | "year" | "month" | "day";
-export type CalculationOperand = { kind: "literal" | "column"; value: string };
+export type CalculatedOperandKind = "literal" | "column";
 export type FindReplaceScope = "column" | "all_text_columns";
+export type OutlierAction = "cap" | "drop";
+export type SummaryOperation = "sum" | "mean" | "min" | "max" | "count" | "count_unique";
+export type ContactKind = "email" | "phone" | "address";
+export type ExtractionKind =
+  | "first_token" | "last_token" | "digits" | "letters" | "before" | "after";
+
+// Alias públicos históricos. Mantenerlos evita romper consumidores existentes.
+export type TransformTarget = RecipeCastTarget;
+export type DateInputFormat = RecipeDateFormat;
+export type DateTarget = RecipeDateTarget;
+export type FilterOperator = RecipeFilterOperator;
+export type CalculationOperation = CalculatedOperation;
+
+export interface RecipeRename {
+  from: string;
+  to: string;
+}
+
+export interface RecipeCast {
+  column: string;
+  target: RecipeCastTarget;
+}
+
+export interface RecipeDateParse {
+  column: string;
+  format: RecipeDateFormat;
+  target: RecipeDateTarget;
+}
+
+export interface RecipeFilter {
+  column: string;
+  operator: RecipeFilterOperator;
+  value: string | null;
+}
+
+export interface CalculatedOperand {
+  kind: CalculatedOperandKind;
+  value: string;
+}
+
+export type CalculationOperand = CalculatedOperand;
+
+export interface CalculatedColumnRecipe {
+  name: string;
+  source: string;
+  operation: CalculatedOperation;
+  operand: CalculatedOperand | null;
+}
+
+export interface FindReplaceRecipe {
+  scope: FindReplaceScope;
+  column: string | null;
+  find: string;
+  replace: string;
+}
+
+export interface SplitColumnRecipe {
+  source: string;
+  delimiter: string;
+  names: string[];
+  dropSource: boolean;
+}
+
+export interface MergeColumnsRecipe {
+  sources: string[];
+  name: string;
+  separator: string;
+  dropSources: boolean;
+}
+
+export interface OutlierTreatment {
+  column: string;
+  action: OutlierAction;
+}
+
+export interface SummaryAggregation {
+  column: string;
+  operation: SummaryOperation;
+}
+
+export interface GroupSummaryRecipe {
+  groupBy: string[];
+  aggregations: SummaryAggregation[];
+}
+
+export interface ContactNormalization {
+  column: string;
+  kind: ContactKind;
+}
+
+export interface TextExtraction {
+  source: string;
+  kind: ExtractionKind;
+  name: string;
+  delimiter: string | null;
+}
 
 export interface TransformRecipe {
-  renames: Array<{ from: string; to: string }>;
-  casts: Array<{ column: string; target: TransformTarget }>;
-  dateParses: Array<{ column: string; format: DateInputFormat; target: DateTarget }>;
-  filters: Array<{ column: string; operator: FilterOperator; value: string | null }>;
-  calculatedColumn: {
-    name: string;
-    source: string;
-    operation: CalculationOperation;
-    operand: CalculationOperand | null;
-  } | null;
-  findReplace: {
-    scope: FindReplaceScope;
-    column: string | null;
-    find: string;
-    replace: string;
-  } | null;
+  renames: RecipeRename[];
+  casts: RecipeCast[];
+  dateParses: RecipeDateParse[];
+  filters: RecipeFilter[];
+  calculatedColumn: CalculatedColumnRecipe | null;
+  findReplace: FindReplaceRecipe | null;
   keepColumns: string[] | null;
-  splitColumn: {
-    source: string;
-    delimiter: string;
-    names: string[];
-    dropSource: boolean;
-  } | null;
-  mergeColumns: {
-    sources: string[];
-    name: string;
-    separator: string;
-    dropSources: boolean;
-  } | null;
-  outlierTreatments: Array<{ column: string; action: "cap" | "drop" }>;
-  groupSummary: {
-    groupBy: string[];
-    aggregations: Array<{
-      column: string;
-      operation: "sum" | "mean" | "min" | "max" | "count" | "count_unique";
-    }>;
-  } | null;
-  contactNormalizations: Array<{ column: string; kind: "email" | "phone" | "address" }>;
-  textExtractions: Array<{
-    source: string;
-    kind: "first_token" | "last_token" | "digits" | "letters" | "before" | "after";
-    name: string;
-    delimiter: string | null;
-  }>;
+  splitColumn: SplitColumnRecipe | null;
+  mergeColumns: MergeColumnsRecipe | null;
+  outlierTreatments: OutlierTreatment[];
+  groupSummary: GroupSummaryRecipe | null;
+  contactNormalizations: ContactNormalization[];
+  textExtractions: TextExtraction[];
 }
 
 export interface SavedRecipe {

@@ -1,5 +1,8 @@
 use serde::Serialize;
 
+#[cfg(desktop)]
+use tauri::Manager;
+
 mod dataset;
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -23,9 +26,29 @@ fn get_app_info() -> AppInfo {
     current_app_info()
 }
 
+#[cfg(desktop)]
+fn restore_main_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            restore_main_window(app);
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .manage(dataset::DatasetState::default())
         .invoke_handler(tauri::generate_handler![

@@ -15,7 +15,7 @@
 | Persistencia actual | Dataset y perfil en memoria; historial en snapshots Parquet temporales |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-20, rama `master`, commit base `8bf2ce5` |
+| Última revisión de este documento | 2026-08-20, rama `master`, commit base `87ebb8a` |
 
 ## Para qué existe este documento
 
@@ -83,7 +83,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
 | `src/styles.css` | Sistema visual y layout de la aplicación. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
-| `src-tauri/src/lib.rs` | Inicializa Tauri, el diálogo nativo, `DatasetState` y los 20 comandos permitidos. |
+| `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, `DatasetState` y los 20 comandos permitidos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
@@ -163,7 +163,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `undo_last_change`
 - `redo_last_change`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y nombres de campos de 25 estructuras compartidas. También compara los tipos concretos de 24 contratos, normalizando referencias, números, `Vec`/arrays, `Option`/campos opcionales, herencia, literales y alias conocidos. `TransformRecipe` conserva paridad de campos, pero sus tipos internos inline todavía no se comparan porque Rust usa contratos nominales separados.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores, nombres de campos y tipos concretos de 39 estructuras compartidas. Normaliza referencias, números, `Vec`/arrays, `Option`/campos opcionales, herencia, literales y alias conocidos. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -231,7 +231,7 @@ No rompas estas reglas sin una decisión explícita documentada:
 - Una transformación compuesta debe ser atómica.
 - No añadas CI, GitHub Actions, telemetría o servicios de pago como requisito sin revertir expresamente las decisiones vigentes.
 
-La canonicalización cubre todos los puntos actuales de entrada por diálogo para datasets, recetas y exportaciones, con pruebas de segmentos `..`, directorios, symlinks en Unix y reparse points válidos o colgantes en Windows. La prueba Windows se omite limpiamente si el sistema no concede permiso para crear symlinks. Siguen pendientes fórmulas y payloads grandes, además del threat model actualizado y la instancia única.
+La canonicalización cubre todos los puntos actuales de entrada por diálogo para datasets, recetas y exportaciones, con pruebas de segmentos `..`, directorios, symlinks en Unix y reparse points válidos o colgantes en Windows. La prueba Windows se omite limpiamente si el sistema no concede permiso para crear symlinks. Siguen pendientes fórmulas y payloads grandes, además del threat model actualizado.
 
 ## Desarrollo y validación
 
@@ -260,13 +260,16 @@ npm run tauri dev
 
 Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error.
 
-Al revisar este documento había 53 pruebas frontend y 84 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Las pruebas frontend verifican además que `package-lock.json` refleje exactamente la versión y las dependencias raíz de `package.json`, y que el paquete local de `Cargo.lock` coincida con `Cargo.toml`. No requieren red ni reescriben lockfiles.
+
+Al revisar este documento había 55 pruebas frontend y 84 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
 ### Implementado ahora
 
 - Shell Tauri, frontend React y motor Rust/Polars.
+- Instancia única en escritorio: una segunda apertura muestra, desminimiza y enfoca la ventana `main` existente.
 - Flujo Cargar → Revisar → Preparar → Entregar.
 - Formatos, perfiles, transformaciones, historial temporal, contratos y exportación descritos arriba.
 - CSP restrictiva, capability mínima y validación local centralizada.
@@ -278,8 +281,6 @@ Al revisar este documento había 53 pruebas frontend y 84 pruebas Rust; las rama
 - SQLite, proyectos y recuperación de sesión;
 - CLI y automatización sin interfaz;
 - joins, comparación de datasets y destinos de bases de datos;
-- instancia única;
-- contrato nominal para las estructuras inline de `TransformRecipe`; los otros 24 contratos compartidos ya comparan tipos concretos automáticamente;
 - E2E, accesibilidad, pruebas visuales y presupuestos medibles; los reportes básicos de gates locales ya existen;
 - supply chain, SBOM, empaquetado Windows y updater autenticado;
 - verificación real en macOS y Linux.
@@ -290,7 +291,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **UI monolítica**: `App.tsx` concentra coordinación y muchos editores. Los refactors deben preservar las uniones de estado y las confirmaciones de acciones destructivas.
-3. **Contrato de receta parcialmente estructural**: comandos, argumentos, retornos, campos y 24 tipos compartidos tienen gates de paridad. `TransformRecipe` aún usa objetos inline en TypeScript y structs nominales en Rust, por lo que sus tipos internos no tienen comparación automática completa.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 39 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
 5. **Persistencia efímera**: cerrar la aplicación pierde dataset, perfil e historial.
 6. **Cobertura de plataforma**: el diseño es multiplataforma, pero soporte declarado requiere validación local en cada sistema.
@@ -333,9 +334,12 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-20 | El escritorio usa el plugin oficial de instancia única; una segunda apertura restaura y enfoca `main` sin ampliar capabilities. | `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml` |
+| 2026-08-20 | `TransformRecipe` y sus 14 subestructuras tienen contratos TypeScript nominales; 39 estructuras comparan campos y tipos con Rust. | `src/bridge.ts`, `src/ipc-contract.test.ts` |
+| 2026-08-20 | Los gates locales comprueban que ambos lockfiles representen las versiones y dependencias raíz de sus manifiestos. | `src/version-sync.test.ts` |
 | 2026-08-20 | Los reportes locales incluyen OS, arquitectura y SHA-256 de los lockfiles sin registrar rutas ni contenido. | `tools/check.ps1` |
 | 2026-08-20 | Windows rechaza cualquier reparse point en fuentes y destinos, incluidos enlaces válidos y colgantes. | `src-tauri/src/dataset.rs` |
-| 2026-08-20 | El gate IPC compara tipos concretos de 24 contratos; `TransformRecipe` queda explícitamente pendiente de contratos nominales equivalentes. | `src/ipc-contract.test.ts` |
+| 2026-08-20 | Se añadió la primera comparación de tipos concretos para 24 contratos IPC; posteriormente se amplió a `TransformRecipe` y sus subestructuras, como registra la entrada superior. | `src/ipc-contract.test.ts` |
 | 2026-08-20 | Las rutas de datasets, recetas y exportaciones se canonicalizan en Rust; fuentes y destinos no regulares o simbólicos se rechazan antes de operar. | `src-tauri/src/dataset.rs` |
 | 2026-08-20 | El gate IPC compara los campos de 25 estructuras compartidas y encontró/corrigió la ausencia de `TransformRecipeResult.changed` en TypeScript. | `src/ipc-contract.test.ts`, `src/bridge.ts` |
 | 2026-08-20 | El gate IPC compara los tipos de retorno Rust con los genéricos `invoke<T>` y normaliza `Result`, `Option`, `void` y los alias de recetas conocidos. | `src/ipc-contract.test.ts` |

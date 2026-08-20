@@ -253,7 +253,22 @@ function normalizeRustFieldType(type: string): string {
   }
 
   if (withoutReference === "StoredTransformRecipe") return "SavedRecipe";
-  if (withoutReference === "QualityRuleKind") return "string";
+  if (
+    [
+      "QualityRuleKind",
+      "RecipeCastTarget",
+      "RecipeDateFormat",
+      "RecipeDateTarget",
+      "RecipeFilterOperator",
+      "CalculatedOperation",
+      "CalculatedOperandKind",
+      "FindReplaceScope",
+      "OutlierAction",
+      "SummaryOperation",
+      "ContactKind",
+      "ExtractionKind",
+    ].includes(withoutReference)
+  ) return "string";
   return withoutReference;
 }
 
@@ -313,7 +328,7 @@ function normalizeTypescriptFieldType(
   const array = genericContents(compact, "Array");
   if (array !== null) return `array<${normalizeTypescriptFieldType(array, aliases, visited)}>`;
 
-  const union = splitTopLevel(compact, "|");
+  const union = splitTopLevel(compact, "|").filter(Boolean);
   if (union.length > 1) {
     const nullable = union.some((part) => part === "null" || part === "undefined");
     const members = union.filter((part) => part !== "null" && part !== "undefined");
@@ -438,6 +453,20 @@ describe("contrato IPC", () => {
       ["HistoryEntryState", "HistoryEntryState"],
       ["HistoryState", "HistoryState"],
       ["SafeCorrectionsResult", "SafeCorrectionsResult"],
+      ["RecipeRename", "RecipeRename"],
+      ["RecipeCast", "RecipeCast"],
+      ["RecipeDateParse", "RecipeDateParse"],
+      ["RecipeFilter", "RecipeFilter"],
+      ["CalculatedOperand", "CalculatedOperand"],
+      ["CalculatedColumnRecipe", "CalculatedColumnRecipe"],
+      ["FindReplaceRecipe", "FindReplaceRecipe"],
+      ["SplitColumnRecipe", "SplitColumnRecipe"],
+      ["MergeColumnsRecipe", "MergeColumnsRecipe"],
+      ["OutlierTreatment", "OutlierTreatment"],
+      ["SummaryAggregation", "SummaryAggregation"],
+      ["GroupSummaryRecipe", "GroupSummaryRecipe"],
+      ["ContactNormalization", "ContactNormalization"],
+      ["TextExtraction", "TextExtraction"],
       ["TransformRecipe", "TransformRecipe"],
       ["StoredTransformRecipe", "SavedRecipe"],
       ["TransformRecipeResult", "TransformRecipeResult"],
@@ -488,13 +517,25 @@ describe("contrato IPC", () => {
       ["HistoryEntryState", "HistoryEntryState"],
       ["HistoryState", "HistoryState"],
       ["SafeCorrectionsResult", "SafeCorrectionsResult"],
+      ["RecipeRename", "RecipeRename"],
+      ["RecipeCast", "RecipeCast"],
+      ["RecipeDateParse", "RecipeDateParse"],
+      ["RecipeFilter", "RecipeFilter"],
+      ["CalculatedOperand", "CalculatedOperand"],
+      ["CalculatedColumnRecipe", "CalculatedColumnRecipe"],
+      ["FindReplaceRecipe", "FindReplaceRecipe"],
+      ["SplitColumnRecipe", "SplitColumnRecipe"],
+      ["MergeColumnsRecipe", "MergeColumnsRecipe"],
+      ["OutlierTreatment", "OutlierTreatment"],
+      ["SummaryAggregation", "SummaryAggregation"],
+      ["GroupSummaryRecipe", "GroupSummaryRecipe"],
+      ["ContactNormalization", "ContactNormalization"],
+      ["TextExtraction", "TextExtraction"],
+      ["TransformRecipe", "TransformRecipe"],
       ["StoredTransformRecipe", "SavedRecipe"],
       ["TransformRecipeResult", "TransformRecipeResult"],
     ];
 
-    // TransformRecipe queda fuera deliberadamente: varios de sus campos usan tipos
-    // estructurales inline en TypeScript. Compararlos por texto ocultaría diferencias
-    // internas; se incorporará cuando ambos lados tengan contratos nominales equivalentes.
     for (const [rustName, typescriptName] of sharedStructures) {
       expect(
         typescriptInterfaceFieldTypes(bridgeSource, typescriptName, aliases),
