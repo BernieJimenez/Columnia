@@ -823,6 +823,7 @@ describe("App", () => {
           { name: "fecha", dataType: "Date" },
         ],
       },
+      changed: true,
       renamedColumnCount: 1,
       convertedColumnCount: 1,
       parsedDateColumnCount: 1,
@@ -991,6 +992,7 @@ describe("App", () => {
     mockDatasetLoad(original);
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset: { ...original, rowCount: 12, columnCount: 3 },
+      changed: true,
       renamedColumnCount: 0, convertedColumnCount: 0, parsedDateColumnCount: 0,
       removedRowCount: 8, calculatedColumnCount: 1,
       replacedCellCount: 0, droppedColumnCount: 0,
@@ -1138,6 +1140,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({ canUndo: false, canRedo: false, currentIndex: 0, entryCount: 1, entries: [{ index: 0, label: "Dataset cargado", isCurrent: true }] }));
     vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset: original,
+      changed: false,
       renamedColumnCount: 0, convertedColumnCount: 0, parsedDateColumnCount: 0,
       removedRowCount: 0, calculatedColumnCount: 0, replacedCellCount: 0,
       droppedColumnCount: 0, splitColumnCount: 0, mergedColumnCount: 0,
@@ -1170,6 +1173,7 @@ describe("App", () => {
     mockDatasetLoad(original);
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset: { ...original, rowCount: 2, columnCount: 3 }, renamedColumnCount: 0,
+      changed: true,
       convertedColumnCount: 1, parsedDateColumnCount: 0, removedRowCount: 0,
       calculatedColumnCount: 0, replacedCellCount: 0, droppedColumnCount: 0,
       splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
@@ -1212,6 +1216,7 @@ describe("App", () => {
     mockDatasetLoad(original);
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset: { ...original, columnCount: 3 }, renamedColumnCount: 0, convertedColumnCount: 1,
+      changed: true,
       parsedDateColumnCount: 0, removedRowCount: 0, calculatedColumnCount: 0, replacedCellCount: 0,
       droppedColumnCount: 0, splitColumnCount: 0, mergedColumnCount: 0, droppedSourceColumnCount: 0,
       adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0, outlierColumnCount: 0,

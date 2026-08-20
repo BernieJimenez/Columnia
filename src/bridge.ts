@@ -205,6 +205,7 @@ export type LoadedRecipe = SavedRecipe;
 
 export interface TransformRecipeResult {
   dataset: DatasetPreview;
+  changed: boolean;
   renamedColumnCount: number;
   convertedColumnCount: number;
   parsedDateColumnCount: number;

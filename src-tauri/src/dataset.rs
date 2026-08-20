@@ -874,19 +874,73 @@ fn dataset_extension(path: &Path) -> Result<String, String> {
         })
 }
 
-fn validate_dataset_file(path: &Path) -> Result<(u64, String), String> {
-    if !path.is_file() {
-        return Err("El archivo seleccionado no existe o no es un archivo regular.".into());
+fn canonicalize_existing_file(path: &Path, label: &str) -> Result<PathBuf, String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("No se pudo verificar {label}: {error}"))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!("{label} no puede ser un enlace simbólico."));
     }
-    let extension = dataset_extension(path)?;
+    if !metadata.is_file() {
+        return Err(format!("{label} no existe o no es un archivo regular."));
+    }
 
-    let size = fs::metadata(path)
+    let canonical = fs::canonicalize(path)
+        .map_err(|error| format!("No se pudo resolver la ruta real de {label}: {error}"))?;
+    let canonical_metadata = fs::metadata(&canonical)
+        .map_err(|error| format!("No se pudo verificar la ruta real de {label}: {error}"))?;
+    if !canonical_metadata.is_file() {
+        return Err(format!("{label} no apunta a un archivo regular."));
+    }
+    Ok(canonical)
+}
+
+fn canonicalize_write_destination(path: &Path, label: &str) -> Result<PathBuf, String> {
+    let file_name = path
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| format!("No se pudo resolver el nombre de {label}."))?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let canonical_parent = fs::canonicalize(parent)
+        .map_err(|error| format!("No se pudo resolver la carpeta de {label}: {error}"))?;
+    if !canonical_parent.is_dir() {
+        return Err(format!("La carpeta de {label} no es un directorio válido."));
+    }
+
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(format!(
+                "El destino de {label} no puede ser un enlace simbólico."
+            ));
+        }
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(format!("El destino de {label} no es un archivo regular."));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "No se pudo verificar el destino de {label}: {error}"
+            ));
+        }
+    }
+
+    Ok(canonical_parent.join(file_name))
+}
+
+fn validate_dataset_file(path: &Path) -> Result<(PathBuf, u64, String), String> {
+    let canonical = canonicalize_existing_file(path, "el dataset seleccionado")?;
+    let extension = dataset_extension(&canonical)?;
+
+    let size = fs::metadata(&canonical)
         .map_err(|error| format!("No se pudieron leer los metadatos del archivo: {error}"))?
         .len();
 
     validate_file_size(size)?;
 
-    Ok((size, extension))
+    Ok((canonical, size, extension))
 }
 
 fn validate_file_size(size: u64) -> Result<(), String> {
@@ -2103,7 +2157,7 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     report("Validando archivo", 10);
-    let (_, extension) = validate_dataset_file(path)?;
+    let (_, _, extension) = validate_dataset_file(path)?;
     if extension != "csv" {
         return Err("El lector CSV recibió un formato diferente.".to_owned());
     }
@@ -2130,7 +2184,7 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     report("Validando archivo", 10);
-    let (_, extension) = validate_dataset_file(path)?;
+    let (_, _, extension) = validate_dataset_file(path)?;
     ensure_not_cancelled(is_cancelled())?;
     report("Leyendo y detectando columnas", 25);
 
@@ -2310,6 +2364,7 @@ fn validate_recipe_structure(recipe: &TransformRecipe) -> Result<(), String> {
 
 fn save_recipe_atomic(document: &StoredTransformRecipe, destination: &Path) -> Result<(), String> {
     validate_stored_recipe(document)?;
+    let destination = canonicalize_write_destination(destination, "la receta")?;
     let parent = destination
         .parent()
         .ok_or_else(|| "No se pudo resolver la carpeta de la receta.".to_owned())?;
@@ -2322,12 +2377,13 @@ fn save_recipe_atomic(document: &StoredTransformRecipe, destination: &Path) -> R
         .sync_all()
         .map_err(|error| format!("No se pudo sincronizar la receta: {error}"))?;
     temporary
-        .persist(destination)
+        .persist(&destination)
         .map_err(|error| format!("No se pudo publicar la receta: {}", error.error))?;
     Ok(())
 }
 
 fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
+    let path = canonicalize_existing_file(path, "la receta seleccionada")?;
     let file = File::open(path).map_err(|error| format!("No se pudo abrir la receta: {error}"))?;
     let size = file
         .metadata()
@@ -2594,6 +2650,7 @@ where
     C: Fn() -> bool,
 {
     ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
     let parent = destination
         .parent()
         .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
@@ -2620,10 +2677,10 @@ where
     ensure_not_cancelled(is_cancelled())?;
     report("Publicando archivo completo", 90);
     temporary
-        .persist(destination)
+        .persist(&destination)
         .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
 
-    let file_size_bytes = fs::metadata(destination)
+    let file_size_bytes = fs::metadata(&destination)
         .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
         .len();
     report("Exportación lista", 100);
@@ -2661,7 +2718,7 @@ pub async fn pick_dataset_source(
     let path = selection
         .into_path()
         .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
-    let (file_size_bytes, extension) = validate_dataset_file(&path)?;
+    let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
     let sheets = if spreadsheet_extensions(&extension) {
         let path = path.clone();
         tauri::async_runtime::spawn_blocking(move || inspect_workbook(&path))
@@ -2747,7 +2804,7 @@ pub async fn load_dataset_selection(
     };
     tauri::async_runtime::spawn_blocking(move || {
         send_progress(&on_progress, "load", "Validando archivo", 10);
-        let current_size = validate_dataset_file(&pending.path)?.0;
+        let current_size = validate_dataset_file(&pending.path)?.1;
         if current_size != pending.file_size_bytes {
             return Err(
                 "El archivo cambió después de seleccionarlo; vuelve a elegirlo.".to_owned(),
@@ -5398,6 +5455,70 @@ mod tests {
 
         assert!(error.contains("admite CSV, TSV, TXT delimitado, JSON, Parquet y libros Excel/ODS"));
         fs::remove_file(path).expect("se debe limpiar el archivo temporal");
+    }
+
+    #[test]
+    fn canonicalizes_dataset_reads_and_write_parents() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let nested = directory.path().join("nested");
+        fs::create_dir(&nested).expect("se debe crear la subcarpeta");
+        let dataset = directory.path().join("datos.csv");
+        fs::write(&dataset, "value\n1\n").expect("se debe crear el dataset");
+        let non_canonical_dataset = nested.join("..").join("datos.csv");
+
+        let (canonical_dataset, _, extension) = validate_dataset_file(&non_canonical_dataset)
+            .expect("la ruta equivalente debe validarse");
+        let destination =
+            canonicalize_write_destination(&nested.join("..").join("salida.csv"), "la exportación")
+                .expect("la carpeta de salida debe canonicalizarse");
+
+        assert_eq!(canonical_dataset, fs::canonicalize(dataset).unwrap());
+        assert_eq!(extension, "csv");
+        assert_eq!(
+            destination,
+            fs::canonicalize(directory.path())
+                .unwrap()
+                .join("salida.csv")
+        );
+    }
+
+    #[test]
+    fn rejects_directories_as_read_sources_or_write_destinations() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+
+        let read_error = canonicalize_existing_file(directory.path(), "el dataset seleccionado")
+            .expect_err("un directorio no es un dataset");
+        let write_error = canonicalize_write_destination(directory.path(), "la exportación")
+            .expect_err("un directorio no es un archivo de destino");
+
+        assert!(read_error.contains("archivo regular"));
+        assert!(write_error.contains("archivo regular"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symbolic_links_for_reads_and_existing_destinations() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let target = directory.path().join("target.csv");
+        let link = directory.path().join("link.csv");
+        let dangling_link = directory.path().join("dangling.csv");
+        fs::write(&target, "value\n1\n").expect("se debe crear el archivo real");
+        symlink(&target, &link).expect("se debe crear el enlace simbólico");
+        symlink(directory.path().join("missing.csv"), &dangling_link)
+            .expect("se debe crear el enlace simbólico colgante");
+
+        let read_error = canonicalize_existing_file(&link, "el dataset seleccionado")
+            .expect_err("una lectura no debe seguir enlaces simbólicos");
+        let write_error = canonicalize_write_destination(&link, "la exportación")
+            .expect_err("una escritura no debe seguir enlaces simbólicos");
+        let dangling_error = canonicalize_write_destination(&dangling_link, "la exportación")
+            .expect_err("una escritura no debe aceptar enlaces simbólicos colgantes");
+
+        assert!(read_error.contains("enlace simbólico"));
+        assert!(write_error.contains("enlace simbólico"));
+        assert!(dangling_error.contains("enlace simbólico"));
     }
 
     #[test]

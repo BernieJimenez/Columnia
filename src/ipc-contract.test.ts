@@ -21,7 +21,7 @@ function invokedBridgeCommands(source: string): string[] {
   );
 }
 
-function splitTopLevel(value: string): string[] {
+function splitTopLevel(value: string, delimiter = ","): string[] {
   const entries: string[] = [];
   let start = 0;
   let angleDepth = 0;
@@ -41,7 +41,7 @@ function splitTopLevel(value: string): string[] {
     if (character === "}") braceDepth -= 1;
 
     if (
-      character === "," &&
+      character === delimiter &&
       angleDepth === 0 &&
       parenthesisDepth === 0 &&
       bracketDepth === 0 &&
@@ -55,6 +55,18 @@ function splitTopLevel(value: string): string[] {
   const last = value.slice(start).trim();
   if (last) entries.push(last);
   return entries;
+}
+
+function balancedBraces(source: string, openingIndex: number): string {
+  let depth = 0;
+
+  for (let index = openingIndex; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(openingIndex + 1, index);
+  }
+
+  throw new Error("Se encontró una estructura con llaves incompletas.");
 }
 
 function balancedParentheses(source: string, openingIndex: number): string {
@@ -187,6 +199,48 @@ function bridgeCommandReturnTypes(source: string): Record<string, string> {
   );
 }
 
+function rustStructFields(source: string, structName: string): string[] {
+  const declaration = new RegExp(`(?:pub\\s+)?struct\\s+${structName}\\s*\\{`).exec(source);
+  if (!declaration) throw new Error(`No se encontró la estructura Rust ${structName}.`);
+
+  const openingIndex = declaration.index + declaration[0].lastIndexOf("{");
+  const body = balancedBraces(source, openingIndex)
+    .replace(/#\[[^\]]*\]\s*/g, "")
+    .replace(/\/\/.*$/gm, "");
+
+  return splitTopLevel(body)
+    .map((field) => field.match(/^(?:pub(?:\([^)]*\))?\s+)?([a-z][a-z0-9_]*)\s*:/)?.[1])
+    .filter((field): field is string => Boolean(field))
+    .map(camelCase)
+    .sort();
+}
+
+function typescriptInterfaceFields(
+  source: string,
+  interfaceName: string,
+  visited = new Set<string>(),
+): string[] {
+  if (visited.has(interfaceName)) return [];
+  visited.add(interfaceName);
+
+  const declaration = new RegExp(
+    `export\\s+interface\\s+${interfaceName}(?:\\s+extends\\s+([^\\{]+))?\\s*\\{`,
+  ).exec(source);
+  if (!declaration) throw new Error(`No se encontró la interfaz TypeScript ${interfaceName}.`);
+
+  const openingIndex = declaration.index + declaration[0].lastIndexOf("{");
+  const ownFields = splitTopLevel(balancedBraces(source, openingIndex), ";")
+    .map((field) => field.trim().match(/^([A-Za-z][A-Za-z0-9_]*)\??\s*:/)?.[1])
+    .filter((field): field is string => Boolean(field));
+  const inheritedFields = (declaration[1] ?? "")
+    .split(",")
+    .map((parent) => parent.trim())
+    .filter(Boolean)
+    .flatMap((parent) => typescriptInterfaceFields(source, parent, visited));
+
+  return [...new Set([...ownFields, ...inheritedFields])].sort();
+}
+
 function duplicates(values: string[]): string[] {
   return values.filter((value, index) => values.indexOf(value) !== index);
 }
@@ -228,5 +282,54 @@ describe("contrato IPC", () => {
     expect(bridgeCommandReturnTypes(bridgeSource)).toEqual(
       rustCommandReturnTypes(rustSource, registered),
     );
+  });
+
+  it("mantiene en paridad los campos de las estructuras compartidas", () => {
+    const rustSource = [
+      readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
+    ].join("\n");
+    const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
+    const sharedStructures: Array<[rust: string, typescript: string]> = [
+      ["AppInfo", "AppInfo"],
+      ["OperationProgress", "OperationProgress"],
+      ["ExportResult", "ExportResult"],
+      ["QualityRule", "QualityRule"],
+      ["QualityRuleResult", "QualityRuleResult"],
+      ["QualityValidationResult", "QualityValidationResult"],
+      ["DatasetColumn", "DatasetColumn"],
+      ["DatasetPreview", "DatasetPreview"],
+      ["WorkbookSheet", "WorkbookSheet"],
+      ["DatasetSourceInspection", "DatasetSourceInspection"],
+      ["DatasetPage", "DatasetPage"],
+      ["ColumnProfile", "ColumnProfile"],
+      ["DatasetProfile", "DatasetProfile"],
+      ["DatasetMutation", "DatasetMutation"],
+      ["ColumnRename", "ColumnRename"],
+      ["ColumnNormalizationResult", "ColumnNormalizationResult"],
+      ["ChangedTextColumn", "ChangedTextColumn"],
+      ["TextCleaningResult", "TextCleaningResult"],
+      ["HistoryResult", "HistoryResult"],
+      ["HistoryEntryState", "HistoryEntryState"],
+      ["HistoryState", "HistoryState"],
+      ["SafeCorrectionsResult", "SafeCorrectionsResult"],
+      ["TransformRecipe", "TransformRecipe"],
+      ["StoredTransformRecipe", "SavedRecipe"],
+      ["TransformRecipeResult", "TransformRecipeResult"],
+    ];
+
+    const contracts = Object.fromEntries(
+      sharedStructures.map(([rustName, typescriptName]) => [
+        typescriptName,
+        {
+          rust: rustStructFields(rustSource, rustName),
+          typescript: typescriptInterfaceFields(bridgeSource, typescriptName),
+        },
+      ]),
+    );
+
+    for (const [name, fields] of Object.entries(contracts)) {
+      expect(fields.typescript, `campos incompatibles en ${name}`).toEqual(fields.rust);
+    }
   });
 });

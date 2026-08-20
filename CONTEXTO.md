@@ -15,7 +15,7 @@
 | Persistencia actual | Dataset y perfil en memoria; historial en snapshots Parquet temporales |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-20, rama `master`, commit base `8fdcb3d` |
+| Última revisión de este documento | 2026-08-20, rama `master`, commit base `1127702` |
 
 ## Para qué existe este documento
 
@@ -163,7 +163,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `undo_last_change`
 - `redo_last_change`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente que los comandos registrados en `tauri::generate_handler!`, sus argumentos serializados y sus tipos de retorno superiores coincidan con la fachada; reconoce `AppHandle` y `State` como inyecciones internas de Tauri, normaliza `snake_case` a `camelCase` y resuelve los alias de receta conocidos. Los tipos de cada argumento y la estructura interna de objetos y respuestas todavía se mantienen manualmente.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y nombres de campos de 25 estructuras compartidas; reconoce `AppHandle` y `State` como inyecciones internas de Tauri, normaliza `snake_case` a `camelCase` y resuelve los alias de receta conocidos. Los tipos de cada argumento y de cada campo todavía se mantienen manualmente.
 
 ## Capacidades implementadas
 
@@ -223,6 +223,7 @@ No rompas estas reglas sin una decisión explícita documentada:
 - El procesamiento de datasets ocurre localmente.
 - React no recibe rutas de archivos ni autoridad general sobre el filesystem.
 - Los diálogos nativos y las operaciones de archivos viven en Rust.
+- Toda ruta de lectura elegida se canonicaliza, debe resolver a un archivo regular y rechaza enlaces simbólicos. Para escrituras se canonicaliza la carpeta, se exige un nombre de archivo y se rechazan destinos existentes, incluso enlaces colgantes, que no sean archivos regulares.
 - La ventana principal conserva permisos mínimos; no habilites filesystem, shell, HTTP u opener por comodidad.
 - La CSP de producción no permite CDN, navegación remota, objetos, frames ni conexiones web externas.
 - Los errores y contratos de calidad no deben filtrar muestras de datos.
@@ -230,7 +231,7 @@ No rompas estas reglas sin una decisión explícita documentada:
 - Una transformación compuesta debe ser atómica.
 - No añadas CI, GitHub Actions, telemetría o servicios de pago como requisito sin revertir expresamente las decisiones vigentes.
 
-Pendientes de seguridad ya reconocidos en el roadmap: canonicalización exhaustiva de rutas, pruebas negativas de traversal/symlinks/fórmulas/payloads grandes, threat model actualizado e instancia única.
+La canonicalización cubre todos los puntos actuales de entrada por diálogo para datasets, recetas y exportaciones, con pruebas de segmentos `..`, directorios y symlinks en Unix. Siguen pendientes pruebas específicas de reparse points/symlinks en Windows, fórmulas y payloads grandes, además del threat model actualizado y la instancia única.
 
 ## Desarrollo y validación
 
@@ -259,7 +260,7 @@ npm run tauri dev
 
 Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio y versiones de PowerShell, Node, npm, Rust y Cargo. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error.
 
-Al revisar este documento había 51 pruebas frontend y 81 pruebas Rust. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 52 pruebas frontend y 83 pruebas Rust ejecutables en Windows; Unix añade una prueba específica de symlinks. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -278,7 +279,7 @@ Al revisar este documento había 51 pruebas frontend y 81 pruebas Rust. Son una 
 - CLI y automatización sin interfaz;
 - joins, comparación de datasets y destinos de bases de datos;
 - instancia única;
-- tipos de argumentos y estructuras internas Rust/TypeScript generados o verificados automáticamente (comandos, argumentos y retornos superiores ya tienen paridad automática);
+- tipos de argumentos y campos Rust/TypeScript generados o verificados automáticamente (comandos, argumentos, retornos superiores y nombres de campos ya tienen paridad automática);
 - E2E, accesibilidad, pruebas visuales y presupuestos medibles; los reportes básicos de gates locales ya existen;
 - supply chain, SBOM, empaquetado Windows y updater autenticado;
 - verificación real en macOS y Linux.
@@ -289,7 +290,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **UI monolítica**: `App.tsx` concentra coordinación y muchos editores. Los refactors deben preservar las uniones de estado y las confirmaciones de acciones destructivas.
-3. **Contratos parcialmente duplicados**: comandos, argumentos y retornos superiores tienen un gate de paridad, pero Rust y TypeScript aún definen los tipos de argumentos y los campos internos manualmente; persiste riesgo de deriva estructural.
+3. **Contratos parcialmente duplicados**: comandos, argumentos, retornos superiores y nombres de campos tienen un gate de paridad, pero Rust y TypeScript aún definen los tipos concretos manualmente; persiste riesgo de deriva de tipos.
 4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
 5. **Persistencia efímera**: cerrar la aplicación pierde dataset, perfil e historial.
 6. **Cobertura de plataforma**: el diseño es multiplataforma, pero soporte declarado requiere validación local en cada sistema.
@@ -332,6 +333,8 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-20 | Las rutas de datasets, recetas y exportaciones se canonicalizan en Rust; fuentes y destinos no regulares o simbólicos se rechazan antes de operar. | `src-tauri/src/dataset.rs` |
+| 2026-08-20 | El gate IPC compara los campos de 25 estructuras compartidas y encontró/corrigió la ausencia de `TransformRecipeResult.changed` en TypeScript. | `src/ipc-contract.test.ts`, `src/bridge.ts` |
 | 2026-08-20 | El gate IPC compara los tipos de retorno Rust con los genéricos `invoke<T>` y normaliza `Result`, `Option`, `void` y los alias de recetas conocidos. | `src/ipc-contract.test.ts` |
 | 2026-08-20 | Los perfiles de `tools/check.ps1` generan evidencia JSON local con entorno, commit, tiempos y resultados por etapa. | `tools/check.ps1`, `.local/validation/` |
 | 2026-08-20 | El gate IPC ahora compara también los argumentos serializados, excluyendo las inyecciones internas `AppHandle` y `State`; los tipos y respuestas siguen pendientes. | `src/ipc-contract.test.ts` |
