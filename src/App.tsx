@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { ModalDialog } from "./components/ModalDialog";
+import { OperationProgressView } from "./components/OperationProgressView";
+import { ReviewTabList, type ReviewTab } from "./components/ReviewTabList";
 
 import {
   applySafeCorrections,
@@ -122,7 +126,6 @@ const phases = [
 ] as const;
 
 type ActivePhase = (typeof phases)[number]["id"];
-type ReviewTab = "diagnosis" | "preview";
 
 function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -136,79 +139,6 @@ function readableFileSize(bytes: number): string {
 
 function isCancellationError(error: unknown): boolean {
   return String(error).includes("cancelada por el usuario");
-}
-
-const DIALOG_FOCUSABLE =
-  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
-
-function ModalDialog({
-  role,
-  labelledBy,
-  describedBy,
-  onDismiss,
-  children,
-}: {
-  role: "dialog" | "alertdialog";
-  labelledBy: string;
-  describedBy?: string;
-  onDismiss: () => void;
-  children: ReactNode;
-}) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    const panel = panelRef.current;
-    const firstFocusable = panel?.querySelector<HTMLElement>(DIALOG_FOCUSABLE);
-    (firstFocusable ?? panel)?.focus();
-
-    return () => previouslyFocused?.focus();
-  }, []);
-
-  function keepFocusInside(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      onDismiss();
-      return;
-    }
-    if (event.key !== "Tab") return;
-
-    const panel = panelRef.current;
-    if (!panel) return;
-    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE));
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (!first || !last) {
-      event.preventDefault();
-      panel.focus();
-    } else if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  return (
-    <div className="sheet-dialog" role="presentation">
-      <div
-        ref={panelRef}
-        className="sheet-dialog__panel"
-        role={role}
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        aria-describedby={describedBy}
-        tabIndex={-1}
-        onKeyDown={keepFocusInside}
-      >
-        {children}
-      </div>
-    </div>
-  );
 }
 
 export function App() {
@@ -900,8 +830,9 @@ function LoadPhase({
       {datasetStatus.kind === "loading" && (
         <OperationProgressView
           progress={datasetStatus.progress}
-          cancelRequested={datasetStatus.cancelRequested}
-          onCancel={onCancel}
+          cancellation={datasetStatus.cancelRequested
+            ? { kind: "requested" }
+            : { kind: "available", onCancel }}
         />
       )}
       {importInspecting && (
@@ -1010,48 +941,7 @@ function ReviewPhase({
           <p>Comprueba la estructura, la calidad y una muestra de los datos antes de modificarlos.</p>
         </div>
       </header>
-      <div className="stage-tabs" role="tablist" aria-label="Vistas de revisión">
-        <button
-          id="review-diagnosis-tab"
-          type="button"
-          role="tab"
-          aria-selected={reviewTab === "diagnosis"}
-          aria-controls="review-diagnosis-panel"
-          tabIndex={reviewTab === "diagnosis" ? 0 : -1}
-          className={reviewTab === "diagnosis" ? "stage-tab--active" : undefined}
-          onClick={() => onTabChange("diagnosis")}
-          onKeyDown={(event) => {
-            if (["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) {
-              event.preventDefault();
-              const nextTab = event.key === "ArrowRight" || event.key === "End" ? "preview" : "diagnosis";
-              onTabChange(nextTab);
-              document.getElementById(`review-${nextTab}-tab`)?.focus();
-            }
-          }}
-        >
-          Diagnóstico
-        </button>
-        <button
-          id="review-preview-tab"
-          type="button"
-          role="tab"
-          aria-selected={reviewTab === "preview"}
-          aria-controls="review-preview-panel"
-          tabIndex={reviewTab === "preview" ? 0 : -1}
-          className={reviewTab === "preview" ? "stage-tab--active" : undefined}
-          onClick={() => onTabChange("preview")}
-          onKeyDown={(event) => {
-            if (["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) {
-              event.preventDefault();
-              const nextTab = event.key === "ArrowLeft" || event.key === "Home" ? "diagnosis" : "preview";
-              onTabChange(nextTab);
-              document.getElementById(`review-${nextTab}-tab`)?.focus();
-            }
-          }}
-        >
-          Vista previa
-        </button>
-      </div>
+      <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
 
       {reviewTab === "diagnosis" ? (
         <div id="review-diagnosis-panel" role="tabpanel" aria-labelledby="review-diagnosis-tab">
@@ -1105,8 +995,9 @@ function QualitySection({
       {status.kind === "loading" && (
         <OperationProgressView
           progress={status.progress}
-          cancelRequested={status.cancelRequested}
-          onCancel={onCancel}
+          cancellation={status.cancelRequested
+            ? { kind: "requested" }
+            : { kind: "available", onCancel }}
         />
       )}
       {status.kind === "error" && (
@@ -1331,8 +1222,9 @@ function PreparePhase({
       {profileStatus.kind === "loading" ? (
         <OperationProgressView
           progress={profileStatus.progress}
-          cancelRequested={profileStatus.cancelRequested}
-          onCancel={onCancelProfile}
+          cancellation={profileStatus.cancelRequested
+            ? { kind: "requested" }
+            : { kind: "available", onCancel: onCancelProfile }}
         />
       ) : (
         <section className="prepare-card" aria-labelledby="duplicates-title">
@@ -2166,8 +2058,9 @@ function DeliverPhase({
       {exportStatus.kind === "loading" && (
         <OperationProgressView
           progress={exportStatus.progress}
-          cancelRequested={exportStatus.cancelRequested}
-          onCancel={onCancel}
+          cancellation={exportStatus.cancelRequested
+            ? { kind: "requested" }
+            : { kind: "available", onCancel }}
         />
       )}
       {exportStatus.kind === "success" && (
@@ -2229,35 +2122,6 @@ function DatasetMetrics({ dataset }: { dataset: DatasetPreview }) {
   );
 }
 
-
-interface OperationProgressViewProps {
-  progress: OperationProgress;
-  cancelRequested: boolean;
-  onCancel: () => void;
-}
-
-function OperationProgressView({
-  progress,
-  cancelRequested,
-  onCancel,
-}: OperationProgressViewProps) {
-  return (
-    <div className="operation-progress" role="status" aria-live="polite" aria-atomic="true">
-      <div>
-        <span>{progress.stage}</span>
-        <strong>{progress.percent}%</strong>
-      </div>
-      <progress
-        aria-label={`Progreso: ${progress.stage}`}
-        max={100}
-        value={progress.percent}
-      />
-      <button type="button" onClick={onCancel} disabled={cancelRequested}>
-        {cancelRequested ? "Cancelando…" : "Cancelar"}
-      </button>
-    </div>
-  );
-}
 
 interface DataPreviewProps {
   dataset: DatasetPreview;

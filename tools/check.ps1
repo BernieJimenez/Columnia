@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Fast", "Full", "Release")]
+    [ValidateSet("Fast", "Full", "Release", "Package")]
     [string]$Profile = "Fast",
 
     [string]$ReportPath
@@ -18,18 +18,39 @@ $ShortCommit = (git -C $ProjectRoot rev-parse --short HEAD).Trim()
 $Branch = (git -C $ProjectRoot branch --show-current).Trim()
 $TreeDirty = @(git -C $ProjectRoot status --porcelain).Count -gt 0
 $ProjectVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
+$RunStamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
+$ReleaseLike = $Profile -in @("Release", "Package")
 $SbomRelativePath = ".local/validation/columnia.cdx.json"
 $SbomPath = Join-Path $ProjectRoot ".local\validation\columnia.cdx.json"
 $SbomEvidence = [ordered]@{
-    status = if ($Profile -eq "Release") { "pending" } else { "not-requested" }
-    path = if ($Profile -eq "Release") { $SbomRelativePath } else { $null }
+    status = if ($ReleaseLike) { "pending" } else { "not-requested" }
+    path = if ($ReleaseLike) { $SbomRelativePath } else { $null }
     sha256 = $null
     componentCount = $null
 }
+$FrontendBundleRelativePath = ".local/validation/$RunStamp-$ShortCommit-frontend-bundle.json"
+$FrontendBundlePath = Join-Path $ProjectRoot ($FrontendBundleRelativePath.Replace("/", "\"))
+$FrontendBundleEvidence = [ordered]@{
+    status = "pending"
+    path = $FrontendBundleRelativePath
+    sha256 = $null
+    fileCount = $null
+    totals = $null
+    limits = $null
+}
+$PackageArtifactsRelativePath = ".local/validation/$RunStamp-$ShortCommit-package-artifacts.json"
+$PackageArtifactsPath = Join-Path $ProjectRoot ($PackageArtifactsRelativePath.Replace("/", "\"))
+$PackageSnapshotPath = Join-Path $ProjectRoot ".local\validation\$RunStamp-$ShortCommit-package-snapshot.json"
+$PackageArtifactsEvidence = [ordered]@{
+    status = if ($Profile -eq "Package") { "pending" } else { "not-requested" }
+    path = if ($Profile -eq "Package") { $PackageArtifactsRelativePath } else { $null }
+    sha256 = $null
+    artifactCount = $null
+    artifacts = @()
+}
 
 if ([string]::IsNullOrWhiteSpace($ReportPath)) {
-    $Timestamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
-    $ReportPath = Join-Path $ProjectRoot ".local\validation\$Timestamp-$ShortCommit-$($Profile.ToLowerInvariant()).json"
+    $ReportPath = Join-Path $ProjectRoot ".local\validation\$RunStamp-$ShortCommit-$($Profile.ToLowerInvariant()).json"
 }
 elseif (-not [System.IO.Path]::IsPathRooted($ReportPath)) {
     $ReportPath = Join-Path $ProjectRoot $ReportPath
@@ -132,13 +153,26 @@ try {
     Invoke-Checked "Rust check" $TauriRoot { cargo check }
     Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run }
     Invoke-Checked "Frontend build" $ProjectRoot { npm run build }
+    Invoke-Checked "Frontend bundle budget" $ProjectRoot {
+        node tools/check-bundle.mjs budget --dist dist --output $FrontendBundlePath
+        if ($LASTEXITCODE -ne 0 -and (Test-Path -LiteralPath $FrontendBundlePath -PathType Leaf)) {
+            $FailedBundle = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
+            throw "Presupuesto frontend excedido: $(@($FailedBundle.violations) -join ' ') Divide el bundle o revisa explícitamente los límites."
+        }
+    }
+    $FrontendBundleDocument = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
+    $FrontendBundleEvidence.status = $FrontendBundleDocument.status
+    $FrontendBundleEvidence.sha256 = (Get-FileHash -LiteralPath $FrontendBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $FrontendBundleEvidence.fileCount = @($FrontendBundleDocument.files).Count
+    $FrontendBundleEvidence.totals = $FrontendBundleDocument.totals
+    $FrontendBundleEvidence.limits = $FrontendBundleDocument.limits
 
-    if ($Profile -in @("Full", "Release")) {
+    if ($Profile -in @("Full", "Release", "Package")) {
         Invoke-Checked "Rust clippy" $TauriRoot { cargo clippy --all-targets -- -D warnings }
         Invoke-Checked "Rust tests" $TauriRoot { cargo test --lib }
     }
 
-    if ($Profile -eq "Release") {
+    if ($ReleaseLike) {
         Invoke-Checked "CycloneDX SBOM" $ProjectRoot {
             & (Join-Path $ProjectRoot "tools\generate-sbom.ps1") -OutputPath $SbomPath
         }
@@ -149,13 +183,59 @@ try {
         Invoke-Checked "Tauri release build" $ProjectRoot { npm run tauri build -- --no-bundle }
     }
 
+    if ($Profile -eq "Package") {
+        Invoke-Checked "Bundle artifact snapshot" $ProjectRoot {
+            node tools/check-bundle.mjs snapshot --project-root $ProjectRoot --bundle-root (Join-Path $TauriRoot "target\release\bundle") --output $PackageSnapshotPath
+        }
+        Invoke-Checked "Tauri package build" $ProjectRoot { npm run tauri build }
+        Invoke-Checked "Bundle artifact inventory" $ProjectRoot {
+            node tools/check-bundle.mjs artifacts --project-root $ProjectRoot --bundle-root (Join-Path $TauriRoot "target\release\bundle") --snapshot $PackageSnapshotPath --output $PackageArtifactsPath
+        }
+        $PackageArtifactsDocument = Get-Content -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
+        $PackageArtifactsEvidence.status = $PackageArtifactsDocument.status
+        $PackageArtifactsEvidence.sha256 = (Get-FileHash -LiteralPath $PackageArtifactsPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $PackageArtifactsEvidence.artifactCount = @($PackageArtifactsDocument.artifacts).Count
+        $PackageArtifactsEvidence.artifacts = @($PackageArtifactsDocument.artifacts)
+    }
+
     $ValidationStatus = "passed"
     Write-Host "Validación local $Profile completada."
 }
 catch {
     $FailureMessage = $_.Exception.Message
-    if ($Profile -eq "Release" -and $SbomEvidence.status -eq "pending") {
+    if ($ReleaseLike -and $SbomEvidence.status -eq "pending") {
         $SbomEvidence.status = "failed"
+    }
+    if ($FrontendBundleEvidence.status -eq "pending" -and (Test-Path -LiteralPath $FrontendBundlePath -PathType Leaf)) {
+        try {
+            $FailedBundleDocument = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
+            $FrontendBundleEvidence.status = $FailedBundleDocument.status
+            $FrontendBundleEvidence.sha256 = (Get-FileHash -LiteralPath $FrontendBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $FrontendBundleEvidence.fileCount = @($FailedBundleDocument.files).Count
+            $FrontendBundleEvidence.totals = $FailedBundleDocument.totals
+            $FrontendBundleEvidence.limits = $FailedBundleDocument.limits
+        }
+        catch {
+            $FrontendBundleEvidence.status = "failed"
+        }
+    }
+    elseif ($FrontendBundleEvidence.status -eq "pending") {
+        $FrontendBundleEvidence.status = "failed"
+    }
+    if ($Profile -eq "Package" -and $PackageArtifactsEvidence.status -eq "pending" -and (Test-Path -LiteralPath $PackageArtifactsPath -PathType Leaf)) {
+        try {
+            $FailedArtifactsDocument = Get-Content -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
+            $PackageArtifactsEvidence.status = $FailedArtifactsDocument.status
+            $PackageArtifactsEvidence.sha256 = (Get-FileHash -LiteralPath $PackageArtifactsPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $PackageArtifactsEvidence.artifactCount = @($FailedArtifactsDocument.artifacts).Count
+            $PackageArtifactsEvidence.artifacts = @($FailedArtifactsDocument.artifacts)
+        }
+        catch {
+            $PackageArtifactsEvidence.status = "failed"
+        }
+    }
+    elseif ($Profile -eq "Package" -and $PackageArtifactsEvidence.status -eq "pending") {
+        $PackageArtifactsEvidence.status = "failed"
     }
     throw
 }
@@ -181,6 +261,8 @@ finally {
         environment = $RuntimeEnvironment
         lockfiles = $LockfileFingerprints
         sbom = $SbomEvidence
+        frontendBundle = $FrontendBundleEvidence
+        packageArtifacts = $PackageArtifactsEvidence
         steps = $StepResults
         error = $FailureMessage
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding utf8

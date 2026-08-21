@@ -15,7 +15,7 @@
 | Persistencia actual | Dataset y perfil en memoria; historial en snapshots Parquet temporales |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-20, rama `master`, commit base `2395f9c` |
+| Última revisión de este documento | 2026-08-20, rama `master`, commit base `dbf54e4` |
 
 ## Para qué existe este documento
 
@@ -79,7 +79,8 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | Ruta | Responsabilidad |
 | --- | --- |
 | `src/main.tsx` | Monta `<App />` en modo estricto de React. |
-| `src/App.tsx` | Flujo completo de interfaz, estados, formularios y coordinación de casos de uso. Es actualmente un archivo grande de unas 2,491 líneas. |
+| `src/App.tsx` | Flujo completo de interfaz, estados, formularios y coordinación de casos de uso. Es actualmente un archivo grande de unas 2,467 líneas. |
+| `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
 | `src/styles.css` | Sistema visual y layout de la aplicación. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
@@ -89,6 +90,8 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
 | `tools/check.ps1` | Entrada única para los gates locales Fast, Full y Release; genera evidencia JSON auditable en `.local/validation/`. |
 | `tools/generate-sbom.ps1` | Genera offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles. |
+| `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
+| `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, y limpia solo su Job Object. |
 | `README.md` | Descripción funcional y guía de uso/desarrollo. |
 | `THREAT_MODEL.md` | Activos, fronteras de confianza, amenazas, controles implementados y riesgos residuales. |
 | `ROADMAP.md` | Plan, decisiones históricas, fases y pendientes. No sustituye la inspección del código. |
@@ -253,15 +256,20 @@ npm run tauri dev
 .\tools\check.ps1 -Profile Fast
 .\tools\check.ps1 -Profile Full
 .\tools\check.ps1 -Profile Release
+.\tools\check.ps1 -Profile Package
+npm run smoke:desktop -- -TimeoutSeconds 120
 ```
 
 | Perfil | Incluye |
 | --- | --- |
-| Fast | `cargo fmt --check`, `cargo check`, Vitest y build TypeScript/Vite |
+| Fast | `cargo fmt --check`, `cargo check`, Vitest, build TypeScript/Vite y presupuesto frontend |
 | Full | Fast + Clippy con warnings como errores + pruebas Rust de biblioteca |
 | Release | Full + SBOM CycloneDX reproducible + build Tauri optimizado sin bundle |
+| Package | Release + MSI/NSIS en Windows + inventario diferencial con tamaño y SHA-256 |
 
-Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas absolutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error. En Release añade el estado, ruta relativa, SHA-256 y cantidad de componentes del SBOM.
+Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas absolutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error. Todos los perfiles registran métricas raw/gzip del frontend; Release añade el SBOM y Package añade únicamente instaladores producidos o actualizados en esa ejecución.
+
+El presupuesto actual admite por archivo hasta 512 KiB raw/160 KiB gzip para JavaScript y 128 KiB raw/40 KiB gzip para CSS; el total JS+CSS no puede superar 768 KiB raw/240 KiB gzip. El baseline verificado es aproximadamente 301 KiB raw y 86 KiB gzip.
 
 Las pruebas frontend verifican además que `package-lock.json` refleje exactamente la versión y las dependencias raíz de `package.json`, y que el paquete local de `Cargo.lock` coincida con `Cargo.toml`. No requieren red ni reescriben lockfiles.
 
@@ -269,7 +277,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 60 pruebas frontend y 87 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 65 pruebas frontend y 87 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -283,6 +291,8 @@ Al revisar este documento había 60 pruebas frontend y 87 pruebas Rust; las rama
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
 - SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
+- Smoke automatizado del runtime de desarrollo con aislamiento y cleanup de procesos propios.
+- Presupuestos medibles del frontend y empaquetado Windows verificado en MSI/NSIS con evidencia criptográfica.
 
 ### Planeado o pendiente
 
@@ -291,8 +301,8 @@ Al revisar este documento había 60 pruebas frontend y 87 pruebas Rust; las rama
 - SQLite, proyectos y recuperación de sesión;
 - CLI y automatización sin interfaz;
 - joins, comparación de datasets y destinos de bases de datos;
-- E2E, auditoría manual con lector de pantalla/zoom/alto contraste, pruebas visuales y presupuestos medibles;
-- escaneo de vulnerabilidades, empaquetado Windows y updater autenticado; SBOM y gates offline básicos ya existen;
+- E2E de flujos reales con datasets, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el smoke de arranque ya existe;
+- escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
 
 Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el código antes de afirmar que una fase está completa.
@@ -304,7 +314,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 39 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
 5. **Persistencia efímera**: cerrar la aplicación pierde dataset, perfil e historial.
-6. **Cobertura de plataforma**: el diseño es multiplataforma, pero soporte declarado requiere validación local en cada sistema.
+6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
 7. **Roadmap acumulativo**: contiene decisiones propuestas, aprobadas e implementadas; no todas reflejan dependencias presentes.
 8. **Sin CI por política**: la calidad depende de ejecutar y registrar correctamente los gates locales.
 
@@ -344,6 +354,9 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-20 | Fast/Full/Release/Package aplican presupuestos JS/CSS; Package produjo MSI y NSIS y registró tamaño/hash sin atribuir bundles viejos. | `tools/check.ps1`, `tools/check-bundle.mjs`, `src-tauri/tauri.conf.json` |
+| 2026-08-20 | `npm run smoke:desktop` verifica el comando real de desarrollo y termina únicamente procesos propios mediante un Job Object de Windows. | `package.json`, `tools/smoke-tauri.ps1` |
+| 2026-08-20 | Diálogo, tabs y progreso se extrajeron como componentes accesibles con pruebas unitarias; `App.tsx` se redujo en 136 líneas. | `src/components/`, `src/App.tsx` |
 | 2026-08-20 | Release genera un SBOM CycloneDX 1.6 reproducible y reporta su hash/cantidad; gates offline exigen procedencia e integridad de npm y Cargo. | `tools/generate-sbom.ps1`, `tools/check.ps1`, `src/supply-chain.test.ts` |
 | 2026-08-20 | La UI incorpora una primera base WCAG verificable para landmarks, tabs, estados, foco y diálogos; queda pendiente validación manual con tecnologías de asistencia. | `src/App.tsx`, `src/styles.css`, `src/App.test.tsx` |
 | 2026-08-20 | La exportación CSV neutraliza fórmulas únicamente en texto; los tipos no textuales y Parquet conservan sus valores. | `src-tauri/src/dataset.rs` |

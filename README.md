@@ -201,5 +201,19 @@ binario Tauri optimizado sin crear instaladores:
 .\tools\check.ps1 -Profile Release
 ```
 
+En Windows, el perfil de empaquetado produce MSI y NSIS e inventaría cada
+artefacto con tamaño y SHA-256. La primera ejecución puede descargar herramientas
+oficiales de Tauri/NSIS y valida sus hashes:
+
+```powershell
+.\tools\check.ps1 -Profile Package
+```
+
+Para comprobar automáticamente el mismo arranque que se usa durante desarrollo:
+
+```powershell
+npm run smoke:desktop -- -TimeoutSeconds 120
+```
+
 No se utilizan CI, GitHub Actions ni workflows. Consulta [ROADMAP.md](ROADMAP.md)
 para conocer las decisiones y fases previstas.

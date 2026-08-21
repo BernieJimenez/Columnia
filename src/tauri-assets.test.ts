@@ -9,6 +9,7 @@ type ContentSecurityPolicy = Record<string, string>;
 type TauriConfig = {
   build: { devUrl: string };
   app: { security: { csp: ContentSecurityPolicy; devCsp: ContentSecurityPolicy } };
+  bundle: { active: boolean; icon: string[] };
 };
 
 type TauriCapability = {
@@ -38,6 +39,25 @@ describe("Tauri desktop assets", () => {
     "src-tauri/icons/128x128@2x.png",
   ])("includes the required cross-platform icon %s", (relativePath) => {
     expect(existsSync(resolve(projectRoot, relativePath))).toBe(true);
+  });
+
+  it("declares native bundle icons for every target platform", () => {
+    const config = readJson<TauriConfig>("src-tauri/tauri.conf.json");
+    const icons = new Set(config.bundle.icon);
+
+    expect(config.bundle.active, "desktop bundling must remain enabled").toBe(true);
+    expect(icons.has("icons/icon.ico"), "Windows packaging requires the configured ICO").toBe(true);
+    expect(icons.has("icons/icon.icns"), "macOS packaging requires the configured ICNS").toBe(true);
+    expect(
+      [...icons].some((icon) => icon.endsWith(".png")),
+      "Linux packaging requires at least one configured PNG",
+    ).toBe(true);
+    for (const icon of icons) {
+      expect(
+        existsSync(resolve(projectRoot, "src-tauri", icon)),
+        `configured bundle icon ${icon} must exist`,
+      ).toBe(true);
+    }
   });
 });
 
