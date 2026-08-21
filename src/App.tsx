@@ -28,6 +28,8 @@ import {
 } from "./features/load/loadModel";
 import { PreparePhase } from "./features/prepare/PreparePhase";
 import { usePrepareController } from "./features/prepare/usePrepareController";
+import { ProjectsPanel } from "./features/projects/ProjectsPanel";
+import { useProjectsController } from "./features/projects/useProjectsController";
 import { ReviewPhase } from "./features/review/ReviewPhase";
 import {
   PAGE_SIZE,
@@ -95,6 +97,27 @@ export function App() {
     onProfileInvalidated: () => setProfileStatus({ kind: "idle" }),
     onDeliveryInvalidated: invalidateDeliveryGate,
   });
+  const coreOperationBusy =
+    datasetStatus.kind === "loading" ||
+    profileStatus.kind === "loading" ||
+    prepare.changeStatus.kind === "working" ||
+    deliveryContract.gate.kind === "loading" ||
+    exportStatus.kind === "loading";
+  const projects = useProjectsController({
+    connected: status.kind === "ready",
+    blocked: coreOperationBusy,
+    hasDataset: datasetStatus.kind === "ready",
+    onProjectOpened: async (dataset) => {
+      setDatasetStatus(createReadyDatasetStatus(dataset));
+      setLoadInspection({ kind: "idle" });
+      setProfileStatus({ kind: "idle" });
+      prepare.resetChangeStatus();
+      await prepare.refreshHistory();
+      invalidateDeliveryGate();
+      setReviewTab("diagnosis");
+      setActivePhase("review");
+    },
+  });
   const deliveryDatasetFingerprint = datasetStatus.kind === "ready"
     ? JSON.stringify({
         fileName: datasetStatus.dataset.fileName,
@@ -157,6 +180,7 @@ export function App() {
         setDatasetStatus((current) => updateDatasetLoadProgress(current, progress));
       });
       setDatasetStatus(createReadyDatasetStatus(dataset));
+      projects.unlinkActiveProject();
       setLoadInspection({ kind: "idle" });
       setProfileStatus({ kind: "idle" });
       prepare.resetChangeStatus();
@@ -318,12 +342,7 @@ export function App() {
   const retainedDataset =
     datasetStatus.kind === "loading" ? datasetStatus.previous : undefined;
   const activeDataset = readyDataset ?? retainedDataset;
-  const operationBusy =
-    datasetStatus.kind === "loading" ||
-    profileStatus.kind === "loading" ||
-    prepare.changeStatus.kind === "working" ||
-    deliveryContract.gate.kind === "loading" ||
-    exportStatus.kind === "loading";
+  const operationBusy = coreOperationBusy || projects.isBusy;
   const activePhaseMeta = phases.find((phase) => phase.id === activePhase) ?? phases[0];
   const loadRuntime: LoadRuntimeState = status.kind === "ready"
     ? { kind: "connected" }
@@ -404,7 +423,23 @@ export function App() {
               onSelect={selectDataset}
               onSheetAction={handleSheetSelection}
               onCancelLoad={() => cancelActiveOperation("load")}
-            />
+            >
+              <ProjectsPanel
+                catalog={projects.catalog}
+                operation={projects.operation}
+                deletion={projects.deletion}
+                activeProject={projects.activeProject}
+                datasetFileName={activeDataset?.dataset.fileName ?? null}
+                disabled={operationBusy}
+                onSave={(name) => void projects.save(name)}
+                onOpen={(projectId) => void projects.open(projectId)}
+                onDeleteRequest={projects.requestDelete}
+                onDeleteCancel={projects.cancelDelete}
+                onDeleteConfirm={() => void projects.confirmDelete()}
+                onRetry={() => void projects.refresh()}
+                onClearFeedback={projects.clearFeedback}
+              />
+            </LoadPhase>
           )}
 
           {activePhase === "review" && readyDataset && (

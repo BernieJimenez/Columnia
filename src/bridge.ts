@@ -333,6 +333,21 @@ export interface ExportResult {
   format: "CSV" | "Parquet";
 }
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  datasetFileName: string;
+  rowCount: number;
+  columnCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectOpenResult {
+  project: ProjectSummary;
+  dataset: DatasetPreview;
+}
+
 type ProgressHandler = (progress: OperationProgress) => void;
 
 function progressChannel(onProgress?: ProgressHandler): Channel<OperationProgress> {
@@ -447,4 +462,24 @@ export function redoLastChange(): Promise<HistoryResult> {
 
 export function getHistoryState(): Promise<HistoryState> {
   return invoke<HistoryState>("get_history_state");
+}
+
+export function listProjects(): Promise<ProjectSummary[]> {
+  return invoke<ProjectSummary[]>("list_projects");
+}
+
+export function getRecoveryCandidate(): Promise<ProjectSummary | null> {
+  return invoke<ProjectSummary | null>("get_recovery_candidate");
+}
+
+export function saveProject(projectId: string | null, name: string): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>("save_project", { projectId, name });
+}
+
+export function openProject(projectId: string): Promise<ProjectOpenResult> {
+  return invoke<ProjectOpenResult>("open_project", { projectId });
+}
+
+export function deleteProject(projectId: string): Promise<void> {
+  return invoke<void>("delete_project", { projectId });
 }

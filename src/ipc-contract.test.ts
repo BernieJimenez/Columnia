@@ -179,6 +179,9 @@ function normalizeRustReturnType(type: string): string {
   const option = genericContents(compact, "Option");
   if (option !== null) return `${normalizeRustReturnType(option)} | null`;
 
+  const vector = genericContents(compact, "Vec");
+  if (vector !== null) return `${normalizeRustReturnType(vector)}[]`;
+
   if (compact === "()") return "void";
   if (compact === "StoredTransformRecipe") return "SavedRecipe";
   return compact;
@@ -402,6 +405,7 @@ describe("contrato IPC", () => {
     const rustSource = [
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const registered = registeredTauriCommands(rustSource);
@@ -415,6 +419,7 @@ describe("contrato IPC", () => {
     const rustSource = [
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const registered = registeredTauriCommands(rustSource);
@@ -428,6 +433,7 @@ describe("contrato IPC", () => {
     const rustSource = [
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const sharedStructures: Array<[rust: string, typescript: string]> = [
@@ -470,6 +476,8 @@ describe("contrato IPC", () => {
       ["TransformRecipe", "TransformRecipe"],
       ["StoredTransformRecipe", "SavedRecipe"],
       ["TransformRecipeResult", "TransformRecipeResult"],
+      ["ProjectSummary", "ProjectSummary"],
+      ["ProjectOpenResult", "ProjectOpenResult"],
     ];
 
     const contracts = Object.fromEntries(
@@ -491,6 +499,7 @@ describe("contrato IPC", () => {
     const rustSource = [
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const aliases = typescriptTypeAliases(bridgeSource);
@@ -534,6 +543,8 @@ describe("contrato IPC", () => {
       ["TransformRecipe", "TransformRecipe"],
       ["StoredTransformRecipe", "SavedRecipe"],
       ["TransformRecipeResult", "TransformRecipeResult"],
+      ["ProjectSummary", "ProjectSummary"],
+      ["ProjectOpenResult", "ProjectOpenResult"],
     ];
 
     for (const [rustName, typescriptName] of sharedStructures) {

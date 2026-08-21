@@ -37,6 +37,20 @@ probar Columnia localmente en ese sistema.
 La máquina de desarrollo actual ya dispone de Rust/Cargo, WebView2 y las Build
 Tools de Visual Studio. El shell nativo se compila localmente en Windows.
 
+## Proyectos locales
+
+En **Cargar**, Columnia permite guardar el dataset materializado como un proyecto,
+actualizarlo, abrirlo más tarde o recuperar explícitamente la última sesión. El
+catálogo usa SQLite y cada versión se publica como un snapshot Parquet privado
+en el directorio de datos de la aplicación. React recibe únicamente IDs opacos y
+metadatos; nunca las rutas internas.
+
+La recuperación v1 conserva exactamente el dataset y su nombre visible aunque
+la fuente original haya desaparecido. Perfil, reglas de calidad, borrador de
+receta e historial Deshacer/Rehacer se reinician al abrir y todavía no forman
+parte del proyecto durable. Eliminar un proyecto no descarta el dataset que ya
+está abierto en memoria.
+
 ## Desarrollo local
 
 ```powershell

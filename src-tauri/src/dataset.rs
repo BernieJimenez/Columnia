@@ -599,7 +599,9 @@ pub struct TransformRecipeResult {
 }
 
 struct LoadedDataset {
-    path: PathBuf,
+    source_path: Option<PathBuf>,
+    file_name: String,
+    file_size_bytes: u64,
     frame: DataFrame,
     profile: Option<DatasetProfile>,
     history: HistoryManager,
@@ -785,7 +787,7 @@ fn publish_candidate(
     candidate: DataFrame,
     label: &str,
 ) -> Result<DatasetPreview, String> {
-    let preview = dataset_preview(&dataset.path, &candidate)?;
+    let preview = loaded_dataset_preview(dataset, &candidate)?;
     dataset.history.record(&candidate, label)?;
     dataset.frame = candidate;
     dataset.profile = None;
@@ -1423,9 +1425,29 @@ fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
 }
 
 fn dataset_preview(path: &Path, frame: &DataFrame) -> Result<DatasetPreview, String> {
-    let file_size_bytes = fs::metadata(path)
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset.csv");
+    dataset_preview_named(path, file_name, frame)
+}
+
+fn dataset_preview_named(
+    storage_path: &Path,
+    file_name: &str,
+    frame: &DataFrame,
+) -> Result<DatasetPreview, String> {
+    let file_size_bytes = fs::metadata(storage_path)
         .map_err(|error| format!("No se pudieron leer los metadatos del archivo: {error}"))?
         .len();
+    dataset_preview_with_size(file_name, file_size_bytes, frame)
+}
+
+fn dataset_preview_with_size(
+    file_name: &str,
+    file_size_bytes: u64,
+    frame: &DataFrame,
+) -> Result<DatasetPreview, String> {
     let columns = frame
         .columns()
         .iter()
@@ -1437,17 +1459,23 @@ fn dataset_preview(path: &Path, frame: &DataFrame) -> Result<DatasetPreview, Str
     let rows = dataset_page(frame, 0, PREVIEW_ROW_LIMIT)?.rows;
 
     Ok(DatasetPreview {
-        file_name: path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("dataset.csv")
-            .to_owned(),
+        file_name: file_name.to_owned(),
         file_size_bytes,
         row_count: frame.height(),
         column_count: frame.width(),
         columns,
         rows,
     })
+}
+
+fn loaded_dataset_preview(
+    dataset: &LoadedDataset,
+    frame: &DataFrame,
+) -> Result<DatasetPreview, String> {
+    match dataset.source_path.as_deref() {
+        Some(path) => dataset_preview_named(path, &dataset.file_name, frame),
+        None => dataset_preview_with_size(&dataset.file_name, dataset.file_size_bytes, frame),
+    }
 }
 
 fn remove_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
@@ -3079,7 +3107,14 @@ pub async fn load_dataset_selection(
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())? =
             Some(LoadedDataset {
-                path: pending.path,
+                source_path: Some(pending.path.clone()),
+                file_name: pending
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("dataset.csv")
+                    .to_owned(),
+                file_size_bytes: pending.file_size_bytes,
                 frame,
                 profile: None,
                 history,
@@ -3220,8 +3255,7 @@ pub async fn export_dataset(
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        let stem = dataset
-            .path
+        let stem = Path::new(&dataset.file_name)
             .file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or("dataset");
@@ -3349,7 +3383,7 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
         let preview = if affected_row_count > 0 {
             publish_candidate(dataset, cleaned, "Eliminar filas duplicadas")?
         } else {
-            dataset_preview(&dataset.path, &dataset.frame)?
+            loaded_dataset_preview(dataset, &dataset.frame)?
         };
 
         Ok(DatasetMutation {
@@ -3381,7 +3415,7 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
                 .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
             publish_candidate(dataset, candidate, "Normalizar nombres de columnas")?
         } else {
-            dataset_preview(&dataset.path, &dataset.frame)?
+            loaded_dataset_preview(dataset, &dataset.frame)?
         };
 
         Ok(ColumnNormalizationResult {
@@ -3417,7 +3451,7 @@ fn apply_text_cleaning(
     let preview = if changed_cell_count > 0 {
         publish_candidate(dataset, cleaned, label)?
     } else {
-        dataset_preview(&dataset.path, &dataset.frame)?
+        loaded_dataset_preview(dataset, &dataset.frame)?
     };
 
     Ok(TextCleaningResult {
@@ -3473,7 +3507,7 @@ pub async fn apply_safe_corrections(app: AppHandle) -> Result<SafeCorrectionsRes
         let preview = if changed_cell_count > 0 || renamed_column_count > 0 {
             publish_candidate(dataset, candidate, "Aplicar correcciones recomendadas")?
         } else {
-            dataset_preview(&dataset.path, &dataset.frame)?
+            loaded_dataset_preview(dataset, &dataset.frame)?
         };
 
         Ok(SafeCorrectionsResult {
@@ -3511,7 +3545,7 @@ fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
     }
     let target = dataset.history.cursor - 1;
     let previous = dataset.history.restore(target)?;
-    let preview = dataset_preview(&dataset.path, &previous)?;
+    let preview = loaded_dataset_preview(dataset, &previous)?;
     dataset.frame = previous;
     dataset.history.cursor = target;
     dataset.profile = None;
@@ -3545,7 +3579,7 @@ fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
     }
     let target = dataset.history.cursor + 1;
     let next = dataset.history.restore(target)?;
-    let preview = dataset_preview(&dataset.path, &next)?;
+    let preview = loaded_dataset_preview(dataset, &next)?;
     dataset.frame = next;
     dataset.history.cursor = target;
     dataset.profile = None;
@@ -5420,6 +5454,91 @@ pub(crate) fn export_frame_for_automation(
     export_frame_atomic(frame, output, format, |_, _| {}, || false)
 }
 
+pub(crate) struct ActiveDatasetSnapshot {
+    pub(crate) frame: DataFrame,
+    pub(crate) file_name: String,
+    pub(crate) row_count: usize,
+    pub(crate) column_count: usize,
+}
+
+pub(crate) struct ProjectDatasetCandidate {
+    loaded: LoadedDataset,
+    preview: DatasetPreview,
+}
+
+impl ProjectDatasetCandidate {
+    pub(crate) fn dimensions(&self) -> (usize, usize) {
+        (self.loaded.frame.height(), self.loaded.frame.width())
+    }
+}
+
+impl DatasetState {
+    pub(crate) fn active_project_snapshot(&self) -> Result<ActiveDatasetSnapshot, String> {
+        let current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let dataset = current
+            .as_ref()
+            .ok_or_else(|| "Carga un dataset antes de guardar un proyecto.".to_owned())?;
+        Ok(ActiveDatasetSnapshot {
+            frame: dataset.frame.clone(),
+            file_name: dataset.file_name.clone(),
+            row_count: dataset.frame.height(),
+            column_count: dataset.frame.width(),
+        })
+    }
+
+    pub(crate) fn prepare_project_candidate(
+        snapshot_path: PathBuf,
+        file_name: String,
+    ) -> Result<ProjectDatasetCandidate, String> {
+        let file = File::open(&snapshot_path)
+            .map_err(|_| "No se pudo abrir el snapshot del proyecto.".to_owned())?;
+        let frame = ParquetReader::new(file)
+            .set_low_memory(true)
+            .read_parallel(ParallelStrategy::None)
+            .finish()
+            .map_err(|_| "No se pudo restaurar el dataset del proyecto.".to_owned())?;
+        let file_size_bytes = fs::metadata(&snapshot_path)
+            .map_err(|_| "No se pudo verificar el snapshot del proyecto.".to_owned())?
+            .len();
+        let preview = dataset_preview_with_size(&file_name, file_size_bytes, &frame)
+            .map_err(|_| "No se pudo preparar el dataset del proyecto.".to_owned())?;
+        let history = HistoryManager::new(&frame)
+            .map_err(|_| "No se pudo iniciar el historial temporal del proyecto.".to_owned())?;
+        Ok(ProjectDatasetCandidate {
+            loaded: LoadedDataset {
+                source_path: None,
+                file_name,
+                file_size_bytes,
+                frame,
+                profile: None,
+                history,
+            },
+            preview,
+        })
+    }
+
+    pub(crate) fn activate_project_candidate(
+        &self,
+        candidate: ProjectDatasetCandidate,
+    ) -> Result<DatasetPreview, String> {
+        let ProjectDatasetCandidate { loaded, preview } = candidate;
+        *self
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos no está disponible.".to_owned())? = Some(loaded);
+        self.pending_selection
+            .lock()
+            .map_err(|_| "La selección local no está disponible.".to_owned())?
+            .take();
+        self.profile_generation.fetch_add(1, Ordering::SeqCst);
+        self.export_generation.fetch_add(1, Ordering::SeqCst);
+        Ok(preview)
+    }
+}
+
 pub(crate) fn canonicalize_file_for_automation(input: &Path) -> Result<PathBuf, String> {
     canonicalize_existing_file(input, "el archivo de automatización")
 }
@@ -5478,7 +5597,7 @@ fn apply_recipe_to_dataset(
     let preview = if changed {
         publish_candidate(dataset, candidate, "Aplicar receta de transformación")?
     } else {
-        dataset_preview(&dataset.path, &dataset.frame)?
+        loaded_dataset_preview(dataset, &dataset.frame)?
     };
     Ok(TransformRecipeResult {
         dataset: preview,
@@ -5758,7 +5877,13 @@ mod tests {
     fn loaded_dataset(path: PathBuf, frame: DataFrame) -> LoadedDataset {
         let history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
         LoadedDataset {
-            path,
+            source_path: Some(path.clone()),
+            file_name: path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("dataset.csv")
+                .to_owned(),
+            file_size_bytes: fs::metadata(&path).map(|value| value.len()).unwrap_or(0),
             frame,
             profile: None,
             history,
@@ -6395,6 +6520,25 @@ mod tests {
         assert!(redo_dataset(&mut dataset).is_err());
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn restored_project_keeps_original_file_name_across_changes_and_history() {
+        let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
+        let (original, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (cleaned, _) = remove_duplicate_rows(&original).unwrap();
+        let mut dataset = loaded_dataset(path.clone(), original);
+        dataset.source_path = None;
+        dataset.file_name = "ventas originales.xlsx".to_owned();
+        fs::remove_file(&path).expect("el snapshot persistente puede eliminarse del catálogo");
+
+        let changed = publish_candidate(&mut dataset, cleaned, "Eliminar duplicados").unwrap();
+        let undone = undo_dataset(&mut dataset).unwrap();
+        let redone = redo_dataset(&mut dataset).unwrap();
+
+        assert_eq!(changed.file_name, "ventas originales.xlsx");
+        assert_eq!(undone.dataset.file_name, "ventas originales.xlsx");
+        assert_eq!(redone.dataset.file_name, "ventas originales.xlsx");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 ## Alcance y supuestos
 
-Columnia es una aplicación de escritorio Tauri y una CLI que procesan datasets locales con React, Rust y Polars. Este modelo cubre la ventana `main`, el puente IPC, `columnia-cli`, el motor de datos, archivos elegidos por la persona, snapshots temporales, recetas y exportaciones.
+Columnia es una aplicación de escritorio Tauri y una CLI que procesan datasets locales con React, Rust y Polars. Este modelo cubre la ventana `main`, el puente IPC, `columnia-cli`, el motor de datos, archivos elegidos por la persona, proyectos SQLite, snapshots temporales o durables, recetas y exportaciones.
 
 Se asume que el sistema operativo, Tauri/WebView y la cuenta local funcionan como fronteras externas. Un atacante con control de la cuenta, del proceso o del sistema operativo queda fuera de las garantías actuales. Tampoco se afirma resistencia criptográfica, aislamiento frente a malware local ni seguridad de formatos que aún no se hayan probado de forma adversarial.
 
@@ -73,6 +73,7 @@ No objetivos actuales:
 | Capability y plugins Tauri | Ampliar acceso a filesystem, shell, HTTP o apertura externa | `main` tiene únicamente `core:default`; no existen permisos frontend de filesystem, shell, HTTP u opener; diálogo y archivos se operan desde Rust | `core:default` y cada plugin futuro deben revisarse al actualizar Tauri. Añadir una permission por comodidad rompería el principio de mínimo privilegio. |
 | WebView y contenido frontend | XSS, navegación o conexión remota, carga de contenido externo | CSP de producción limitada a `self`; bloquea objetos y frames; `connect-src` solo admite `self` e IPC local | `style-src` permite `unsafe-inline`. La CSP reduce impacto, pero no sustituye evitar inyección. La CSP de desarrollo admite Vite y WebSocket locales. |
 | Transformaciones e historial | Resultado parcial, corrupción de estado, datos previos irrecuperables | Las recetas compuestas publican un único candidato o revierten; Deshacer/Rehacer usa snapshots Parquet; los cambios invalidan perfil y validación previa | Los snapshots son temporales, tienen límites de cantidad/disco y no están documentados como cifrados. Un snapshot demasiado grande puede desactivar reversión. |
+| Proyectos y recuperación | Traversal desde catálogo, symlink/reparse, snapshot corrupto, desincronización SQLite↔Parquet, borrado accidental o exposición persistente de datos | Root canonicalizado bajo `app_data_dir`; IDs opacos; nombres acotados; SQL parametrizado y migración versionada; snapshots con nombre administrado, containment y rechazo de links/reparse; nueva generación atómica antes de transacción DB; apertura prepara y valida dimensiones antes de activar; React solo recibe metadatos | Los snapshots durables no están cifrados ni tienen borrado seguro. Una cuenta local comprometida puede leer o alterar app-data. Un fallo al limpiar después de borrar puede dejar un archivo huérfano; la operación lo informa. Reglas, perfil, borrador e historial aún no se recuperan. |
 | Exportación | Sobrescritura parcial, enlace de destino, entrega inválida, fórmulas de hoja de cálculo, fuga a ruta equivocada | Canonicaliza la carpeta; valida el destino; rechaza destinos no regulares y enlaces; escribe y sincroniza un temporal antes de reemplazar; cancelación no destruye el archivo previo; calidad exige reglas o bypass explícito; CSV antepone apóstrofo a texto con prefijos de fórmula y Parquet conserva el frame original | La persona aún puede elegir un destino sensible o confirmar un bypass. No existe clasificación de datos ni prevención de exfiltración local. La neutralización CSV cambia deliberadamente la representación exportada de esas celdas de texto. |
 | Errores, resultados y evidencia local | Filtrar celdas, rutas o contenido en mensajes/reportes | Los resultados de calidad devuelven conteos sin muestras; los reportes de gates no incluyen rutas ni contenido y usan hashes de lockfiles | No existe una política global verificada para todo mensaje de error o futuro logging. Cada nuevo diagnóstico debe revisarse por fuga de datos. |
 | Instancia única | Carreras de apertura, ventana inaccesible, abuso por proceso local | Plugin oficial de escritorio registrado primero; la segunda apertura muestra, desminimiza y enfoca `main`; los errores de ventana no causan panic | No protege frente a un proceso local hostil ni constituye autenticación. Los argumentos de la segunda instancia no se procesan actualmente. |
@@ -92,6 +93,7 @@ No objetivos actuales:
 - Presupuestos semánticos de recetas y reglas de calidad aplicados por Rust en todas sus entradas.
 - SBOM reproducible y gates offline que fijan registros oficiales, checksums y ausencia de fuentes Git.
 - CLI con parser estricto, resultados JSON versionados sin rutas y reutilización de los controles de lectura, receta y exportación del motor.
+- Proyectos confinados al app-data privado, con SQL parametrizado, generaciones atómicas y respuestas IPC sin rutas.
 
 ## Riesgos residuales prioritarios
 
@@ -99,7 +101,7 @@ La prioridad es orientativa; no sustituye una evaluación formal de severidad y 
 
 1. **Agotamiento de recursos por entrada no confiable:** el dataset se materializa en memoria y algunas operaciones crean copias completas. Falta un presupuesto efectivo de RAM, CPU y expansión por formato.
 2. **Cadena de suministro y distribución:** SBOM, lockfiles e instaladores tienen evidencia local; faltan escaneo periódico de vulnerabilidades, firma/procedencia publicable del artefacto y actualización autenticada.
-3. **Datos temporales en disco:** los snapshots Parquet son efímeros, pero no existe una garantía de cifrado ni borrado seguro.
+3. **Datos en disco:** snapshots temporales y proyectos Parquet durables no tienen garantía de cifrado ni borrado seguro; la persistencia aumenta deliberadamente el tiempo de exposición local.
 4. **Cobertura adversarial de parsers:** falta verificar archivos comprimidos o patológicos y expansión de memoria por formato; los presupuestos semánticos actuales no limitan el JSON bruto antes de deserializar.
 5. **Cobertura multiplataforma:** las garantías de rutas y empaquetado deben verificarse también en macOS y Linux.
 6. **Monolitos de UI y motor:** el tamaño de `App.tsx` y `dataset.rs` aumenta el radio de impacto de cambios de seguridad.

@@ -128,6 +128,27 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .notice--error { border-color: #b5463c; background: #fff0ed; color: #87362f; }
 .notice--success { border-color: #16847d; background: #e8f4f0; color: #28524f; }
 
+.projects { margin: 28px 0; padding: 18px; border: 1px solid #ced9d5; background: #f8faf9; }
+.projects__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.projects__heading h3 { margin: 4px 0; font-size: 1.25rem; }
+.projects__heading p:last-child { max-width: 720px; margin: 4px 0 0; color: #627770; font-size: .82rem; }
+.project-recovery { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; padding: 14px; border-left: 3px solid #16847d; background: #e8f4f0; }
+.project-recovery div, .project-list li > div:first-child { display: grid; gap: 3px; }
+.project-recovery span, .project-list span, .project-list small, .project-save small { color: #627770; font-size: .76rem; }
+.project-save { display: grid; gap: 6px; margin-top: 18px; }
+.project-save > label { color: #47625f; font-size: .78rem; font-weight: 800; text-transform: uppercase; }
+.project-save > div { display: flex; gap: 8px; }
+.project-save input { flex: 1 1 auto; min-width: 0; padding: 10px 11px; border: 1px solid #8eaaa3; border-radius: 3px; background: #fff; color: #18343a; }
+.project-save input:focus-visible { outline: 3px solid #e3aa50; outline-offset: 2px; }
+.projects__empty { color: #627770; font-size: .86rem; }
+.project-list { display: grid; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+.project-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid #ced9d5; background: white; }
+.project-list .project-list__active { border-left: 4px solid #16847d; background: #eef7f4; }
+.project-list__actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.project-list__actions button, .secondary-action, .danger-action { min-height: 36px; padding: 7px 11px; border: 1px solid #126d68; border-radius: 4px; background: transparent; color: #126d68; font-weight: 750; cursor: pointer; }
+.project-list__actions .project-list__delete, .danger-action { border-color: #a6574f; color: #93473f; }
+.project-list__actions button:disabled, .secondary-action:disabled, .danger-action:disabled { cursor: wait; opacity: .48; }
+
 .sheet-dialog { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgb(7 25 29 / 72%); backdrop-filter: blur(3px); }
 .sheet-dialog__panel { width: min(520px, 100%); padding: 28px; border: 1px solid #8eaaa3; background: #f8faf8; box-shadow: 10px 10px 0 #9a6829; }
 .sheet-dialog__panel h3 { margin: 6px 0 8px; }
@@ -230,7 +251,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .side-nav { justify-content: stretch; }
   .side-nav button { flex: 1; justify-content: center; }
   .main-content { padding: 22px 18px 36px; }
-  .topbar, .workspace__intro, .phase-header, .section-heading, .prepare-card, .history-bar, .recommended-batch, .transform-recipe__intro, .transform-recipe__footer { align-items: stretch; flex-direction: column; }
+  .topbar, .workspace__intro, .phase-header, .section-heading, .prepare-card, .history-bar, .recommended-batch, .transform-recipe__intro, .transform-recipe__footer, .projects__heading, .project-recovery, .project-list li { align-items: stretch; flex-direction: column; }
+  .project-save > div { align-items: stretch; flex-direction: column; }
   .workspace { padding: 22px; }
   .metrics { grid-template-columns: 1fr; }
   .pagination { align-items: stretch; flex-direction: column; }
@@ -324,6 +346,14 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .inline-action { border-color: #7bd2c8; color: #7bd2c8; }
   .change-feedback { background: #21463f; color: #c6e8df; }
   .change-feedback--error { background: #492c2b; color: #ffd7d2; }
+  .projects { border-color: #426067; background: #19363c; }
+  .projects__heading p:last-child, .project-recovery span, .project-list span, .project-list small, .project-save small, .projects__empty { color: #b6c9c7; }
+  .project-recovery { background: #21463f; }
+  .project-save > label { color: #afc2bd; }
+  .project-save input { border-color: #527078; background: #214249; color: #edf5f2; }
+  .project-list li { border-color: #426067; background: #17343a; }
+  .project-list .project-list__active { background: #214249; }
+  .project-list__actions button, .secondary-action { border-color: #7bd2c8; color: #7bd2c8; }
   .operation-progress { border-color: #426067; background: #214249; }
   .operation-progress div { color: #c6d8d4; }
   .operation-progress strong { color: #7bd2c8; }

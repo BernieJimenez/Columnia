@@ -1,10 +1,10 @@
 use serde::Serialize;
 
-#[cfg(desktop)]
 use tauri::Manager;
 
 pub mod automation;
 mod dataset;
+mod projects;
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -52,6 +52,16 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .manage(dataset::DatasetState::default())
+        .setup(|app| {
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(Box::<dyn std::error::Error>::from)?;
+            let projects =
+                projects::ProjectState::initialize(app_data_dir).map_err(std::io::Error::other)?;
+            app.manage(projects);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             dataset::pick_dataset_source,
@@ -72,7 +82,12 @@ pub fn run() {
             dataset::apply_transform_recipe,
             dataset::get_history_state,
             dataset::undo_last_change,
-            dataset::redo_last_change
+            dataset::redo_last_change,
+            projects::list_projects,
+            projects::get_recovery_candidate,
+            projects::save_project,
+            projects::open_project,
+            projects::delete_project
         ])
         .run(tauri::generate_context!())
         .expect("Columnia no pudo iniciar el runtime de escritorio");

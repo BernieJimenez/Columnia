@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { ModalDialog } from "../../components/ModalDialog";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
@@ -13,6 +15,7 @@ export type LoadRuntimeState =
   | { kind: "unavailable" };
 
 interface LoadPhaseProps {
+  children?: ReactNode;
   runtime: LoadRuntimeState;
   datasetStatus: DatasetStatus;
   inspection: LoadInspectionState;
@@ -22,6 +25,7 @@ interface LoadPhaseProps {
 }
 
 export function LoadPhase({
+  children,
   runtime,
   datasetStatus,
   inspection,
@@ -156,6 +160,7 @@ export function LoadPhase({
           Abre Columnia con Tauri para seleccionar archivos locales.
         </p>
       )}
+      {children}
       {current && <DatasetMetrics dataset={current} />}
     </>
   );

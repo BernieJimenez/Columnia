@@ -12,10 +12,10 @@
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
-| Persistencia actual | Dataset y perfil en memoria; historial en snapshots Parquet temporales |
+| Persistencia actual | Proyectos SQLite con snapshots Parquet durables; perfil e historial permanecen temporales |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-21, rama `master`, commit base `4c1a1cf` |
+| Última revisión de este documento | 2026-08-21, rama `master`, commit base `1bbbf63` |
 
 ## Para qué existe este documento
 
@@ -56,9 +56,14 @@ Comandos Tauri / lib.rs
   |  superficie permitida y estado administrado
   v
 dataset.rs
-  |  validación, carga, perfil, recetas, historial y exportación
-  v
+|  validación, carga, perfil, recetas, historial y exportación
+v
 Polars + Calamine + filesystem local
+
+projects.rs
+|  catálogo, migración, snapshots y recuperación
+v
+SQLite + app_data_dir privado
 ```
 
 No existe un servidor HTTP de aplicación. React pide casos de uso concretos mediante IPC de Tauri. Rust conserva la autoridad sobre rutas, archivos y datasets. El frontend recibe nombres, metadatos, filas de vista previa e identificadores opacos, no rutas locales.
@@ -88,12 +93,14 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, progreso, cancelación y recuperación. |
 | `src/features/review/` | Fase Revisar: diagnóstico, perfil de calidad, tabs y vista previa paginada. |
 | `src/features/prepare/` | Fase Preparar: vistas, editor de recetas, historial, modelo puro y controlador de IPC/invalidationes. |
+| `src/features/projects/` | Catálogo, guardado, apertura, recuperación y eliminación accesible de proyectos locales. |
 | `src/features/delivery/` | Fase Entregar: vista, métricas y modelo tipado de contrato, compuerta de calidad y exportación. |
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
 | `src/styles.css` | Sistema visual y layout de la aplicación. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, `DatasetState` y los 20 comandos permitidos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
+| `src-tauri/src/projects.rs` | Catálogo SQLite versionado, snapshots Parquet durables y cinco comandos de proyectos. |
 | `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de `inspect`/`transform`/`validate`/`batch`. |
 | `src-tauri/src/bin/columnia-cli.rs` | Ejecutable CLI mínimo que delega en el módulo de automatización. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
@@ -131,7 +138,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 - `pending_selection`: selección pendiente con ID opaco, ruta privada y hojas detectadas;
 - contadores atómicos de generación para cancelar carga, perfil y exportación sin mezclar operaciones.
 
-`LoadedDataset` conserva la ruta privada, el `DataFrame`, un perfil opcional en caché y el historial. El dataset se materializa actualmente en memoria. El límite provisional de archivo es 500 MiB, pero el consumo real puede ser mayor durante lectura, perfilado y transformaciones.
+`LoadedDataset` conserva una ruta fuente privada opcional, el nombre/tamaño visibles, el `DataFrame`, un perfil opcional en caché y el historial. Separar la identidad visible de la ruta permite restaurar un snapshot aunque el archivo original ya no exista. El dataset se materializa actualmente en memoria. El límite provisional de archivo es 500 MiB, pero el consumo real puede ser mayor durante lectura, perfilado y transformaciones.
 
 ### Historial y atomicidad
 
@@ -145,7 +152,7 @@ Cada revisión reversible se guarda como snapshot Parquet en un directorio tempo
 - `publish_candidate` prepara la vista previa y registra el historial antes de sustituir el `DataFrame` activo;
 - la exportación escribe y sincroniza un temporal antes de reemplazar el destino.
 
-No hay todavía proyectos persistentes, SQLite, recuperación de sesión ni historial durable entre aperturas.
+Los proyectos guardan el frame materializado como una nueva generación Parquet y actualizan después el puntero SQLite dentro de una transacción. Abrir prepara completamente el candidato antes de sustituir el dataset activo. La recuperación es explícita desde Cargar; no abre datos silenciosamente. Perfil, reglas, borrador de receta e historial Deshacer/Rehacer no se persisten todavía y se reinician al abrir.
 
 ## Contrato React ↔ Rust
 
@@ -180,7 +187,15 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `undo_last_change`
 - `redo_last_change`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores, nombres de campos y tipos concretos de 39 estructuras compartidas. Normaliza referencias, números, `Vec`/arrays, `Option`/campos opcionales, herencia, literales y alias conocidos. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
+### Proyectos y recuperación
+
+- `list_projects`
+- `get_recovery_candidate`
+- `save_project`
+- `open_project`
+- `delete_project`
+
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores, nombres de campos y tipos concretos de 41 estructuras compartidas. Normaliza referencias, números, `Vec`/arrays, `Option`/campos opcionales, herencia, literales y alias conocidos. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -290,7 +305,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 106 pruebas frontend y 100 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 116 pruebas frontend y 109 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -312,13 +327,14 @@ Al revisar este documento había 106 pruebas frontend y 100 pruebas Rust; las ra
 - Fase Entregar extraída de `App.tsx` a un módulo con estados discriminados y pruebas propias.
 - Fase Preparar extraída a vistas, editor, historial, modelo y controlador; `App.tsx` queda como coordinador de las cuatro fases.
 - CLI batch v1 para 1–64 transformaciones, con preflight sin escrituras, colisiones rechazadas y atomicidad individual explícita.
+- Proyectos locales con catálogo SQLite, snapshots Parquet durables, actualización generacional y recuperación explícita aunque desaparezca la fuente original.
 
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
 - DuckDB embebido;
-- SQLite, proyectos y recuperación de sesión;
-- automatización CLI de proyectos; inspección, transformación, calidad, selección de hojas y lotes ya existen;
+- persistencia dentro del proyecto para reglas, borradores de receta, perfil e historial Deshacer/Rehacer; el snapshot materializado y sus metadatos ya son durables;
+- automatización CLI de proyectos; el almacén v1 se resuelve actualmente mediante `app_data_dir` de Tauri;
 - joins, comparación de datasets y destinos de bases de datos;
 - E2E de flujos reales con datasets, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el smoke de arranque ya existe;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
@@ -330,9 +346,9 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
-3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 39 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 41 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
-5. **Persistencia efímera**: cerrar la aplicación pierde dataset, perfil e historial.
+5. **Persistencia parcial**: un proyecto recupera el dataset materializado y sus metadatos, pero perfil, reglas, borrador e historial temporal se pierden al cerrar.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
 7. **Roadmap acumulativo**: contiene decisiones propuestas, aprobadas e implementadas; no todas reflejan dependencias presentes.
 8. **Sin CI por política**: la calidad depende de ejecutar y registrar correctamente los gates locales.
@@ -373,6 +389,8 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-21 | Proyectos v1 persisten un catálogo SQLite y generaciones Parquet privadas; guardado, apertura, recuperación y borrado no exponen rutas a React. | `src-tauri/src/projects.rs`, `src/features/projects/`, `src/bridge.ts` |
+| 2026-08-21 | `LoadedDataset` separa identidad visible y ruta fuente opcional para que un proyecto siga funcionando después de borrar la fuente original. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
 | 2026-08-21 | La CLI ejecuta manifiestos batch v1 de hasta 64 trabajos, con preflight completo, outputs atómicos individuales y fallo parcial explícito por ordinal. | `src-tauri/src/automation.rs`, `tools/smoke-cli.ps1`, `fixtures/automation/` |
 | 2026-08-21 | Preparar e Historial se extrajeron a vistas, modelo y controlador IPC; `App.tsx` se redujo de 1,645 a 455 líneas. | `src/features/prepare/`, `src/App.tsx` |
 | 2026-08-21 | La CLI admite libros mediante hoja exacta y encabezado explícito, y valida contratos de calidad con salida JSON de conteos y códigos 0/2/1. | `src-tauri/src/automation.rs`, `src-tauri/src/dataset.rs`, `tools/smoke-cli.ps1` |
