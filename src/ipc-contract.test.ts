@@ -478,6 +478,7 @@ describe("contrato IPC", () => {
       ["TransformRecipeResult", "TransformRecipeResult"],
       ["ProjectSummary", "ProjectSummary"],
       ["ProjectOpenResult", "ProjectOpenResult"],
+      ["ProjectWorkspace", "ProjectWorkspace"],
     ];
 
     const contracts = Object.fromEntries(
@@ -545,6 +546,7 @@ describe("contrato IPC", () => {
       ["TransformRecipeResult", "TransformRecipeResult"],
       ["ProjectSummary", "ProjectSummary"],
       ["ProjectOpenResult", "ProjectOpenResult"],
+      ["ProjectWorkspace", "ProjectWorkspace"],
     ];
 
     for (const [rustName, typescriptName] of sharedStructures) {

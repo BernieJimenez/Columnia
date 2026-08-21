@@ -4,6 +4,8 @@ import type { DatasetPreview, QualityRule, QualityValidationResult } from "../..
 import {
   INITIAL_DELIVERY_CONTRACT,
   MAX_QUALITY_RULES,
+  deliveryContractFromRules,
+  deliveryRules,
   invalidateDeliveryContract,
   reduceDeliveryContract,
   validateQualityRuleDraft,
@@ -89,5 +91,12 @@ describe("estado de entrega", () => {
       confirmation: "confirmed",
     });
     expect(invalidateDeliveryContract(confirmed)).toEqual(INITIAL_DELIVERY_CONTRACT);
+  });
+
+  it("restaura reglas persistidas con el gate sin validar", () => {
+    const restored = deliveryContractFromRules([validRule]);
+    expect(restored).toEqual({ kind: "with_contract", rules: [validRule], gate: { kind: "idle" } });
+    expect(deliveryRules(restored)).toEqual([validRule]);
+    expect(deliveryContractFromRules([])).toEqual(INITIAL_DELIVERY_CONTRACT);
   });
 });

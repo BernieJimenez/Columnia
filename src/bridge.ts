@@ -343,9 +343,15 @@ export interface ProjectSummary {
   updatedAt: string;
 }
 
+export interface ProjectWorkspace {
+  qualityRules: QualityRule[];
+  recipeDraft: SavedRecipe | null;
+}
+
 export interface ProjectOpenResult {
   project: ProjectSummary;
   dataset: DatasetPreview;
+  workspace: ProjectWorkspace;
 }
 
 type ProgressHandler = (progress: OperationProgress) => void;
@@ -472,8 +478,12 @@ export function getRecoveryCandidate(): Promise<ProjectSummary | null> {
   return invoke<ProjectSummary | null>("get_recovery_candidate");
 }
 
-export function saveProject(projectId: string | null, name: string): Promise<ProjectSummary> {
-  return invoke<ProjectSummary>("save_project", { projectId, name });
+export function saveProject(
+  projectId: string | null,
+  name: string,
+  workspace: ProjectWorkspace,
+): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>("save_project", { projectId, name, workspace });
 }
 
 export function openProject(projectId: string): Promise<ProjectOpenResult> {

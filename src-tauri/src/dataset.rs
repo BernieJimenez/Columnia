@@ -566,10 +566,10 @@ pub struct TransformRecipe {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredTransformRecipe {
-    version: u32,
-    name: String,
-    saved_at: String,
-    recipe: TransformRecipe,
+    pub version: u32,
+    pub name: String,
+    pub saved_at: String,
+    pub recipe: TransformRecipe,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -5431,6 +5431,21 @@ pub(crate) fn evaluate_quality_rules_for_automation(
     evaluate_quality_rules(frame, quality_rules)
 }
 
+pub(crate) fn validate_project_workspace(
+    frame: &DataFrame,
+    quality_rules: &[QualityRule],
+    recipe_draft: Option<&StoredTransformRecipe>,
+) -> Result<(), String> {
+    validate_quality_rules_payload(quality_rules)?;
+    for rule in quality_rules {
+        validate_quality_rule_definition(frame, rule)?;
+    }
+    if let Some(recipe) = recipe_draft {
+        validate_stored_recipe(recipe)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn load_recipe_for_automation(input: &Path) -> Result<TransformRecipe, String> {
     load_recipe_file(input).map(|document| document.recipe)
 }
@@ -5469,6 +5484,10 @@ pub(crate) struct ProjectDatasetCandidate {
 impl ProjectDatasetCandidate {
     pub(crate) fn dimensions(&self) -> (usize, usize) {
         (self.loaded.frame.height(), self.loaded.frame.width())
+    }
+
+    pub(crate) fn frame(&self) -> &DataFrame {
+        &self.loaded.frame
     }
 }
 

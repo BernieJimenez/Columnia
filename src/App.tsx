@@ -4,6 +4,8 @@ import type { ReviewTab } from "./components/ReviewTabList";
 import { DeliveryPhase } from "./features/delivery/DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
+  deliveryContractFromRules,
+  deliveryRules,
   invalidateDeliveryContract,
   reduceDeliveryContract,
   type DeliveryContractAction,
@@ -55,6 +57,7 @@ import {
   type CancellableOperation,
   type DatasetPreview,
   type DatasetSourceInspection,
+  type SavedRecipe,
   type SpreadsheetHeaderMode,
 } from "./bridge";
 
@@ -90,6 +93,8 @@ export function App() {
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
+  const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
+  const [recipeSession, setRecipeSession] = useState(0);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) =>
@@ -107,13 +112,17 @@ export function App() {
     connected: status.kind === "ready",
     blocked: coreOperationBusy,
     hasDataset: datasetStatus.kind === "ready",
-    onProjectOpened: async (dataset) => {
+    workspace: { qualityRules: deliveryRules(deliveryContract), recipeDraft },
+    onProjectOpened: async ({ dataset, workspace }) => {
       setDatasetStatus(createReadyDatasetStatus(dataset));
       setLoadInspection({ kind: "idle" });
       setProfileStatus({ kind: "idle" });
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
-      invalidateDeliveryGate();
+      setDeliveryContract(deliveryContractFromRules(workspace.qualityRules));
+      setExportStatus({ kind: "idle" });
+      setRecipeDraft(workspace.recipeDraft);
+      setRecipeSession((current) => current + 1);
       setReviewTab("diagnosis");
       setActivePhase("review");
     },
@@ -181,11 +190,13 @@ export function App() {
       });
       setDatasetStatus(createReadyDatasetStatus(dataset));
       projects.unlinkActiveProject();
+      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
+      setRecipeDraft(null);
+      setRecipeSession((current) => current + 1);
       setLoadInspection({ kind: "idle" });
       setProfileStatus({ kind: "idle" });
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
-      invalidateDeliveryGate();
       setExportStatus({ kind: "idle" });
       setReviewTab("diagnosis");
       setActivePhase("review");
@@ -460,6 +471,8 @@ export function App() {
               profileStatus={profileStatus}
               changeStatus={prepare.changeStatus}
               historyStatus={prepare.historyStatus}
+              recipeDraft={recipeDraft}
+              recipeSession={recipeSession}
               onAnalyzeQuality={analyzeQuality}
               onCancelProfile={() => cancelActiveOperation("profile")}
               onRemoveDuplicates={prepare.applyDuplicateRemoval}
@@ -468,6 +481,7 @@ export function App() {
               onTrimText={prepare.trimText}
               onNormalizeText={prepare.normalizeText}
               onApplyTransforms={prepare.applyStructuralTransforms}
+              onRecipeDraftChange={setRecipeDraft}
               onUndo={prepare.undoChange}
               onRedo={prepare.redoChange}
             />

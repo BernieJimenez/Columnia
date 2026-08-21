@@ -68,7 +68,7 @@ export function ProjectsPanel({
         <div>
           <p className="eyebrow">Continuidad local</p>
           <h3 id="projects-title">Proyectos</h3>
-          <p>Un proyecto conserva un snapshot materializado del dataset. No recupera historial, perfil, reglas ni borradores de receta.</p>
+          <p>Un proyecto conserva el snapshot, las reglas de calidad y el borrador de receta. El perfil y el historial temporal se reinician al abrirlo.</p>
         </div>
         {catalog.kind === "error" && (
           <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>

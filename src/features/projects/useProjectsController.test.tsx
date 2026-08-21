@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DatasetPreview, ProjectOpenResult, ProjectSummary } from "../../bridge";
+import type { DatasetPreview, ProjectOpenResult, ProjectSummary, ProjectWorkspace } from "../../bridge";
 import { useProjectsController } from "./useProjectsController";
 
 const bridge = vi.hoisted(() => ({
@@ -31,13 +31,14 @@ const dataset: DatasetPreview = {
   columns: [{ name: "id", dataType: "Int64" }],
   rows: [["1"], ["2"]],
 };
+const workspace: ProjectWorkspace = { qualityRules: [], recipeDraft: null };
 
 beforeEach(() => {
   vi.clearAllMocks();
   bridge.listProjects.mockResolvedValue([summary]);
   bridge.getRecoveryCandidate.mockResolvedValue(summary);
   bridge.saveProject.mockResolvedValue(summary);
-  bridge.openProject.mockResolvedValue({ project: summary, dataset } satisfies ProjectOpenResult);
+  bridge.openProject.mockResolvedValue({ project: summary, dataset, workspace } satisfies ProjectOpenResult);
   bridge.deleteProject.mockResolvedValue(undefined);
 });
 
@@ -47,6 +48,7 @@ describe("useProjectsController", () => {
       connected: true,
       blocked: false,
       hasDataset: true,
+      workspace,
       onProjectOpened: vi.fn(),
     }));
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
@@ -60,11 +62,12 @@ describe("useProjectsController", () => {
       connected: true,
       blocked: false,
       hasDataset: false,
+      workspace,
       onProjectOpened,
     }));
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
     await act(async () => result.current.open(summary.id));
-    expect(onProjectOpened).toHaveBeenCalledWith(dataset);
+    expect(onProjectOpened).toHaveBeenCalledWith({ project: summary, dataset, workspace });
     expect(result.current.activeProject).toEqual(summary);
     expect(result.current.operation.kind).toBe("success");
   });
@@ -76,6 +79,7 @@ describe("useProjectsController", () => {
       connected: true,
       blocked: false,
       hasDataset: true,
+      workspace,
       onProjectOpened: vi.fn(),
     }));
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
@@ -85,6 +89,7 @@ describe("useProjectsController", () => {
       void result.current.save("Duplicado");
     });
     expect(bridge.saveProject).toHaveBeenCalledOnce();
+    expect(bridge.saveProject).toHaveBeenCalledWith(null, "Proyecto seguro", workspace);
     await act(async () => { resolveSave(summary); await first; });
   });
 
@@ -93,6 +98,7 @@ describe("useProjectsController", () => {
       connected: true,
       blocked: false,
       hasDataset: true,
+      workspace,
       onProjectOpened: vi.fn(),
     }));
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));

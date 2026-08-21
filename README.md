@@ -45,11 +45,12 @@ catálogo usa SQLite y cada versión se publica como un snapshot Parquet privado
 en el directorio de datos de la aplicación. React recibe únicamente IDs opacos y
 metadatos; nunca las rutas internas.
 
-La recuperación v1 conserva exactamente el dataset y su nombre visible aunque
-la fuente original haya desaparecido. Perfil, reglas de calidad, borrador de
-receta e historial Deshacer/Rehacer se reinician al abrir y todavía no forman
-parte del proyecto durable. Eliminar un proyecto no descarta el dataset que ya
-está abierto en memoria.
+El esquema SQLite v2 conserva exactamente el dataset y su nombre visible aunque
+la fuente original haya desaparecido, además de las reglas de calidad y el
+borrador opcional de receta. Los catálogos v1 se migran de forma compatible al
+abrirse. El perfil calculado y el historial Deshacer/Rehacer siguen siendo
+temporales y se reinician al abrir un proyecto. Eliminar un proyecto no descarta
+el dataset que ya está abierto en memoria.
 
 ## Desarrollo local
 

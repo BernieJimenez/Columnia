@@ -6,8 +6,9 @@ import {
   listProjects,
   openProject,
   saveProject,
-  type DatasetPreview,
+  type ProjectOpenResult,
   type ProjectSummary,
+  type ProjectWorkspace,
 } from "../../bridge";
 import {
   sortProjects,
@@ -21,7 +22,8 @@ interface ProjectsControllerOptions {
   connected: boolean;
   blocked: boolean;
   hasDataset: boolean;
-  onProjectOpened: (dataset: DatasetPreview) => Promise<void> | void;
+  workspace: ProjectWorkspace;
+  onProjectOpened: (result: ProjectOpenResult) => Promise<void> | void;
 }
 
 function errorMessage(error: unknown): string {
@@ -32,6 +34,7 @@ export function useProjectsController({
   connected,
   blocked,
   hasDataset,
+  workspace,
   onProjectOpened,
 }: ProjectsControllerOptions) {
   const [catalog, setCatalog] = useState<ProjectCatalogState>({ kind: "unavailable" });
@@ -90,7 +93,7 @@ export function useProjectsController({
     await runExclusive(
       { kind: "working", operation: "save", projectId: activeProject?.id ?? null },
       async () => {
-        const saved = await saveProject(activeProject?.id ?? null, validation.name);
+        const saved = await saveProject(activeProject?.id ?? null, validation.name, workspace);
         setActiveProject(saved);
         setOperation({ kind: "success", message: activeProject
           ? `Proyecto “${saved.name}” actualizado.`
@@ -98,14 +101,14 @@ export function useProjectsController({
         await refresh();
       },
     );
-  }, [activeProject, hasDataset, refresh, runExclusive]);
+  }, [activeProject, hasDataset, refresh, runExclusive, workspace]);
 
   const open = useCallback(async (projectId: string) => {
     await runExclusive(
       { kind: "working", operation: "open", projectId },
       async () => {
         const result = await openProject(projectId);
-        await onProjectOpened(result.dataset);
+        await onProjectOpened(result);
         setActiveProject(result.project);
         setOperation({ kind: "success", message: `Proyecto “${result.project.name}” abierto.` });
         await refresh();

@@ -60,6 +60,16 @@ export const INITIAL_DELIVERY_CONTRACT: DeliveryContractState = {
   gate: { kind: "idle" },
 };
 
+export function deliveryContractFromRules(rules: QualityRule[]): DeliveryContractState {
+  return rules.length === 0
+    ? INITIAL_DELIVERY_CONTRACT
+    : { kind: "with_contract", rules, gate: { kind: "idle" } };
+}
+
+export function deliveryRules(state: DeliveryContractState): QualityRule[] {
+  return state.kind === "with_contract" ? state.rules : [];
+}
+
 function invalidateGate(gate: QualityGateState): QualityGateState {
   return gate.kind === "ready" || gate.kind === "stale"
     ? { kind: "stale", result: gate.result }

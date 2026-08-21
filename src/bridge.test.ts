@@ -18,11 +18,13 @@ import {
   pickTransformRecipe,
   removeDuplicates,
   redoLastChange,
+  saveProject,
   saveTransformRecipe,
   trimTextValues,
   undoLastChange,
   validateQualityRules,
   type QualityRule,
+  type ProjectWorkspace,
   type TransformRecipe,
 } from "./bridge";
 
@@ -225,6 +227,19 @@ describe("desktop bridge", () => {
     vi.mocked(invoke).mockResolvedValue({ canUndo: true, canRedo: false, currentIndex: 1 });
     await getHistoryState();
     expect(invoke).toHaveBeenCalledWith("get_history_state");
+  });
+
+  it("guarda proyectos con el workspace tipado sin enviar rutas", async () => {
+    const workspace: ProjectWorkspace = {
+      qualityRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      recipeDraft: null,
+    };
+    vi.mocked(invoke).mockResolvedValue({ id: "project-1", name: "Ventas" });
+
+    await saveProject(null, "Ventas", workspace);
+
+    expect(invoke).toHaveBeenCalledWith("save_project", { projectId: null, name: "Ventas", workspace });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
   });
 
   it("exporta mediante selector nativo sin recibir una ruta de React", async () => {

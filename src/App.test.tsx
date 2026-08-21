@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import * as bridge from "./bridge";
-import type { DatasetPreview, DatasetProfile, HistoryState } from "./bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, ProjectSummary, SavedRecipe } from "./bridge";
 
 function historyState(overrides: Partial<HistoryState> = {}): HistoryState {
   return {
@@ -38,6 +38,78 @@ function mockDatasetLoad(dataset: DatasetPreview) {
 }
 
 describe("App", () => {
+  it("restaura reglas y borrador de un proyecto con gates e historial temporal reiniciados", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.25.0", platform: "windows" });
+    const project: ProjectSummary = {
+      id: "project-1", name: "Ventas", datasetFileName: "ventas.csv", rowCount: 1, columnCount: 1,
+      createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
+    };
+    const draft: SavedRecipe = {
+      version: 1, name: "Renombrar total", savedAt: "2026-08-21T00:00:00Z",
+      recipe: {
+        renames: [{ from: "total", to: "importe" }], casts: [], dateParses: [], filters: [],
+        calculatedColumn: null, findReplace: null, keepColumns: null, splitColumn: null,
+        mergeColumns: null, outlierTreatments: [], groupSummary: null,
+        contactNormalizations: [], textExtractions: [],
+      },
+    };
+    const dataset: DatasetPreview = {
+      fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 1, columnCount: 1,
+      columns: [{ name: "total", dataType: "Int64" }], rows: [["10"]],
+    };
+    vi.spyOn(bridge, "listProjects").mockResolvedValue([project]);
+    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    vi.spyOn(bridge, "openProject").mockResolvedValue({
+      project,
+      dataset,
+      workspace: {
+        qualityRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+        recipeDraft: draft,
+      },
+    });
+    vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
+      selectionId: "external-selection", fileName: "externo.csv", fileSizeBytes: 64,
+      format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false,
+    });
+    vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
+      fileName: "externo.csv", fileSizeBytes: 64, rowCount: 1, columnCount: 1,
+      columns: [{ name: "otro", dataType: "String" }], rows: [["dato"]],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({
+      canUndo: false, entryCount: 1, currentIndex: 0,
+      entries: [{ index: 0, label: "Dataset cargado", isCurrent: true }],
+    }));
+    const profileSpy = vi.spyOn(bridge, "getDatasetProfile");
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
+    expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("total");
+    expect(screen.queryByText("Contrato aprobado")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar total");
+    expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("importe");
+    expect(profileSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Mi receta");
+    expect(screen.getByRole("combobox", { name: "Columna para renombrar 1" })).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeInTheDocument();
+  });
+
   it("explica cómo conectar el motor cuando se abre en navegador", async () => {
     render(<App />);
 

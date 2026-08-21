@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
-import type { DatasetPreview, HistoryState, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, HistoryState, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
@@ -12,6 +12,8 @@ interface PreparePhaseProps {
   profileStatus: ProfileStatus;
   changeStatus: ChangeStatus;
   historyStatus: HistoryState;
+  recipeDraft: SavedRecipe | null;
+  recipeSession: number;
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
   onRemoveDuplicates: () => void;
@@ -20,6 +22,7 @@ interface PreparePhaseProps {
   onTrimText: () => void;
   onNormalizeText: (columns: string[], removeAccents: boolean) => void;
   onApplyTransforms: (recipe: TransformRecipe) => void;
+  onRecipeDraftChange: (draft: SavedRecipe) => void;
   onUndo: () => void;
   onRedo: () => void;
 }
@@ -29,6 +32,8 @@ export function PreparePhase({
   profileStatus,
   changeStatus,
   historyStatus,
+  recipeDraft,
+  recipeSession,
   onAnalyzeQuality,
   onCancelProfile,
   onRemoveDuplicates,
@@ -37,6 +42,7 @@ export function PreparePhase({
   onTrimText,
   onNormalizeText,
   onApplyTransforms,
+  onRecipeDraftChange,
   onUndo,
   onRedo,
 }: PreparePhaseProps) {
@@ -115,10 +121,12 @@ export function PreparePhase({
           aria-labelledby="prepare-transformations-tab"
         >
           <TransformRecipeEditor
-            key={`${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => column.name).join("|")}:${changeStatus.kind === "applied" ? changeStatus.message : ""}`}
+            key={recipeSession}
             dataset={dataset}
             busy={changing}
+            initialDraft={recipeDraft}
             onApply={onApplyTransforms}
+            onDraftChange={onRecipeDraftChange}
           />
         </div>
       ) : (

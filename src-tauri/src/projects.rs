@@ -7,12 +7,14 @@ use std::{
 use chrono::{SecondsFormat, Utc};
 use polars::prelude::{DataFrame, ParquetWriter};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::dataset::{DatasetPreview, DatasetState};
+use crate::dataset::{
+    validate_project_workspace, DatasetPreview, DatasetState, QualityRule, StoredTransformRecipe,
+};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const ID_LENGTH: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -32,6 +34,14 @@ pub struct ProjectSummary {
 pub struct ProjectOpenResult {
     pub project: ProjectSummary,
     pub dataset: DatasetPreview,
+    pub workspace: ProjectWorkspace,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectWorkspace {
+    pub quality_rules: Vec<QualityRule>,
+    pub recipe_draft: Option<StoredTransformRecipe>,
 }
 
 pub struct ProjectState {
@@ -59,6 +69,8 @@ struct ProjectStore {
 struct StoredProject {
     summary: ProjectSummary,
     snapshot_name: String,
+    quality_rules_json: String,
+    recipe_draft_json: Option<String>,
 }
 
 impl ProjectStore {
@@ -103,30 +115,49 @@ impl ProjectStore {
                 "El catálogo de proyectos pertenece a una versión más reciente.".to_owned(),
             );
         }
-        if version == 0 {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|_| storage_error())?;
-            transaction
-                .execute_batch(
-                    "CREATE TABLE projects (
-                       id TEXT PRIMARY KEY NOT NULL,
-                       name TEXT NOT NULL,
-                       dataset_file_name TEXT NOT NULL,
-                       row_count INTEGER NOT NULL CHECK (row_count >= 0),
-                       column_count INTEGER NOT NULL CHECK (column_count >= 0),
-                       snapshot_name TEXT NOT NULL UNIQUE,
-                       created_at TEXT NOT NULL,
-                       updated_at TEXT NOT NULL,
-                       last_opened_at TEXT
-                     );
-                     CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                     PRAGMA user_version = 1;",
-                )
-                .map_err(|_| storage_error())?;
-            transaction.commit().map_err(|_| storage_error())?;
+        match version {
+            SCHEMA_VERSION => Ok(()),
+            0 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "CREATE TABLE projects (
+                           id TEXT PRIMARY KEY NOT NULL,
+                           name TEXT NOT NULL,
+                           dataset_file_name TEXT NOT NULL,
+                           row_count INTEGER NOT NULL CHECK (row_count >= 0),
+                           column_count INTEGER NOT NULL CHECK (column_count >= 0),
+                           snapshot_name TEXT NOT NULL UNIQUE,
+                           created_at TEXT NOT NULL,
+                           updated_at TEXT NOT NULL,
+                           last_opened_at TEXT,
+                           quality_rules_json TEXT NOT NULL DEFAULT '[]',
+                           recipe_draft_json TEXT
+                         );
+                         CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
+                         PRAGMA user_version = 2;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            1 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects
+                           ADD COLUMN quality_rules_json TEXT NOT NULL DEFAULT '[]';
+                         ALTER TABLE projects ADD COLUMN recipe_draft_json TEXT;
+                         PRAGMA user_version = 2;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            _ => Err(storage_error()),
         }
-        Ok(())
     }
 
     fn list(&self) -> Result<Vec<ProjectSummary>, String> {
@@ -163,8 +194,9 @@ impl ProjectStore {
         dataset_state: &DatasetState,
         project_id: Option<String>,
         name: String,
+        workspace: ProjectWorkspace,
     ) -> Result<ProjectSummary, String> {
-        self.save_inner(dataset_state, project_id, name, false)
+        self.save_inner(dataset_state, project_id, name, workspace, false)
     }
 
     fn save_inner(
@@ -172,6 +204,7 @@ impl ProjectStore {
         dataset_state: &DatasetState,
         project_id: Option<String>,
         name: String,
+        workspace: ProjectWorkspace,
         fail_before_database: bool,
     ) -> Result<ProjectSummary, String> {
         let name = validate_name(name)?;
@@ -179,6 +212,19 @@ impl ProjectStore {
             validate_id(id)?;
         }
         let active = dataset_state.active_project_snapshot()?;
+        validate_project_workspace(
+            &active.frame,
+            &workspace.quality_rules,
+            workspace.recipe_draft.as_ref(),
+        )?;
+        let quality_rules_json = serde_json::to_string(&workspace.quality_rules)
+            .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
+        let recipe_draft_json = workspace
+            .recipe_draft
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -218,8 +264,8 @@ impl ProjectStore {
         let database_result = if existing.is_some() {
             transaction.execute(
                 "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
-                 column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6
-                 WHERE id = ?7",
+                 column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
+                 quality_rules_json = ?7, recipe_draft_json = ?8 WHERE id = ?9",
                 params![
                     name,
                     active.file_name,
@@ -227,6 +273,8 @@ impl ProjectStore {
                     column_count,
                     snapshot_name,
                     timestamp,
+                    quality_rules_json,
+                    recipe_draft_json,
                     id
                 ],
             )
@@ -234,8 +282,8 @@ impl ProjectStore {
             transaction.execute(
                 "INSERT INTO projects
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
-                  created_at, updated_at, last_opened_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)",
+                  created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9)",
                 params![
                     id,
                     name,
@@ -243,7 +291,9 @@ impl ProjectStore {
                     row_count,
                     column_count,
                     snapshot_name,
-                    timestamp
+                    timestamp,
+                    quality_rules_json,
+                    recipe_draft_json
                 ],
             )
         };
@@ -282,6 +332,13 @@ impl ProjectStore {
             snapshot_path,
             stored.summary.dataset_file_name.clone(),
         )?;
+        let workspace = decode_workspace(&stored)?;
+        validate_project_workspace(
+            candidate.frame(),
+            &workspace.quality_rules,
+            workspace.recipe_draft.as_ref(),
+        )
+        .map_err(|_| "La configuración guardada del proyecto no es válida.".to_owned())?;
         if candidate.dimensions() != (stored.summary.row_count, stored.summary.column_count) {
             return Err("El snapshot del proyecto no coincide con su catálogo.".to_owned());
         }
@@ -304,6 +361,7 @@ impl ProjectStore {
         Ok(ProjectOpenResult {
             project: stored.summary,
             dataset,
+            workspace,
         })
     }
 
@@ -345,12 +403,15 @@ impl ProjectStore {
         connection
             .query_row(
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at,
-                        updated_at, snapshot_name FROM projects WHERE id = ?1",
+                        updated_at, snapshot_name, quality_rules_json, recipe_draft_json
+                 FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
                     Ok(StoredProject {
                         summary: summary_from_row(row)?,
                         snapshot_name: row.get(7)?,
+                        quality_rules_json: row.get(8)?,
+                        recipe_draft_json: row.get(9)?,
                     })
                 },
             )
@@ -397,6 +458,21 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectSummary>
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, column_count))?,
         created_at: row.get(5)?,
         updated_at: row.get(6)?,
+    })
+}
+
+fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> {
+    let quality_rules = serde_json::from_str(&stored.quality_rules_json)
+        .map_err(|_| "La configuración guardada del proyecto no es válida.".to_owned())?;
+    let recipe_draft = stored
+        .recipe_draft_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|_| "La configuración guardada del proyecto no es válida.".to_owned())?;
+    Ok(ProjectWorkspace {
+        quality_rules,
+        recipe_draft,
     })
 }
 
@@ -544,9 +620,10 @@ pub async fn save_project(
     app: AppHandle,
     project_id: Option<String>,
     name: String,
+    workspace: ProjectWorkspace,
 ) -> Result<ProjectSummary, String> {
     run_project_operation(app, move |store, dataset| {
-        store.save(dataset, project_id, name)
+        store.save(dataset, project_id, name, workspace)
     })
     .await
 }
@@ -610,6 +687,23 @@ mod tests {
             .count()
     }
 
+    fn workspace() -> ProjectWorkspace {
+        serde_json::from_value(serde_json::json!({
+            "qualityRules": [{
+                "column": "value",
+                "kind": "not_null",
+                "maxInvalid": 0
+            }],
+            "recipeDraft": {
+                "version": 1,
+                "name": "Borrador seguro",
+                "savedAt": "2026-08-21T12:00:00Z",
+                "recipe": {}
+            }
+        }))
+        .expect("el workspace de prueba debe ser válido")
+    }
+
     #[test]
     fn migration_is_versioned_and_idempotent() {
         let directory = tempfile::tempdir().unwrap();
@@ -626,13 +720,118 @@ mod tests {
     }
 
     #[test]
+    fn migration_from_v1_adds_empty_workspace_without_changing_existing_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data");
+        fs::create_dir_all(&root).unwrap();
+        let catalog = root.join("projects.sqlite3");
+        let connection = Connection::open(&catalog).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE projects (
+                   id TEXT PRIMARY KEY NOT NULL,
+                   name TEXT NOT NULL,
+                   dataset_file_name TEXT NOT NULL,
+                   row_count INTEGER NOT NULL CHECK (row_count >= 0),
+                   column_count INTEGER NOT NULL CHECK (column_count >= 0),
+                   snapshot_name TEXT NOT NULL UNIQUE,
+                   created_at TEXT NOT NULL,
+                   updated_at TEXT NOT NULL,
+                   last_opened_at TEXT
+                 );
+                 CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
+                 INSERT INTO projects VALUES (
+                   '0123456789abcdef0123456789abcdef', 'Legado', 'input.csv', 2, 1,
+                   '0123456789abcdef0123456789abcdef-abcdef0123456789abcdef0123456789.parquet',
+                   '2026-08-20T00:00:00.000Z', '2026-08-20T00:00:00.000Z', NULL
+                 );
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        drop(connection);
+
+        let store = ProjectStore::initialize(root.clone()).unwrap();
+        let migrated = store
+            .stored_project(
+                &store.connection().unwrap(),
+                "0123456789abcdef0123456789abcdef",
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(migrated.summary.name, "Legado");
+        assert_eq!(
+            decode_workspace(&migrated).unwrap(),
+            ProjectWorkspace::default()
+        );
+        let version: i64 = store
+            .connection()
+            .unwrap()
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        drop(store);
+        ProjectStore::initialize(root).expect("reabrir v2 debe ser idempotente");
+    }
+
+    #[test]
+    fn migration_fails_closed_for_future_catalog_versions_without_leaking_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("future-private-data");
+        fs::create_dir_all(&root).unwrap();
+        Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .execute_batch("PRAGMA user_version = 3;")
+            .unwrap();
+
+        let error = ProjectStore::initialize(root.clone())
+            .err()
+            .expect("una versión futura debe rechazarse");
+        assert!(error.contains("versión más reciente"));
+        assert!(!error.contains(root.to_string_lossy().as_ref()));
+        let version: i64 = Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 3);
+    }
+
+    #[test]
+    fn workspace_roundtrips_with_snapshot_across_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data");
+        let store = ProjectStore::initialize(root.clone()).unwrap();
+        let (state, source) = active_state(directory.path(), &[1, 2], "input.csv");
+        let expected = workspace();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Con configuración".to_owned(),
+                expected.clone(),
+            )
+            .unwrap();
+        fs::remove_file(source).unwrap();
+        drop(store);
+
+        let reopened = ProjectStore::initialize(root).unwrap();
+        let result = reopened.open(&DatasetState::default(), project.id).unwrap();
+        assert_eq!(result.workspace, expected);
+        assert_eq!(result.dataset.file_name, "input.csv");
+    }
+
+    #[test]
     fn create_update_list_recovery_and_delete_preserve_active_dataset() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
         let (state, _) = active_state(directory.path(), &[1, 2, 3], "entrada original.csv");
 
         let created = store
-            .save(&state, None, "  Proyecto ágil  ".to_owned())
+            .save(
+                &state,
+                None,
+                "  Proyecto ágil  ".to_owned(),
+                ProjectWorkspace::default(),
+            )
             .unwrap();
         assert_eq!(created.name, "Proyecto ágil");
         assert_eq!(created.dataset_file_name, "entrada original.csv");
@@ -644,7 +843,12 @@ mod tests {
         assert_eq!(snapshot_count(&store), 1);
 
         let updated = store
-            .save(&state, Some(created.id.clone()), "Renombrado".to_owned())
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "Renombrado".to_owned(),
+                ProjectWorkspace::default(),
+            )
             .unwrap();
         assert_eq!(updated.id, created.id);
         assert_eq!(updated.created_at, created.created_at);
@@ -663,7 +867,14 @@ mod tests {
         let data_root = directory.path().join("data");
         let store = ProjectStore::initialize(data_root.clone()).unwrap();
         let (state, source) = active_state(directory.path(), &[7, 8], "ventas.csv");
-        let project = store.save(&state, None, "Ventas".to_owned()).unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Ventas".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
         fs::remove_file(source).unwrap();
         drop(store);
 
@@ -685,24 +896,129 @@ mod tests {
         let (state, _) = active_state(directory.path(), &[1], "input.csv");
 
         let error = store
-            .save_inner(&state, None, "Proyecto".to_owned(), true)
+            .save_inner(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+                true,
+            )
             .unwrap_err();
         assert_eq!(error, storage_error());
         assert!(store.list().unwrap().is_empty());
         assert_eq!(snapshot_count(&store), 0);
 
-        let created = store.save(&state, None, "Original".to_owned()).unwrap();
+        let created = store
+            .save(&state, None, "Original".to_owned(), workspace())
+            .unwrap();
         let error = store
             .save_inner(
                 &state,
                 Some(created.id.clone()),
                 "No publicado".to_owned(),
+                ProjectWorkspace::default(),
                 true,
             )
             .unwrap_err();
         assert_eq!(error, storage_error());
+        assert_eq!(store.list().unwrap(), vec![created.clone()]);
+        assert_eq!(snapshot_count(&store), 1);
+        let stored = store
+            .stored_project(&store.connection().unwrap(), &created.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decode_workspace(&stored).unwrap(), workspace());
+    }
+
+    #[test]
+    fn invalid_workspace_is_rejected_before_writing_a_snapshot_or_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1], "input.csv");
+        let created = store
+            .save(
+                &state,
+                None,
+                "Original".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let invalid_recipe: ProjectWorkspace = serde_json::from_value(serde_json::json!({
+            "qualityRules": [],
+            "recipeDraft": {
+                "version": 2,
+                "name": "Futura",
+                "savedAt": "2026-08-21T12:00:00Z",
+                "recipe": {}
+            }
+        }))
+        .unwrap();
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_recipe,
+            )
+            .is_err());
+        let unknown_column: ProjectWorkspace = serde_json::from_value(serde_json::json!({
+            "qualityRules": [{
+                "column": "missing",
+                "kind": "not_null",
+                "maxInvalid": 0
+            }],
+            "recipeDraft": null
+        }))
+        .unwrap();
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                unknown_column,
+            )
+            .is_err());
         assert_eq!(store.list().unwrap(), vec![created]);
         assert_eq!(snapshot_count(&store), 1);
+    }
+
+    #[test]
+    fn corrupt_workspace_fails_closed_before_replacing_the_active_dataset() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (source_state, _) = active_state(directory.path(), &[1, 2], "project.csv");
+        let project = store
+            .save(&source_state, None, "Proyecto".to_owned(), workspace())
+            .unwrap();
+        let (target_state, _) = active_state(directory.path(), &[42], "active.csv");
+        let connection = store.connection().unwrap();
+        connection
+            .execute(
+                "UPDATE projects SET quality_rules_json = ?1 WHERE id = ?2",
+                params!["{not-json", project.id],
+            )
+            .unwrap();
+        assert!(store.open(&target_state, project.id.clone()).is_err());
+        assert_eq!(
+            target_state.active_project_snapshot().unwrap().file_name,
+            "active.csv"
+        );
+
+        connection
+            .execute(
+                "UPDATE projects SET quality_rules_json = '[]', recipe_draft_json = ?1
+                 WHERE id = ?2",
+                params![
+                    r#"{"version":2,"name":"Futura","savedAt":"2026-08-21T12:00:00Z","recipe":{}}"#,
+                    project.id
+                ],
+            )
+            .unwrap();
+        assert!(store.open(&target_state, project.id).is_err());
+        assert_eq!(
+            target_state.active_project_snapshot().unwrap().file_name,
+            "active.csv"
+        );
     }
 
     #[test]
@@ -712,18 +1028,30 @@ mod tests {
         let (state, _) = active_state(directory.path(), &[1], "input.csv");
 
         for name in ["   ".to_owned(), "x".repeat(129)] {
-            assert!(store.save(&state, None, name).is_err());
+            assert!(store
+                .save(&state, None, name, ProjectWorkspace::default())
+                .is_err());
         }
         for id in ["../catalog", "ABCDEF0123456789ABCDEF0123456789", "abc"] {
             assert!(store.open(&DatasetState::default(), id.to_owned()).is_err());
             assert!(store.delete(id.to_owned()).is_err());
             assert!(store
-                .save(&state, Some(id.to_owned()), "Proyecto".to_owned())
+                .save(
+                    &state,
+                    Some(id.to_owned()),
+                    "Proyecto".to_owned(),
+                    ProjectWorkspace::default(),
+                )
                 .is_err());
         }
         let missing = "0".repeat(ID_LENGTH);
         assert!(store
-            .save(&state, Some(missing.clone()), "Proyecto".to_owned())
+            .save(
+                &state,
+                Some(missing.clone()),
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
             .is_err());
         assert!(store
             .open(&DatasetState::default(), missing.clone())
@@ -737,7 +1065,14 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("private-root")).unwrap();
         let (state, _) = active_state(directory.path(), &[1], "safe.csv");
-        let project = store.save(&state, None, "Seguro".to_owned()).unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Seguro".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
         let json = serde_json::to_string(&project).unwrap();
         assert!(!json.contains(directory.path().to_string_lossy().as_ref()));
         assert!(!json.contains("snapshot"));
@@ -762,7 +1097,12 @@ mod tests {
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
         let (source_state, _) = active_state(directory.path(), &[1, 2], "input.csv");
         let project = store
-            .save(&source_state, None, "Proyecto".to_owned())
+            .save(
+                &source_state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
             .unwrap();
         store
             .connection()
@@ -788,7 +1128,14 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
         let (state, _) = active_state(directory.path(), &[1], "input.csv");
-        let project = store.save(&state, None, "Proyecto".to_owned()).unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
         let stored = store
             .stored_project(&store.connection().unwrap(), &project.id)
             .unwrap()
@@ -811,7 +1158,14 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
         let (state, _) = active_state(directory.path(), &[1], "input.csv");
-        let project = store.save(&state, None, "Proyecto".to_owned()).unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
         let stored = store
             .stored_project(&store.connection().unwrap(), &project.id)
             .unwrap()

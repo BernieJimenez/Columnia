@@ -38,6 +38,8 @@ describe("PreparePhase", () => {
       profileStatus={{ kind: "idle" }}
       changeStatus={{ kind: "idle" }}
       historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
       onAnalyzeQuality={() => undefined}
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
@@ -46,6 +48,7 @@ describe("PreparePhase", () => {
       onTrimText={() => undefined}
       onNormalizeText={onNormalizeText}
       onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
       onUndo={() => undefined}
       onRedo={() => undefined}
     />);
@@ -75,9 +78,11 @@ describe("PreparePhase", () => {
     render(<PreparePhase
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
       historyStatus={history} onAnalyzeQuality={() => undefined} onCancelProfile={() => undefined}
+      recipeDraft={null} recipeSession={0}
       onRemoveDuplicates={() => undefined} onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined} onTrimText={() => undefined}
       onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
       onUndo={onUndo} onRedo={onRedo}
     />);
 
@@ -89,6 +94,67 @@ describe("PreparePhase", () => {
 });
 
 describe("TransformRecipeEditor", () => {
+  it("inicializa un borrador restaurado y emite cambios en una sola dirección", async () => {
+    const onDraftChange = vi.fn();
+    const restored: LoadedRecipe = {
+      version: 1,
+      name: "Limpieza persistida",
+      savedAt: "2026-08-21T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
+    };
+    render(<TransformRecipeEditor
+      dataset={dataset}
+      busy={false}
+      initialDraft={restored}
+      onApply={() => undefined}
+      onDraftChange={onDraftChange}
+    />);
+
+    expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Limpieza persistida");
+    expect(screen.getByRole("combobox", { name: "Columna para renombrar 1" })).toHaveValue("nombre");
+    expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("cliente");
+    expect(onDraftChange).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), { target: { value: "persona" } });
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalledWith({
+      ...restored,
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "persona" }] },
+    }));
+    expect(onDraftChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("conserva el último borrador válido durante una edición transitoria inválida", async () => {
+    const onDraftChange = vi.fn();
+    const restored: LoadedRecipe = {
+      version: 1,
+      name: "Limpieza persistida",
+      savedAt: "2026-08-21T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
+    };
+    render(<TransformRecipeEditor
+      dataset={dataset}
+      busy={false}
+      initialDraft={restored}
+      onApply={() => undefined}
+      onDraftChange={onDraftChange}
+    />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), {
+      target: { value: "" },
+    });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue(""));
+    expect(onDraftChange).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), {
+      target: { value: "persona" },
+    });
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalledWith({
+      ...restored,
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "persona" }] },
+    }));
+    expect(onDraftChange).toHaveBeenCalledTimes(1);
+  });
+
   it("guarda el borrador validado con el nombre visible", async () => {
     const saved: LoadedRecipe = {
       version: 1,
@@ -97,7 +163,7 @@ describe("TransformRecipeEditor", () => {
       recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
     };
     const save = vi.spyOn(bridge, "saveTransformRecipe").mockResolvedValue(saved);
-    render(<TransformRecipeEditor dataset={dataset} busy={false} onApply={() => undefined} />);
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={() => undefined} onDraftChange={() => undefined} />);
     fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "nombre" } });
     fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), { target: { value: "cliente" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar receta" }));
@@ -110,7 +176,7 @@ describe("TransformRecipeEditor", () => {
 
   it("interpone el alertdialog antes de aplicar filtros destructivos", () => {
     const onApply = vi.fn();
-    render(<TransformRecipeEditor dataset={dataset} busy={false} onApply={onApply} />);
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir filtro AND" }));
     fireEvent.change(screen.getByLabelText("Columna del filtro 1"), { target: { value: "nombre" } });
     fireEvent.change(screen.getByLabelText("Valor del filtro 1"), { target: { value: "Ana" } });
@@ -133,7 +199,7 @@ describe("TransformRecipeEditor", () => {
     };
     vi.spyOn(bridge, "pickTransformRecipe").mockResolvedValue(loaded);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(<TransformRecipeEditor dataset={dataset} busy={false} onApply={() => undefined} />);
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={() => undefined} onDraftChange={() => undefined} />);
     fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "nombre" } });
     fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), { target: { value: "borrador" } });
     fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));

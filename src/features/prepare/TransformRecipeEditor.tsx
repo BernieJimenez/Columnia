@@ -6,6 +6,7 @@ import {
   saveTransformRecipe,
   type DatasetPreview,
   type LoadedRecipe,
+  type SavedRecipe,
   type TransformRecipe,
 } from "../../bridge";
 import {
@@ -17,11 +18,15 @@ import {
 export function TransformRecipeEditor({
   dataset,
   busy,
+  initialDraft,
   onApply,
+  onDraftChange,
 }: {
   dataset: DatasetPreview;
   busy: boolean;
+  initialDraft: SavedRecipe | null;
   onApply: (recipe: TransformRecipe) => void;
+  onDraftChange: (draft: SavedRecipe) => void;
 }) {
   type RenameDraft = TransformRecipe["renames"][number];
   type CastDraft = TransformRecipe["casts"][number];
@@ -36,70 +41,45 @@ export function TransformRecipeEditor({
   type ContactDraft = TransformRecipe["contactNormalizations"][number];
   type ExtractionDraft = TransformRecipe["textExtractions"][number];
 
-  const [renames, setRenames] = useState<RenameDraft[]>([{ from: "", to: "" }]);
-  const [casts, setCasts] = useState<CastDraft[]>([{ column: "", target: "string" }]);
-  const [dateParses, setDateParses] = useState<DateDraft[]>([
-    { column: "", format: "iso8601", target: "date" },
-  ]);
-  const [filters, setFilters] = useState<FilterDraft[]>([]);
-  const [calculationEnabled, setCalculationEnabled] = useState(false);
-  const [calculation, setCalculation] = useState<CalculationDraft>({
+  const initialRecipe = initialDraft?.recipe;
+  const [renames, setRenames] = useState<RenameDraft[]>(
+    initialRecipe?.renames.length ? initialRecipe.renames : [{ from: "", to: "" }],
+  );
+  const [casts, setCasts] = useState<CastDraft[]>(
+    initialRecipe?.casts.length ? initialRecipe.casts : [{ column: "", target: "string" }],
+  );
+  const [dateParses, setDateParses] = useState<DateDraft[]>(
+    initialRecipe?.dateParses.length
+      ? initialRecipe.dateParses
+      : [{ column: "", format: "iso8601", target: "date" }],
+  );
+  const [filters, setFilters] = useState<FilterDraft[]>(initialRecipe?.filters ?? []);
+  const [calculationEnabled, setCalculationEnabled] = useState(initialRecipe?.calculatedColumn !== null && initialRecipe?.calculatedColumn !== undefined);
+  const [calculation, setCalculation] = useState<CalculationDraft>(initialRecipe?.calculatedColumn ?? {
     name: "",
     source: "",
     operation: "add",
     operand: { kind: "literal", value: "" },
   });
   const [pendingConfirmation, setPendingConfirmation] = useState<TransformRecipe | null>(null);
-  const [findReplaceEnabled, setFindReplaceEnabled] = useState(false);
-  const [findReplace, setFindReplace] = useState<FindReplaceDraft>({ scope: "column", column: null, find: "", replace: "" });
-  const [keptColumns, setKeptColumns] = useState<string[]>(dataset.columns.map((column) => column.name));
-  const [splitEnabled, setSplitEnabled] = useState(false);
-  const [split, setSplit] = useState<SplitDraft>({ source: "", delimiter: "", names: [], dropSource: false });
-  const [splitNamesInput, setSplitNamesInput] = useState("");
-  const [mergeEnabled, setMergeEnabled] = useState(false);
-  const [merge, setMerge] = useState<MergeDraft>({ sources: [], name: "", separator: "", dropSources: false });
-  const [outlierTreatments, setOutlierTreatments] = useState<OutlierDraft[]>([]);
-  const [groupEnabled, setGroupEnabled] = useState(false);
-  const [groupSummary, setGroupSummary] = useState<GroupSummaryDraft>({ groupBy: [], aggregations: [] });
-  const [contacts, setContacts] = useState<ContactDraft[]>([]);
-  const [extractions, setExtractions] = useState<ExtractionDraft[]>([]);
-  const [recipeName, setRecipeName] = useState("Mi receta");
+  const [findReplaceEnabled, setFindReplaceEnabled] = useState(initialRecipe?.findReplace !== null && initialRecipe?.findReplace !== undefined);
+  const [findReplace, setFindReplace] = useState<FindReplaceDraft>(initialRecipe?.findReplace ?? { scope: "column", column: null, find: "", replace: "" });
+  const [keptColumns, setKeptColumns] = useState<string[]>(initialRecipe?.keepColumns ?? dataset.columns.map((column) => column.name));
+  const [splitEnabled, setSplitEnabled] = useState(initialRecipe?.splitColumn !== null && initialRecipe?.splitColumn !== undefined);
+  const [split, setSplit] = useState<SplitDraft>(initialRecipe?.splitColumn ?? { source: "", delimiter: "", names: [], dropSource: false });
+  const [splitNamesInput, setSplitNamesInput] = useState(initialRecipe?.splitColumn?.names.join(", ") ?? "");
+  const [mergeEnabled, setMergeEnabled] = useState(initialRecipe?.mergeColumns !== null && initialRecipe?.mergeColumns !== undefined);
+  const [merge, setMerge] = useState<MergeDraft>(initialRecipe?.mergeColumns ?? { sources: [], name: "", separator: "", dropSources: false });
+  const [outlierTreatments, setOutlierTreatments] = useState<OutlierDraft[]>(initialRecipe?.outlierTreatments ?? []);
+  const [groupEnabled, setGroupEnabled] = useState(initialRecipe?.groupSummary !== null && initialRecipe?.groupSummary !== undefined);
+  const [groupSummary, setGroupSummary] = useState<GroupSummaryDraft>(initialRecipe?.groupSummary ?? { groupBy: [], aggregations: [] });
+  const [contacts, setContacts] = useState<ContactDraft[]>(initialRecipe?.contactNormalizations ?? []);
+  const [extractions, setExtractions] = useState<ExtractionDraft[]>(initialRecipe?.textExtractions ?? []);
+  const [recipeName, setRecipeName] = useState(initialDraft?.name ?? "Mi receta");
   const [recipeFileStatus, setRecipeFileStatus] = useState<RecipeFileStatus>({ kind: "idle" });
+  const draftSavedAt = useRef(initialDraft?.savedAt ?? new Date().toISOString());
   const acknowledgedRecipeFingerprint = useRef<string | null>(null);
   const recipeBusy = busy || recipeFileStatus.kind === "working";
-  const datasetSignature = `${dataset.fileName}:${dataset.fileSizeBytes}:${dataset.rowCount}:${dataset.columns.map((column) => `${column.name}:${column.dataType}`).join("|")}`;
-
-  useEffect(() => {
-    setRenames([{ from: "", to: "" }]);
-    setCasts([{ column: "", target: "string" }]);
-    setDateParses([{ column: "", format: "iso8601", target: "date" }]);
-    setFilters([]);
-    setCalculationEnabled(false);
-    setPendingConfirmation(null);
-    setFindReplaceEnabled(false);
-    setFindReplace({ scope: "column", column: null, find: "", replace: "" });
-    setKeptColumns(dataset.columns.map((column) => column.name));
-    setSplitEnabled(false);
-    setSplit({ source: "", delimiter: "", names: [], dropSource: false });
-    setSplitNamesInput("");
-    setMergeEnabled(false);
-    setMerge({ sources: [], name: "", separator: "", dropSources: false });
-    setOutlierTreatments([]);
-    setGroupEnabled(false);
-    setGroupSummary({ groupBy: [], aggregations: [] });
-    setContacts([]);
-    setExtractions([]);
-    setRecipeName("Mi receta");
-    setRecipeFileStatus({ kind: "idle" });
-    acknowledgedRecipeFingerprint.current = null;
-    setCalculation({ name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
-  }, [datasetSignature]);
-
-  useEffect(() => {
-    setRenames([{ from: "", to: "" }]);
-    setCasts([{ column: "", target: "string" }]);
-    setDateParses([{ column: "", format: "iso8601", target: "date" }]);
-  }, [dataset.columns]);
 
   const activeRenames = renames.filter((item) => item.from || item.to);
   const activeCasts = casts.filter((item) => item.column);
@@ -209,6 +189,22 @@ export function TransformRecipeEditor({
   }
 
   const draftFingerprint = JSON.stringify(buildRecipe());
+  const workspaceDraftFingerprint = `${recipeName}\u0000${draftFingerprint}`;
+  const lastWorkspaceDraftFingerprint = useRef(
+    `${initialDraft?.name ?? "Mi receta"}\u0000${JSON.stringify(initialDraft?.recipe ?? buildRecipe())}`,
+  );
+  useEffect(() => {
+    if (invalid) return;
+    if (lastWorkspaceDraftFingerprint.current === workspaceDraftFingerprint) return;
+    lastWorkspaceDraftFingerprint.current = workspaceDraftFingerprint;
+    onDraftChange({
+      version: 1,
+      name: recipeName.trim() || "Mi receta",
+      savedAt: draftSavedAt.current,
+      recipe: buildRecipe(),
+    });
+  }, [invalid, workspaceDraftFingerprint, onDraftChange]);
+
   useEffect(() => {
     if (recipeFileStatus.kind !== "success") return;
     if (acknowledgedRecipeFingerprint.current === null) {
@@ -232,7 +228,12 @@ export function TransformRecipeEditor({
     setRecipeFileStatus({ kind: "working", action: "save" });
     try {
       const saved = await saveTransformRecipe(buildRecipe(), recipeName.trim());
-      if (saved) acknowledgedRecipeFingerprint.current = draftFingerprint;
+      if (saved) {
+        acknowledgedRecipeFingerprint.current = draftFingerprint;
+        draftSavedAt.current = saved.savedAt;
+        lastWorkspaceDraftFingerprint.current = `${saved.name}\u0000${JSON.stringify(saved.recipe)}`;
+        onDraftChange(saved);
+      }
       setRecipeFileStatus(saved
         ? { kind: "success", message: `Receta guardada: ${saved.name}. Los cambios posteriores no se guardan automáticamente.` }
         : { kind: "idle" });
@@ -264,6 +265,7 @@ export function TransformRecipeEditor({
     setExtractions(recipe.textExtractions);
     setPendingConfirmation(null);
     setRecipeName(loaded.name);
+    draftSavedAt.current = loaded.savedAt;
   }
 
   async function loadRecipeDraft() {
