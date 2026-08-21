@@ -5,8 +5,9 @@
 
 ## Estado general
 
-- Etapa actual: Fase I0 y prototipo vertical de la Fase I1.
-- Versión actual del prototipo: `0.24.0`.
+- Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
+  seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
+- Versión actual del prototipo: `0.27.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -332,7 +333,8 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
   locales con deshacer/rehacer, snapshots Parquet y presupuesto explícito.
 - [x] Guardar y cargar recetas estructurales JSON versionadas entre sesiones,
   sin exponer rutas al frontend ni aplicarlas automáticamente.
-- [ ] Añadir biblioteca local, migraciones y ejecución por lotes de recetas.
+- [x] Añadir biblioteca local de proyectos con catálogo SQLite versionado,
+  migraciones v1/v2→v3, snapshots Parquet y ejecución CLI por lotes de recetas.
 - [x] Implementar cancelación cooperativa para carga CSV y perfilado, conservando
   el dataset anterior cuando se cancela una sustitución.
 - [x] Implementar exportación atómica y cancelable CSV/Parquet mediante selector
@@ -538,6 +540,27 @@ arranque. La primera compilación reveló que el
 scaffold no contenía los iconos requeridos por Tauri; se añadió un SVG maestro,
 se generaron los recursos multiplataforma y una prueba impide su regresión.
 
+La versión 0.25.0 incorpora proyectos locales recuperables. El catálogo SQLite
+guarda metadatos, reglas de calidad y un borrador opcional de receta, mientras
+generaciones Parquet privadas permiten abrir el proyecto aunque desaparezca la
+fuente original. Guardar, abrir, recuperar y borrar usan identificadores opacos;
+React nunca recibe rutas administradas.
+
+La versión 0.26.0 eleva el catálogo a SQLite v3 compatible con v1/v2 y hace
+durables el perfil cacheado, las revisiones Parquet y el cursor de historial.
+Cada apertura valida todos los artefactos y crea copias temporales de sesión, de
+modo que Deshacer/Rehacer no modifica el proyecto persistido hasta guardarlo de
+nuevo. Se conservan los límites de doce revisiones y 1 GiB por proyecto.
+
+La versión 0.27.0 expone cinco comandos de proyectos en `columnia-cli`:
+`project-list`, `project-save`, `project-inspect`, `project-export` y
+`project-delete`. Todos exigen un `--store` explícito y seguro, emiten JSON v1
+sin rutas, filas ni muestras y funcionan entre procesos independientes.
+Exportar vuelve a evaluar las reglas guardadas, solo permite omitir un contrato
+inexistente con `--allow-unvalidated` y publica de forma atómica; borrar exige
+que `--confirm` coincida exactamente con el ID. El smoke real cubre receta,
+reglas, perfil, reinicio, exportación y confirmación destructiva.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -546,12 +569,16 @@ se generaron los recursos multiplataforma y una prueba impide su regresión.
   `core:default`; filesystem, shell, HTTP y opener permanecen fuera del frontend.
 - [x] Mantener red fuera del frontend; la CSP de producción no admite conexiones
   HTTP(S)/WebSocket externas y una prueba impide ampliarla accidentalmente.
-- [ ] Validar y canonicalizar toda ruta antes de leer, escribir, abrir o ejecutar.
+- [x] Validar y canonicalizar las rutas actuales de datasets, recetas,
+  exportaciones y almacenes de proyectos antes de leer o escribir.
 - [x] Usar selectores nativos; el frontend recibe handles/identificadores, no
   autoridad global sobre el filesystem.
-- [ ] Implementar instancia única y política de recuperación de sesión.
-- [ ] Actualizar threat model para datasets, SQL, fórmulas de Excel y updater.
-- [ ] Añadir pruebas negativas de traversal, symlinks, fórmulas y payloads grandes.
+- [x] Implementar instancia única y recuperación explícita de proyectos sin
+  abrir datos silenciosamente.
+- [x] Mantener un threat model vivo para datasets, fórmulas, rutas, proyectos,
+  red y updater; SQL y updater permanecen como fronteras futuras.
+- [x] Añadir pruebas negativas de traversal, symlinks/reparse points, fórmulas y
+  payloads semánticos grandes.
 
 **Gate:** revisión de la superficie de comandos y de cada permiso Tauri.
 
@@ -562,13 +589,14 @@ se generaron los recursos multiplataforma y una prueba impide su regresión.
 - [x] Añadir perfiles rápido, completo y release; el perfil release siempre
   ejecutará todos los gates.
 - [x] Ejecutar las pruebas puras de forma local sin requerir abrir la ventana.
-- [ ] Mocks oficiales/controlados de Tauri para pruebas del frontend.
-- [ ] Generar tipos TypeScript desde contratos Rust o verificar su deriva dentro
-  de `tools/check.ps1`.
+- [x] Mantener mocks controlados del runtime Tauri para pruebas del frontend.
+- [x] Verificar localmente la deriva de comandos, argumentos, retornos, campos y
+  tipos entre Rust y TypeScript; la generación automática sigue siendo opcional.
 - [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales.
 - [ ] Definir umbrales de cobertura por capa, no solo un porcentaje global.
-- [ ] Presupuestos medibles: RAM, datasets grandes, startup, bundle e instalador.
-- [ ] Guardar reportes locales con fecha, commit, versiones de herramientas y
+- [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; bundle
+  frontend e inventario de instaladores ya tienen límites y evidencia.
+- [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
 
 **Gate:** no se puede declarar una fase terminada ni preparar un release si el
@@ -578,9 +606,10 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 
 - [ ] Ejecutar `cargo audit` y evaluar `cargo deny` para advisories, licencias,
   duplicados y fuentes no aprobadas.
-- [ ] Auditar npm y usar lockfiles reproducibles (`npm ci`, Cargo.lock).
+- [ ] Añadir auditoría explícita de vulnerabilidades npm; los lockfiles npm y
+  Cargo ya tienen gates locales de sincronía, integridad y procedencia.
 - [ ] Escanear secretos y bloquear artefactos/datasets sensibles en Git.
-- [ ] Generar SBOM CycloneDX que incluya Rust y npm.
+- [x] Generar offline un SBOM CycloneDX 1.6 reproducible que incluya Rust y npm.
 - [ ] Mantener `THIRD_PARTY_NOTICES` generado y verificable.
 - [ ] Documentar cada acceso de red y comprobar que no exista telemetría oculta.
 - [ ] Telemetría y reporte remoto de fallos: desactivados por defecto; cualquier
@@ -590,9 +619,10 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 
 ### Fase I5 — Empaquetado e instalación Windows
 
-- [ ] Generar iconos Tauri desde un único SVG maestro de Columnia.
+- [x] Generar iconos Tauri desde un único SVG maestro de Columnia.
 - [ ] Configurar NSIS `currentUser` como instalador recomendado.
-- [ ] Evaluar MSI solo si hay necesidad real de despliegue empresarial.
+- [x] Producir e inventariar MSI y NSIS en Windows como artefactos locales; la
+  decisión de publicación empresarial del MSI sigue pendiente.
 - [ ] Incluir licencia, EULA si aplica y avisos de terceros como resources.
 - [ ] Validar instalación, primera apertura, segunda instancia, actualización,
   desinstalación y conservación/borrado opcional de datos.
@@ -646,7 +676,8 @@ descargados, no los archivos locales previos a la subida.
 
 ### Fase I8 — Documentación y evidencia de producto
 
-- [ ] README orientado al problema, privacidad, descarga y limitaciones honestas.
+- [x] Mantener un README orientado al problema, privacidad, uso, automatización
+  local y limitaciones honestas.
 - [ ] Documentación separada en tutorial, how-to, referencia y explicación.
 - [ ] ADR para decisiones duraderas; CHANGELOG para cambios publicados.
 - [ ] Script de capturas con dataset sintético estable y ventanas definidas.
@@ -691,8 +722,24 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [ ] Aprobar el updater gratuito firmado de Tauri o decidir no incluir
   actualizaciones dentro de la app.
 - [x] Ejecutar el primer corte vertical CSV del prototipo técnico de la Fase I1.
-- [ ] Completar el prototipo técnico con paginación/streaming, progreso,
-  cancelación, Excel, Parquet y benchmark.
+- [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
+- [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
+
+## 8.1. Cola de ejecución recomendada desde v0.27.0
+
+1. **E2E de proyectos en escritorio:** automatizar guardar, cerrar/reiniciar,
+   recuperar/abrir, validar, exportar y borrar usando el runtime Tauri real.
+2. **Accesibilidad y evidencia visual:** ejecutar lector de pantalla, teclado,
+   zoom y alto contraste; añadir capturas canónicas y regresión visual estable.
+3. **Baseline de rendimiento:** medir startup, CSV de 100 MiB, RAM máxima,
+   perfilado, receta y exportación antes de cambiar el modelo de ejecución.
+4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
+   evitar materializar el dataset completo cuando la operación lo permita.
+5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
+   benchmark; después añadir joins, comparación y destinos de base de datos.
+6. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
+   licencias/avisos, smoke de instalador limpio, updater autenticado y validación
+   real en macOS/Linux.
 
 ## 9. Registro de decisiones
 
@@ -743,6 +790,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-13 | Versión 0.22.0: historial local multinivel con snapshots Parquet y presupuesto explícito | Implementada |
 | 2026-08-14 | Versión 0.23.0: recetas estructurales JSON v1 guardables y cargables localmente | Implementada |
 | 2026-08-15 | Versión 0.24.0: contratos de calidad exactos y compuerta obligatoria antes de exportar | Implementada |
+| 2026-08-21 | Versión 0.25.0: proyectos SQLite recuperables con generaciones Parquet, reglas y borrador de receta | Implementada |
+| 2026-08-21 | Versión 0.26.0: SQLite v3 con perfil, historial y cursor durables, compatible con catálogos v1/v2 | Implementada |
+| 2026-08-21 | Versión 0.27.0: cinco comandos CLI de proyectos con almacén explícito, JSON privado, quality gate y borrado confirmado | Implementada |
 
 ## 10. Fuentes de esta revisión
 
