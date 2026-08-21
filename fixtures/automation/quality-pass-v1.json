@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "column": "amount",
+      "kind": "not_null",
+      "maxInvalid": 0
+    }
+  ]
+}

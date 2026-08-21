@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    ffi::OsStr,
     fs::{self, File},
     io::{BufReader, Read},
     path::{Path, PathBuf},
@@ -112,11 +113,17 @@ pub struct QualityRuleResult {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityValidationResult {
-    passed: bool,
-    row_count: usize,
-    total_rules: usize,
-    failed_rules: usize,
+    pub(crate) passed: bool,
+    pub(crate) row_count: usize,
+    pub(crate) total_rules: usize,
+    pub(crate) failed_rules: usize,
     rules: Vec<QualityRuleResult>,
+}
+
+impl QualityValidationResult {
+    pub(crate) fn total_invalid_count(&self) -> usize {
+        self.rules.iter().map(|rule| rule.invalid_count).sum()
+    }
 }
 
 fn send_progress(
@@ -5320,9 +5327,74 @@ fn apply_recipe_to_frame(
 
 pub(crate) fn load_dataset_for_automation(
     input: &Path,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
 ) -> Result<(DataFrame, DatasetPreview), String> {
-    let canonical = canonicalize_existing_file(input, "el dataset de automatización")?;
-    load_dataset_with_progress(&canonical, |_, _| {}, || false)
+    let (canonical, _, extension) = validate_dataset_file(input)?;
+    if spreadsheet_extensions(&extension) {
+        let sheet_name = sheet_name.ok_or_else(|| "Selecciona una hoja del libro.".to_owned())?;
+        let header_mode = header_mode
+            .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
+        if sheet_name.is_empty() {
+            return Err("La hoja seleccionada no es válida.".to_owned());
+        }
+        let available_sheets = inspect_workbook(&canonical)?;
+        if available_sheets
+            .iter()
+            .filter(|name| *name == sheet_name)
+            .count()
+            != 1
+        {
+            return Err("La hoja seleccionada no existe de forma única en el libro.".to_owned());
+        }
+        let frame = load_spreadsheet_sheet(&canonical, sheet_name, header_mode)?;
+        let preview = dataset_preview(&canonical, &frame)?;
+        Ok((frame, preview))
+    } else {
+        if sheet_name.is_some() || header_mode.is_some() {
+            return Err("Este formato no utiliza selección de hoja ni encabezado.".to_owned());
+        }
+        load_dataset_with_progress(&canonical, |_, _| {}, || false)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct QualityRulesDocument {
+    version: u8,
+    rules: Vec<QualityRule>,
+}
+
+pub(crate) fn load_quality_rules_for_automation(input: &Path) -> Result<Vec<QualityRule>, String> {
+    let canonical = canonicalize_existing_file(input, "el contrato de calidad")?;
+    if !canonical
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    {
+        return Err("El contrato de calidad debe ser JSON.".to_owned());
+    }
+    validate_file_size(
+        fs::metadata(&canonical)
+            .map_err(|error| format!("No se pudo verificar el contrato de calidad: {error}"))?
+            .len(),
+    )?;
+    let bytes = fs::read(canonical)
+        .map_err(|error| format!("No se pudo leer el contrato de calidad: {error}"))?;
+    let document: QualityRulesDocument = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))?;
+    if document.version != 1 {
+        return Err("La versión del contrato de calidad no es compatible.".to_owned());
+    }
+    validate_quality_rules_payload(&document.rules)?;
+    Ok(document.rules)
+}
+
+pub(crate) fn evaluate_quality_rules_for_automation(
+    frame: &DataFrame,
+    quality_rules: &[QualityRule],
+) -> Result<QualityValidationResult, String> {
+    evaluate_quality_rules(frame, quality_rules)
 }
 
 pub(crate) fn load_recipe_for_automation(input: &Path) -> Result<TransformRecipe, String> {

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ModalDialog } from "./components/ModalDialog";
 import { OperationProgressView } from "./components/OperationProgressView";
-import { ReviewTabList, type ReviewTab } from "./components/ReviewTabList";
-import { DatasetMetrics } from "./features/delivery/DatasetMetrics";
+import type { ReviewTab } from "./components/ReviewTabList";
 import { DeliveryPhase } from "./features/delivery/DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
@@ -14,6 +13,32 @@ import {
   type DeliveryExportRequest,
   type DeliveryExportState,
 } from "./features/delivery/deliveryModel";
+import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
+import {
+  beginDatasetLoad,
+  clearLoadInspectionError,
+  createReadyDatasetStatus,
+  requestDatasetLoadCancellation,
+  restoreDatasetAfterLoadFailure,
+  setLoadInspectionError,
+  updateDatasetLoadProgress,
+  updateSheetSelection,
+  workbookInspection,
+  type DatasetStatus,
+  type LoadInspectionState,
+  type SheetSelectionAction,
+} from "./features/load/loadModel";
+import { ReviewPhase } from "./features/review/ReviewPhase";
+import {
+  PAGE_SIZE,
+  beginPageLoad,
+  beginProfileAnalysis,
+  completePageLoad,
+  failPageLoad,
+  requestProfileCancellation,
+  updateProfileProgress,
+  type ProfileStatus,
+} from "./features/review/reviewModel";
 
 import {
   applySafeCorrections,
@@ -38,9 +63,7 @@ import {
   type AppInfo,
   type CancellableOperation,
   type DatasetPreview,
-  type DatasetProfile,
   type DatasetSourceInspection,
-  type OperationProgress,
   type HistoryState,
   type LoadedRecipe,
   type SpreadsheetHeaderMode,
@@ -65,33 +88,6 @@ type AppStatus =
   | { kind: "loading" }
   | { kind: "ready"; info: AppInfo }
   | { kind: "browser" }
-  | { kind: "error"; message: string };
-
-type ReadyDatasetStatus = {
-  kind: "ready";
-  dataset: DatasetPreview;
-  pageOffset: number;
-  pageLoading: boolean;
-  pageError?: string;
-};
-
-type DatasetStatus =
-  | { kind: "empty" }
-  | {
-      kind: "loading";
-      progress: OperationProgress;
-      cancelRequested: boolean;
-      previous?: ReadyDatasetStatus;
-    }
-  | ReadyDatasetStatus
-  | { kind: "error"; message: string };
-
-const PAGE_SIZE = 50;
-
-type ProfileStatus =
-  | { kind: "idle" }
-  | { kind: "loading"; progress: OperationProgress; cancelRequested: boolean }
-  | { kind: "ready"; profile: DatasetProfile }
   | { kind: "error"; message: string };
 
 type ChangeStatus =
@@ -132,11 +128,7 @@ export function App() {
   const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
-  const [sheetSelection, setSheetSelection] = useState<DatasetSourceInspection | null>(null);
-  const [selectedSheetId, setSelectedSheetId] = useState("");
-  const [spreadsheetHeaderMode, setSpreadsheetHeaderMode] = useState<SpreadsheetHeaderMode>("firstRow");
-  const [importError, setImportError] = useState<string | null>(null);
-  const [importInspecting, setImportInspecting] = useState(false);
+  const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const deliveryDatasetFingerprint = datasetStatus.kind === "ready"
     ? JSON.stringify({
         fileName: datasetStatus.dataset.fileName,
@@ -202,22 +194,14 @@ export function App() {
     sheetId: string | null,
     headerMode: SpreadsheetHeaderMode | null = null,
   ) {
-    const previous = datasetStatus.kind === "ready" ? datasetStatus : undefined;
-    setDatasetStatus({
-      kind: "loading",
-      progress: { operation: "load", stage: "Preparando carga", percent: 0 },
-      cancelRequested: false,
-      previous,
-    });
-    setImportError(null);
+    setDatasetStatus((current) => beginDatasetLoad(current));
+    setLoadInspection(clearLoadInspectionError);
     try {
       const dataset = await loadDatasetSelection(source.selectionId, sheetId, headerMode, (progress) => {
-        setDatasetStatus((current) =>
-          current.kind === "loading" ? { ...current, progress } : current,
-        );
+        setDatasetStatus((current) => updateDatasetLoadProgress(current, progress));
       });
-      setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
-      setSheetSelection(null);
+      setDatasetStatus(createReadyDatasetStatus(dataset));
+      setLoadInspection({ kind: "idle" });
       setProfileStatus({ kind: "idle" });
       setChangeStatus({ kind: "idle" });
       await refreshHistory();
@@ -226,47 +210,68 @@ export function App() {
       setReviewTab("diagnosis");
       setActivePhase("review");
     } catch (error: unknown) {
-      setDatasetStatus(previous ?? { kind: "empty" });
+      setDatasetStatus(restoreDatasetAfterLoadFailure);
       if (isCancellationError(error)) {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      setImportError(message);
+      setLoadInspection((current) => setLoadInspectionError(current, message));
     }
   }
 
   async function selectDataset() {
-    setImportError(null);
     setActivePhase("load");
-    setImportInspecting(true);
+    setLoadInspection({ kind: "inspecting" });
     try {
       const source = await pickDatasetSource();
-      if (!source) return;
+      if (!source) {
+        setLoadInspection({ kind: "idle" });
+        return;
+      }
       if (source.format === "excel") {
-        setSheetSelection(source);
-        setSelectedSheetId(source.defaultSheetId ?? source.sheets[0]?.id ?? "");
-        setSpreadsheetHeaderMode("firstRow");
+        setLoadInspection(workbookInspection(source));
         return;
       }
       await loadSelection(source, source.sheets[0]?.id ?? null);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      setImportError(message);
+      setLoadInspection((current) => setLoadInspectionError(current, message));
     } finally {
-      setImportInspecting(false);
+      setLoadInspection((current) => current.kind === "inspecting" ? { kind: "idle" } : current);
     }
   }
 
   async function cancelSheetSelection() {
-    const source = sheetSelection;
-    setSheetSelection(null);
+    const source = loadInspection.kind === "sheet" ? loadInspection.source : undefined;
+    setLoadInspection({ kind: "idle" });
     if (source) {
       try {
         await discardDatasetSelection(source.selectionId);
       } catch (error: unknown) {
-        setImportError(error instanceof Error ? error.message : String(error));
+        setLoadInspection({
+          kind: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
     }
+  }
+
+  function handleSheetSelection(action: SheetSelectionAction) {
+    if (action.kind === "cancelled") {
+      void cancelSheetSelection();
+      return;
+    }
+    if (action.kind === "confirmed") {
+      if (loadInspection.kind === "sheet") {
+        void loadSelection(
+          loadInspection.source,
+          loadInspection.selectedSheetId,
+          loadInspection.headerMode,
+        );
+      }
+      return;
+    }
+    setLoadInspection((current) => updateSheetSelection(current, action));
   }
 
   async function applyDuplicateRemoval() {
@@ -482,16 +487,10 @@ export function App() {
   }
 
   async function analyzeQuality() {
-    setProfileStatus({
-      kind: "loading",
-      progress: { operation: "profile", stage: "Iniciando análisis", percent: 0 },
-      cancelRequested: false,
-    });
+    setProfileStatus(beginProfileAnalysis());
     try {
       const profile = await getDatasetProfile((progress) => {
-        setProfileStatus((current) =>
-          current.kind === "loading" ? { ...current, progress } : current,
-        );
+        setProfileStatus((current) => updateProfileProgress(current, progress));
       });
       setProfileStatus({ kind: "ready", profile });
     } catch (error: unknown) {
@@ -506,13 +505,9 @@ export function App() {
 
   async function cancelActiveOperation(operation: CancellableOperation) {
     if (operation === "load") {
-      setDatasetStatus((current) =>
-        current.kind === "loading" ? { ...current, cancelRequested: true } : current,
-      );
+      setDatasetStatus(requestDatasetLoadCancellation);
     } else if (operation === "profile") {
-      setProfileStatus((current) =>
-        current.kind === "loading" ? { ...current, cancelRequested: true } : current,
-      );
+      setProfileStatus(requestProfileCancellation);
     } else {
       setExportStatus((current) =>
         current.kind === "loading" ? { ...current, cancellation: "requested" } : current,
@@ -564,23 +559,17 @@ export function App() {
     if (datasetStatus.kind !== "ready") return;
 
     const previous = datasetStatus;
-    setDatasetStatus({ ...previous, pageLoading: true, pageError: undefined });
+    setDatasetStatus(beginPageLoad(previous));
 
     try {
       const page = await getDatasetPage(offset, PAGE_SIZE);
-      setDatasetStatus({
-        kind: "ready",
-        dataset: { ...previous.dataset, rows: page.rows },
-        pageOffset: page.offset,
-        pageLoading: false,
-      });
+      setDatasetStatus(completePageLoad(previous, page));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      setDatasetStatus({ ...previous, pageLoading: false, pageError: message });
+      setDatasetStatus(failPageLoad(previous, message));
     }
   }
 
-  const isDesktopReady = status.kind === "ready";
   const readyDataset = datasetStatus.kind === "ready" ? datasetStatus : undefined;
   const retainedDataset =
     datasetStatus.kind === "loading" ? datasetStatus.previous : undefined;
@@ -592,6 +581,11 @@ export function App() {
     deliveryContract.gate.kind === "loading" ||
     exportStatus.kind === "loading";
   const activePhaseMeta = phases.find((phase) => phase.id === activePhase) ?? phases[0];
+  const loadRuntime: LoadRuntimeState = status.kind === "ready"
+    ? { kind: "connected" }
+    : status.kind === "browser"
+      ? { kind: "browser" }
+      : { kind: "unavailable" };
 
   return (
     <div className="shell">
@@ -660,22 +654,12 @@ export function App() {
         >
           {activePhase === "load" && (
             <LoadPhase
-              status={status}
+              runtime={loadRuntime}
               datasetStatus={datasetStatus}
-              sheetSelection={sheetSelection}
-              selectedSheetId={selectedSheetId}
-              spreadsheetHeaderMode={spreadsheetHeaderMode}
-              importError={importError}
-              importInspecting={importInspecting}
-              isDesktopReady={isDesktopReady}
+              inspection={loadInspection}
               onSelect={selectDataset}
-              onSheetChange={setSelectedSheetId}
-              onHeaderModeChange={setSpreadsheetHeaderMode}
-              onConfirmSheet={() => {
-                if (sheetSelection) void loadSelection(sheetSelection, selectedSheetId, spreadsheetHeaderMode);
-              }}
-              onCancelSheet={() => void cancelSheetSelection()}
-              onCancel={() => cancelActiveOperation("load")}
+              onSheetAction={handleSheetSelection}
+              onCancelLoad={() => cancelActiveOperation("load")}
             />
           )}
 
@@ -725,256 +709,6 @@ export function App() {
         </section>
       </main>
     </div>
-  );
-}
-
-interface LoadPhaseProps {
-  status: AppStatus;
-  datasetStatus: DatasetStatus;
-  sheetSelection: DatasetSourceInspection | null;
-  selectedSheetId: string;
-  spreadsheetHeaderMode: SpreadsheetHeaderMode;
-  importError: string | null;
-  importInspecting: boolean;
-  isDesktopReady: boolean;
-  onSelect: () => void;
-  onSheetChange: (sheetId: string) => void;
-  onHeaderModeChange: (mode: SpreadsheetHeaderMode) => void;
-  onConfirmSheet: () => void;
-  onCancelSheet: () => void;
-  onCancel: () => void;
-}
-
-function LoadPhase({
-  status,
-  datasetStatus,
-  sheetSelection,
-  selectedSheetId,
-  spreadsheetHeaderMode,
-  importError,
-  importInspecting,
-  isDesktopReady,
-  onSelect,
-  onSheetChange,
-  onHeaderModeChange,
-  onConfirmSheet,
-  onCancelSheet,
-  onCancel,
-}: LoadPhaseProps) {
-  const current =
-    datasetStatus.kind === "ready"
-      ? datasetStatus.dataset
-      : datasetStatus.kind === "loading"
-        ? datasetStatus.previous?.dataset
-        : undefined;
-
-  return (
-    <>
-      <header className="phase-header">
-        <div>
-          <p className="eyebrow">Cargar · Fuente local</p>
-          <h2>{current ? current.fileName : "Selecciona un dataset"}</h2>
-          <p>
-            Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta 500 MB. El procesamiento se realiza
-            localmente y tus datos no salen del equipo.
-          </p>
-        </div>
-        <button
-          className="primary-action"
-          type="button"
-          onClick={onSelect}
-          disabled={
-            !isDesktopReady || importInspecting || datasetStatus.kind === "loading" || Boolean(sheetSelection)
-          }
-        >
-          {importInspecting
-            ? "Inspeccionando…"
-            : current
-              ? "Seleccionar otro dataset"
-              : "Seleccionar dataset"}
-        </button>
-      </header>
-
-      {datasetStatus.kind === "loading" && (
-        <OperationProgressView
-          progress={datasetStatus.progress}
-          cancellation={datasetStatus.cancelRequested
-            ? { kind: "requested" }
-            : { kind: "available", onCancel }}
-        />
-      )}
-      {importInspecting && (
-        <p className="notice" role="status">Esperando la selección y verificando el formato local…</p>
-      )}
-      {datasetStatus.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo cargar el archivo: {datasetStatus.message}
-        </p>
-      )}
-      {importError && (
-        <p className="notice notice--error" role="alert">
-          No se pudo importar el archivo: {importError}
-        </p>
-      )}
-      {sheetSelection && (
-        <ModalDialog
-          role="dialog"
-          labelledBy="sheet-title"
-          describedBy="sheet-description"
-          onDismiss={onCancelSheet}
-        >
-            <p className="eyebrow">Libro seleccionado</p>
-            <h3 id="sheet-title">Elegir hoja de {sheetSelection.fileName}</h3>
-            <p id="sheet-description">Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar.</p>
-            {sheetSelection.isCompressedContainer && (
-              <p className="notice" role="note">
-                Los libros comprimidos pueden ocupar bastante más memoria al abrirse que su tamaño en disco.
-                Cierra otras aplicaciones si el archivo es grande.
-              </p>
-            )}
-            <label htmlFor="workbook-sheet">Hoja</label>
-            <select
-              id="workbook-sheet"
-              value={selectedSheetId}
-              onChange={(event) => onSheetChange(event.target.value)}
-            >
-              {sheetSelection.sheets.map((sheet) => (
-                <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
-              ))}
-            </select>
-            <fieldset className="sheet-dialog__options">
-              <legend>Encabezados</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="spreadsheet-header-mode"
-                  checked={spreadsheetHeaderMode === "firstRow"}
-                  onChange={() => onHeaderModeChange("firstRow")}
-                />
-                Usar la primera fila como encabezados
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="spreadsheet-header-mode"
-                  checked={spreadsheetHeaderMode === "generated"}
-                  onChange={() => onHeaderModeChange("generated")}
-                />
-                Generar encabezados (column_1, column_2…)
-              </label>
-            </fieldset>
-            <div className="sheet-dialog__actions">
-              <button type="button" className="secondary-action" onClick={onCancelSheet}>Cancelar</button>
-              <button type="button" className="primary-action" onClick={onConfirmSheet} disabled={!selectedSheetId}>
-                Cargar hoja
-              </button>
-            </div>
-        </ModalDialog>
-      )}
-      {status.kind === "browser" && (
-        <p className="notice" role="status">
-          Abre Columnia con Tauri para seleccionar archivos locales.
-        </p>
-      )}
-      {current && <DatasetMetrics dataset={current} />}
-    </>
-  );
-}
-
-interface ReviewPhaseProps {
-  datasetStatus: ReadyDatasetStatus;
-  profileStatus: ProfileStatus;
-  reviewTab: ReviewTab;
-  onTabChange: (tab: ReviewTab) => void;
-  onPageChange: (offset: number) => void;
-  onAnalyzeQuality: () => void;
-  onCancelProfile: () => void;
-}
-
-function ReviewPhase({
-  datasetStatus,
-  profileStatus,
-  reviewTab,
-  onTabChange,
-  onPageChange,
-  onAnalyzeQuality,
-  onCancelProfile,
-}: ReviewPhaseProps) {
-  return (
-    <>
-      <header className="phase-header phase-header--compact">
-        <div>
-          <p className="eyebrow">Revisar · Dataset activo</p>
-          <h2>{datasetStatus.dataset.fileName}</h2>
-          <p>Comprueba la estructura, la calidad y una muestra de los datos antes de modificarlos.</p>
-        </div>
-      </header>
-      <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
-
-      {reviewTab === "diagnosis" ? (
-        <div id="review-diagnosis-panel" role="tabpanel" aria-labelledby="review-diagnosis-tab">
-          <QualitySection
-            dataset={datasetStatus.dataset}
-            status={profileStatus}
-            onAnalyze={onAnalyzeQuality}
-            onCancel={onCancelProfile}
-          />
-        </div>
-      ) : (
-        <div id="review-preview-panel" role="tabpanel" aria-labelledby="review-preview-tab">
-          <DataPreview
-            dataset={datasetStatus.dataset}
-            pageOffset={datasetStatus.pageOffset}
-            pageLoading={datasetStatus.pageLoading}
-            pageError={datasetStatus.pageError}
-            onPageChange={onPageChange}
-          />
-        </div>
-      )}
-    </>
-  );
-}
-
-function QualitySection({
-  dataset,
-  status,
-  onAnalyze,
-  onCancel,
-}: {
-  dataset: DatasetPreview;
-  status: ProfileStatus;
-  onAnalyze: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <section className="phase-section" aria-labelledby="quality-title">
-      <div className="section-heading">
-        <div>
-          <p className="step">Calidad inicial</p>
-          <h3 id="quality-title">Perfil por columna</h3>
-        </div>
-        {status.kind !== "loading" && (
-          <button type="button" onClick={onAnalyze}>
-            {status.kind === "ready" ? "Analizar de nuevo" : "Analizar calidad"}
-          </button>
-        )}
-      </div>
-      <DatasetMetrics dataset={dataset} />
-      {status.kind === "loading" && (
-        <OperationProgressView
-          progress={status.progress}
-          cancellation={status.cancelRequested
-            ? { kind: "requested" }
-            : { kind: "available", onCancel }}
-        />
-      )}
-      {status.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo analizar la calidad: {status.message}
-        </p>
-      )}
-      {status.kind === "ready" && <QualityProfile profile={status.profile} />}
-    </section>
   );
 }
 
@@ -1821,241 +1555,6 @@ function TransformRecipeEditor({
   );
 }
 
-interface DataPreviewProps {
-  dataset: DatasetPreview;
-  pageOffset: number;
-  pageLoading: boolean;
-  pageError?: string;
-  onPageChange: (offset: number) => void;
-}
-
-function DataPreview({
-  dataset,
-  pageOffset,
-  pageLoading,
-  pageError,
-  onPageChange,
-}: DataPreviewProps) {
-  const pageEnd = pageOffset + dataset.rows.length;
-  const hasPrevious = pageOffset > 0;
-  const hasNext = pageEnd < dataset.rowCount;
-
-  return (
-    <>
-      <div className="table-region" tabIndex={0} aria-label="Vista previa del dataset">
-        <table>
-          <thead>
-            <tr>
-              {dataset.columns.map((column) => (
-                <th key={column.name} scope="col">
-                  <span>{column.name}</span>
-                  <small>{column.dataType}</small>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {dataset.rows.map((row, rowIndex) => (
-              <tr key={pageOffset + rowIndex}>
-                {row.map((value, columnIndex) => (
-                  <td key={columnIndex}>{value ?? <span className="null-value">null</span>}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="pagination" aria-label="Paginación de la vista previa">
-        <p className="preview-note" aria-live="polite">
-          {dataset.rowCount === 0
-            ? "El dataset no contiene filas."
-            : `Filas ${pageOffset + 1}–${pageEnd} de ${dataset.rowCount.toLocaleString()}`}
-        </p>
-        <div>
-          <button
-            type="button"
-            onClick={() => onPageChange(Math.max(0, pageOffset - PAGE_SIZE))}
-            disabled={!hasPrevious || pageLoading}
-          >
-            Anterior
-          </button>
-          <button
-            type="button"
-            onClick={() => onPageChange(pageOffset + PAGE_SIZE)}
-            disabled={!hasNext || pageLoading}
-          >
-            {pageLoading ? "Cargando…" : "Siguiente"}
-          </button>
-        </div>
-      </div>
-      {pageError && (
-        <p className="notice notice--error" role="alert">
-          No se pudo cambiar de página: {pageError}
-        </p>
-      )}
-    </>
-  );
-}
-
-interface QualityProfileProps {
-  profile: DatasetProfile;
-}
-
-function QualityProfile({ profile }: QualityProfileProps) {
-  const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
-  const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
-
-  return (
-    <>
-      <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
-        <div>
-          <dt>Filas duplicadas adicionales</dt>
-          <dd>
-            {profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)
-          </dd>
-        </div>
-        <div>
-          <dt>Filas analizadas</dt>
-          <dd>{profile.rowCount.toLocaleString()}</dd>
-        </div>
-      </dl>
-      <div
-        className="profile-region"
-        role="region"
-        tabIndex={0}
-        aria-label="Perfil de calidad por columna"
-      >
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Columna</th>
-              <th scope="col">Completitud</th>
-              <th scope="col">Nulos</th>
-              <th scope="col">Únicos</th>
-              <th scope="col">Mínimo</th>
-              <th scope="col">Máximo</th>
-              <th scope="col">Promedio</th>
-            </tr>
-          </thead>
-          <tbody>
-            {profile.columns.map((column) => (
-              <tr key={column.name}>
-                <th scope="row">
-                  <span>{column.name}</span>
-                  <small>{column.dataType}</small>
-                </th>
-                <td>{column.completenessPercentage.toFixed(1)}%</td>
-                <td>{column.nullCount.toLocaleString()}</td>
-                <td>{column.uniqueCount.toLocaleString()}</td>
-                <td>{column.minimum ?? "—"}</td>
-                <td>{column.maximum ?? "—"}</td>
-                <td>
-                  {column.mean === null
-                    ? "—"
-                    : column.mean.toLocaleString(undefined, { maximumFractionDigits: 3 })}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="profile-note">El conteo de valores únicos excluye los nulos.</p>
-      {numericColumns.length > 0 && (
-        <>
-          <h4 className="text-profile-title">Detalle de columnas numéricas</h4>
-          <div
-            className="profile-region profile-region--detail"
-            role="region"
-            tabIndex={0}
-            aria-label="Perfil de columnas numéricas"
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Columna</th>
-                  <th scope="col">Desv. estándar</th>
-                  <th scope="col">Q1</th>
-                  <th scope="col">Mediana</th>
-                  <th scope="col">Q3</th>
-                  <th scope="col">Posibles outliers</th>
-                </tr>
-              </thead>
-              <tbody>
-                {numericColumns.map((column) => (
-                  <tr key={column.name}>
-                    <th scope="row">{column.name}</th>
-                    <td>{formatStatistic(column.standardDeviation)}</td>
-                    <td>{formatStatistic(column.firstQuartile)}</td>
-                    <td>{formatStatistic(column.median)}</td>
-                    <td>{formatStatistic(column.thirdQuartile)}</td>
-                    <td>{column.outlierCount?.toLocaleString() ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="profile-note">
-            Posibles outliers usa la regla IQR de 1.5× y requiere al menos cuatro valores. La
-            desviación estándar es muestral.
-          </p>
-        </>
-      )}
-      {textColumns.length > 0 && (
-        <>
-          <h4 className="text-profile-title">Detalle de columnas de texto</h4>
-          <div
-            className="profile-region profile-region--detail"
-            role="region"
-            tabIndex={0}
-            aria-label="Perfil de columnas de texto"
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Columna</th>
-                  <th scope="col">Vacíos</th>
-                  <th scope="col">Longitud mínima</th>
-                  <th scope="col">Longitud máxima</th>
-                  <th scope="col">Longitud promedio</th>
-                  <th scope="col">Tipo sugerido</th>
-                  <th scope="col">Coincidencia</th>
-                  <th scope="col">No coinciden</th>
-                </tr>
-              </thead>
-              <tbody>
-                {textColumns.map((column) => (
-                  <tr key={column.name}>
-                    <th scope="row">{column.name}</th>
-                    <td>{column.emptyCount?.toLocaleString()}</td>
-                    <td>{column.minimumLength?.toLocaleString() ?? "—"}</td>
-                    <td>{column.maximumLength?.toLocaleString() ?? "—"}</td>
-                    <td>
-                      {column.averageLength?.toLocaleString(undefined, {
-                        maximumFractionDigits: 1,
-                      }) ?? "—"}
-                    </td>
-                    <td>{suggestedTypeLabel(column.suggestedType)}</td>
-                    <td>
-                      {column.typeMatchPercentage === null
-                        ? "—"
-                        : `${column.typeMatchPercentage.toFixed(1)}%`}
-                    </td>
-                    <td>{column.invalidTypeCount?.toLocaleString() ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="profile-note">
-            “Vacíos” incluye cadenas sin caracteres o compuestas solamente por espacios. Las
-            sugerencias requieren al menos tres valores y una coincidencia del 90%.
-          </p>
-        </>
-      )}
-    </>
-  );
-}
-
 function HistoryBar({
   status,
   busy,
@@ -2143,23 +1642,4 @@ function ChangeFeedback({ status }: { status: ChangeStatus }) {
       <span>{status.message}</span>
     </div>
   );
-}
-
-function suggestedTypeLabel(type: string | null): string {
-  switch (type) {
-    case "boolean":
-      return "Booleano";
-    case "integer":
-      return "Entero";
-    case "decimal":
-      return "Decimal";
-    case "date":
-      return "Fecha";
-    default:
-      return "—";
-  }
-}
-
-function formatStatistic(value: number | null): string {
-  return value?.toLocaleString(undefined, { maximumFractionDigits: 3 }) ?? "—";
 }

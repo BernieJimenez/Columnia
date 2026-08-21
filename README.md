@@ -52,12 +52,16 @@ integrarse en scripts sin abrir la interfaz:
 ```powershell
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- inspect --input datos.csv
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- transform --input datos.csv --recipe receta.json --output resultado.parquet --format parquet
+cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- validate --input datos.csv --rules calidad.json
+cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- inspect --input libro.xlsx --sheet Datos --header first-row
 ```
 
-`inspect` y `transform` aceptan CSV, TSV, JSON y Parquet. Las rutas y los valores
-del dataset no aparecen en el JSON ni en los errores. La salida se publica de
-forma atómica y CSV conserva la protección contra fórmulas. Los libros requieren
-selección de hoja y, por ahora, deben abrirse desde la aplicación de escritorio.
+`inspect`, `transform` y `validate` aceptan CSV, TSV, JSON, Parquet, XLSX, XLS,
+XLSB y ODS. Para libros son obligatorios `--sheet <nombre exacto>` y `--header
+first-row|generated`; esas opciones se rechazan para otros formatos. Las rutas y
+los valores del dataset no aparecen en el JSON ni en los errores. La salida se
+publica de forma atómica y CSV conserva la protección contra fórmulas. `validate`
+devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
 
 La validación permanece completamente local. Desde PowerShell:
 

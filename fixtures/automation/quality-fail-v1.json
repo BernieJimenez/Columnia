@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "column": "name",
+      "kind": "non_empty",
+      "maxInvalid": 0
+    }
+  ]
+}

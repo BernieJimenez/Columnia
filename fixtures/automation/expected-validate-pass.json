@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "command": "validate",
+  "passed": true,
+  "rowCount": 3,
+  "totalRules": 1,
+  "passedRules": 1,
+  "failedRules": 0,
+  "totalInvalidCount": 0
+}

@@ -4,7 +4,7 @@ use columnia_lib::automation::{self, CliCommand};
 
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(exit_code) => exit_code,
         Err(error) => {
             eprintln!("Error: {error}");
             eprintln!("Usa columnia-cli --help para ver la interfaz admitida.");
@@ -13,26 +13,50 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let command = automation::parse_cli_args(env::args_os().skip(1))?;
     match command {
         CliCommand::Help(text) => println!("{text}"),
-        CliCommand::Inspect { input } => {
-            serde_json::to_writer(io::stdout().lock(), &automation::inspect(&input)?)?;
+        CliCommand::Inspect {
+            input,
+            sheet,
+            header,
+        } => {
+            serde_json::to_writer(
+                io::stdout().lock(),
+                &automation::inspect(&input, sheet.as_deref(), header)?,
+            )?;
             println!();
         }
         CliCommand::Transform {
             input,
+            sheet,
+            header,
             recipe,
             output,
             format,
         } => {
             serde_json::to_writer(
                 io::stdout().lock(),
-                &automation::transform(&input, &recipe, &output, format)?,
+                &automation::transform(&input, sheet.as_deref(), header, &recipe, &output, format)?,
             )?;
             println!();
         }
+        CliCommand::Validate {
+            input,
+            sheet,
+            header,
+            rules,
+        } => {
+            let output = automation::validate(&input, sheet.as_deref(), header, &rules)?;
+            let passed = output.passed();
+            serde_json::to_writer(io::stdout().lock(), &output)?;
+            println!();
+            if passed {
+                return Ok(ExitCode::SUCCESS);
+            }
+            return Ok(ExitCode::from(2));
+        }
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

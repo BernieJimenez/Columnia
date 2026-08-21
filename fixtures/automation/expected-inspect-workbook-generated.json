@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "command": "inspect",
+  "fileName": "input.xlsx",
+  "rowCount": 3,
+  "columnCount": 2,
+  "columns": [
+    {
+      "name": "column_1",
+      "dataType": "str"
+    },
+    {
+      "name": "column_2",
+      "dataType": "str"
+    }
+  ]
+}

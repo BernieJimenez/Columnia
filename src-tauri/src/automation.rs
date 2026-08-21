@@ -7,11 +7,13 @@ use std::{
 
 use serde::Serialize;
 
-use crate::dataset::{self, ExportFormat};
+use crate::dataset::{self, ExportFormat, SpreadsheetHeaderMode};
 
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta>\n  columnia-cli transform --input <ruta> --recipe <ruta> --output <ruta> --format csv|parquet\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON y Parquet. Los libros requieren selección de hoja y deben procesarse en la aplicación de escritorio.\n\nSALIDA:\n  JSON por stdout. Los errores se escriben en stderr sin rutas ni valores de celdas.\n";
-const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta>\n\nInspecciona CSV, TSV, JSON o Parquet y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
-const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> --recipe <ruta> --output <ruta> --format csv|parquet\n\nAplica una receta Columnia y publica la salida atómicamente. CSV conserva la protección contra fórmulas de hojas de cálculo.\n";
+const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate termina con código 2 cuando el contrato no pasa; los errores de uso o carga terminan con código 1.\n";
+const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
+const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n\nAplica una receta Columnia y publica la salida atómicamente. CSV conserva la protección contra fórmulas de hojas de cálculo.\n";
+const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia versión 1 con {\"version\":1,\"rules\":[...]}. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutomationFormat {
@@ -40,12 +42,22 @@ pub enum CliCommand {
     Help(&'static str),
     Inspect {
         input: PathBuf,
+        sheet: Option<String>,
+        header: Option<SpreadsheetHeaderMode>,
     },
     Transform {
         input: PathBuf,
+        sheet: Option<String>,
+        header: Option<SpreadsheetHeaderMode>,
         recipe: PathBuf,
         output: PathBuf,
         format: AutomationFormat,
+    },
+    Validate {
+        input: PathBuf,
+        sheet: Option<String>,
+        header: Option<SpreadsheetHeaderMode>,
+        rules: PathBuf,
     },
 }
 
@@ -109,6 +121,25 @@ pub struct TransformOutput {
     summary: TransformSummary,
 }
 
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateOutput {
+    schema_version: u8,
+    command: &'static str,
+    passed: bool,
+    row_count: usize,
+    total_rules: usize,
+    passed_rules: usize,
+    failed_rules: usize,
+    total_invalid_count: usize,
+}
+
+impl ValidateOutput {
+    pub fn passed(&self) -> bool {
+        self.passed
+    }
+}
+
 fn parse_flags(
     arguments: &[OsString],
     allowed: &[&'static str],
@@ -148,6 +179,32 @@ fn required_flag(
         .ok_or_else(|| AutomationError::new(format!("Falta la opción requerida {name}.")))
 }
 
+fn parse_input_options(
+    flags: &mut HashMap<&'static str, OsString>,
+) -> Result<(PathBuf, Option<String>, Option<SpreadsheetHeaderMode>), AutomationError> {
+    let input = PathBuf::from(required_flag(flags, "--input")?);
+    let sheet = flags
+        .remove("--sheet")
+        .map(|value| {
+            value
+                .into_string()
+                .map_err(|_| AutomationError::new("El nombre de hoja no contiene texto válido."))
+        })
+        .transpose()?;
+    let header = flags
+        .remove("--header")
+        .map(|value| match value.to_str() {
+            Some("first-row") => Ok(SpreadsheetHeaderMode::FirstRow),
+            Some("generated") => Ok(SpreadsheetHeaderMode::Generated),
+            _ => Err(AutomationError::new(
+                "La opción --header debe ser first-row o generated.",
+            )),
+        })
+        .transpose()?;
+    validate_input_options(&input, sheet.as_deref(), header)?;
+    Ok((input, sheet, header))
+}
+
 pub fn parse_cli_args<I, T>(arguments: I) -> Result<CliCommand, AutomationError>
 where
     I: IntoIterator<Item = T>,
@@ -161,7 +218,7 @@ where
     let subcommand = arguments
         .first()
         .and_then(|argument| argument.to_str())
-        .ok_or_else(|| AutomationError::new("Falta el comando inspect o transform."))?;
+        .ok_or_else(|| AutomationError::new("Falta el comando inspect, transform o validate."))?;
     let rest = &arguments[1..];
 
     match subcommand {
@@ -170,17 +227,26 @@ where
             {
                 return Ok(CliCommand::Help(INSPECT_HELP));
             }
-            let mut flags = parse_flags(rest, &["--input"])?;
-            let input = PathBuf::from(required_flag(&mut flags, "--input")?);
-            Ok(CliCommand::Inspect { input })
+            let mut flags = parse_flags(rest, &["--input", "--sheet", "--header"])?;
+            let (input, sheet, header) = parse_input_options(&mut flags)?;
+            Ok(CliCommand::Inspect {
+                input,
+                sheet,
+                header,
+            })
         }
         "transform" => {
             if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
             {
                 return Ok(CliCommand::Help(TRANSFORM_HELP));
             }
-            let mut flags = parse_flags(rest, &["--input", "--recipe", "--output", "--format"])?;
-            let input = PathBuf::from(required_flag(&mut flags, "--input")?);
+            let mut flags = parse_flags(
+                rest,
+                &[
+                    "--input", "--sheet", "--header", "--recipe", "--output", "--format",
+                ],
+            )?;
+            let (input, sheet, header) = parse_input_options(&mut flags)?;
             let recipe = PathBuf::from(required_flag(&mut flags, "--recipe")?);
             let output = PathBuf::from(required_flag(&mut flags, "--output")?);
             let format = match required_flag(&mut flags, "--format")?.to_str() {
@@ -194,40 +260,66 @@ where
             };
             Ok(CliCommand::Transform {
                 input,
+                sheet,
+                header,
                 recipe,
                 output,
                 format,
             })
         }
+        "validate" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(VALIDATE_HELP));
+            }
+            let mut flags = parse_flags(rest, &["--input", "--sheet", "--header", "--rules"])?;
+            let (input, sheet, header) = parse_input_options(&mut flags)?;
+            let rules = PathBuf::from(required_flag(&mut flags, "--rules")?);
+            Ok(CliCommand::Validate {
+                input,
+                sheet,
+                header,
+                rules,
+            })
+        }
         _ => Err(AutomationError::new(
-            "Comando desconocido. Usa inspect, transform o --help.",
+            "Comando desconocido. Usa inspect, transform, validate o --help.",
         )),
     }
 }
 
-fn validate_input_format(input: &Path) -> Result<(), AutomationError> {
+fn validate_input_options(
+    input: &Path,
+    sheet: Option<&str>,
+    header: Option<SpreadsheetHeaderMode>,
+) -> Result<(), AutomationError> {
     let extension = input
         .extension()
         .and_then(OsStr::to_str)
         .map(str::to_ascii_lowercase);
     match extension.as_deref() {
-        Some("csv" | "tsv" | "json" | "parquet") => Ok(()),
-        Some("xlsx" | "xls" | "xlsb" | "ods") => Err(AutomationError::new(
-            "Los libros requieren selección de hoja y deben procesarse en la aplicación de escritorio.",
-        )),
+        Some("csv" | "tsv" | "json" | "parquet") if sheet.is_none() && header.is_none() => Ok(()),
+        Some("csv" | "tsv" | "json" | "parquet") => Err(AutomationError::new(WORKBOOK_FLAGS)),
+        Some("xlsx" | "xls" | "xlsb" | "ods") if sheet.is_some() && header.is_some() => Ok(()),
+        Some("xlsx" | "xls" | "xlsb" | "ods") => Err(AutomationError::new(WORKBOOK_FLAGS)),
         _ => Err(AutomationError::new(
-            "La entrada debe ser un archivo CSV, TSV, JSON o Parquet.",
+            "La entrada debe ser CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB u ODS.",
         )),
     }
 }
 
-pub fn inspect(input: &Path) -> Result<InspectOutput, AutomationError> {
-    validate_input_format(input)?;
-    let (_, preview) = dataset::load_dataset_for_automation(input).map_err(|_| {
-        AutomationError::new(
-            "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
-        )
-    })?;
+pub fn inspect(
+    input: &Path,
+    sheet: Option<&str>,
+    header: Option<SpreadsheetHeaderMode>,
+) -> Result<InspectOutput, AutomationError> {
+    validate_input_options(input, sheet, header)?;
+    let (_, preview) =
+        dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
+            AutomationError::new(
+                "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
+            )
+        })?;
     Ok(InspectOutput {
         schema_version: 1,
         command: "inspect",
@@ -247,11 +339,13 @@ pub fn inspect(input: &Path) -> Result<InspectOutput, AutomationError> {
 
 pub fn transform(
     input: &Path,
+    sheet: Option<&str>,
+    header: Option<SpreadsheetHeaderMode>,
     recipe: &Path,
     output: &Path,
     format: AutomationFormat,
 ) -> Result<TransformOutput, AutomationError> {
-    validate_input_format(input)?;
+    validate_input_options(input, sheet, header)?;
     let output_matches_format = output
         .extension()
         .and_then(OsStr::to_str)
@@ -262,7 +356,7 @@ pub fn transform(
         ));
     }
 
-    let (source, _) = dataset::load_dataset_for_automation(input).map_err(|_| {
+    let (source, _) = dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
         AutomationError::new(
             "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
         )
@@ -294,6 +388,36 @@ pub fn transform(
     })
 }
 
+pub fn validate(
+    input: &Path,
+    sheet: Option<&str>,
+    header: Option<SpreadsheetHeaderMode>,
+    rules: &Path,
+) -> Result<ValidateOutput, AutomationError> {
+    validate_input_options(input, sheet, header)?;
+    let (source, _) = dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
+        AutomationError::new(
+            "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
+        )
+    })?;
+    let quality_rules = dataset::load_quality_rules_for_automation(rules)
+        .map_err(|_| AutomationError::new("No se pudo cargar un contrato de calidad v1 válido."))?;
+    let result =
+        dataset::evaluate_quality_rules_for_automation(&source, &quality_rules).map_err(|_| {
+            AutomationError::new("El contrato de calidad no es válido para el dataset.")
+        })?;
+    Ok(ValidateOutput {
+        schema_version: 1,
+        command: "validate",
+        passed: result.passed,
+        row_count: result.row_count,
+        total_rules: result.total_rules,
+        passed_rules: result.total_rules.saturating_sub(result.failed_rules),
+        failed_rules: result.failed_rules,
+        total_invalid_count: result.total_invalid_count(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -321,9 +445,28 @@ mod tests {
         assert_eq!(
             parse_cli_args(["inspect", "--input", "dataset.csv"]).unwrap(),
             CliCommand::Inspect {
-                input: PathBuf::from("dataset.csv")
+                input: PathBuf::from("dataset.csv"),
+                sheet: None,
+                header: None,
             }
         );
+        assert!(matches!(
+            parse_cli_args([
+                "inspect",
+                "--input",
+                "book.xlsx",
+                "--sheet",
+                "Data",
+                "--header",
+                "first-row"
+            ])
+            .unwrap(),
+            CliCommand::Inspect {
+                sheet: Some(sheet),
+                header: Some(SpreadsheetHeaderMode::FirstRow),
+                ..
+            } if sheet == "Data"
+        ));
         assert!(
             parse_cli_args(["inspect", "--input", "a.csv", "--input", "b.csv"])
                 .unwrap_err()
@@ -344,6 +487,28 @@ mod tests {
             "xml"
         ])
         .is_err());
+        assert!(parse_cli_args(["inspect", "--input", "book.xlsx"]).is_err());
+        assert!(parse_cli_args([
+            "inspect",
+            "--input",
+            "dataset.csv",
+            "--sheet",
+            "Data",
+            "--header",
+            "generated"
+        ])
+        .is_err());
+        assert!(matches!(
+            parse_cli_args([
+                "validate",
+                "--input",
+                "dataset.csv",
+                "--rules",
+                "rules.json"
+            ])
+            .unwrap(),
+            CliCommand::Validate { rules, .. } if rules == Path::new("rules.json")
+        ));
     }
 
     #[test]
@@ -352,7 +517,7 @@ mod tests {
         let input = directory.path().join("source.csv");
         fs::write(&input, "name,count\nA,1\nB,2\n").unwrap();
 
-        let output = inspect(&input).unwrap();
+        let output = inspect(&input, None, None).unwrap();
         let json = serde_json::to_value(output).unwrap();
         assert_eq!(json["schemaVersion"], 1);
         assert_eq!(json["command"], "inspect");
@@ -375,7 +540,8 @@ mod tests {
         fs::write(&input, "old,formula\nA,=SUM(A1:A2)\n").unwrap();
         write_recipe(&recipe, "old", "new");
 
-        let result = transform(&input, &recipe, &output, AutomationFormat::Csv).unwrap();
+        let result =
+            transform(&input, None, None, &recipe, &output, AutomationFormat::Csv).unwrap();
         let json = serde_json::to_value(result).unwrap();
         assert_eq!(json["schemaVersion"], 1);
         assert_eq!(json["command"], "transform");
@@ -401,7 +567,15 @@ mod tests {
         fs::write(&existing_output, "previous output").unwrap();
         write_recipe(&recipe, "missing", "renamed");
 
-        let error = transform(&input, &recipe, &absent_output, AutomationFormat::Csv).unwrap_err();
+        let error = transform(
+            &input,
+            None,
+            None,
+            &recipe,
+            &absent_output,
+            AutomationFormat::Csv,
+        )
+        .unwrap_err();
         assert!(!absent_output.exists());
         assert_eq!(
             error.to_string(),
@@ -411,7 +585,15 @@ mod tests {
             .to_string()
             .contains(directory.path().to_str().unwrap()));
 
-        assert!(transform(&input, &recipe, &existing_output, AutomationFormat::Csv).is_err());
+        assert!(transform(
+            &input,
+            None,
+            None,
+            &recipe,
+            &existing_output,
+            AutomationFormat::Csv,
+        )
+        .is_err());
         assert_eq!(
             fs::read_to_string(existing_output).unwrap(),
             "previous output"
@@ -419,10 +601,57 @@ mod tests {
     }
 
     #[test]
-    fn workbook_requires_explicit_desktop_sheet_selection() {
-        let error = inspect(Path::new("book.xlsx")).unwrap_err();
-        assert!(error.to_string().contains("selección de hoja"));
+    fn workbook_requires_explicit_sheet_and_header_selection() {
+        let error = inspect(Path::new("book.xlsx"), None, None).unwrap_err();
+        assert!(error.to_string().contains("obligatorios"));
         assert!(!error.to_string().contains("book.xlsx"));
+    }
+
+    #[test]
+    fn validate_emits_counts_only_for_passing_and_failing_contracts() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("source.csv");
+        let passing = directory.path().join("passing.json");
+        let failing = directory.path().join("failing.json");
+        fs::write(&input, "name,count\nA,1\n,2\n").unwrap();
+        fs::write(
+            &passing,
+            br#"{"version":1,"rules":[{"column":"count","kind":"not_null","maxInvalid":0}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            &failing,
+            br#"{"version":1,"rules":[{"column":"name","kind":"non_empty","maxInvalid":0}]}"#,
+        )
+        .unwrap();
+
+        let passed = validate(&input, None, None, &passing).unwrap();
+        assert!(passed.passed());
+        let failed = validate(&input, None, None, &failing).unwrap();
+        assert!(!failed.passed());
+        let json = serde_json::to_value(failed).unwrap();
+        assert_eq!(json["rowCount"], 2);
+        assert_eq!(json["totalRules"], 1);
+        assert_eq!(json["passedRules"], 0);
+        assert_eq!(json["failedRules"], 1);
+        assert_eq!(json["totalInvalidCount"], 1);
+        assert!(json.get("rules").is_none());
+        assert!(json.get("columns").is_none());
+        assert!(!json
+            .to_string()
+            .contains(directory.path().to_str().unwrap()));
+    }
+
+    #[test]
+    fn validate_rejects_unknown_versions_and_fields() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("source.csv");
+        let rules = directory.path().join("rules.json");
+        fs::write(&input, "value\n1\n").unwrap();
+        fs::write(&rules, br#"{"version":2,"rules":[]}"#).unwrap();
+        assert!(validate(&input, None, None, &rules).is_err());
+        fs::write(&rules, br#"{"version":1,"rules":[],"extra":true}"#).unwrap();
+        assert!(validate(&input, None, None, &rules).is_err());
     }
 
     #[test]
@@ -454,5 +683,30 @@ mod tests {
             ]
         );
         assert!(inspect.is_object());
+
+        let validate = serde_json::to_value(ValidateOutput {
+            schema_version: 1,
+            command: "validate",
+            passed: true,
+            row_count: 2,
+            total_rules: 1,
+            passed_rules: 1,
+            failed_rules: 0,
+            total_invalid_count: 0,
+        })
+        .unwrap();
+        assert_eq!(
+            validate.as_object().unwrap().keys().collect::<Vec<_>>(),
+            [
+                "command",
+                "failedRules",
+                "passed",
+                "passedRules",
+                "rowCount",
+                "schemaVersion",
+                "totalInvalidCount",
+                "totalRules",
+            ]
+        );
     }
 }

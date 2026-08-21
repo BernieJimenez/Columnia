@@ -176,6 +176,21 @@ function New-ExpectedTransform {
     }
 }
 
+function New-DeterministicWorkbook {
+    param([string]$Destination)
+
+    $Staging = Join-Path $WorkDirectory "xlsx-source"
+    $Archive = Join-Path $WorkDirectory "input.zip"
+    New-Item -ItemType Directory -Path (Join-Path $Staging "_rels"), (Join-Path $Staging "xl\_rels"), (Join-Path $Staging "xl\worksheets") -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $Staging "[Content_Types].xml") -Encoding utf8 -Value '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'
+    Set-Content -LiteralPath (Join-Path $Staging "_rels\.rels") -Encoding utf8 -Value '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+    Set-Content -LiteralPath (Join-Path $Staging "xl\workbook.xml") -Encoding utf8 -Value '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    Set-Content -LiteralPath (Join-Path $Staging "xl\_rels\workbook.xml.rels") -Encoding utf8 -Value '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+    Set-Content -LiteralPath (Join-Path $Staging "xl\worksheets\sheet1.xml") -Encoding utf8 -Value '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>name</t></is></c><c r="B1" t="inlineStr"><is><t>amount</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Alice</t></is></c><c r="B2"><v>10</v></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Bob</t></is></c><c r="B3"><v>20</v></c></row></sheetData></worksheet>'
+    Compress-Archive -Path (Join-Path $Staging "*") -DestinationPath $Archive -CompressionLevel Optimal
+    Move-Item -LiteralPath $Archive -Destination $Destination
+}
+
 New-Item -ItemType Directory -Path $WorkDirectory -Force | Out-Null
 
 try {
@@ -202,14 +217,17 @@ try {
     }
 
     $Help = Invoke-Cli -Label "help" -Arguments @("--help")
-    if ($Help.stdout -notmatch "(?i)inspect" -or $Help.stdout -notmatch "(?i)transform") {
-        throw "La ayuda debe anunciar inspect y transform."
+    if ($Help.stdout -notmatch "(?i)inspect" -or $Help.stdout -notmatch "(?i)transform" -or $Help.stdout -notmatch "(?i)validate") {
+        throw "La ayuda debe anunciar inspect, transform y validate."
     }
 
     $InputRelative = "fixtures/automation/input.csv"
     $RecipeRelative = "fixtures/automation/recipe-v1.json"
     $CsvOutputRelative = "$EvidenceRelativePath/work/output.csv"
     $ParquetOutputRelative = "$EvidenceRelativePath/work/output.parquet"
+    $WorkbookRelative = "$EvidenceRelativePath/work/input.xlsx"
+    $WorkbookPath = Join-Path $WorkDirectory "input.xlsx"
+    New-DeterministicWorkbook -Destination $WorkbookPath
 
     $InspectInput = Read-JsonOutput `
         -Label "inspect input" `
@@ -262,6 +280,92 @@ try {
         -Label "inspect output Parquet" `
         -Result (Invoke-Cli -Label "inspect-output-parquet" -Arguments @("inspect", "--input", $ParquetOutputRelative))
     Assert-JsonFixture -Actual $InspectParquet -FixtureName "expected-inspect-output-parquet.json"
+
+    $InspectWorkbook = Read-JsonOutput `
+        -Label "inspect workbook" `
+        -Result (Invoke-Cli -Label "inspect-workbook" -Arguments @(
+            "inspect", "--input", $WorkbookRelative, "--sheet", "Data", "--header", "first-row"
+        ))
+    Assert-JsonFixture -Actual $InspectWorkbook -FixtureName "expected-inspect-workbook.json"
+
+    $InspectWorkbookGenerated = Read-JsonOutput `
+        -Label "inspect workbook generated headers" `
+        -Result (Invoke-Cli -Label "inspect-workbook-generated" -Arguments @(
+            "inspect", "--input", $WorkbookRelative, "--sheet", "Data", "--header", "generated"
+        ))
+    Assert-JsonFixture -Actual $InspectWorkbookGenerated -FixtureName "expected-inspect-workbook-generated.json"
+
+    [void](Invoke-Cli -Label "workbook-missing-selection" -ShouldSucceed $false -Arguments @(
+        "inspect", "--input", $WorkbookRelative
+    ))
+
+    $WorkbookOutputRelative = "$EvidenceRelativePath/work/workbook-output.csv"
+    $WorkbookTransform = Read-JsonOutput `
+        -Label "transform workbook" `
+        -Result (Invoke-Cli -Label "transform-workbook" -Arguments @(
+            "transform", "--input", $WorkbookRelative, "--sheet", "Data", "--header", "first-row",
+            "--recipe", $RecipeRelative, "--output", $WorkbookOutputRelative, "--format", "csv"
+        ))
+    $WorkbookOutputPath = Join-Path $ProjectRoot ($WorkbookOutputRelative -replace "/", "\")
+    Assert-DeepEqual `
+        -Expected ([pscustomobject][ordered]@{
+            schemaVersion = 1; command = "transform"; outputFileName = "workbook-output.csv"
+            fileSizeBytes = (Get-Item $WorkbookOutputPath).Length; format = "CSV"; changed = $true
+            summary = [pscustomobject][ordered]@{
+                inputRowCount = 2; outputRowCount = 2; inputColumnCount = 2; outputColumnCount = 2
+            }
+        }) `
+        -Actual $WorkbookTransform
+
+    $BadWorkbookOutputRelative = "$EvidenceRelativePath/work/bad-workbook-output.csv"
+    [void](Invoke-Cli -Label "workbook-invalid-sheet" -ShouldSucceed $false -Arguments @(
+        "transform", "--input", $WorkbookRelative, "--sheet", "Missing", "--header", "generated",
+        "--recipe", $RecipeRelative, "--output", $BadWorkbookOutputRelative, "--format", "csv"
+    ))
+    if (Test-Path -LiteralPath (Join-Path $ProjectRoot ($BadWorkbookOutputRelative -replace "/", "\"))) {
+        throw "Una selección de hoja inválida dejó un archivo de salida parcial."
+    }
+
+    $QualityInputRelative = "fixtures/automation/quality-input.csv"
+    $QualityPassRelative = "fixtures/automation/quality-pass-v1.json"
+    $QualityFailRelative = "fixtures/automation/quality-fail-v1.json"
+    $ValidatePass = Read-JsonOutput `
+        -Label "validate pass" `
+        -Result (Invoke-Cli -Label "validate-pass" -Arguments @(
+            "validate", "--input", $QualityInputRelative, "--rules", $QualityPassRelative
+        ))
+    Assert-JsonFixture -Actual $ValidatePass -FixtureName "expected-validate-pass.json"
+
+    $ValidateWorkbook = Read-JsonOutput `
+        -Label "validate workbook" `
+        -Result (Invoke-Cli -Label "validate-workbook" -Arguments @(
+            "validate", "--input", $WorkbookRelative, "--sheet", "Data", "--header", "first-row",
+            "--rules", $QualityPassRelative
+        ))
+    Assert-DeepEqual `
+        -Expected ([pscustomobject][ordered]@{
+            schemaVersion = 1; command = "validate"; passed = $true; rowCount = 2
+            totalRules = 1; passedRules = 1; failedRules = 0; totalInvalidCount = 0
+        }) `
+        -Actual $ValidateWorkbook
+
+    $ValidateFailResult = Invoke-Cli -Label "validate-fail" -ShouldSucceed $false -Arguments @(
+        "validate", "--input", $QualityInputRelative, "--rules", $QualityFailRelative
+    )
+    if ($ValidateFailResult.exitCode -ne 2) {
+        throw "Un contrato que no pasa debe terminar con código 2."
+    }
+    $ValidateFail = Read-JsonOutput -Label "validate fail" -Result $ValidateFailResult
+    Assert-JsonFixture -Actual $ValidateFail -FixtureName "expected-validate-fail.json"
+
+    $InvalidRulesRelative = "$EvidenceRelativePath/work/invalid-rules.json"
+    Set-Content -LiteralPath (Join-Path $WorkDirectory "invalid-rules.json") -Value '{"version":2,"rules":[]}' -Encoding ascii
+    $InvalidRulesResult = Invoke-Cli -Label "validate-invalid-rules" -ShouldSucceed $false -Arguments @(
+        "validate", "--input", $QualityInputRelative, "--rules", $InvalidRulesRelative
+    )
+    if ($InvalidRulesResult.exitCode -ne 1 -or $InvalidRulesResult.stdout) {
+        throw "Un contrato inválido debe ser error de uso/carga sin JSON parcial."
+    }
 
     $InvalidRecipeRelative = "$EvidenceRelativePath/work/invalid-recipe.json"
     Set-Content -LiteralPath (Join-Path $WorkDirectory "invalid-recipe.json") -Value '{"version":999}' -Encoding ascii
@@ -320,5 +424,5 @@ if ($Status -ne "passed") {
     exit 1
 }
 
-Write-Host "Smoke CLI aprobado: help, inspect, CSV, Parquet y errores sin outputs parciales."
+Write-Host "Smoke CLI aprobado: help, inspect/transform de libros, CSV, Parquet, validate pass/fail y errores sin outputs parciales."
 Write-Host "Evidencia: $EvidenceRelativePath"

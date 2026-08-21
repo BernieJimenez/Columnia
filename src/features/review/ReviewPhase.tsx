@@ -1,0 +1,356 @@
+import { OperationProgressView } from "../../components/OperationProgressView";
+import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
+import type { DatasetPreview, DatasetProfile } from "../../bridge";
+import { DatasetMetrics } from "../delivery/DatasetMetrics";
+import type { ReadyDatasetStatus } from "../load/loadModel";
+import {
+  nextPageOffset,
+  pageRange,
+  previousPageOffset,
+  type ProfileStatus,
+} from "./reviewModel";
+
+interface ReviewPhaseProps {
+  datasetStatus: ReadyDatasetStatus;
+  profileStatus: ProfileStatus;
+  reviewTab: ReviewTab;
+  onTabChange: (tab: ReviewTab) => void;
+  onPageChange: (offset: number) => void;
+  onAnalyzeQuality: () => void;
+  onCancelProfile: () => void;
+}
+
+export function ReviewPhase({
+  datasetStatus,
+  profileStatus,
+  reviewTab,
+  onTabChange,
+  onPageChange,
+  onAnalyzeQuality,
+  onCancelProfile,
+}: ReviewPhaseProps) {
+  return (
+    <>
+      <header className="phase-header phase-header--compact">
+        <div>
+          <p className="eyebrow">Revisar · Dataset activo</p>
+          <h2>{datasetStatus.dataset.fileName}</h2>
+          <p>Comprueba la estructura, la calidad y una muestra de los datos antes de modificarlos.</p>
+        </div>
+      </header>
+      <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
+
+      {reviewTab === "diagnosis" ? (
+        <div id="review-diagnosis-panel" role="tabpanel" aria-labelledby="review-diagnosis-tab">
+          <QualitySection
+            dataset={datasetStatus.dataset}
+            status={profileStatus}
+            onAnalyze={onAnalyzeQuality}
+            onCancel={onCancelProfile}
+          />
+        </div>
+      ) : (
+        <div id="review-preview-panel" role="tabpanel" aria-labelledby="review-preview-tab">
+          <DataPreview
+            dataset={datasetStatus.dataset}
+            pageOffset={datasetStatus.pageOffset}
+            pageLoading={datasetStatus.pageLoading}
+            pageError={datasetStatus.pageError}
+            onPageChange={onPageChange}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+function QualitySection({
+  dataset,
+  status,
+  onAnalyze,
+  onCancel,
+}: {
+  dataset: DatasetPreview;
+  status: ProfileStatus;
+  onAnalyze: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="phase-section" aria-labelledby="quality-title">
+      <div className="section-heading">
+        <div>
+          <p className="step">Calidad inicial</p>
+          <h3 id="quality-title">Perfil por columna</h3>
+        </div>
+        {status.kind !== "loading" && (
+          <button type="button" onClick={onAnalyze}>
+            {status.kind === "ready" ? "Analizar de nuevo" : "Analizar calidad"}
+          </button>
+        )}
+      </div>
+      <DatasetMetrics dataset={dataset} />
+      {status.kind === "loading" && (
+        <OperationProgressView
+          progress={status.progress}
+          cancellation={status.cancelRequested
+            ? { kind: "requested" }
+            : { kind: "available", onCancel }}
+        />
+      )}
+      {status.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo analizar la calidad: {status.message}
+        </p>
+      )}
+      {status.kind === "ready" && <QualityProfile profile={status.profile} />}
+    </section>
+  );
+}
+
+interface DataPreviewProps {
+  dataset: DatasetPreview;
+  pageOffset: number;
+  pageLoading: boolean;
+  pageError?: string;
+  onPageChange: (offset: number) => void;
+}
+
+export function DataPreview({
+  dataset,
+  pageOffset,
+  pageLoading,
+  pageError,
+  onPageChange,
+}: DataPreviewProps) {
+  const { end: pageEnd, hasPrevious, hasNext } = pageRange(dataset, pageOffset);
+
+  return (
+    <>
+      <div className="table-region" tabIndex={0} aria-label="Vista previa del dataset">
+        <table>
+          <thead>
+            <tr>
+              {dataset.columns.map((column) => (
+                <th key={column.name} scope="col">
+                  <span>{column.name}</span>
+                  <small>{column.dataType}</small>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {dataset.rows.map((row, rowIndex) => (
+              <tr key={pageOffset + rowIndex}>
+                {row.map((value, columnIndex) => (
+                  <td key={columnIndex}>{value ?? <span className="null-value">null</span>}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="pagination" aria-label="Paginación de la vista previa">
+        <p className="preview-note" aria-live="polite">
+          {dataset.rowCount === 0
+            ? "El dataset no contiene filas."
+            : `Filas ${pageOffset + 1}–${pageEnd} de ${dataset.rowCount.toLocaleString()}`}
+        </p>
+        <div>
+          <button
+            type="button"
+            onClick={() => onPageChange(previousPageOffset(pageOffset))}
+            disabled={!hasPrevious || pageLoading}
+          >
+            Anterior
+          </button>
+          <button
+            type="button"
+            onClick={() => onPageChange(nextPageOffset(pageOffset))}
+            disabled={!hasNext || pageLoading}
+          >
+            {pageLoading ? "Cargando…" : "Siguiente"}
+          </button>
+        </div>
+      </div>
+      {pageError && (
+        <p className="notice notice--error" role="alert">
+          No se pudo cambiar de página: {pageError}
+        </p>
+      )}
+    </>
+  );
+}
+
+function QualityProfile({ profile }: { profile: DatasetProfile }) {
+  const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
+  const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
+
+  return (
+    <>
+      <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
+        <div>
+          <dt>Filas duplicadas adicionales</dt>
+          <dd>
+            {profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)
+          </dd>
+        </div>
+        <div>
+          <dt>Filas analizadas</dt>
+          <dd>{profile.rowCount.toLocaleString()}</dd>
+        </div>
+      </dl>
+      <div
+        className="profile-region"
+        role="region"
+        tabIndex={0}
+        aria-label="Perfil de calidad por columna"
+      >
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Columna</th>
+              <th scope="col">Completitud</th>
+              <th scope="col">Nulos</th>
+              <th scope="col">Únicos</th>
+              <th scope="col">Mínimo</th>
+              <th scope="col">Máximo</th>
+              <th scope="col">Promedio</th>
+            </tr>
+          </thead>
+          <tbody>
+            {profile.columns.map((column) => (
+              <tr key={column.name}>
+                <th scope="row">
+                  <span>{column.name}</span>
+                  <small>{column.dataType}</small>
+                </th>
+                <td>{column.completenessPercentage.toFixed(1)}%</td>
+                <td>{column.nullCount.toLocaleString()}</td>
+                <td>{column.uniqueCount.toLocaleString()}</td>
+                <td>{column.minimum ?? "—"}</td>
+                <td>{column.maximum ?? "—"}</td>
+                <td>
+                  {column.mean === null
+                    ? "—"
+                    : column.mean.toLocaleString(undefined, { maximumFractionDigits: 3 })}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="profile-note">El conteo de valores únicos excluye los nulos.</p>
+      {numericColumns.length > 0 && (
+        <>
+          <h4 className="text-profile-title">Detalle de columnas numéricas</h4>
+          <div
+            className="profile-region profile-region--detail"
+            role="region"
+            tabIndex={0}
+            aria-label="Perfil de columnas numéricas"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Columna</th>
+                  <th scope="col">Desv. estándar</th>
+                  <th scope="col">Q1</th>
+                  <th scope="col">Mediana</th>
+                  <th scope="col">Q3</th>
+                  <th scope="col">Posibles outliers</th>
+                </tr>
+              </thead>
+              <tbody>
+                {numericColumns.map((column) => (
+                  <tr key={column.name}>
+                    <th scope="row">{column.name}</th>
+                    <td>{formatStatistic(column.standardDeviation)}</td>
+                    <td>{formatStatistic(column.firstQuartile)}</td>
+                    <td>{formatStatistic(column.median)}</td>
+                    <td>{formatStatistic(column.thirdQuartile)}</td>
+                    <td>{column.outlierCount?.toLocaleString() ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="profile-note">
+            Posibles outliers usa la regla IQR de 1.5× y requiere al menos cuatro valores. La
+            desviación estándar es muestral.
+          </p>
+        </>
+      )}
+      {textColumns.length > 0 && (
+        <>
+          <h4 className="text-profile-title">Detalle de columnas de texto</h4>
+          <div
+            className="profile-region profile-region--detail"
+            role="region"
+            tabIndex={0}
+            aria-label="Perfil de columnas de texto"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Columna</th>
+                  <th scope="col">Vacíos</th>
+                  <th scope="col">Longitud mínima</th>
+                  <th scope="col">Longitud máxima</th>
+                  <th scope="col">Longitud promedio</th>
+                  <th scope="col">Tipo sugerido</th>
+                  <th scope="col">Coincidencia</th>
+                  <th scope="col">No coinciden</th>
+                </tr>
+              </thead>
+              <tbody>
+                {textColumns.map((column) => (
+                  <tr key={column.name}>
+                    <th scope="row">{column.name}</th>
+                    <td>{column.emptyCount?.toLocaleString()}</td>
+                    <td>{column.minimumLength?.toLocaleString() ?? "—"}</td>
+                    <td>{column.maximumLength?.toLocaleString() ?? "—"}</td>
+                    <td>
+                      {column.averageLength?.toLocaleString(undefined, {
+                        maximumFractionDigits: 1,
+                      }) ?? "—"}
+                    </td>
+                    <td>{suggestedTypeLabel(column.suggestedType)}</td>
+                    <td>
+                      {column.typeMatchPercentage === null
+                        ? "—"
+                        : `${column.typeMatchPercentage.toFixed(1)}%`}
+                    </td>
+                    <td>{column.invalidTypeCount?.toLocaleString() ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="profile-note">
+            “Vacíos” incluye cadenas sin caracteres o compuestas solamente por espacios. Las
+            sugerencias requieren al menos tres valores y una coincidencia del 90%.
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
+function suggestedTypeLabel(type: string | null): string {
+  switch (type) {
+    case "boolean":
+      return "Booleano";
+    case "integer":
+      return "Entero";
+    case "decimal":
+      return "Decimal";
+    case "date":
+      return "Fecha";
+    default:
+      return "—";
+  }
+}
+
+function formatStatistic(value: number | null): string {
+  return value?.toLocaleString(undefined, { maximumFractionDigits: 3 }) ?? "—";
+}
