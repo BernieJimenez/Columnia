@@ -352,6 +352,7 @@ export interface ProjectOpenResult {
   project: ProjectSummary;
   dataset: DatasetPreview;
   workspace: ProjectWorkspace;
+  profile: DatasetProfile | null;
 }
 
 type ProgressHandler = (progress: OperationProgress) => void;

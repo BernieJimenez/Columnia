@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.25.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.26.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
-| Persistencia actual | Proyectos SQLite con snapshot Parquet, reglas de calidad y borrador de receta durables; perfil e historial permanecen temporales |
+| Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-21, rama `master`, commit base `21f7ecb` |
+| Última revisión de este documento | 2026-08-21, rama `master`, commit base `fd3494c` |
 
 ## Para qué existe este documento
 
@@ -100,7 +100,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, estados de dataset/proyectos y los 25 comandos permitidos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
-| `src-tauri/src/projects.rs` | Catálogo SQLite v2 compatible con v1, snapshots Parquet durables, workspace persistente y cinco comandos de proyectos. |
+| `src-tauri/src/projects.rs` | Catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, perfil e historial versionados y cinco comandos de proyectos. |
 | `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de `inspect`/`transform`/`validate`/`batch`. |
 | `src-tauri/src/bin/columnia-cli.rs` | Ejecutable CLI mínimo que delega en el módulo de automatización. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
@@ -142,7 +142,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 
 ### Historial y atomicidad
 
-Cada revisión reversible se guarda como snapshot Parquet en un directorio temporal:
+Cada revisión reversible de la sesión se guarda como snapshot Parquet en un directorio temporal:
 
 - máximo normal: 12 entradas;
 - presupuesto total: 1 GiB;
@@ -152,7 +152,7 @@ Cada revisión reversible se guarda como snapshot Parquet en un directorio tempo
 - `publish_candidate` prepara la vista previa y registra el historial antes de sustituir el `DataFrame` activo;
 - la exportación escribe y sincroniza un temporal antes de reemplazar el destino.
 
-Los proyectos guardan el frame materializado como una nueva generación Parquet y actualizan después el puntero SQLite dentro de una transacción. El esquema SQLite v2 conserva las reglas de calidad y el borrador opcional de receta, y migra catálogos v1 compatibles. Abrir prepara completamente el candidato y su workspace antes de sustituir el dataset activo. La recuperación es explícita desde Cargar; no abre datos silenciosamente. El perfil calculado y el historial Deshacer/Rehacer no se persisten y se reinician al abrir.
+Los proyectos guardan el frame materializado como una nueva generación Parquet y actualizan después el puntero SQLite dentro de una transacción. El esquema SQLite v3 conserva reglas de calidad, borrador opcional de receta, perfil cacheado y el historial con su cursor, y migra catálogos v1/v2 compatibles. El historial durable mantiene los mismos límites de 12 revisiones y 1 GiB. Abrir valida todos los artefactos antes de sustituir el dataset activo y copia el perfil e historial guardados a estructuras temporales de sesión; una corrupción hace fallar la apertura completa. La recuperación es explícita desde Cargar y no abre datos silenciosamente.
 
 ## Contrato React ↔ Rust
 
@@ -305,7 +305,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 121 pruebas frontend y 114 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 123 pruebas frontend y 120 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -314,7 +314,7 @@ Al revisar este documento había 121 pruebas frontend y 114 pruebas Rust; las ra
 - Shell Tauri, frontend React y motor Rust/Polars.
 - Instancia única en escritorio: una segunda apertura muestra, desminimiza y enfoca la ventana `main` existente.
 - Flujo Cargar → Revisar → Preparar → Entregar.
-- Formatos, perfiles, transformaciones, historial temporal, contratos y exportación descritos arriba.
+- Formatos, perfiles, transformaciones, historial de sesión, contratos y exportación descritos arriba.
 - CSP restrictiva, capability mínima y validación local centralizada.
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
@@ -327,14 +327,13 @@ Al revisar este documento había 121 pruebas frontend y 114 pruebas Rust; las ra
 - Fase Entregar extraída de `App.tsx` a un módulo con estados discriminados y pruebas propias.
 - Fase Preparar extraída a vistas, editor, historial, modelo y controlador; `App.tsx` queda como coordinador de las cuatro fases.
 - CLI batch v1 para 1–64 transformaciones, con preflight sin escrituras, colisiones rechazadas y atomicidad individual explícita.
-- Proyectos locales con catálogo SQLite v2 compatible con v1, snapshots Parquet durables, reglas de calidad, borrador opcional de receta y recuperación explícita aunque desaparezca la fuente original.
+- Proyectos locales con catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, reglas de calidad, borrador opcional, perfil cacheado, historial/cursor y recuperación explícita aunque desaparezca la fuente original.
 
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
 - DuckDB embebido;
-- persistencia dentro del proyecto para perfil e historial Deshacer/Rehacer; el snapshot materializado, las reglas de calidad y el borrador opcional de receta ya son durables;
-- automatización CLI de proyectos; el almacén v2 se resuelve actualmente mediante `app_data_dir` de Tauri;
+- automatización CLI de proyectos; el almacén v3 se resuelve actualmente mediante `app_data_dir` de Tauri;
 - joins, comparación de datasets y destinos de bases de datos;
 - E2E de flujos reales con datasets, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el smoke de arranque ya existe;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
@@ -346,9 +345,9 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
-3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 41 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 42 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
-5. **Persistencia parcial**: un proyecto recupera el dataset materializado, reglas de calidad y borrador de receta, pero el perfil y el historial temporal se pierden al cerrar.
+5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
 7. **Roadmap acumulativo**: contiene decisiones propuestas, aprobadas e implementadas; no todas reflejan dependencias presentes.
 8. **Sin CI por política**: la calidad depende de ejecutar y registrar correctamente los gates locales.
@@ -389,11 +388,12 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | Proyectos v1 persisten un catálogo SQLite y generaciones Parquet privadas; guardado, apertura, recuperación y borrado no exponen rutas a React. | `src-tauri/src/projects.rs`, `src/features/projects/`, `src/bridge.ts` |
 | 2026-08-21 | `LoadedDataset` separa identidad visible y ruta fuente opcional para que un proyecto siga funcionando después de borrar la fuente original. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
 | 2026-08-21 | La CLI ejecuta manifiestos batch v1 de hasta 64 trabajos, con preflight completo, outputs atómicos individuales y fallo parcial explícito por ordinal. | `src-tauri/src/automation.rs`, `tools/smoke-cli.ps1`, `fixtures/automation/` |
-| 2026-08-21 | Preparar e Historial se extrajeron a vistas, modelo y controlador IPC; `App.tsx` se redujo de 1,645 a 455 líneas. | `src/features/prepare/`, `src/App.tsx` |
+| 2026-08-21 | Preparar e Historial se extrajeron a vistas, modelo y controlador IPC; `App.tsx` bajó de 1,645 a 455 líneas en ese corte y hoy ronda 504 tras integrar proyectos. | `src/features/prepare/`, `src/features/projects/`, `src/App.tsx` |
 | 2026-08-21 | La CLI admite libros mediante hoja exacta y encabezado explícito, y valida contratos de calidad con salida JSON de conteos y códigos 0/2/1. | `src-tauri/src/automation.rs`, `src-tauri/src/dataset.rs`, `tools/smoke-cli.ps1` |
 | 2026-08-21 | Cargar y Revisar se extrajeron a módulos tipados y probados; `App.tsx` se redujo en otras 520 líneas. | `src/features/load/`, `src/features/review/`, `src/App.tsx` |
 | 2026-08-21 | La automatización local incorpora `columnia-cli inspect/transform` sobre el mismo motor Rust, con contratos JSON v1, rutas no expuestas y exportación atómica. | `src-tauri/src/automation.rs`, `src-tauri/src/bin/columnia-cli.rs` |

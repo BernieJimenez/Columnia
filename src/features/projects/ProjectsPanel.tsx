@@ -68,7 +68,7 @@ export function ProjectsPanel({
         <div>
           <p className="eyebrow">Continuidad local</p>
           <h3 id="projects-title">Proyectos</h3>
-          <p>Un proyecto conserva el snapshot, las reglas de calidad y el borrador de receta. El perfil y el historial temporal se reinician al abrirlo.</p>
+          <p>Un proyecto conserva el dataset, las reglas, el borrador, el perfil calculado y el historial reversible.</p>
         </div>
         {catalog.kind === "error" && (
           <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>
@@ -85,7 +85,7 @@ export function ProjectsPanel({
             <span>{recovery.name} · {recovery.datasetFileName}</span>
           </div>
           <button type="button" className="primary-action" onClick={() => onOpen(recovery.id)} disabled={disabled}>
-            Recuperar snapshot
+            Recuperar proyecto
           </button>
         </div>
       )}
@@ -146,7 +146,7 @@ export function ProjectsPanel({
         >
           <p className="eyebrow">Confirmación requerida</p>
           <h3 id="delete-project-title">Eliminar “{deletion.project.name}”</h3>
-          <p id="delete-project-description">Se borrará el snapshot persistente. El dataset abierto en memoria no se descartará.</p>
+          <p id="delete-project-description">Se borrarán el dataset, el perfil y el historial persistentes. El dataset abierto en memoria no se descartará.</p>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={onDeleteCancel} disabled={disabled}>Cancelar</button>
             <button type="button" className="danger-action" onClick={onDeleteConfirm} disabled={disabled}>Eliminar proyecto</button>

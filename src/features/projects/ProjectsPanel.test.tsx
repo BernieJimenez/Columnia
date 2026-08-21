@@ -39,11 +39,10 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ProjectsPanel>> = 
 }
 
 describe("ProjectsPanel", () => {
-  it("destaca la recuperación y explica con honestidad el alcance del snapshot", () => {
+  it("destaca la recuperación y explica el estado durable del proyecto", () => {
     const props = renderPanel();
-    expect(screen.getByText(/reglas de calidad y el borrador de receta/)).toBeInTheDocument();
-    expect(screen.getByText(/perfil y el historial temporal se reinician/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Recuperar snapshot" }));
+    expect(screen.getByText(/perfil calculado y el historial reversible/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Recuperar proyecto" }));
     expect(props.onOpen).toHaveBeenCalledWith("recovery-id");
     expect(screen.queryByText(/C:\\/)).not.toBeInTheDocument();
   });

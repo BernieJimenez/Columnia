@@ -45,12 +45,18 @@ catálogo usa SQLite y cada versión se publica como un snapshot Parquet privado
 en el directorio de datos de la aplicación. React recibe únicamente IDs opacos y
 metadatos; nunca las rutas internas.
 
-El esquema SQLite v2 conserva exactamente el dataset y su nombre visible aunque
-la fuente original haya desaparecido, además de las reglas de calidad y el
-borrador opcional de receta. Los catálogos v1 se migran de forma compatible al
-abrirse. El perfil calculado y el historial Deshacer/Rehacer siguen siendo
-temporales y se reinician al abrir un proyecto. Eliminar un proyecto no descarta
-el dataset que ya está abierto en memoria.
+El esquema SQLite v3 conserva exactamente el dataset y su nombre visible aunque
+la fuente original haya desaparecido, además de las reglas de calidad, el
+borrador opcional de receta, el perfil cacheado y el historial Deshacer/Rehacer
+con su cursor. Los catálogos v1 y v2 se migran de forma compatible al abrirse.
+Columnia valida el conjunto durable antes de activarlo; si un perfil o snapshot
+está corrupto, la apertura falla sin reemplazar el dataset actual.
+
+Al abrir correctamente, el perfil y las revisiones durables se copian a una
+sesión temporal para continuar trabajando sin modificar directamente los
+artefactos guardados. El historial conserva el máximo de doce revisiones y el
+presupuesto de 1 GiB. Eliminar un proyecto no descarta el dataset que ya está
+abierto en memoria.
 
 ## Desarrollo local
 
@@ -172,9 +178,10 @@ compactar espacios y decidir si se eliminan acentos. La interfaz informa cuánta
 celdas y filas cambiaron, conserva los nulos y permite deshacer el resultado.
 
 La barra **Continuidad de trabajo** permite recorrer hasta doce revisiones con
-Deshacer y Rehacer. Cada revisión se guarda localmente como un snapshot Parquet
-temporal, con un presupuesto total de 1 GiB; se elimina al cerrar o reemplazar la
-sesión. Si un único snapshot excede ese presupuesto, Columnia aplica el cambio,
+Deshacer y Rehacer. Durante la sesión, cada revisión vive como un snapshot Parquet
+temporal con un presupuesto total de 1 GiB. Guardar el dataset como proyecto
+conserva durablemente esa cadena y su cursor; abrirla crea una nueva copia temporal
+de trabajo. Si un único snapshot excede ese presupuesto, Columnia aplica el cambio,
 desactiva honestamente la reversión y muestra el motivo. **Aplicar recomendadas**
 agrupa el recorte exterior y la normalización de encabezados en una sola operación
 atómica: ambos cambios se publican juntos o el dataset permanece intacto.

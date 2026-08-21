@@ -38,7 +38,7 @@ function mockDatasetLoad(dataset: DatasetPreview) {
 }
 
 describe("App", () => {
-  it("restaura reglas y borrador de un proyecto con gates e historial temporal reiniciados", async () => {
+  it("restaura reglas y borrador de un proyecto y refresca gates e historial", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.25.0", platform: "windows" });
     const project: ProjectSummary = {
@@ -67,6 +67,12 @@ describe("App", () => {
         qualityRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
         recipeDraft: draft,
       },
+      profile: {
+        rowCount: 1,
+        duplicateRowCount: 0,
+        duplicatePercentage: 0,
+        columns: [],
+      },
     });
     vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
       selectionId: "external-selection", fileName: "externo.csv", fileSizeBytes: 64,
@@ -85,6 +91,8 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
     expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
+    expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
     fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
     expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).toBeChecked();
@@ -100,6 +108,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
     expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
@@ -108,6 +117,33 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Columna para renombrar 1" })).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeInTheDocument();
+  });
+
+  it("mantiene el perfil en idle cuando el proyecto no incluye uno durable", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.26.0", platform: "windows" });
+    const project: ProjectSummary = {
+      id: "project-without-profile", name: "Sin perfil", datasetFileName: "simple.csv",
+      rowCount: 1, columnCount: 1, createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
+    };
+    vi.spyOn(bridge, "listProjects").mockResolvedValue([project]);
+    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    vi.spyOn(bridge, "openProject").mockResolvedValue({
+      project,
+      dataset: {
+        fileName: "simple.csv", fileSizeBytes: 16, rowCount: 1, columnCount: 1,
+        columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+      },
+      workspace: { qualityRules: [], recipeDraft: null },
+      profile: null,
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
+
+    expect(await screen.findByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
+    expect(screen.queryByText("Filas analizadas")).not.toBeInTheDocument();
   });
 
   it("explica cómo conectar el motor cuando se abre en navegador", async () => {

@@ -113,10 +113,10 @@ export function App() {
     blocked: coreOperationBusy,
     hasDataset: datasetStatus.kind === "ready",
     workspace: { qualityRules: deliveryRules(deliveryContract), recipeDraft },
-    onProjectOpened: async ({ dataset, workspace }) => {
+    onProjectOpened: async ({ dataset, workspace, profile }) => {
       setDatasetStatus(createReadyDatasetStatus(dataset));
       setLoadInspection({ kind: "idle" });
-      setProfileStatus({ kind: "idle" });
+      setProfileStatus(profile ? { kind: "ready", profile } : { kind: "idle" });
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
       setDeliveryContract(deliveryContractFromRules(workspace.qualityRules));

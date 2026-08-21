@@ -190,8 +190,8 @@ pub struct DatasetPage {
     rows: Vec<Vec<Option<String>>>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ColumnProfile {
     name: String,
     data_type: String,
@@ -205,7 +205,7 @@ pub struct ColumnProfile {
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
     average_length: Option<f64>,
-    suggested_type: Option<&'static str>,
+    suggested_type: Option<String>,
     type_match_percentage: Option<f64>,
     invalid_type_count: Option<usize>,
     standard_deviation: Option<f64>,
@@ -215,8 +215,8 @@ pub struct ColumnProfile {
     outlier_count: Option<usize>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DatasetProfile {
     row_count: usize,
     duplicate_row_count: usize,
@@ -854,6 +854,44 @@ impl DatasetState {
     }
 }
 
+#[cfg(test)]
+impl DatasetState {
+    pub(crate) fn project_test_record(&self, frame: DataFrame, label: &str) -> Result<(), String> {
+        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
+        publish_candidate(dataset, frame, label).map(|_| ())
+    }
+
+    pub(crate) fn project_test_undo(&self) -> Result<DataFrame, String> {
+        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
+        undo_dataset(dataset)?;
+        Ok(dataset.frame.clone())
+    }
+
+    pub(crate) fn project_test_redo(&self) -> Result<DataFrame, String> {
+        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
+        redo_dataset(dataset)?;
+        Ok(dataset.frame.clone())
+    }
+
+    pub(crate) fn project_test_cache_profile(&self) -> Result<DatasetProfile, String> {
+        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
+        let profile = profile_dataset(&dataset.frame)?;
+        dataset.profile = Some(profile.clone());
+        Ok(profile)
+    }
+
+    pub(crate) fn project_test_degrade_history(&self) -> Result<(), String> {
+        let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
+        dataset.history = HistoryManager::with_limits(&dataset.frame, HISTORY_MAX_ENTRIES, 0)?;
+        Ok(())
+    }
+}
+
 fn ensure_not_cancelled(cancelled: bool) -> Result<(), String> {
     if cancelled {
         Err(OPERATION_CANCELLED_MESSAGE.to_owned())
@@ -1378,7 +1416,8 @@ where
                 .and_then(|statistics| statistics.average_length),
             suggested_type: text_statistics
                 .as_ref()
-                .and_then(|statistics| statistics.suggested_type),
+                .and_then(|statistics| statistics.suggested_type)
+                .map(str::to_owned),
             type_match_percentage: text_statistics
                 .as_ref()
                 .and_then(|statistics| statistics.type_match_percentage),
@@ -5446,6 +5485,35 @@ pub(crate) fn validate_project_workspace(
     Ok(())
 }
 
+pub(crate) fn validate_project_profile(
+    frame: &DataFrame,
+    profile: &DatasetProfile,
+) -> Result<(), String> {
+    let finite = |value: Option<f64>| value.is_none_or(f64::is_finite);
+    if !profile.duplicate_percentage.is_finite()
+        || !(0.0..=100.0).contains(&profile.duplicate_percentage)
+        || profile.columns.iter().any(|column| {
+            !column.completeness_percentage.is_finite()
+                || !(0.0..=100.0).contains(&column.completeness_percentage)
+                || !finite(column.mean)
+                || !finite(column.average_length)
+                || !finite(column.type_match_percentage)
+                || !finite(column.standard_deviation)
+                || !finite(column.first_quartile)
+                || !finite(column.median)
+                || !finite(column.third_quartile)
+        })
+    {
+        return Err("El perfil guardado contiene métricas no válidas.".to_owned());
+    }
+    let expected = profile_dataset_with_progress(frame, |_, _| {}, || false)
+        .map_err(|_| "No se pudo validar el perfil guardado.".to_owned())?;
+    if &expected != profile {
+        return Err("El perfil guardado no coincide con el dataset.".to_owned());
+    }
+    Ok(())
+}
+
 pub(crate) fn load_recipe_for_automation(input: &Path) -> Result<TransformRecipe, String> {
     load_recipe_file(input).map(|document| document.recipe)
 }
@@ -5474,6 +5542,41 @@ pub(crate) struct ActiveDatasetSnapshot {
     pub(crate) file_name: String,
     pub(crate) row_count: usize,
     pub(crate) column_count: usize,
+    pub(crate) profile: Option<DatasetProfile>,
+    pub(crate) history: ProjectHistoryCapture,
+}
+
+pub(crate) struct ProjectHistoryCaptureEntry {
+    pub(crate) label: String,
+    pub(crate) path: PathBuf,
+    pub(crate) bytes: u64,
+}
+
+pub(crate) struct ProjectHistoryCapture {
+    _directory: tempfile::TempDir,
+    pub(crate) entries: Vec<ProjectHistoryCaptureEntry>,
+    pub(crate) cursor: usize,
+    pub(crate) snapshots_enabled: bool,
+    pub(crate) degraded_reason: Option<String>,
+    pub(crate) current_label: String,
+    pub(crate) max_entries: usize,
+    pub(crate) disk_budget_bytes: u64,
+}
+
+pub(crate) struct ProjectHistoryRestoreEntry {
+    pub(crate) label: String,
+    pub(crate) path: PathBuf,
+    pub(crate) bytes: u64,
+}
+
+pub(crate) struct ProjectHistoryRestore {
+    pub(crate) entries: Vec<ProjectHistoryRestoreEntry>,
+    pub(crate) cursor: usize,
+    pub(crate) snapshots_enabled: bool,
+    pub(crate) degraded_reason: Option<String>,
+    pub(crate) current_label: String,
+    pub(crate) max_entries: usize,
+    pub(crate) disk_budget_bytes: u64,
 }
 
 pub(crate) struct ProjectDatasetCandidate {
@@ -5491,6 +5594,187 @@ impl ProjectDatasetCandidate {
     }
 }
 
+fn validate_history_label(label: &str) -> Result<(), String> {
+    let length = label.chars().count();
+    if !(1..=256).contains(&length) {
+        return Err("El historial del proyecto contiene una etiqueta no válida.".to_owned());
+    }
+    Ok(())
+}
+
+fn capture_project_history(
+    history: &HistoryManager,
+    current_frame: &DataFrame,
+) -> Result<ProjectHistoryCapture, String> {
+    if history.max_entries == 0
+        || history.max_entries > HISTORY_MAX_ENTRIES
+        || history.disk_budget_bytes > HISTORY_DISK_BUDGET_BYTES
+        || history.entries.len() > history.max_entries
+    {
+        return Err("El historial activo supera los límites del proyecto.".to_owned());
+    }
+    validate_history_label(&history.current_label)?;
+    if history.snapshots_enabled {
+        if history.entries.is_empty()
+            || history.cursor >= history.entries.len()
+            || history.degraded_reason.is_some()
+        {
+            return Err("El historial activo no tiene un estado consistente.".to_owned());
+        }
+    } else if !history.entries.is_empty()
+        || history.cursor != 0
+        || history
+            .degraded_reason
+            .as_deref()
+            .is_none_or(|reason| reason.trim().is_empty())
+    {
+        return Err("El historial degradado no tiene un estado consistente.".to_owned());
+    }
+
+    let directory = tempfile::tempdir()
+        .map_err(|_| "No se pudo preparar el historial del proyecto.".to_owned())?;
+    let mut entries = Vec::with_capacity(history.entries.len());
+    let mut total_bytes = 0_u64;
+    let mut cursor_matches = !history.snapshots_enabled;
+    for (index, entry) in history.entries.iter().enumerate() {
+        validate_history_label(&entry.label)?;
+        let metadata = fs::symlink_metadata(&entry.path)
+            .map_err(|_| "No se pudo leer el historial activo.".to_owned())?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != entry.bytes
+        {
+            return Err("El historial activo contiene un snapshot no válido.".to_owned());
+        }
+        total_bytes = total_bytes
+            .checked_add(entry.bytes)
+            .ok_or_else(|| "El historial activo supera los límites del proyecto.".to_owned())?;
+        if total_bytes > history.disk_budget_bytes {
+            return Err("El historial activo supera el presupuesto de disco.".to_owned());
+        }
+        let destination = directory.path().join(format!("entry-{index:03}.parquet"));
+        let copied = fs::copy(&entry.path, &destination)
+            .map_err(|_| "No se pudo preparar el historial del proyecto.".to_owned())?;
+        if copied != entry.bytes {
+            return Err("El historial activo cambió mientras se guardaba.".to_owned());
+        }
+        let staged_frame = ParquetReader::new(
+            File::open(&destination)
+                .map_err(|_| "No se pudo validar el historial activo.".to_owned())?,
+        )
+        .set_low_memory(true)
+        .read_parallel(ParallelStrategy::None)
+        .finish()
+        .map_err(|_| "El historial activo contiene un snapshot corrupto.".to_owned())?;
+        if index == history.cursor {
+            cursor_matches = staged_frame.equals_missing(current_frame);
+        }
+        entries.push(ProjectHistoryCaptureEntry {
+            label: entry.label.clone(),
+            path: destination,
+            bytes: copied,
+        });
+    }
+    if !cursor_matches {
+        return Err("El cursor del historial activo no coincide con el dataset.".to_owned());
+    }
+    Ok(ProjectHistoryCapture {
+        _directory: directory,
+        entries,
+        cursor: history.cursor,
+        snapshots_enabled: history.snapshots_enabled,
+        degraded_reason: history.degraded_reason.clone(),
+        current_label: history.current_label.clone(),
+        max_entries: history.max_entries,
+        disk_budget_bytes: history.disk_budget_bytes,
+    })
+}
+
+fn restore_project_history(
+    current_frame: &DataFrame,
+    history: ProjectHistoryRestore,
+) -> Result<HistoryManager, String> {
+    if history.max_entries == 0
+        || history.max_entries > HISTORY_MAX_ENTRIES
+        || history.disk_budget_bytes > HISTORY_DISK_BUDGET_BYTES
+        || history.entries.len() > history.max_entries
+    {
+        return Err("El historial guardado supera los límites admitidos.".to_owned());
+    }
+    validate_history_label(&history.current_label)?;
+    if history.snapshots_enabled {
+        if history.entries.is_empty()
+            || history.cursor >= history.entries.len()
+            || history.degraded_reason.is_some()
+        {
+            return Err("El historial guardado no tiene un cursor válido.".to_owned());
+        }
+    } else if !history.entries.is_empty()
+        || history.cursor != 0
+        || history
+            .degraded_reason
+            .as_deref()
+            .is_none_or(|reason| reason.trim().is_empty() || reason.chars().count() > 1024)
+    {
+        return Err("El historial degradado guardado no es válido.".to_owned());
+    }
+
+    let directory = tempfile::tempdir()
+        .map_err(|_| "No se pudo preparar el historial restaurado.".to_owned())?;
+    let mut entries = Vec::with_capacity(history.entries.len());
+    let mut restored_frames = Vec::with_capacity(history.entries.len());
+    let mut total_bytes = 0_u64;
+    for (index, entry) in history.entries.into_iter().enumerate() {
+        validate_history_label(&entry.label)?;
+        let metadata = fs::symlink_metadata(&entry.path)
+            .map_err(|_| "Un snapshot del historial no está disponible.".to_owned())?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != entry.bytes
+        {
+            return Err("Un snapshot del historial no es válido.".to_owned());
+        }
+        total_bytes = total_bytes
+            .checked_add(entry.bytes)
+            .ok_or_else(|| "El historial guardado supera su presupuesto.".to_owned())?;
+        if total_bytes > history.disk_budget_bytes {
+            return Err("El historial guardado supera su presupuesto.".to_owned());
+        }
+        let frame = ParquetReader::new(
+            File::open(&entry.path)
+                .map_err(|_| "No se pudo abrir un snapshot del historial.".to_owned())?,
+        )
+        .set_low_memory(true)
+        .read_parallel(ParallelStrategy::None)
+        .finish()
+        .map_err(|_| "Un snapshot del historial no contiene un Parquet válido.".to_owned())?;
+        let destination = directory
+            .path()
+            .join(format!("snapshot-{index:020}.parquet"));
+        let copied = fs::copy(&entry.path, &destination)
+            .map_err(|_| "No se pudo copiar el historial restaurado.".to_owned())?;
+        if copied != entry.bytes {
+            return Err("Un snapshot del historial cambió durante la apertura.".to_owned());
+        }
+        restored_frames.push(frame);
+        entries.push(HistoryEntry {
+            label: entry.label,
+            path: destination,
+            bytes: copied,
+        });
+    }
+    if history.snapshots_enabled && !restored_frames[history.cursor].equals_missing(current_frame) {
+        return Err("El cursor del historial no coincide con el dataset actual.".to_owned());
+    }
+    Ok(HistoryManager {
+        directory,
+        entries,
+        cursor: history.cursor,
+        snapshots_enabled: history.snapshots_enabled,
+        degraded_reason: history.degraded_reason,
+        current_label: history.current_label,
+        next_id: restored_frames.len() as u64,
+        max_entries: history.max_entries,
+        disk_budget_bytes: history.disk_budget_bytes,
+    })
+}
+
 impl DatasetState {
     pub(crate) fn active_project_snapshot(&self) -> Result<ActiveDatasetSnapshot, String> {
         let current = self
@@ -5505,12 +5789,23 @@ impl DatasetState {
             file_name: dataset.file_name.clone(),
             row_count: dataset.frame.height(),
             column_count: dataset.frame.width(),
+            profile: dataset.profile.clone(),
+            history: capture_project_history(&dataset.history, &dataset.frame)?,
         })
     }
 
     pub(crate) fn prepare_project_candidate(
         snapshot_path: PathBuf,
         file_name: String,
+    ) -> Result<ProjectDatasetCandidate, String> {
+        Self::prepare_durable_project_candidate(snapshot_path, file_name, None, None)
+    }
+
+    pub(crate) fn prepare_durable_project_candidate(
+        snapshot_path: PathBuf,
+        file_name: String,
+        profile: Option<DatasetProfile>,
+        history: Option<ProjectHistoryRestore>,
     ) -> Result<ProjectDatasetCandidate, String> {
         let file = File::open(&snapshot_path)
             .map_err(|_| "No se pudo abrir el snapshot del proyecto.".to_owned())?;
@@ -5524,15 +5819,21 @@ impl DatasetState {
             .len();
         let preview = dataset_preview_with_size(&file_name, file_size_bytes, &frame)
             .map_err(|_| "No se pudo preparar el dataset del proyecto.".to_owned())?;
-        let history = HistoryManager::new(&frame)
-            .map_err(|_| "No se pudo iniciar el historial temporal del proyecto.".to_owned())?;
+        if let Some(profile) = profile.as_ref() {
+            validate_project_profile(&frame, profile)?;
+        }
+        let history = match history {
+            Some(history) => restore_project_history(&frame, history)?,
+            None => HistoryManager::new(&frame)
+                .map_err(|_| "No se pudo iniciar el historial temporal del proyecto.".to_owned())?,
+        };
         Ok(ProjectDatasetCandidate {
             loaded: LoadedDataset {
                 source_path: None,
                 file_name,
                 file_size_bytes,
                 frame,
-                profile: None,
+                profile,
                 history,
             },
             preview,
@@ -6146,7 +6447,7 @@ mod tests {
         assert_eq!(temperature.maximum.as_deref(), Some("30"));
         assert_eq!(temperature.mean, Some(27.75));
         assert_eq!(temperature.empty_count, Some(0));
-        assert_eq!(temperature.suggested_type, Some("integer"));
+        assert_eq!(temperature.suggested_type, Some("integer".to_owned()));
         assert_eq!(temperature.first_quartile, Some(27.25));
         assert_eq!(temperature.median, Some(28.0));
         assert_eq!(temperature.third_quartile, Some(28.5));
@@ -6172,7 +6473,10 @@ mod tests {
         assert_eq!(profile.columns[0].suggested_type, None);
         assert_eq!(profile.columns[0].mean, None);
         assert_eq!(profile.columns[0].outlier_count, None);
-        assert_eq!(profile.columns[1].suggested_type, Some("decimal"));
+        assert_eq!(
+            profile.columns[1].suggested_type,
+            Some("decimal".to_owned())
+        );
         assert_eq!(profile.columns[1].minimum.as_deref(), Some("1"));
         assert!((profile.columns[1].mean.unwrap() - 2.166_666).abs() < 0.001);
         assert_eq!(profile.columns[2].suggested_type, None);
@@ -6411,7 +6715,7 @@ mod tests {
         let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
         let date = &profile.columns[0];
 
-        assert_eq!(date.suggested_type, Some("date"));
+        assert_eq!(date.suggested_type, Some("date".to_owned()));
         assert_eq!(date.type_match_percentage, Some(90.0));
         assert_eq!(date.invalid_type_count, Some(1));
 

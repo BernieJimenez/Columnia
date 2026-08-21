@@ -11,10 +11,12 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::dataset::{
-    validate_project_workspace, DatasetPreview, DatasetState, QualityRule, StoredTransformRecipe,
+    validate_project_profile, validate_project_workspace, DatasetPreview, DatasetProfile,
+    DatasetState, ProjectHistoryCapture, ProjectHistoryRestore, ProjectHistoryRestoreEntry,
+    QualityRule, StoredTransformRecipe,
 };
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const ID_LENGTH: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -35,6 +37,7 @@ pub struct ProjectOpenResult {
     pub project: ProjectSummary,
     pub dataset: DatasetPreview,
     pub workspace: ProjectWorkspace,
+    pub profile: Option<DatasetProfile>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -71,6 +74,30 @@ struct StoredProject {
     snapshot_name: String,
     quality_rules_json: String,
     recipe_draft_json: Option<String>,
+    generation_name: Option<String>,
+    history_manifest_json: Option<String>,
+    profile_json: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DurableHistoryManifest {
+    version: u32,
+    entries: Vec<DurableHistoryEntry>,
+    cursor: usize,
+    snapshots_enabled: bool,
+    degraded_reason: Option<String>,
+    current_label: String,
+    max_entries: usize,
+    disk_budget_bytes: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DurableHistoryEntry {
+    label: String,
+    file_name: String,
+    bytes: u64,
 }
 
 impl ProjectStore {
@@ -134,10 +161,13 @@ impl ProjectStore {
                            updated_at TEXT NOT NULL,
                            last_opened_at TEXT,
                            quality_rules_json TEXT NOT NULL DEFAULT '[]',
-                           recipe_draft_json TEXT
+                           recipe_draft_json TEXT,
+                           generation_name TEXT,
+                           history_manifest_json TEXT,
+                           profile_json TEXT
                          );
                          CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                         PRAGMA user_version = 2;",
+                         PRAGMA user_version = 3;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -151,7 +181,24 @@ impl ProjectStore {
                         "ALTER TABLE projects
                            ADD COLUMN quality_rules_json TEXT NOT NULL DEFAULT '[]';
                          ALTER TABLE projects ADD COLUMN recipe_draft_json TEXT;
-                         PRAGMA user_version = 2;",
+                         ALTER TABLE projects ADD COLUMN generation_name TEXT;
+                         ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
+                         ALTER TABLE projects ADD COLUMN profile_json TEXT;
+                         PRAGMA user_version = 3;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            2 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN generation_name TEXT;
+                         ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
+                         ALTER TABLE projects ADD COLUMN profile_json TEXT;
+                         PRAGMA user_version = 3;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -217,6 +264,9 @@ impl ProjectStore {
             &workspace.quality_rules,
             workspace.recipe_draft.as_ref(),
         )?;
+        if let Some(profile) = active.profile.as_ref() {
+            validate_project_profile(&active.frame, profile)?;
+        }
         let quality_rules_json = serde_json::to_string(&workspace.quality_rules)
             .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
         let recipe_draft_json = workspace
@@ -237,13 +287,23 @@ impl ProjectStore {
         }
         let generation = random_id(&connection)?;
         let snapshot_name = format!("{id}-{generation}.parquet");
-        let snapshot_path = self.snapshots.join(&snapshot_name);
+        let generation_name = format!("{id}-{generation}");
+        let generation_path = self.snapshots.join(&generation_name);
         let row_count = usize_to_i64(active.row_count)?;
         let column_count = usize_to_i64(active.column_count)?;
-        write_snapshot(&active.frame, &snapshot_path)?;
+        let history_manifest = history_manifest(&active.history);
+        let history_manifest_json = serde_json::to_string(&history_manifest)
+            .map_err(|_| "No se pudo validar el historial del proyecto.".to_owned())?;
+        let profile_json = active
+            .profile
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| "No se pudo validar el perfil del proyecto.".to_owned())?;
+        write_generation(&active.frame, &active.history, &generation_path)?;
 
         if fail_before_database {
-            let _ = fs::remove_file(&snapshot_path);
+            let _ = fs::remove_dir_all(&generation_path);
             return Err(storage_error());
         }
 
@@ -251,6 +311,9 @@ impl ProjectStore {
         let old_snapshot = existing
             .as_ref()
             .map(|project| project.snapshot_name.clone());
+        let old_generation = existing
+            .as_ref()
+            .and_then(|project| project.generation_name.clone());
         let created_at = existing
             .as_ref()
             .map(|project| project.summary.created_at.clone())
@@ -258,14 +321,15 @@ impl ProjectStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| {
-                let _ = fs::remove_file(&snapshot_path);
+                let _ = fs::remove_dir_all(&generation_path);
                 storage_error()
             })?;
         let database_result = if existing.is_some() {
             transaction.execute(
                 "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
                  column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
-                 quality_rules_json = ?7, recipe_draft_json = ?8 WHERE id = ?9",
+                 quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
+                 history_manifest_json = ?10, profile_json = ?11 WHERE id = ?12",
                 params![
                     name,
                     active.file_name,
@@ -275,6 +339,9 @@ impl ProjectStore {
                     timestamp,
                     quality_rules_json,
                     recipe_draft_json,
+                    generation_name,
+                    history_manifest_json,
+                    profile_json,
                     id
                 ],
             )
@@ -282,8 +349,9 @@ impl ProjectStore {
             transaction.execute(
                 "INSERT INTO projects
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
-                  created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9)",
+                  created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
+                  generation_name, history_manifest_json, profile_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     id,
                     name,
@@ -293,15 +361,22 @@ impl ProjectStore {
                     snapshot_name,
                     timestamp,
                     quality_rules_json,
-                    recipe_draft_json
+                    recipe_draft_json,
+                    generation_name,
+                    history_manifest_json,
+                    profile_json
                 ],
             )
         };
         if !matches!(database_result, Ok(1)) || transaction.commit().is_err() {
-            let _ = fs::remove_file(&snapshot_path);
+            let _ = fs::remove_dir_all(&generation_path);
             return Err(storage_error());
         }
-        if let Some(old_snapshot) = old_snapshot {
+        if let Some(old_generation) = old_generation {
+            if let Ok(path) = self.generation_path(&id, &old_generation) {
+                let _ = fs::remove_dir_all(path);
+            }
+        } else if let Some(old_snapshot) = old_snapshot {
             if let Ok(old_path) = self.snapshot_path(&id, &old_snapshot) {
                 let _ = fs::remove_file(old_path);
             }
@@ -327,12 +402,28 @@ impl ProjectStore {
         let stored = self
             .stored_project(&connection, &project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
-        let snapshot_path = self.snapshot_path(&project_id, &stored.snapshot_name)?;
-        let candidate = DatasetState::prepare_project_candidate(
-            snapshot_path,
-            stored.summary.dataset_file_name.clone(),
-        )?;
         let workspace = decode_workspace(&stored)?;
+        let profile = decode_profile(&stored)?;
+        let candidate = if let Some(generation_name) = stored.generation_name.as_deref() {
+            let generation = self.generation_path(&project_id, generation_name)?;
+            let current = self.generation_file(&generation, "current.parquet")?;
+            let history = self.decode_history(&stored, &generation)?;
+            DatasetState::prepare_durable_project_candidate(
+                current,
+                stored.summary.dataset_file_name.clone(),
+                profile.clone(),
+                Some(history),
+            )?
+        } else {
+            if stored.history_manifest_json.is_some() || profile.is_some() {
+                return Err("El estado persistente del proyecto no es consistente.".to_owned());
+            }
+            let snapshot_path = self.snapshot_path(&project_id, &stored.snapshot_name)?;
+            DatasetState::prepare_project_candidate(
+                snapshot_path,
+                stored.summary.dataset_file_name.clone(),
+            )?
+        };
         validate_project_workspace(
             candidate.frame(),
             &workspace.quality_rules,
@@ -362,6 +453,7 @@ impl ProjectStore {
             project: stored.summary,
             dataset,
             workspace,
+            profile,
         })
     }
 
@@ -371,7 +463,16 @@ impl ProjectStore {
         let stored = self
             .stored_project(&connection, &project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
-        let snapshot_path = self.managed_snapshot_path(&project_id, &stored.snapshot_name)?;
+        let generation_path = stored
+            .generation_name
+            .as_deref()
+            .map(|name| self.generation_path(&project_id, name))
+            .transpose()?;
+        let snapshot_path = if generation_path.is_none() {
+            Some(self.managed_snapshot_path(&project_id, &stored.snapshot_name)?)
+        } else {
+            None
+        };
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| storage_error())?;
@@ -383,6 +484,12 @@ impl ProjectStore {
             return Err("El proyecto solicitado no existe.".to_owned());
         }
         transaction.commit().map_err(|_| storage_error())?;
+        if let Some(generation_path) = generation_path {
+            return fs::remove_dir_all(generation_path).map_err(|_| {
+                "El proyecto se eliminó, pero no se pudo limpiar su generación.".to_owned()
+            });
+        }
+        let snapshot_path = snapshot_path.expect("la ruta legacy se calculó sin generación");
         if snapshot_path.exists() {
             reject_link_or_reparse(&snapshot_path)?;
         }
@@ -403,7 +510,8 @@ impl ProjectStore {
         connection
             .query_row(
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at,
-                        updated_at, snapshot_name, quality_rules_json, recipe_draft_json
+                        updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
+                        generation_name, history_manifest_json, profile_json
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -412,6 +520,9 @@ impl ProjectStore {
                         snapshot_name: row.get(7)?,
                         quality_rules_json: row.get(8)?,
                         recipe_draft_json: row.get(9)?,
+                        generation_name: row.get(10)?,
+                        history_manifest_json: row.get(11)?,
+                        profile_json: row.get(12)?,
                     })
                 },
             )
@@ -442,6 +553,86 @@ impl ProjectStore {
             .ok_or_else(storage_error)?;
         validate_id(generation)?;
         Ok(self.snapshots.join(snapshot_name))
+    }
+
+    fn generation_path(&self, id: &str, generation_name: &str) -> Result<PathBuf, String> {
+        validate_id(id)?;
+        let generation = generation_name
+            .strip_prefix(&format!("{id}-"))
+            .ok_or_else(storage_error)?;
+        validate_id(generation)?;
+        let candidate = self.snapshots.join(generation_name);
+        reject_link_or_reparse(&candidate)?;
+        let canonical = fs::canonicalize(&candidate)
+            .map_err(|_| "La generación del proyecto no está disponible.".to_owned())?;
+        if canonical.parent() != Some(self.snapshots.as_path())
+            || !canonical.starts_with(&self.root)
+            || !canonical.is_dir()
+        {
+            return Err(storage_error());
+        }
+        Ok(canonical)
+    }
+
+    fn generation_file(&self, generation: &Path, file_name: &str) -> Result<PathBuf, String> {
+        let valid_name = file_name == "current.parquet"
+            || file_name
+                .strip_prefix("history-")
+                .and_then(|value| value.strip_suffix(".parquet"))
+                .is_some_and(|value| {
+                    value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_digit())
+                });
+        if !valid_name {
+            return Err("El manifiesto del historial contiene un archivo no válido.".to_owned());
+        }
+        let candidate = generation.join(file_name);
+        reject_link_or_reparse(&candidate)?;
+        let canonical = fs::canonicalize(&candidate)
+            .map_err(|_| "Un archivo de la generación no está disponible.".to_owned())?;
+        if canonical.parent() != Some(generation) || !canonical.is_file() {
+            return Err(storage_error());
+        }
+        Ok(canonical)
+    }
+
+    fn decode_history(
+        &self,
+        stored: &StoredProject,
+        generation: &Path,
+    ) -> Result<ProjectHistoryRestore, String> {
+        let encoded = stored
+            .history_manifest_json
+            .as_deref()
+            .ok_or_else(|| "El proyecto no incluye un manifiesto de historial.".to_owned())?;
+        let manifest: DurableHistoryManifest = serde_json::from_str(encoded)
+            .map_err(|_| "El manifiesto del historial no es válido.".to_owned())?;
+        if manifest.version != 1 {
+            return Err("La versión del manifiesto del historial no es compatible.".to_owned());
+        }
+        let entries = manifest
+            .entries
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                if entry.file_name != format!("history-{index:03}.parquet") {
+                    return Err("El manifiesto del historial no tiene un orden válido.".to_owned());
+                }
+                Ok(ProjectHistoryRestoreEntry {
+                    label: entry.label,
+                    path: self.generation_file(generation, &entry.file_name)?,
+                    bytes: entry.bytes,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ProjectHistoryRestore {
+            entries,
+            cursor: manifest.cursor,
+            snapshots_enabled: manifest.snapshots_enabled,
+            degraded_reason: manifest.degraded_reason,
+            current_label: manifest.current_label,
+            max_entries: manifest.max_entries,
+            disk_budget_bytes: manifest.disk_budget_bytes,
+        })
     }
 }
 
@@ -474,6 +665,37 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         quality_rules,
         recipe_draft,
     })
+}
+
+fn decode_profile(stored: &StoredProject) -> Result<Option<DatasetProfile>, String> {
+    stored
+        .profile_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|_| "El perfil guardado del proyecto no es válido.".to_owned())
+}
+
+fn history_manifest(history: &ProjectHistoryCapture) -> DurableHistoryManifest {
+    DurableHistoryManifest {
+        version: 1,
+        entries: history
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| DurableHistoryEntry {
+                label: entry.label.clone(),
+                file_name: format!("history-{index:03}.parquet"),
+                bytes: entry.bytes,
+            })
+            .collect(),
+        cursor: history.cursor,
+        snapshots_enabled: history.snapshots_enabled,
+        degraded_reason: history.degraded_reason.clone(),
+        current_label: history.current_label.clone(),
+        max_entries: history.max_entries,
+        disk_budget_bytes: history.disk_budget_bytes,
+    }
 }
 
 fn validate_name(name: String) -> Result<String, String> {
@@ -550,6 +772,43 @@ fn write_snapshot(frame: &DataFrame, destination: &Path) -> Result<(), String> {
         .map_err(|_| storage_error())?;
     if sync_directory(parent).is_err() {
         let _ = fs::remove_file(destination);
+        return Err(storage_error());
+    }
+    Ok(())
+}
+
+fn write_generation(
+    frame: &DataFrame,
+    history: &ProjectHistoryCapture,
+    destination: &Path,
+) -> Result<(), String> {
+    if destination.exists() {
+        return Err(storage_error());
+    }
+    let parent = destination.parent().ok_or_else(storage_error)?;
+    let staging = tempfile::tempdir_in(parent).map_err(|_| storage_error())?;
+    write_snapshot(frame, &staging.path().join("current.parquet"))?;
+    for (index, entry) in history.entries.iter().enumerate() {
+        let target = staging.path().join(format!("history-{index:03}.parquet"));
+        let copied = fs::copy(&entry.path, &target).map_err(|_| storage_error())?;
+        if copied != entry.bytes {
+            return Err(storage_error());
+        }
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&target)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| storage_error())?;
+    }
+    sync_directory(staging.path())?;
+    let staging_path = staging.keep();
+    if fs::rename(&staging_path, destination).is_err() {
+        let _ = fs::remove_dir_all(staging_path);
+        return Err(storage_error());
+    }
+    if sync_directory(parent).is_err() {
+        let _ = fs::remove_dir_all(destination);
         return Err(storage_error());
     }
     Ok(())
@@ -638,8 +897,8 @@ pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), St
     run_project_operation(app, move |store, _| store.delete(project_id)).await
 }
 
-// El historial durable queda deliberadamente fuera de proyectos v1. Cada apertura crea
-// un HistoryManager temporal nuevo a partir del snapshot persistente actual.
+// Los proyectos v3 persisten el historial, pero cada apertura lo copia a un TempDir nuevo:
+// undo/redo posteriores nunca modifican la generación durable hasta el próximo guardado.
 
 #[cfg(test)]
 mod tests {
@@ -770,7 +1029,45 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         drop(store);
-        ProjectStore::initialize(root).expect("reabrir v2 debe ser idempotente");
+        ProjectStore::initialize(root).expect("reabrir v3 debe ser idempotente");
+    }
+
+    #[test]
+    fn migration_from_v2_adds_durable_state_columns_transactionally() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data-v2");
+        fs::create_dir_all(&root).unwrap();
+        Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE projects (
+                   id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL,
+                   dataset_file_name TEXT NOT NULL, row_count INTEGER NOT NULL,
+                   column_count INTEGER NOT NULL, snapshot_name TEXT NOT NULL UNIQUE,
+                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_opened_at TEXT,
+                   quality_rules_json TEXT NOT NULL DEFAULT '[]', recipe_draft_json TEXT
+                 );
+                 CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
+                 PRAGMA user_version = 2;",
+            )
+            .unwrap();
+
+        let store = ProjectStore::initialize(root).unwrap();
+        let connection = store.connection().unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let columns = connection
+            .prepare("PRAGMA table_info(projects)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"generation_name".to_owned()));
+        assert!(columns.contains(&"history_manifest_json".to_owned()));
+        assert!(columns.contains(&"profile_json".to_owned()));
     }
 
     #[test]
@@ -780,7 +1077,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 3;")
+            .execute_batch("PRAGMA user_version = 4;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -792,7 +1089,7 @@ mod tests {
             .unwrap()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -820,6 +1117,76 @@ mod tests {
     }
 
     #[test]
+    fn profile_and_history_cursor_roundtrip_across_restart_with_working_undo_redo() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data");
+        let store = ProjectStore::initialize(root.clone()).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "history.csv");
+        state
+            .project_test_record(frame(&[1, 2, 3]), "Agregar fila")
+            .unwrap();
+        state
+            .project_test_record(frame(&[9]), "Reemplazar contenido")
+            .unwrap();
+        assert!(state
+            .project_test_undo()
+            .unwrap()
+            .equals_missing(&frame(&[1, 2, 3])));
+        let expected_profile = state.project_test_cache_profile().unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Con historia".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        drop(store);
+
+        let reopened = ProjectStore::initialize(root).unwrap();
+        let restored = DatasetState::default();
+        let result = reopened.open(&restored, project.id).unwrap();
+        assert_eq!(result.profile, Some(expected_profile));
+        assert!(restored
+            .project_test_undo()
+            .unwrap()
+            .equals_missing(&frame(&[1, 2])));
+        assert!(restored
+            .project_test_redo()
+            .unwrap()
+            .equals_missing(&frame(&[1, 2, 3])));
+        assert!(restored
+            .project_test_redo()
+            .unwrap()
+            .equals_missing(&frame(&[9])));
+    }
+
+    #[test]
+    fn degraded_history_restores_honestly_around_the_current_frame() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[5, 6], "degraded.csv");
+        state.project_test_degrade_history().unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Degradado".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let restored = DatasetState::default();
+        store.open(&restored, project.id).unwrap();
+
+        let active = restored.active_project_snapshot().unwrap();
+        assert!(!active.history.snapshots_enabled);
+        assert!(active.history.entries.is_empty());
+        assert!(active.history.degraded_reason.is_some());
+        assert!(active.frame.equals_missing(&frame(&[5, 6])));
+        assert!(restored.project_test_undo().is_err());
+    }
+
+    #[test]
     fn create_update_list_recovery_and_delete_preserve_active_dataset() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
@@ -841,6 +1208,17 @@ mod tests {
         assert_eq!(store.list().unwrap(), vec![created.clone()]);
         assert_eq!(store.recovery_candidate().unwrap(), Some(created.clone()));
         assert_eq!(snapshot_count(&store), 1);
+        let first_stored = store
+            .stored_project(&store.connection().unwrap(), &created.id)
+            .unwrap()
+            .unwrap();
+        let first_generation = store
+            .generation_path(
+                &created.id,
+                first_stored.generation_name.as_deref().unwrap(),
+            )
+            .unwrap();
+        assert!(fs::read_dir(&first_generation).unwrap().count() >= 2);
 
         let updated = store
             .save(
@@ -854,10 +1232,22 @@ mod tests {
         assert_eq!(updated.created_at, created.created_at);
         assert_eq!(updated.name, "Renombrado");
         assert_eq!(snapshot_count(&store), 1, "el snapshot anterior se limpia");
+        assert!(!first_generation.exists());
+        let second_stored = store
+            .stored_project(&store.connection().unwrap(), &created.id)
+            .unwrap()
+            .unwrap();
+        let second_generation = store
+            .generation_path(
+                &created.id,
+                second_stored.generation_name.as_deref().unwrap(),
+            )
+            .unwrap();
 
         store.delete(created.id).unwrap();
         assert!(store.list().unwrap().is_empty());
         assert_eq!(snapshot_count(&store), 0);
+        assert!(!second_generation.exists());
         assert_eq!(state.active_project_snapshot().unwrap().row_count, 3);
     }
 
@@ -911,6 +1301,11 @@ mod tests {
         let created = store
             .save(&state, None, "Original".to_owned(), workspace())
             .unwrap();
+        let before = store
+            .stored_project(&store.connection().unwrap(), &created.id)
+            .unwrap()
+            .unwrap();
+        let before_generation = before.generation_name.clone();
         let error = store
             .save_inner(
                 &state,
@@ -928,6 +1323,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(decode_workspace(&stored).unwrap(), workspace());
+        assert_eq!(stored.generation_name, before_generation);
     }
 
     #[test]
@@ -1022,6 +1418,125 @@ mod tests {
     }
 
     #[test]
+    fn corrupt_non_current_history_snapshot_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "project.csv");
+        state
+            .project_test_record(frame(&[1, 2, 3]), "Paso 1")
+            .unwrap();
+        state.project_test_record(frame(&[9]), "Paso 2").unwrap();
+        state.project_test_undo().unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let stored = store
+            .stored_project(&store.connection().unwrap(), &project.id)
+            .unwrap()
+            .unwrap();
+        let generation = store
+            .generation_path(&project.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
+        fs::write(generation.join("history-000.parquet"), b"corrupt").unwrap();
+        let (target, _) = active_state(directory.path(), &[42], "active.csv");
+
+        assert!(store.open(&target, project.id).is_err());
+        assert_eq!(
+            target.active_project_snapshot().unwrap().file_name,
+            "active.csv"
+        );
+    }
+
+    #[test]
+    fn corrupt_history_manifest_and_limits_fail_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1], "project.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let connection = store.connection().unwrap();
+        let encoded: String = connection
+            .query_row(
+                "SELECT history_manifest_json FROM projects WHERE id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        manifest["maxEntries"] = serde_json::json!(13);
+        connection
+            .execute(
+                "UPDATE projects SET history_manifest_json = ?1 WHERE id = ?2",
+                params![serde_json::to_string(&manifest).unwrap(), project.id],
+            )
+            .unwrap();
+        let (target, _) = active_state(directory.path(), &[42], "active.csv");
+        assert!(store.open(&target, project.id.clone()).is_err());
+        assert_eq!(
+            target.active_project_snapshot().unwrap().file_name,
+            "active.csv"
+        );
+
+        connection
+            .execute(
+                "UPDATE projects SET history_manifest_json = '{}' WHERE id = ?1",
+                params![project.id],
+            )
+            .unwrap();
+        assert!(store.open(&target, project.id).is_err());
+    }
+
+    #[test]
+    fn tampered_profile_fails_closed_before_dataset_activation() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "project.csv");
+        state.project_test_cache_profile().unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let connection = store.connection().unwrap();
+        let encoded: String = connection
+            .query_row(
+                "SELECT profile_json FROM projects WHERE id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut profile: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        profile["duplicatePercentage"] = serde_json::json!(200.0);
+        connection
+            .execute(
+                "UPDATE projects SET profile_json = ?1 WHERE id = ?2",
+                params![serde_json::to_string(&profile).unwrap(), project.id],
+            )
+            .unwrap();
+        let (target, _) = active_state(directory.path(), &[42], "active.csv");
+
+        assert!(store.open(&target, project.id).is_err());
+        assert_eq!(
+            target.active_project_snapshot().unwrap().file_name,
+            "active.csv"
+        );
+    }
+
+    #[test]
     fn invalid_names_and_ids_are_rejected_without_creating_files() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
@@ -1081,8 +1596,8 @@ mod tests {
             .connection()
             .unwrap()
             .execute(
-                "UPDATE projects SET snapshot_name = ?1 WHERE id = ?2",
-                params!["../escape.parquet", project.id],
+                "UPDATE projects SET generation_name = ?1 WHERE id = ?2",
+                params!["../escape", project.id],
             )
             .unwrap();
         let error = store
@@ -1140,8 +1655,11 @@ mod tests {
             .stored_project(&store.connection().unwrap(), &project.id)
             .unwrap()
             .unwrap();
+        let generation = store
+            .generation_path(&project.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
         let snapshot = store
-            .managed_snapshot_path(&project.id, &stored.snapshot_name)
+            .generation_file(&generation, "current.parquet")
             .unwrap();
         let outside = directory.path().join("outside.parquet");
         fs::rename(&snapshot, &outside).unwrap();
@@ -1170,8 +1688,11 @@ mod tests {
             .stored_project(&store.connection().unwrap(), &project.id)
             .unwrap()
             .unwrap();
+        let generation = store
+            .generation_path(&project.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
         let snapshot = store
-            .managed_snapshot_path(&project.id, &stored.snapshot_name)
+            .generation_file(&generation, "current.parquet")
             .unwrap();
         let outside = directory.path().join("outside.parquet");
         fs::rename(&snapshot, &outside).unwrap();

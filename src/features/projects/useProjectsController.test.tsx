@@ -38,7 +38,7 @@ beforeEach(() => {
   bridge.listProjects.mockResolvedValue([summary]);
   bridge.getRecoveryCandidate.mockResolvedValue(summary);
   bridge.saveProject.mockResolvedValue(summary);
-  bridge.openProject.mockResolvedValue({ project: summary, dataset, workspace } satisfies ProjectOpenResult);
+  bridge.openProject.mockResolvedValue({ project: summary, dataset, workspace, profile: null } satisfies ProjectOpenResult);
   bridge.deleteProject.mockResolvedValue(undefined);
 });
 
@@ -67,7 +67,7 @@ describe("useProjectsController", () => {
     }));
     await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
     await act(async () => result.current.open(summary.id));
-    expect(onProjectOpened).toHaveBeenCalledWith({ project: summary, dataset, workspace });
+    expect(onProjectOpened).toHaveBeenCalledWith({ project: summary, dataset, workspace, profile: null });
     expect(result.current.activeProject).toEqual(summary);
     expect(result.current.operation.kind).toBe("success");
   });

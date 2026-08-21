@@ -12,6 +12,7 @@ import {
   getHistoryState,
   normalizeColumnNames,
   normalizeTextValues,
+  openProject,
   discardDatasetSelection,
   loadDatasetSelection,
   pickDatasetSource,
@@ -239,6 +240,21 @@ describe("desktop bridge", () => {
     await saveProject(null, "Ventas", workspace);
 
     expect(invoke).toHaveBeenCalledWith("save_project", { projectId: null, name: "Ventas", workspace });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
+  });
+
+  it("abre un proyecto con perfil durable opcional sin exponer rutas", async () => {
+    const result = {
+      project: { id: "project-1", name: "Ventas" },
+      dataset: { fileName: "ventas.csv" },
+      workspace: { qualityRules: [], recipeDraft: null },
+      profile: null,
+    };
+    vi.mocked(invoke).mockResolvedValue(result);
+
+    await expect(openProject("project-1")).resolves.toEqual(result);
+
+    expect(invoke).toHaveBeenCalledWith("open_project", { projectId: "project-1" });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
   });
 
