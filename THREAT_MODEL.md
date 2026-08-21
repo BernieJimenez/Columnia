@@ -1,10 +1,10 @@
 # Threat model vivo de Columnia
 
-> Estado verificado el 2026-08-20. Este documento describe el sistema implementado, no una garantía absoluta de seguridad. Debe actualizarse cuando cambien datos, IPC, permisos, red, parsers, persistencia o distribución.
+> Estado verificado el 2026-08-21. Este documento describe el sistema implementado, no una garantía absoluta de seguridad. Debe actualizarse cuando cambien datos, IPC, permisos, red, parsers, persistencia o distribución.
 
 ## Alcance y supuestos
 
-Columnia es una aplicación de escritorio Tauri que procesa datasets locales con React, Rust y Polars. Este modelo cubre la ventana `main`, el puente IPC, el motor de datos, archivos elegidos por la persona, snapshots temporales, recetas y exportaciones.
+Columnia es una aplicación de escritorio Tauri y una CLI que procesan datasets locales con React, Rust y Polars. Este modelo cubre la ventana `main`, el puente IPC, `columnia-cli`, el motor de datos, archivos elegidos por la persona, snapshots temporales, recetas y exportaciones.
 
 Se asume que el sistema operativo, Tauri/WebView y la cuenta local funcionan como fronteras externas. Un atacante con control de la cuenta, del proceso o del sistema operativo queda fuera de las garantías actuales. Tampoco se afirma resistencia criptográfica, aislamiento frente a malware local ni seguridad de formatos que aún no se hayan probado de forma adversarial.
 
@@ -33,6 +33,8 @@ React/WebView                  snapshots y exportaciones
           |
           v
 CSP + capability de ventana
+
+CLI + argumentos ------------> motor Rust compartido
 ```
 
 1. **Archivo → Rust:** CSV, JSON, Parquet y hojas de cálculo son entrada no confiable aunque provengan del disco local.
@@ -40,6 +42,7 @@ CSP + capability de ventana
 3. **Rust → filesystem:** lecturas, temporales, snapshots y exportaciones cruzan una frontera con efectos persistentes.
 4. **Aplicación → dependencias/plataforma:** Tauri, WebView, Polars, Calamine y demás crates o paquetes forman parte de la cadena de suministro.
 5. **Desarrollo → producción:** desarrollo permite Vite y WebSocket locales; producción usa una CSP más cerrada.
+6. **Shell local → CLI:** quien ejecuta la CLI proporciona rutas deliberadamente; el proceso reutiliza las validaciones y operaciones del motor, sin la mediación de diálogos ni el sandbox de la WebView.
 
 ## Adversarios y no objetivos
 
@@ -66,6 +69,7 @@ No objetivos actuales:
 | Selección y lectura de archivos | Traversal, symlinks, reparse points, directorios usados como archivos, formatos falsos | Rust mantiene las rutas privadas; canonicaliza lecturas; exige archivos regulares; rechaza symlinks y reparse points en entradas actuales | Un parser vulnerable sigue pudiendo fallar después de validar la ruta. La extensión no prueba que el contenido sea seguro. |
 | Parsers de CSV, JSON, Parquet y hojas | Corrupción, payloads patológicos, descompresión o consumo excesivo | UTF-8 estricto para texto; límite provisional de archivo de 500 MiB; validaciones de formato y pruebas funcionales | No hay presupuesto estricto de RAM/CPU ni análisis adversarial completo por formato. El límite de archivo no equivale a un límite de memoria. |
 | IPC React ↔ Rust | Invocación inesperada, deriva de contratos, argumentos manipulados, fuga de rutas | Solo se registran 20 comandos; fachada TypeScript centralizada; gate de contrato compara comandos, argumentos y tipos compartidos; IDs opacos evitan exponer rutas; recetas y reglas de calidad tienen presupuestos semánticos validados en Rust | La UI comprometida puede intentar cualquier comando registrado. Los presupuestos actuales se aplican después de deserializar y no limitan el transporte bruto. Cada comando nuevo debe validar sus argumentos y autorización de estado en Rust. |
+| CLI local | Rutas manipuladas, receta inválida, sobrescritura parcial o fuga de rutas/datos en resultados automatizados | Parser estricto; canonicalización y límite de 500 MiB compartidos; validación de receta antes de escribir; exportación atómica; JSON v1 y errores sin rutas ni valores; smoke real de CSV/Parquet y fallos | La CLI hereda la autoridad de la cuenta local y no es un sandbox ni autenticación. La persona puede apuntar a archivos sensibles. Libros y reglas de calidad aún no forman parte de esta superficie. |
 | Capability y plugins Tauri | Ampliar acceso a filesystem, shell, HTTP o apertura externa | `main` tiene únicamente `core:default`; no existen permisos frontend de filesystem, shell, HTTP u opener; diálogo y archivos se operan desde Rust | `core:default` y cada plugin futuro deben revisarse al actualizar Tauri. Añadir una permission por comodidad rompería el principio de mínimo privilegio. |
 | WebView y contenido frontend | XSS, navegación o conexión remota, carga de contenido externo | CSP de producción limitada a `self`; bloquea objetos y frames; `connect-src` solo admite `self` e IPC local | `style-src` permite `unsafe-inline`. La CSP reduce impacto, pero no sustituye evitar inyección. La CSP de desarrollo admite Vite y WebSocket locales. |
 | Transformaciones e historial | Resultado parcial, corrupción de estado, datos previos irrecuperables | Las recetas compuestas publican un único candidato o revierten; Deshacer/Rehacer usa snapshots Parquet; los cambios invalidan perfil y validación previa | Los snapshots son temporales, tienen límites de cantidad/disco y no están documentados como cifrados. Un snapshot demasiado grande puede desactivar reversión. |
@@ -87,6 +91,7 @@ No objetivos actuales:
 - Neutralización de fórmulas en texto CSV sin modificar columnas tipadas ni exportaciones Parquet.
 - Presupuestos semánticos de recetas y reglas de calidad aplicados por Rust en todas sus entradas.
 - SBOM reproducible y gates offline que fijan registros oficiales, checksums y ausencia de fuentes Git.
+- CLI con parser estricto, resultados JSON versionados sin rutas y reutilización de los controles de lectura, receta y exportación del motor.
 
 ## Riesgos residuales prioritarios
 
@@ -110,6 +115,7 @@ Antes de integrar un cambio, responde y verifica:
 - [ ] ¿Una escritura usa temporal y reemplazo seguro sin destruir el archivo anterior ante fallo o cancelación?
 - [ ] ¿La operación tiene límites de memoria, CPU, disco y cardinalidad proporcionales al input?
 - [ ] ¿Errores, eventos, resultados y reportes evitan rutas, credenciales y muestras de datos?
+- [ ] Si cambia la CLI, ¿sus contratos siguen versionados, deterministas y libres de rutas o valores sensibles?
 - [ ] ¿Una transformación completa sigue siendo atómica y conserva una política explícita de reversión?
 - [ ] ¿Se probaron entradas malformadas, límites, cancelación, rollback y diferencias de plataforma aplicables?
 - [ ] ¿El gate IPC y el perfil `Full` pasan? Para distribución, ¿pasa también `Release`?

@@ -64,9 +64,9 @@ impl ExportFormat {
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportResult {
-    file_name: String,
-    file_size_bytes: u64,
-    format: &'static str,
+    pub(crate) file_name: String,
+    pub(crate) file_size_bytes: u64,
+    pub(crate) format: &'static str,
 }
 
 const MAX_QUALITY_RULES: usize = 16;
@@ -135,18 +135,18 @@ fn send_progress(
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetColumn {
-    name: String,
-    data_type: String,
+    pub(crate) name: String,
+    pub(crate) data_type: String,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetPreview {
-    file_name: String,
+    pub(crate) file_name: String,
     file_size_bytes: u64,
-    row_count: usize,
-    column_count: usize,
-    columns: Vec<DatasetColumn>,
+    pub(crate) row_count: usize,
+    pub(crate) column_count: usize,
+    pub(crate) columns: Vec<DatasetColumn>,
     rows: Vec<Vec<Option<String>>>,
 }
 
@@ -5316,6 +5316,36 @@ fn apply_recipe_to_frame(
         normalized_contact_column_count,
         extracted_column_count,
     ))
+}
+
+pub(crate) fn load_dataset_for_automation(
+    input: &Path,
+) -> Result<(DataFrame, DatasetPreview), String> {
+    let canonical = canonicalize_existing_file(input, "el dataset de automatización")?;
+    load_dataset_with_progress(&canonical, |_, _| {}, || false)
+}
+
+pub(crate) fn load_recipe_for_automation(input: &Path) -> Result<TransformRecipe, String> {
+    load_recipe_file(input).map(|document| document.recipe)
+}
+
+pub(crate) fn apply_recipe_for_automation(
+    source: &DataFrame,
+    recipe: &TransformRecipe,
+) -> Result<(DataFrame, bool), String> {
+    validate_recipe_structure(recipe)?;
+    let outcome = apply_recipe_to_frame(source, recipe)?;
+    let candidate = outcome.0;
+    let changed = !candidate.equals_missing(source);
+    Ok((candidate, changed))
+}
+
+pub(crate) fn export_frame_for_automation(
+    frame: &DataFrame,
+    output: &Path,
+    format: ExportFormat,
+) -> Result<ExportResult, String> {
+    export_frame_atomic(frame, output, format, |_, _| {}, || false)
 }
 
 fn apply_recipe_to_dataset(

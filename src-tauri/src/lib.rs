@@ -3,6 +3,7 @@ use serde::Serialize;
 #[cfg(desktop)]
 use tauri::Manager;
 
+pub mod automation;
 mod dataset;
 
 #[derive(Debug, Serialize, PartialEq)]

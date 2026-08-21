@@ -3,6 +3,7 @@ name = "columnia"
 version = "0.24.0"
 description = "Estación local para preparar datos confiables"
 edition = "2021"
+default-run = "columnia"
 
 [lib]
 name = "columnia_lib"

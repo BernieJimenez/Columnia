@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "Automation smoke",
+  "savedAt": "2026-01-01T00:00:00Z",
+  "recipe": {
+    "renames": [
+      {
+        "from": "amount",
+        "to": "total"
+      }
+    ],
+    "casts": [],
+    "dateParses": [],
+    "filters": [],
+    "calculatedColumn": null,
+    "findReplace": null,
+    "keepColumns": null,
+    "splitColumn": null,
+    "mergeColumns": null,
+    "outlierTreatments": [],
+    "groupSummary": null,
+    "contactNormalizations": [],
+    "textExtractions": []
+  }
+}

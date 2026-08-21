@@ -3,6 +3,17 @@ import { useEffect, useRef, useState } from "react";
 import { ModalDialog } from "./components/ModalDialog";
 import { OperationProgressView } from "./components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "./components/ReviewTabList";
+import { DatasetMetrics } from "./features/delivery/DatasetMetrics";
+import { DeliveryPhase } from "./features/delivery/DeliveryPhase";
+import {
+  INITIAL_DELIVERY_CONTRACT,
+  invalidateDeliveryContract,
+  reduceDeliveryContract,
+  type DeliveryContractAction,
+  type DeliveryContractState,
+  type DeliveryExportRequest,
+  type DeliveryExportState,
+} from "./features/delivery/deliveryModel";
 
 import {
   applySafeCorrections,
@@ -24,18 +35,12 @@ import {
   saveTransformRecipe,
   trimTextValues,
   undoLastChange,
-  validateQualityRules,
   type AppInfo,
   type CancellableOperation,
   type DatasetPreview,
   type DatasetProfile,
   type DatasetSourceInspection,
-  type ExportFormat,
-  type ExportResult,
   type OperationProgress,
-  type QualityRule,
-  type QualityRuleKind,
-  type QualityValidationResult,
   type HistoryState,
   type LoadedRecipe,
   type SpreadsheetHeaderMode,
@@ -100,24 +105,6 @@ const EMPTY_HISTORY: HistoryState = {
   snapshotsEnabled: true, degradedReason: null, maxEntries: 0, diskBytes: 0, diskBudgetBytes: 0,
 };
 
-type ExportStatus =
-  | { kind: "idle" }
-  | {
-      kind: "loading";
-      format: ExportFormat;
-      progress: OperationProgress;
-      cancelRequested: boolean;
-    }
-  | { kind: "success"; result: ExportResult }
-  | { kind: "error"; message: string };
-
-type QualityGateStatus =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "ready"; result: QualityValidationResult }
-  | { kind: "stale"; result: QualityValidationResult }
-  | { kind: "error"; message: string };
-
 const phases = [
   { id: "load", number: "01", label: "Cargar", description: "Elegir una fuente local" },
   { id: "review", number: "02", label: "Revisar", description: "Entender señales y calidad" },
@@ -131,12 +118,6 @@ function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
-function readableFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 function isCancellationError(error: unknown): boolean {
   return String(error).includes("cancelada por el usuario");
 }
@@ -147,10 +128,8 @@ export function App() {
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
   const [historyStatus, setHistoryStatus] = useState<HistoryState>(EMPTY_HISTORY);
-  const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle" });
-  const [qualityRules, setQualityRules] = useState<QualityRule[]>([]);
-  const [qualityGateStatus, setQualityGateStatus] = useState<QualityGateStatus>({ kind: "idle" });
-  const [allowUnvalidatedExport, setAllowUnvalidatedExport] = useState(false);
+  const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
+  const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [sheetSelection, setSheetSelection] = useState<DatasetSourceInspection | null>(null);
@@ -209,11 +188,13 @@ export function App() {
   }
 
   function invalidateDeliveryGate() {
-    setQualityGateStatus((current) => current.kind === "ready" || current.kind === "stale"
-      ? { kind: "stale", result: current.result }
-      : { kind: "idle" });
-    setAllowUnvalidatedExport(false);
+    setDeliveryContract(invalidateDeliveryContract);
     setExportStatus({ kind: "idle" });
+  }
+
+  function updateDeliveryContract(action: DeliveryContractAction) {
+    setDeliveryContract((current) => reduceDeliveryContract(current, action));
+    if (action.kind === "rules_changed") setExportStatus({ kind: "idle" });
   }
 
   async function loadSelection(
@@ -534,7 +515,7 @@ export function App() {
       );
     } else {
       setExportStatus((current) =>
-        current.kind === "loading" ? { ...current, cancelRequested: true } : current,
+        current.kind === "loading" ? { ...current, cancellation: "requested" } : current,
       );
     }
 
@@ -552,20 +533,18 @@ export function App() {
     }
   }
 
-  async function exportActiveDataset(
-    format: ExportFormat,
-    rules: QualityRule[],
-    allowUnvalidated: boolean,
-  ) {
+  async function exportActiveDataset(request: DeliveryExportRequest) {
     if (datasetStatus.kind !== "ready") return;
+    const rules = request.validation.kind === "contract" ? request.validation.rules : [];
+    const allowUnvalidated = request.validation.kind === "explicitly_unvalidated";
     setExportStatus({
       kind: "loading",
-      format,
+      format: request.format,
       progress: { operation: "export", stage: "Esperando destino", percent: 0 },
-      cancelRequested: false,
+      cancellation: "available",
     });
     try {
-      const result = await exportDataset(format, rules, allowUnvalidated, (progress) => {
+      const result = await exportDataset(request.format, rules, allowUnvalidated, (progress) => {
         setExportStatus((current) =>
           current.kind === "loading" ? { ...current, progress } : current,
         );
@@ -610,7 +589,7 @@ export function App() {
     datasetStatus.kind === "loading" ||
     profileStatus.kind === "loading" ||
     changeStatus.kind === "working" ||
-    qualityGateStatus.kind === "loading" ||
+    deliveryContract.gate.kind === "loading" ||
     exportStatus.kind === "loading";
   const activePhaseMeta = phases.find((phase) => phase.id === activePhase) ?? phases[0];
 
@@ -734,24 +713,13 @@ export function App() {
           )}
 
           {activePhase === "deliver" && readyDataset && (
-            <DeliverPhase
+            <DeliveryPhase
               dataset={readyDataset.dataset}
-              exportStatus={exportStatus}
-              qualityRules={qualityRules}
-              qualityGateStatus={qualityGateStatus}
-              allowUnvalidatedExport={allowUnvalidatedExport}
-              onRulesChange={(rules) => {
-                setQualityRules(rules);
-                setQualityGateStatus((current) => current.kind === "ready" || current.kind === "stale"
-                  ? { kind: "stale", result: current.result }
-                  : { kind: "idle" });
-                setAllowUnvalidatedExport(false);
-                setExportStatus({ kind: "idle" });
-              }}
-              onGateStatusChange={setQualityGateStatus}
-              onAllowUnvalidatedChange={setAllowUnvalidatedExport}
+              contract={deliveryContract}
+              exportState={exportStatus}
+              onContractAction={updateDeliveryContract}
               onExport={exportActiveDataset}
-              onCancel={() => cancelActiveOperation("export")}
+              onCancelExport={() => cancelActiveOperation("export")}
             />
           )}
         </section>
@@ -1852,276 +1820,6 @@ function TransformRecipeEditor({
     </section>
   );
 }
-
-function DeliverPhase({
-  dataset,
-  exportStatus,
-  qualityRules,
-  qualityGateStatus,
-  allowUnvalidatedExport,
-  onRulesChange,
-  onGateStatusChange,
-  onAllowUnvalidatedChange,
-  onExport,
-  onCancel,
-}: {
-  dataset: DatasetPreview;
-  exportStatus: ExportStatus;
-  qualityRules: QualityRule[];
-  qualityGateStatus: QualityGateStatus;
-  allowUnvalidatedExport: boolean;
-  onRulesChange: (rules: QualityRule[]) => void;
-  onGateStatusChange: (status: QualityGateStatus) => void;
-  onAllowUnvalidatedChange: (allowed: boolean) => void;
-  onExport: (format: ExportFormat, rules: QualityRule[], allowUnvalidated: boolean) => void;
-  onCancel: () => void;
-}) {
-  const contractEnabled = qualityRules.length > 0;
-  const validationError = validateQualityRuleDraft(qualityRules, dataset);
-  const gatePassed = qualityGateStatus.kind === "ready" && qualityGateStatus.result.passed;
-  const exportAllowed = contractEnabled ? gatePassed : allowUnvalidatedExport;
-  const busy = exportStatus.kind === "loading" || qualityGateStatus.kind === "loading";
-
-  function addRule() {
-    if (qualityRules.length >= 16 || dataset.columns.length === 0) return;
-    onRulesChange([...qualityRules, {
-      column: dataset.columns[0].name,
-      kind: "not_null",
-      maxInvalid: 0,
-    }]);
-  }
-
-  function updateRule(index: number, update: Partial<QualityRule>) {
-    onRulesChange(qualityRules.map((rule, ruleIndex) =>
-      ruleIndex === index ? { ...rule, ...update } : rule));
-  }
-
-  async function runQualityGate() {
-    if (validationError || qualityRules.length === 0) return;
-    onGateStatusChange({ kind: "loading" });
-    try {
-      const result = await validateQualityRules(qualityRules);
-      onGateStatusChange({ kind: "ready", result });
-    } catch (error: unknown) {
-      onGateStatusChange({
-        kind: "error",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return (
-    <>
-      <header className="phase-header phase-header--compact">
-        <div>
-          <p className="eyebrow">Entregar · Exportación local</p>
-          <h2>{dataset.fileName}</h2>
-          <p>Genera una copia del dataset preparado. El archivo original nunca se modifica.</p>
-        </div>
-      </header>
-      <DatasetMetrics dataset={dataset} />
-      <section className="quality-contract" aria-labelledby="quality-contract-title">
-        <div className="quality-contract__header">
-          <div>
-            <p className="step">Control de entrega</p>
-            <h3 id="quality-contract-title">Contrato de calidad</h3>
-            <p>Define hasta 16 comprobaciones locales. Los resultados solo muestran conteos.</p>
-          </div>
-          <label className="quality-contract__toggle">
-            <input
-              type="checkbox"
-              checked={contractEnabled}
-              disabled={busy || dataset.columns.length === 0}
-              onChange={(event) => event.target.checked ? addRule() : onRulesChange([])}
-            />
-            Validar antes de exportar
-          </label>
-        </div>
-
-        {contractEnabled ? (
-          <>
-            <div className="quality-rules">
-              {qualityRules.map((rule, index) => {
-                const percentageTolerance = rule.maxInvalidPct !== undefined;
-                return (
-                  <fieldset className="quality-rule" key={index} disabled={busy}>
-                    <legend>Regla {index + 1}</legend>
-                    <label>Columna
-                      <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
-                        onChange={(event) => updateRule(index, { column: event.target.value })}>
-                        {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
-                      </select>
-                    </label>
-                    <label>Comprobación
-                      <select aria-label={`Comprobación regla ${index + 1}`} value={rule.kind}
-                        onChange={(event) => {
-                          const kind = event.target.value as QualityRuleKind;
-                          updateRule(index, kind === "numeric_range"
-                            ? { kind, min: undefined, max: undefined }
-                            : { kind, min: undefined, max: undefined });
-                        }}>
-                        <option value="not_null">Sin nulos</option>
-                        <option value="non_empty">Texto no vacío</option>
-                        <option value="unique">Valores únicos</option>
-                        <option value="numeric_range">Rango numérico</option>
-                      </select>
-                    </label>
-                    <label>Tolerancia
-                      <select aria-label={`Tolerancia regla ${index + 1}`} value={percentageTolerance ? "percentage" : "count"}
-                        onChange={(event) => updateRule(index, event.target.value === "percentage"
-                          ? { maxInvalid: undefined, maxInvalidPct: 0 }
-                          : { maxInvalid: 0, maxInvalidPct: undefined })}>
-                        <option value="count">Máximo inválidos</option>
-                        <option value="percentage">Máximo porcentaje</option>
-                      </select>
-                    </label>
-                    <label>{percentageTolerance ? "Porcentaje máximo" : "Inválidos máximos"}
-                      <input type="number" min="0" max={percentageTolerance ? "100" : undefined}
-                        step={percentageTolerance ? "0.1" : "1"}
-                        aria-label={`${percentageTolerance ? "Porcentaje" : "Inválidos"} regla ${index + 1}`}
-                        value={percentageTolerance ? rule.maxInvalidPct ?? 0 : rule.maxInvalid ?? 0}
-                        onChange={(event) => updateRule(index, percentageTolerance
-                          ? { maxInvalidPct: Number(event.target.value) }
-                          : { maxInvalid: Number(event.target.value) })} />
-                    </label>
-                    {rule.kind === "numeric_range" && (
-                      <>
-                        <label>Mínimo inclusivo
-                          <input type="number" aria-label={`Mínimo regla ${index + 1}`}
-                            value={rule.min ?? ""}
-                            onChange={(event) => updateRule(index, { min: event.target.value === "" ? undefined : Number(event.target.value) })} />
-                        </label>
-                        <label>Máximo inclusivo
-                          <input type="number" aria-label={`Máximo regla ${index + 1}`}
-                            value={rule.max ?? ""}
-                            onChange={(event) => updateRule(index, { max: event.target.value === "" ? undefined : Number(event.target.value) })} />
-                        </label>
-                      </>
-                    )}
-                    <button type="button" className="quality-rule__remove" aria-label={`Eliminar regla ${index + 1}`}
-                      onClick={() => onRulesChange(qualityRules.filter((_, ruleIndex) => ruleIndex !== index))}>Eliminar</button>
-                  </fieldset>
-                );
-              })}
-            </div>
-            <div className="quality-contract__actions">
-              <button type="button" onClick={addRule} disabled={busy || qualityRules.length >= 16}>Añadir regla</button>
-              <button type="button" className="primary-action" onClick={() => void runQualityGate()}
-                disabled={busy || Boolean(validationError)}>Validar contrato</button>
-              <span>{qualityRules.length}/16 reglas</span>
-            </div>
-            {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
-          </>
-        ) : (
-          <div className="quality-contract__unvalidated">
-            <strong>Entrega no validada</strong>
-            <p>No hay reglas activas. Confirma explícitamente esta decisión para habilitar la exportación durante esta sesión.</p>
-            <label>
-              <input type="checkbox" checked={allowUnvalidatedExport} disabled={busy}
-                onChange={(event) => onAllowUnvalidatedChange(event.target.checked)} />
-              Entiendo y deseo exportar sin contrato de calidad
-            </label>
-          </div>
-        )}
-
-        {qualityGateStatus.kind === "loading" && <p className="notice" role="status">Validando contrato localmente…</p>}
-        {qualityGateStatus.kind === "error" && <p className="notice notice--error" role="alert">No se pudo validar: {qualityGateStatus.message}</p>}
-        {(qualityGateStatus.kind === "ready" || qualityGateStatus.kind === "stale") && (
-          <div className={`quality-gate quality-gate--${qualityGateStatus.result.passed ? "passed" : "failed"}`} role="status">
-            <strong>{qualityGateStatus.kind === "stale"
-              ? "Resultado desactualizado"
-              : qualityGateStatus.result.passed ? "Contrato aprobado" : "Contrato fallido"}</strong>
-            <span>{qualityGateStatus.result.failedRules} de {qualityGateStatus.result.totalRules} reglas fallaron · {qualityGateStatus.result.rowCount.toLocaleString()} filas comprobadas</span>
-            <ul>
-              {qualityGateStatus.result.rules.map((result, index) => (
-                <li key={index}>{result.column}: {result.invalidCount.toLocaleString()} inválidos ({result.invalidPct.toFixed(2)}%) · {result.passed ? "aprobada" : "fallida"}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </section>
-      <section className="export-panel" aria-labelledby="export-title">
-        <div>
-          <p className="step">Formato de entrega</p>
-          <h3 id="export-title">Exportar dataset activo</h3>
-          <p>El destino solo aparece cuando el archivo está completo.</p>
-        </div>
-        <div className="export-actions">
-          <button type="button" onClick={() => onExport("csv", qualityRules, !contractEnabled && allowUnvalidatedExport)} disabled={busy || !exportAllowed}>
-            Exportar CSV
-          </button>
-          <button type="button" onClick={() => onExport("parquet", qualityRules, !contractEnabled && allowUnvalidatedExport)} disabled={busy || !exportAllowed}>
-            Exportar Parquet
-          </button>
-        </div>
-      </section>
-      {exportStatus.kind === "loading" && (
-        <OperationProgressView
-          progress={exportStatus.progress}
-          cancellation={exportStatus.cancelRequested
-            ? { kind: "requested" }
-            : { kind: "available", onCancel }}
-        />
-      )}
-      {exportStatus.kind === "success" && (
-        <p className="notice notice--success" role="status">
-          {exportStatus.result.format} exportado como {exportStatus.result.fileName} ({readableFileSize(exportStatus.result.fileSizeBytes)}).
-        </p>
-      )}
-      {exportStatus.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo exportar: {exportStatus.message}
-        </p>
-      )}
-    </>
-  );
-}
-
-function validateQualityRuleDraft(rules: QualityRule[], dataset: DatasetPreview): string | null {
-  if (rules.length > 16) return "El contrato admite como máximo 16 reglas.";
-  const columns = new Set(dataset.columns.map((column) => column.name));
-  for (const [index, rule] of rules.entries()) {
-    const label = `Regla ${index + 1}`;
-    if (!columns.has(rule.column)) return `${label}: selecciona una columna existente.`;
-    const hasCount = rule.maxInvalid !== undefined;
-    const hasPercentage = rule.maxInvalidPct !== undefined;
-    if (hasCount === hasPercentage) return `${label}: activa exactamente una tolerancia.`;
-    if (hasCount && (!Number.isInteger(rule.maxInvalid) || (rule.maxInvalid ?? -1) < 0)) {
-      return `${label}: el máximo de inválidos debe ser un entero igual o mayor que cero.`;
-    }
-    if (hasPercentage && (!Number.isFinite(rule.maxInvalidPct) || (rule.maxInvalidPct ?? -1) < 0 || (rule.maxInvalidPct ?? 101) > 100)) {
-      return `${label}: el porcentaje debe estar entre 0 y 100.`;
-    }
-    if (rule.kind === "numeric_range") {
-      if (rule.min === undefined && rule.max === undefined) return `${label}: indica al menos un límite numérico.`;
-      if (rule.min !== undefined && !Number.isFinite(rule.min)) return `${label}: el mínimo debe ser finito.`;
-      if (rule.max !== undefined && !Number.isFinite(rule.max)) return `${label}: el máximo debe ser finito.`;
-      const dataType = dataset.columns.find((column) => column.name === rule.column)?.dataType.toLowerCase() ?? "";
-      if (dataType.includes("int") &&
-          ((rule.min !== undefined && !Number.isSafeInteger(rule.min)) ||
-           (rule.max !== undefined && !Number.isSafeInteger(rule.max)))) {
-        return `${label}: los límites de una columna entera deben ser enteros seguros.`;
-      }
-      if (rule.min !== undefined && rule.max !== undefined && rule.min > rule.max) {
-        return `${label}: el mínimo no puede superar el máximo.`;
-      }
-    } else if (rule.min !== undefined || rule.max !== undefined) {
-      return `${label}: los límites solo se permiten para rangos numéricos.`;
-    }
-  }
-  return null;
-}
-
-function DatasetMetrics({ dataset }: { dataset: DatasetPreview }) {
-  return (
-    <dl className="metrics" aria-label="Resumen del dataset">
-      <div><dt>Filas</dt><dd>{dataset.rowCount.toLocaleString()}</dd></div>
-      <div><dt>Columnas</dt><dd>{dataset.columnCount.toLocaleString()}</dd></div>
-      <div><dt>Tamaño</dt><dd>{readableFileSize(dataset.fileSizeBytes)}</dd></div>
-    </dl>
-  );
-}
-
 
 interface DataPreviewProps {
   dataset: DatasetPreview;

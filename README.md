@@ -44,6 +44,21 @@ npm install
 npm run tauri dev
 ```
 
+## Automatización por CLI
+
+La CLI reutiliza el motor Rust y entrega resultados JSON versión 1 para poder
+integrarse en scripts sin abrir la interfaz:
+
+```powershell
+cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- inspect --input datos.csv
+cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- transform --input datos.csv --recipe receta.json --output resultado.parquet --format parquet
+```
+
+`inspect` y `transform` aceptan CSV, TSV, JSON y Parquet. Las rutas y los valores
+del dataset no aparecen en el JSON ni en los errores. La salida se publica de
+forma atómica y CSV conserva la protección contra fórmulas. Los libros requieren
+selección de hoja y, por ahora, deben abrirse desde la aplicación de escritorio.
+
 La validación permanece completamente local. Desde PowerShell:
 
 ```powershell
@@ -213,6 +228,7 @@ Para comprobar automáticamente el mismo arranque que se usa durante desarrollo:
 
 ```powershell
 npm run smoke:desktop -- -TimeoutSeconds 120
+npm run smoke:cli
 ```
 
 No se utilizan CI, GitHub Actions ni workflows. Consulta [ROADMAP.md](ROADMAP.md)

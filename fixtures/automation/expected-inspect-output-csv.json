@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "command": "inspect",
+  "fileName": "output.csv",
+  "rowCount": 2,
+  "columnCount": 3,
+  "columns": [
+    {
+      "name": "name",
+      "dataType": "str"
+    },
+    {
+      "name": "note",
+      "dataType": "str"
+    },
+    {
+      "name": "total",
+      "dataType": "str"
+    }
+  ]
+}

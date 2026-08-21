@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "smoke:cli": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-cli.ps1",
     "smoke:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-tauri.ps1",
     "tauri": "tauri"
   },
