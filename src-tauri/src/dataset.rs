@@ -5518,6 +5518,12 @@ pub(crate) fn load_recipe_for_automation(input: &Path) -> Result<TransformRecipe
     load_recipe_file(input).map(|document| document.recipe)
 }
 
+pub(crate) fn load_stored_recipe_for_automation(
+    input: &Path,
+) -> Result<StoredTransformRecipe, String> {
+    load_recipe_file(input)
+}
+
 pub(crate) fn apply_recipe_for_automation(
     source: &DataFrame,
     recipe: &TransformRecipe,
@@ -5584,6 +5590,16 @@ pub(crate) struct ProjectDatasetCandidate {
     preview: DatasetPreview,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProjectHistorySummary {
+    pub(crate) entry_count: usize,
+    pub(crate) current_index: usize,
+    pub(crate) can_undo: bool,
+    pub(crate) can_redo: bool,
+    pub(crate) snapshots_enabled: bool,
+    pub(crate) degraded: bool,
+}
+
 impl ProjectDatasetCandidate {
     pub(crate) fn dimensions(&self) -> (usize, usize) {
         (self.loaded.frame.height(), self.loaded.frame.width())
@@ -5591,6 +5607,22 @@ impl ProjectDatasetCandidate {
 
     pub(crate) fn frame(&self) -> &DataFrame {
         &self.loaded.frame
+    }
+
+    pub(crate) fn history_summary(&self) -> ProjectHistorySummary {
+        let state = self.loaded.history.state();
+        ProjectHistorySummary {
+            entry_count: state.entry_count,
+            current_index: state.current_index,
+            can_undo: state.can_undo,
+            can_redo: state.can_redo,
+            snapshots_enabled: state.snapshots_enabled,
+            degraded: state.degraded_reason.is_some(),
+        }
+    }
+
+    pub(crate) fn into_frame(self) -> DataFrame {
+        self.loaded.frame
     }
 }
 
@@ -5776,6 +5808,56 @@ fn restore_project_history(
 }
 
 impl DatasetState {
+    pub(crate) fn for_project_import(frame: DataFrame, file_name: String) -> Result<Self, String> {
+        let visible = Path::new(&file_name);
+        if file_name.trim().is_empty()
+            || file_name.chars().count() > 255
+            || visible.file_name().and_then(OsStr::to_str) != Some(file_name.as_str())
+        {
+            return Err("La identidad visible del dataset no es válida.".to_owned());
+        }
+        let history = HistoryManager::new(&frame)
+            .map_err(|_| "No se pudo iniciar el historial del proyecto.".to_owned())?;
+        Ok(Self {
+            current: Mutex::new(Some(LoadedDataset {
+                source_path: None,
+                file_name,
+                file_size_bytes: 0,
+                frame,
+                profile: None,
+                history,
+            })),
+            ..Self::default()
+        })
+    }
+
+    pub(crate) fn apply_project_import_recipe(
+        &self,
+        recipe: &TransformRecipe,
+    ) -> Result<bool, String> {
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
+        let dataset = current
+            .as_mut()
+            .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
+        apply_recipe_to_dataset(dataset, recipe).map(|result| result.changed)
+    }
+
+    pub(crate) fn cache_project_import_profile(&self) -> Result<DatasetProfile, String> {
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
+        let dataset = current
+            .as_mut()
+            .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
+        let profile = profile_dataset_with_progress(&dataset.frame, |_, _| {}, || false)?;
+        dataset.profile = Some(profile.clone());
+        Ok(profile)
+    }
+
     pub(crate) fn active_project_snapshot(&self) -> Result<ActiveDatasetSnapshot, String> {
         let current = self
             .current

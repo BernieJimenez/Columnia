@@ -47,6 +47,32 @@ pub struct ProjectWorkspace {
     pub recipe_draft: Option<StoredTransformRecipe>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutomationHistorySummary {
+    pub(crate) entry_count: usize,
+    pub(crate) current_index: usize,
+    pub(crate) can_undo: bool,
+    pub(crate) can_redo: bool,
+    pub(crate) snapshots_enabled: bool,
+    pub(crate) degraded: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutomationProjectInspection {
+    pub(crate) project: ProjectSummary,
+    pub(crate) profile_cached: bool,
+    pub(crate) quality_rule_count: usize,
+    pub(crate) recipe_draft_present: bool,
+    pub(crate) history: AutomationHistorySummary,
+}
+
+pub(crate) struct AutomationOpenedProject {
+    pub(crate) frame: DataFrame,
+    pub(crate) workspace: ProjectWorkspace,
+}
+
 pub struct ProjectState {
     store: ProjectStore,
     operation: Mutex<()>,
@@ -79,6 +105,13 @@ struct StoredProject {
     profile_json: Option<String>,
 }
 
+struct ValidatedProject {
+    stored: StoredProject,
+    workspace: ProjectWorkspace,
+    profile: Option<DatasetProfile>,
+    candidate: crate::dataset::ProjectDatasetCandidate,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DurableHistoryManifest {
@@ -102,11 +135,8 @@ struct DurableHistoryEntry {
 
 impl ProjectStore {
     fn initialize(root: PathBuf) -> Result<Self, String> {
-        fs::create_dir_all(&root).map_err(|_| storage_error())?;
-        let root = fs::canonicalize(&root).map_err(|_| storage_error())?;
-        let snapshots = root.join("project-snapshots");
-        fs::create_dir_all(&snapshots).map_err(|_| storage_error())?;
-        let snapshots = fs::canonicalize(&snapshots).map_err(|_| storage_error())?;
+        let root = prepare_store_directory(&root)?;
+        let snapshots = prepare_store_directory(&root.join("project-snapshots"))?;
         if snapshots.parent() != Some(root.as_path()) {
             return Err(storage_error());
         }
@@ -392,20 +422,16 @@ impl ProjectStore {
         })
     }
 
-    fn open(
-        &self,
-        dataset_state: &DatasetState,
-        project_id: String,
-    ) -> Result<ProjectOpenResult, String> {
-        validate_id(&project_id)?;
-        let mut connection = self.connection()?;
+    fn load_validated(&self, project_id: &str) -> Result<ValidatedProject, String> {
+        validate_id(project_id)?;
+        let connection = self.connection()?;
         let stored = self
-            .stored_project(&connection, &project_id)?
+            .stored_project(&connection, project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
         let workspace = decode_workspace(&stored)?;
         let profile = decode_profile(&stored)?;
         let candidate = if let Some(generation_name) = stored.generation_name.as_deref() {
-            let generation = self.generation_path(&project_id, generation_name)?;
+            let generation = self.generation_path(project_id, generation_name)?;
             let current = self.generation_file(&generation, "current.parquet")?;
             let history = self.decode_history(&stored, &generation)?;
             DatasetState::prepare_durable_project_candidate(
@@ -418,7 +444,7 @@ impl ProjectStore {
             if stored.history_manifest_json.is_some() || profile.is_some() {
                 return Err("El estado persistente del proyecto no es consistente.".to_owned());
             }
-            let snapshot_path = self.snapshot_path(&project_id, &stored.snapshot_name)?;
+            let snapshot_path = self.snapshot_path(project_id, &stored.snapshot_name)?;
             DatasetState::prepare_project_candidate(
                 snapshot_path,
                 stored.summary.dataset_file_name.clone(),
@@ -433,6 +459,21 @@ impl ProjectStore {
         if candidate.dimensions() != (stored.summary.row_count, stored.summary.column_count) {
             return Err("El snapshot del proyecto no coincide con su catálogo.".to_owned());
         }
+        Ok(ValidatedProject {
+            stored,
+            workspace,
+            profile,
+            candidate,
+        })
+    }
+
+    fn open(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: String,
+    ) -> Result<ProjectOpenResult, String> {
+        let validated = self.load_validated(&project_id)?;
+        let mut connection = self.connection()?;
         let timestamp = now_utc();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -448,12 +489,12 @@ impl ProjectStore {
             return Err("El proyecto solicitado no existe.".to_owned());
         }
         transaction.commit().map_err(|_| storage_error())?;
-        let dataset = dataset_state.activate_project_candidate(candidate)?;
+        let dataset = dataset_state.activate_project_candidate(validated.candidate)?;
         Ok(ProjectOpenResult {
-            project: stored.summary,
+            project: validated.stored.summary,
             dataset,
-            workspace,
-            profile,
+            workspace: validated.workspace,
+            profile: validated.profile,
         })
     }
 
@@ -636,6 +677,63 @@ impl ProjectStore {
     }
 }
 
+fn automation_inspection(validated: &ValidatedProject) -> AutomationProjectInspection {
+    let history = validated.candidate.history_summary();
+    AutomationProjectInspection {
+        project: validated.stored.summary.clone(),
+        profile_cached: validated.profile.is_some(),
+        quality_rule_count: validated.workspace.quality_rules.len(),
+        recipe_draft_present: validated.workspace.recipe_draft.is_some(),
+        history: AutomationHistorySummary {
+            entry_count: history.entry_count,
+            current_index: history.current_index,
+            can_undo: history.can_undo,
+            can_redo: history.can_redo,
+            snapshots_enabled: history.snapshots_enabled,
+            degraded: history.degraded,
+        },
+    }
+}
+
+pub(crate) fn automation_list_projects(root: &Path) -> Result<Vec<ProjectSummary>, String> {
+    ProjectStore::initialize(root.to_path_buf())?.list()
+}
+
+pub(crate) fn automation_import_project(
+    root: &Path,
+    dataset: &DatasetState,
+    project_id: Option<String>,
+    name: String,
+    workspace: ProjectWorkspace,
+) -> Result<ProjectSummary, String> {
+    ProjectStore::initialize(root.to_path_buf())?.save(dataset, project_id, name, workspace)
+}
+
+pub(crate) fn automation_inspect_project(
+    root: &Path,
+    project_id: &str,
+) -> Result<AutomationProjectInspection, String> {
+    let store = ProjectStore::initialize(root.to_path_buf())?;
+    let validated = store.load_validated(project_id)?;
+    Ok(automation_inspection(&validated))
+}
+
+pub(crate) fn automation_open_project(
+    root: &Path,
+    project_id: &str,
+) -> Result<AutomationOpenedProject, String> {
+    let store = ProjectStore::initialize(root.to_path_buf())?;
+    let validated = store.load_validated(project_id)?;
+    Ok(AutomationOpenedProject {
+        frame: validated.candidate.into_frame(),
+        workspace: validated.workspace,
+    })
+}
+
+pub(crate) fn automation_delete_project(root: &Path, project_id: &str) -> Result<(), String> {
+    ProjectStore::initialize(root.to_path_buf())?.delete(project_id.to_owned())
+}
+
 fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectSummary> {
     let row_count: i64 = row.get(3)?;
     let column_count: i64 = row.get(4)?;
@@ -674,6 +772,69 @@ fn decode_profile(stored: &StoredProject) -> Result<Option<DatasetProfile>, Stri
         .map(serde_json::from_str)
         .transpose()
         .map_err(|_| "El perfil guardado del proyecto no es válido.".to_owned())
+}
+
+fn prepare_store_directory(requested: &Path) -> Result<PathBuf, String> {
+    if requested.as_os_str().is_empty() {
+        return Err("La raíz del catálogo no es válida.".to_owned());
+    }
+    let absolute = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|_| storage_error())?
+            .join(requested)
+    };
+    if absolute
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err("La raíz del catálogo no admite segmentos relativos.".to_owned());
+    }
+
+    let mut current = PathBuf::new();
+    for component in absolute.components() {
+        if matches!(component, std::path::Component::CurDir) {
+            continue;
+        }
+        current.push(component.as_os_str());
+        if matches!(
+            component,
+            std::path::Component::Prefix(_) | std::path::Component::RootDir
+        ) {
+            continue;
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if !metadata.is_dir()
+                    || metadata.file_type().is_symlink()
+                    || is_reparse_point(&metadata)
+                {
+                    return Err("La raíz del catálogo no es un directorio seguro.".to_owned());
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match fs::create_dir(&current) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(_) => return Err(storage_error()),
+                }
+                let metadata = fs::symlink_metadata(&current).map_err(|_| storage_error())?;
+                if !metadata.is_dir()
+                    || metadata.file_type().is_symlink()
+                    || is_reparse_point(&metadata)
+                {
+                    return Err("La raíz del catálogo no es un directorio seguro.".to_owned());
+                }
+            }
+            Err(_) => return Err(storage_error()),
+        }
+    }
+    let canonical = fs::canonicalize(&current).map_err(|_| storage_error())?;
+    if canonical.parent().is_none() {
+        return Err("La raíz del catálogo debe ser un directorio dedicado.".to_owned());
+    }
+    Ok(canonical)
 }
 
 fn history_manifest(history: &ProjectHistoryCapture) -> DurableHistoryManifest {
@@ -1635,6 +1796,145 @@ mod tests {
         assert_eq!(active.row_count, 1);
     }
 
+    #[test]
+    fn automation_store_supports_crud_restart_and_cleans_generations() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("nested").join("projects");
+        assert!(automation_list_projects(&root).unwrap().is_empty());
+        let dataset = DatasetState::for_project_import(frame(&[1, 2]), "input.csv".to_owned())
+            .expect("el import debe crear un estado aislado");
+
+        let saved = automation_import_project(
+            &root,
+            &dataset,
+            None,
+            " Proyecto CLI ".to_owned(),
+            ProjectWorkspace::default(),
+        )
+        .unwrap();
+        assert_eq!(saved.name, "Proyecto CLI");
+        assert_eq!(
+            automation_list_projects(&root).unwrap(),
+            vec![saved.clone()]
+        );
+
+        let reopened = ProjectStore::initialize(root.clone()).unwrap();
+        let stored = reopened
+            .stored_project(&reopened.connection().unwrap(), &saved.id)
+            .unwrap()
+            .unwrap();
+        let generation = reopened
+            .generation_path(&saved.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
+        assert!(generation.is_dir());
+        drop(reopened);
+
+        let opened = automation_open_project(&root, &saved.id).unwrap();
+        assert_eq!(opened.frame.height(), 2);
+        assert_eq!(opened.workspace, ProjectWorkspace::default());
+
+        automation_delete_project(&root, &saved.id).unwrap();
+        assert!(!generation.exists());
+        assert!(automation_list_projects(&root).unwrap().is_empty());
+    }
+
+    #[test]
+    fn automation_inspect_is_read_only_and_reports_recipe_history_and_profile() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("projects");
+        let dataset =
+            DatasetState::for_project_import(frame(&[1, 2]), "source.csv".to_owned()).unwrap();
+        let recipe = serde_json::from_value(serde_json::json!({
+            "renames": [{ "from": "value", "to": "amount" }]
+        }))
+        .unwrap();
+        assert!(dataset.apply_project_import_recipe(&recipe).unwrap());
+        dataset.cache_project_import_profile().unwrap();
+        let workspace: ProjectWorkspace = serde_json::from_value(serde_json::json!({
+            "qualityRules": [{
+                "column": "amount",
+                "kind": "not_null",
+                "maxInvalid": 0
+            }],
+            "recipeDraft": {
+                "version": 1,
+                "name": "Rename amount",
+                "savedAt": "2026-08-21T12:00:00Z",
+                "recipe": { "renames": [{ "from": "value", "to": "amount" }] }
+            }
+        }))
+        .unwrap();
+        let saved = automation_import_project(
+            &root,
+            &dataset,
+            None,
+            "Con estado".to_owned(),
+            workspace.clone(),
+        )
+        .unwrap();
+        let store = ProjectStore::initialize(root.clone()).unwrap();
+        store
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE projects SET last_opened_at = NULL WHERE id = ?1",
+                params![saved.id],
+            )
+            .unwrap();
+        drop(store);
+
+        let inspection = automation_inspect_project(&root, &saved.id).unwrap();
+        assert!(inspection.profile_cached);
+        assert_eq!(inspection.quality_rule_count, 1);
+        assert!(inspection.recipe_draft_present);
+        assert_eq!(inspection.history.entry_count, 2);
+        assert_eq!(inspection.history.current_index, 1);
+        assert!(inspection.history.can_undo);
+        assert!(!inspection.history.can_redo);
+        assert!(inspection.history.snapshots_enabled);
+        assert!(!inspection.history.degraded);
+
+        let store = ProjectStore::initialize(root.clone()).unwrap();
+        assert!(store.recovery_candidate().unwrap().is_none());
+        drop(store);
+        let opened = automation_open_project(&root, &saved.id).unwrap();
+        assert_eq!(opened.workspace, workspace);
+        assert_eq!(opened.frame.get_column_names(), &["amount", "label"]);
+        assert!(ProjectStore::initialize(root)
+            .unwrap()
+            .recovery_candidate()
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn automation_store_rejects_files_and_path_errors_are_generic() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("not-a-directory");
+        fs::write(&file, b"private").unwrap();
+        let error = automation_list_projects(&file).unwrap_err();
+        assert!(!error.contains(file.to_string_lossy().as_ref()));
+
+        let traversing = directory.path().join("safe").join("..").join("projects");
+        let error = automation_list_projects(&traversing).unwrap_err();
+        assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn automation_store_rejects_symbolic_root_segments() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = directory.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let link = directory.path().join("linked");
+        symlink(&outside, &link).unwrap();
+
+        let error = automation_list_projects(&link.join("projects")).unwrap_err();
+        assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+    }
+
     #[cfg(unix)]
     #[test]
     fn open_rejects_symbolic_snapshot_links() {
@@ -1666,6 +1966,25 @@ mod tests {
         symlink(&outside, &snapshot).unwrap();
 
         assert!(store.open(&DatasetState::default(), project.id).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn automation_store_rejects_windows_root_reparse_points_when_supported() {
+        use std::{io::ErrorKind, os::windows::fs::symlink_dir};
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = directory.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let link = directory.path().join("linked");
+        match symlink_dir(&outside, &link) {
+            Ok(()) => {
+                let error = automation_list_projects(&link.join("projects")).unwrap_err();
+                assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+            }
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => {}
+            Err(error) => panic!("no se pudo crear el reparse point de prueba: {error}"),
+        }
     }
 
     #[cfg(windows)]

@@ -7,14 +7,22 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::dataset::{self, ExportFormat, SpreadsheetHeaderMode};
+use crate::{
+    dataset::{self, DatasetState, ExportFormat, SpreadsheetHeaderMode},
+    projects::{self, ProjectSummary, ProjectWorkspace},
+};
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate y un trabajo batch fallido terminan con código 2; los errores de uso, carga o manifiesto terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|parquet [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
 const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n\nAplica una receta Columnia y publica la salida atómicamente. CSV conserva la protección contra fórmulas de hojas de cálculo.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia versión 1 con {\"version\":1,\"rules\":[...]}. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
+const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
+const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
+const PROJECT_INSPECT_HELP: &str = "USO:\n  columnia-cli project-inspect --store <directorio> --id <id>\n\nEmite metadatos, flags y conteos del proyecto sin abrir una sesión de escritorio.\n";
+const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|parquet [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica.\n";
+const PROJECT_DELETE_HELP: &str = "USO:\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nElimina el proyecto solo cuando --confirm coincide exactamente con --id.\n";
 const BATCH_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const BATCH_MAX_JOBS: usize = 64;
 const BATCH_MAX_FIELD_CHARS: usize = 4 * 1024;
@@ -38,6 +46,13 @@ impl AutomationFormat {
         match self {
             Self::Csv => ExportFormat::Csv,
             Self::Parquet => ExportFormat::Parquet,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Csv => "CSV",
+            Self::Parquet => "Parquet",
         }
     }
 }
@@ -66,6 +81,36 @@ pub enum CliCommand {
     },
     Batch {
         manifest: PathBuf,
+    },
+    ProjectList {
+        store: PathBuf,
+    },
+    ProjectSave {
+        store: PathBuf,
+        name: String,
+        input: PathBuf,
+        id: Option<String>,
+        sheet: Option<String>,
+        header: Option<SpreadsheetHeaderMode>,
+        recipe: Option<PathBuf>,
+        rules: Option<PathBuf>,
+        profile: bool,
+    },
+    ProjectInspect {
+        store: PathBuf,
+        id: String,
+    },
+    ProjectExport {
+        store: PathBuf,
+        id: String,
+        output: PathBuf,
+        format: AutomationFormat,
+        allow_unvalidated: bool,
+    },
+    ProjectDelete {
+        store: PathBuf,
+        id: String,
+        confirm: String,
     },
 }
 
@@ -210,20 +255,120 @@ impl BatchOutput {
     }
 }
 
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectListOutput {
+    schema_version: u8,
+    command: &'static str,
+    projects: Vec<ProjectSummary>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSaveOutput {
+    schema_version: u8,
+    command: &'static str,
+    created: bool,
+    project: ProjectSummary,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectHistoryOutput {
+    entry_count: usize,
+    current_index: usize,
+    can_undo: bool,
+    can_redo: bool,
+    snapshots_enabled: bool,
+    degraded: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInspectOutput {
+    schema_version: u8,
+    command: &'static str,
+    project: ProjectSummary,
+    profile_cached: bool,
+    quality_rule_count: usize,
+    recipe_draft_present: bool,
+    history: ProjectHistoryOutput,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectQualityOutput {
+    validated: bool,
+    passed: Option<bool>,
+    row_count: usize,
+    total_rules: usize,
+    passed_rules: usize,
+    failed_rules: usize,
+    total_invalid_count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectExportOutput {
+    schema_version: u8,
+    command: &'static str,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_size_bytes: Option<u64>,
+    format: &'static str,
+    quality: ProjectQualityOutput,
+}
+
+impl ProjectExportOutput {
+    pub fn blocked(&self) -> bool {
+        self.status == "blocked"
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDeleteOutput {
+    schema_version: u8,
+    command: &'static str,
+    id: String,
+    deleted: bool,
+}
+
 fn parse_flags(
     arguments: &[OsString],
-    allowed: &[&'static str],
-) -> Result<HashMap<&'static str, OsString>, AutomationError> {
+    value_flags: &[&'static str],
+    switches: &[&'static str],
+) -> Result<(HashMap<&'static str, OsString>, HashSet<&'static str>), AutomationError> {
     let mut parsed = HashMap::new();
+    let mut enabled = HashSet::new();
     let mut index = 0;
     while index < arguments.len() {
         let flag = arguments[index]
             .to_str()
             .ok_or_else(|| AutomationError::new("La opción no contiene texto válido."))?;
-        let Some(known_flag) = allowed.iter().copied().find(|candidate| *candidate == flag) else {
+        if let Some(known_switch) = switches
+            .iter()
+            .copied()
+            .find(|candidate| *candidate == flag)
+        {
+            if !enabled.insert(known_switch) {
+                return Err(AutomationError::new(format!(
+                    "La opción {known_switch} está duplicada."
+                )));
+            }
+            index += 1;
+            continue;
+        }
+        let Some(known_flag) = value_flags
+            .iter()
+            .copied()
+            .find(|candidate| *candidate == flag)
+        else {
             return Err(AutomationError::new("Se recibió una opción desconocida."));
         };
-        if parsed.contains_key(known_flag) {
+        if parsed.contains_key(known_flag) || enabled.contains(known_flag) {
             return Err(AutomationError::new(format!(
                 "La opción {known_flag} está duplicada."
             )));
@@ -237,7 +382,7 @@ fn parse_flags(
         parsed.insert(known_flag, value.clone());
         index += 2;
     }
-    Ok(parsed)
+    Ok((parsed, enabled))
 }
 
 fn required_flag(
@@ -247,6 +392,39 @@ fn required_flag(
     flags
         .remove(name)
         .ok_or_else(|| AutomationError::new(format!("Falta la opción requerida {name}.")))
+}
+
+fn text_flag(
+    flags: &mut HashMap<&'static str, OsString>,
+    name: &'static str,
+) -> Result<String, AutomationError> {
+    required_flag(flags, name)?
+        .into_string()
+        .map_err(|_| AutomationError::new(format!("La opción {name} no contiene texto válido.")))
+}
+
+fn optional_text_flag(
+    flags: &mut HashMap<&'static str, OsString>,
+    name: &'static str,
+) -> Result<Option<String>, AutomationError> {
+    flags
+        .remove(name)
+        .map(|value| {
+            value.into_string().map_err(|_| {
+                AutomationError::new(format!("La opción {name} no contiene texto válido."))
+            })
+        })
+        .transpose()
+}
+
+fn parse_format(value: OsString) -> Result<AutomationFormat, AutomationError> {
+    match value.to_str() {
+        Some("csv") => Ok(AutomationFormat::Csv),
+        Some("parquet") => Ok(AutomationFormat::Parquet),
+        _ => Err(AutomationError::new(
+            "La opción --format debe ser csv o parquet.",
+        )),
+    }
 }
 
 fn parse_input_options(
@@ -299,7 +477,7 @@ where
             {
                 return Ok(CliCommand::Help(INSPECT_HELP));
             }
-            let mut flags = parse_flags(rest, &["--input", "--sheet", "--header"])?;
+            let (mut flags, _) = parse_flags(rest, &["--input", "--sheet", "--header"], &[])?;
             let (input, sheet, header) = parse_input_options(&mut flags)?;
             Ok(CliCommand::Inspect {
                 input,
@@ -312,24 +490,17 @@ where
             {
                 return Ok(CliCommand::Help(TRANSFORM_HELP));
             }
-            let mut flags = parse_flags(
+            let (mut flags, _) = parse_flags(
                 rest,
                 &[
                     "--input", "--sheet", "--header", "--recipe", "--output", "--format",
                 ],
+                &[],
             )?;
             let (input, sheet, header) = parse_input_options(&mut flags)?;
             let recipe = PathBuf::from(required_flag(&mut flags, "--recipe")?);
             let output = PathBuf::from(required_flag(&mut flags, "--output")?);
-            let format = match required_flag(&mut flags, "--format")?.to_str() {
-                Some("csv") => AutomationFormat::Csv,
-                Some("parquet") => AutomationFormat::Parquet,
-                _ => {
-                    return Err(AutomationError::new(
-                        "La opción --format debe ser csv o parquet.",
-                    ));
-                }
-            };
+            let format = parse_format(required_flag(&mut flags, "--format")?)?;
             Ok(CliCommand::Transform {
                 input,
                 sheet,
@@ -344,7 +515,8 @@ where
             {
                 return Ok(CliCommand::Help(VALIDATE_HELP));
             }
-            let mut flags = parse_flags(rest, &["--input", "--sheet", "--header", "--rules"])?;
+            let (mut flags, _) =
+                parse_flags(rest, &["--input", "--sheet", "--header", "--rules"], &[])?;
             let (input, sheet, header) = parse_input_options(&mut flags)?;
             let rules = PathBuf::from(required_flag(&mut flags, "--rules")?);
             Ok(CliCommand::Validate {
@@ -359,13 +531,95 @@ where
             {
                 return Ok(CliCommand::Help(BATCH_HELP));
             }
-            let mut flags = parse_flags(rest, &["--manifest"])?;
+            let (mut flags, _) = parse_flags(rest, &["--manifest"], &[])?;
             Ok(CliCommand::Batch {
                 manifest: PathBuf::from(required_flag(&mut flags, "--manifest")?),
             })
         }
+        "project-list" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(PROJECT_LIST_HELP));
+            }
+            let (mut flags, _) = parse_flags(rest, &["--store"], &[])?;
+            Ok(CliCommand::ProjectList {
+                store: PathBuf::from(required_flag(&mut flags, "--store")?),
+            })
+        }
+        "project-save" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(PROJECT_SAVE_HELP));
+            }
+            let (mut flags, switches) = parse_flags(
+                rest,
+                &[
+                    "--store", "--name", "--input", "--id", "--sheet", "--header", "--recipe",
+                    "--rules",
+                ],
+                &["--profile"],
+            )?;
+            let store = PathBuf::from(required_flag(&mut flags, "--store")?);
+            let name = text_flag(&mut flags, "--name")?;
+            let (input, sheet, header) = parse_input_options(&mut flags)?;
+            let id = optional_text_flag(&mut flags, "--id")?;
+            let recipe = flags.remove("--recipe").map(PathBuf::from);
+            let rules = flags.remove("--rules").map(PathBuf::from);
+            Ok(CliCommand::ProjectSave {
+                store,
+                name,
+                input,
+                id,
+                sheet,
+                header,
+                recipe,
+                rules,
+                profile: switches.contains("--profile"),
+            })
+        }
+        "project-inspect" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(PROJECT_INSPECT_HELP));
+            }
+            let (mut flags, _) = parse_flags(rest, &["--store", "--id"], &[])?;
+            Ok(CliCommand::ProjectInspect {
+                store: PathBuf::from(required_flag(&mut flags, "--store")?),
+                id: text_flag(&mut flags, "--id")?,
+            })
+        }
+        "project-export" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(PROJECT_EXPORT_HELP));
+            }
+            let (mut flags, switches) = parse_flags(
+                rest,
+                &["--store", "--id", "--output", "--format"],
+                &["--allow-unvalidated"],
+            )?;
+            Ok(CliCommand::ProjectExport {
+                store: PathBuf::from(required_flag(&mut flags, "--store")?),
+                id: text_flag(&mut flags, "--id")?,
+                output: PathBuf::from(required_flag(&mut flags, "--output")?),
+                format: parse_format(required_flag(&mut flags, "--format")?)?,
+                allow_unvalidated: switches.contains("--allow-unvalidated"),
+            })
+        }
+        "project-delete" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(PROJECT_DELETE_HELP));
+            }
+            let (mut flags, _) = parse_flags(rest, &["--store", "--id", "--confirm"], &[])?;
+            Ok(CliCommand::ProjectDelete {
+                store: PathBuf::from(required_flag(&mut flags, "--store")?),
+                id: text_flag(&mut flags, "--id")?,
+                confirm: text_flag(&mut flags, "--confirm")?,
+            })
+        }
         _ => Err(AutomationError::new(
-            "Comando desconocido. Usa inspect, transform, validate, batch o --help.",
+            "Comando desconocido. Usa --help para ver la interfaz admitida.",
         )),
     }
 }
@@ -497,6 +751,206 @@ pub fn validate(
         passed_rules: result.total_rules.saturating_sub(result.failed_rules),
         failed_rules: result.failed_rules,
         total_invalid_count: result.total_invalid_count(),
+    })
+}
+
+pub fn project_list(store: &Path) -> Result<ProjectListOutput, AutomationError> {
+    let projects = projects::automation_list_projects(store)
+        .map_err(|_| AutomationError::new("No se pudo abrir el almacén de proyectos."))?;
+    Ok(ProjectListOutput {
+        schema_version: 1,
+        command: "project-list",
+        projects,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn project_save(
+    store: &Path,
+    name: String,
+    input: &Path,
+    id: Option<String>,
+    sheet: Option<&str>,
+    header: Option<SpreadsheetHeaderMode>,
+    recipe: Option<&Path>,
+    rules: Option<&Path>,
+    profile: bool,
+) -> Result<ProjectSaveOutput, AutomationError> {
+    validate_input_options(input, sheet, header)?;
+    let existed = match id.as_deref() {
+        Some(id) => projects::automation_list_projects(store)
+            .map_err(|_| AutomationError::new("No se pudo abrir el almacén de proyectos."))?
+            .iter()
+            .any(|project| project.id == id),
+        None => false,
+    };
+    let (frame, preview) =
+        dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
+            AutomationError::new(
+                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
+            )
+        })?;
+    let dataset = DatasetState::for_project_import(frame, preview.file_name)
+        .map_err(|_| AutomationError::new("No se pudo preparar el proyecto."))?;
+    let recipe_draft = recipe
+        .map(|path| {
+            dataset::load_stored_recipe_for_automation(path)
+                .map_err(|_| AutomationError::new("No se pudo cargar una receta Columnia válida."))
+        })
+        .transpose()?;
+    if let Some(recipe) = recipe_draft.as_ref() {
+        dataset
+            .apply_project_import_recipe(&recipe.recipe)
+            .map_err(|_| {
+                AutomationError::new("La receta no es válida para el dataset de entrada.")
+            })?;
+    }
+    let quality_rules = rules
+        .map(|path| {
+            dataset::load_quality_rules_for_automation(path).map_err(|_| {
+                AutomationError::new("No se pudo cargar un contrato de calidad v1 válido.")
+            })
+        })
+        .transpose()?
+        .unwrap_or_default();
+    if profile {
+        dataset
+            .cache_project_import_profile()
+            .map_err(|_| AutomationError::new("No se pudo calcular el perfil del proyecto."))?;
+    }
+    let project = projects::automation_import_project(
+        store,
+        &dataset,
+        id,
+        name,
+        ProjectWorkspace {
+            quality_rules,
+            recipe_draft,
+        },
+    )
+    .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;
+    Ok(ProjectSaveOutput {
+        schema_version: 1,
+        command: "project-save",
+        created: !existed,
+        project,
+    })
+}
+
+pub fn project_inspect(store: &Path, id: &str) -> Result<ProjectInspectOutput, AutomationError> {
+    let inspection = projects::automation_inspect_project(store, id)
+        .map_err(|_| AutomationError::new("No se pudo inspeccionar el proyecto solicitado."))?;
+    Ok(ProjectInspectOutput {
+        schema_version: 1,
+        command: "project-inspect",
+        project: inspection.project,
+        profile_cached: inspection.profile_cached,
+        quality_rule_count: inspection.quality_rule_count,
+        recipe_draft_present: inspection.recipe_draft_present,
+        history: ProjectHistoryOutput {
+            entry_count: inspection.history.entry_count,
+            current_index: inspection.history.current_index,
+            can_undo: inspection.history.can_undo,
+            can_redo: inspection.history.can_redo,
+            snapshots_enabled: inspection.history.snapshots_enabled,
+            degraded: inspection.history.degraded,
+        },
+    })
+}
+
+pub fn project_export(
+    store: &Path,
+    id: &str,
+    output: &Path,
+    format: AutomationFormat,
+    allow_unvalidated: bool,
+) -> Result<ProjectExportOutput, AutomationError> {
+    if !output
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(format.extension()))
+    {
+        return Err(AutomationError::new(
+            "La extensión de --output debe coincidir con --format.",
+        ));
+    }
+    let opened = projects::automation_open_project(store, id)
+        .map_err(|_| AutomationError::new("No se pudo abrir el proyecto solicitado."))?;
+    let total_rules = opened.workspace.quality_rules.len();
+    if total_rules == 0 && !allow_unvalidated {
+        return Err(AutomationError::new(
+            "El proyecto no tiene reglas; usa --allow-unvalidated para autorizar la exportación.",
+        ));
+    }
+    let quality = if total_rules == 0 {
+        ProjectQualityOutput {
+            validated: false,
+            passed: None,
+            row_count: opened.frame.height(),
+            total_rules: 0,
+            passed_rules: 0,
+            failed_rules: 0,
+            total_invalid_count: 0,
+        }
+    } else {
+        let result = dataset::evaluate_quality_rules_for_automation(
+            &opened.frame,
+            &opened.workspace.quality_rules,
+        )
+        .map_err(|_| AutomationError::new("Las reglas guardadas del proyecto no son válidas."))?;
+        let quality = ProjectQualityOutput {
+            validated: true,
+            passed: Some(result.passed),
+            row_count: result.row_count,
+            total_rules: result.total_rules,
+            passed_rules: result.total_rules.saturating_sub(result.failed_rules),
+            failed_rules: result.failed_rules,
+            total_invalid_count: result.total_invalid_count(),
+        };
+        if !result.passed {
+            return Ok(ProjectExportOutput {
+                schema_version: 1,
+                command: "project-export",
+                status: "blocked",
+                file_name: None,
+                file_size_bytes: None,
+                format: format.label(),
+                quality,
+            });
+        }
+        quality
+    };
+    let exported =
+        dataset::export_frame_for_automation(&opened.frame, output, format.dataset_format())
+            .map_err(|_| AutomationError::new("No se pudo publicar la salida de forma atómica."))?;
+    Ok(ProjectExportOutput {
+        schema_version: 1,
+        command: "project-export",
+        status: "succeeded",
+        file_name: Some(exported.file_name),
+        file_size_bytes: Some(exported.file_size_bytes),
+        format: exported.format,
+        quality,
+    })
+}
+
+pub fn project_delete(
+    store: &Path,
+    id: String,
+    confirm: &str,
+) -> Result<ProjectDeleteOutput, AutomationError> {
+    if id != confirm {
+        return Err(AutomationError::new(
+            "La confirmación no coincide exactamente con el identificador.",
+        ));
+    }
+    projects::automation_delete_project(store, &id)
+        .map_err(|_| AutomationError::new("No se pudo eliminar el proyecto solicitado."))?;
+    Ok(ProjectDeleteOutput {
+        schema_version: 1,
+        command: "project-delete",
+        id,
+        deleted: true,
     })
 }
 
@@ -780,6 +1234,71 @@ mod tests {
             parse_cli_args(["batch", "--help"]).unwrap(),
             CliCommand::Help(text) if text.contains("no es una transacción global")
         ));
+        assert!(matches!(
+            parse_cli_args(["project-list", "--store", "projects"]).unwrap(),
+            CliCommand::ProjectList { store } if store == Path::new("projects")
+        ));
+        assert!(matches!(
+            parse_cli_args([
+                "project-save",
+                "--store",
+                "projects",
+                "--name",
+                "Ventas",
+                "--input",
+                "input.csv",
+                "--profile"
+            ])
+            .unwrap(),
+            CliCommand::ProjectSave { profile: true, .. }
+        ));
+        assert!(matches!(
+            parse_cli_args([
+                "project-export",
+                "--store",
+                "projects",
+                "--id",
+                "project-1",
+                "--output",
+                "output.csv",
+                "--format",
+                "csv",
+                "--allow-unvalidated"
+            ])
+            .unwrap(),
+            CliCommand::ProjectExport {
+                allow_unvalidated: true,
+                ..
+            }
+        ));
+        assert!(parse_cli_args(["project-list"]).is_err());
+        assert!(parse_cli_args(["project-list", "--store", "a", "--store", "b"]).is_err());
+        assert!(parse_cli_args([
+            "project-export",
+            "--store",
+            "projects",
+            "--id",
+            "project-1",
+            "--output",
+            "output.csv",
+            "--format",
+            "csv",
+            "--allow-unvalidated",
+            "--allow-unvalidated"
+        ])
+        .is_err());
+        assert!(parse_cli_args([
+            "project-save",
+            "--store",
+            "projects",
+            "--name",
+            "Ventas",
+            "--input",
+            "book.xlsx",
+            "--sheet",
+            "Data"
+        ])
+        .is_err());
     }
 
     #[test]
@@ -1066,6 +1585,196 @@ mod tests {
         assert_eq!(json["changedJobs"], 1);
         assert_eq!(json["failedJobNumber"], 2);
         assert_eq!(json.as_object().unwrap().len(), 7);
+    }
+
+    #[test]
+    fn project_commands_persist_inspect_export_and_delete_without_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("store");
+        let input = directory.path().join("source.csv");
+        let recipe = directory.path().join("recipe.json");
+        let rules = directory.path().join("rules.json");
+        let output = directory.path().join("export.csv");
+        fs::write(&input, "old,amount\nA,1\nB,2\n").unwrap();
+        write_recipe(&recipe, "old", "name");
+        fs::write(
+            &rules,
+            br#"{"version":1,"rules":[{"column":"name","kind":"non_empty","maxInvalid":0}]}"#,
+        )
+        .unwrap();
+
+        let saved = project_save(
+            &store,
+            "Ventas".to_owned(),
+            &input,
+            None,
+            None,
+            None,
+            Some(&recipe),
+            Some(&rules),
+            true,
+        )
+        .unwrap();
+        assert!(saved.created);
+        assert_eq!(
+            serde_json::to_value(&saved)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
+            4
+        );
+        let id = saved.project.id.clone();
+        let list = project_list(&store).unwrap();
+        assert_eq!(list.projects, vec![saved.project.clone()]);
+        assert_eq!(
+            serde_json::to_value(&list)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
+            3
+        );
+
+        let inspected = project_inspect(&store, &id).unwrap();
+        assert!(inspected.profile_cached);
+        assert!(inspected.recipe_draft_present);
+        assert_eq!(inspected.quality_rule_count, 1);
+        assert_eq!(inspected.history.entry_count, 2);
+        assert_eq!(inspected.history.current_index, 1);
+        assert_eq!(
+            serde_json::to_value(&inspected)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
+            7
+        );
+
+        let exported = project_export(&store, &id, &output, AutomationFormat::Csv, false).unwrap();
+        assert!(!exported.blocked());
+        assert!(output.is_file());
+        assert_eq!(exported.quality.passed, Some(true));
+        assert_eq!(exported.quality.total_rules, 1);
+        let json = serde_json::to_value(exported).unwrap();
+        assert_eq!(json["command"], "project-export");
+        assert_eq!(json["fileName"], "export.csv");
+        assert_eq!(json.as_object().unwrap().len(), 7);
+        assert_eq!(json["quality"].as_object().unwrap().len(), 7);
+        assert!(json.get("path").is_none());
+        assert!(!json
+            .to_string()
+            .contains(directory.path().to_str().unwrap()));
+
+        assert!(project_delete(&store, id.clone(), "different").is_err());
+        assert_eq!(project_list(&store).unwrap().projects.len(), 1);
+        let deleted = project_delete(&store, id.clone(), &id).unwrap();
+        assert!(deleted.deleted);
+        assert_eq!(deleted.id, id);
+        assert_eq!(
+            serde_json::to_value(&deleted)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
+            4
+        );
+        assert!(project_list(&store).unwrap().projects.is_empty());
+    }
+
+    #[test]
+    fn project_export_quality_gate_never_replaces_or_creates_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("store");
+        let input = directory.path().join("source.csv");
+        let rules = directory.path().join("rules.json");
+        let absent = directory.path().join("absent.csv");
+        let existing = directory.path().join("existing.csv");
+        fs::write(&input, "name,other\nA,x\n,y\n").unwrap();
+        fs::write(
+            &rules,
+            br#"{"version":1,"rules":[{"column":"name","kind":"non_empty","maxInvalid":0}]}"#,
+        )
+        .unwrap();
+        let saved = project_save(
+            &store,
+            "Bloqueado".to_owned(),
+            &input,
+            None,
+            None,
+            None,
+            None,
+            Some(&rules),
+            false,
+        )
+        .unwrap();
+        fs::write(&existing, "previous").unwrap();
+
+        for output in [&absent, &existing] {
+            let result = project_export(
+                &store,
+                &saved.project.id,
+                output,
+                AutomationFormat::Csv,
+                true,
+            )
+            .unwrap();
+            assert!(result.blocked());
+            assert_eq!(result.quality.passed, Some(false));
+            assert!(result.file_name.is_none());
+            assert_eq!(
+                serde_json::to_value(&result)
+                    .unwrap()
+                    .as_object()
+                    .unwrap()
+                    .len(),
+                5
+            );
+        }
+        assert!(!absent.exists());
+        assert_eq!(fs::read_to_string(existing).unwrap(), "previous");
+    }
+
+    #[test]
+    fn project_without_rules_requires_explicit_unvalidated_permission() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("store");
+        let input = directory.path().join("source.csv");
+        let output = directory.path().join("output.parquet");
+        fs::write(&input, "value\n1\n").unwrap();
+        let saved = project_save(
+            &store,
+            "Sin reglas".to_owned(),
+            &input,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        assert!(project_export(
+            &store,
+            &saved.project.id,
+            &output,
+            AutomationFormat::Parquet,
+            false
+        )
+        .is_err());
+        assert!(!output.exists());
+        let result = project_export(
+            &store,
+            &saved.project.id,
+            &output,
+            AutomationFormat::Parquet,
+            true,
+        )
+        .unwrap();
+        assert!(!result.quality.validated);
+        assert_eq!(result.quality.passed, None);
+        assert!(output.is_file());
     }
 
     #[test]

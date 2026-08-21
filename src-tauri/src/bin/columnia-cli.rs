@@ -66,6 +66,67 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
                 return Ok(ExitCode::from(2));
             }
         }
+        CliCommand::ProjectList { store } => {
+            serde_json::to_writer(io::stdout().lock(), &automation::project_list(&store)?)?;
+            println!();
+        }
+        CliCommand::ProjectSave {
+            store,
+            name,
+            input,
+            id,
+            sheet,
+            header,
+            recipe,
+            rules,
+            profile,
+        } => {
+            serde_json::to_writer(
+                io::stdout().lock(),
+                &automation::project_save(
+                    &store,
+                    name,
+                    &input,
+                    id,
+                    sheet.as_deref(),
+                    header,
+                    recipe.as_deref(),
+                    rules.as_deref(),
+                    profile,
+                )?,
+            )?;
+            println!();
+        }
+        CliCommand::ProjectInspect { store, id } => {
+            serde_json::to_writer(
+                io::stdout().lock(),
+                &automation::project_inspect(&store, &id)?,
+            )?;
+            println!();
+        }
+        CliCommand::ProjectExport {
+            store,
+            id,
+            output,
+            format,
+            allow_unvalidated,
+        } => {
+            let result =
+                automation::project_export(&store, &id, &output, format, allow_unvalidated)?;
+            let blocked = result.blocked();
+            serde_json::to_writer(io::stdout().lock(), &result)?;
+            println!();
+            if blocked {
+                return Ok(ExitCode::from(2));
+            }
+        }
+        CliCommand::ProjectDelete { store, id, confirm } => {
+            serde_json::to_writer(
+                io::stdout().lock(),
+                &automation::project_delete(&store, id, &confirm)?,
+            )?;
+            println!();
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

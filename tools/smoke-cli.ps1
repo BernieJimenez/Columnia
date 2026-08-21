@@ -248,8 +248,10 @@ try {
     }
 
     $Help = Invoke-Cli -Label "help" -Arguments @("--help")
-    if ($Help.stdout -notmatch "(?i)inspect" -or $Help.stdout -notmatch "(?i)transform" -or $Help.stdout -notmatch "(?i)validate" -or $Help.stdout -notmatch "(?i)batch") {
-        throw "La ayuda debe anunciar inspect, transform, validate y batch."
+    if ($Help.stdout -notmatch "(?i)inspect" -or $Help.stdout -notmatch "(?i)transform" -or $Help.stdout -notmatch "(?i)validate" -or $Help.stdout -notmatch "(?i)batch" -or
+        $Help.stdout -notmatch "project-list" -or $Help.stdout -notmatch "project-save" -or $Help.stdout -notmatch "project-inspect" -or
+        $Help.stdout -notmatch "project-export" -or $Help.stdout -notmatch "project-delete") {
+        throw "La ayuda debe anunciar automatización de datasets y proyectos."
     }
 
     $InputRelative = "fixtures/automation/input.csv"
@@ -470,6 +472,94 @@ try {
         throw "El fallo tardío batch debe conservar outputs completados y omitir el trabajo fallido."
     }
 
+    $ProjectStorePath = Join-Path $WorkDirectory "project-store"
+    $ProjectExportPath = Join-Path $WorkDirectory "project-export.csv"
+    $ProjectSave = Read-JsonOutput `
+        -Label "project save" `
+        -Result (Invoke-Cli -Label "project-save" -Arguments @(
+            "project-save", "--store", $ProjectStorePath, "--name", "Ventas CLI",
+            "--input", (Join-Path $FixturesRoot "input.csv"),
+            "--recipe", (Join-Path $FixturesRoot "recipe-v1.json"),
+            "--rules", (Join-Path $FixturesRoot "quality-pass-transformed-v1.json"), "--profile"
+        ))
+    if ($ProjectSave.schemaVersion -ne 1 -or $ProjectSave.command -cne "project-save" -or
+        -not $ProjectSave.created -or -not $ProjectSave.project.id -or
+        $ProjectSave.project.name -cne "Ventas CLI" -or $ProjectSave.project.rowCount -ne 2 -or
+        $ProjectSave.project.columnCount -ne 3) {
+        throw "project-save no emitió el contrato esperado."
+    }
+    $ProjectId = [string]$ProjectSave.project.id
+
+    # Cada Invoke-Cli crea un proceso nuevo: list/inspect/export verifican reapertura durable real.
+    $ProjectList = Read-JsonOutput `
+        -Label "project list after restart" `
+        -Result (Invoke-Cli -Label "project-list" -Arguments @(
+            "project-list", "--store", $ProjectStorePath
+        ))
+    if ($ProjectList.schemaVersion -ne 1 -or $ProjectList.command -cne "project-list" -or
+        @($ProjectList.projects).Count -ne 1 -or $ProjectList.projects[0].id -cne $ProjectId) {
+        throw "project-list no recuperó el proyecto persistido en un proceso nuevo."
+    }
+
+    $ProjectInspect = Read-JsonOutput `
+        -Label "project inspect after restart" `
+        -Result (Invoke-Cli -Label "project-inspect" -Arguments @(
+            "project-inspect", "--store", $ProjectStorePath, "--id", $ProjectId
+        ))
+    if ($ProjectInspect.schemaVersion -ne 1 -or $ProjectInspect.command -cne "project-inspect" -or
+        $ProjectInspect.project.id -cne $ProjectId -or -not $ProjectInspect.profileCached -or
+        -not $ProjectInspect.recipeDraftPresent -or $ProjectInspect.qualityRuleCount -ne 1 -or
+        $ProjectInspect.history.entryCount -ne 2 -or $ProjectInspect.history.currentIndex -ne 1) {
+        throw "project-inspect no reflejó receta, reglas, perfil e historial durables."
+    }
+
+    $ProjectExport = Read-JsonOutput `
+        -Label "project export after restart" `
+        -Result (Invoke-Cli -Label "project-export" -Arguments @(
+            "project-export", "--store", $ProjectStorePath, "--id", $ProjectId,
+            "--output", $ProjectExportPath, "--format", "csv"
+        ))
+    if ($ProjectExport.schemaVersion -ne 1 -or $ProjectExport.command -cne "project-export" -or
+        $ProjectExport.status -cne "succeeded" -or $ProjectExport.fileName -cne "project-export.csv" -or
+        $ProjectExport.fileSizeBytes -ne (Get-Item -LiteralPath $ProjectExportPath).Length -or
+        -not $ProjectExport.quality.validated -or -not $ProjectExport.quality.passed -or
+        $ProjectExport.quality.totalRules -ne 1 -or $ProjectExport.quality.failedRules -ne 0) {
+        throw "project-export no emitió una exportación validada y atómica."
+    }
+
+    $BadDelete = Invoke-Cli -Label "project-delete-invalid-confirm" -ShouldSucceed $false -Arguments @(
+        "project-delete", "--store", $ProjectStorePath, "--id", $ProjectId, "--confirm", "different"
+    )
+    if ($BadDelete.exitCode -ne 1 -or $BadDelete.stdout) {
+        throw "project-delete debe rechazar confirmación distinta con código 1 y sin JSON parcial."
+    }
+    $StillStored = Read-JsonOutput `
+        -Label "project survives invalid delete" `
+        -Result (Invoke-Cli -Label "project-list-after-invalid-delete" -Arguments @(
+            "project-list", "--store", $ProjectStorePath
+        ))
+    if (@($StillStored.projects).Count -ne 1 -or $StillStored.projects[0].id -cne $ProjectId) {
+        throw "Una confirmación inválida eliminó el proyecto."
+    }
+
+    $ProjectDelete = Read-JsonOutput `
+        -Label "project delete" `
+        -Result (Invoke-Cli -Label "project-delete" -Arguments @(
+            "project-delete", "--store", $ProjectStorePath, "--id", $ProjectId, "--confirm", $ProjectId
+        ))
+    if ($ProjectDelete.schemaVersion -ne 1 -or $ProjectDelete.command -cne "project-delete" -or
+        $ProjectDelete.id -cne $ProjectId -or -not $ProjectDelete.deleted) {
+        throw "project-delete no emitió el contrato esperado."
+    }
+    $EmptyProjects = Read-JsonOutput `
+        -Label "project list after delete" `
+        -Result (Invoke-Cli -Label "project-list-after-delete" -Arguments @(
+            "project-list", "--store", $ProjectStorePath
+        ))
+    if (@($EmptyProjects.projects).Count -ne 0) {
+        throw "project-delete no retiró el proyecto del almacén durable."
+    }
+
     $Status = "passed"
 }
 catch {
@@ -507,5 +597,5 @@ if ($Status -ne "passed") {
     exit 1
 }
 
-Write-Host "Smoke CLI aprobado: help, inspect/transform de libros, CSV, Parquet, validate y batch con preflight y fallo parcial."
+Write-Host "Smoke CLI aprobado: datasets, batch y proyectos durables con calidad, exportación y borrado confirmado."
 Write-Host "Evidencia: $EvidenceRelativePath"
