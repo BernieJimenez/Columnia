@@ -54,6 +54,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- i
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- transform --input datos.csv --recipe receta.json --output resultado.parquet --format parquet
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- validate --input datos.csv --rules calidad.json
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- inspect --input libro.xlsx --sheet Datos --header first-row
+cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- batch --manifest lote.json
 ```
 
 `inspect`, `transform` y `validate` aceptan CSV, TSV, JSON, Parquet, XLSX, XLS,
@@ -62,6 +63,14 @@ first-row|generated`; esas opciones se rechazan para otros formatos. Las rutas y
 los valores del dataset no aparecen en el JSON ni en los errores. La salida se
 publica de forma atómica y CSV conserva la protección contra fórmulas. `validate`
 devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
+
+Un manifiesto batch v1 contiene entre 1 y 64 trabajos `input`, `recipe`,
+`output` y `format`, más `sheet`/`header` para libros. Las rutas relativas se
+resuelven desde la carpeta del manifiesto. Columnia valida todo el lote antes de
+escribir y rechaza destinos repetidos o que sobrescriban inputs, recetas o el
+propio manifiesto. Cada trabajo es atómico, pero el lote no es una transacción
+global: un fallo tardío conserva los trabajos anteriores, informa su ordinal y
+termina con código 2. Un manifiesto inválido termina con código 1 sin outputs.
 
 La validación permanece completamente local. Desde PowerShell:
 

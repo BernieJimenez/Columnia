@@ -1,19 +1,24 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
-    fmt,
+    fmt, fs,
     path::{Path, PathBuf},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::dataset::{self, ExportFormat, SpreadsheetHeaderMode};
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate termina con código 2 cuando el contrato no pasa; los errores de uso o carga terminan con código 1.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate y un trabajo batch fallido terminan con código 2; los errores de uso, carga o manifiesto terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
 const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n\nAplica una receta Columnia y publica la salida atómicamente. CSV conserva la protección contra fórmulas de hojas de cálculo.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia versión 1 con {\"version\":1,\"rules\":[...]}. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
+const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
+const BATCH_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
+const BATCH_MAX_JOBS: usize = 64;
+const BATCH_MAX_FIELD_CHARS: usize = 4 * 1024;
+const BATCH_MAX_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutomationFormat {
@@ -58,6 +63,9 @@ pub enum CliCommand {
         sheet: Option<String>,
         header: Option<SpreadsheetHeaderMode>,
         rules: PathBuf,
+    },
+    Batch {
+        manifest: PathBuf,
     },
 }
 
@@ -140,6 +148,68 @@ impl ValidateOutput {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BatchManifest {
+    version: u8,
+    jobs: Vec<BatchJobDocument>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BatchJobDocument {
+    input: String,
+    recipe: String,
+    output: String,
+    format: BatchFormat,
+    sheet: Option<String>,
+    header: Option<SpreadsheetHeaderMode>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum BatchFormat {
+    Csv,
+    Parquet,
+}
+
+impl From<BatchFormat> for AutomationFormat {
+    fn from(value: BatchFormat) -> Self {
+        match value {
+            BatchFormat::Csv => Self::Csv,
+            BatchFormat::Parquet => Self::Parquet,
+        }
+    }
+}
+
+struct PreparedBatchJob {
+    input: PathBuf,
+    recipe: PathBuf,
+    output: PathBuf,
+    format: AutomationFormat,
+    sheet: Option<String>,
+    header: Option<SpreadsheetHeaderMode>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchOutput {
+    schema_version: u8,
+    command: &'static str,
+    status: &'static str,
+    total_jobs: usize,
+    completed_jobs: usize,
+    changed_jobs: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failed_job_number: Option<usize>,
+}
+
+impl BatchOutput {
+    pub fn failed(&self) -> bool {
+        self.failed_job_number.is_some()
+    }
+}
+
 fn parse_flags(
     arguments: &[OsString],
     allowed: &[&'static str],
@@ -218,7 +288,9 @@ where
     let subcommand = arguments
         .first()
         .and_then(|argument| argument.to_str())
-        .ok_or_else(|| AutomationError::new("Falta el comando inspect, transform o validate."))?;
+        .ok_or_else(|| {
+            AutomationError::new("Falta el comando inspect, transform, validate o batch.")
+        })?;
     let rest = &arguments[1..];
 
     match subcommand {
@@ -282,8 +354,18 @@ where
                 rules,
             })
         }
+        "batch" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(BATCH_HELP));
+            }
+            let mut flags = parse_flags(rest, &["--manifest"])?;
+            Ok(CliCommand::Batch {
+                manifest: PathBuf::from(required_flag(&mut flags, "--manifest")?),
+            })
+        }
         _ => Err(AutomationError::new(
-            "Comando desconocido. Usa inspect, transform, validate o --help.",
+            "Comando desconocido. Usa inspect, transform, validate, batch o --help.",
         )),
     }
 }
@@ -418,6 +500,185 @@ pub fn validate(
     })
 }
 
+fn resolve_manifest_path(base: &Path, value: &str) -> PathBuf {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        path.to_owned()
+    } else {
+        base.join(path)
+    }
+}
+
+#[cfg(windows)]
+fn output_collision_key(path: &Path) -> String {
+    path.to_string_lossy().to_lowercase()
+}
+
+#[cfg(not(windows))]
+fn output_collision_key(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn validate_batch_text_budget(manifest: &BatchManifest) -> Result<(), AutomationError> {
+    let mut total = 0_usize;
+    for job in &manifest.jobs {
+        for value in [
+            Some(job.input.as_str()),
+            Some(job.recipe.as_str()),
+            Some(job.output.as_str()),
+            job.sheet.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let chars = value.chars().count();
+            if chars == 0 || chars > BATCH_MAX_FIELD_CHARS {
+                return Err(AutomationError::new(
+                    "Un campo de texto del manifiesto está vacío o supera el límite permitido.",
+                ));
+            }
+            total = total.saturating_add(chars);
+            if total > BATCH_MAX_TOTAL_TEXT_CHARS {
+                return Err(AutomationError::new(
+                    "El texto acumulado del manifiesto supera el límite permitido.",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn prepare_batch(manifest_path: &Path) -> Result<Vec<PreparedBatchJob>, AutomationError> {
+    let canonical_manifest =
+        dataset::canonicalize_file_for_automation(manifest_path).map_err(|_| {
+            AutomationError::new("No se pudo cargar un manifiesto batch regular y válido.")
+        })?;
+    let metadata = fs::metadata(&canonical_manifest)
+        .map_err(|_| AutomationError::new("No se pudo verificar el manifiesto batch."))?;
+    if metadata.len() > BATCH_FILE_LIMIT_BYTES {
+        return Err(AutomationError::new(
+            "El manifiesto batch supera el límite de tamaño permitido.",
+        ));
+    }
+    let encoded = fs::read(&canonical_manifest)
+        .map_err(|_| AutomationError::new("No se pudo leer el manifiesto batch."))?;
+    let manifest: BatchManifest = serde_json::from_slice(&encoded).map_err(|_| {
+        AutomationError::new("El manifiesto batch no es un documento JSON v1 válido.")
+    })?;
+    if manifest.version != 1 || manifest.jobs.is_empty() || manifest.jobs.len() > BATCH_MAX_JOBS {
+        return Err(AutomationError::new(
+            "El manifiesto batch debe usar la versión 1 y declarar entre 1 y 64 trabajos.",
+        ));
+    }
+    validate_batch_text_budget(&manifest)?;
+    let base = canonical_manifest
+        .parent()
+        .expect("un archivo canonicalizado siempre tiene carpeta");
+    let mut prepared = Vec::with_capacity(manifest.jobs.len());
+    let mut output_keys = HashSet::with_capacity(manifest.jobs.len());
+    let mut source_keys = HashSet::with_capacity(manifest.jobs.len() * 2 + 1);
+    source_keys.insert(output_collision_key(&canonical_manifest));
+
+    for job in manifest.jobs {
+        let input = resolve_manifest_path(base, &job.input);
+        let recipe = resolve_manifest_path(base, &job.recipe);
+        let output = resolve_manifest_path(base, &job.output);
+        let format = AutomationFormat::from(job.format);
+        validate_input_options(&input, job.sheet.as_deref(), job.header)?;
+        if output
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_none_or(|extension| !extension.eq_ignore_ascii_case(format.extension()))
+        {
+            return Err(AutomationError::new(
+                "La extensión de una salida batch no coincide con su formato.",
+            ));
+        }
+        let canonical_input = dataset::canonicalize_file_for_automation(&input)
+            .map_err(|_| AutomationError::new("Un input batch no es un archivo regular válido."))?;
+        let canonical_recipe =
+            dataset::canonicalize_file_for_automation(&recipe).map_err(|_| {
+                AutomationError::new("Una receta batch no es un archivo regular válido.")
+            })?;
+        dataset::load_dataset_for_automation(&canonical_input, job.sheet.as_deref(), job.header)
+            .map_err(|_| {
+                AutomationError::new("Un input o selección de libro batch no es válido.")
+            })?;
+        dataset::load_recipe_for_automation(&canonical_recipe)
+            .map_err(|_| AutomationError::new("Una receta batch no es un documento válido."))?;
+        let canonical_output = dataset::canonicalize_output_for_automation(&output)
+            .map_err(|_| AutomationError::new("Un destino batch no es válido."))?;
+        let output_key = output_collision_key(&canonical_output);
+        if !output_keys.insert(output_key) {
+            return Err(AutomationError::new(
+                "Dos trabajos batch no pueden compartir el mismo destino.",
+            ));
+        }
+        source_keys.insert(output_collision_key(&canonical_input));
+        source_keys.insert(output_collision_key(&canonical_recipe));
+        prepared.push(PreparedBatchJob {
+            input: canonical_input,
+            recipe: canonical_recipe,
+            output: canonical_output,
+            format,
+            sheet: job.sheet,
+            header: job.header,
+        });
+    }
+
+    if output_keys
+        .iter()
+        .any(|output| source_keys.contains(output))
+    {
+        return Err(AutomationError::new(
+            "Una salida batch no puede sobrescribir el manifiesto, un input o una receta del lote.",
+        ));
+    }
+    Ok(prepared)
+}
+
+pub fn batch(manifest_path: &Path) -> Result<BatchOutput, AutomationError> {
+    let jobs = prepare_batch(manifest_path)?;
+    let total_jobs = jobs.len();
+    let mut completed_jobs = 0;
+    let mut changed_jobs = 0;
+    for (index, job) in jobs.iter().enumerate() {
+        match transform(
+            &job.input,
+            job.sheet.as_deref(),
+            job.header,
+            &job.recipe,
+            &job.output,
+            job.format,
+        ) {
+            Ok(result) => {
+                completed_jobs += 1;
+                changed_jobs += usize::from(result.changed);
+            }
+            Err(_) => {
+                return Ok(BatchOutput {
+                    schema_version: 1,
+                    command: "batch",
+                    status: "failed",
+                    total_jobs,
+                    completed_jobs,
+                    changed_jobs,
+                    failed_job_number: Some(index + 1),
+                });
+            }
+        }
+    }
+    Ok(BatchOutput {
+        schema_version: 1,
+        command: "batch",
+        status: "succeeded",
+        total_jobs,
+        completed_jobs,
+        changed_jobs,
+        failed_job_number: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -508,6 +769,16 @@ mod tests {
             ])
             .unwrap(),
             CliCommand::Validate { rules, .. } if rules == Path::new("rules.json")
+        ));
+        assert_eq!(
+            parse_cli_args(["batch", "--manifest", "batch.json"]).unwrap(),
+            CliCommand::Batch {
+                manifest: PathBuf::from("batch.json")
+            }
+        );
+        assert!(matches!(
+            parse_cli_args(["batch", "--help"]).unwrap(),
+            CliCommand::Help(text) if text.contains("no es una transacción global")
         ));
     }
 
@@ -652,6 +923,149 @@ mod tests {
         assert!(validate(&input, None, None, &rules).is_err());
         fs::write(&rules, br#"{"version":1,"rules":[],"extra":true}"#).unwrap();
         assert!(validate(&input, None, None, &rules).is_err());
+    }
+
+    #[test]
+    fn batch_success_resolves_relative_paths_and_emits_only_summary_counts() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("first.csv"), "old\nA\n").unwrap();
+        fs::write(directory.path().join("second.csv"), "old\nB\n").unwrap();
+        write_recipe(&directory.path().join("recipe.json"), "old", "new");
+        fs::write(
+            directory.path().join("batch.json"),
+            br#"{"version":1,"jobs":[{"input":"first.csv","recipe":"recipe.json","output":"first-output.csv","format":"csv"},{"input":"second.csv","recipe":"recipe.json","output":"second-output.parquet","format":"parquet"}]}"#,
+        )
+        .unwrap();
+
+        let result = batch(&directory.path().join("batch.json")).unwrap();
+        assert!(!result.failed());
+        assert!(directory.path().join("first-output.csv").is_file());
+        assert!(directory.path().join("second-output.parquet").is_file());
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["status"], "succeeded");
+        assert_eq!(json["totalJobs"], 2);
+        assert_eq!(json["completedJobs"], 2);
+        assert_eq!(json["changedJobs"], 2);
+        assert_eq!(json.as_object().unwrap().len(), 6);
+        assert!(json.get("failedJobNumber").is_none());
+        assert!(!json
+            .to_string()
+            .contains(directory.path().to_str().unwrap()));
+    }
+
+    #[test]
+    fn batch_rejects_unknown_fields_before_writing_any_output() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("input.csv"), "old\nA\n").unwrap();
+        write_recipe(&directory.path().join("recipe.json"), "old", "new");
+        fs::write(
+            directory.path().join("batch.json"),
+            br#"{"version":1,"jobs":[{"input":"input.csv","recipe":"recipe.json","output":"output.csv","format":"csv","unknown":true}]}"#,
+        )
+        .unwrap();
+
+        assert!(batch(&directory.path().join("batch.json")).is_err());
+        assert!(!directory.path().join("output.csv").exists());
+    }
+
+    #[test]
+    fn batch_contract_enforces_root_shape_counts_text_budgets_and_workbook_options() {
+        assert!(serde_json::from_str::<BatchManifest>(
+            r#"{"version":1,"jobs":[],"unexpected":true}"#
+        )
+        .is_err());
+        let workbook = serde_json::from_str::<BatchManifest>(
+            r#"{"version":1,"jobs":[{"input":"book.xlsx","recipe":"recipe.json","output":"out.csv","format":"csv","sheet":"Data","header":"firstRow"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(workbook.jobs[0].sheet.as_deref(), Some("Data"));
+        assert_eq!(
+            workbook.jobs[0].header,
+            Some(SpreadsheetHeaderMode::FirstRow)
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        let manifest = directory.path().join("batch.json");
+        fs::write(&manifest, br#"{"version":1,"jobs":[]}"#).unwrap();
+        assert!(batch(&manifest).is_err());
+
+        let jobs = (0..=BATCH_MAX_JOBS)
+            .map(|index| {
+                serde_json::json!({
+                    "input": "input.csv",
+                    "recipe": "recipe.json",
+                    "output": format!("output-{index}.csv"),
+                    "format": "csv"
+                })
+            })
+            .collect::<Vec<_>>();
+        fs::write(
+            &manifest,
+            serde_json::to_vec(&serde_json::json!({ "version": 1, "jobs": jobs })).unwrap(),
+        )
+        .unwrap();
+        assert!(batch(&manifest).is_err());
+
+        let oversized = "x".repeat(BATCH_MAX_FIELD_CHARS + 1);
+        fs::write(
+            &manifest,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "jobs": [{
+                    "input": oversized,
+                    "recipe": "recipe.json",
+                    "output": "output.csv",
+                    "format": "csv"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(batch(&manifest).is_err());
+    }
+
+    #[test]
+    fn batch_detects_output_collisions_during_preflight() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("input.csv"), "old\nA\n").unwrap();
+        write_recipe(&directory.path().join("recipe.json"), "old", "new");
+        fs::write(
+            directory.path().join("batch.json"),
+            br#"{"version":1,"jobs":[{"input":"input.csv","recipe":"recipe.json","output":"same.csv","format":"csv"},{"input":"input.csv","recipe":"recipe.json","output":"./same.csv","format":"csv"}]}"#,
+        )
+        .unwrap();
+
+        assert!(batch(&directory.path().join("batch.json")).is_err());
+        assert!(!directory.path().join("same.csv").exists());
+    }
+
+    #[test]
+    fn batch_late_failure_keeps_completed_atomic_outputs_and_reports_ordinal() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("input.csv"), "old\nA\n").unwrap();
+        write_recipe(&directory.path().join("valid.json"), "old", "new");
+        write_recipe(
+            &directory.path().join("incompatible.json"),
+            "missing",
+            "new",
+        );
+        fs::write(
+            directory.path().join("batch.json"),
+            br#"{"version":1,"jobs":[{"input":"input.csv","recipe":"valid.json","output":"completed.csv","format":"csv"},{"input":"input.csv","recipe":"incompatible.json","output":"failed.csv","format":"csv"}]}"#,
+        )
+        .unwrap();
+
+        let result = batch(&directory.path().join("batch.json")).unwrap();
+        assert!(result.failed());
+        assert!(directory.path().join("completed.csv").is_file());
+        assert!(!directory.path().join("failed.csv").exists());
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["status"], "failed");
+        assert_eq!(json["totalJobs"], 2);
+        assert_eq!(json["completedJobs"], 1);
+        assert_eq!(json["changedJobs"], 1);
+        assert_eq!(json["failedJobNumber"], 2);
+        assert_eq!(json.as_object().unwrap().len(), 7);
     }
 
     #[test]

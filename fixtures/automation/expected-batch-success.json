@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "command": "batch",
+  "status": "succeeded",
+  "totalJobs": 2,
+  "completedJobs": 2,
+  "changedJobs": 2
+}

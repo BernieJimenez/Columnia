@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "Receta incompatible determinista",
+  "savedAt": "2026-08-21T00:00:00Z",
+  "recipe": {
+    "renames": [
+      {
+        "from": "missing_column",
+        "to": "renamed_column"
+      }
+    ]
+  }
+}

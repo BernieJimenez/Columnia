@@ -15,7 +15,7 @@
 | Persistencia actual | Dataset y perfil en memoria; historial en snapshots Parquet temporales |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-21, rama `master`, commit base `0e05156` |
+| Última revisión de este documento | 2026-08-21, rama `master`, commit base `4c1a1cf` |
 
 ## Para qué existe este documento
 
@@ -63,7 +63,9 @@ Polars + Calamine + filesystem local
 
 No existe un servidor HTTP de aplicación. React pide casos de uso concretos mediante IPC de Tauri. Rust conserva la autoridad sobre rutas, archivos y datasets. El frontend recibe nombres, metadatos, filas de vista previa e identificadores opacos, no rutas locales.
 
-La automatización sin interfaz entra por `columnia-cli`, que llama directamente al mismo motor Rust sin pasar por React ni IPC. Sus comandos `inspect`, `transform` y `validate` emiten contratos JSON versión 1, conservan los límites y la escritura atómica del escritorio y nunca incluyen rutas ni muestras en la salida. Acepta CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS; los libros exigen siempre una hoja por nombre exacto y un modo de encabezado explícito. `validate` termina con código 0 si el contrato pasa, 2 si no pasa y 1 ante un error de uso o carga.
+La automatización sin interfaz entra por `columnia-cli`, que llama directamente al mismo motor Rust sin pasar por React ni IPC. Sus comandos `inspect`, `transform`, `validate` y `batch` emiten contratos JSON versión 1, conservan los límites y la escritura atómica del escritorio y nunca incluyen rutas ni muestras en la salida. Acepta CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS; los libros exigen siempre una hoja por nombre exacto y un modo de encabezado explícito. `validate` termina con código 0 si el contrato pasa, 2 si no pasa y 1 ante un error de uso o carga.
+
+`batch` admite de 1 a 64 transformaciones en un manifiesto JSON v1 estricto. Resuelve rutas relativas desde la carpeta canonicalizada del manifiesto, aplica presupuestos de texto, comprueba todos los inputs, recetas, formatos, hojas, destinos y colisiones antes de escribir, y publica cada salida de forma atómica. No es una transacción global: un fallo dependiente de los datos detiene el lote con código 2 y conserva las salidas anteriores; el JSON informa solo conteos y el ordinal 1-based del trabajo fallido. Un manifiesto o preflight inválido termina con código 1, sin stdout ni outputs.
 
 ## Flujo de producto
 
@@ -81,17 +83,18 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | Ruta | Responsabilidad |
 | --- | --- |
 | `src/main.tsx` | Monta `<App />` en modo estricto de React. |
-| `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz. Es todavía un archivo grande de unas 1,645 líneas. |
+| `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz en unas 455 líneas. |
 | `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
 | `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, progreso, cancelación y recuperación. |
 | `src/features/review/` | Fase Revisar: diagnóstico, perfil de calidad, tabs y vista previa paginada. |
+| `src/features/prepare/` | Fase Preparar: vistas, editor de recetas, historial, modelo puro y controlador de IPC/invalidationes. |
 | `src/features/delivery/` | Fase Entregar: vista, métricas y modelo tipado de contrato, compuerta de calidad y exportación. |
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
 | `src/styles.css` | Sistema visual y layout de la aplicación. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, `DatasetState` y los 20 comandos permitidos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
-| `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de `inspect`/`transform`/`validate`. |
+| `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de `inspect`/`transform`/`validate`/`batch`. |
 | `src-tauri/src/bin/columnia-cli.rs` | Ejecutable CLI mínimo que delega en el módulo de automatización. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
@@ -99,7 +102,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/generate-sbom.ps1` | Genera offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, y limpia solo su Job Object. |
-| `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, CSV/Parquet y errores sin outputs parciales. |
+| `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, libros, calidad, lotes, atomicidad por trabajo y errores seguros. |
 | `fixtures/automation/` | Entradas, receta y resultados esperados del smoke de automatización. |
 | `README.md` | Descripción funcional y guía de uso/desarrollo. |
 | `THREAT_MODEL.md` | Activos, fronteras de confianza, amenazas, controles implementados y riesgos residuales. |
@@ -287,7 +290,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 89 pruebas frontend y 95 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 106 pruebas frontend y 100 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -307,13 +310,15 @@ Al revisar este documento había 89 pruebas frontend y 95 pruebas Rust; las rama
 - Smoke CLI determinista que cubre CSV, Parquet, XLSX, dos modos de encabezado, calidad aprobada/reprobada, neutralización de fórmulas y fallos sin outputs parciales.
 - Fases Cargar y Revisar extraídas de `App.tsx` a módulos con transiciones tipadas y pruebas propias.
 - Fase Entregar extraída de `App.tsx` a un módulo con estados discriminados y pruebas propias.
+- Fase Preparar extraída a vistas, editor, historial, modelo y controlador; `App.tsx` queda como coordinador de las cuatro fases.
+- CLI batch v1 para 1–64 transformaciones, con preflight sin escrituras, colisiones rechazadas y atomicidad individual explícita.
 
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
 - DuckDB embebido;
 - SQLite, proyectos y recuperación de sesión;
-- automatización CLI avanzada para lotes y proyectos; inspección, transformación, calidad y selección de hojas ya existen;
+- automatización CLI de proyectos; inspección, transformación, calidad, selección de hojas y lotes ya existen;
 - joins, comparación de datasets y destinos de bases de datos;
 - E2E de flujos reales con datasets, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el smoke de arranque ya existe;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
@@ -324,7 +329,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 ## Riesgos y deuda técnica visibles
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
-2. **UI todavía concentrada**: Cargar, Revisar y Entregar ya viven en módulos feature, pero `App.tsx` aún coordina gran parte de Preparar. Los refactors deben preservar las uniones de estado y las confirmaciones de acciones destructivas.
+2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
 3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 39 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
 5. **Persistencia efímera**: cerrar la aplicación pierde dataset, perfil e historial.
@@ -368,6 +373,8 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-21 | La CLI ejecuta manifiestos batch v1 de hasta 64 trabajos, con preflight completo, outputs atómicos individuales y fallo parcial explícito por ordinal. | `src-tauri/src/automation.rs`, `tools/smoke-cli.ps1`, `fixtures/automation/` |
+| 2026-08-21 | Preparar e Historial se extrajeron a vistas, modelo y controlador IPC; `App.tsx` se redujo de 1,645 a 455 líneas. | `src/features/prepare/`, `src/App.tsx` |
 | 2026-08-21 | La CLI admite libros mediante hoja exacta y encabezado explícito, y valida contratos de calidad con salida JSON de conteos y códigos 0/2/1. | `src-tauri/src/automation.rs`, `src-tauri/src/dataset.rs`, `tools/smoke-cli.ps1` |
 | 2026-08-21 | Cargar y Revisar se extrajeron a módulos tipados y probados; `App.tsx` se redujo en otras 520 líneas. | `src/features/load/`, `src/features/review/`, `src/App.tsx` |
 | 2026-08-21 | La automatización local incorpora `columnia-cli inspect/transform` sobre el mismo motor Rust, con contratos JSON v1, rutas no expuestas y exportación atómica. | `src-tauri/src/automation.rs`, `src-tauri/src/bin/columnia-cli.rs` |

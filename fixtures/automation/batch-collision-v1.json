@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "input": "input.csv",
+      "recipe": "recipe-v1.json",
+      "output": "collision.csv",
+      "format": "csv"
+    },
+    {
+      "input": "input.csv",
+      "recipe": "recipe-v1.json",
+      "output": "./collision.csv",
+      "format": "csv"
+    }
+  ]
+}

@@ -103,17 +103,43 @@ function Invoke-Cli {
     $SafeLabel = $Label -replace "[^a-zA-Z0-9-]", "-"
     $StdoutPath = Join-Path $EvidenceDirectory "$SafeLabel.stdout.log"
     $StderrPath = Join-Path $EvidenceDirectory "$SafeLabel.stderr.log"
-    Push-Location $ProjectRoot
-    $PreviousErrorActionPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = "Continue"
-        & $script:CliPath @Arguments 1> $StdoutPath 2> $StderrPath
-        $ExitCode = $LASTEXITCODE
+    $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $StartInfo.FileName = $script:CliPath
+    $StartInfo.WorkingDirectory = $ProjectRoot
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
+    if ($StartInfo.PSObject.Properties.Name -contains "ArgumentList") {
+        foreach ($Argument in $Arguments) {
+            [void]$StartInfo.ArgumentList.Add($Argument)
+        }
     }
-    finally {
-        $ErrorActionPreference = $PreviousErrorActionPreference
-        Pop-Location
+    else {
+        $StartInfo.Arguments = ($Arguments | ForEach-Object {
+            if ($_ -notmatch '[\s"]') {
+                $_
+            }
+            else {
+                $Escaped = $_ -replace '(\\*)"', '$1$1\"'
+                $Escaped = $Escaped -replace '(\\+)$', '$1$1'
+                '"' + $Escaped + '"'
+            }
+        }) -join " "
     }
+
+    $Process = New-Object System.Diagnostics.Process
+    $Process.StartInfo = $StartInfo
+    [void]$Process.Start()
+    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    $Process.WaitForExit()
+    $Stdout = $StdoutTask.Result
+    $Stderr = $StderrTask.Result
+    $ExitCode = $Process.ExitCode
+    $Process.Dispose()
+    [System.IO.File]::WriteAllText($StdoutPath, $Stdout)
+    [System.IO.File]::WriteAllText($StderrPath, $Stderr)
 
     if ($ShouldSucceed -and $ExitCode -ne 0) {
         throw "$Label falló con código $ExitCode."
@@ -122,10 +148,15 @@ function Invoke-Cli {
         throw "$Label debía fallar pero terminó correctamente."
     }
     $Checks.Add($Label)
-    $Stdout = [string](Get-Content -LiteralPath $StdoutPath -Raw)
-    $Stderr = [string](Get-Content -LiteralPath $StderrPath -Raw)
     if ($null -eq $Stdout) { $Stdout = "" }
     if ($null -eq $Stderr) { $Stderr = "" }
+    if ($Stderr.IndexOf($ProjectRoot, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $Stderr.IndexOf($EvidenceDirectory, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        throw "$Label expuso una ruta absoluta por stderr."
+    }
+    if ($Stderr -match "NativeCommandError|FullyQualifiedErrorId|CategoryInfo") {
+        throw "$Label capturó metadatos de PowerShell en vez del stderr nativo."
+    }
     return [ordered]@{
         stdout = $Stdout.Trim()
         stderr = $Stderr.Trim()
@@ -217,8 +248,8 @@ try {
     }
 
     $Help = Invoke-Cli -Label "help" -Arguments @("--help")
-    if ($Help.stdout -notmatch "(?i)inspect" -or $Help.stdout -notmatch "(?i)transform" -or $Help.stdout -notmatch "(?i)validate") {
-        throw "La ayuda debe anunciar inspect, transform y validate."
+    if ($Help.stdout -notmatch "(?i)inspect" -or $Help.stdout -notmatch "(?i)transform" -or $Help.stdout -notmatch "(?i)validate" -or $Help.stdout -notmatch "(?i)batch") {
+        throw "La ayuda debe anunciar inspect, transform, validate y batch."
     }
 
     $InputRelative = "fixtures/automation/input.csv"
@@ -228,6 +259,17 @@ try {
     $WorkbookRelative = "$EvidenceRelativePath/work/input.xlsx"
     $WorkbookPath = Join-Path $WorkDirectory "input.xlsx"
     New-DeterministicWorkbook -Destination $WorkbookPath
+    $BatchWorkDirectory = Join-Path $WorkDirectory "batch"
+    New-Item -ItemType Directory -Path $BatchWorkDirectory -Force | Out-Null
+    Copy-Item -LiteralPath @(
+        (Join-Path $FixturesRoot "input.csv"),
+        (Join-Path $FixturesRoot "recipe-v1.json"),
+        (Join-Path $FixturesRoot "recipe-incompatible-v1.json"),
+        (Join-Path $FixturesRoot "batch-success-v1.json"),
+        (Join-Path $FixturesRoot "batch-invalid-v1.json"),
+        (Join-Path $FixturesRoot "batch-collision-v1.json"),
+        (Join-Path $FixturesRoot "batch-partial-v1.json")
+    ) -Destination $BatchWorkDirectory
 
     $InspectInput = Read-JsonOutput `
         -Label "inspect input" `
@@ -387,6 +429,47 @@ try {
         throw "Un input inexistente dejó un archivo de salida parcial."
     }
 
+    $BatchRelativeRoot = "$EvidenceRelativePath/work/batch"
+    $BatchSuccess = Read-JsonOutput `
+        -Label "batch success" `
+        -Result (Invoke-Cli -Label "batch-success" -Arguments @(
+            "batch", "--manifest", "$BatchRelativeRoot/batch-success-v1.json"
+        ))
+    Assert-JsonFixture -Actual $BatchSuccess -FixtureName "expected-batch-success.json"
+    if (-not (Test-Path -LiteralPath (Join-Path $BatchWorkDirectory "batch-first.csv") -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $BatchWorkDirectory "batch-second.parquet") -PathType Leaf)) {
+        throw "El batch exitoso no publicó todas sus salidas."
+    }
+
+    $BatchInvalid = Invoke-Cli -Label "batch-invalid-manifest" -ShouldSucceed $false -Arguments @(
+        "batch", "--manifest", "$BatchRelativeRoot/batch-invalid-v1.json"
+    )
+    if ($BatchInvalid.exitCode -ne 1 -or $BatchInvalid.stdout -or
+        (Test-Path -LiteralPath (Join-Path $BatchWorkDirectory "must-not-exist.csv"))) {
+        throw "Un manifiesto batch inválido debe terminar con código 1 sin JSON ni outputs."
+    }
+
+    $BatchCollision = Invoke-Cli -Label "batch-output-collision" -ShouldSucceed $false -Arguments @(
+        "batch", "--manifest", "$BatchRelativeRoot/batch-collision-v1.json"
+    )
+    if ($BatchCollision.exitCode -ne 1 -or $BatchCollision.stdout -or
+        (Test-Path -LiteralPath (Join-Path $BatchWorkDirectory "collision.csv"))) {
+        throw "Una colisión batch debe detectarse en preflight sin crear outputs."
+    }
+
+    $BatchPartialResult = Invoke-Cli -Label "batch-partial-failure" -ShouldSucceed $false -Arguments @(
+        "batch", "--manifest", "$BatchRelativeRoot/batch-partial-v1.json"
+    )
+    if ($BatchPartialResult.exitCode -ne 2) {
+        throw "Un trabajo batch fallido después del preflight debe terminar con código 2."
+    }
+    $BatchPartial = Read-JsonOutput -Label "batch partial failure" -Result $BatchPartialResult
+    Assert-JsonFixture -Actual $BatchPartial -FixtureName "expected-batch-partial.json"
+    if (-not (Test-Path -LiteralPath (Join-Path $BatchWorkDirectory "partial-completed.csv") -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $BatchWorkDirectory "partial-failed.csv"))) {
+        throw "El fallo tardío batch debe conservar outputs completados y omitir el trabajo fallido."
+    }
+
     $Status = "passed"
 }
 catch {
@@ -424,5 +507,5 @@ if ($Status -ne "passed") {
     exit 1
 }
 
-Write-Host "Smoke CLI aprobado: help, inspect/transform de libros, CSV, Parquet, validate pass/fail y errores sin outputs parciales."
+Write-Host "Smoke CLI aprobado: help, inspect/transform de libros, CSV, Parquet, validate y batch con preflight y fallo parcial."
 Write-Host "Evidencia: $EvidenceRelativePath"

@@ -5420,6 +5420,14 @@ pub(crate) fn export_frame_for_automation(
     export_frame_atomic(frame, output, format, |_, _| {}, || false)
 }
 
+pub(crate) fn canonicalize_file_for_automation(input: &Path) -> Result<PathBuf, String> {
+    canonicalize_existing_file(input, "el archivo de automatización")
+}
+
+pub(crate) fn canonicalize_output_for_automation(output: &Path) -> Result<PathBuf, String> {
+    canonicalize_write_destination(output, "la salida de automatización")
+}
+
 fn apply_recipe_to_dataset(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,

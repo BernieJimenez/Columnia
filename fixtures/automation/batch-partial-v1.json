@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "input": "input.csv",
+      "recipe": "recipe-v1.json",
+      "output": "partial-completed.csv",
+      "format": "csv"
+    },
+    {
+      "input": "input.csv",
+      "recipe": "recipe-incompatible-v1.json",
+      "output": "partial-failed.csv",
+      "format": "csv"
+    }
+  ]
+}

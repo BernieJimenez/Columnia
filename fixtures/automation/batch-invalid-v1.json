@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "input": "input.csv",
+      "recipe": "recipe-v1.json",
+      "output": "must-not-exist.csv",
+      "format": "csv",
+      "unexpected": true
+    }
+  ]
+}

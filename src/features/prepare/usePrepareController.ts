@@ -1,0 +1,204 @@
+import { useState } from "react";
+
+import {
+  applySafeCorrections,
+  applyTransformRecipe,
+  getHistoryState,
+  normalizeColumnNames,
+  normalizeTextValues,
+  removeDuplicates,
+  redoLastChange,
+  trimTextValues,
+  undoLastChange,
+  type DatasetPreview,
+  type TransformRecipe,
+} from "../../bridge";
+import { EMPTY_HISTORY, type ChangeStatus } from "./prepareModel";
+
+interface PrepareControllerOptions {
+  activeDataset: DatasetPreview | null;
+  onDatasetChanged: (dataset: DatasetPreview) => void;
+  onProfileInvalidated: () => void;
+  onDeliveryInvalidated: () => void;
+}
+
+export function usePrepareController({
+  activeDataset,
+  onDatasetChanged,
+  onProfileInvalidated,
+  onDeliveryInvalidated,
+}: PrepareControllerOptions) {
+  const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
+  const [historyStatus, setHistoryStatus] = useState(EMPTY_HISTORY);
+
+  async function refreshHistory() {
+    try {
+      const history = await getHistoryState();
+      setHistoryStatus(history);
+      return history;
+    } catch {
+      return historyStatus;
+    }
+  }
+
+  function resetChangeStatus() {
+    setChangeStatus({ kind: "idle" });
+  }
+
+  async function applyDuplicateRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "duplicates" });
+    try {
+      const result = await removeDuplicates();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas adicionales.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyColumnNormalization() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "columns" });
+    try {
+      const result = await normalizeColumnNames();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message:
+          result.renamedColumnCount === 0
+            ? "Los nombres de las columnas ya estaban normalizados."
+            : result.renamedColumnCount === 1
+              ? "Se normalizó 1 nombre de columna."
+              : `Se normalizaron ${result.renamedColumnCount.toLocaleString()} nombres de columnas.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyTextChange(action: "trim" | "text", columns: string[] = [], removeAccents = true) {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action });
+    try {
+      const result = action === "trim"
+        ? await trimTextValues()
+        : await normalizeTextValues(columns, removeAccents);
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const cells = result.changedCellCount === 1
+        ? "1 celda"
+        : `${result.changedCellCount.toLocaleString()} celdas`;
+      const rows = result.affectedRowCount === 1
+        ? "1 fila"
+        : `${result.affectedRowCount.toLocaleString()} filas`;
+      const detail = `${cells} en ${rows}`;
+      setChangeStatus({
+        kind: "applied",
+        message:
+          result.changedCellCount === 0
+            ? "No se encontraron valores que necesitaran esta corrección."
+            : action === "trim"
+              ? `Se recortaron espacios en ${detail}.`
+              : `Se normalizó texto en ${detail}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyRecommendedCorrections() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "safe" });
+    try {
+      const result = await applySafeCorrections();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const changed = result.changedCellCount > 0 || result.renamedColumnCount > 0;
+      const changedCells = result.changedCellCount === 1
+        ? "1 celda recortada"
+        : `${result.changedCellCount.toLocaleString()} celdas recortadas`;
+      const renamedColumns = result.renamedColumnCount === 1
+        ? "1 columna renombrada"
+        : `${result.renamedColumnCount.toLocaleString()} columnas renombradas`;
+      setChangeStatus({
+        kind: "applied",
+        message: changed
+          ? `Correcciones recomendadas aplicadas: ${changedCells} y ${renamedColumns}.`
+          : "El dataset ya cumplía las correcciones recomendadas.",
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyStructuralTransforms(recipe: TransformRecipe) {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "transform" });
+    try {
+      const result = await applyTransformRecipe(recipe);
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const total = result.renamedColumnCount + result.convertedColumnCount +
+        result.parsedDateColumnCount + result.removedRowCount + result.calculatedColumnCount +
+        result.replacedCellCount + result.droppedColumnCount + result.splitColumnCount +
+        result.mergedColumnCount + result.droppedSourceColumnCount + result.adjustedOutlierCellCount +
+        result.outlierRemovedRowCount + result.collapsedRowCount + result.aggregatedColumnCount +
+        result.normalizedContactCellCount + result.extractedColumnCount;
+      setChangeStatus({
+        kind: "applied",
+        message: total === 0
+          ? "La receta no produjo cambios en el dataset."
+          : `Receta aplicada: ${result.renamedColumnCount.toLocaleString()} renombres, ${result.convertedColumnCount.toLocaleString()} conversiones, ${result.parsedDateColumnCount.toLocaleString()} fechas interpretadas, ${result.removedRowCount.toLocaleString()} filas filtradas, ${result.outlierRemovedRowCount.toLocaleString()} filas atípicas eliminadas, ${result.calculatedColumnCount.toLocaleString()} columnas calculadas, ${result.replacedCellCount.toLocaleString()} celdas reemplazadas, ${result.splitColumnCount.toLocaleString()} columnas divididas, ${result.mergedColumnCount.toLocaleString()} columnas combinadas, ${(result.droppedColumnCount + result.droppedSourceColumnCount).toLocaleString()} columnas descartadas, ${result.adjustedOutlierCellCount.toLocaleString()} outliers ajustados, ${result.normalizedContactCellCount.toLocaleString()} contactos normalizados en ${result.normalizedContactColumnCount.toLocaleString()} columnas, ${result.extractedColumnCount.toLocaleString()} columnas extraídas y resumen de ${result.groupCount.toLocaleString()} grupos con ${result.aggregatedColumnCount.toLocaleString()} agregaciones.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function changeHistory(direction: "undo" | "redo") {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: direction });
+    try {
+      const result = direction === "undo" ? await undoLastChange() : await redoLastChange();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setHistoryStatus(result.history);
+      onDeliveryInvalidated();
+      setChangeStatus({ kind: "applied", message: result.message });
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return {
+    changeStatus,
+    historyStatus,
+    resetChangeStatus,
+    refreshHistory,
+    applyDuplicateRemoval,
+    applyColumnNormalization,
+    applyRecommendedCorrections,
+    trimText: () => applyTextChange("trim"),
+    normalizeText: (columns: string[], removeAccents: boolean) =>
+      applyTextChange("text", columns, removeAccents),
+    applyStructuralTransforms,
+    undoChange: () => changeHistory("undo"),
+    redoChange: () => changeHistory("redo"),
+  };
+}

@@ -57,6 +57,15 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             }
             return Ok(ExitCode::from(2));
         }
+        CliCommand::Batch { manifest } => {
+            let output = automation::batch(&manifest)?;
+            let failed = output.failed();
+            serde_json::to_writer(io::stdout().lock(), &output)?;
+            println!();
+            if failed {
+                return Ok(ExitCode::from(2));
+            }
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
