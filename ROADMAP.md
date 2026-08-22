@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.33.0`.
+- Versión actual del prototipo: `0.34.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -600,6 +600,12 @@ mide el primer render del shell en el preview local, con presupuesto de 3 segund
 Esto aporta una señal independiente de la compilación y del smoke Tauri, pero no
 se presenta todavía como medición del WebView2 nativo.
 
+La versión 0.34.0 añade un probe Windows aislado para WebView2: publica un puerto
+CDP de loopback solo durante `npm run smoke:cdp`, verifica los endpoints de
+diagnóstico y conecta Playwright para leer el DOM del shell y sus landmarks. El
+probe conserva Job Object, cleanup y evidencia JSON; no habilita depuración en el
+arranque normal ni ejecuta todavía mutaciones IPC de proyectos.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -767,19 +773,21 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.33.0
+## 8.1. Cola de ejecución recomendada desde v0.34.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
    Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
    Vitest cubre guardar→catálogo→abrir→restaurar y el smoke cubre contrato,
-   ventana y cleanup; queda el driver/CDP nativo.
-2. **Accesibilidad y evidencia visual:** ejecutar lector de pantalla, teclado,
-   zoom y alto contraste; añadir capturas canónicas y regresión visual estable.
+   ventana y cleanup; el probe CDP ya lee el DOM del shell, pero los flujos IPC
+   nativos de proyectos siguen pendientes.
+2. **Accesibilidad y evidencia visual:** Playwright ya cubre landmarks, foco,
+   targets mínimos y el ciclo de foco del `alertdialog`; todavía falta ejecutar
+   lector de pantalla, zoom y alto contraste, y añadir capturas canónicas.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, trasladar
-   la medición de primer render al WebView2 nativo cuando haya CDP, medir CSV de
-   100 MiB, RAM máxima, perfilado, receta y exportación, y mantener cleanup 100 %
-   repetible; el shell web ya tiene un presupuesto de primer render de 3 s.
+   la medición de primer render al WebView2 nativo usando el probe CDP, medir CSV
+   de 100 MiB, RAM máxima, perfilado, receta y exportación, y mantener cleanup
+   100 % repetible; el shell web ya tiene un presupuesto de primer render de 3 s.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -846,6 +854,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.31.0: Playwright 1.62 con Edge en Windows/Chromium en otros sistemas y E2E reproducible del shell web; IPC/Tauri nativo queda pendiente | Implementada |
 | 2026-08-22 | Versión 0.32.0: E2E Playwright del ciclo de proyectos con `__TAURI_INTERNALS__` simulado; WebView2/IPC nativo queda pendiente | Implementada |
 | 2026-08-22 | Versión 0.33.0: marca de primer render y presupuesto Playwright independiente de 3 s para el shell web; medición WebView2 nativa queda pendiente | Implementada |
+| 2026-08-22 | Versión 0.34.0: probe Windows WebView2/CDP aislado con lectura DOM mediante Playwright y cleanup por Job Object; mutaciones IPC nativas quedan pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 
