@@ -74,14 +74,16 @@ npm run test:e2e:install
 npm run test:e2e
 ```
 
-Estas pruebas cubren la carcasa web, la navegación accesible y el ciclo de
-proyectos con IPC simulado, además de un presupuesto de primer render de 3 s;
-los comandos Rust reales siguen validándose con Tauri y los smokes locales.
+Estas pruebas cubren la carcasa web, la navegación accesible, reduced-motion,
+viewports móvil/desktop y el ciclo de proyectos con IPC simulado, además de un
+presupuesto de primer render de 3 s; los comandos Rust reales siguen validándose
+con Tauri y los smokes locales.
 
 En Windows, `npm run smoke:cdp` levanta el comando real `npm run tauri dev` con
 un puerto CDP de loopback aislado, verifica `/json/version` y `/json/list`, y
-usa `chromium.connectOverCDP` para leer los landmarks del WebView2. El probe
+usa `chromium.connectOverCDP` para medir primer render y leer landmarks/foco del WebView2. El probe
 restaura la variable de entorno y termina únicamente los procesos que creó;
+reporta el primer render aunque el arranque debug frío supere el presupuesto,
 no ejecuta mutaciones de proyectos ni sustituye todavía los flujos IPC nativos.
 
 ## Automatización por CLI

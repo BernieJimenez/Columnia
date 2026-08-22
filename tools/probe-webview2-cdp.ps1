@@ -365,7 +365,7 @@ finally {
 
 if ($Status -eq "supported" -and $PlaywrightStatus -eq "passed") {
     if ($RunPlaywright) {
-        Write-Host "WebView2 CDP y Playwright connectOverCDP aprobados en http://127.0.0.1:$Port; solo se inspeccionaron landmarks, sin clics ni datos."
+        Write-Host "WebView2 CDP y Playwright connectOverCDP aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks y foco, sin mutar datos."
     }
     else {
         Write-Host "WebView2 CDP detectado en http://127.0.0.1:$Port; no se ejecutaron comandos CDP ni interacciones DOM."

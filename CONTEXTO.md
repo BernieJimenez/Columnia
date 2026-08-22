@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.34.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.35.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `735866b` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `8e6de65` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -100,7 +100,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
 | `src/styles.css` | Sistema visual y layout de la aplicación; incluye foco visible, targets mínimos y reducción de movimiento respetando `prefers-reduced-motion`. |
 | `playwright.config.ts` | Configuración de Playwright para E2E del shell web Vite, con Chromium/Edge local, preview de producción reutilizable, trazas y artefactos solo en fallos. |
-| `e2e/` | Pruebas E2E del shell web, primer render, accesibilidad y ciclo de proyectos con IPC Tauri simulado; la ventana WebView2 nativa tiene un probe CDP opcional para lectura DOM. |
+| `e2e/` | Pruebas E2E del shell web, primer render, accesibilidad, preferencias responsive y ciclo de proyectos con IPC Tauri simulado; la ventana WebView2 nativa tiene un probe CDP opcional. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, estados de dataset/proyectos y los 25 comandos permitidos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
@@ -114,7 +114,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
 | `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, puede conectar Playwright al WebView2 y deja evidencia; restaura el entorno y limpia su Job Object. |
-| `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y registra título, landmarks, `ProjectsPanel` y cantidad de controles sin mutar datos. |
+| `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y registra primer render, landmarks, `ProjectsPanel`, skip link, foco principal y cantidad de controles sin mutar datos. |
 | `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, libros, calidad, lotes, atomicidad por trabajo y errores seguros. |
 | `fixtures/automation/` | Entradas, receta y resultados esperados del smoke de automatización. |
 | `README.md` | Descripción funcional y guía de uso/desarrollo. |
@@ -347,23 +347,25 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
-- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.34.0 verificado en 314,791 bytes raw/90,150 gzip.
+- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.35.0 verificado en 314,827 bytes raw/90,154 gzip.
 - Contratos automatizados de accesibilidad para landmarks, skip link, `aria-current`, `aria-busy`, acciones de proyectos y `alertdialog` modal.
 - Smoke desktop instrumentado con hitos: la ejecución fría v0.30.0 registró Vite en 4,307 ms, proceso debug en 71,321 ms, ventana visible en 71,337 ms y cleanup confirmado en 1,133 ms/1 intento; el cleanup admite un segundo intento de 3 s tras uno inicial de 4 s.
 - Playwright configurado con preview Vite y E2E del shell web para landmarks, runtime, navegación accesible, skip link y primer render; conserva trazas/capturas/vídeos solo cuando una prueba falla.
 - Playwright con mock de `__TAURI_INTERNALS__` cubre cargar dataset, guardar, abrir y eliminar proyectos con confirmación, sin filesystem ni datos reales.
 - `App` publica la marca `columnia:app-render`; Playwright verifica el primer render del shell por debajo de 3 segundos en el preview local.
 - Playwright añade cobertura E2E de landmarks, foco visible, targets mínimos y ciclo de foco/restauración del `alertdialog`.
-- En Windows, `npm run smoke:cdp` verifica un endpoint CDP de loopback de WebView2 y usa `chromium.connectOverCDP` para leer landmarks del DOM nativo; aún no ejecuta mutaciones IPC.
-- Validación v0.34.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 7/7 (incluye 3 escenarios de accesibilidad), smoke desktop, CLI, probe CDP con Playwright y Package aprobados; las evidencias quedan bajo `.local/validation/` (Package `20260822T205642Z-735866b`, CDP `20260822T205525Z`).
+- En Windows, `npm run smoke:cdp` verifica un endpoint CDP de loopback de WebView2 y usa `chromium.connectOverCDP` para medir primer render, landmarks, skip link y foco principal sin mutar datos.
+- Playwright añade cobertura E2E responsive de viewport móvil/desktop, `prefers-reduced-motion`, targets mínimos y ausencia de overflow horizontal.
+- La última medición CDP nativa registró `columnia:app-render` en 26,157.9 ms durante un arranque debug frío; el dato queda como señal de rendimiento y no bloquea los contratos de landmarks/foco. El E2E web conserva el gate estricto de 3 s.
+- Validación v0.35.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9 (3 accesibilidad y 2 responsive), smoke desktop, CLI, probe CDP con Playwright y Package aprobados; evidencias Package `20260822T211029Z-8e6de65` y CDP `20260822T210840Z`.
 
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
-- flujos IPC nativos de proyectos dentro de WebView2, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP ya lee el DOM nativo, pero no reemplaza todavía la interacción de negocio;
-- medición nativa de primer render y acciones completas de proyectos sobre CDP; el objetivo operativo provisional sigue siendo startup total menor de 8 s y cleanup 100 % repetible;
+- flujos IPC nativos de proyectos dentro de WebView2, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP ya mide el shell nativo, pero no reemplaza todavía la interacción de negocio;
+- acciones completas de proyectos sobre CDP; el objetivo operativo provisional sigue siendo startup total menor de 8 s y cleanup 100 % repetible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
 
@@ -422,6 +424,7 @@ Al actualizarlo:
 | 2026-08-22 | El shell marca `columnia:app-render` y Playwright comprueba el primer render en menos de 3 s sobre el preview local; la medición nativa queda pendiente de CDP. | `src/App.tsx`, `e2e/performance.spec.ts` |
 | 2026-08-22 | El probe Windows levanta `npm run tauri dev` con CDP de loopback aislado, verifica endpoints y conecta Playwright para lectura DOM; no ejecuta mutaciones IPC y restaura la variable de entorno al limpiar. | `tools/probe-webview2-cdp.ps1`, `tools/probe-webview2-playwright.mjs` |
 | 2026-08-22 | Playwright cubre landmarks, foco visible, targets mínimos y el ciclo de foco/restauración del diálogo destructivo en el shell web. | `e2e/accessibility.spec.ts` |
+| 2026-08-22 | El probe CDP mide primer render nativo con `columnia:app-render` bajo 3 s y verifica skip link → foco de `main`; el E2E responsive cubre reduced-motion y viewports sin overflow horizontal. | `tools/probe-webview2-playwright.mjs`, `e2e/preferences.spec.ts`, `src/styles.css` |
 | 2026-08-22 | El smoke de escritorio valida el contrato estático de `ProjectsPanel` y confirma que la ventana debug/WebView2 inició; no simula clics porque UI Automation solo expone paneles del WebView2 y no el DOM React sin ampliar la configuración de depuración. | `tools/smoke-tauri.ps1`, `src/features/projects/ProjectsPanel.tsx` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

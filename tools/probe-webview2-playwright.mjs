@@ -2,6 +2,9 @@ import { chromium } from "@playwright/test";
 
 const portArgumentIndex = process.argv.indexOf("--port");
 const port = portArgumentIndex >= 0 ? Number(process.argv[portArgumentIndex + 1]) : 9222;
+const probeTimeoutMs = 15_000;
+const pollIntervalMs = 250;
+const firstRenderBudgetMs = 3_000;
 
 if (!Number.isInteger(port) || port < 1024 || port > 65535) {
   console.error(JSON.stringify({ status: "failed", error: "Invalid --port." }));
@@ -11,62 +14,242 @@ if (!Number.isInteger(port) || port < 1024 || port > 65535) {
 const endpoint = `http://127.0.0.1:${port}`;
 let browser;
 
-try {
-  browser = await chromium.connectOverCDP(endpoint, { timeout: 5_000 });
-  const pages = browser.contexts().flatMap((context) => context.pages());
-  const pageEvidence = [];
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
-  for (const page of pages) {
-    let appReady = false;
-    let projectsReady = false;
-    try {
-      await page.waitForSelector("#app-title", { state: "attached", timeout: 10_000 });
-      appReady = true;
-    } catch {
-      // A CDP endpoint can appear before Vite/React finishes mounting.
-    }
-    if (appReady) {
-      try {
-        await page.waitForSelector("#projects-title", { state: "attached", timeout: 5_000 });
-        projectsReady = true;
-      } catch {
-        // ProjectsPanel may be unavailable when the native runtime is still loading.
-      }
-    }
-    pageEvidence.push(
-      await page.evaluate(() => ({
-        url: window.location.href,
+function isProvisionalUrl(url) {
+  return /^about:blank(?:#.*)?$/i.test(url);
+}
+
+async function readPageShell(page) {
+  const url = page.url();
+  const provisional = isProvisionalUrl(url);
+  try {
+    return await page.evaluate(({ pageUrl, isProvisional }) => {
+      const has = (selector) => Boolean(document.querySelector(selector));
+      return {
+        url: pageUrl,
+        provisional: isProvisional,
         title: document.title,
         readyState: document.readyState,
-        hasAppTitle: Boolean(document.querySelector("#app-title")),
-        hasProjectsTitle: Boolean(document.querySelector("#projects-title")),
+        hasAppTitle: has("#app-title"),
+        hasProjectsTitle: has("#projects-title"),
         interactiveElementCount: document.querySelectorAll("button, input, select, textarea, a").length,
-      })),
-    );
-    pageEvidence.at(-1).appReady = appReady;
-    pageEvidence.at(-1).projectsReady = projectsReady;
+      };
+    }, { pageUrl: url, isProvisional: provisional });
+  } catch (error) {
+    return {
+      url,
+      provisional,
+      title: null,
+      readyState: null,
+      hasAppTitle: false,
+      hasProjectsTitle: false,
+      interactiveElementCount: 0,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function readFirstRender(page) {
+  return page.evaluate((budgetMs) => {
+    const marks = performance
+      .getEntriesByName("columnia:app-render")
+      .filter((entry) => entry.entryType === "mark");
+    const first = marks[0];
+    const startTime = first?.startTime ?? null;
+    return {
+      markName: "columnia:app-render",
+      found: Boolean(first),
+      markCount: marks.length,
+      startTime,
+      withinBudget: typeof startTime === "number" && startTime < budgetMs,
+      budgetMs,
+    };
+  }, firstRenderBudgetMs);
+}
+
+async function readLandmarks(page) {
+  return page.evaluate(() => {
+    const count = (selector) => document.querySelectorAll(selector).length;
+    const counts = {
+      main: count("main, [role='main']"),
+      navigation: count("nav, [role='navigation']"),
+      complementary: count("aside, [role='complementary']"),
+      banner: count("body > header, [role='banner']"),
+      contentInfo: count("body > footer, [role='contentinfo']"),
+      region: count("[role='region']"),
+    };
+    return {
+      ...counts,
+      valid: counts.main === 1 && counts.navigation === 1 && counts.complementary === 1,
+    };
+  });
+}
+
+async function readKeyboardFocus(page) {
+  try {
+    await page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    });
+    await page.keyboard.press("Tab");
+    const afterTab = await page.evaluate(() => {
+      const skipLink = document.querySelector("a.skip-link");
+      const active = document.activeElement;
+      const style = skipLink instanceof HTMLElement ? getComputedStyle(skipLink) : null;
+      return {
+        skipLinkFound: Boolean(skipLink),
+        skipLinkFocused: skipLink === active,
+        skipLinkVisible: Boolean(
+          skipLink instanceof HTMLElement &&
+          style &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.transform !== "none",
+        ),
+      };
+    });
+
+    let afterEnter = {
+      mainFound: false,
+      mainFocused: false,
+    };
+    if (afterTab.skipLinkFocused) {
+      await page.keyboard.press("Enter");
+      afterEnter = await page.evaluate(() => {
+        const main = document.querySelector("main#main-content");
+        return {
+          mainFound: Boolean(main),
+          mainFocused: main === document.activeElement,
+        };
+      });
+    }
+
+    return {
+      tested: true,
+      ...afterTab,
+      ...afterEnter,
+      valid: afterTab.skipLinkFocused && afterEnter.mainFocused,
+    };
+  } catch (error) {
+    return {
+      tested: true,
+      skipLinkFound: false,
+      skipLinkFocused: false,
+      skipLinkVisible: false,
+      mainFound: false,
+      mainFocused: false,
+      valid: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function inspectPage(page) {
+  const shell = await readPageShell(page);
+  if (!shell.hasAppTitle) {
+    return {
+      status: "not_ready",
+      phase: shell.provisional ? "provisional_target" : "waiting_for_shell",
+      ...shell,
+    };
   }
 
-  const domReady = pageEvidence.some((page) => page.appReady);
+  const firstRender = await readFirstRender(page);
+  const landmarks = await readLandmarks(page);
+  if (!firstRender.found) {
+    return {
+      status: "not_ready",
+      phase: "waiting_for_first_render",
+      ...shell,
+      firstRender,
+      landmarks,
+    };
+  }
 
-  console.log(
-    JSON.stringify({
-      status: domReady ? "passed" : "not_ready",
-      endpoint,
-      contextCount: browser.contexts().length,
-      pageCount: pages.length,
-      pages: pageEvidence,
-    }),
-  );
+  const focus = await readKeyboardFocus(page);
+  // El presupuesto de 3 s se conserva como señal de rendimiento. En el
+  // arranque Tauri debug puede incluir compilación fría y no debe convertir
+  // una medición válida del shell en un fallo de landmarks/foco.
+  const status = landmarks.valid && focus.valid ? "passed" : "failed";
+  return {
+    status,
+    phase: status === "passed" ? "ready" : "shell_contract_failed",
+    ...shell,
+    firstRender,
+    landmarks,
+    focus,
+  };
+}
+
+function snapshotResult(status, pages, extra = {}) {
+  return {
+    status,
+    endpoint,
+    contextCount: browser?.contexts().length ?? 0,
+    pageCount: pages.length,
+    pages,
+    checks: {
+      firstRenderMark: "columnia:app-render",
+      firstRenderBudgetMs,
+      landmarks: ["main", "navigation", "complementary"],
+      keyboardFocus: ["a.skip-link", "main#main-content"],
+    },
+    ...extra,
+  };
+}
+
+try {
+  browser = await chromium.connectOverCDP(endpoint, { timeout: 5_000 });
+  const deadline = Date.now() + probeTimeoutMs;
+  let lastPages = [];
+  let sawMountedApp = false;
+
+  while (Date.now() < deadline) {
+    const pages = browser.contexts().flatMap((context) => context.pages());
+    const pageEvidence = [];
+    for (const page of pages) {
+      const evidence = await inspectPage(page);
+      pageEvidence.push(evidence);
+      sawMountedApp ||= evidence.hasAppTitle;
+      if (evidence.status === "passed") {
+        console.log(JSON.stringify(snapshotResult("passed", pageEvidence)));
+        process.exitCode = 0;
+        throw new Error("__probe_complete__");
+      }
+      if (evidence.status === "failed") {
+        console.log(JSON.stringify(snapshotResult("failed", pageEvidence, {
+          error: "El shell nativo no cumple el contrato de primer render, landmarks o foco.",
+        })));
+        process.exitCode = 1;
+        throw new Error("__probe_complete__");
+      }
+    }
+    lastPages = pageEvidence;
+    await sleep(pollIntervalMs);
+  }
+
+  const status = sawMountedApp ? "failed" : "not_ready";
+  console.log(JSON.stringify(snapshotResult(status, lastPages, {
+    phase: sawMountedApp ? "mounted_shell_timeout" : "provisional_target_timeout",
+    error: sawMountedApp
+      ? "El shell montó, pero no completó la métrica o los contratos antes del timeout."
+      : "El endpoint CDP solo expuso targets provisionales o sin el shell de Columnia.",
+  })));
+  process.exitCode = status === "not_ready" ? 0 : 1;
 } catch (error) {
-  console.error(
-    JSON.stringify({
+  if (error instanceof Error && error.message === "__probe_complete__") {
+    // The structured result was already emitted above.
+  } else {
+    console.error(JSON.stringify({
       status: "failed",
       endpoint,
       error: error instanceof Error ? error.message : String(error),
-    }),
-  );
-  process.exitCode = 1;
+    }));
+    process.exitCode = 1;
+  }
 } finally {
   if (browser) {
     await browser.close();

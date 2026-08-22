@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.34.0`.
+- Versión actual del prototipo: `0.35.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -606,6 +606,14 @@ diagnóstico y conecta Playwright para leer el DOM del shell y sus landmarks. El
 probe conserva Job Object, cleanup y evidencia JSON; no habilita depuración en el
 arranque normal ni ejecuta todavía mutaciones IPC de proyectos.
 
+La versión 0.35.0 amplía el probe nativo para medir `columnia:app-render` dentro
+de WebView2 con un presupuesto de 3 segundos y verificar landmarks, skip link y
+foco del contenido principal. También añade E2E responsive con `prefers-reduced-motion`,
+viewport móvil/desktop, targets mínimos y ausencia de overflow horizontal.
+La medición nativa queda registrada como señal (no como gate de compilación fría):
+la última ejecución observó 26,157.9 ms durante el arranque debug, mientras los
+contratos de landmarks y foco pasaron.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -773,7 +781,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.34.0
+## 8.1. Cola de ejecución recomendada desde v0.35.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -781,13 +789,14 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    Vitest cubre guardar→catálogo→abrir→restaurar y el smoke cubre contrato,
    ventana y cleanup; el probe CDP ya lee el DOM del shell, pero los flujos IPC
    nativos de proyectos siguen pendientes.
-2. **Accesibilidad y evidencia visual:** Playwright ya cubre landmarks, foco,
-   targets mínimos y el ciclo de foco del `alertdialog`; todavía falta ejecutar
-   lector de pantalla, zoom y alto contraste, y añadir capturas canónicas.
-3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, trasladar
-   la medición de primer render al WebView2 nativo usando el probe CDP, medir CSV
+2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
+   targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
+   `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
+   y añadir capturas canónicas.
+3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, medir CSV
    de 100 MiB, RAM máxima, perfilado, receta y exportación, y mantener cleanup
-   100 % repetible; el shell web ya tiene un presupuesto de primer render de 3 s.
+   100 % repetible; el primer render nativo ya se mide contra una señal CDP de 3 s,
+   pero la compilación debug fría todavía puede excederla.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -855,6 +864,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.32.0: E2E Playwright del ciclo de proyectos con `__TAURI_INTERNALS__` simulado; WebView2/IPC nativo queda pendiente | Implementada |
 | 2026-08-22 | Versión 0.33.0: marca de primer render y presupuesto Playwright independiente de 3 s para el shell web; medición WebView2 nativa queda pendiente | Implementada |
 | 2026-08-22 | Versión 0.34.0: probe Windows WebView2/CDP aislado con lectura DOM mediante Playwright y cleanup por Job Object; mutaciones IPC nativas quedan pendientes | Implementada |
+| 2026-08-22 | Versión 0.35.0: primer render, landmarks y foco verificados dentro de WebView2 mediante CDP; E2E responsive/reduced-motion añadido; acciones IPC de proyectos siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 
