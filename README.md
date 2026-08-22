@@ -65,6 +65,18 @@ npm install
 npm run tauri dev
 ```
 
+El E2E del shell web usa Playwright contra un preview Vite local (Edge instalado
+en Windows o Chromium local en otros sistemas). Instala el navegador una vez y
+ejecuta las pruebas:
+
+```powershell
+npm run test:e2e:install
+npm run test:e2e
+```
+
+Estas pruebas cubren la carcasa web y la navegación accesible; los flujos que
+dependen de IPC Rust siguen validándose con Tauri y los smokes locales.
+
 ## Automatización por CLI
 
 La CLI reutiliza el motor Rust y entrega resultados JSON versión 1 para poder
@@ -287,9 +299,10 @@ oficiales de Tauri/NSIS y valida sus hashes:
 .\tools\check.ps1 -Profile Package
 ```
 
-Para comprobar automáticamente el mismo arranque que se usa durante desarrollo:
+Para comprobar automáticamente el shell web y el mismo arranque que se usa durante desarrollo:
 
 ```powershell
+npm run test:e2e
 npm run smoke:desktop -- -TimeoutSeconds 120
 npm run smoke:cli
 ```

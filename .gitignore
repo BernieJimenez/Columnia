@@ -8,3 +8,5 @@ src-tauri/gen/schemas/
 Thumbs.db
 *.log
 .local/
+playwright-report/
+test-results/
