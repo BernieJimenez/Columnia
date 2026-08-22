@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.29.0`.
+- Versión actual del prototipo: `0.30.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -576,6 +576,12 @@ startup total de escritorio en 6.33–6.98 s, mediana aproximada de 6.71 s y un
 objetivo provisional menor de 8 s; la automatización DOM real de WebView2 sigue
 pendiente de un driver/CDP aprobado.
 
+La versión 0.30.0 instrumenta el smoke Tauri con hitos monotónicos de Vite,
+proceso debug y ventana visible, y confirma el cleanup con hasta dos intentos
+acotados. También añade contratos automatizados de landmarks, skip link,
+estados ARIA, acciones de proyectos y `alertdialog`; no amplía capabilities ni
+activa depuración WebView2.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -608,8 +614,9 @@ pendiente de un driver/CDP aprobado.
 - [x] Verificar localmente la deriva de comandos, argumentos, retornos, campos y
   tipos entre Rust y TypeScript; la generación automática sigue siendo opcional.
 - [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales. Vitest cubre
-  guardar→catálogo→abrir→restaurar y CSS cubre targets/reduced motion; faltan
-  interacción real de WebView2 y auditoría manual de asistencia/visual.
+  guardar→catálogo→abrir→restaurar y contratos de landmarks/ARIA; CSS cubre
+  targets/reduced motion. Faltan interacción real de WebView2 y auditoría
+  manual de asistencia/visual.
 - [ ] Definir umbrales de cobertura por capa, no solo un porcentaje global.
 - [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; bundle
   frontend e inventario de instaladores ya tienen límites y evidencia.
@@ -742,7 +749,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.29.0
+## 8.1. Cola de ejecución recomendada desde v0.30.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -751,8 +758,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 2. **Accesibilidad y evidencia visual:** ejecutar lector de pantalla, teclado,
    zoom y alto contraste; añadir capturas canónicas y regresión visual estable.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, añadir
-   hitos separados de Vite/Rust/ventana/primer render, medir CSV de 100 MiB,
-   RAM máxima, perfilado, receta y exportación, y hacer cleanup 100 % repetible.
+   primer render independiente, medir CSV de 100 MiB, RAM máxima, perfilado,
+   receta y exportación, y mantener cleanup 100 % repetible; Vite/Rust/ventana
+   y reintento de cleanup ya tienen métricas.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -815,6 +823,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-21 | Versión 0.27.0: cinco comandos CLI de proyectos con almacén explícito, JSON privado, quality gate y borrado confirmado | Implementada |
 | 2026-08-22 | Versión 0.28.0: integración Vitest del ciclo UI guardar/borrar con conservación del dataset y preflight/runtime smoke de `ProjectsPanel` | Implementada |
 | 2026-08-22 | Versión 0.29.0: cobertura UI guardar→abrir→restaurar, targets WCAG/reduced motion y baseline local de startup/bundle | Implementada |
+| 2026-08-22 | Versión 0.30.0: hitos y reintento de cleanup en smoke Tauri, más contratos automatizados de landmarks/ARIA/dialog | Implementada |
 
 ## 10. Fuentes de esta revisión
 

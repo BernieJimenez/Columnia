@@ -24,6 +24,9 @@ namespace ColumniaDesktopSmoke {
 
         [DllImport("kernel32.dll")]
         public static extern bool CloseHandle(IntPtr handle);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool IsWindowVisible(IntPtr window);
     }
 }
 "@
@@ -50,9 +53,26 @@ $ProjectsPanelWindowName = $null
 $ProjectsPanelWindowDescendantCount = 0
 $ProjectsPanelWindowNote = $null
 $CleanupConfirmed = $false
+$CleanupAttempts = 0
+$CleanupRetryCount = 0
+$CleanupElapsedMs = 0
 $SmokeStatus = "failed"
 $FailureMessage = $null
 $Timer = [System.Diagnostics.Stopwatch]::StartNew()
+$Milestones = [ordered]@{
+    viteReady = [ordered]@{
+        reached = $false
+        elapsedMs = $null
+    }
+    desktopProcessReady = [ordered]@{
+        reached = $false
+        elapsedMs = $null
+    }
+    windowVisible = [ordered]@{
+        reached = $false
+        elapsedMs = $null
+    }
+}
 
 function Get-PortListeners {
     @(Get-NetTCPConnection -State Listen -LocalPort 1420 -ErrorAction SilentlyContinue)
@@ -70,6 +90,25 @@ function Get-DebugAppProcesses {
                 )
             }
     )
+}
+
+function Mark-Milestone {
+    param([ValidateSet("viteReady", "desktopProcessReady", "windowVisible")][string]$Name)
+
+    if (-not $Milestones[$Name]["reached"]) {
+        $Milestones[$Name]["reached"] = $true
+        $Milestones[$Name]["elapsedMs"] = $Timer.ElapsedMilliseconds
+    }
+}
+
+function Test-VisibleDesktopProcess {
+    param([int]$Id)
+
+    $Candidate = Get-Process -Id $Id -ErrorAction SilentlyContinue
+    if ($null -eq $Candidate -or $Candidate.MainWindowHandle -eq [IntPtr]::Zero) {
+        return $false
+    }
+    return [ColumniaDesktopSmoke.NativeMethods]::IsWindowVisible($Candidate.MainWindowHandle)
 }
 
 function Test-ProjectsPanelContract {
@@ -205,49 +244,64 @@ function Test-OwnedProcess {
 }
 
 function Stop-CreatedProcesses {
-    if ($null -ne $RootProcess) {
-        [void]$TrackedProcessIds.Add($RootProcess.Id)
-        Add-ProcessTree -RootId $RootProcess.Id
-    }
-
-    if ($JobHandle -ne [IntPtr]::Zero) {
-        [void][ColumniaDesktopSmoke.NativeMethods]::TerminateJobObject($JobHandle, 1)
-    }
-    $OrderedIds = @($TrackedProcessIds) | Sort-Object -Descending
-    foreach ($ProcessId in $OrderedIds) {
-        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
-    }
-
-    $CleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
-    do {
-        $RemainingTracked = @($TrackedProcessIds | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
-        $RemainingOwnedListeners = @(
-            Get-PortListeners |
-                Where-Object { $OwnedListenerProcessIds.Contains([int]$_.OwningProcess) }
-        )
-        $RemainingOwnedApps = @(
-            Get-DebugAppProcesses |
-                Where-Object { $OwnedDesktopProcessIds.Contains([int]$_.ProcessId) }
-        )
-        if (
-            $RemainingTracked.Count -eq 0 -and
-            $RemainingOwnedListeners.Count -eq 0 -and
-            $RemainingOwnedApps.Count -eq 0
-        ) {
-            if ($JobHandle -ne [IntPtr]::Zero) {
-                [void][ColumniaDesktopSmoke.NativeMethods]::CloseHandle($JobHandle)
-                $script:JobHandle = [IntPtr]::Zero
-            }
-            return $true
+    $CleanupTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    $AttemptWindowsSeconds = @(4, 3)
+    try {
+        if ($null -ne $RootProcess) {
+            [void]$TrackedProcessIds.Add($RootProcess.Id)
+            Add-ProcessTree -RootId $RootProcess.Id
         }
-        Start-Sleep -Milliseconds 250
-    } while ([DateTimeOffset]::UtcNow -lt $CleanupDeadline)
 
-    if ($JobHandle -ne [IntPtr]::Zero) {
-        [void][ColumniaDesktopSmoke.NativeMethods]::CloseHandle($JobHandle)
-        $script:JobHandle = [IntPtr]::Zero
+        $OrderedIds = @($TrackedProcessIds) | Sort-Object -Descending
+        for ($Attempt = 1; $Attempt -le $AttemptWindowsSeconds.Count; $Attempt++) {
+            $script:CleanupAttempts = $Attempt
+            if ($Attempt -gt 1) {
+                $script:CleanupRetryCount++
+            }
+
+            if ($JobHandle -ne [IntPtr]::Zero) {
+                [void][ColumniaDesktopSmoke.NativeMethods]::TerminateJobObject($JobHandle, 1)
+            }
+            foreach ($ProcessId in $OrderedIds) {
+                Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+            }
+
+            $CleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds($AttemptWindowsSeconds[$Attempt - 1])
+            do {
+                $RemainingTracked = @($TrackedProcessIds | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+                $RemainingOwnedListeners = @(
+                    Get-PortListeners |
+                        Where-Object { $OwnedListenerProcessIds.Contains([int]$_.OwningProcess) }
+                )
+                $RemainingOwnedApps = @(
+                    Get-DebugAppProcesses |
+                        Where-Object { $OwnedDesktopProcessIds.Contains([int]$_.ProcessId) }
+                )
+                if (
+                    $RemainingTracked.Count -eq 0 -and
+                    $RemainingOwnedListeners.Count -eq 0 -and
+                    $RemainingOwnedApps.Count -eq 0
+                ) {
+                    if ($JobHandle -ne [IntPtr]::Zero) {
+                        [void][ColumniaDesktopSmoke.NativeMethods]::CloseHandle($JobHandle)
+                        $script:JobHandle = [IntPtr]::Zero
+                    }
+                    return $true
+                }
+                Start-Sleep -Milliseconds 250
+            } while ([DateTimeOffset]::UtcNow -lt $CleanupDeadline)
+        }
+
+        return $false
     }
-    return $false
+    finally {
+        $CleanupTimer.Stop()
+        $script:CleanupElapsedMs = $CleanupTimer.ElapsedMilliseconds
+        if ($JobHandle -ne [IntPtr]::Zero) {
+            [void][ColumniaDesktopSmoke.NativeMethods]::CloseHandle($JobHandle)
+            $script:JobHandle = [IntPtr]::Zero
+        }
+    }
 }
 
 New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
@@ -319,6 +373,7 @@ try {
         }
         if ($OwnedListeners.Count -gt 0) {
             $ViteReady = $true
+            Mark-Milestone -Name "viteReady"
             foreach ($Listener in $OwnedListeners) {
                 [void]$OwnedListenerProcessIds.Add([int]$Listener.OwningProcess)
                 [void]$TrackedProcessIds.Add([int]$Listener.OwningProcess)
@@ -343,11 +398,20 @@ try {
         }
         if ($OwnedDesktopProcesses.Count -gt 0) {
             $DesktopReady = $true
+            Mark-Milestone -Name "desktopProcessReady"
             foreach ($DesktopProcess in $OwnedDesktopProcesses) {
                 [void]$OwnedDesktopProcessIds.Add([int]$DesktopProcess.ProcessId)
                 [void]$TrackedProcessIds.Add([int]$DesktopProcess.ProcessId)
             }
-            if ($ProjectsPanelRuntimeStatus -eq "not_checked") {
+
+            $VisibleDesktopProcesses = @(
+                $OwnedDesktopProcesses |
+                    Where-Object { Test-VisibleDesktopProcess -Id ([int]$_.ProcessId) }
+            )
+            if ($VisibleDesktopProcesses.Count -gt 0) {
+                Mark-Milestone -Name "windowVisible"
+            }
+            if ($ProjectsPanelRuntimeStatus -eq "not_checked" -and $VisibleDesktopProcesses.Count -gt 0) {
                 Get-ProjectsPanelRuntimeEvidence -ProcessIds @($OwnedDesktopProcessIds)
             }
         }
@@ -388,6 +452,7 @@ finally {
         timeoutSeconds = $TimeoutSeconds
         viteListenerReady = $ViteReady
         desktopProcessReady = $DesktopReady
+        milestones = $Milestones
         projectsPanel = [ordered]@{
             contractPreflight = $ProjectsPanelContractStatus
             runtimeWindow = $ProjectsPanelRuntimeStatus
@@ -397,6 +462,14 @@ finally {
             note = $ProjectsPanelWindowNote
         }
         cleanupConfirmed = $CleanupConfirmed
+        cleanup = [ordered]@{
+            confirmed = $CleanupConfirmed
+            attempts = $CleanupAttempts
+            retries = $CleanupRetryCount
+            elapsedMs = $CleanupElapsedMs
+            maxAttempts = 2
+            attemptWindowsSeconds = @(4, 3)
+        }
         command = "npm run tauri dev"
         evidenceDirectory = $EvidenceRelativePath
         error = $FailureMessage
