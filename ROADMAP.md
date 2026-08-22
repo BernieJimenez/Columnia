@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.28.0`.
+- Versión actual del prototipo: `0.29.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -568,6 +568,14 @@ activo se conserva; `smoke-tauri.ps1` valida el contrato estático de
 simula clics DOM mientras UI Automation no exponga el árbol React de forma
 estable.
 
+La versión 0.29.0 amplía la cobertura del ciclo de proyectos con una prueba de
+guardar→catálogo→abrir→restaurar dataset, perfil y reglas. También añade
+targets interactivos mínimos de 24 px y reducción global de movimiento para
+`prefers-reduced-motion`, con regresión CSS automatizada. El baseline local deja
+startup total de escritorio en 6.33–6.98 s, mediana aproximada de 6.71 s y un
+objetivo provisional menor de 8 s; la automatización DOM real de WebView2 sigue
+pendiente de un driver/CDP aprobado.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -599,9 +607,9 @@ estable.
 - [x] Mantener mocks controlados del runtime Tauri para pruebas del frontend.
 - [x] Verificar localmente la deriva de comandos, argumentos, retornos, campos y
   tipos entre Rust y TypeScript; la generación automática sigue siendo opcional.
-- [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales. La integración
-  Vitest del ciclo de proyectos y el preflight/runtime smoke están cubiertos;
-  falta interacción real de WebView2 y auditoría manual de asistencia/visual.
+- [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales. Vitest cubre
+  guardar→catálogo→abrir→restaurar y CSS cubre targets/reduced motion; faltan
+  interacción real de WebView2 y auditoría manual de asistencia/visual.
 - [ ] Definir umbrales de cobertura por capa, no solo un porcentaje global.
 - [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; bundle
   frontend e inventario de instaladores ya tienen límites y evidencia.
@@ -734,15 +742,17 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.28.0
+## 8.1. Cola de ejecución recomendada desde v0.29.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
-   la cobertura Vitest y el smoke de contrato/runtime ya están implementados.
+   Vitest ya cubre guardar→catálogo→abrir→restaurar y el smoke cubre contrato,
+   ventana y cleanup.
 2. **Accesibilidad y evidencia visual:** ejecutar lector de pantalla, teclado,
    zoom y alto contraste; añadir capturas canónicas y regresión visual estable.
-3. **Baseline de rendimiento:** medir startup, CSV de 100 MiB, RAM máxima,
-   perfilado, receta y exportación antes de cambiar el modelo de ejecución.
+3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, añadir
+   hitos separados de Vite/Rust/ventana/primer render, medir CSV de 100 MiB,
+   RAM máxima, perfilado, receta y exportación, y hacer cleanup 100 % repetible.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -804,6 +814,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-21 | Versión 0.26.0: SQLite v3 con perfil, historial y cursor durables, compatible con catálogos v1/v2 | Implementada |
 | 2026-08-21 | Versión 0.27.0: cinco comandos CLI de proyectos con almacén explícito, JSON privado, quality gate y borrado confirmado | Implementada |
 | 2026-08-22 | Versión 0.28.0: integración Vitest del ciclo UI guardar/borrar con conservación del dataset y preflight/runtime smoke de `ProjectsPanel` | Implementada |
+| 2026-08-22 | Versión 0.29.0: cobertura UI guardar→abrir→restaurar, targets WCAG/reduced motion y baseline local de startup/bundle | Implementada |
 
 ## 10. Fuentes de esta revisión
 

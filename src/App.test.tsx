@@ -121,7 +121,7 @@ describe("App", () => {
 
   it("guarda y confirma el borrado de un proyecto sin descartar el dataset", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
-    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.28.0", platform: "windows" });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.29.0", platform: "windows" });
 
     const dataset: DatasetPreview = {
       fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 1,
@@ -173,6 +173,57 @@ describe("App", () => {
     expect(await screen.findByText(`Proyecto “${project.name}” eliminado. El dataset abierto se conserva.`)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
     expect(screen.getByText("Todavía no hay proyectos guardados.")).toBeInTheDocument();
+  });
+
+  it("abre desde el catálogo el proyecto recién guardado y restaura su workspace", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.29.0", platform: "windows" });
+
+    const dataset: DatasetPreview = {
+      fileName: "clientes.csv", fileSizeBytes: 96, rowCount: 1, columnCount: 1,
+      columns: [{ name: "email", dataType: "String" }], rows: [["ana@example.com"]],
+    };
+    const project: ProjectSummary = {
+      id: "project-reopen", name: "Clientes durable", datasetFileName: dataset.fileName,
+      rowCount: dataset.rowCount, columnCount: dataset.columnCount,
+      createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
+    };
+    let catalog: ProjectSummary[] = [];
+    const listSpy = vi.spyOn(bridge, "listProjects").mockImplementation(async () => catalog);
+    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    const saveSpy = vi.spyOn(bridge, "saveProject").mockImplementation(async () => {
+      catalog = [project];
+      return project;
+    });
+    const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
+      project,
+      dataset,
+      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null },
+      profile: { rowCount: 1, duplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
+    });
+    mockDatasetLoad(dataset);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cargar" }));
+
+    const projectName = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
+    fireEvent.change(projectName, { target: { value: project.name } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar proyecto nuevo" }));
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
+      null,
+      project.name,
+      { qualityRules: [], recipeDraft: null },
+    ));
+    await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(project.id));
+    expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("email");
   });
 
   it("mantiene el perfil en idle cuando el proyecto no incluye uno durable", async () => {

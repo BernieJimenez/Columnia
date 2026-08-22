@@ -104,7 +104,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .recipe-row input, .recipe-row select { min-width: 0; width: 100%; padding: 8px 9px; border: 1px solid #afc2bd; border-radius: 3px; background: white; color: #18343a; }
 .recipe-row > button, .recipe-add { border: 0; background: transparent; color: #126d68; font-weight: 800; cursor: pointer; }
 .recipe-row > button { min-width: 34px; min-height: 36px; font-size: 1.25rem; }
-.recipe-add { justify-self: start; padding: 5px 0; font-size: .78rem; }
+.recipe-add { justify-self: start; min-height: 24px; padding: 5px 6px; font-size: .78rem; }
 .transform-recipe__footer { margin-top: 14px; }
 .transform-recipe__footer p { font-size: .78rem; }
 .recipe-error { margin: 12px 0 0; color: #87362f; font-size: .8rem; }
@@ -269,6 +269,16 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .calculation-grid { grid-template-columns: 1fr; }
   .calculation-grid__wide { grid-column: auto; }
   .recipe-row > button { justify-self: end; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

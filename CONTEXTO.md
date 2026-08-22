@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.28.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.29.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `bcb7e95` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `bf8230c` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -98,7 +98,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/features/projects/` | Catálogo, guardado, apertura, recuperación y eliminación accesible de proyectos locales. |
 | `src/features/delivery/` | Fase Entregar: vista, métricas y modelo tipado de contrato, compuerta de calidad y exportación. |
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
-| `src/styles.css` | Sistema visual y layout de la aplicación. |
+| `src/styles.css` | Sistema visual y layout de la aplicación; incluye foco visible, targets mínimos y reducción de movimiento respetando `prefers-reduced-motion`. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, estados de dataset/proyectos y los 25 comandos permitidos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
@@ -307,7 +307,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 124 pruebas frontend y 127 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 126 pruebas frontend y 127 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -332,13 +332,16 @@ Al revisar este documento había 124 pruebas frontend y 127 pruebas Rust; las ra
 - Proyectos locales con catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, reglas de calidad, borrador opcional, perfil cacheado, historial/cursor y recuperación explícita aunque desaparezca la fuente original.
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
+- Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
+- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.29.0 verificado en 314,705 bytes raw/90,116 gzip.
 
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
-- E2E de interacción real dentro de WebView2, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; la integración Vitest y el preflight/runtime smoke de `ProjectsPanel` ya existen, pero UI Automation no expone de forma estable el DOM React para simular clics sin depuración adicional;
+- E2E de interacción real dentro de WebView2, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; la integración Vitest ya cubre guardar→catálogo→abrir→restaurar, pero UI Automation no expone de forma estable el DOM React para simular clics sin un driver/CDP aprobado;
+- reintento breve y métricas separadas para cleanup/startup del smoke desktop; el objetivo operativo provisional es startup total menor de 8 s y cleanup 100 % repetible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
 
