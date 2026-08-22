@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.27.0`.
+- Versión actual del prototipo: `0.28.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -561,6 +561,13 @@ inexistente con `--allow-unvalidated` y publica de forma atómica; borrar exige
 que `--confirm` coincida exactamente con el ID. El smoke real cubre receta,
 reglas, perfil, reinicio, exportación y confirmación destructiva.
 
+La versión 0.28.0 añade integración de la UI de proyectos: Vitest recorre el
+guardado y borrado confirmado/cancelado desde `App`, verificando que el dataset
+activo se conserva; `smoke-tauri.ps1` valida el contrato estático de
+`ProjectsPanel`, comprueba la ventana debug/WebView2 y deja explícito que no
+simula clics DOM mientras UI Automation no exponga el árbol React de forma
+estable.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -592,7 +599,9 @@ reglas, perfil, reinicio, exportación y confirmación destructiva.
 - [x] Mantener mocks controlados del runtime Tauri para pruebas del frontend.
 - [x] Verificar localmente la deriva de comandos, argumentos, retornos, campos y
   tipos entre Rust y TypeScript; la generación automática sigue siendo opcional.
-- [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales.
+- [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales. La integración
+  Vitest del ciclo de proyectos y el preflight/runtime smoke están cubiertos;
+  falta interacción real de WebView2 y auditoría manual de asistencia/visual.
 - [ ] Definir umbrales de cobertura por capa, no solo un porcentaje global.
 - [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; bundle
   frontend e inventario de instaladores ya tienen límites y evidencia.
@@ -725,10 +734,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.27.0
+## 8.1. Cola de ejecución recomendada desde v0.28.0
 
-1. **E2E de proyectos en escritorio:** automatizar guardar, cerrar/reiniciar,
-   recuperar/abrir, validar, exportar y borrar usando el runtime Tauri real.
+1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
+   para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
+   la cobertura Vitest y el smoke de contrato/runtime ya están implementados.
 2. **Accesibilidad y evidencia visual:** ejecutar lector de pantalla, teclado,
    zoom y alto contraste; añadir capturas canónicas y regresión visual estable.
 3. **Baseline de rendimiento:** medir startup, CSV de 100 MiB, RAM máxima,
@@ -793,6 +803,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-21 | Versión 0.25.0: proyectos SQLite recuperables con generaciones Parquet, reglas y borrador de receta | Implementada |
 | 2026-08-21 | Versión 0.26.0: SQLite v3 con perfil, historial y cursor durables, compatible con catálogos v1/v2 | Implementada |
 | 2026-08-21 | Versión 0.27.0: cinco comandos CLI de proyectos con almacén explícito, JSON privado, quality gate y borrado confirmado | Implementada |
+| 2026-08-22 | Versión 0.28.0: integración Vitest del ciclo UI guardar/borrar con conservación del dataset y preflight/runtime smoke de `ProjectsPanel` | Implementada |
 
 ## 10. Fuentes de esta revisión
 

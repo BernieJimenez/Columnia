@@ -119,6 +119,62 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeInTheDocument();
   });
 
+  it("guarda y confirma el borrado de un proyecto sin descartar el dataset", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.28.0", platform: "windows" });
+
+    const dataset: DatasetPreview = {
+      fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 1,
+      columns: [{ name: "total", dataType: "Int64" }], rows: [["10"], ["20"]],
+    };
+    const project: ProjectSummary = {
+      id: "project-cycle", name: "Ventas durable", datasetFileName: dataset.fileName,
+      rowCount: dataset.rowCount, columnCount: dataset.columnCount,
+      createdAt: "2026-08-20T00:00:00Z", updatedAt: "2026-08-21T00:00:00Z",
+    };
+    let catalog: ProjectSummary[] = [];
+    const listSpy = vi.spyOn(bridge, "listProjects").mockImplementation(async () => catalog);
+    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    const saveSpy = vi.spyOn(bridge, "saveProject").mockImplementation(async () => {
+      catalog = [project];
+      return project;
+    });
+    const deleteSpy = vi.spyOn(bridge, "deleteProject").mockImplementation(async () => {
+      catalog = [];
+    });
+    mockDatasetLoad(dataset);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+
+    const projectName = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
+    fireEvent.change(projectName, { target: { value: project.name } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar proyecto nuevo" }));
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
+      null,
+      project.name,
+      { qualityRules: [], recipeDraft: null },
+    ));
+    expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
+    await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    const deleteButton = await screen.findByRole("button", { name: "Eliminar" });
+    fireEvent.click(deleteButton);
+    const dialog = screen.getByRole("alertdialog", { name: `Eliminar “${project.name}”` });
+    expect(dialog).toHaveTextContent("El dataset abierto en memoria no se descartará.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar proyecto" }));
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith(project.id));
+    expect(await screen.findByText(`Proyecto “${project.name}” eliminado. El dataset abierto se conserva.`)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+    expect(screen.getByText("Todavía no hay proyectos guardados.")).toBeInTheDocument();
+  });
+
   it("mantiene el perfil en idle cuando el proyecto no incluye uno durable", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.26.0", platform: "windows" });

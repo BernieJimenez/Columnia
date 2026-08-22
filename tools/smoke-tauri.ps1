@@ -44,6 +44,11 @@ $OwnedListenerProcessIds = [System.Collections.Generic.HashSet[int]]::new()
 $OwnedDesktopProcessIds = [System.Collections.Generic.HashSet[int]]::new()
 $ViteReady = $false
 $DesktopReady = $false
+$ProjectsPanelContractStatus = "not_checked"
+$ProjectsPanelRuntimeStatus = "not_checked"
+$ProjectsPanelWindowName = $null
+$ProjectsPanelWindowDescendantCount = 0
+$ProjectsPanelWindowNote = $null
 $CleanupConfirmed = $false
 $SmokeStatus = "failed"
 $FailureMessage = $null
@@ -65,6 +70,99 @@ function Get-DebugAppProcesses {
                 )
             }
     )
+}
+
+function Test-ProjectsPanelContract {
+    $checks = [ordered]@{
+        "ProjectsPanel.tsx" = @(
+            'export function ProjectsPanel',
+            'id="projects-title"',
+            'id="project-name"',
+            'onSave',
+            'onDeleteRequest',
+            'onDeleteConfirm'
+        )
+        "App.tsx" = @(
+            '<ProjectsPanel',
+            'onSave={(name)',
+            'onOpen={(projectId)',
+            'onDeleteConfirm={() => void projects.confirmDelete()}'
+        )
+        "useProjectsController.ts" = @(
+            'listProjects()',
+            'saveProject(',
+            'openProject(projectId)',
+            'deleteProject(target.id)',
+            'setCatalog({ kind: "ready"'
+        )
+    }
+
+    $missing = [System.Collections.Generic.List[string]]::new()
+    foreach ($entry in $checks.GetEnumerator()) {
+        $sourcePath = Join-Path $ProjectRoot (Join-Path "src\features\projects" $entry.Key)
+        if ($entry.Key -eq "App.tsx") {
+            $sourcePath = Join-Path $ProjectRoot "src\App.tsx"
+        }
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+            [void]$missing.Add($entry.Key)
+            continue
+        }
+        $source = Get-Content -LiteralPath $sourcePath -Raw
+        foreach ($needle in $entry.Value) {
+            if (-not $source.Contains($needle)) {
+                [void]$missing.Add("$($entry.Key):$needle")
+            }
+        }
+    }
+
+    if ($missing.Count -gt 0) {
+        throw "Preflight de ProjectsPanel falló: faltan contratos esperados ($($missing -join ', '))."
+    }
+}
+
+function Get-ProjectsPanelRuntimeEvidence {
+    param([int[]]$ProcessIds)
+
+    $script:ProjectsPanelRuntimeStatus = "not_available"
+    $script:ProjectsPanelWindowName = $null
+    $script:ProjectsPanelWindowDescendantCount = 0
+    $script:ProjectsPanelWindowNote = "WebView2 no expone de forma estable el DOM de React mediante UI Automation; no se simulan clics ni se activan capacidades de depuración."
+
+    try {
+        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes -ErrorAction Stop
+    }
+    catch {
+        $script:ProjectsPanelWindowNote = "UI Automation del sistema no está disponible en este entorno; se conserva únicamente el preflight de contrato."
+        return
+    }
+
+    foreach ($processId in $ProcessIds) {
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        if ($null -eq $process -or $process.MainWindowHandle -eq [IntPtr]::Zero) {
+            continue
+        }
+
+        try {
+            $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+            if ($null -eq $window) {
+                continue
+            }
+            $script:ProjectsPanelWindowName = $window.Current.Name
+            $descendants = $window.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.Condition]::TrueCondition
+            )
+            $script:ProjectsPanelWindowDescendantCount = $descendants.Count
+            if ([string]::Equals($window.Current.Name, "Columnia", [StringComparison]::Ordinal)) {
+                $script:ProjectsPanelRuntimeStatus = "window_ready"
+            }
+            return
+        }
+        catch {
+            $script:ProjectsPanelWindowNote = "La ventana debug inició, pero UI Automation no pudo leer su árbol de accesibilidad."
+            return
+        }
+    }
 }
 
 function Add-ProcessTree {
@@ -158,6 +256,14 @@ try {
     if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
         throw "El smoke de escritorio está disponible únicamente en Windows."
     }
+    try {
+        Test-ProjectsPanelContract
+        $ProjectsPanelContractStatus = "passed"
+    }
+    catch {
+        $ProjectsPanelContractStatus = "failed"
+        throw
+    }
     if (@(Get-PortListeners).Count -gt 0) {
         throw "Preflight falló: el puerto de desarrollo 1420 ya tiene un listener activo."
     }
@@ -241,6 +347,9 @@ try {
                 [void]$OwnedDesktopProcessIds.Add([int]$DesktopProcess.ProcessId)
                 [void]$TrackedProcessIds.Add([int]$DesktopProcess.ProcessId)
             }
+            if ($ProjectsPanelRuntimeStatus -eq "not_checked") {
+                Get-ProjectsPanelRuntimeEvidence -ProcessIds @($OwnedDesktopProcessIds)
+            }
         }
 
         if ($ViteReady -and $DesktopReady) {
@@ -279,6 +388,14 @@ finally {
         timeoutSeconds = $TimeoutSeconds
         viteListenerReady = $ViteReady
         desktopProcessReady = $DesktopReady
+        projectsPanel = [ordered]@{
+            contractPreflight = $ProjectsPanelContractStatus
+            runtimeWindow = $ProjectsPanelRuntimeStatus
+            windowName = $ProjectsPanelWindowName
+            windowDescendantCount = $ProjectsPanelWindowDescendantCount
+            interaction = "not_available"
+            note = $ProjectsPanelWindowNote
+        }
         cleanupConfirmed = $CleanupConfirmed
         command = "npm run tauri dev"
         evidenceDirectory = $EvidenceRelativePath
@@ -291,5 +408,6 @@ if ($SmokeStatus -ne "passed") {
     exit 1
 }
 
-Write-Host "Smoke desktop aprobado; Vite y Columnia debug iniciaron y el cleanup fue confirmado."
+Write-Host "Smoke desktop aprobado; Vite y Columnia debug iniciaron, el preflight de ProjectsPanel pasó y el cleanup fue confirmado."
+Write-Host "ProjectsPanel UI: no se simularon clics porque WebView2 no expone el DOM de React de forma estable mediante UI Automation."
 Write-Host "Evidencia: $EvidenceRelativePath"
