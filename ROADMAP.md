@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.31.0`.
+- Versión actual del prototipo: `0.32.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -589,6 +589,12 @@ accesible y skip link por teclado, con servidor reutilizable y artefactos de dia
 la ventana Tauri, el IPC Rust y los flujos de proyectos siguen requiriendo un
 driver/CDP de WebView2 aprobado.
 
+La versión 0.32.0 añade un mock aislado de `__TAURI_INTERNALS__` para que
+Playwright recorra el flujo de proyectos en el shell web: cargar dataset, guardar,
+abrir y eliminar con confirmación. Verifica el contrato React↔bridge sin tocar
+filesystem ni SQLite reales; la interacción contra la ventana WebView2 nativa
+continúa pendiente.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -756,12 +762,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.31.0
+## 8.1. Cola de ejecución recomendada desde v0.32.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
-   Playwright ya cubre el shell web, Vitest cubre guardar→catálogo→abrir→restaurar
-   y el smoke cubre contrato, ventana y cleanup.
+   Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
+   Vitest cubre guardar→catálogo→abrir→restaurar y el smoke cubre contrato,
+   ventana y cleanup; queda el driver/CDP nativo.
 2. **Accesibilidad y evidencia visual:** ejecutar lector de pantalla, teclado,
    zoom y alto contraste; añadir capturas canónicas y regresión visual estable.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, añadir
@@ -832,6 +839,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.29.0: cobertura UI guardar→abrir→restaurar, targets WCAG/reduced motion y baseline local de startup/bundle | Implementada |
 | 2026-08-22 | Versión 0.30.0: hitos y reintento de cleanup en smoke Tauri, más contratos automatizados de landmarks/ARIA/dialog | Implementada |
 | 2026-08-22 | Versión 0.31.0: Playwright 1.62 con Edge en Windows/Chromium en otros sistemas y E2E reproducible del shell web; IPC/Tauri nativo queda pendiente | Implementada |
+| 2026-08-22 | Versión 0.32.0: E2E Playwright del ciclo de proyectos con `__TAURI_INTERNALS__` simulado; WebView2/IPC nativo queda pendiente | Implementada |
 
 ## 10. Fuentes de esta revisión
 

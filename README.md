@@ -74,8 +74,9 @@ npm run test:e2e:install
 npm run test:e2e
 ```
 
-Estas pruebas cubren la carcasa web y la navegación accesible; los flujos que
-dependen de IPC Rust siguen validándose con Tauri y los smokes locales.
+Estas pruebas cubren la carcasa web, la navegación accesible y el ciclo de
+proyectos con IPC simulado; los comandos Rust reales siguen validándose con
+Tauri y los smokes locales.
 
 ## Automatización por CLI
 
