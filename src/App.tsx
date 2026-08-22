@@ -147,6 +147,12 @@ export function App() {
   }, [deliveryDatasetFingerprint]);
 
   useEffect(() => {
+    if (typeof performance !== "undefined") {
+      performance.mark("columnia:app-render");
+    }
+  }, []);
+
+  useEffect(() => {
     if (!isTauriRuntime()) {
       setStatus({ kind: "browser" });
       return;

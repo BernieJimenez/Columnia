@@ -75,8 +75,8 @@ npm run test:e2e
 ```
 
 Estas pruebas cubren la carcasa web, la navegación accesible y el ciclo de
-proyectos con IPC simulado; los comandos Rust reales siguen validándose con
-Tauri y los smokes locales.
+proyectos con IPC simulado, además de un presupuesto de primer render de 3 s;
+los comandos Rust reales siguen validándose con Tauri y los smokes locales.
 
 ## Automatización por CLI
 

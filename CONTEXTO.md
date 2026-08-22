@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.32.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.33.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `2807068` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `18abea8` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -100,7 +100,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
 | `src/styles.css` | Sistema visual y layout de la aplicación; incluye foco visible, targets mínimos y reducción de movimiento respetando `prefers-reduced-motion`. |
 | `playwright.config.ts` | Configuración de Playwright para E2E del shell web Vite, con Chromium/Edge local, preview de producción reutilizable, trazas y artefactos solo en fallos. |
-| `e2e/` | Pruebas E2E del shell web y del ciclo de proyectos con IPC Tauri simulado; la ventana WebView2 nativa aún requiere un driver/CDP aprobado. |
+| `e2e/` | Pruebas E2E del shell web, primer render y ciclo de proyectos con IPC Tauri simulado; la ventana WebView2 nativa aún requiere un driver/CDP aprobado. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, estados de dataset/proyectos y los 25 comandos permitidos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
@@ -344,11 +344,13 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
-- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.29.0 verificado en 314,705 bytes raw/90,116 gzip.
+- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.33.0 verificado en 314,791 bytes raw/90,150 gzip.
 - Contratos automatizados de accesibilidad para landmarks, skip link, `aria-current`, `aria-busy`, acciones de proyectos y `alertdialog` modal.
 - Smoke desktop instrumentado con hitos: la ejecución fría v0.30.0 registró Vite en 4,307 ms, proceso debug en 71,321 ms, ventana visible en 71,337 ms y cleanup confirmado en 1,133 ms/1 intento; el cleanup admite un segundo intento de 3 s tras uno inicial de 4 s.
-- Playwright configurado con preview Vite y dos E2E del shell web para landmarks, runtime, navegación accesible y skip link; conserva trazas/capturas/vídeos solo cuando una prueba falla.
+- Playwright configurado con preview Vite y E2E del shell web para landmarks, runtime, navegación accesible, skip link y primer render; conserva trazas/capturas/vídeos solo cuando una prueba falla.
 - Playwright con mock de `__TAURI_INTERNALS__` cubre cargar dataset, guardar, abrir y eliminar proyectos con confirmación, sin filesystem ni datos reales.
+- `App` publica la marca `columnia:app-render`; Playwright verifica el primer render del shell por debajo de 3 segundos en el preview local.
+- Validación v0.33.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 4/4, smoke desktop y CLI aprobados, y Package produjo MSI/NSIS `0.33.0`; las evidencias quedan bajo `.local/validation/`.
 
 ### Planeado o pendiente
 
@@ -356,7 +358,7 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
 - E2E de interacción real dentro de WebView2 y flujos IPC nativos de proyectos, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; Playwright cubre el shell web y un contrato IPC simulado, pero no reemplaza un driver/CDP aprobado para la ventana nativa;
-- automatización DOM real de WebView2, driver/CDP aprobado y primer render medido de forma independiente; el objetivo operativo provisional sigue siendo startup total menor de 8 s y cleanup 100 % repetible;
+- automatización DOM real de WebView2 y driver/CDP aprobado; el primer render del shell web ya tiene una medición independiente, pero falta medirlo dentro de la ventana nativa; el objetivo operativo provisional sigue siendo startup total menor de 8 s y cleanup 100 % repetible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
 
@@ -412,6 +414,7 @@ Al actualizarlo:
 | 2026-08-22 | El smoke desktop separa hitos monotónicos de Vite, proceso debug y ventana visible, y confirma cleanup con hasta dos intentos acotados; se añadieron contratos de landmarks, estados ARIA y alertdialog. | `tools/smoke-tauri.ps1`, `src/components/AccessibilityContracts.test.tsx` |
 | 2026-08-22 | Playwright 1.62 quedó configurado contra un preview Vite local (Edge en Windows, Chromium en otros sistemas) y E2E del shell web; los artefactos de diagnóstico quedan ignorados y la cobertura nativa Tauri/IPC sigue pendiente. | `playwright.config.ts`, `e2e/shell.spec.ts`, `package.json` |
 | 2026-08-22 | El E2E añade un mock aislado de `__TAURI_INTERNALS__` para recorrer cargar, guardar, abrir y eliminar proyectos sin tocar filesystem; la ventana WebView2 real sigue fuera de alcance. | `e2e/projects.spec.ts` |
+| 2026-08-22 | El shell marca `columnia:app-render` y Playwright comprueba el primer render en menos de 3 s sobre el preview local; la medición nativa queda pendiente de CDP. | `src/App.tsx`, `e2e/performance.spec.ts` |
 | 2026-08-22 | El smoke de escritorio valida el contrato estático de `ProjectsPanel` y confirma que la ventana debug/WebView2 inició; no simula clics porque UI Automation solo expone paneles del WebView2 y no el DOM React sin ampliar la configuración de depuración. | `tools/smoke-tauri.ps1`, `src/features/projects/ProjectsPanel.tsx` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

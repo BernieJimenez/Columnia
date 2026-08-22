@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.32.0`.
+- Versión actual del prototipo: `0.33.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -595,6 +595,11 @@ abrir y eliminar con confirmación. Verifica el contrato React↔bridge sin toca
 filesystem ni SQLite reales; la interacción contra la ventana WebView2 nativa
 continúa pendiente.
 
+La versión 0.33.0 añade la marca `columnia:app-render` y un E2E de rendimiento que
+mide el primer render del shell en el preview local, con presupuesto de 3 segundos.
+Esto aporta una señal independiente de la compilación y del smoke Tauri, pero no
+se presenta todavía como medición del WebView2 nativo.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -762,7 +767,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.32.0
+## 8.1. Cola de ejecución recomendada desde v0.33.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -771,10 +776,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    ventana y cleanup; queda el driver/CDP nativo.
 2. **Accesibilidad y evidencia visual:** ejecutar lector de pantalla, teclado,
    zoom y alto contraste; añadir capturas canónicas y regresión visual estable.
-3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, añadir
-   primer render independiente, medir CSV de 100 MiB, RAM máxima, perfilado,
-   receta y exportación, y mantener cleanup 100 % repetible; Vite/Rust/ventana
-   y reintento de cleanup ya tienen métricas.
+3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, trasladar
+   la medición de primer render al WebView2 nativo cuando haya CDP, medir CSV de
+   100 MiB, RAM máxima, perfilado, receta y exportación, y mantener cleanup 100 %
+   repetible; el shell web ya tiene un presupuesto de primer render de 3 s.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -840,6 +845,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.30.0: hitos y reintento de cleanup en smoke Tauri, más contratos automatizados de landmarks/ARIA/dialog | Implementada |
 | 2026-08-22 | Versión 0.31.0: Playwright 1.62 con Edge en Windows/Chromium en otros sistemas y E2E reproducible del shell web; IPC/Tauri nativo queda pendiente | Implementada |
 | 2026-08-22 | Versión 0.32.0: E2E Playwright del ciclo de proyectos con `__TAURI_INTERNALS__` simulado; WebView2/IPC nativo queda pendiente | Implementada |
+| 2026-08-22 | Versión 0.33.0: marca de primer render y presupuesto Playwright independiente de 3 s para el shell web; medición WebView2 nativa queda pendiente | Implementada |
 
 ## 10. Fuentes de esta revisión
 
