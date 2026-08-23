@@ -116,7 +116,33 @@ async function inspectNativeProjectIpc(page) {
         let projectId = null;
         let cleanupConfirmed = true;
         const projectName = `__columnia_native_probe__${crypto.randomUUID().slice(0, 8)}`;
-        const interactions = ["probe_seed_dataset", "save_project", "list_projects", "open_project", "get_dataset_page", "delete_project"];
+        const recipe = {
+          renames: [{ from: "value", to: "label" }],
+          casts: [],
+          dateParses: [],
+          filters: [],
+          calculatedColumn: null,
+          findReplace: null,
+          keepColumns: null,
+          splitColumn: null,
+          mergeColumns: null,
+          outlierTreatments: [],
+          groupSummary: null,
+          contactNormalizations: [],
+          textExtractions: [],
+        };
+        const qualityRule = { column: "label", kind: "non_empty", maxInvalid: 0 };
+        const interactions = [
+          "probe_seed_dataset",
+          "probe_save_transform_recipe",
+          "apply_transform_recipe",
+          "probe_export_dataset",
+          "save_project",
+          "list_projects",
+          "open_project",
+          "get_dataset_page",
+          "delete_project",
+        ];
         try {
           const seed = await internals.invoke("probe_seed_dataset");
           const seedValid = Boolean(seed)
@@ -126,10 +152,43 @@ async function inspectNativeProjectIpc(page) {
             && forbiddenFields(seed).length === 0;
           if (!seedValid) throw new Error("seed_invalid");
 
+          const savedRecipe = await internals.invoke("probe_save_transform_recipe", {
+            recipe,
+            name: "Native probe recipe",
+          });
+          const savedRecipeValid = savedRecipe?.version === 1
+            && savedRecipe.name === "Native probe recipe"
+            && typeof savedRecipe.savedAt === "string"
+            && savedRecipe.recipe?.renames?.[0]?.from === "value"
+            && savedRecipe.recipe?.renames?.[0]?.to === "label"
+            && Object.keys(savedRecipe).every((key) => !/path|filepath|sourcepath/i.test(key));
+          if (!savedRecipeValid) throw new Error("recipe_save_invalid");
+
+          const transformed = await internals.invoke("apply_transform_recipe", {
+            recipe: savedRecipe.recipe,
+          });
+          const transformedValid = transformed?.changed === true
+            && transformed.dataset?.rowCount === 2
+            && transformed.dataset?.columnCount === 2
+            && transformed.dataset?.columns?.map((column) => column.name).join(",") === "id,label";
+          if (!transformedValid) throw new Error("recipe_apply_invalid");
+
+          const exported = await internals.invoke("probe_export_dataset", {
+            format: "csv",
+            qualityRules: [qualityRule],
+            allowUnvalidated: false,
+          });
+          const exportValid = exported?.format === "CSV"
+            && typeof exported.fileName === "string"
+            && exported.fileName.endsWith(".csv")
+            && Number.isInteger(exported.fileSizeBytes)
+            && exported.fileSizeBytes > 0;
+          if (!exportValid) throw new Error("export_invalid");
+
           const saved = await internals.invoke("save_project", {
             projectId: null,
             name: projectName,
-            workspace: { qualityRules: [], recipeDraft: null },
+            workspace: { qualityRules: [qualityRule], recipeDraft: savedRecipe },
           });
           projectId = saved?.id ?? null;
           const savedValid = isSummary(saved)
@@ -154,8 +213,10 @@ async function inspectNativeProjectIpc(page) {
             && opened.dataset?.rowCount === 2
             && opened.dataset?.columnCount === 2
             && Array.isArray(opened.workspace?.qualityRules)
-            && opened.workspace.qualityRules.length === 0
-            && opened.workspace.recipeDraft === null
+            && opened.workspace.qualityRules.length === 1
+            && opened.workspace.qualityRules[0]?.column === "label"
+            && opened.workspace.recipeDraft?.name === "Native probe recipe"
+            && opened.workspace.recipeDraft?.version === 1
             && forbiddenFields(opened).length === 0;
           if (!openedValid) throw new Error("open_invalid");
 
@@ -180,6 +241,9 @@ async function inspectNativeProjectIpc(page) {
             projectSummariesValid: after.projectSummariesValid,
             recoverySummaryValid: after.recoverySummaryValid,
             forbiddenPathFields: before.forbiddenPathFields || after.forbiddenPathFields,
+            recipeSaved: true,
+            recipeApplied: true,
+            exportVerified: true,
             mutationRequested: true,
             cleanupConfirmed: true,
             interactions,
@@ -378,7 +442,17 @@ function snapshotResult(status, pages, extra = {}) {
       noVisibleRoutes: "visible route anchors",
       actionNames: "all visible ProjectsPanel buttons",
       nativeIpc: runMutations
-        ? ["probe_seed_dataset", "save_project", "list_projects", "open_project", "get_dataset_page", "delete_project"]
+        ? [
+          "probe_seed_dataset",
+          "probe_save_transform_recipe",
+          "apply_transform_recipe",
+          "probe_export_dataset",
+          "save_project",
+          "list_projects",
+          "open_project",
+          "get_dataset_page",
+          "delete_project",
+        ]
         : ["list_projects", "get_recovery_candidate"],
     },
     interactions: [],

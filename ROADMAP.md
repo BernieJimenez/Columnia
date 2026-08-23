@@ -661,6 +661,14 @@ La validación Windows v0.40.0 dejó el catálogo en 0→0, cleanup confirmado y
 working set nativo máximo de 365,252,608 bytes (~348.4 MiB); el primer render frío
 sigue siendo una señal observacional fuera del presupuesto de 3 s.
 
+La versión 0.41.0 extiende el mismo límite de debug hasta receta y entrega:
+`probe_save_transform_recipe` escribe y vuelve a leer una receta JSON desde un
+directorio temporal, `apply_transform_recipe` la publica sobre el dataset
+sintético y `probe_export_dataset` ejecuta la compuerta de calidad y la
+exportación CSV atómica sin abrir diálogos. El proyecto guarda y restaura el
+borrador de receta y la regla; el destino temporal desaparece al terminar y la
+evidencia solo conserva estados, conteos y nombres de comandos.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -828,21 +836,21 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.40.0
+## 8.1. Cola de ejecución recomendada desde v0.41.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
    Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
    Vitest cubre guardar→catálogo→abrir→restaurar y el probe CDP ya ejerce un
-   ciclo nativo temporal de sembrar→guardar→abrir→consultar→eliminar; aún faltan
-   el selector/exportación y la continuidad entre procesos.
+   ciclo nativo temporal de sembrar→receta→exportar→guardar→abrir→consultar→eliminar;
+   aún faltan el selector nativo, el reinicio y la continuidad entre procesos.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
    `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
    y añadir capturas canónicas.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, completar
-   presupuesto global de RAM, receta y exportación desde la ventana, y mantener
-   cleanup 100 % repetible; `npm run perf:benchmark` cubre una muestra CLI de
+   presupuesto global de RAM y mantener cleanup 100 % repetible; el probe CDP
+   ya cubre receta/exportación nativas y `npm run perf:benchmark` cubre una muestra CLI de
    100 MiB y `npm run smoke:cdp` ya conserva working set/memoria privada, pero la
    compilación debug fría todavía puede excederla y falta comparar contra
    `dataprepv1.1`.
@@ -919,6 +927,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.38.0: benchmark CLI reproducible de 100 MiB con inspect/validate/transform CSV+Parquet, duración, working set y cleanup sin conservar datos; RAM final y perfilado Tauri siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.39.0: el probe WebView2/CDP registra working set y memoria privada inicial/máxima/final del proceso debug y los conserva en el resumen sin rutas ni datos; presupuesto global y transformaciones nativas siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.40.0: recorrido IPC nativo temporal de dataset sintético y proyecto (guardar/listar/abrir/paginar/eliminar) bajo debug, con cleanup y evidencia privada; selector/exportación y continuidad entre procesos siguen pendientes | Implementada |
+| 2026-08-22 | Versión 0.41.0: receta JSON temporal, aplicación estructural, exportación CSV atómica con quality gate y workspace de proyecto restaurable verificados dentro de WebView2; selector nativo y continuidad entre procesos siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 

@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const debugOnlyCommands = new Set(["probe_seed_dataset"]);
+const debugOnlyCommands = new Set([
+  "probe_seed_dataset",
+  "probe_save_transform_recipe",
+  "probe_export_dataset",
+]);
 
 function registeredTauriCommands(source: string): string[] {
   const marker = source.indexOf("tauri::generate_handler!");

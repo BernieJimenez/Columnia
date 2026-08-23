@@ -885,6 +885,78 @@ pub fn probe_seed_dataset(state: State<'_, DatasetState>) -> Result<DatasetPrevi
     Ok(preview)
 }
 
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn probe_save_transform_recipe(
+    recipe: TransformRecipe,
+    name: String,
+) -> Result<StoredTransformRecipe, String> {
+    let document = build_stored_recipe(recipe, name)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el almacén temporal de receta: {error}")
+        })?;
+        let destination = recipe_path_with_extension(
+            directory
+                .path()
+                .join(recipe_suggested_file_name(&document.name)),
+        );
+        save_recipe_atomic(&document, &destination)?;
+        load_recipe_file(&destination)
+    })
+    .await
+    .map_err(|error| format!("El guardado nativo de la receta se interrumpió: {error}"))?
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn probe_export_dataset(
+    app: AppHandle,
+    format: ExportFormat,
+    quality_rules: Vec<QualityRule>,
+    allow_unvalidated: bool,
+) -> Result<ExportResult, String> {
+    validate_quality_rules_payload(&quality_rules)?;
+    let (frame, suggested_name) = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let dataset = current
+            .as_ref()
+            .ok_or_else(|| "No hay un dataset activo para el probe nativo.".to_owned())?;
+        let stem = Path::new(&dataset.file_name)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("dataset");
+        (
+            dataset.frame.clone(),
+            format!("{stem}-native-probe.{}", format.extension()),
+        )
+    };
+
+    let generation = app.state::<DatasetState>().begin_export();
+    tauri::async_runtime::spawn_blocking(move || {
+        enforce_export_quality_with_cancel(&frame, &quality_rules, allow_unvalidated, || {
+            app.state::<DatasetState>().export_was_cancelled(generation)
+        })?;
+        ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
+        let directory = tempfile::tempdir()
+            .map_err(|error| format!("No se pudo preparar el destino temporal: {error}"))?;
+        let destination = path_with_extension(directory.path().join(suggested_name), format);
+        export_frame_atomic(
+            &frame,
+            &destination,
+            format,
+            |_, _| {},
+            || app.state::<DatasetState>().export_was_cancelled(generation),
+        )
+    })
+    .await
+    .map_err(|error| format!("La exportación nativa de prueba se interrumpió: {error}"))?
+}
+
 #[cfg(test)]
 impl DatasetState {
     pub(crate) fn project_test_record(&self, frame: DataFrame, label: &str) -> Result<(), String> {

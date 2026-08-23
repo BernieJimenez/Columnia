@@ -82,13 +82,14 @@ con Tauri y los smokes locales.
 En Windows, `npm run smoke:cdp` levanta el comando real `npm run tauri dev` con
 un puerto CDP de loopback aislado, verifica `/json/version` y `/json/list`, y
 usa `chromium.connectOverCDP` para medir primer render, landmarks y foco del
-WebView2, además de comprobar el contrato accesible de solo lectura de
-`ProjectsPanel` y los comandos IPC nativos de proyectos de solo lectura. El
-probe restaura la variable de entorno y termina únicamente los procesos que
-creó; reporta el primer render aunque el arranque debug frío
-supere el presupuesto, no ejecuta mutaciones de proyectos ni sustituye todavía
-los flujos IPC nativos. Para resumir las evidencias locales por categoría y
-comparar deltas entre ejecuciones usa `npm run perf:summary`.
+WebView2, además de comprobar el contrato accesible de `ProjectsPanel` y los
+comandos IPC nativos. En el build debug, el ciclo temporal siembra un dataset,
+persiste/aplica una receta, exporta CSV con quality gate y guarda/abre/elimina
+un proyecto con ese workspace; la evidencia conserva solo estados y conteos.
+El probe restaura la variable de entorno y termina únicamente los procesos que
+creó; reporta el primer render aunque el arranque debug frío supere el
+presupuesto. Para resumir las evidencias locales por categoría y comparar
+deltas entre ejecuciones usa `npm run perf:summary`.
 
 Para medir una entrada sintética cercana a 100 MiB sin conservarla en el árbol
 de trabajo ejecuta `npm run perf:benchmark`. El benchmark usa la CLI local para
@@ -97,10 +98,10 @@ de working set, y deja solo un resumen en `.local/validation/`.
 
 `npm run smoke:cdp` añade un perfil acotado del proceso debug (working set y
 memoria privada inicial, máxima y final) y ejecuta, solo en el build debug del
-probe, un ciclo temporal de proyecto nativo (sembrar, guardar, abrir, consultar
-y eliminar). La evidencia conserva conteos/estados, no IDs, datos ni rutas; esta
-señal no habilita CDP en el arranque normal ni sustituye todavía un presupuesto
-global de RAM.
+probe, un ciclo temporal nativo de dataset/receta/exportación/proyecto. La
+evidencia conserva conteos/estados, no IDs, datos ni rutas; esta señal no
+habilita CDP en el arranque normal ni sustituye todavía un presupuesto global
+de RAM.
 
 ## Automatización por CLI
 
