@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.48.0`.
+- Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -759,6 +759,26 @@ CDP y 25 desktop; el CDP observó 438,829,056 bytes de working set y 242,012,160
 bytes privados, dentro del presupuesto. La auditoría manual real y lazy/incremental
 siguen pendientes.
 
+La versión 0.49.0 extiende el probe nativo de WebView2: cada smoke con mutaciones
+ejecuta tres ciclos reales de transformación y exportación sobre el dataset de
+prueba antes de guardar el proyecto. El resumen conserva únicamente duraciones y
+conteos; `perf:check` exige esas tres iteraciones y verifica sus máximos junto al
+presupuesto global de 512 MiB/256 MiB aplicado al árbol Tauri/WebView2. Esto cierra
+la señal nativa sostenida del probe, pero no sustituye el benchmark de datasets
+grandes ni la implementación lazy/incremental.
+
+La validación Windows v0.49.0 pasó `npm run verify:tier` en 9.09 minutos: Vitest
+130/130, Rust 127/127, Playwright 9/9, build, evidencia/baseline visual 4/4,
+benchmark, Package, smoke CLI/desktop, CDP sostenido, reinicio y gates finales.
+El resumen reunió 59 muestras CDP y 26 desktop; el gate observó 453,664,768 bytes
+de working set y 249,978,880 bytes privados. La señal nativa ejecutó tres ciclos
+con máximos de 9.8 ms de transformación y 4.7 ms de exportación. El benchmark
+alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
+6,243.26/26,306.45/11,436.06/13,285.38 ms y cleanup confirmado. Evidencia final:
+`.local/validation/webview2-cdp/20260823T055801Z`,
+`.local/validation/webview2-restart/20260823T055558Z` y
+`.local/validation/performance-baseline/20260823T055904Z`.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -926,7 +946,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.48.0
+## 8.1. Cola de ejecución recomendada desde v0.49.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -945,10 +965,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
    ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
    registra duraciones IPC por operación, mientras `npm run perf:benchmark` cubre
-    una muestra CLI de 100 MiB. v0.47 añadió tres iteraciones sostenidas y v0.48
-    añade límites de duración, dos actualizaciones por ID y reapertura/exportación
-    durable; todavía falta medir transformaciones desde la ventana Tauri y el
-    presupuesto global de dataset+historial.
+     una muestra CLI de 100 MiB. v0.47 añadió tres iteraciones sostenidas, v0.48
+     añadió límites de duración y stress durable, y v0.49 mide tres ciclos nativos
+     de transformación/exportación dentro de WebView2 junto al presupuesto global
+     del árbol. Todavía falta repetirlo con datasets grandes y con historial que
+     ejerza el límite integral de memoria.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -1030,6 +1051,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-23 | Versión 0.46.0: baseline visual con hashes, gate de rendimiento CDP/benchmark/bundle y `verify:experience` compuesto; lazy/incremental sigue pendiente | Implementada |
 | 2026-08-23 | Versión 0.47.0: benchmark CLI sostenido con tres iteraciones y ciclo durable de proyecto con cleanup; medición WebView2 y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Versión 0.48.0: presupuestos de duración, stress de actualización/reapertura durable, `verify:tier` y checklist manual de accesibilidad; medición WebView2, lector real y lazy/incremental siguen pendientes | Implementada |
+| 2026-08-23 | Versión 0.49.0: tres ciclos nativos de transformación/exportación dentro de WebView2, duraciones incorporadas al gate y presupuesto global del árbol; datasets grandes, lector real y lazy/incremental siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 

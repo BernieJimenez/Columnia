@@ -60,8 +60,8 @@ try {
 
     if (-not $SkipNative) {
         Invoke-PowerShellStage "Smoke desktop (npm run tauri dev)" "tools/smoke-tauri.ps1" @("-TimeoutSeconds", "120")
-        Invoke-NpmStage "Smoke WebView2/CDP" @("run", "smoke:cdp")
         Invoke-NpmStage "Smoke WebView2/reinicio" @("run", "smoke:restart")
+        Invoke-NpmStage "Smoke WebView2/CDP sostenido" @("run", "smoke:cdp")
         Invoke-NpmStage "Resumen de rendimiento final" @("run", "perf:summary")
     }
 

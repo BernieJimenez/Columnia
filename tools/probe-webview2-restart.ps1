@@ -53,6 +53,9 @@ function Invoke-RestartPhase {
         performanceBudget = $PhaseSummary.performanceBudget
         nativeOperationCount = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeOperationCount }
         nativeOperationDurationMs = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeOperationDurationMs }
+        nativeSustainedRuns = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeSustainedRuns }
+        nativeSustainedTransformMaxMs = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeSustainedTransformMaxMs }
+        nativeSustainedExportMaxMs = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeSustainedExportMaxMs }
     }
 }
 

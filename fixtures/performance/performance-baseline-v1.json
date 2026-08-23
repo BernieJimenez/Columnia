@@ -4,7 +4,12 @@
   "budgets": {
     "cdp": {
       "workingSetBytes": 536870912,
-      "privateMemoryBytes": 268435456
+      "privateMemoryBytes": 268435456,
+      "nativeSustained": {
+        "minRuns": 3,
+        "maxTransformDurationMs": 5000,
+        "maxExportDurationMs": 5000
+      }
     },
     "benchmark": {
       "minTargetMiB": 100,

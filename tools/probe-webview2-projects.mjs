@@ -3,6 +3,10 @@ import { chromium } from "@playwright/test";
 const portArgumentIndex = process.argv.indexOf("--port");
 const port = portArgumentIndex >= 0 ? Number(process.argv[portArgumentIndex + 1]) : 9222;
 const runMutations = process.argv.includes("--mutate");
+const sustainedRunsArgumentIndex = process.argv.indexOf("--sustained-runs");
+const sustainedRuns = sustainedRunsArgumentIndex >= 0
+  ? Number(process.argv[sustainedRunsArgumentIndex + 1])
+  : 3;
 const restartMode = process.argv.includes("--restart-prepare")
   ? "prepare"
   : process.argv.includes("--restart-verify")
@@ -11,7 +15,8 @@ const restartMode = process.argv.includes("--restart-prepare")
 const probeTimeoutMs = 15_000;
 const pollIntervalMs = 250;
 
-if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+if (!Number.isInteger(port) || port < 1024 || port > 65535
+  || !Number.isInteger(sustainedRuns) || sustainedRuns < 1 || sustainedRuns > 5) {
   console.error(JSON.stringify({ status: "failed", error: "Invalid --port." }));
   process.exit(1);
 }
@@ -29,7 +34,7 @@ function isProvisionalUrl(url) {
 
 async function inspectNativeProjectIpc(page) {
   try {
-    return await page.evaluate(async ({ shouldMutate, restartMode: currentRestartMode }) => {
+    return await page.evaluate(async ({ shouldMutate, restartMode: currentRestartMode, nativeSustainedRuns }) => {
       const internals = window.__TAURI_INTERNALS__;
       if (!internals || typeof internals.invoke !== "function") {
         return {
@@ -285,17 +290,47 @@ async function inspectNativeProjectIpc(page) {
             && transformed.dataset?.columns?.map((column) => column.name).join(",") === "id,label";
           if (!transformedValid) throw new Error("recipe_apply_invalid");
 
-          const exported = await invoke("probe_export_dataset", {
-            format: "csv",
-            qualityRules: [qualityRule],
-            allowUnvalidated: false,
-          });
-          const exportValid = exported?.format === "CSV"
-            && typeof exported.fileName === "string"
-            && exported.fileName.endsWith(".csv")
-            && Number.isInteger(exported.fileSizeBytes)
-            && exported.fileSizeBytes > 0;
-          if (!exportValid) throw new Error("export_invalid");
+          const sustainedTimings = [];
+          for (let iteration = 1; iteration <= nativeSustainedRuns; iteration += 1) {
+            if (iteration > 1) {
+              const undone = await invoke("undo_last_change");
+              const undoneValid = Boolean(undone)
+                && undone.dataset?.fileName === "native-probe.csv"
+                && undone.dataset?.rowCount === 2
+                && undone.dataset?.columnCount === 2
+                && undone.dataset?.columns?.map((column) => column.name).join(",") === "id,value";
+              if (!undoneValid) throw new Error("sustained_undo_invalid");
+            }
+
+            const sustainedTransform = iteration === 1
+              ? transformed
+              : await invoke("apply_transform_recipe", { recipe: savedRecipe.recipe });
+            const sustainedTransformValid = sustainedTransform?.changed === true
+              && sustainedTransform.dataset?.rowCount === 2
+              && sustainedTransform.dataset?.columnCount === 2
+              && sustainedTransform.dataset?.columns?.map((column) => column.name).join(",") === "id,label";
+            if (!sustainedTransformValid) throw new Error("sustained_transform_invalid");
+
+            const sustainedExport = await invoke("probe_export_dataset", {
+              format: "csv",
+              qualityRules: [qualityRule],
+              allowUnvalidated: false,
+            });
+            const sustainedExportValid = sustainedExport?.format === "CSV"
+              && typeof sustainedExport.fileName === "string"
+              && sustainedExport.fileName.endsWith(".csv")
+              && Number.isInteger(sustainedExport.fileSizeBytes)
+              && sustainedExport.fileSizeBytes > 0;
+            if (!sustainedExportValid) throw new Error("sustained_export_invalid");
+
+            const transformSamples = operationTimingsMs.apply_transform_recipe ?? [];
+            const exportSamples = operationTimingsMs.probe_export_dataset ?? [];
+            sustainedTimings.push({
+              iteration,
+              transformDurationMs: transformSamples.length > 0 ? transformSamples[transformSamples.length - 1] : null,
+              exportDurationMs: exportSamples.length > 0 ? exportSamples[exportSamples.length - 1] : null,
+            });
+          }
 
           const saved = await invoke("save_project", {
             projectId: null,
@@ -310,6 +345,13 @@ async function inspectNativeProjectIpc(page) {
             && saved.rowCount === 2
             && saved.columnCount === 2;
           if (!savedValid) throw new Error("save_invalid");
+
+          const nativeSustainedTransformDurations = sustainedTimings
+            .map(({ transformDurationMs }) => transformDurationMs)
+            .filter((duration) => Number.isFinite(duration));
+          const nativeSustainedExportDurations = sustainedTimings
+            .map(({ exportDurationMs }) => exportDurationMs)
+            .filter((duration) => Number.isFinite(duration));
 
           if (currentRestartMode === "prepare") {
             const prepared = await readCatalog();
@@ -332,6 +374,13 @@ async function inspectNativeProjectIpc(page) {
               restartReady: true,
               projectPersisted: true,
               mutationRequested: true,
+              nativeSustainedRuns,
+              nativeSustainedTransformMaxMs: nativeSustainedTransformDurations.length > 0
+                ? Math.max(...nativeSustainedTransformDurations)
+                : null,
+              nativeSustainedExportMaxMs: nativeSustainedExportDurations.length > 0
+                ? Math.max(...nativeSustainedExportDurations)
+                : null,
               cleanupConfirmed: true,
               interactions,
               ...timingEvidence(),
@@ -381,7 +430,6 @@ async function inspectNativeProjectIpc(page) {
           const after = await readCatalog();
           const catalogRestored = after.valid && after.projectsCount === before.projectsCount;
           if (!catalogRestored) throw new Error("cleanup_invalid");
-
           return {
             status: "passed",
             phase: "native_project_ipc_mutation",
@@ -398,6 +446,13 @@ async function inspectNativeProjectIpc(page) {
             exportVerified: true,
             persistenceReopenVerified: true,
             mutationRequested: true,
+            nativeSustainedRuns,
+            nativeSustainedTransformMaxMs: nativeSustainedTransformDurations.length > 0
+              ? Math.max(...nativeSustainedTransformDurations)
+              : null,
+            nativeSustainedExportMaxMs: nativeSustainedExportDurations.length > 0
+              ? Math.max(...nativeSustainedExportDurations)
+              : null,
             cleanupConfirmed: true,
             interactions,
             ...timingEvidence(),
@@ -420,7 +475,7 @@ async function inspectNativeProjectIpc(page) {
             commands: interactions,
             mutationRequested: true,
             cleanupConfirmed,
-            errorCode: error instanceof Error && /^(recovery|reopen|open|page|restart|seed|recipe|export|save|list|cleanup)_/.test(error.message)
+            errorCode: error instanceof Error && /^(recovery|reopen|open|page|restart|seed|recipe|export|sustained|save|list|cleanup)_/.test(error.message)
               ? error.message
               : "invoke_failed",
             interactions,
@@ -437,7 +492,7 @@ async function inspectNativeProjectIpc(page) {
           ...timingEvidence(),
         };
       }
-    }, { shouldMutate: runMutations, restartMode });
+    }, { shouldMutate: runMutations, restartMode, nativeSustainedRuns: sustainedRuns });
   } catch {
     return {
       status: "failed",

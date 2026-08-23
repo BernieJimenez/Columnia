@@ -92,6 +92,31 @@ try {
             -Message $CdpMessage
     }
 
+    $NativeSustainedBudget = $Baseline.budgets.cdp.nativeSustained
+    $NativeSustained = if ($null -eq $CdpCategory.latest) { $null } else { $CdpCategory.latest.nativeSustained }
+    if ($null -eq $NativeSustained -or $null -eq $NativeSustainedBudget) {
+        Add-Check -Id "cdp-native-sustained" -State "unavailable" -Observed $null -Budget $NativeSustainedBudget -Source (Get-RelativePath $PerformanceSummaryPath) -Message "Falta evidencia de transformaciones nativas sostenidas en WebView2."
+    }
+    else {
+        $NativeRuns = [int]$NativeSustained.runs
+        $NativeTransformMax = if ($null -eq $NativeSustained.maxTransformDurationMs) { 0.0 } else { [double]$NativeSustained.maxTransformDurationMs }
+        $NativeExportMax = if ($null -eq $NativeSustained.maxExportDurationMs) { 0.0 } else { [double]$NativeSustained.maxExportDurationMs }
+        $NativeHasValues = $NativeRuns -gt 0 -and $null -ne $NativeSustained.maxTransformDurationMs -and $null -ne $NativeSustained.maxExportDurationMs
+        $NativePassed = $NativeHasValues -and
+            $NativeRuns -ge [int]$NativeSustainedBudget.minRuns -and
+            $NativeTransformMax -le [double]$NativeSustainedBudget.maxTransformDurationMs -and
+            $NativeExportMax -le [double]$NativeSustainedBudget.maxExportDurationMs
+        $NativeState = if ($NativePassed) { "passed" } else { "failed" }
+        $NativeMessage = if ($NativePassed) { "Transformaciones nativas sostenidas dentro del contrato." } else { "Transformaciones nativas sostenidas incompletas o fuera del presupuesto." }
+        Add-Check -Id "cdp-native-sustained" -State $NativeState `
+            -Observed ([ordered]@{
+                runs = $NativeRuns
+                maxTransformDurationMs = $NativeTransformMax
+                maxExportDurationMs = $NativeExportMax
+            }) -Budget $NativeSustainedBudget -Source (Get-RelativePath $PerformanceSummaryPath) `
+            -Message $NativeMessage
+    }
+
     $BenchmarkFile = Get-ChildItem -LiteralPath (Join-Path $ValidationRoot "performance-benchmark") -Recurse -File -Filter "summary.json" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTimeUtc -Descending |
         Select-Object -First 1

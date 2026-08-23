@@ -96,7 +96,8 @@ function New-Sample {
         [string]$Status,
         [object[]]$Metrics,
         [object]$ProcessProfile = $null,
-        [object]$PerformanceBudget = $null
+        [object]$PerformanceBudget = $null,
+        [object]$NativeSustained = $null
     )
 
     [ordered]@{
@@ -107,6 +108,7 @@ function New-Sample {
         metrics = @($Metrics)
         processProfile = $ProcessProfile
         performanceBudget = $PerformanceBudget
+        nativeSustained = $NativeSustained
     }
 }
 
@@ -169,14 +171,23 @@ function Get-CdpNativeSample {
         [void]$Metrics.Add((New-Metric -Name "probeDurationMs" -ValueMs $ProbeDurationMs -State "observational"))
     }
     $ProjectPage = if ($null -eq $Document.projects) { $null } else { @($Document.projects.pages)[0] }
-    $NativeOperationDurationMs = if ($null -eq $ProjectPage -or $null -eq $ProjectPage.nativeIpc) {
+    $NativeEvidence = if ($null -eq $ProjectPage) { $null } else { $ProjectPage.nativeIpc }
+    $NativeOperationDurationMs = if ($null -eq $NativeEvidence) {
         $null
     }
     else {
-        Get-Number $ProjectPage.nativeIpc.nativeOperationDurationMs
+        Get-Number $NativeEvidence.nativeOperationDurationMs
     }
     if ($null -ne $NativeOperationDurationMs) {
         [void]$Metrics.Add((New-Metric -Name "nativeOperationDurationMs" -ValueMs $NativeOperationDurationMs -State "observational"))
+    }
+    $MaxTransformDurationMs = if ($null -eq $NativeEvidence) { $null } else { Get-Number $NativeEvidence.nativeSustainedTransformMaxMs }
+    $MaxExportDurationMs = if ($null -eq $NativeEvidence) { $null } else { Get-Number $NativeEvidence.nativeSustainedExportMaxMs }
+    if ($null -ne $MaxTransformDurationMs) {
+        [void]$Metrics.Add((New-Metric -Name "nativeSustainedTransformMaxMs" -ValueMs $MaxTransformDurationMs -State "observational"))
+    }
+    if ($null -ne $MaxExportDurationMs) {
+        [void]$Metrics.Add((New-Metric -Name "nativeSustainedExportMaxMs" -ValueMs $MaxExportDurationMs -State "observational"))
     }
     if ($Metrics.Count -eq 0) {
         return $null
@@ -184,7 +195,14 @@ function Get-CdpNativeSample {
 
     $Status = if ($Document.playwrightStatus -eq "passed" -and $Document.status -eq "supported") { "observed" } else { "unavailable" }
     $ObservedAt = Get-ObservedAt -Document $Document -EvidenceName $EvidenceName
-    return New-Sample -Category "cdp-native" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile -PerformanceBudget $Document.performanceBudget
+    $NativeSustained = if ($null -eq $NativeEvidence) { $null } else {
+        [ordered]@{
+            runs = [int]$NativeEvidence.nativeSustainedRuns
+            maxTransformDurationMs = if ($null -eq $MaxTransformDurationMs) { $null } else { [math]::Round($MaxTransformDurationMs, 2) }
+            maxExportDurationMs = if ($null -eq $MaxExportDurationMs) { $null } else { [math]::Round($MaxExportDurationMs, 2) }
+        }
+    }
+    return New-Sample -Category "cdp-native" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile -PerformanceBudget $Document.performanceBudget -NativeSustained $NativeSustained
 }
 
 function Get-DesktopSmokeSample {

@@ -6,6 +6,8 @@ param(
     [switch]$RunPlaywright,
     [switch]$RunProjects,
     [switch]$RunProjectMutations,
+    [ValidateRange(1, 5)]
+    [int]$NativeSustainedRuns = 3,
     [ValidateSet("normal", "restart-prepare", "restart-verify")]
     [string]$ProjectProbeMode = "normal",
     [ValidateRange(64, 4096)]
@@ -337,6 +339,8 @@ function Invoke-ProjectsProbe {
     $RunnerArguments = @($RunnerPath, "--port", $Port)
     if ($RunProjectMutations) {
         $RunnerArguments += "--mutate"
+        $RunnerArguments += "--sustained-runs"
+        $RunnerArguments += $NativeSustainedRuns
     }
     if ($ProjectProbeMode -eq "restart-prepare") {
         $RunnerArguments += "--restart-prepare"
@@ -554,6 +558,7 @@ finally {
         playwright = $PlaywrightPayload
         projectsRequested = [bool]$RunProjects
         projectsMutationRequested = [bool]$RunProjectMutations
+        nativeSustainedRunsRequested = if ($RunProjectMutations) { $NativeSustainedRuns } else { 0 }
         projectProbeMode = $ProjectProbeMode
         projectsStatus = $ProjectsStatus
         projects = $ProjectsPayload
