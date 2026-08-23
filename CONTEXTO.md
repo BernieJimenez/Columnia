@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fases I0 e I8 cerradas |
+| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fases I0, I1 e I8 cerradas |
 
 ## Para qué existe este documento
 
@@ -93,6 +93,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/main.tsx` | Monta `<App />` en modo estricto de React. |
 | `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz en unas 504 líneas. |
 | `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
+| `src/components/ResourceMonitor.tsx` | Monitor compacto de consumo de CPU/RAM del proceso y del equipo, con polling nativo y estado degradado para el shell web. |
 | `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, progreso, cancelación y recuperación. |
 | `src/features/review/` | Fase Revisar: diagnóstico, perfil de calidad, tabs y vista previa paginada. |
 | `src/features/prepare/` | Fase Preparar: vistas, editor de recetas, historial, modelo puro y controlador de IPC/invalidationes. |
@@ -103,7 +104,8 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `playwright.config.ts` | Configuración de Playwright para E2E del shell web Vite, con Chromium/Edge local, preview de producción reutilizable, trazas y artefactos solo en fallos. |
 | `e2e/` | Pruebas E2E del shell web, primer render, accesibilidad, preferencias responsive y ciclo de proyectos con IPC Tauri simulado; la ventana WebView2 nativa tiene un probe CDP opcional. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
-| `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, estados de dataset/proyectos y los 25 comandos permitidos. |
+| `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, estados de dataset/proyectos y los 26 comandos permitidos. |
+| `src-tauri/src/resource.rs` | Obtiene CPU y memoria del proceso Columnia y del sistema mediante `sysinfo`, sin exponer rutas ni datos. |
 | `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
 | `src-tauri/src/projects.rs` | Catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, perfil e historial versionados y cinco comandos de proyectos. |
 | `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de datasets, lotes y los cinco comandos CLI de proyectos. |
@@ -125,6 +127,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/check-release-evidence.mjs` | Comprueba el sumario release contra el baseline de escenarios, contrato, versiones, hashes y ownership; solo `--update-baseline` acepta una diferencia visual intencional. |
 | `tools/check-documentation.mjs` | Valida el mapa Diátaxis, ADR/CHANGELOG, enlaces locales, UTF-8 sin BOM, coherencia de versiones y ownership de imágenes. |
 | `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide tres iteraciones sostenidas de transform CSV/Parquet, actualiza dos veces el mismo proyecto y verifica reapertura/exportación durable; conserva solo tiempos, conteos, estados y cleanup sin datos después de borrar el almacén temporal. |
+| `tools/benchmark-i1.ps1` / `tools/check-i1-benchmark.mjs` | Benchmark cruzado de la inspección de 100 MiB contra `dataprepv1.1`, con selección del entorno Python, comparación de duración/working set, validación de conteos y cleanup. |
 | `tools/check-performance-baseline.ps1` | Convierte el resumen CDP, el benchmark de datasets y el reporte Package en un gate contra `fixtures/performance/performance-baseline-v1.json`, incluyendo duración máxima por operación, con evidencia sanitizada y estado explícito. |
 | `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
 | `tools/verify-tier.ps1` | Orquesta el tier reproducible completo: tests, build, accesibilidad, benchmark sostenido, Package, smokes CLI/WebView2 y gates finales; permite omitir Package o native de forma explícita. |
@@ -164,7 +167,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 - `pending_selection`: selección pendiente con ID opaco, ruta privada y hojas detectadas;
 - contadores atómicos de generación para cancelar carga, perfil y exportación sin mezclar operaciones.
 
-`LoadedDataset` conserva una ruta fuente privada opcional, el nombre/tamaño visibles, el `DataFrame`, un perfil opcional en caché y el historial. Separar la identidad visible de la ruta permite restaurar un snapshot aunque el archivo original ya no exista. El dataset se materializa actualmente en memoria. El límite provisional de archivo es 500 MiB, pero el consumo real puede ser mayor durante lectura, perfilado y transformaciones.
+`LoadedDataset` conserva una ruta fuente privada opcional, el nombre/tamaño visibles, el `DataFrame`, un perfil opcional en caché y el historial. Separar la identidad visible de la ruta permite restaurar un snapshot aunque el archivo original ya no exista. El dataset activo se materializa en memoria, pero las recetas compatibles de I1 construyen y ejecutan un plan Polars lazy antes de publicar el candidato; las operaciones no compatibles conservan el camino eager para mantener sus validaciones estrictas. El límite provisional de archivo es 500 MiB, pero el consumo real puede ser mayor durante lectura, perfilado y transformaciones.
 
 ### Historial y atomicidad
 
@@ -187,6 +190,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 ### Runtime y carga
 
 - `get_app_info`
+- `get_resource_usage`
 - `pick_dataset_source`
 - `load_dataset_selection`
 - `discard_dataset_selection`
@@ -221,7 +225,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `open_project`
 - `delete_project`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores, nombres de campos y tipos concretos de 42 estructuras compartidas. Normaliza referencias, números, `Vec`/arrays, `Option`/campos opcionales, herencia, literales y alias conocidos. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores, nombres de campos y tipos concretos de 43 estructuras compartidas. Normaliza referencias, números, `Vec`/arrays, `Option`/campos opcionales, herencia, literales y alias conocidos. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -262,6 +266,8 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - extracciones textuales Unicode;
 - recetas JSON versión 1 guardables y cargables;
 - historial multinivel Deshacer/Rehacer.
+- ejecución Polars lazy para renombres, casts, filtros y columnas calculadas
+  numéricas compatibles; las operaciones restantes usan fallback eager atómico.
 
 Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, pérdida de precisión, división por cero o conflicto entre pasos revierte el lote completo.
 
@@ -325,6 +331,8 @@ npm run smoke:cli
 npm run smoke:cdp
 npm run perf:summary
 npm run perf:benchmark
+npm run perf:i1
+npm run perf:i1:check
 npm run accessibility:visual
 npm run accessibility:check
 npm run docs:check
@@ -399,6 +407,11 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
 - SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
 - Smoke automatizado del runtime de desarrollo con aislamiento y cleanup de procesos propios.
+- Monitor nativo compacto de CPU/RAM integrado al lateral, con polling de 2 s,
+  fallback explícito en el shell web y contratos de accesibilidad.
+- Fase I1 cerrada: recetas compatibles con plan lazy/fallback eager, benchmark
+  cruzado de 100 MiB contra `dataprepv1.1` y revisión visual release en cuatro
+  escenarios.
 - Presupuestos medibles del frontend y empaquetado Windows verificado en MSI/NSIS con evidencia criptográfica.
 - CLI local con `inspect`, `transform` y `validate`, contratos JSON versionados y reutilización del motor, libros, reglas, recetas y exportación atómica del escritorio.
 - Smoke CLI determinista que cubre CSV, Parquet, XLSX, dos modos de encabezado, calidad aprobada/reprobada, neutralización de fórmulas y fallos sin outputs parciales.
@@ -452,13 +465,18 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 
 - Fase I8 completada: la documentación está separada en tutorial, how-to, referencia y explicación; `CHANGELOG.md` y el índice de ADRs tienen entradas verificables; `docs:check` valida 14 Markdown, enlaces locales, UTF-8 sin BOM, versiones y ownership de imágenes. `accessibility:release` construyó el binario optimizado y capturó cuatro escenarios desde Tauri/WebView2 (`.local/validation/release-evidence/20260823T185353Z`); `accessibility:release:check` aprobó el baseline `.local/validation/release-evidence-check/20260823T185503Z` con fixture sintética de 44 bytes, controles legibles en `forced-colors` y contratos de landmarks, foco, targets y overflow. Las imágenes permanecen fuera de Git y sus hashes/owner/propósito viven en `fixtures/accessibility/release-evidence-baseline-v1.json`; la auditoría manual de lector de pantalla sigue siendo I3.
 
+- Cierre I1 verificado el 2026-08-23: `cargo test --lib` pasa 128 pruebas, el benchmark cruzado `.local/validation/i1-benchmark/20260823T193942Z` procesó 104,963,092 bytes y 876,544 filas, la inspección lazy de Columnia tardó 529.68 ms frente a 3,689.39 ms de `dataprepv1.1`, y la evidencia release `.local/validation/release-evidence/20260823T195225Z` aprobó desktop, móvil, zoom 125% y `forced-colors`. La comparación de memoria es direccional porque cada herramienta mide su propio proceso.
+
 ### Planeado o pendiente
 
-- ejecución lazy/incremental y datasets mayores que la memoria;
+- ampliar la ejecución lazy/incremental a datasets mayores que la memoria y a
+  operaciones que todavía requieren el camino eager;
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
 - auditoría manual con lector de pantalla y validación en hardware de Windows High Contrast; `npm run accessibility:visual` ya cubre capturas reproducibles de desktop, móvil, escala 125% y `forced-colors` sin reemplazar una sesión manual de asistencia;
-- selector nativo de exportación/receta y comparación contra `dataprepv1.1`; el presupuesto inicial de la ventana Tauri ya está instrumentado en CDP, pero falta compararlo con datasets grandes y medir transformaciones sostenidas;
+- ampliar la comparación contra `dataprepv1.1` a datasets grandes y a RAM
+  integral de dataset+historial; I1 ya cubre la inspección cruzada reproducible
+  de 100 MiB;
 - el probe opt-in `npm run smoke:native-selectors` ya recorre los comandos de selector de dataset, receta y exportación con fixtures sintéticos y evidencia sanitizada; todavía no se considera gate porque esta sesión Windows no confirmó de forma estable el cierre Win32 del botón del diálogo;
 - presupuesto integral global de dataset+historial para entradas grandes y comparación contra `dataprepv1.1`; v0.49 mide tres ciclos nativos sobre el dataset de probe y aplica el presupuesto global del árbol, pero todavía no prueba datasets grandes desde WebView2;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
@@ -470,7 +488,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
-3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 42 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 43 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
@@ -536,6 +554,7 @@ Al actualizarlo:
 | 2026-08-23 | v0.48.0 añade presupuestos de duración, stress de actualización/reapertura durable, `verify:tier` y checklist manual de accesibilidad; lector de pantalla real, medición WebView2 y lazy/incremental siguen pendientes. | `tools/benchmark-datasets.ps1`, `tools/check-performance-baseline.ps1`, `tools/verify-tier.ps1`, `ACCESSIBILITY_MANUAL_CHECKLIST.md` |
 | 2026-08-23 | v0.49.0 mide tres ciclos de transformación/exportación nativos dentro de WebView2 y los incorpora al gate junto al presupuesto global de memoria; datasets grandes, lector real y lazy/incremental siguen pendientes. | `tools/probe-webview2-projects.mjs`, `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1`, `tools/check-performance-baseline.ps1` |
 | 2026-08-23 | I8 separa la documentación por Diátaxis, mantiene CHANGELOG/ADR indexados y convierte la evidencia visual del release en un contrato reproducible desde `columnia.exe`; las capturas permanecen locales y el baseline conserva hashes, ownership y propósito. | `docs/`, `CHANGELOG.md`, `tools/check-documentation.mjs`, `tools/capture-release-evidence.ps1`, `tools/check-release-evidence.mjs`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
+| 2026-08-23 | I1 queda completa: las recetas compatibles usan Polars lazy con fallback eager seguro, se añade `get_resource_usage` con monitor compacto en el lateral y el benchmark cruzado de 100 MiB contra `dataprepv1.1` queda aprobado con evidencia visual release 4/4. | `src-tauri/src/resource.rs`, `src/components/ResourceMonitor.tsx`, `src-tauri/src/dataset.rs`, `tools/benchmark-i1.ps1`, `tools/check-i1-benchmark.mjs`, `fixtures/performance/i1-benchmark-baseline-v1.json` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

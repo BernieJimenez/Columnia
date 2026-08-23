@@ -6,7 +6,7 @@
   "fixturePath": "fixtures/automation/input.csv",
   "owner": "Columnia maintainers",
   "purpose": "Canonical release-shell screenshots for visual regression detection",
-  "approvedAt": "2026-08-23T18:55:02.740Z",
+  "approvedAt": "2026-08-23T19:53:28.439Z",
   "requiredCases": [
     {
       "name": "desktop",
@@ -56,9 +56,9 @@
     "requireNoHorizontalOverflow": true
   },
   "screenshots": {
-    "desktop": "fa3643813617470cd205a837102c233d1a3bafd3d5b6a9cb4ee610b51800ca04",
-    "mobile": "04beeb8899cb833f8c6e1dc6aedfae9779c76cadca3de823485f2466e1347090",
-    "zoom-125": "fa3643813617470cd205a837102c233d1a3bafd3d5b6a9cb4ee610b51800ca04",
-    "forced-colors": "660bb08f88c309ae1c15c1b6949410b9d7f63c103ca24a7b522ffd2b0bc12965"
+    "desktop": "ce84414fb93be6837ffbb6b5b681146b59900a00fd8411201c053d1cd4116b0c",
+    "mobile": "798892e5d5908bda58fd7e20137bb8da4526dfbfcd3272ea8651c4fa028a8121",
+    "zoom-125": "ce84414fb93be6837ffbb6b5b681146b59900a00fd8411201c053d1cd4116b0c",
+    "forced-colors": "10a060312e5b8742d2a495150ceb97e3e34760007bb8d4708db4ea86c27d56c4"
   }
 }

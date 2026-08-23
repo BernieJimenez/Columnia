@@ -6,7 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
-- Próximos cambios todavía no publicados.
+### Añadido
+
+- Fase I1 completa: recetas compatibles con renombres, casts, filtros y
+  columnas calculadas ejecutadas mediante planes Polars lazy, con fallback eager
+  atómico para operaciones que requieren validaciones específicas.
+- Monitor compacto de consumo en el lateral, con CPU/RAM del proceso y del
+  equipo, actualización nativa periódica y estado accesible para el shell web.
+- Benchmark reproducible de 100 MiB contra `dataprepv1.1`, con comparación de
+  duración, working set, conteos, fixture sintética y cleanup sin conservar datos.
+
+### Validación
+
+- Verificados build Vite, contratos IPC, 128 pruebas Rust, pruebas del monitor,
+  evidencia release desktop/móvil/zoom 125%/`forced-colors` y el gate
+  `perf:i1:check`.
 
 ## [0.49.0] - 2026-08-23
 

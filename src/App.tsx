@@ -43,6 +43,7 @@ import {
   updateProfileProgress,
   type ProfileStatus,
 } from "./features/review/reviewModel";
+import { ResourceMonitor } from "./components/ResourceMonitor";
 
 import {
   cancelOperation,
@@ -390,15 +391,17 @@ export function App() {
                 disabled={!available || operationBusy}
                 title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
               >
-                <span>{phase.number}</span>
+                <span aria-hidden="true">{phase.number}</span>
                 <span className="side-nav__copy">
                   <strong>{phase.label}</strong>
-                  <small>{phase.description}</small>
+                  <small aria-hidden="true">{phase.description}</small>
                 </span>
               </button>
             );
           })}
         </nav>
+
+        <ResourceMonitor enabled={status.kind === "ready"} />
 
         <div className="sidebar__dataset">
           <span>Dataset activo</span>

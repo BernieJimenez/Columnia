@@ -12,6 +12,7 @@ use std::{
 
 use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
+use polars::lazy::dsl::{col, lit};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -5179,7 +5180,393 @@ type RecipeFrameOutcome = (
     usize,
 );
 
+fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
+    recipe.date_parses.is_empty()
+        && recipe.find_replace.is_none()
+        && recipe.keep_columns.is_none()
+        && recipe.split_column.is_none()
+        && recipe.merge_columns.is_none()
+        && recipe.outlier_treatments.is_empty()
+        && recipe.group_summary.is_none()
+        && recipe.contact_normalizations.is_empty()
+        && recipe.text_extractions.is_empty()
+        && recipe.calculated_column.as_ref().is_none_or(|calculation| {
+            matches!(
+                calculation.operation,
+                CalculatedOperation::Add
+                    | CalculatedOperation::Subtract
+                    | CalculatedOperation::Multiply
+            )
+        })
+}
+
+fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> Result<(), String> {
+    for cast in &recipe.casts {
+        let column = recipe_column(source, &cast.column)?;
+        let already_target = matches!(
+            (column.dtype(), cast.target),
+            (DataType::String, RecipeCastTarget::String)
+                | (DataType::Int64, RecipeCastTarget::Integer)
+                | (DataType::Float64, RecipeCastTarget::Decimal)
+                | (DataType::Boolean, RecipeCastTarget::Boolean)
+        );
+        if !already_target {
+            strict_cast_column(column, cast.target)?;
+        }
+    }
+
+    for filter in &recipe.filters {
+        if !matches!(
+            filter.operator,
+            RecipeFilterOperator::Gt
+                | RecipeFilterOperator::Lt
+                | RecipeFilterOperator::Gte
+                | RecipeFilterOperator::Lte
+        ) {
+            continue;
+        }
+        let name = filter.column.as_str();
+        let values = strict_column_text(recipe_column(source, name)?)?;
+        for (row, value) in values.iter().enumerate() {
+            if let Some(value) = value {
+                strict_f64(
+                    value,
+                    &format!("La fila {} de la columna '{name}'", row + 1),
+                )?;
+            }
+        }
+    }
+
+    if let Some(calculation) = &recipe.calculated_column {
+        let source_name = calculation.source.as_str();
+        let source_values = strict_column_text(recipe_column(source, source_name)?)?;
+        for (row, value) in source_values.iter().enumerate() {
+            if let Some(value) = value {
+                strict_f64(
+                    value,
+                    &format!("La fila {} de la columna '{source_name}'", row + 1),
+                )?;
+            }
+        }
+        if let Some(CalculatedOperand {
+            kind: CalculatedOperandKind::Literal,
+            value,
+        }) = &calculation.operand
+        {
+            strict_f64(value, "El operando numérico")?;
+        }
+        if let Some(CalculatedOperand {
+            kind: CalculatedOperandKind::Column,
+            value,
+        }) = &calculation.operand
+        {
+            let values = strict_column_text(recipe_column(source, value)?)?;
+            for (row, value) in values.iter().enumerate() {
+                if let Some(value) = value {
+                    strict_f64(
+                        value,
+                        &format!("La fila {} de la columna '{value}'", row + 1),
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn lazy_filter_expression(
+    frame: &DataFrame,
+    filter: &RecipeFilter,
+    effective_name: &str,
+) -> Result<Expr, String> {
+    let unary = matches!(
+        filter.operator,
+        RecipeFilterOperator::IsNull | RecipeFilterOperator::NotNull
+    );
+    if unary != filter.value.is_none() {
+        return Err(format!(
+            "El filtro '{}' {} un valor.",
+            filter.column,
+            if unary { "no acepta" } else { "requiere" }
+        ));
+    }
+    let literal = filter.value.as_deref().unwrap_or_default();
+    if matches!(
+        filter.operator,
+        RecipeFilterOperator::Gt
+            | RecipeFilterOperator::Lt
+            | RecipeFilterOperator::Gte
+            | RecipeFilterOperator::Lte
+            | RecipeFilterOperator::Contains
+            | RecipeFilterOperator::NotContains
+    ) && literal.is_empty()
+    {
+        return Err(format!(
+            "El filtro '{}' requiere un valor no vacío.",
+            filter.column
+        ));
+    }
+
+    let value = col(effective_name);
+    Ok(match filter.operator {
+        RecipeFilterOperator::IsNull => value.is_null(),
+        RecipeFilterOperator::NotNull => value.is_not_null(),
+        RecipeFilterOperator::Eq => value.cast(DataType::String).eq(lit(literal.to_owned())),
+        RecipeFilterOperator::Neq => value.cast(DataType::String).neq(lit(literal.to_owned())),
+        RecipeFilterOperator::Contains => value
+            .cast(DataType::String)
+            .str()
+            .to_lowercase()
+            .str()
+            .contains_literal(lit(literal.to_lowercase())),
+        RecipeFilterOperator::NotContains => value
+            .cast(DataType::String)
+            .str()
+            .to_lowercase()
+            .str()
+            .contains_literal(lit(literal.to_lowercase()))
+            .not(),
+        RecipeFilterOperator::Gt
+        | RecipeFilterOperator::Lt
+        | RecipeFilterOperator::Gte
+        | RecipeFilterOperator::Lte => {
+            if matches!(
+                recipe_column(frame, effective_name)?.dtype(),
+                DataType::Date | DataType::Datetime(_, _)
+            ) {
+                return Err(format!(
+                    "La comparación numérica de '{effective_name}' no admite fechas en este hito."
+                ));
+            }
+            let numeric_literal = strict_f64(literal, "El valor del filtro")?;
+            let value = value.strict_cast(DataType::Float64);
+            match filter.operator {
+                RecipeFilterOperator::Gt => value.gt(lit(numeric_literal)),
+                RecipeFilterOperator::Lt => value.lt(lit(numeric_literal)),
+                RecipeFilterOperator::Gte => value.gt_eq(lit(numeric_literal)),
+                RecipeFilterOperator::Lte => value.lt_eq(lit(numeric_literal)),
+                _ => unreachable!("el match exterior limita esta rama a comparaciones numéricas"),
+            }
+        }
+    })
+}
+
+fn apply_lazy_recipe_to_frame(
+    source: &DataFrame,
+    recipe: &TransformRecipe,
+) -> Result<RecipeFrameOutcome, String> {
+    if recipe.filters.len() > 3 {
+        return Err("La receta admite como máximo tres filtros combinados con AND.".into());
+    }
+    validate_lazy_recipe_inputs(source, recipe)?;
+
+    let mut rename_sources = HashSet::new();
+    let rename_map = recipe
+        .renames
+        .iter()
+        .map(|rename| {
+            if rename.from.trim().is_empty() || rename.to.trim().is_empty() {
+                return Err("Los nombres de columna no pueden estar vacíos.".to_owned());
+            }
+            if rename.to != rename.to.trim() {
+                return Err(
+                    "El nuevo nombre de columna no puede tener espacios exteriores.".to_owned(),
+                );
+            }
+            if !rename_sources.insert(rename.from.as_str()) {
+                return Err(format!(
+                    "La columna '{}' aparece en más de un renombrado.",
+                    rename.from
+                ));
+            }
+            recipe_column(source, &rename.from)?;
+            Ok((rename.from.as_str(), rename.to.as_str()))
+        })
+        .collect::<Result<HashMap<_, _>, String>>()?;
+
+    for cast in &recipe.casts {
+        recipe_column(source, &cast.column)?;
+    }
+    for filter in &recipe.filters {
+        recipe_column(source, &filter.column)?;
+    }
+    if let Some(calculation) = &recipe.calculated_column {
+        recipe_column(source, &calculation.source)?;
+        if let Some(CalculatedOperand {
+            kind: CalculatedOperandKind::Column,
+            value,
+        }) = &calculation.operand
+        {
+            recipe_column(source, value)?;
+        }
+        if calculation.name.trim().is_empty() || calculation.name != calculation.name.trim() {
+            return Err(
+                "El nombre calculado no puede estar vacío ni tener espacios exteriores.".into(),
+            );
+        }
+    }
+
+    let final_names = source
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            rename_map
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(name.as_str())
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    let mut unique_names = HashSet::new();
+    if final_names.iter().any(|name| !unique_names.insert(name)) {
+        return Err("Los renombrados producirían nombres de columna duplicados.".to_owned());
+    }
+    let renamed_count = source
+        .get_column_names()
+        .iter()
+        .zip(&final_names)
+        .filter(|(before, after)| before.as_str() != after.as_str())
+        .count();
+
+    let mut plan = source.clone().lazy();
+    if renamed_count > 0 {
+        let old_names = source
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>();
+        let new_names = final_names.iter().map(String::as_str).collect::<Vec<_>>();
+        plan = plan.rename(old_names, new_names, true);
+    }
+
+    let mut cast_columns = HashSet::new();
+    let mut cast_expressions = Vec::new();
+    let mut cast_count = 0;
+    for cast in &recipe.casts {
+        let effective_name = rename_map
+            .get(cast.column.as_str())
+            .copied()
+            .unwrap_or(cast.column.as_str());
+        if !cast_columns.insert(effective_name) {
+            return Err(format!(
+                "La columna '{}' aparece en más de una conversión.",
+                cast.column
+            ));
+        }
+        let column = recipe_column(source, &cast.column)?;
+        let already_target = matches!(
+            (column.dtype(), cast.target),
+            (DataType::String, RecipeCastTarget::String)
+                | (DataType::Int64, RecipeCastTarget::Integer)
+                | (DataType::Float64, RecipeCastTarget::Decimal)
+                | (DataType::Boolean, RecipeCastTarget::Boolean)
+        );
+        if !already_target {
+            let target = match cast.target {
+                RecipeCastTarget::String => DataType::String,
+                RecipeCastTarget::Integer => DataType::Int64,
+                RecipeCastTarget::Decimal => DataType::Float64,
+                RecipeCastTarget::Boolean => DataType::Boolean,
+            };
+            cast_expressions.push(
+                col(effective_name)
+                    .strict_cast(target)
+                    .alias(effective_name),
+            );
+            cast_count += 1;
+        }
+    }
+    if !cast_expressions.is_empty() {
+        plan = plan.with_columns(cast_expressions);
+    }
+
+    for filter in &recipe.filters {
+        let effective_name = remapped_name(&filter.column, &rename_map);
+        plan = plan.filter(lazy_filter_expression(source, filter, effective_name)?);
+    }
+
+    let calculated_column_count = if let Some(calculation) = &recipe.calculated_column {
+        let source_name = remapped_name(&calculation.source, &rename_map);
+        let source_column = recipe_column(source, &calculation.source)?;
+        let left = col(source_name).strict_cast(DataType::Float64);
+        let operand = calculation.operand.as_ref().ok_or_else(|| {
+            "La columna calculada requiere un operando para esta operación.".to_owned()
+        })?;
+        let right = match operand.kind {
+            CalculatedOperandKind::Literal => {
+                lit(strict_f64(&operand.value, "El operando numérico")?)
+            }
+            CalculatedOperandKind::Column => {
+                let operand_name = remapped_name(&operand.value, &rename_map);
+                recipe_column(source, &operand.value)?;
+                col(operand_name).strict_cast(DataType::Float64)
+            }
+        };
+        let expression = match calculation.operation {
+            CalculatedOperation::Add => left + right,
+            CalculatedOperation::Subtract => left - right,
+            CalculatedOperation::Multiply => left * right,
+            CalculatedOperation::Divide => left / right,
+            _ => return Err("La operación calculada no está soportada por el plan lazy.".into()),
+        };
+        if recipe_column(source, &calculation.name).is_ok() {
+            return Err(format!(
+                "La columna calculada '{}' ya existe.",
+                calculation.name
+            ));
+        }
+        if source_column.dtype() == &DataType::Boolean {
+            return Err(format!(
+                "La columna fuente calculada '{}' debe ser numérica.",
+                calculation.source
+            ));
+        }
+        plan = plan.with_columns(vec![expression.alias(calculation.name.clone())]);
+        1
+    } else {
+        0
+    };
+
+    let candidate = plan
+        .collect()
+        .map_err(|error| format!("No se pudo ejecutar la receta lazy: {error}"))?;
+    let removed_row_count = source.height().saturating_sub(candidate.height());
+    Ok((
+        candidate,
+        renamed_count,
+        cast_count,
+        0,
+        removed_row_count,
+        calculated_column_count,
+        0,
+        0,
+        false,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ))
+}
+
 fn apply_recipe_to_frame(
+    source: &DataFrame,
+    recipe: &TransformRecipe,
+) -> Result<RecipeFrameOutcome, String> {
+    if lazy_recipe_supported(recipe) {
+        return apply_lazy_recipe_to_frame(source, recipe);
+    }
+    apply_eager_recipe_to_frame(source, recipe)
+}
+
+fn apply_eager_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
 ) -> Result<RecipeFrameOutcome, String> {
@@ -7746,6 +8133,75 @@ mod tests {
                 .0
                 .height(),
             1
+        );
+    }
+
+    #[test]
+    fn lazy_recipe_casts_filters_and_calculates_in_one_plan() {
+        let frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("amount".into(), ["5", "12", "20"]).into_column(),
+                Series::new("segment".into(), ["discard", "keep", "keep"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "amount".into(),
+                target: RecipeCastTarget::Decimal,
+            }],
+            filters: vec![RecipeFilter {
+                column: "amount".into(),
+                operator: RecipeFilterOperator::Gte,
+                value: Some("10".into()),
+            }],
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "total".into(),
+                source: "amount".into(),
+                operation: CalculatedOperation::Multiply,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Literal,
+                    value: "2".into(),
+                }),
+            }),
+            ..Default::default()
+        };
+
+        let (
+            result,
+            _,
+            converted,
+            _,
+            removed,
+            calculated,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        ) = apply_recipe_to_frame(&frame, &recipe).expect("la receta simple debe usar lazy");
+        assert_eq!(converted, 1);
+        assert_eq!(removed, 1);
+        assert_eq!(calculated, 1);
+        assert_eq!(result.column("amount").unwrap().dtype(), &DataType::Float64);
+        assert_eq!(
+            dataset_page(&result, 0, 10).unwrap().rows[0][2].as_deref(),
+            Some("24.0")
+        );
+        assert_eq!(
+            dataset_page(&result, 0, 10).unwrap().rows[1][2].as_deref(),
+            Some("40.0")
         );
     }
 

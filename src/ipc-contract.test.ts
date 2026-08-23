@@ -461,6 +461,7 @@ describe("contrato IPC", () => {
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const sharedStructures: Array<[rust: string, typescript: string]> = [
       ["AppInfo", "AppInfo"],
+      ["ResourceUsage", "ResourceUsage"],
       ["OperationProgress", "OperationProgress"],
       ["ExportResult", "ExportResult"],
       ["QualityRule", "QualityRule"],
@@ -529,6 +530,7 @@ describe("contrato IPC", () => {
     const aliases = typescriptTypeAliases(bridgeSource);
     const sharedStructures: Array<[rust: string, typescript: string]> = [
       ["AppInfo", "AppInfo"],
+      ["ResourceUsage", "ResourceUsage"],
       ["OperationProgress", "OperationProgress"],
       ["ExportResult", "ExportResult"],
       ["QualityRule", "QualityRule"],

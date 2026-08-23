@@ -5,9 +5,9 @@
 
 ## Estado general
 
-- Etapa actual: prototipo funcional de la Fase I1, con las Fases I0 e I8
-  cerradas y avances verificados en seguridad (I2), calidad local (I3), supply
-  chain (I4) y empaquetado Windows (I5).
+- Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
+  Fases I0 e I8 cerradas y avances verificados en seguridad (I2), calidad local
+  (I3), supply chain (I4) y empaquetado Windows (I5).
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
@@ -325,7 +325,7 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 - [x] Crear y probar en frontend el primer comando Tauri tipado (`get_app_info`).
 - [x] Compilar el shell Tauri localmente en Windows.
 - [x] Abrir el shell Tauri en Windows y completar un smoke de arranque.
-- [ ] Completar la revisión visual sistemática del shell en Windows.
+- [x] Completar la revisión visual sistemática del shell en Windows.
 - [x] Crear el primer comando Tauri tipado de selección y carga CSV.
 - [x] Añadir un canal Tauri tipado de progreso para carga CSV y perfilado. El
   progreso de lectura es por fases; el perfil avanza por columnas.
@@ -333,7 +333,7 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
   representativos, conservando tipos nativos donde el formato sí aporta esquema.
 - [x] Implementar una vista previa paginada sin enviar el dataset completo a
   React: páginas de 50 filas obtenidas desde la sesión Rust.
-- [ ] Ejecutar una receta lazy con limpieza, tipos, filtro y columna calculada.
+- [x] Ejecutar una receta lazy con limpieza, tipos, filtro y columna calculada.
 - [x] Implementar la primera transformación reversible: eliminar duplicados
   exactos preservando la primera aparición, sin modificar el archivo original.
 - [x] Sustituir el historial provisional de un nivel por hasta doce revisiones
@@ -346,10 +346,19 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
   el dataset anterior cuando se cancela una sustitución.
 - [x] Implementar exportación atómica y cancelable CSV/Parquet mediante selector
   nativo, sin modificar el archivo original ni exponer rutas a React.
-- [ ] Comparar tiempo y RAM con `dataprepv1.1`.
+- [x] Comparar tiempo y RAM con `dataprepv1.1` mediante un benchmark local
+  reproducible de 100 MiB, con cleanup y evidencia sanitizada.
 
-**Gate:** ninguna arquitectura se declara definitiva hasta superar el benchmark
-y validar los casos difíciles de Excel.
+**Gate:** el benchmark cruzado de I1 está aprobado; la arquitectura de entrada
+de libros sigue condicionada a validar los casos difíciles de Excel antes de
+declararla definitiva.
+
+**Cierre 2026-08-23:** I1 queda implementada de extremo a extremo. Las recetas
+compatibles ejecutan un plan Polars lazy con renombres, tipos, filtros y
+columnas calculadas; las operaciones no compatibles conservan el camino eager
+para mantener el contrato estricto. El monitor nativo de CPU/RAM se muestra en
+el lateral de la aplicación, y `perf:i1` compara la inspección de 100 MiB con
+`dataprepv1.1` sin conservar datos de la fixture.
 
 **Avance 2026-08-12:** `npm run build`, veinticuatro pruebas Vitest y dieciocho pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
@@ -953,7 +962,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   actualizaciones dentro de la app.
 - [x] Ejecutar el primer corte vertical CSV del prototipo técnico de la Fase I1.
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
-- [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
+- [x] Completar streaming/lazy y benchmark contra `dataprepv1.1`; el trabajo
+  posterior es ampliar la cobertura a datasets mayores, historial integral y
+  casos difíciles de Excel.
 
 ## 8.1. Cola de ejecución recomendada desde v0.49.0
 
@@ -984,8 +995,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
      de transformación/exportación dentro de WebView2 junto al presupuesto global
      del árbol. Todavía falta repetirlo con datasets grandes y con historial que
      ejerza el límite integral de memoria.
-4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
-   evitar materializar el dataset completo cuando la operación lo permita.
+4. **Ejecución lazy/incremental:** completada para la receta compatible de I1;
+   ampliar después a datasets mayores y a operaciones que todavía requieren el
+   camino eager.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
    benchmark; después añadir joins, comparación y destinos de base de datos.
 6. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
@@ -1068,6 +1080,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-23 | Versión 0.48.0: presupuestos de duración, stress de actualización/reapertura durable, `verify:tier` y checklist manual de accesibilidad; medición WebView2, lector real y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Versión 0.49.0: tres ciclos nativos de transformación/exportación dentro de WebView2, duraciones incorporadas al gate y presupuesto global del árbol; datasets grandes, lector real y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Fase I8: documentación Diátaxis, índice de ADR/CHANGELOG, validadores de enlaces/UTF-8/versiones/ownership y evidencia visual reproducible desde el binario release con baseline de hashes; lector de pantalla manual sigue en I3 | Implementada |
+| 2026-08-23 | Fase I1 completa: receta Polars lazy con fallback eager seguro, monitor nativo compacto de CPU/RAM, benchmark cruzado de 100 MiB contra `dataprepv1.1` y revisión visual desktop/móvil/zoom/forced-colors | Implementada |
 
 ## 10. Fuentes de esta revisión
 

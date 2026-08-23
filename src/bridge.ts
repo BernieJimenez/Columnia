@@ -6,6 +6,14 @@ export interface AppInfo {
   platform: string;
 }
 
+export interface ResourceUsage {
+  processCpuPercentage: number;
+  systemCpuPercentage: number;
+  processMemoryBytes: number;
+  systemMemoryUsedBytes: number;
+  systemMemoryTotalBytes: number;
+}
+
 export interface DatasetColumn {
   name: string;
   dataType: string;
@@ -363,6 +371,10 @@ function progressChannel(onProgress?: ProgressHandler): Channel<OperationProgres
 
 export function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
+}
+
+export function getResourceUsage(): Promise<ResourceUsage> {
+  return invoke<ResourceUsage>("get_resource_usage");
 }
 
 export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {

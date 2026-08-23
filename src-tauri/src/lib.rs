@@ -5,6 +5,7 @@ use tauri::Manager;
 pub mod automation;
 mod dataset;
 mod projects;
+mod resource;
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +13,16 @@ struct AppInfo {
     name: &'static str,
     version: &'static str,
     platform: &'static str,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceUsage {
+    pub process_cpu_percentage: f32,
+    pub system_cpu_percentage: f32,
+    pub process_memory_bytes: u64,
+    pub system_memory_used_bytes: u64,
+    pub system_memory_total_bytes: u64,
 }
 
 fn current_app_info() -> AppInfo {
@@ -25,6 +36,11 @@ fn current_app_info() -> AppInfo {
 #[tauri::command]
 fn get_app_info() -> AppInfo {
     current_app_info()
+}
+
+#[tauri::command]
+fn get_resource_usage() -> Result<ResourceUsage, String> {
+    resource::get_resource_usage()
 }
 
 #[cfg(desktop)]
@@ -64,6 +80,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
+            get_resource_usage,
             dataset::pick_dataset_source,
             dataset::load_dataset_selection,
             dataset::discard_dataset_selection,
