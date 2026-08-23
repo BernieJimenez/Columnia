@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.36.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.37.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `4900599` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `7e06675` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -115,7 +115,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
 | `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, puede conectar Playwright al WebView2 y ejecutar probes DOM de solo lectura, y deja evidencia; restaura el entorno y limpia su Job Object. |
 | `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y registra primer render, landmarks, `ProjectsPanel`, skip link, foco principal y cantidad de controles sin mutar datos. |
-| `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de solo lectura de `ProjectsPanel`: región, etiqueta, botón deshabilitado sin dataset, ausencia de rutas y nombres de acciones; nunca hace clic ni abre diálogos. |
+| `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de solo lectura de `ProjectsPanel` y los IPC nativos `list_projects`/`get_recovery_candidate`: región, etiqueta, botón deshabilitado sin dataset, ausencia de rutas y nombres de acciones; nunca hace clic ni abre diálogos. |
 | `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
 | `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, libros, calidad, lotes, atomicidad por trabajo y errores seguros. |
 | `fixtures/automation/` | Entradas, receta y resultados esperados del smoke de automatización. |
@@ -350,7 +350,7 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
-- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.36.0 verificado en 314,827 bytes raw/90,154 gzip.
+- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.37.0 verificado en 314,827 bytes raw/90,154 gzip.
 - Contratos automatizados de accesibilidad para landmarks, skip link, `aria-current`, `aria-busy`, acciones de proyectos y `alertdialog` modal.
 - Smoke desktop instrumentado con hitos: la ejecución fría v0.30.0 registró Vite en 4,307 ms, proceso debug en 71,321 ms, ventana visible en 71,337 ms y cleanup confirmado en 1,133 ms/1 intento; el cleanup admite un segundo intento de 3 s tras uno inicial de 4 s.
 - Playwright configurado con preview Vite y E2E del shell web para landmarks, runtime, navegación accesible, skip link y primer render; conserva trazas/capturas/vídeos solo cuando una prueba falla.
@@ -359,15 +359,15 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - Playwright añade cobertura E2E de landmarks, foco visible, targets mínimos y ciclo de foco/restauración del `alertdialog`.
 - En Windows, `npm run smoke:cdp` verifica un endpoint CDP de loopback de WebView2 y usa `chromium.connectOverCDP` para medir primer render, landmarks, skip link y foco principal, además del contrato de solo lectura de `ProjectsPanel`, sin mutar datos.
 - Playwright añade cobertura E2E responsive de viewport móvil/desktop, `prefers-reduced-motion`, targets mínimos y ausencia de overflow horizontal.
-- La última medición CDP nativa registró `columnia:app-render` en 40,757.8 ms durante un arranque debug frío; el dato queda como señal de rendimiento y no bloquea los contratos de landmarks/foco. El E2E web conserva el gate estricto de 3 s.
-- Validación v0.36.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, probe CDP combinado con `ProjectsPanel` y cleanup confirmado, smoke desktop, CLI, `npm run perf:summary` y Package aprobados. Evidencias: CDP `.local/validation/webview2-cdp/20260822T212619Z`, desktop `.local/validation/desktop-smoke/20260822T212231Z`, CLI `.local/validation/cli-smoke/20260822T212240Z`, Package `.local/validation/20260822T212259Z-4900599-package.json` y resumen `.local/validation/performance-summary/summary.json` (10 muestras CDP, 13 desktop, 52 filas CSV; shell web todavía no observado por este agregador).
+- La última medición CDP nativa registró `columnia:app-render` en 42,097.2 ms durante un arranque debug frío; el dato queda como señal de rendimiento y no bloquea los contratos de landmarks/foco. El E2E web conserva el gate estricto de 3 s.
+- Validación v0.37.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, probe CDP combinado con IPC nativo de proyectos y cleanup confirmado, smoke desktop, CLI, `npm run perf:summary` y Package aprobados. Evidencias: CDP `.local/validation/webview2-cdp/20260823T013419Z`, desktop `.local/validation/desktop-smoke/20260823T012904Z`, CLI `.local/validation/cli-smoke/20260823T012943Z`, Package `.local/validation/20260823T013521Z-7e06675-package.json` y resumen `.local/validation/performance-summary/summary.json` (12 muestras CDP, 14 desktop, 60 filas CSV; shell web todavía no observado por este agregador).
 
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
-- flujos IPC nativos de proyectos dentro de WebView2, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP verifica ahora el contrato accesible de solo lectura, pero no reemplaza todavía la interacción de negocio;
+- acciones IPC mutantes de proyectos dentro de WebView2, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP ya verifica `list_projects` y `get_recovery_candidate` de solo lectura, pero no reemplaza todavía la interacción de negocio;
 - acciones completas de proyectos sobre CDP; el objetivo operativo provisional sigue siendo startup total menor de 8 s y cleanup 100 % repetible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.

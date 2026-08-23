@@ -21,6 +21,83 @@ function isProvisionalUrl(url) {
   return /^about:blank(?:#.*)?$/i.test(url);
 }
 
+async function inspectNativeProjectIpc(page) {
+  try {
+    return await page.evaluate(async () => {
+      const internals = window.__TAURI_INTERNALS__;
+      if (!internals || typeof internals.invoke !== "function") {
+        return {
+          status: "failed",
+          phase: "tauri_ipc_unavailable",
+          error: "invoke_unavailable",
+        };
+      }
+
+      try {
+        const [projects, recoveryCandidate] = await Promise.all([
+          internals.invoke("list_projects"),
+          internals.invoke("get_recovery_candidate"),
+        ]);
+        const forbiddenFields = (value) => {
+          if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+          return Object.keys(value).filter((key) => /path|filepath|sourcepath/i.test(key));
+        };
+        const isSummary = (value) => {
+          if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+          const required = [
+            "id",
+            "name",
+            "datasetFileName",
+            "rowCount",
+            "columnCount",
+            "createdAt",
+            "updatedAt",
+          ];
+          return required.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+            && typeof value.id === "string"
+            && typeof value.name === "string"
+            && typeof value.datasetFileName === "string"
+            && Number.isInteger(value.rowCount) && value.rowCount >= 0
+            && Number.isInteger(value.columnCount) && value.columnCount >= 0
+            && typeof value.createdAt === "string"
+            && typeof value.updatedAt === "string"
+            && forbiddenFields(value).length === 0;
+        };
+        const projectsArray = Array.isArray(projects);
+        const recoveryValid = recoveryCandidate === null || isSummary(recoveryCandidate);
+        const forbiddenPathFields = projectsArray
+          && (projects.some((project) => forbiddenFields(project).length > 0)
+            || forbiddenFields(recoveryCandidate).length > 0);
+        return {
+          status: projectsArray && recoveryValid && projects.every(isSummary) ? "passed" : "failed",
+          phase: "native_project_ipc_read_only",
+          commands: ["list_projects", "get_recovery_candidate"],
+          projectsCount: projectsArray ? projects.length : null,
+          recoveryPresent: recoveryCandidate !== null,
+          projectSummariesValid: projectsArray && projects.every(isSummary),
+          recoverySummaryValid: recoveryValid,
+          forbiddenPathFields,
+          interactions: [],
+        };
+      } catch {
+        return {
+          status: "failed",
+          phase: "native_project_ipc_error",
+          error: "invoke_failed",
+          interactions: [],
+        };
+      }
+    });
+  } catch {
+    return {
+      status: "failed",
+      phase: "native_project_ipc_evaluation_error",
+      error: "evaluation_failed",
+      interactions: [],
+    };
+  }
+}
+
 async function inspectPage(page) {
   const url = page.url();
   const provisional = isProvisionalUrl(url);
@@ -140,7 +217,9 @@ async function inspectPage(page) {
       },
     };
 
-    const valid = Object.values(checks).every((check) => check.valid === true);
+    const nativeIpc = await inspectNativeProjectIpc(page);
+    const valid = Object.values(checks).every((check) => check.valid === true)
+      && nativeIpc.status === "passed";
     return {
       url,
       provisional,
@@ -148,6 +227,7 @@ async function inspectPage(page) {
       status: valid ? "passed" : "failed",
       phase: valid ? "projects_panel_contract" : "projects_panel_contract_failed",
       checks,
+      nativeIpc,
       interactions: [],
     };
   } catch (error) {
@@ -174,6 +254,7 @@ function snapshotResult(status, pages, extra = {}) {
       saveDisabledWithoutDataset: "button[type=submit]:disabled",
       noVisibleRoutes: "visible route anchors",
       actionNames: "all visible ProjectsPanel buttons",
+      nativeIpc: ["list_projects", "get_recovery_candidate"],
     },
     interactions: [],
     ...extra,
@@ -200,7 +281,7 @@ try {
       }
       if (evidence.status === "failed") {
         console.log(JSON.stringify(snapshotResult("failed", pageEvidence, {
-          error: "ProjectsPanel no cumple el contrato accesible de solo lectura.",
+          error: "ProjectsPanel o su IPC nativo de solo lectura no cumple el contrato esperado.",
         })));
         process.exitCode = 1;
         throw new Error("__probe_complete__");

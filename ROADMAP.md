@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.36.0`.
+- Versión actual del prototipo: `0.37.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -623,6 +623,13 @@ datos ni abrir diálogos. También incorpora `npm run perf:summary`, que lee sol
 las evidencias locales existentes, separa señales web/CDP/desktop y calcula
 deltas sin convertir la compilación fría en un fallo de producto.
 
+La versión 0.37.0 extiende el probe de proyectos hasta la frontera IPC nativa de
+solo lectura: dentro del WebView2 invoca `list_projects` y
+`get_recovery_candidate`, valida la forma de los resúmenes y comprueba que no
+aparezcan campos de rutas. La evidencia conserva únicamente conteos y estados;
+no hace clics, no escribe proyectos, no abre diálogos y no registra nombres ni
+datos del catálogo.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -790,15 +797,14 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.36.0
+## 8.1. Cola de ejecución recomendada desde v0.37.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
    Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
    Vitest cubre guardar→catálogo→abrir→restaurar y el smoke cubre contrato,
-   ventana y cleanup; el probe CDP ya lee el DOM del shell y el contrato
-   accesible de `ProjectsPanel`, pero los flujos IPC nativos de proyectos siguen
-   pendientes.
+   ventana y cleanup; el probe CDP ya lee el DOM y ejercita los IPC nativos de
+   solo lectura, pero las mutaciones de proyectos siguen pendientes.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
    `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
@@ -877,6 +883,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.34.0: probe Windows WebView2/CDP aislado con lectura DOM mediante Playwright y cleanup por Job Object; mutaciones IPC nativas quedan pendientes | Implementada |
 | 2026-08-22 | Versión 0.35.0: primer render, landmarks y foco verificados dentro de WebView2 mediante CDP; E2E responsive/reduced-motion añadido; acciones IPC de proyectos siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.36.0: smoke CDP combinado con contrato accesible de solo lectura de `ProjectsPanel` y resumen local de rendimiento con deltas; acciones IPC que abren diálogos o escriben proyectos siguen pendientes | Implementada |
+| 2026-08-22 | Versión 0.37.0: el probe CDP de `ProjectsPanel` invoca `list_projects` y `get_recovery_candidate` de forma nativa, valida formas sin rutas y conserva evidencia sin datos; las mutaciones IPC siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 
