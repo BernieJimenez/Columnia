@@ -2,8 +2,26 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+const debugOnlyCommands = new Set(["probe_seed_dataset"]);
+
 function registeredTauriCommands(source: string): string[] {
-  const handler = source.match(/tauri::generate_handler!\s*\[([\s\S]*?)\]/)?.[1];
+  const marker = source.indexOf("tauri::generate_handler!");
+  const openingIndex = marker < 0 ? -1 : source.indexOf("[", marker);
+  let closingIndex = -1;
+  if (openingIndex >= 0) {
+    let depth = 0;
+    for (let index = openingIndex; index < source.length; index += 1) {
+      if (source[index] === "[") depth += 1;
+      if (source[index] === "]") depth -= 1;
+      if (depth === 0) {
+        closingIndex = index;
+        break;
+      }
+    }
+  }
+  const handler = openingIndex >= 0 && closingIndex > openingIndex
+    ? source.slice(openingIndex + 1, closingIndex)
+    : undefined;
 
   if (!handler) {
     throw new Error("No se encontró tauri::generate_handler! en src-tauri/src/lib.rs.");
@@ -11,8 +29,8 @@ function registeredTauriCommands(source: string): string[] {
 
   return handler
     .split(",")
-    .map((entry) => entry.trim().split("::").at(-1) ?? "")
-    .filter(Boolean);
+    .map((entry) => entry.replace(/#\[[^\]]+\]\s*/g, "").trim().split("::").at(-1) ?? "")
+    .filter((command) => command && !debugOnlyCommands.has(command));
 }
 
 function invokedBridgeCommands(source: string): string[] {

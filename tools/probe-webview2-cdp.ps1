@@ -4,7 +4,8 @@ param(
     [ValidateRange(15, 900)]
     [int]$TimeoutSeconds = 120,
     [switch]$RunPlaywright,
-    [switch]$RunProjects
+    [switch]$RunProjects,
+    [switch]$RunProjectMutations
 )
 
 $ErrorActionPreference = "Stop"
@@ -296,7 +297,11 @@ function Invoke-ProjectsProbe {
     }
 
     $NodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
-    $Output = @(& $NodeCommand $RunnerPath "--port" $Port 2>&1)
+    $RunnerArguments = @($RunnerPath, "--port", $Port)
+    if ($RunProjectMutations) {
+        $RunnerArguments += "--mutate"
+    }
+    $Output = @(& $NodeCommand @RunnerArguments 2>&1)
     $OutputText = [string]::Join([Environment]::NewLine, @($Output | ForEach-Object { [string]$_ }))
     $LastJsonLine = @($Output | Where-Object { ([string]$_).TrimStart().StartsWith("{") } | Select-Object -Last 1)
     if ($LastJsonLine.Count -eq 0) {
@@ -405,7 +410,12 @@ try {
                     }
                     if ($ProjectsStatus -eq "failed") {
                         $Status = "failed"
-                        $FailureMessage = "El runner ProjectsPanel no pudo verificar el contrato nativo de solo lectura."
+                        $FailureMessage = if ($RunProjectMutations) {
+                            "El runner ProjectsPanel no pudo verificar las mutaciones IPC nativas."
+                        }
+                        else {
+                            "El runner ProjectsPanel no pudo verificar el contrato nativo de solo lectura."
+                        }
                         break
                     }
                 }
@@ -420,7 +430,12 @@ try {
                     }
                     if ($ProjectsStatus -eq "failed") {
                         $Status = "failed"
-                        $FailureMessage = "El runner ProjectsPanel no pudo verificar el contrato nativo de solo lectura."
+                        $FailureMessage = if ($RunProjectMutations) {
+                            "El runner ProjectsPanel no pudo verificar las mutaciones IPC nativas."
+                        }
+                        else {
+                            "El runner ProjectsPanel no pudo verificar el contrato nativo de solo lectura."
+                        }
                         break
                     }
                 }
@@ -486,6 +501,7 @@ finally {
         playwrightStatus = $PlaywrightStatus
         playwright = $PlaywrightPayload
         projectsRequested = [bool]$RunProjects
+        projectsMutationRequested = [bool]$RunProjectMutations
         projectsStatus = $ProjectsStatus
         projects = $ProjectsPayload
         cdpListenerObserved = $CdpListenerObserved
@@ -506,7 +522,12 @@ finally {
 if ($Status -eq "supported" -and (-not $RunPlaywright -or $PlaywrightStatus -eq "passed") -and (-not $RunProjects -or $ProjectsStatus -eq "passed")) {
     if ($RunPlaywright) {
         if ($RunProjects) {
-            Write-Host "WebView2 CDP, Playwright connectOverCDP y ProjectsPanel aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks, foco y contrato de solo lectura, sin mutar datos."
+            if ($RunProjectMutations) {
+                Write-Host "WebView2 CDP, Playwright connectOverCDP y ProjectsPanel aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks, foco y mutaciones IPC nativas con cleanup del proyecto de prueba."
+            }
+            else {
+                Write-Host "WebView2 CDP, Playwright connectOverCDP y ProjectsPanel aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks, foco y contrato de solo lectura, sin mutar datos."
+            }
         }
         else {
             Write-Host "WebView2 CDP y Playwright connectOverCDP aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks y foco, sin mutar datos."

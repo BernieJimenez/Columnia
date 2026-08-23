@@ -28,7 +28,7 @@ async function installTauriProjectMock(page: Page) {
     const invoke = async (command: string, args: Record<string, unknown> = {}) => {
       switch (command) {
         case "get_app_info":
-          return { name: "Columnia", version: "0.39.0", platform: "windows" };
+          return { name: "Columnia", version: "0.40.0", platform: "windows" };
         case "list_projects":
           return projects;
         case "get_recovery_candidate":

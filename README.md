@@ -96,8 +96,11 @@ de trabajo ejecuta `npm run perf:benchmark`. El benchmark usa la CLI local para
 de working set, y deja solo un resumen en `.local/validation/`.
 
 `npm run smoke:cdp` añade un perfil acotado del proceso debug (working set y
-memoria privada inicial, máxima y final) al resumen local; esta señal no habilita
-CDP en el arranque normal ni sustituye todavía un presupuesto global de RAM.
+memoria privada inicial, máxima y final) y ejecuta, solo en el build debug del
+probe, un ciclo temporal de proyecto nativo (sembrar, guardar, abrir, consultar
+y eliminar). La evidencia conserva conteos/estados, no IDs, datos ni rutas; esta
+señal no habilita CDP en el arranque normal ni sustituye todavía un presupuesto
+global de RAM.
 
 ## Automatización por CLI
 

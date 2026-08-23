@@ -854,6 +854,37 @@ impl DatasetState {
     }
 }
 
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn probe_seed_dataset(state: State<'_, DatasetState>) -> Result<DatasetPreview, String> {
+    let frame = DataFrame::new(
+        2,
+        vec![
+            Series::new("id".into(), [1_i64, 2_i64]).into_column(),
+            Series::new("value".into(), ["probe-a", "probe-b"]).into_column(),
+        ],
+    )
+    .map_err(|error| format!("No se pudo preparar el dataset nativo de prueba: {error}"))?;
+    let history = HistoryManager::new(&frame)?;
+    let preview = dataset_preview_with_size("native-probe.csv", 96, &frame)?;
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+    if current.is_some() {
+        return Err("El probe nativo requiere una sesión de datos vacía.".to_owned());
+    }
+    *current = Some(LoadedDataset {
+        source_path: None,
+        file_name: "native-probe.csv".to_owned(),
+        file_size_bytes: 96,
+        frame,
+        profile: None,
+        history,
+    });
+    Ok(preview)
+}
+
 #[cfg(test)]
 impl DatasetState {
     pub(crate) fn project_test_record(&self, frame: DataFrame, label: &str) -> Result<(), String> {

@@ -83,6 +83,8 @@ pub fn run() {
             dataset::get_history_state,
             dataset::undo_last_change,
             dataset::redo_last_change,
+            #[cfg(debug_assertions)]
+            dataset::probe_seed_dataset,
             projects::list_projects,
             projects::get_recovery_candidate,
             projects::save_project,

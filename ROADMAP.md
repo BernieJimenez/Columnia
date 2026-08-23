@@ -651,6 +651,16 @@ La muestra v0.39.0 verificada registró 3 muestras y 7 procesos propios
 y memoria privada máxima de 147,488,768 bytes. El primer render frío fue de
 43,412 ms; se conserva como señal de arranque debug fuera del presupuesto de 3 s.
 
+La versión 0.40.0 completa el primer recorrido de mutación nativa del probe:
+`probe_seed_dataset` (solo debug) prepara dos filas en memoria, luego Playwright
+invoca `save_project`, `list_projects`, `open_project`, `get_dataset_page` y
+`delete_project`. El runner verifica que el catálogo vuelva a su conteo inicial,
+que el dataset permanezca disponible durante la apertura y que no aparezcan rutas,
+IDs ni filas en la evidencia; cualquier fallo intenta borrar el proyecto temporal.
+La validación Windows v0.40.0 dejó el catálogo en 0→0, cleanup confirmado y un
+working set nativo máximo de 365,252,608 bytes (~348.4 MiB); el primer render frío
+sigue siendo una señal observacional fuera del presupuesto de 3 s.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -818,14 +828,14 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.39.0
+## 8.1. Cola de ejecución recomendada desde v0.40.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
-   para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
+   para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
    Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
-   Vitest cubre guardar→catálogo→abrir→restaurar y el smoke cubre contrato,
-   ventana y cleanup; el probe CDP ya lee el DOM y ejercita los IPC nativos de
-   solo lectura, pero las mutaciones de proyectos siguen pendientes.
+   Vitest cubre guardar→catálogo→abrir→restaurar y el probe CDP ya ejerce un
+   ciclo nativo temporal de sembrar→guardar→abrir→consultar→eliminar; aún faltan
+   el selector/exportación y la continuidad entre procesos.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
    `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
@@ -908,6 +918,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.37.0: el probe CDP de `ProjectsPanel` invoca `list_projects` y `get_recovery_candidate` de forma nativa, valida formas sin rutas y conserva evidencia sin datos; las mutaciones IPC siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.38.0: benchmark CLI reproducible de 100 MiB con inspect/validate/transform CSV+Parquet, duración, working set y cleanup sin conservar datos; RAM final y perfilado Tauri siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.39.0: el probe WebView2/CDP registra working set y memoria privada inicial/máxima/final del proceso debug y los conserva en el resumen sin rutas ni datos; presupuesto global y transformaciones nativas siguen pendientes | Implementada |
+| 2026-08-22 | Versión 0.40.0: recorrido IPC nativo temporal de dataset sintético y proyecto (guardar/listar/abrir/paginar/eliminar) bajo debug, con cleanup y evidencia privada; selector/exportación y continuidad entre procesos siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 

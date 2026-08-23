@@ -2,6 +2,7 @@ import { chromium } from "@playwright/test";
 
 const portArgumentIndex = process.argv.indexOf("--port");
 const port = portArgumentIndex >= 0 ? Number(process.argv[portArgumentIndex + 1]) : 9222;
+const runMutations = process.argv.includes("--mutate");
 const probeTimeoutMs = 15_000;
 const pollIntervalMs = 250;
 
@@ -23,7 +24,7 @@ function isProvisionalUrl(url) {
 
 async function inspectNativeProjectIpc(page) {
   try {
-    return await page.evaluate(async () => {
+    return await page.evaluate(async (shouldMutate) => {
       const internals = window.__TAURI_INTERNALS__;
       if (!internals || typeof internals.invoke !== "function") {
         return {
@@ -33,61 +34,183 @@ async function inspectNativeProjectIpc(page) {
         };
       }
 
-      try {
+      const forbiddenFields = (value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        return Object.keys(value).filter((key) => /path|filepath|sourcepath/i.test(key));
+      };
+      const isSummary = (value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+        const required = [
+          "id",
+          "name",
+          "datasetFileName",
+          "rowCount",
+          "columnCount",
+          "createdAt",
+          "updatedAt",
+        ];
+        return required.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+          && typeof value.id === "string"
+          && typeof value.name === "string"
+          && typeof value.datasetFileName === "string"
+          && Number.isInteger(value.rowCount) && value.rowCount >= 0
+          && Number.isInteger(value.columnCount) && value.columnCount >= 0
+          && typeof value.createdAt === "string"
+          && typeof value.updatedAt === "string"
+          && forbiddenFields(value).length === 0;
+      };
+      const readCatalog = async () => {
         const [projects, recoveryCandidate] = await Promise.all([
           internals.invoke("list_projects"),
           internals.invoke("get_recovery_candidate"),
         ]);
-        const forbiddenFields = (value) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-          return Object.keys(value).filter((key) => /path|filepath|sourcepath/i.test(key));
-        };
-        const isSummary = (value) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-          const required = [
-            "id",
-            "name",
-            "datasetFileName",
-            "rowCount",
-            "columnCount",
-            "createdAt",
-            "updatedAt",
-          ];
-          return required.every((key) => Object.prototype.hasOwnProperty.call(value, key))
-            && typeof value.id === "string"
-            && typeof value.name === "string"
-            && typeof value.datasetFileName === "string"
-            && Number.isInteger(value.rowCount) && value.rowCount >= 0
-            && Number.isInteger(value.columnCount) && value.columnCount >= 0
-            && typeof value.createdAt === "string"
-            && typeof value.updatedAt === "string"
-            && forbiddenFields(value).length === 0;
-        };
         const projectsArray = Array.isArray(projects);
         const recoveryValid = recoveryCandidate === null || isSummary(recoveryCandidate);
         const forbiddenPathFields = projectsArray
           && (projects.some((project) => forbiddenFields(project).length > 0)
             || forbiddenFields(recoveryCandidate).length > 0);
         return {
-          status: projectsArray && recoveryValid && projects.every(isSummary) ? "passed" : "failed",
-          phase: "native_project_ipc_read_only",
-          commands: ["list_projects", "get_recovery_candidate"],
+          valid: projectsArray && recoveryValid && projects.every(isSummary) && !forbiddenPathFields,
+          projects,
+          recoveryCandidate,
           projectsCount: projectsArray ? projects.length : null,
           recoveryPresent: recoveryCandidate !== null,
           projectSummariesValid: projectsArray && projects.every(isSummary),
           recoverySummaryValid: recoveryValid,
           forbiddenPathFields,
-          interactions: [],
         };
+      };
+
+      try {
+        const before = await readCatalog();
+        if (!before.valid) {
+          return {
+            status: "failed",
+            phase: "native_project_ipc_catalog_invalid",
+            commands: ["list_projects", "get_recovery_candidate"],
+            projectsCount: before.projectsCount,
+            recoveryPresent: before.recoveryPresent,
+            projectSummariesValid: before.projectSummariesValid,
+            recoverySummaryValid: before.recoverySummaryValid,
+            forbiddenPathFields: before.forbiddenPathFields,
+            mutationRequested: shouldMutate,
+            interactions: [],
+          };
+        }
+
+        if (!shouldMutate) {
+          return {
+            status: "passed",
+            phase: "native_project_ipc_read_only",
+            commands: ["list_projects", "get_recovery_candidate"],
+            projectsCount: before.projectsCount,
+            recoveryPresent: before.recoveryPresent,
+            projectSummariesValid: before.projectSummariesValid,
+            recoverySummaryValid: before.recoverySummaryValid,
+            forbiddenPathFields: before.forbiddenPathFields,
+            mutationRequested: false,
+            interactions: [],
+          };
+        }
+
+        let projectId = null;
+        let cleanupConfirmed = true;
+        const projectName = `__columnia_native_probe__${crypto.randomUUID().slice(0, 8)}`;
+        const interactions = ["probe_seed_dataset", "save_project", "list_projects", "open_project", "get_dataset_page", "delete_project"];
+        try {
+          const seed = await internals.invoke("probe_seed_dataset");
+          const seedValid = Boolean(seed)
+            && seed.fileName === "native-probe.csv"
+            && seed.rowCount === 2
+            && seed.columnCount === 2
+            && forbiddenFields(seed).length === 0;
+          if (!seedValid) throw new Error("seed_invalid");
+
+          const saved = await internals.invoke("save_project", {
+            projectId: null,
+            name: projectName,
+            workspace: { qualityRules: [], recipeDraft: null },
+          });
+          projectId = saved?.id ?? null;
+          const savedValid = isSummary(saved)
+            && saved.id === projectId
+            && saved.name === projectName
+            && saved.datasetFileName === "native-probe.csv"
+            && saved.rowCount === 2
+            && saved.columnCount === 2;
+          if (!savedValid) throw new Error("save_invalid");
+
+          const listed = await internals.invoke("list_projects");
+          const listedValid = Array.isArray(listed)
+            && listed.length === before.projectsCount + 1
+            && listed.some((project) => project.id === projectId && isSummary(project));
+          if (!listedValid) throw new Error("list_invalid");
+
+          const opened = await internals.invoke("open_project", { projectId });
+          const openedValid = Boolean(opened)
+            && isSummary(opened.project)
+            && opened.project.id === projectId
+            && opened.dataset?.fileName === "native-probe.csv"
+            && opened.dataset?.rowCount === 2
+            && opened.dataset?.columnCount === 2
+            && Array.isArray(opened.workspace?.qualityRules)
+            && opened.workspace.qualityRules.length === 0
+            && opened.workspace.recipeDraft === null
+            && forbiddenFields(opened).length === 0;
+          if (!openedValid) throw new Error("open_invalid");
+
+          const page = await internals.invoke("get_dataset_page", { offset: 0, limit: 10 });
+          const pageValid = page?.offset === 0 && Array.isArray(page.rows) && page.rows.length === 2;
+          if (!pageValid) throw new Error("page_invalid");
+
+          await internals.invoke("delete_project", { projectId });
+          projectId = null;
+          const after = await readCatalog();
+          const catalogRestored = after.valid && after.projectsCount === before.projectsCount;
+          if (!catalogRestored) throw new Error("cleanup_invalid");
+
+          return {
+            status: "passed",
+            phase: "native_project_ipc_mutation",
+            commands: interactions,
+            projectsCountBefore: before.projectsCount,
+            projectsCountAfter: after.projectsCount,
+            recoveryPresentBefore: before.recoveryPresent,
+            recoveryPresentAfter: after.recoveryPresent,
+            projectSummariesValid: after.projectSummariesValid,
+            recoverySummaryValid: after.recoverySummaryValid,
+            forbiddenPathFields: before.forbiddenPathFields || after.forbiddenPathFields,
+            mutationRequested: true,
+            cleanupConfirmed: true,
+            interactions,
+          };
+        } catch {
+          if (projectId) {
+            try {
+              await internals.invoke("delete_project", { projectId });
+            } catch {
+              cleanupConfirmed = false;
+            }
+          }
+          return {
+            status: "failed",
+            phase: "native_project_ipc_mutation_failed",
+            commands: interactions,
+            mutationRequested: true,
+            cleanupConfirmed,
+            interactions,
+          };
+        }
       } catch {
         return {
           status: "failed",
           phase: "native_project_ipc_error",
           error: "invoke_failed",
+          mutationRequested: shouldMutate,
           interactions: [],
         };
       }
-    });
+    }, runMutations);
   } catch {
     return {
       status: "failed",
@@ -254,7 +377,9 @@ function snapshotResult(status, pages, extra = {}) {
       saveDisabledWithoutDataset: "button[type=submit]:disabled",
       noVisibleRoutes: "visible route anchors",
       actionNames: "all visible ProjectsPanel buttons",
-      nativeIpc: ["list_projects", "get_recovery_candidate"],
+      nativeIpc: runMutations
+        ? ["probe_seed_dataset", "save_project", "list_projects", "open_project", "get_dataset_page", "delete_project"]
+        : ["list_projects", "get_recovery_candidate"],
     },
     interactions: [],
     ...extra,
