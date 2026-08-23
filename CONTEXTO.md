@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fases I0, I1 e I8 cerradas |
+| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas con pendientes nativos/manuales/VM |
 
 ## Para qué existe este documento
 
@@ -112,8 +112,12 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/src/bin/columnia-cli.rs` | Ejecutable CLI mínimo que delega en el módulo de automatización. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
-| `tools/check.ps1` | Entrada única para los gates locales Fast, Full y Release; genera evidencia JSON auditable en `.local/validation/`. |
-| `tools/generate-sbom.ps1` | Genera offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles. |
+| `tools/check.ps1` | Entrada única para los gates locales Fast, Full y Release; genera evidencia JSON auditable en `.local/validation/` y en Release ejecuta supply chain/instalador. |
+| `vitest.config.ts` | Cobertura V8 por capa para `src`, con umbrales 80% statements/lines, 75% branches/functions. |
+| `tools/check-supply-chain.ps1` / `src-tauri/deny.toml` | npm audit, cargo audit, cargo-deny, secretos, avisos de terceros y política de red con excepciones upstream justificadas. |
+| `tools/check-network-policy.mjs` / `docs/reference/network-privacy.md` | Inventario local de red, CSP productivo y política de telemetría desactivada por defecto. |
+| `tools/check-installer-contract.ps1` / `THIRD_PARTY_NOTICES.md` | Contrato de NSIS currentUser, WebView2 bootstrapper y recursos legales reproducibles. |
+| `tools/generate-sbom.ps1` / `tools/extract-package-lock-packages.mjs` | Generan offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles, compatible con Windows PowerShell 5.1. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
 | `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, perfila el árbol de procesos y aplica presupuestos observables de 512 MiB de working set, 256 MiB de memoria privada y transformaciones nativas sostenidas; restaura el entorno y limpia su Job Object. |
@@ -406,6 +410,11 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
 - SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
+- Cobertura V8 por capa sobre `src` (135 tests) con gate 80/75/75/80; supply
+  chain local con npm audit, cargo-audit 0.22.2, cargo-deny 0.20.2, secret scan,
+  avisos de terceros y política de red/telemetría.
+- Instalador declarado `NSIS currentUser`, licencia MIT y avisos de terceros
+  incluidos como recursos, además de política explícita de WebView2.
 - Smoke automatizado del runtime de desarrollo con aislamiento y cleanup de procesos propios.
 - Monitor nativo compacto de CPU/RAM integrado al lateral, con polling de 2 s,
   fallback explícito en el shell web y contratos de accesibilidad.
@@ -476,8 +485,10 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - auditoría manual con lector de pantalla y validación en hardware de Windows High Contrast; `npm run accessibility:visual` ya cubre capturas reproducibles de desktop, móvil, escala 125% y `forced-colors` sin reemplazar una sesión manual de asistencia;
 - ampliar la comparación contra `dataprepv1.1` a datasets grandes y a RAM
   integral de dataset+historial; I1 ya cubre la inspección cruzada reproducible
-  de 100 MiB;
-- el probe opt-in `npm run smoke:native-selectors` ya recorre los comandos de selector de dataset, receta y exportación con fixtures sintéticos y evidencia sanitizada; todavía no se considera gate porque esta sesión Windows no confirmó de forma estable el cierre Win32 del botón del diálogo;
+  de 100 MiB y el benchmark CLI `.local/validation/performance-benchmark/20260823T223949Z`
+  validó 256 MiB/2,220,032 filas con tres ciclos y dos actualizaciones, pero
+  observó hasta 1.12 GiB de working set;
+- el probe opt-in `npm run smoke:native-selectors` ya recorre los comandos de selector de dataset, receta y exportación con fixtures sintéticos y evidencia sanitizada; la sesión Windows mantiene un fallo reproducible en el cierre Win32 del botón del diálogo (`open_native_dialog_action_timeout`), así que todavía no se considera gate;
 - presupuesto integral global de dataset+historial para entradas grandes y comparación contra `dataprepv1.1`; v0.49 mide tres ciclos nativos sobre el dataset de probe y aplica el presupuesto global del árbol, pero todavía no prueba datasets grandes desde WebView2;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
@@ -531,6 +542,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-23 | I3/I4/I5 avanzan con 137 tests frontend, cobertura V8, smoke CDP real, auditorías npm/Cargo con excepciones transitivas explícitas, secret scan, notices, política de red sin telemetría y contrato NSIS/WebView2 con recursos legales; Release y Package pasan con MSI/NSIS 0.49.0. Quedan pendientes el selector nativo estable, la auditoría manual y la validación desde VM limpia. | `vitest.config.ts`, `.local/validation/20260823T224857Z`, `.local/validation/20260823T225136Z-ac3c0a1-release.json`, `.local/validation/20260823T225800Z-ac3c0a1-package.json`, `tools/check-supply-chain.ps1`, `src-tauri/deny.toml`, `tools/check-network-policy.mjs`, `tools/check-installer-contract.ps1`, `docs/reference/network-privacy.md` |
 | 2026-08-23 | Se cerró la Fase I0 con licencia MIT, Windows x64 como soporte inicial, ADR de frontera Rust/UI, política local de ramas/commits, inventario de dependencias y manifest de fixtures sintéticas; `governance:check`, Fast y Full pasan. | `LICENSE`, `CONTRIBUTING.md`, `docs/adr/0001-contratos-del-repositorio.md`, `docs/reference/`, `tools/check-governance.ps1`, `src/governance.test.ts` |
 | 2026-08-23 | Se añadió un probe opt-in de selectores nativos: PowerShell conduce los diálogos Win32 y WebView2 espera los resultados IPC para abrir dataset, guardar/cargar receta y exportar sin exponer rutas; falta estabilizar el cierre automático del botón antes de elevarlo a gate. | `tools/probe-webview2-native-selectors.mjs`, `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-22 | El smoke desktop separa hitos monotónicos de Vite, proceso debug y ventana visible, y confirma cleanup con hasta dos intentos acotados; se añadieron contratos de landmarks, estados ARIA y alertdialog. | `tools/smoke-tauri.ps1`, `src/components/AccessibilityContracts.test.tsx` |

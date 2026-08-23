@@ -25,6 +25,7 @@ comportamiento implementado.
 - [Gobierno del repositorio](reference/repository-governance.md) y
   [auditoría de dependencias](reference/dependency-audit.md).
 - [Política de fixtures](reference/fixtures-policy.md).
+- [Red, privacidad y telemetría](reference/network-privacy.md).
 
 ### Explicación
 

@@ -34,6 +34,7 @@ foreach ($RelativePath in @(
         "docs\adr\0001-contratos-del-repositorio.md",
         "docs\reference\repository-governance.md",
         "docs\reference\dependency-audit.md",
+        "THIRD_PARTY_NOTICES.md",
         "docs\reference\fixtures-policy.md",
         "fixtures\README.md",
         "fixtures\manifest.json"

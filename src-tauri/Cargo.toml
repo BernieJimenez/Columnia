@@ -16,7 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 calamine = { version = "0.36.1", default-features = false, features = ["chrono"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
-polars = { version = "0.54.4", default-features = false, features = ["csv", "fmt", "parquet", "dtype-slim", "lazy", "regex", "strings"] }
+polars = { version = "0.55.2", default-features = false, features = ["csv", "fmt", "parquet", "dtype-slim", "lazy", "regex", "strings"] }
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }

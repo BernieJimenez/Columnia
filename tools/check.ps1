@@ -158,6 +158,9 @@ try {
     Invoke-Checked "Rust format" $TauriRoot { cargo fmt -- --check }
     Invoke-Checked "Rust check" $TauriRoot { cargo check }
     Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run }
+    if ($Profile -in @("Full", "Release", "Package")) {
+        Invoke-Checked "Frontend coverage" $ProjectRoot { npm run test:coverage }
+    }
     Invoke-Checked "Frontend build" $ProjectRoot { npm run build }
     Invoke-Checked "Frontend bundle budget" $ProjectRoot {
         node tools/check-bundle.mjs budget --dist dist --output $FrontendBundlePath
@@ -186,6 +189,12 @@ try {
         $SbomEvidence.status = "available"
         $SbomEvidence.sha256 = (Get-FileHash -LiteralPath $SbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $SbomEvidence.componentCount = @($SbomDocument.components).Count
+        Invoke-Checked "Supply-chain audit" $ProjectRoot {
+            & (Join-Path $ProjectRoot "tools\check-supply-chain.ps1") -RequireAuditTools
+        }
+        Invoke-Checked "Installer contract" $ProjectRoot {
+            & (Join-Path $ProjectRoot "tools\check-installer-contract.ps1")
+        }
         Invoke-Checked "Tauri release build" $ProjectRoot { npm run tauri build -- --no-bundle }
     }
 

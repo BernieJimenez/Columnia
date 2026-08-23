@@ -100,6 +100,27 @@ function contradictoryIdentities(
 }
 
 describe("offline supply-chain lockfile integrity", () => {
+  it("mantiene una política cargo-deny explícita y razonada para excepciones upstream", () => {
+    const policy = readProjectFile("src-tauri/deny.toml");
+
+    expect(policy).toContain("[advisories]");
+    expect(policy).toContain("RUSTSEC-2026-0194");
+    expect(policy).toContain("reason =");
+    expect(policy).toContain("[licenses]");
+    expect(policy).toContain("[sources]");
+  });
+
+  it("conserva el inventario generado de avisos y la política de privacidad local", () => {
+    const notices = readProjectFile("THIRD_PARTY_NOTICES.md");
+    const networkPolicy = readProjectFile("docs/reference/network-privacy.md");
+
+    expect(notices).toContain("# Third-party notices");
+    expect(notices).toContain("| Ecosistema | Paquete | Version | Licencia | Fuente |");
+    expect(notices).toMatch(/Total: \d+ dependencias de terceros\./);
+    expect(networkPolicy).toContain("npm run network:check");
+    expect(networkPolicy).toMatch(/no\s+inicia conexiones de red/);
+  });
+
   it("pins every npm dependency to the HTTPS npm registry with a strong integrity digest", () => {
     const lockfile = JSON.parse(readProjectFile("package-lock.json")) as NpmLockfile;
     const violations: string[] = [];

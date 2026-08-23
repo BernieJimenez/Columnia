@@ -110,7 +110,11 @@ function New-Component {
 }
 
 $PackageManifest = Get-Content -LiteralPath $PackageManifestPath -Raw | ConvertFrom-Json
-$PackageLock = Get-Content -LiteralPath $PackageLockPath -Raw | ConvertFrom-Json -AsHashtable
+$PackageLockEntriesJson = & node (Join-Path $PSScriptRoot "extract-package-lock-packages.mjs") $PackageLockPath
+if ($LASTEXITCODE -ne 0) {
+    throw "No se pudo leer package-lock.json con el extractor Node.js."
+}
+$PackageLockEntries = @($PackageLockEntriesJson | ConvertFrom-Json)
 $CargoManifest = Get-Content -LiteralPath $CargoManifestPath -Raw
 $CargoLock = Get-Content -LiteralPath $CargoLockPath -Raw
 
@@ -127,22 +131,18 @@ if ($PackageManifest.name -ne $CargoProjectName -or $PackageManifest.version -ne
 }
 
 $ComponentsByKey = @{}
-foreach ($Entry in $PackageLock.packages.GetEnumerator()) {
-    if ([string]::IsNullOrEmpty($Entry.Key)) {
+foreach ($Entry in $PackageLockEntries) {
+    if ([string]::IsNullOrEmpty($Entry.path)) {
         continue
     }
-    $Package = $Entry.Value
-    if (-not $Package.version) {
-        continue
-    }
-    $Name = Get-NpmPackageName $Entry.Key
+    $Name = Get-NpmPackageName $Entry.path
     if ([string]::IsNullOrWhiteSpace($Name)) {
         continue
     }
-    $Version = $Package.version.ToString()
+    $Version = $Entry.version.ToString()
     $Key = "npm|$Name|$Version"
     if (-not $ComponentsByKey.ContainsKey($Key)) {
-        $Hashes = Convert-IntegrityHashes $Package.integrity
+        $Hashes = Convert-IntegrityHashes $Entry.integrity
         $ComponentsByKey[$Key] = New-Component "npm" $Name $Version $Hashes
     }
 }

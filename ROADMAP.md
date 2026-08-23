@@ -6,8 +6,8 @@
 ## Estado general
 
 - Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
-  Fases I0 e I8 cerradas y avances verificados en seguridad (I2), calidad local
-  (I3), supply chain (I4) y empaquetado Windows (I5).
+  Fases I0, I4 e I8 cerradas y avances verificados en calidad local (I3) y
+  empaquetado Windows (I5); I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
@@ -828,11 +828,17 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
   tipos entre Rust y TypeScript; la generación automática sigue siendo opcional.
 - [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales. Vitest cubre
   guardar→catálogo→abrir→restaurar y contratos de landmarks/ARIA; CSS cubre
-  targets/reduced motion. Faltan interacción real de WebView2 y auditoría
-  manual de asistencia/visual.
-- [ ] Definir umbrales de cobertura por capa, no solo un porcentaje global.
-- [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; bundle
-  frontend e inventario de instaladores ya tienen límites y evidencia.
+  targets/reduced motion. La interacción real CDP y la evidencia visual release
+  ya pasan; falta estabilizar el selector nativo Win32 y la auditoría manual de
+  asistencia/visual.
+- [x] Definir umbrales de cobertura por capa, no solo un porcentaje global.
+  V8 cubre `src` con 80% statements/lines, 75% branches y 75% functions;
+  `npm run test:coverage` los hace cumplir.
+- [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; el
+  perfil contractual de 100 MiB, el gate CDP y el bundle ya pasan. El escenario
+  CLI de 256 MiB también completa transformaciones y ciclo durable, pero alcanza
+  aproximadamente 1.12 GiB de working set y aún falta medir el mismo caso dentro
+  de WebView2.
 - [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
 
@@ -841,15 +847,16 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 
 ### Fase I4 — Supply chain y privacidad
 
-- [ ] Ejecutar `cargo audit` y evaluar `cargo deny` para advisories, licencias,
-  duplicados y fuentes no aprobadas.
-- [ ] Añadir auditoría explícita de vulnerabilidades npm; los lockfiles npm y
+- [x] Ejecutar `cargo audit` y evaluar `cargo deny` para advisories, licencias,
+  duplicados y fuentes no aprobadas; las excepciones transitivas están
+  justificadas en `src-tauri/deny.toml`.
+- [x] Añadir auditoría explícita de vulnerabilidades npm; los lockfiles npm y
   Cargo ya tienen gates locales de sincronía, integridad y procedencia.
-- [ ] Escanear secretos y bloquear artefactos/datasets sensibles en Git.
+- [x] Escanear secretos y bloquear artefactos/datasets sensibles en Git.
 - [x] Generar offline un SBOM CycloneDX 1.6 reproducible que incluya Rust y npm.
-- [ ] Mantener `THIRD_PARTY_NOTICES` generado y verificable.
-- [ ] Documentar cada acceso de red y comprobar que no exista telemetría oculta.
-- [ ] Telemetría y reporte remoto de fallos: desactivados por defecto; cualquier
+- [x] Mantener `THIRD_PARTY_NOTICES` generado y verificable.
+- [x] Documentar cada acceso de red y comprobar que no exista telemetría oculta.
+- [x] Telemetría y reporte remoto de fallos: desactivados por defecto; cualquier
   cambio requerirá consentimiento explícito, redacción de PII y un ADR.
 
 **Gate:** SBOM, licencias y auditorías sin hallazgos bloqueantes.
@@ -857,14 +864,17 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 ### Fase I5 — Empaquetado e instalación Windows
 
 - [x] Generar iconos Tauri desde un único SVG maestro de Columnia.
-- [ ] Configurar NSIS `currentUser` como instalador recomendado.
+- [x] Configurar NSIS `currentUser` como instalador recomendado.
 - [x] Producir e inventariar MSI y NSIS en Windows como artefactos locales; la
   decisión de publicación empresarial del MSI sigue pendiente.
-- [ ] Incluir licencia, EULA si aplica y avisos de terceros como resources.
+- [x] Incluir licencia y avisos de terceros como resources; no se requiere EULA
+  adicional mientras la distribución conserve la licencia MIT.
 - [ ] Validar instalación, primera apertura, segunda instancia, actualización,
   desinstalación y conservación/borrado opcional de datos.
 - [ ] Probar usuario sin privilegios administrativos y rutas con Unicode/espacios.
-- [ ] Definir política WebView2 bootstrapper/offline.
+- [x] Definir política WebView2 bootstrapper/offline: el instalador descarga el
+  bootstrapper oficial cuando hace falta; un instalador totalmente offline sigue
+  pendiente de validación como variante separada.
 - [ ] Medir tamaño, tiempo de instalación y tiempo hasta ventana utilizable.
 
 **Gate:** smoke desde una VM Windows limpia, no solo desde la máquina de desarrollo.
@@ -1081,6 +1091,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-23 | Versión 0.49.0: tres ciclos nativos de transformación/exportación dentro de WebView2, duraciones incorporadas al gate y presupuesto global del árbol; datasets grandes, lector real y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Fase I8: documentación Diátaxis, índice de ADR/CHANGELOG, validadores de enlaces/UTF-8/versiones/ownership y evidencia visual reproducible desde el binario release con baseline de hashes; lector de pantalla manual sigue en I3 | Implementada |
 | 2026-08-23 | Fase I1 completa: receta Polars lazy con fallback eager seguro, monitor nativo compacto de CPU/RAM, benchmark cruzado de 100 MiB contra `dataprepv1.1` y revisión visual desktop/móvil/zoom/forced-colors | Implementada |
+| 2026-08-23 | I3/I4/I5: cobertura V8 y smoke CDP reales pasan; `cargo audit`/`cargo deny`, npm audit, secret scan, notices, política de red y SBOM pasan; Package produjo MSI/NSIS 0.49.0. El benchmark CLI de 256 MiB pasó el flujo durable, pero excedió el presupuesto de 512 MiB; quedan selector Win32, lector de pantalla y VM limpia | Parcial, con evidencia |
 
 ## 10. Fuentes de esta revisión
 

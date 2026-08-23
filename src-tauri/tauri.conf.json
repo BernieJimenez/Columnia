@@ -49,6 +49,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "../LICENSE",
+      "../THIRD_PARTY_NOTICES.md"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -57,6 +61,14 @@
       "icons/icon.ico"
     ],
     "shortDescription": "Prepara datos confiables localmente",
-    "longDescription": "Estación local multiplataforma para revisar, limpiar, transformar y entregar datasets confiables."
+    "longDescription": "Estación local multiplataforma para revisar, limpiar, transformar y entregar datasets confiables.",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }

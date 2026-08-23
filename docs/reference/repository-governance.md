@@ -33,13 +33,18 @@ npm run governance:check
 .\tools\check.ps1 -Profile Fast
 .\tools\check.ps1 -Profile Full
 .\tools\check.ps1 -Profile Release
+npm run test:coverage
+npm run supply-chain:check -- -RequireAuditTools
+npm run installer:check
 ```
 
 `governance:check` valida los documentos, la licencia, el manifiesto de
 fixtures y la sincronía de los contratos de gobierno. `Fast` cubre formato,
 compilación, tests, TypeScript, build y presupuesto frontend. `Full` añade
-Clippy y tests Rust. `Release` añade SBOM y build Tauri sin bundle. `Package`
-se reserva para cambios de distribución Windows.
+Clippy y tests Rust. `Release` añade SBOM, supply chain con herramientas
+instaladas, contrato de instalador y build Tauri sin bundle. `Package` se
+reserva para cambios de distribución Windows. La cobertura V8 y el inventario
+de avisos también se pueden ejecutar de forma independiente.
 
 No hay CI ni workflows automáticos por decisión del proyecto. Una evidencia
 local debe conservar el commit, la rama, el estado del árbol, las versiones de

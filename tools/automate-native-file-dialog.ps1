@@ -39,6 +39,12 @@ public static class ColumniaNativeDialogMethods {
     public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool IsWindowEnabled(IntPtr window);
+
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
 
     public static void SendControlA() {
@@ -190,36 +196,47 @@ try {
         Start-Sleep -Milliseconds 250
         [void][ColumniaNativeDialogMethods]::SetFocus($editor)
 
-        # The file name field is a ComboBoxEx32. Setting its child text alone
-        # does not commit the selection in the common dialog; keyboard input
-        # followed by Enter does.
-        [ColumniaNativeDialogMethods]::SendControlA()
-        [ColumniaNativeDialogMethods]::SendUnicodeText($TargetPath)
+        # SetWindowText commits the full path without depending on the active
+        # keyboard layout. The keyboard route remains a fallback for common
+        # dialogs whose editor rejects WM_SETTEXT.
+        $textSet = [ColumniaNativeDialogMethods]::SetWindowText($editor, $TargetPath)
+        if (-not $textSet) {
+            [ColumniaNativeDialogMethods]::SendControlA()
+            [ColumniaNativeDialogMethods]::SendUnicodeText($TargetPath)
+        }
         [ColumniaNativeDialogMethods]::SendEnter()
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 350
         if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
             [void][ColumniaNativeDialogMethods]::SetFocus($editor)
             [System.Windows.Forms.SendKeys]::SendWait("^a")
             [System.Windows.Forms.SendKeys]::SendWait($TargetPath)
             [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
         }
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 350
         if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
             $Stage = "find_action_button"
             $button = Find-ActionButton -Window $dialog
             if ($button -eq [IntPtr]::Zero) {
                 throw "action_button_not_found"
             }
+            if (-not [ColumniaNativeDialogMethods]::IsWindowEnabled($button)) {
+                [void][ColumniaNativeDialogMethods]::SetFocus($editor)
+                [System.Windows.Forms.SendKeys]::SendWait("^a")
+                [System.Windows.Forms.SendKeys]::SendWait($TargetPath)
+            }
             $Stage = "invoke_action_button"
+            [void][ColumniaNativeDialogMethods]::SetFocus($button)
+            [void][ColumniaNativeDialogMethods]::PostMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
             [void][ColumniaNativeDialogMethods]::SendMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
-            Start-Sleep -Milliseconds 100
+            [void][ColumniaNativeDialogMethods]::SendMessage($dialog, 0x0111, [IntPtr]::new(1), $button)
+            Start-Sleep -Milliseconds 250
             if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
                 [ColumniaNativeDialogMethods]::SendEnter()
             }
         }
 
         $Stage = "wait_for_result"
-        $waitDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+        $waitDeadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
         while ([DateTimeOffset]::UtcNow -lt $waitDeadline) {
             $dialogStillOpen = (Get-NativeFileDialog) -ne [IntPtr]::Zero
             $targetExists = Test-Path -LiteralPath $TargetPath -PathType Leaf

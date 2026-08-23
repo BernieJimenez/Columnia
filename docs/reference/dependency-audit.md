@@ -26,13 +26,14 @@ tabla y registra el resultado en el mismo cambio.
 | desarrollo | `typescript` | `~5.8.3` |
 | desarrollo | `vite` | `^7.0.4` |
 | desarrollo | `vitest` | `^3.2.4` |
+| desarrollo | `@vitest/coverage-v8` | `^3.2.7` |
 
 ### Cargo
 
 Las dependencias se resuelven desde `crates.io` mediante `Cargo.lock` y el gate
 de supply chain verifica checksums y fuentes. Las versiones declaradas son:
 
-`calamine 0.36.1`, `chrono 0.4.45`, `polars 0.54.4`, `rusqlite 0.37.0`,
+`calamine 0.36.1`, `chrono 0.4.45`, `polars 0.55.2`, `rusqlite 0.37.0`,
 `serde 1`, `serde_json 1`, `tauri 2`, `tauri-plugin-dialog 2.7.2`, `tempfile 3`,
 `unicode-normalization 0.1`, `tauri-plugin-single-instance 2` para escritorio,
 y `tauri-build 2` como dependencia de build.
@@ -60,14 +61,19 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 
 | Comando | Resultado del snapshot | Interpretación |
 | --- | --- | --- |
-| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 229 dependencias totales | Revisión npm limpia en esta fecha; repetir antes de release |
-| `cargo audit --version` | Herramienta no instalada | La auditoría Cargo bloqueante pertenece a I4 y sigue pendiente |
-| `cargo deny --version` | Herramienta no instalada | Evaluación de advisories/licencias/duplicados pendiente en I4 |
+| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 287 dependencias del lockfile | Revisión npm limpia; repetir antes de release |
+| `cargo audit --json` | `cargo-audit 0.22.2`; 0 vulnerabilidades después de dos excepciones documentadas; 17 avisos de mantenimiento y 1 unsound informativos | `h2` subió a 0.4.18; `quick-xml 0.39.4` queda en `object_store 0.13.2`, fuera de los features cloud, hasta que Polars publique una rama compatible |
+| `cargo deny --format json check` | `cargo-deny 0.20.2`; advisories/licencias/fuentes sin errores; 48 duplicados en warning | Política explícita en `src-tauri/deny.toml`; excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |
+| `npm run secrets:check` | 0 hallazgos; 347 archivos inspeccionados | Escaneo local de claves privadas, tokens y credenciales asignadas |
+| `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
+| `npm run notices:check` | Aprobado; 1001 dependencias | `THIRD_PARTY_NOTICES.md` se deriva de ambos lockfiles |
 
-La ausencia de una herramienta no se interpreta como ausencia de vulnerabilidades.
-I4 debe instalar o ejecutar equivalentes locales y conservar la evidencia antes
-de un release.
+Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
+la aplicación: están limitadas a advisories transitivos con razón, versión y
+ruta upstream registradas en [`deny.toml`](../../src-tauri/deny.toml). Si una
+actualización de Polars/Tauri elimina una excepción, se debe quitar del archivo
+en el mismo cambio. Cada ejecución deja JSON sanitizado bajo `.local/validation/`.
 
 ## Procedimiento de actualización
 
@@ -75,8 +81,9 @@ de un release.
    con la herramienta instalada.
 2. Lee los changelogs y revisa breaking changes de Tauri, Vite, Polars y Rust.
 3. Cambia una familia relacionada por vez; conserva lockfiles reproducibles.
-4. Ejecuta `npm run governance:check`, `npm test`, `npm run build` y el perfil
-   `Full` si la dependencia cruza Rust, IPC o Tauri.
+4. Ejecuta `npm run governance:check`, `npm test`, `npm run test:coverage`,
+   `npm run build`, `npm run supply-chain:check` y el perfil `Full` si la
+   dependencia cruza Rust, IPC o Tauri.
 5. Actualiza este snapshot con fecha, versión observada, motivo y resultado.
 
 ## Fuentes de verdad
@@ -87,3 +94,5 @@ de un release.
   [`src-tauri/Cargo.lock`](../../src-tauri/Cargo.lock) para Cargo.
 - [`src/supply-chain.test.ts`](../../src/supply-chain.test.ts) para integridad,
   procedencia y ausencia de identidades contradictorias.
+- [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) para el inventario
+  generado de avisos de terceros.

@@ -9,7 +9,15 @@ type ContentSecurityPolicy = Record<string, string>;
 type TauriConfig = {
   build: { devUrl: string };
   app: { security: { csp: ContentSecurityPolicy; devCsp: ContentSecurityPolicy } };
-  bundle: { active: boolean; icon: string[] };
+  bundle: {
+    active: boolean;
+    icon: string[];
+    resources: string[];
+    windows: {
+      webviewInstallMode: { type: string };
+      nsis: { installMode: string };
+    };
+  };
 };
 
 type TauriCapability = {
@@ -57,6 +65,20 @@ describe("Tauri desktop assets", () => {
         existsSync(resolve(projectRoot, "src-tauri", icon)),
         `configured bundle icon ${icon} must exist`,
       ).toBe(true);
+    }
+  });
+
+  it("declares a user-scoped Windows installer and explicit WebView2 policy", () => {
+    const config = readJson<TauriConfig>("src-tauri/tauri.conf.json");
+
+    expect(config.bundle.windows.nsis.installMode).toBe("currentUser");
+    expect(config.bundle.windows.webviewInstallMode.type).toBe("downloadBootstrapper");
+    expect(config.bundle.resources).toEqual(expect.arrayContaining([
+      "../LICENSE",
+      "../THIRD_PARTY_NOTICES.md",
+    ]));
+    for (const resource of config.bundle.resources) {
+      expect(existsSync(resolve(projectRoot, "src-tauri", resource))).toBe(true);
     }
   });
 });

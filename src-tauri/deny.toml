@@ -1,0 +1,60 @@
+# Política de dependencias para las distribuciones de Columnia.
+# Las licencias se mantienen explícitas para que los avisos de terceros y el
+# gate de supply-chain puedan auditarse sin depender de la configuración local.
+
+[advisories]
+ignore = [
+  # object_store 0.13.x (transitivo de Polars) todavía requiere quick-xml 0.39.x.
+  # Polars/Arrow aún no publica una rama compatible con quick-xml >= 0.41.0.
+  # El feature cloud no está habilitado en Columnia; revisar y retirar esta
+  # excepción cuando Polars actualice object_store.
+  { id = "RUSTSEC-2026-0194", reason = "Transitive object_store 0.13.x; cloud feature disabled and Polars has not released a compatible object_store upgrade." },
+  { id = "RUSTSEC-2026-0195", reason = "Transitive object_store 0.13.x; cloud feature disabled and Polars has not released a compatible object_store upgrade." },
+  # Tauri's urlpattern/GTK graph currently has no safe replacement available
+  # without replacing the desktop runtime. Keep these as explicit, reviewable
+  # upstream exceptions instead of silently disabling advisory checks.
+  { id = "RUSTSEC-2024-0370", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0411", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0412", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0413", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0414", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0415", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0416", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0417", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0418", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0419", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2024-0420", reason = "Unmaintained transitive GTK graph selected by Tauri; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2025-0075", reason = "Unmaintained transitive rust-unic graph selected by Tauri urlpattern; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2025-0080", reason = "Unmaintained transitive rust-unic graph selected by Tauri urlpattern; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2025-0081", reason = "Unmaintained transitive rust-unic graph selected by Tauri urlpattern; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2025-0098", reason = "Unmaintained transitive rust-unic graph selected by Tauri urlpattern; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2025-0100", reason = "Unmaintained transitive rust-unic graph selected by Tauri urlpattern; no safe upgrade available upstream." },
+  { id = "RUSTSEC-2025-0141", reason = "Unmaintained transitive desktop graph selected by Tauri; no safe upgrade available upstream." },
+]
+
+[licenses]
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "LGPL-2.1-or-later",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
