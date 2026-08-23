@@ -99,7 +99,9 @@ de working set, y deja solo un resumen en `.local/validation/`.
 `npm run smoke:cdp` añade un perfil acotado del proceso debug (working set y
 memoria privada inicial, máxima y final) y ejecuta, solo en el build debug del
 probe, un ciclo temporal nativo de dataset/receta/exportación/proyecto. La
-evidencia conserva conteos/estados, no IDs, datos ni rutas; esta señal no
+reapertura durable crea un `ProjectStore` fresco y valida SQLite, snapshot,
+recovery y workspace antes del cleanup. La evidencia conserva conteos/estados,
+no IDs, datos ni rutas; esta señal no
 habilita CDP en el arranque normal ni sustituye todavía un presupuesto global
 de RAM.
 

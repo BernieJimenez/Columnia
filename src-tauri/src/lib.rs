@@ -89,6 +89,8 @@ pub fn run() {
             dataset::probe_save_transform_recipe,
             #[cfg(debug_assertions)]
             dataset::probe_export_dataset,
+            #[cfg(debug_assertions)]
+            projects::probe_reopen_project,
             projects::list_projects,
             projects::get_recovery_candidate,
             projects::save_project,

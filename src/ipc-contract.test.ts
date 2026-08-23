@@ -6,6 +6,7 @@ const debugOnlyCommands = new Set([
   "probe_seed_dataset",
   "probe_save_transform_recipe",
   "probe_export_dataset",
+  "probe_reopen_project",
 ]);
 
 function registeredTauriCommands(source: string): string[] {

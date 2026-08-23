@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.41.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.42.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `2b173b8` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `96e6792` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -371,6 +371,8 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - Validación v0.40.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, CDP con mutaciones IPC nativas y cleanup confirmado, smoke desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: CDP `.local/validation/webview2-cdp/20260823T022759Z`, desktop `.local/validation/desktop-smoke/20260823T022332Z`, CLI `.local/validation/cli-smoke/20260823T022332Z`, benchmark `.local/validation/performance-benchmark/20260823T022332Z`, Package `.local/validation/20260823T022448Z-3aa09f2-package.json` y resumen `.local/validation/performance-summary/summary.json` (18 muestras CDP, 17 desktop). El ciclo nativo dejó el catálogo en 0→0, sin campos de ruta; el perfil registró 3 muestras, 7 procesos, working set máximo de 365,252,608 bytes (~348.4 MiB) y memoria privada máxima de 145,301,504 bytes; el primer render frío continúa fuera del presupuesto de 3 s.
 - v0.41.0 extiende el ciclo nativo bajo debug con `probe_save_transform_recipe`, `apply_transform_recipe` y `probe_export_dataset`: persiste una receta JSON en un directorio temporal, la reaplica sobre el dataset sintético y exporta CSV atómicamente con una regla de calidad aprobada. El proyecto guarda y restaura también el borrador de receta y la regla; la evidencia conserva solo estados, conteos y nombres de comandos, nunca rutas ni datos.
 - Validación v0.41.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, CDP WebView2 con receta/exportación/workspace y cleanup 0→0, smoke desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: CDP `.local/validation/webview2-cdp/20260823T023521Z`, desktop `.local/validation/desktop-smoke/20260823T023722Z`, CLI `.local/validation/cli-smoke/20260823T023722Z`, benchmark `.local/validation/performance-benchmark/20260823T023722Z`, Package `.local/validation/20260823T023806Z-2b173b8-package.json` y resumen `.local/validation/performance-summary/summary.json` (19 muestras CDP, 18 desktop). El ciclo nativo dejó el catálogo en 0→0; el perfil registró 1 muestra, 7 procesos, working set máximo de 333,901,824 bytes (~318.5 MiB) y memoria privada máxima de 140,701,696 bytes; el primer render frío continúa fuera del presupuesto de 3 s.
+- v0.42.0 añade `probe_reopen_project` bajo debug: crea un `ProjectStore` fresco contra el almacén de aplicación, reabre SQLite y el snapshot durable, valida recovery, dimensiones, reglas y borrador antes de que el ciclo IPC vuelva a abrir y elimine el proyecto. La comprobación no registra IDs, nombres, rutas ni filas en la evidencia.
+- Validación v0.42.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, CDP WebView2 con receta, exportación, reapertura durable, workspace y cleanup 0→0, smoke desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: CDP `.local/validation/webview2-cdp/20260823T024449Z`, desktop `.local/validation/desktop-smoke/20260823T024650Z`, CLI `.local/validation/cli-smoke/20260823T024650Z`, benchmark `.local/validation/performance-benchmark/20260823T024650Z`, Package `.local/validation/20260823T024737Z-96e6792-package.json` y resumen `.local/validation/performance-summary/summary.json` (20 muestras CDP, 19 desktop). El probe marcó `persistenceReopenVerified=true`, sin campos de ruta, con 7 procesos y working set máximo de 340,135,936 bytes (~324.4 MiB); el primer render frío continúa fuera del presupuesto de 3 s.
 
 ### Planeado o pendiente
 
@@ -378,7 +380,7 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
 - auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP ya verifica el ciclo nativo temporal de proyectos, pero no reemplaza todavía una sesión manual de asistencia;
-- selector nativo de exportación/receta y continuidad entre procesos desde WebView2, comparación contra `dataprepv1.1` y presupuesto global de RAM; el probe ya cubre receta temporal, aplicación y exportación atómica sin diálogos;
+- selector nativo de exportación/receta y reinicio de proceso real desde WebView2, comparación contra `dataprepv1.1` y presupuesto global de RAM; el probe ya cubre receta temporal, aplicación, exportación atómica y reapertura desde un `ProjectStore` fresco sin diálogos;
 - comparativa contra `dataprepv1.1`, presupuesto global de RAM y medición de transformaciones desde la ventana Tauri; el probe CDP ya registra el proceso debug y el benchmark CLI de 100 MiB aporta una señal reproducible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
@@ -444,6 +446,7 @@ Al actualizarlo:
 | 2026-08-22 | v0.39.0 añade al probe CDP un perfil del árbol de procesos propio de Columnia/WebView2 (muestras, nombres, working set inicial/máximo/final y memoria privada máxima), conservado en el resumen sin rutas ni datos; el presupuesto global de RAM sigue pendiente. | `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1` |
 | 2026-08-22 | v0.40.0 añade un recorrido nativo temporal de `probe_seed_dataset` → `save_project` → `open_project` → `get_dataset_page` → `delete_project` bajo debug; el runner verifica cleanup y no registra datos ni rutas. | `src-tauri/src/dataset.rs`, `tools/probe-webview2-projects.mjs`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-22 | v0.41.0 añade persistencia temporal de receta, aplicación nativa y exportación CSV atómica con quality gate dentro del mismo probe WebView2; el workspace del proyecto restaura regla y borrador sin exponer rutas. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `tools/probe-webview2-projects.mjs` |
+| 2026-08-22 | v0.42.0 añade reapertura durable nativa bajo debug: una instancia fresca de `ProjectStore` valida SQLite, snapshot, recovery y workspace antes de la apertura IPC y cleanup. | `src-tauri/src/projects.rs`, `src-tauri/src/lib.rs`, `tools/probe-webview2-projects.mjs` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

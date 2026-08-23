@@ -137,6 +137,7 @@ async function inspectNativeProjectIpc(page) {
           "probe_save_transform_recipe",
           "apply_transform_recipe",
           "probe_export_dataset",
+          "probe_reopen_project",
           "save_project",
           "list_projects",
           "open_project",
@@ -199,6 +200,19 @@ async function inspectNativeProjectIpc(page) {
             && saved.columnCount === 2;
           if (!savedValid) throw new Error("save_invalid");
 
+          const reopened = await internals.invoke("probe_reopen_project", { projectId });
+          const reopenedValid = Boolean(reopened)
+            && isSummary(reopened.project)
+            && reopened.project.id === projectId
+            && reopened.datasetFileName === "native-probe.csv"
+            && reopened.rowCount === 2
+            && reopened.columnCount === 2
+            && reopened.qualityRuleCount === 1
+            && reopened.recipeDraftPresent === true
+            && reopened.recoveryCandidatePresent === true
+            && forbiddenFields(reopened).length === 0;
+          if (!reopenedValid) throw new Error("reopen_invalid");
+
           const listed = await internals.invoke("list_projects");
           const listedValid = Array.isArray(listed)
             && listed.length === before.projectsCount + 1
@@ -244,6 +258,7 @@ async function inspectNativeProjectIpc(page) {
             recipeSaved: true,
             recipeApplied: true,
             exportVerified: true,
+            persistenceReopenVerified: true,
             mutationRequested: true,
             cleanupConfirmed: true,
             interactions,
@@ -447,6 +462,7 @@ function snapshotResult(status, pages, extra = {}) {
           "probe_save_transform_recipe",
           "apply_transform_recipe",
           "probe_export_dataset",
+          "probe_reopen_project",
           "save_project",
           "list_projects",
           "open_project",

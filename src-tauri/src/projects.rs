@@ -40,6 +40,19 @@ pub struct ProjectOpenResult {
     pub profile: Option<DatasetProfile>,
 }
 
+#[cfg(debug_assertions)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeProjectReopen {
+    pub project: ProjectSummary,
+    pub dataset_file_name: String,
+    pub row_count: usize,
+    pub column_count: usize,
+    pub quality_rule_count: usize,
+    pub recipe_draft_present: bool,
+    pub recovery_candidate_present: bool,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectWorkspace {
@@ -1056,6 +1069,36 @@ pub async fn open_project(app: AppHandle, project_id: String) -> Result<ProjectO
 #[tauri::command]
 pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), String> {
     run_project_operation(app, move |store, _| store.delete(project_id)).await
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn probe_reopen_project(
+    app: AppHandle,
+    project_id: String,
+) -> Result<NativeProjectReopen, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("No se pudo resolver el almacén de proyectos: {error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = ProjectStore::initialize(app_data_dir)?;
+        let recovery_candidate_present = store.recovery_candidate()?.is_some();
+        let validated = store.load_validated(&project_id)?;
+        let (row_count, column_count) = validated.candidate.dimensions();
+        let project = validated.stored.summary.clone();
+        Ok(NativeProjectReopen {
+            dataset_file_name: project.dataset_file_name.clone(),
+            row_count,
+            column_count,
+            quality_rule_count: validated.workspace.quality_rules.len(),
+            recipe_draft_present: validated.workspace.recipe_draft.is_some(),
+            recovery_candidate_present,
+            project,
+        })
+    })
+    .await
+    .map_err(|error| format!("La reapertura nativa del proyecto se interrumpió: {error}"))?
 }
 
 // Los proyectos v3 persisten el historial, pero cada apertura lo copia a un TempDir nuevo:
