@@ -11,4 +11,12 @@ describe("contratos CSS de accesibilidad", () => {
     expect(styles).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
     expect(styles).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
   });
+
+  it("ofrece una paleta explícita para forced-colors/alto contraste", () => {
+    expect(styles).toContain("@media (forced-colors: active)");
+    expect(styles).toContain("background: Canvas");
+    expect(styles).toContain("background: Highlight");
+    expect(styles).toContain("color: HighlightText");
+    expect(styles).toMatch(/outline:\s*3px solid Highlight/);
+  });
 });

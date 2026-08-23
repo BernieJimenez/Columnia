@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.44.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.45.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `d8ddd90` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `08e35ed` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -98,7 +98,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/features/projects/` | Catálogo, guardado, apertura, recuperación y eliminación accesible de proyectos locales. |
 | `src/features/delivery/` | Fase Entregar: vista, métricas y modelo tipado de contrato, compuerta de calidad y exportación. |
 | `src/bridge.ts` | Contrato TypeScript del IPC y única fachada de `invoke()` usada por la UI. |
-| `src/styles.css` | Sistema visual y layout de la aplicación; incluye foco visible, targets mínimos y reducción de movimiento respetando `prefers-reduced-motion`. |
+| `src/styles.css` | Sistema visual y layout de la aplicación; incluye foco visible, targets mínimos, reducción de movimiento y una paleta explícita para `forced-colors: active`. |
 | `playwright.config.ts` | Configuración de Playwright para E2E del shell web Vite, con Chromium/Edge local, preview de producción reutilizable, trazas y artefactos solo en fallos. |
 | `e2e/` | Pruebas E2E del shell web, primer render, accesibilidad, preferencias responsive y ciclo de proyectos con IPC Tauri simulado; la ventana WebView2 nativa tiene un probe CDP opcional. |
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
@@ -118,6 +118,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y registra primer render, landmarks, `ProjectsPanel`, skip link, foco principal y cantidad de controles sin mutar datos. |
 | `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de `ProjectsPanel`, los IPC nativos de catálogo y, en el smoke debug, guarda/abre/consulta/elimina un proyecto sintético con cleanup; registra duración por comando y total, pero no rutas ni datos del catálogo. |
 | `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, conserva el perfil de memoria, el presupuesto y las duraciones nativas, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
+| `tools/capture-accessibility-evidence.mjs` | Construye el preview local, captura desktop/móvil/escala 125%/forced-colors y publica capturas más un resumen sanitizado de landmarks, foco, targets y overflow bajo `.local/validation/`. |
 | `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide `columnia-cli` en inspect/validate/transform CSV+Parquet con duración y pico de working set, y conserva solo un resumen sin datos después del cleanup. |
 | `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, libros, calidad, lotes, atomicidad por trabajo y errores seguros. |
 | `fixtures/automation/` | Entradas, receta y resultados esperados del smoke de automatización. |
@@ -380,13 +381,16 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - v0.44.0 añade telemetría sanitizada por operación al ciclo nativo de `ProjectsPanel`: el runner conserva conteo, duración total y muestras por comando IPC para receta, exportación, persistencia, reapertura y cleanup, sin IDs, rutas, filas ni nombres de usuario.
 - v0.44.0 convierte el perfil CDP en un gate de presupuesto de ventana: toma muestras después de los probes y antes del cleanup, publica `performanceBudget` con límites configurables (512 MiB working set y 256 MiB memoria privada por defecto) y falla una ejecución soportada si excede alguno. `npm run perf:summary` conserva ese bloque junto al perfil y las duraciones nativas.
 - Validación v0.44.0 completada en Windows: Vitest 129/129, Playwright 9/9, smoke CDP normal y reinicio real, smoke desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: CDP normal `.local/validation/webview2-cdp/20260823T032048Z`, reinicio final `.local/validation/webview2-restart/20260823T032932Z` (prepare `.local/validation/webview2-cdp/20260823T032932Z`, verify `.local/validation/webview2-cdp/20260823T033028Z`), desktop/CLI/benchmark `.local/validation/*/20260823T032441Z`, Package `.local/validation/20260823T032502Z-d8ddd90-package.json` y resumen `.local/validation/performance-summary/summary.json` (34 muestras CDP, 21 desktop). El CDP normal observó 448,970,752 bytes de working set y 251,916,288 bytes privados, ambos dentro de sus límites; el reinicio final observó 429.89/235.36 MiB en prepare y 428.11/236.12 MiB en verify, con 9 operaciones IPC por fase y cleanup confirmado. El primer render frío continúa como señal observacional fuera de 3 s.
+- v0.45.0 añade soporte visual para `forced-colors: active`, conserva foco/controles con colores del sistema y agrega `npm run accessibility:visual`, que captura cuatro escenarios reproducibles (desktop, móvil, escala de dispositivo 125% y alto contraste) con un resumen sin datos.
+- La evidencia v0.45.0 verificó en los cuatro escenarios los landmarks `main`/`nav`/`aside`, foco visible, targets mínimos de 24 px y ausencia de overflow horizontal; el lector de pantalla manual sigue siendo una validación externa pendiente.
+- Validación v0.45.0 completada en Windows: Vitest 130/130, Rust 127/127, Playwright 9/9, evidencia visual 4/4, CDP normal, reinicio real, desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: visual `.local/validation/accessibility-visual/20260823T035524Z`, CDP final `.local/validation/webview2-cdp/20260823T035854Z`, reinicio final `.local/validation/webview2-restart/20260823T035959Z` (prepare `.local/validation/webview2-cdp/20260823T035959Z`, verify `.local/validation/webview2-cdp/20260823T040108Z`), desktop/CLI/benchmark `.local/validation/*/20260823T034915Z`, Package `.local/validation/20260823T035550Z-08e35ed-package.json` y resumen `.local/validation/performance-summary/summary.json` (40 muestras CDP, 22 desktop). El CDP final observó 428.30/235.87 MiB y el reinicio 430.60/237.35 MiB en prepare, 419.52/233.23 MiB en verify, dentro del presupuesto y con cleanup.
 
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
-- auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP ya verifica el ciclo nativo temporal de proyectos, pero no reemplaza todavía una sesión manual de asistencia;
+- auditoría manual con lector de pantalla y validación en hardware de Windows High Contrast; `npm run accessibility:visual` ya cubre capturas reproducibles de desktop, móvil, escala 125% y `forced-colors` sin reemplazar una sesión manual de asistencia;
 - selector nativo de exportación/receta y comparación contra `dataprepv1.1`; el presupuesto inicial de la ventana Tauri ya está instrumentado en CDP, pero falta compararlo con datasets grandes y medir transformaciones sostenidas;
 - medición de transformaciones desde la ventana Tauri y presupuesto integral dataset+historial; el probe CDP registra operaciones nativas de proyectos y el benchmark CLI de 100 MiB aporta una señal reproducible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
@@ -456,6 +460,7 @@ Al actualizarlo:
 | 2026-08-22 | v0.42.0 añade reapertura durable nativa bajo debug: una instancia fresca de `ProjectStore` valida SQLite, snapshot, recovery y workspace antes de la apertura IPC y cleanup. | `src-tauri/src/projects.rs`, `src-tauri/src/lib.rs`, `tools/probe-webview2-projects.mjs` |
 | 2026-08-22 | v0.43.0 añade `smoke:restart` con dos procesos Tauri/WebView2 independientes: preparar→cerrar→reiniciar→reabrir→eliminar, con cleanup delegado a cada fase y evidencia sin datos ni rutas. | `tools/probe-webview2-restart.ps1`, `tools/probe-webview2-cdp.ps1`, `tools/probe-webview2-projects.mjs` |
 | 2026-08-22 | v0.44.0 añade duraciones sanitizadas por operación IPC y un presupuesto CDP de 512 MiB working set/256 MiB memoria privada, con muestras posteriores a los probes y resumen de rendimiento persistente. | `tools/probe-webview2-projects.mjs`, `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1` |
+| 2026-08-22 | v0.45.0 añade estilos `forced-colors` y captura reproducible de evidencia visual en cuatro escenarios, con validación de landmarks, foco, targets y overflow sin datos de usuario. | `src/styles.css`, `src/components/AccessibilityStyles.test.ts`, `tools/capture-accessibility-evidence.mjs` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

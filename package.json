@@ -1,7 +1,7 @@
 {
   "name": "columnia",
   "private": true,
-  "version": "0.44.0",
+  "version": "0.45.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
+    "accessibility:visual": "node tools/capture-accessibility-evidence.mjs",
     "smoke:cli": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-cli.ps1",
     "smoke:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-tauri.ps1",
     "smoke:cdp": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-cdp.ps1 -RunPlaywright -RunProjects -RunProjectMutations",

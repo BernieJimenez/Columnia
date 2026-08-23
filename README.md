@@ -79,6 +79,11 @@ viewports móvil/desktop y el ciclo de proyectos con IPC simulado, además de un
 presupuesto de primer render de 3 s; los comandos Rust reales siguen validándose
 con Tauri y los smokes locales.
 
+Para generar evidencia visual reproducible ejecuta `npm run accessibility:visual`.
+El comando construye el preview y captura desktop, móvil, escala de dispositivo
+125% y `forced-colors`, validando landmarks, foco, targets mínimos y overflow; las
+imágenes y el resumen quedan en `.local/validation/accessibility-visual/`.
+
 En Windows, `npm run smoke:cdp` levanta el comando real `npm run tauri dev` con
 un puerto CDP de loopback aislado, verifica `/json/version` y `/json/list`, y
 usa `chromium.connectOverCDP` para medir primer render, landmarks y foco del

@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.44.0`.
+- Versión actual del prototipo: `0.45.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -695,6 +695,19 @@ reinicio real, desktop, CLI, benchmark y Package. El CDP normal observó 448.97
 MiB de working set y 251.92 MiB de memoria privada, dentro de los límites; las
 dos fases de reinicio también quedaron dentro de presupuesto y con cleanup.
 
+La versión 0.45.0 completa la primera capa reproducible de evidencia visual:
+`src/styles.css` añade un contrato `forced-colors: active` basado en colores del
+sistema para conservar contraste, bordes y foco en Windows High Contrast.
+`npm run accessibility:visual` construye el preview y captura desktop, móvil,
+escala 125% y forced-colors, verificando landmarks, targets de 24 px, foco y
+overflow horizontal. Las capturas quedan fuera de Git y el resumen solo conserva
+metadatos sanitizados; lector de pantalla y hardware real siguen pendientes.
+
+La validación Windows v0.45.0 pasó Vitest 130/130, Rust 127/127, Playwright
+9/9, las cuatro capturas visuales, CDP normal, reinicio real, desktop, CLI,
+benchmark y Package. El bundle final quedó en 315,829 bytes raw/90,324 gzip y
+los límites de memoria CDP se mantuvieron dentro de presupuesto.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -862,7 +875,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.44.0
+## 8.1. Cola de ejecución recomendada desde v0.45.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -872,9 +885,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    aún falta el selector nativo; `npm run smoke:restart` ya cubre el reinicio
    real y la continuidad durable antes de abrir y borrar el proyecto.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
-   targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
-   `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
-   y añadir capturas canónicas.
+   targets mínimos, reduced-motion, viewport móvil/desktop, escala 125%,
+   `forced-colors` y el ciclo de foco del `alertdialog`; `npm run
+   accessibility:visual` genera capturas canónicas reproducibles. Falta ejecutar
+   lector de pantalla y validar en hardware real de Windows High Contrast.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, mantener
    cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
    ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
@@ -958,6 +972,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.42.0: reapertura durable desde una instancia fresca de `ProjectStore` con SQLite, snapshot, recovery y workspace verificados dentro del probe WebView2; selector nativo y reinicio de proceso real siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.43.0: dos procesos Tauri/WebView2 independientes preparan, cierran, reinician, recuperan, abren y eliminan un proyecto sintético; selector nativo sigue pendiente | Implementada |
 | 2026-08-22 | Versión 0.44.0: telemetría IPC sanitizada por operación y presupuesto CDP de memoria aplicado al árbol nativo, con resumen de rendimiento ampliado | Implementada |
+| 2026-08-22 | Versión 0.45.0: estilos `forced-colors` y evidencia visual reproducible en desktop, móvil, escala 125% y alto contraste; lector de pantalla manual sigue pendiente | Implementada |
 
 ## 10. Fuentes de esta revisión
 

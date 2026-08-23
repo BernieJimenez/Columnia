@@ -369,3 +369,40 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .operation-progress strong { color: #7bd2c8; }
   .operation-progress button { border-color: #d3a258; color: #efc47f; }
 }
+
+@media (forced-colors: active) {
+  :root,
+  body { color: CanvasText; background: Canvas; }
+  .sidebar,
+  .workspace,
+  .projects,
+  .project-list li,
+  .sheet-dialog__panel,
+  .operation-progress,
+  .metrics div,
+  .export-panel,
+  .quality-contract,
+  .table-region,
+  .profile-region { border-color: ButtonText; background: Canvas; }
+  .workspace { box-shadow: none; }
+  button,
+  input,
+  select,
+  textarea { border-color: ButtonText; background: ButtonFace; color: ButtonText; }
+  .primary-action,
+  .skip-link { border-color: Highlight; background: Highlight; color: HighlightText; }
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible { outline: 3px solid Highlight; outline-offset: 3px; }
+  .side-nav .side-nav__active { border-color: Highlight; background: HighlightText; color: Highlight; }
+  .notice,
+  .notice--error,
+  .notice--success,
+  .project-recovery,
+  .change-feedback,
+  .change-feedback--error { border-color: ButtonText; background: Canvas; color: CanvasText; }
+  .project-list .project-list__active { border-left-color: Highlight; background: Canvas; }
+}
