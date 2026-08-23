@@ -60,6 +60,15 @@ $PlaywrightStatus = if ($RunPlaywright) { "pending" } else { "not_requested" }
 $PlaywrightPayload = $null
 $ProjectsStatus = if ($RunProjects) { "pending" } else { "not_requested" }
 $ProjectsPayload = $null
+$ProcessProfile = [ordered]@{
+    sampleCount = 0
+    peakProcessCount = 0
+    processNames = @()
+    firstWorkingSetBytes = $null
+    peakWorkingSetBytes = 0L
+    lastWorkingSetBytes = $null
+    peakPrivateMemoryBytes = 0L
+}
 $StartedAt = [DateTimeOffset]::UtcNow
 $Timer = [System.Diagnostics.Stopwatch]::StartNew()
 $PreviousWebViewArguments = $null
@@ -84,6 +93,38 @@ function Get-DebugAppProcesses {
                 )
             }
     )
+}
+
+function Update-ProcessProfile {
+    param([int[]]$ProcessIds)
+
+    $Processes = @($ProcessIds | Sort-Object -Unique | ForEach-Object {
+        Get-Process -Id ([int]$_) -ErrorAction SilentlyContinue
+    })
+    if ($Processes.Count -eq 0) {
+        return
+    }
+
+    $WorkingSetBytes = [int64](($Processes | Measure-Object -Property WorkingSet64 -Sum).Sum)
+    $PrivateMemoryBytes = [int64](($Processes | Measure-Object -Property PrivateMemorySize64 -Sum).Sum)
+    if ($script:ProcessProfile.sampleCount -eq 0) {
+        $script:ProcessProfile.firstWorkingSetBytes = $WorkingSetBytes
+    }
+    $script:ProcessProfile.sampleCount++
+    if ($Processes.Count -gt $script:ProcessProfile.peakProcessCount) {
+        $script:ProcessProfile.peakProcessCount = $Processes.Count
+    }
+    $script:ProcessProfile.processNames = @(
+        @($script:ProcessProfile.processNames) + @($Processes | ForEach-Object { $_.ProcessName }) |
+            Sort-Object -Unique
+    )
+    $script:ProcessProfile.lastWorkingSetBytes = $WorkingSetBytes
+    if ($WorkingSetBytes -gt $script:ProcessProfile.peakWorkingSetBytes) {
+        $script:ProcessProfile.peakWorkingSetBytes = $WorkingSetBytes
+    }
+    if ($PrivateMemoryBytes -gt $script:ProcessProfile.peakPrivateMemoryBytes) {
+        $script:ProcessProfile.peakPrivateMemoryBytes = $PrivateMemoryBytes
+    }
 }
 
 function Test-OwnedProcess {
@@ -123,6 +164,28 @@ function Add-ProcessTree {
             }
         }
     }
+}
+
+function Get-AppProcessTreeIds {
+    $Processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $Roots = @(Get-DebugAppProcesses | ForEach-Object { [int]$_.ProcessId })
+    $Ids = [System.Collections.Generic.HashSet[int]]::new()
+    $Pending = [System.Collections.Generic.Queue[int]]::new()
+    foreach ($RootId in $Roots) {
+        if ($Ids.Add($RootId)) {
+            $Pending.Enqueue($RootId)
+        }
+    }
+    while ($Pending.Count -gt 0) {
+        $ParentId = $Pending.Dequeue()
+        foreach ($Child in $Processes | Where-Object { [int]$_.ParentProcessId -eq $ParentId }) {
+            $ChildId = [int]$Child.ProcessId
+            if ($Ids.Add($ChildId)) {
+                $Pending.Enqueue($ChildId)
+            }
+        }
+    }
+    return @($Ids | ForEach-Object { [int]$_ })
 }
 
 function Get-CdpSnapshot {
@@ -315,6 +378,7 @@ try {
             }
             $snapshot = Get-CdpSnapshot -OwnedProcessIds @($OwnedListeners | ForEach-Object { [int]$_.OwningProcess })
             if ($null -ne $snapshot) {
+                Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
                 $VersionPayload = $snapshot.version
                 $TargetsPayload = $snapshot.targets
                 $DesktopStarted = $true
@@ -430,6 +494,7 @@ finally {
         endpoint = if ($null -ne $VersionPayload) { [string]$VersionPayload.webSocketDebuggerUrl } else { $null }
         browser = if ($null -ne $VersionPayload) { [string]$VersionPayload.Browser } else { $null }
         targetCount = if ($null -ne $TargetsPayload) { @($TargetsPayload).Count } else { 0 }
+        processProfile = $ProcessProfile
         cleanupConfirmed = $CleanupConfirmed
         command = "npm run tauri dev"
         environmentVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"

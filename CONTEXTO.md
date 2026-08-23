@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.38.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.39.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `9a8c52f` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `3fc7e17` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -113,10 +113,10 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/generate-sbom.ps1` | Genera offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
-| `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, puede conectar Playwright al WebView2 y ejecutar probes DOM de solo lectura, y deja evidencia; restaura el entorno y limpia su Job Object. |
+| `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, puede conectar Playwright al WebView2, registra el working set/memoria privada del proceso debug y ejecuta probes DOM de solo lectura; restaura el entorno y limpia su Job Object. |
 | `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y registra primer render, landmarks, `ProjectsPanel`, skip link, foco principal y cantidad de controles sin mutar datos. |
 | `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de solo lectura de `ProjectsPanel` y los IPC nativos `list_projects`/`get_recovery_candidate`: región, etiqueta, botón deshabilitado sin dataset, ausencia de rutas y nombres de acciones; nunca hace clic ni abre diálogos. |
-| `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
+| `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, conserva el perfil de memoria nativo, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
 | `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide `columnia-cli` en inspect/validate/transform CSV+Parquet con duración y pico de working set, y conserva solo un resumen sin datos después del cleanup. |
 | `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, libros, calidad, lotes, atomicidad por trabajo y errores seguros. |
 | `fixtures/automation/` | Entradas, receta y resultados esperados del smoke de automatización. |
@@ -352,7 +352,7 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
-- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.38.0 verificado en 314,827 bytes raw/90,154 gzip.
+- Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.39.0 verificado en 314,827 bytes raw/90,154 gzip.
 - Contratos automatizados de accesibilidad para landmarks, skip link, `aria-current`, `aria-busy`, acciones de proyectos y `alertdialog` modal.
 - Smoke desktop instrumentado con hitos: la ejecución fría v0.30.0 registró Vite en 4,307 ms, proceso debug en 71,321 ms, ventana visible en 71,337 ms y cleanup confirmado en 1,133 ms/1 intento; el cleanup admite un segundo intento de 3 s tras uno inicial de 4 s.
 - Playwright configurado con preview Vite y E2E del shell web para landmarks, runtime, navegación accesible, skip link y primer render; conserva trazas/capturas/vídeos solo cuando una prueba falla.
@@ -365,6 +365,8 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - Validación v0.37.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, probe CDP combinado con IPC nativo de proyectos y cleanup confirmado, smoke desktop, CLI, `npm run perf:summary` y Package aprobados. Evidencias: CDP `.local/validation/webview2-cdp/20260823T013419Z`, desktop `.local/validation/desktop-smoke/20260823T012904Z`, CLI `.local/validation/cli-smoke/20260823T012943Z`, Package `.local/validation/20260823T013521Z-7e06675-package.json` y resumen `.local/validation/performance-summary/summary.json` (12 muestras CDP, 14 desktop, 60 filas CSV; shell web todavía no observado por este agregador).
 - Benchmark local v0.38.0 completado con entrada sintética de 104,963,092 bytes (100.11 MiB), 876,544 filas y cuatro columnas: `inspect` 512.37 ms/247.1 MiB, `validate` 502.64 ms/248.2 MiB, `transform-csv` 2,329.89 ms/394.6 MiB y `transform-parquet` 2,502.10 ms/248.3 MiB; las salidas fueron 104,086,546 y 659,729 bytes respectivamente. Es una muestra CLI debug, no un presupuesto final de la ventana Tauri.
 - Validación v0.38.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, probe CDP combinado con IPC nativo de proyectos y cleanup confirmado, smoke desktop, CLI, `npm run perf:summary`, benchmark de 100 MiB y Package aprobados. Evidencias: benchmark `.local/validation/performance-benchmark/20260823T015011Z`, CDP `.local/validation/webview2-cdp/20260823T015220Z`, desktop `.local/validation/desktop-smoke/20260823T015325Z`, CLI `.local/validation/cli-smoke/20260823T015325Z`, Package `.local/validation/20260823T015338Z-9a8c52f-package.json` y resumen `.local/validation/performance-summary/summary.json` (13 muestras CDP, 15 desktop). El primer render nativo frío quedó en 39,995.6 ms, fuera del presupuesto de 3 s, pero no rompió los contratos de UI/IPC; el perfilado Tauri y el presupuesto global de RAM siguen pendientes.
+- v0.39.0 añade al probe CDP un perfil de memoria del proceso debug (`sampleCount`, working set inicial/máximo/final y memoria privada máxima) y lo conserva en el resumen de rendimiento sin rutas ni datos de usuario. La señal sirve para comparar arranques, pero no constituye todavía un presupuesto global de RAM ni una medición de transformaciones dentro de la ventana.
+- Validación v0.39.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, CDP/ProjectsPanel, smoke desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: CDP `.local/validation/webview2-cdp/20260823T020433Z`, desktop `.local/validation/desktop-smoke/20260823T020544Z`, CLI `.local/validation/cli-smoke/20260823T020544Z`, benchmark `.local/validation/performance-benchmark/20260823T020544Z`, Package `.local/validation/20260823T020620Z-3fc7e17-package.json` y resumen `.local/validation/performance-summary/summary.json` (16 muestras CDP, 16 desktop). El perfil CDP registró 3 muestras, 7 procesos, working set máximo de 366,428,160 bytes (~349.4 MiB) y memoria privada máxima de 147,488,768 bytes; el primer render frío fue 43,412 ms y permanece como señal fuera del presupuesto de 3 s.
 
 ### Planeado o pendiente
 
@@ -373,7 +375,7 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - joins, comparación de datasets y destinos de bases de datos;
 - acciones IPC mutantes de proyectos dentro de WebView2, auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP ya verifica `list_projects` y `get_recovery_candidate` de solo lectura, pero no reemplaza todavía la interacción de negocio;
 - acciones completas de proyectos sobre CDP; el objetivo operativo provisional sigue siendo startup total menor de 8 s y cleanup 100 % repetible;
-- perfilado nativo desde la ventana Tauri, comparativa contra `dataprepv1.1` y presupuesto global de RAM; el benchmark CLI de 100 MiB ya aporta una primera señal reproducible;
+- comparativa contra `dataprepv1.1`, presupuesto global de RAM y medición de transformaciones desde la ventana Tauri; el probe CDP ya registra el proceso debug y el benchmark CLI de 100 MiB aporta una señal reproducible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
 
@@ -435,6 +437,7 @@ Al actualizarlo:
 | 2026-08-22 | El probe CDP mide primer render nativo con `columnia:app-render` bajo 3 s y verifica skip link → foco de `main`; el E2E responsive cubre reduced-motion y viewports sin overflow horizontal. | `tools/probe-webview2-playwright.mjs`, `e2e/preferences.spec.ts`, `src/styles.css` |
 | 2026-08-22 | El smoke de escritorio valida el contrato estático de `ProjectsPanel` y confirma que la ventana debug/WebView2 inició; no simula clics porque UI Automation solo expone paneles del WebView2 y no el DOM React sin ampliar la configuración de depuración. | `tools/smoke-tauri.ps1`, `src/features/projects/ProjectsPanel.tsx` |
 | 2026-08-22 | El smoke CDP combinado añade una lectura DOM de solo lectura del contrato de `ProjectsPanel` y un resumen local de rendimiento con deltas; las acciones que abren diálogos o escriben proyectos siguen fuera del probe. | `tools/probe-webview2-projects.mjs`, `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1` |
+| 2026-08-22 | v0.39.0 añade al probe CDP un perfil del árbol de procesos propio de Columnia/WebView2 (muestras, nombres, working set inicial/máximo/final y memoria privada máxima), conservado en el resumen sin rutas ni datos; el presupuesto global de RAM sigue pendiente. | `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

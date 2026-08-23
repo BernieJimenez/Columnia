@@ -94,7 +94,8 @@ function New-Sample {
         [string]$Source,
         [Nullable[DateTimeOffset]]$ObservedAt,
         [string]$Status,
-        [object[]]$Metrics
+        [object[]]$Metrics,
+        [object]$ProcessProfile = $null
     )
 
     [ordered]@{
@@ -103,6 +104,7 @@ function New-Sample {
         observedAt = if ($null -eq $ObservedAt) { $null } else { $ObservedAt.ToString("o") }
         status = $Status
         metrics = @($Metrics)
+        processProfile = $ProcessProfile
     }
 }
 
@@ -170,7 +172,7 @@ function Get-CdpNativeSample {
 
     $Status = if ($Document.playwrightStatus -eq "passed" -and $Document.status -eq "supported") { "observed" } else { "unavailable" }
     $ObservedAt = Get-ObservedAt -Document $Document -EvidenceName $EvidenceName
-    return New-Sample -Category "cdp-native" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics)
+    return New-Sample -Category "cdp-native" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile
 }
 
 function Get-DesktopSmokeSample {

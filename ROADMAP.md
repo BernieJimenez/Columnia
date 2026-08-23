@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.38.0`.
+- Versión actual del prototipo: `0.39.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -639,6 +639,18 @@ muestra (100.11 MiB, 876,544 filas) observó un pico de 394.6 MiB durante la
 transformación CSV, por lo que el límite provisional de 500 MiB no se presenta
 como presupuesto final ni sustituye el benchmark de la ventana Tauri.
 
+La versión 0.39.0 añade perfilado acotado al probe WebView2/CDP: durante el
+arranque real de `npm run tauri dev` toma muestras del working set y la memoria
+privada del ejecutable debug, conserva inicial/máximo/final y expone el bloque
+en `npm run perf:summary`. No cambia el arranque normal, no registra rutas ni
+datos del usuario y todavía no es un presupuesto global de RAM ni una medición
+de transformaciones dentro de la ventana.
+
+La muestra v0.39.0 verificada registró 3 muestras y 7 procesos propios
+(`columnia` + WebView2), con working set máximo de 366,428,160 bytes (~349.4 MiB)
+y memoria privada máxima de 147,488,768 bytes. El primer render frío fue de
+43,412 ms; se conserva como señal de arranque debug fuera del presupuesto de 3 s.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -806,7 +818,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.38.0
+## 8.1. Cola de ejecución recomendada desde v0.39.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -819,9 +831,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
    y añadir capturas canónicas.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, completar
-   mediciones de RAM máxima, perfilado nativo, receta y exportación desde la
-   ventana, y mantener cleanup 100 % repetible; `npm run perf:benchmark` ya cubre
-   una muestra CLI de 100 MiB y `npm run perf:summary` conserva deltas, pero la
+   presupuesto global de RAM, receta y exportación desde la ventana, y mantener
+   cleanup 100 % repetible; `npm run perf:benchmark` cubre una muestra CLI de
+   100 MiB y `npm run smoke:cdp` ya conserva working set/memoria privada, pero la
    compilación debug fría todavía puede excederla y falta comparar contra
    `dataprepv1.1`.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
@@ -895,6 +907,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.36.0: smoke CDP combinado con contrato accesible de solo lectura de `ProjectsPanel` y resumen local de rendimiento con deltas; acciones IPC que abren diálogos o escriben proyectos siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.37.0: el probe CDP de `ProjectsPanel` invoca `list_projects` y `get_recovery_candidate` de forma nativa, valida formas sin rutas y conserva evidencia sin datos; las mutaciones IPC siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.38.0: benchmark CLI reproducible de 100 MiB con inspect/validate/transform CSV+Parquet, duración, working set y cleanup sin conservar datos; RAM final y perfilado Tauri siguen pendientes | Implementada |
+| 2026-08-22 | Versión 0.39.0: el probe WebView2/CDP registra working set y memoria privada inicial/máxima/final del proceso debug y los conserva en el resumen sin rutas ni datos; presupuesto global y transformaciones nativas siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 

@@ -95,6 +95,10 @@ de trabajo ejecuta `npm run perf:benchmark`. El benchmark usa la CLI local para
 `inspect`, `validate` y transformaciones CSV/Parquet, registra duración y pico
 de working set, y deja solo un resumen en `.local/validation/`.
 
+`npm run smoke:cdp` añade un perfil acotado del proceso debug (working set y
+memoria privada inicial, máxima y final) al resumen local; esta señal no habilita
+CDP en el arranque normal ni sustituye todavía un presupuesto global de RAM.
+
 ## Automatización por CLI
 
 La CLI reutiliza el motor Rust y entrega resultados JSON versión 1 para poder
