@@ -1,7 +1,7 @@
 {
   "name": "columnia",
   "private": true,
-  "version": "0.35.0",
+  "version": "0.36.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,8 @@
     "test:e2e:install": "playwright install chromium",
     "smoke:cli": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-cli.ps1",
     "smoke:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-tauri.ps1",
-    "smoke:cdp": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-cdp.ps1 -RunPlaywright",
+    "smoke:cdp": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-cdp.ps1 -RunPlaywright -RunProjects",
+    "perf:summary": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/summarize-performance.ps1",
     "tauri": "tauri"
   },
   "dependencies": {

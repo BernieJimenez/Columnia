@@ -3,7 +3,8 @@ param(
     [int]$Port = 9222,
     [ValidateRange(15, 900)]
     [int]$TimeoutSeconds = 120,
-    [switch]$RunPlaywright
+    [switch]$RunPlaywright,
+    [switch]$RunProjects
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,6 +58,8 @@ $VersionPayload = $null
 $TargetsPayload = $null
 $PlaywrightStatus = if ($RunPlaywright) { "pending" } else { "not_requested" }
 $PlaywrightPayload = $null
+$ProjectsStatus = if ($RunProjects) { "pending" } else { "not_requested" }
+$ProjectsPayload = $null
 $StartedAt = [DateTimeOffset]::UtcNow
 $Timer = [System.Diagnostics.Stopwatch]::StartNew()
 $PreviousWebViewArguments = $null
@@ -218,6 +221,43 @@ function Invoke-PlaywrightProbe {
     }
 }
 
+function Invoke-ProjectsProbe {
+    $RunnerPath = Join-Path $ProjectRoot "tools\probe-webview2-projects.mjs"
+    if (-not (Test-Path -LiteralPath $RunnerPath -PathType Leaf)) {
+        $script:ProjectsStatus = "failed"
+        $script:ProjectsPayload = [ordered]@{
+            status = "failed"
+            error = "No se encontró tools/probe-webview2-projects.mjs."
+        }
+        return
+    }
+
+    $NodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
+    $Output = @(& $NodeCommand $RunnerPath "--port" $Port 2>&1)
+    $OutputText = [string]::Join([Environment]::NewLine, @($Output | ForEach-Object { [string]$_ }))
+    $LastJsonLine = @($Output | Where-Object { ([string]$_).TrimStart().StartsWith("{") } | Select-Object -Last 1)
+    if ($LastJsonLine.Count -eq 0) {
+        $script:ProjectsStatus = "failed"
+        $script:ProjectsPayload = [ordered]@{
+            status = "failed"
+            error = if ($OutputText) { $OutputText } else { "El runner ProjectsPanel no produjo evidencia JSON." }
+        }
+        return
+    }
+
+    try {
+        $script:ProjectsPayload = [string]$LastJsonLine[0] | ConvertFrom-Json
+        $script:ProjectsStatus = [string]$script:ProjectsPayload.status
+    }
+    catch {
+        $script:ProjectsStatus = "failed"
+        $script:ProjectsPayload = [ordered]@{
+            status = "failed"
+            error = "El runner ProjectsPanel produjo una respuesta JSON inválida: $OutputText"
+        }
+    }
+}
+
 New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
 
 try {
@@ -278,21 +318,53 @@ try {
                 $VersionPayload = $snapshot.version
                 $TargetsPayload = $snapshot.targets
                 $DesktopStarted = $true
-                if (-not $RunPlaywright) {
+                if (-not $RunPlaywright -and -not $RunProjects) {
                     $Status = "supported"
                     break
                 }
 
-                Invoke-PlaywrightProbe
-                if ($PlaywrightStatus -eq "passed") {
-                    $Status = "supported"
-                    break
+                if ($RunPlaywright -and ($PlaywrightStatus -eq "pending" -or $PlaywrightStatus -eq "not_ready")) {
+                    Invoke-PlaywrightProbe
+                }
+                if ($RunPlaywright -and $PlaywrightStatus -eq "passed") {
+                    if (-not $RunProjects) {
+                        $Status = "supported"
+                        break
+                    }
+
+                    if ($ProjectsStatus -eq "pending" -or $ProjectsStatus -eq "not_ready") {
+                        Invoke-ProjectsProbe
+                    }
+                    if ($ProjectsStatus -eq "passed") {
+                        $Status = "supported"
+                        break
+                    }
+                    if ($ProjectsStatus -eq "failed") {
+                        $Status = "failed"
+                        $FailureMessage = "El runner ProjectsPanel no pudo verificar el contrato nativo de solo lectura."
+                        break
+                    }
+                }
+
+                if (-not $RunPlaywright -and $RunProjects) {
+                    if ($ProjectsStatus -eq "pending" -or $ProjectsStatus -eq "not_ready") {
+                        Invoke-ProjectsProbe
+                    }
+                    if ($ProjectsStatus -eq "passed") {
+                        $Status = "supported"
+                        break
+                    }
+                    if ($ProjectsStatus -eq "failed") {
+                        $Status = "failed"
+                        $FailureMessage = "El runner ProjectsPanel no pudo verificar el contrato nativo de solo lectura."
+                        break
+                    }
                 }
 
                 # WebView2 can expose a provisional about:blank target before
                 # the Tauri page has committed. Keep the CDP listener alive
                 # and let Playwright retry until the shell DOM is ready.
-                if ($PlaywrightStatus -ne "not_ready") {
+                if ($RunPlaywright -and $PlaywrightStatus -eq "failed") {
                     $Status = "failed"
                     $FailureMessage = "El runner Playwright no pudo inspeccionar el shell nativo."
                     break
@@ -314,7 +386,7 @@ try {
         Start-Sleep -Milliseconds 500
     }
 
-    if ($Status -eq "failed" -and $DesktopStarted) {
+    if ($Status -eq "failed" -and $DesktopStarted -and $null -eq $FailureMessage) {
         $Status = "not_supported"
         $FailureMessage = "Tauri/WebView2 inició, pero no expuso /json/version en el puerto $Port durante $TimeoutSeconds segundos."
     }
@@ -349,6 +421,9 @@ finally {
         playwrightRequested = [bool]$RunPlaywright
         playwrightStatus = $PlaywrightStatus
         playwright = $PlaywrightPayload
+        projectsRequested = [bool]$RunProjects
+        projectsStatus = $ProjectsStatus
+        projects = $ProjectsPayload
         cdpListenerObserved = $CdpListenerObserved
         viteListenerReady = $ViteStarted
         desktopProcessReady = $DesktopStarted
@@ -363,9 +438,14 @@ finally {
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
 
-if ($Status -eq "supported" -and $PlaywrightStatus -eq "passed") {
+if ($Status -eq "supported" -and (-not $RunPlaywright -or $PlaywrightStatus -eq "passed") -and (-not $RunProjects -or $ProjectsStatus -eq "passed")) {
     if ($RunPlaywright) {
-        Write-Host "WebView2 CDP y Playwright connectOverCDP aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks y foco, sin mutar datos."
+        if ($RunProjects) {
+            Write-Host "WebView2 CDP, Playwright connectOverCDP y ProjectsPanel aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks, foco y contrato de solo lectura, sin mutar datos."
+        }
+        else {
+            Write-Host "WebView2 CDP y Playwright connectOverCDP aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks y foco, sin mutar datos."
+        }
     }
     else {
         Write-Host "WebView2 CDP detectado en http://127.0.0.1:$Port; no se ejecutaron comandos CDP ni interacciones DOM."

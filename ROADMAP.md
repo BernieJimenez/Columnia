@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.35.0`.
+- Versión actual del prototipo: `0.36.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -614,6 +614,15 @@ La medición nativa queda registrada como señal (no como gate de compilación f
 la última ejecución observó 26,157.9 ms durante el arranque debug, mientras los
 contratos de landmarks y foco pasaron.
 
+La versión 0.36.0 conserva el probe nativo aislado y añade una lectura DOM de
+solo lectura específica de `ProjectsPanel`: región y heading accesibles, etiqueta
+del nombre, guardado deshabilitado sin dataset, ausencia de rutas visibles y
+nombres de acción. `npm run smoke:cdp` ejecuta ambos probes en la misma ventana
+WebView2 y deja sus contratos en la evidencia JSON, sin hacer clics, escribir
+datos ni abrir diálogos. También incorpora `npm run perf:summary`, que lee solo
+las evidencias locales existentes, separa señales web/CDP/desktop y calcula
+deltas sin convertir la compilación fría en un fallo de producto.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -781,22 +790,24 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.35.0
+## 8.1. Cola de ejecución recomendada desde v0.36.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
    Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
    Vitest cubre guardar→catálogo→abrir→restaurar y el smoke cubre contrato,
-   ventana y cleanup; el probe CDP ya lee el DOM del shell, pero los flujos IPC
-   nativos de proyectos siguen pendientes.
+   ventana y cleanup; el probe CDP ya lee el DOM del shell y el contrato
+   accesible de `ProjectsPanel`, pero los flujos IPC nativos de proyectos siguen
+   pendientes.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
    `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
    y añadir capturas canónicas.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, medir CSV
    de 100 MiB, RAM máxima, perfilado, receta y exportación, y mantener cleanup
-   100 % repetible; el primer render nativo ya se mide contra una señal CDP de 3 s,
-   pero la compilación debug fría todavía puede excederla.
+   100 % repetible; el primer render nativo ya se mide contra una señal CDP de 3 s
+   y `npm run perf:summary` conserva deltas de las muestras locales, pero la
+   compilación debug fría todavía puede excederla y faltan RAM/datasets de 100 MiB.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -865,6 +876,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.33.0: marca de primer render y presupuesto Playwright independiente de 3 s para el shell web; medición WebView2 nativa queda pendiente | Implementada |
 | 2026-08-22 | Versión 0.34.0: probe Windows WebView2/CDP aislado con lectura DOM mediante Playwright y cleanup por Job Object; mutaciones IPC nativas quedan pendientes | Implementada |
 | 2026-08-22 | Versión 0.35.0: primer render, landmarks y foco verificados dentro de WebView2 mediante CDP; E2E responsive/reduced-motion añadido; acciones IPC de proyectos siguen pendientes | Implementada |
+| 2026-08-22 | Versión 0.36.0: smoke CDP combinado con contrato accesible de solo lectura de `ProjectsPanel` y resumen local de rendimiento con deltas; acciones IPC que abren diálogos o escriben proyectos siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 

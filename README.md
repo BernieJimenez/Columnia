@@ -81,10 +81,13 @@ con Tauri y los smokes locales.
 
 En Windows, `npm run smoke:cdp` levanta el comando real `npm run tauri dev` con
 un puerto CDP de loopback aislado, verifica `/json/version` y `/json/list`, y
-usa `chromium.connectOverCDP` para medir primer render y leer landmarks/foco del WebView2. El probe
-restaura la variable de entorno y termina únicamente los procesos que creó;
-reporta el primer render aunque el arranque debug frío supere el presupuesto,
-no ejecuta mutaciones de proyectos ni sustituye todavía los flujos IPC nativos.
+usa `chromium.connectOverCDP` para medir primer render, landmarks y foco del
+WebView2, además de comprobar el contrato accesible de solo lectura de
+`ProjectsPanel`. El probe restaura la variable de entorno y termina únicamente
+los procesos que creó; reporta el primer render aunque el arranque debug frío
+supere el presupuesto, no ejecuta mutaciones de proyectos ni sustituye todavía
+los flujos IPC nativos. Para resumir las evidencias locales por categoría y
+comparar deltas entre ejecuciones usa `npm run perf:summary`.
 
 ## Automatización por CLI
 

@@ -1,6 +1,6 @@
 [package]
 name = "columnia"
-version = "0.35.0"
+version = "0.36.0"
 description = "Estación local para preparar datos confiables"
 edition = "2021"
 default-run = "columnia"
