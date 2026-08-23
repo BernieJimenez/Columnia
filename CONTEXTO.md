@@ -428,6 +428,7 @@ Al revisar este documento había 130 pruebas frontend y 127 pruebas Rust; las ra
 - joins, comparación de datasets y destinos de bases de datos;
 - auditoría manual con lector de pantalla y validación en hardware de Windows High Contrast; `npm run accessibility:visual` ya cubre capturas reproducibles de desktop, móvil, escala 125% y `forced-colors` sin reemplazar una sesión manual de asistencia;
 - selector nativo de exportación/receta y comparación contra `dataprepv1.1`; el presupuesto inicial de la ventana Tauri ya está instrumentado en CDP, pero falta compararlo con datasets grandes y medir transformaciones sostenidas;
+- el probe opt-in `npm run smoke:native-selectors` ya recorre los comandos de selector de dataset, receta y exportación con fixtures sintéticos y evidencia sanitizada; todavía no se considera gate porque esta sesión Windows no confirmó de forma estable el cierre Win32 del botón del diálogo;
 - presupuesto integral global de dataset+historial para entradas grandes y comparación contra `dataprepv1.1`; v0.49 mide tres ciclos nativos sobre el dataset de probe y aplica el presupuesto global del árbol, pero todavía no prueba datasets grandes desde WebView2;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
@@ -481,6 +482,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-23 | Se añadió un probe opt-in de selectores nativos: PowerShell conduce los diálogos Win32 y WebView2 espera los resultados IPC para abrir dataset, guardar/cargar receta y exportar sin exponer rutas; falta estabilizar el cierre automático del botón antes de elevarlo a gate. | `tools/probe-webview2-native-selectors.mjs`, `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-22 | El smoke desktop separa hitos monotónicos de Vite, proceso debug y ventana visible, y confirma cleanup con hasta dos intentos acotados; se añadieron contratos de landmarks, estados ARIA y alertdialog. | `tools/smoke-tauri.ps1`, `src/components/AccessibilityContracts.test.tsx` |
 | 2026-08-22 | Playwright 1.62 quedó configurado contra un preview Vite local (Edge en Windows, Chromium en otros sistemas) y E2E del shell web; los artefactos de diagnóstico quedan ignorados y la cobertura nativa Tauri/IPC sigue pendiente. | `playwright.config.ts`, `e2e/shell.spec.ts`, `package.json` |
 | 2026-08-22 | El E2E añade un mock aislado de `__TAURI_INTERNALS__` para recorrer cargar, guardar, abrir y eliminar proyectos sin tocar filesystem; la ventana WebView2 real sigue fuera de alcance. | `e2e/projects.spec.ts` |

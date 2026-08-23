@@ -6,6 +6,7 @@ param(
     [switch]$RunPlaywright,
     [switch]$RunProjects,
     [switch]$RunProjectMutations,
+    [switch]$RunNativeSelectors,
     [ValidateRange(1, 5)]
     [int]$NativeSustainedRuns = 3,
     [ValidateSet("normal", "restart-prepare", "restart-verify")]
@@ -69,6 +70,8 @@ $PlaywrightStatus = if ($RunPlaywright) { "pending" } else { "not_requested" }
 $PlaywrightPayload = $null
 $ProjectsStatus = if ($RunProjects) { "pending" } else { "not_requested" }
 $ProjectsPayload = $null
+$NativeSelectorsStatus = if ($RunNativeSelectors) { "pending" } else { "not_requested" }
+$NativeSelectorsPayload = $null
 $ProcessProfile = [ordered]@{
     sampleCount = 0
     peakProcessCount = 0
@@ -373,6 +376,145 @@ function Invoke-ProjectsProbe {
     }
 }
 
+function Invoke-NativeSelectorsProbe {
+    $RunnerPath = Join-Path $ProjectRoot "tools\probe-webview2-native-selectors.mjs"
+    $DriverPath = Join-Path $ProjectRoot "tools\automate-native-file-dialog.ps1"
+    if (-not (Test-Path -LiteralPath $RunnerPath -PathType Leaf) -or -not (Test-Path -LiteralPath $DriverPath -PathType Leaf)) {
+        $script:NativeSelectorsStatus = "failed"
+        $script:NativeSelectorsPayload = [ordered]@{
+            status = "failed"
+            error = "No se encontró el runner o driver de selectores nativos."
+        }
+        return
+    }
+
+    $NodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
+    $RequestPath = Join-Path $EvidenceDirectory "native-selector-request.json"
+    $RunnerStdoutPath = Join-Path $EvidenceDirectory "native-selectors.stdout.log"
+    $RunnerStderrPath = Join-Path $EvidenceDirectory "native-selectors.stderr.log"
+    Remove-Item -LiteralPath $RequestPath -Force -ErrorAction SilentlyContinue
+    $RunnerProcess = Start-Process `
+        -FilePath $NodeCommand `
+        -ArgumentList @(
+            "`"$RunnerPath`"",
+            "--port",
+            $Port,
+            "--request-file",
+            "`"$RequestPath`""
+        ) `
+        -WorkingDirectory $ProjectRoot `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $RunnerStdoutPath `
+        -RedirectStandardError $RunnerStderrPath `
+        -PassThru
+    $ProbeDeadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    $HandledRequestId = $null
+    try {
+        while ([DateTimeOffset]::UtcNow -lt $ProbeDeadline) {
+            if (Test-Path -LiteralPath $RequestPath -PathType Leaf) {
+                try {
+                    $Request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+                }
+                catch {
+                    $Request = $null
+                }
+                if ($null -ne $Request -and $Request.status -eq "pending" -and $Request.requestId -ne $HandledRequestId) {
+                    $HandledRequestId = [string]$Request.requestId
+                    $DriverOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $DriverPath `
+                        -Mode ([string]$Request.mode) `
+                        -Path ([string]$Request.targetPath) 2>&1)
+                    $DriverJsonLine = @(
+                        $DriverOutput |
+                            Where-Object { ([string]$_).TrimStart().StartsWith("{") } |
+                            Select-Object -Last 1
+                    )
+                    $DriverStatus = "failed"
+                    $DriverErrorCode = "native_dialog_driver_failed"
+                    if ($DriverJsonLine.Count -gt 0) {
+                        try {
+                            $DriverResult = [string]$DriverJsonLine[0] | ConvertFrom-Json
+                            $DriverStatus = [string]$DriverResult.status
+                            if ($DriverStatus -eq "passed") {
+                                $DriverErrorCode = $null
+                            }
+                            elseif ($null -ne $DriverResult.errorCode) {
+                                $DriverErrorCode = [string]$DriverResult.errorCode
+                            }
+                        }
+                        catch {
+                            $DriverErrorCode = "native_dialog_driver_invalid_result"
+                        }
+                    }
+                    $Response = [ordered]@{
+                        requestId = $HandledRequestId
+                        status = if ($DriverStatus -eq "passed") { "passed" } else { "failed" }
+                        errorCode = $DriverErrorCode
+                    } | ConvertTo-Json -Compress
+                    [System.IO.File]::WriteAllText(
+                        $RequestPath,
+                        $Response,
+                        [System.Text.UTF8Encoding]::new($false)
+                    )
+                }
+            }
+            $RunnerProcess.Refresh()
+            if ($RunnerProcess.HasExited) {
+                break
+            }
+            Start-Sleep -Milliseconds 150
+        }
+
+        $RunnerProcess.Refresh()
+        if (-not $RunnerProcess.HasExited) {
+            Stop-Process -Id $RunnerProcess.Id -Force -ErrorAction SilentlyContinue
+            $script:NativeSelectorsStatus = "failed"
+            $script:NativeSelectorsPayload = [ordered]@{
+                status = "failed"
+                phase = "native_file_selectors_failed"
+                errorCode = "native_selectors_timeout"
+                interactions = @()
+            }
+            return
+        }
+
+        $Output = @()
+        if (Test-Path -LiteralPath $RunnerStdoutPath -PathType Leaf) {
+            $Output = @(Get-Content -LiteralPath $RunnerStdoutPath)
+        }
+        $LastJsonLine = @($Output | Where-Object { ([string]$_).TrimStart().StartsWith("{") } | Select-Object -Last 1)
+        if ($LastJsonLine.Count -eq 0) {
+            $script:NativeSelectorsStatus = "failed"
+            $script:NativeSelectorsPayload = [ordered]@{
+                status = "failed"
+                phase = "native_file_selectors_failed"
+                errorCode = "native_selectors_runner_no_result"
+                interactions = @()
+            }
+            return
+        }
+        $script:NativeSelectorsPayload = [string]$LastJsonLine[0] | ConvertFrom-Json
+        $script:NativeSelectorsStatus = [string]$script:NativeSelectorsPayload.status
+    }
+    catch {
+        $script:NativeSelectorsStatus = "failed"
+        $script:NativeSelectorsPayload = [ordered]@{
+            status = "failed"
+            phase = "native_file_selectors_failed"
+            errorCode = "native_selectors_runner_failed"
+            interactions = @()
+        }
+    }
+    finally {
+        if ($null -ne $RunnerProcess) {
+            $RunnerProcess.Refresh()
+            if (-not $RunnerProcess.HasExited) {
+                Stop-Process -Id $RunnerProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Remove-Item -LiteralPath $RequestPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
 
 try {
@@ -434,7 +576,7 @@ try {
                 $VersionPayload = $snapshot.version
                 $TargetsPayload = $snapshot.targets
                 $DesktopStarted = $true
-                if (-not $RunPlaywright -and -not $RunProjects) {
+                if (-not $RunPlaywright -and -not $RunProjects -and -not $RunNativeSelectors) {
                     $Status = "supported"
                     break
                 }
@@ -444,7 +586,7 @@ try {
                     Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
                 }
                 if ($RunPlaywright -and $PlaywrightStatus -eq "passed") {
-                    if (-not $RunProjects) {
+                    if (-not $RunProjects -and -not $RunNativeSelectors) {
                         $Status = "supported"
                         break
                     }
@@ -453,7 +595,7 @@ try {
                         Invoke-ProjectsProbe
                         Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
                     }
-                    if ($ProjectsStatus -eq "passed") {
+                    if ($ProjectsStatus -eq "passed" -and -not $RunNativeSelectors) {
                         $Status = "supported"
                         break
                     }
@@ -474,7 +616,7 @@ try {
                         Invoke-ProjectsProbe
                         Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
                     }
-                    if ($ProjectsStatus -eq "passed") {
+                    if ($ProjectsStatus -eq "passed" -and -not $RunNativeSelectors) {
                         $Status = "supported"
                         break
                     }
@@ -488,6 +630,20 @@ try {
                         }
                         break
                     }
+                }
+
+                if ($RunNativeSelectors -and (-not $RunPlaywright -or $PlaywrightStatus -eq "passed") -and ($NativeSelectorsStatus -eq "pending" -or $NativeSelectorsStatus -eq "not_ready")) {
+                    Invoke-NativeSelectorsProbe
+                    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+                }
+                if ($RunNativeSelectors -and $NativeSelectorsStatus -eq "passed") {
+                    $Status = "supported"
+                    break
+                }
+                if ($RunNativeSelectors -and $NativeSelectorsStatus -eq "failed") {
+                    $Status = "failed"
+                    $FailureMessage = "El runner de selectores nativos no pudo verificar los diálogos de archivo de Windows."
+                    break
                 }
 
                 # WebView2 can expose a provisional about:blank target before
@@ -562,6 +718,9 @@ finally {
         projectProbeMode = $ProjectProbeMode
         projectsStatus = $ProjectsStatus
         projects = $ProjectsPayload
+        nativeSelectorsRequested = [bool]$RunNativeSelectors
+        nativeSelectorsStatus = $NativeSelectorsStatus
+        nativeSelectors = $NativeSelectorsPayload
         cdpListenerObserved = $CdpListenerObserved
         viteListenerReady = $ViteStarted
         desktopProcessReady = $DesktopStarted
@@ -578,9 +737,12 @@ finally {
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
 }
 
-if ($Status -eq "supported" -and (-not $RunPlaywright -or $PlaywrightStatus -eq "passed") -and (-not $RunProjects -or $ProjectsStatus -eq "passed")) {
+if ($Status -eq "supported" -and (-not $RunPlaywright -or $PlaywrightStatus -eq "passed") -and (-not $RunProjects -or $ProjectsStatus -eq "passed") -and (-not $RunNativeSelectors -or $NativeSelectorsStatus -eq "passed")) {
     if ($RunPlaywright) {
-        if ($RunProjects) {
+        if ($RunProjects -and $RunNativeSelectors) {
+            Write-Host "WebView2 CDP, ProjectsPanel y selectores nativos aprobados en http://127.0.0.1:$Port; se verificaron IPC de proyectos y los diálogos de abrir/guardar sin exponer rutas."
+        }
+        elseif ($RunProjects) {
             if ($RunProjectMutations) {
                 Write-Host "WebView2 CDP, Playwright connectOverCDP y ProjectsPanel aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks, foco y mutaciones IPC nativas con cleanup del proyecto de prueba."
             }
@@ -588,12 +750,26 @@ if ($Status -eq "supported" -and (-not $RunPlaywright -or $PlaywrightStatus -eq 
                 Write-Host "WebView2 CDP, Playwright connectOverCDP y ProjectsPanel aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks, foco y contrato de solo lectura, sin mutar datos."
             }
         }
+        elseif ($RunNativeSelectors) {
+            Write-Host "WebView2 CDP y selectores nativos aprobados en http://127.0.0.1:$Port; se verificaron abrir dataset, guardar/cargar receta y exportar con diálogos de Windows."
+        }
         else {
             Write-Host "WebView2 CDP y Playwright connectOverCDP aprobados en http://127.0.0.1:$Port; se verificaron primer render, landmarks y foco, sin mutar datos."
         }
     }
     else {
-        Write-Host "WebView2 CDP detectado en http://127.0.0.1:$Port; no se ejecutaron comandos CDP ni interacciones DOM."
+        if ($RunProjects -and $RunNativeSelectors) {
+            Write-Host "WebView2 CDP, ProjectsPanel y selectores nativos aprobados en http://127.0.0.1:$Port; se verificaron proyectos y diálogos de abrir/guardar sin exponer rutas."
+        }
+        elseif ($RunProjects) {
+            Write-Host "WebView2 CDP y ProjectsPanel aprobados en http://127.0.0.1:$Port; se verificó el contrato nativo solicitado."
+        }
+        elseif ($RunNativeSelectors) {
+            Write-Host "WebView2 CDP y selectores nativos aprobados en http://127.0.0.1:$Port; se verificaron abrir dataset, guardar/cargar receta y exportar con diálogos de Windows."
+        }
+        else {
+            Write-Host "WebView2 CDP detectado en http://127.0.0.1:$Port; no se ejecutaron comandos CDP ni interacciones DOM."
+        }
     }
     Write-Host "Evidencia: $EvidenceRelativePath"
     exit 0

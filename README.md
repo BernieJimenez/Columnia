@@ -132,6 +132,14 @@ excede, falla. El mismo ciclo conserva duración total y muestras por comando
 IPC (solo milisegundos), que `npm run perf:summary` agrega junto al perfil de
 memoria.
 
+El smoke opt-in `npm run smoke:native-selectors` añade automatización Win32
+sobre una sesión Windows interactiva para ejercer el selector de dataset, el
+guardado/carga de recetas y el destino de exportación. Usa únicamente fixtures
+sintéticos y elimina sus temporales; la evidencia conserva estados y nombres
+de interacción, nunca rutas. Este recorrido no forma parte todavía de
+`verify:tier`: el cierre automático del botón del diálogo depende del escritorio
+interactivo y debe quedar estable antes de convertirlo en gate.
+
 Para comprobar continuidad entre procesos ejecuta `npm run smoke:restart`. El
 comando corre dos fases aisladas: prepara y persiste el proyecto, termina la
 primera instancia `npm run tauri dev`, inicia una segunda, recupera el proyecto

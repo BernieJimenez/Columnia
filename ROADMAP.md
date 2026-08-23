@@ -953,7 +953,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
    Vitest cubre guardar→catálogo→abrir→restaurar y el probe CDP ya ejerce un
    ciclo nativo temporal de sembrar→receta→exportar→guardar→abrir→consultar→eliminar;
-   aún falta el selector nativo; `npm run smoke:restart` ya cubre el reinicio
+   el probe opt-in `npm run smoke:native-selectors` ya ejerce el selector de
+   dataset, recetas y exportación con Win32 y evidencia sanitizada, pero aún
+   falta estabilizar el cierre automático del botón para convertirlo en gate;
+   `npm run smoke:restart` ya cubre el reinicio
    real y la continuidad durable antes de abrir y borrar el proyecto.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop, escala 125%,
