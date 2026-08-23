@@ -101,7 +101,9 @@ deltas entre ejecuciones usa `npm run perf:summary`.
 Para medir una entrada sintética cercana a 100 MiB sin conservarla en el árbol
 de trabajo ejecuta `npm run perf:benchmark`. El benchmark usa la CLI local para
 `inspect`, `validate` y transformaciones CSV/Parquet, registra duración y pico
-de working set, y deja solo un resumen en `.local/validation/`.
+de working set en tres iteraciones sostenidas. Después ejecuta un ciclo temporal
+de proyecto con receta, reglas, perfil, inspección, exportación y borrado, y deja
+solo un resumen sanitizado en `.local/validation/`.
 
 `npm run perf:check` compara las evidencias CDP, benchmark y Package con los
 presupuestos de `fixtures/performance/performance-baseline-v1.json`. Para lanzar

@@ -105,9 +105,11 @@ try {
         $MissingCommands = @($Baseline.budgets.benchmark.requiredCommands | Where-Object { $_ -notin $CommandNames })
         $BenchmarkHasPeaks = $Commands.Count -gt 0 -and @($Commands | Where-Object { $null -eq $_.peakWorkingSetBytes }).Count -eq 0
         $PeakWorkingSet = if (-not $BenchmarkHasPeaks) { 0L } else { [int64](($Commands | ForEach-Object { [int64]$_.peakWorkingSetBytes } | Measure-Object -Maximum).Maximum) }
+        $SustainedRuns = [int]$Benchmark.sustainedRuns
         $BenchmarkPassed = $BenchmarkHasPeaks -and $Benchmark.status -eq "passed" -and
             [bool]$Benchmark.cleanupConfirmed -and
             [int]$Benchmark.targetMiB -ge [int]$Baseline.budgets.benchmark.minTargetMiB -and
+            $SustainedRuns -ge [int]$Baseline.budgets.benchmark.minSustainedRuns -and
             $MissingCommands.Count -eq 0 -and
             $PeakWorkingSet -le [int64]$Baseline.budgets.benchmark.maxPeakWorkingSetBytes
         $BenchmarkState = if ($BenchmarkPassed) { "passed" } else { "failed" }
@@ -116,6 +118,7 @@ try {
             -Observed ([ordered]@{
                 status = $Benchmark.status
                 targetMiB = [int]$Benchmark.targetMiB
+                sustainedRuns = $SustainedRuns
                 cleanupConfirmed = [bool]$Benchmark.cleanupConfirmed
                 commandNames = $CommandNames
                 missingCommands = $MissingCommands

@@ -1,6 +1,8 @@
 param(
     [ValidateRange(1, 500)]
     [int]$TargetMiB = 100,
+    [ValidateRange(2, 5)]
+    [int]$SustainedRuns = 3,
     [ValidateRange(30, 900)]
     [int]$TimeoutSeconds = 900
 )
@@ -17,8 +19,11 @@ $SummaryPath = Join-Path $EvidenceDirectory "summary.json"
 $InputPath = Join-Path $WorkDirectory "benchmark-input.csv"
 $RecipePath = Join-Path $WorkDirectory "benchmark-recipe.json"
 $RulesPath = Join-Path $WorkDirectory "benchmark-rules.json"
+$ProjectRulesPath = Join-Path $WorkDirectory "benchmark-project-rules.json"
+$ProjectStorePath = Join-Path $WorkDirectory "benchmark-project-store"
 $CsvOutputPath = Join-Path $WorkDirectory "benchmark-output.csv"
 $ParquetOutputPath = Join-Path $WorkDirectory "benchmark-output.parquet"
+$ProjectOutputPath = Join-Path $WorkDirectory "benchmark-project-output.parquet"
 $Status = "failed"
 $FailureMessage = $null
 $Timer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -107,16 +112,25 @@ function New-BenchmarkFiles {
   "rules": [{ "column": "amount", "kind": "not_null", "maxInvalid": 0 }]
 }
 '@
+    Set-Content -LiteralPath $ProjectRulesPath -Encoding ascii -Value @'
+{
+  "version": 1,
+  "rules": [{ "column": "total", "kind": "not_null", "maxInvalid": 0 }]
+}
+'@
 }
 
 function Invoke-MeasuredCli {
     param(
         [string]$Name,
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [string]$EvidenceTag = $Name,
+        [switch]$ReturnStdout,
+        [switch]$SanitizeStdout
     )
 
-    $StdoutPath = Join-Path $EvidenceDirectory "$Name.stdout.log"
-    $StderrPath = Join-Path $EvidenceDirectory "$Name.stderr.log"
+    $StdoutPath = Join-Path $EvidenceDirectory "$EvidenceTag.stdout.log"
+    $StderrPath = Join-Path $EvidenceDirectory "$EvidenceTag.stderr.log"
     $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $StartInfo.FileName = $CliPath
     $StartInfo.WorkingDirectory = $ProjectRoot
@@ -171,7 +185,13 @@ function Invoke-MeasuredCli {
         $Process.Dispose()
     }
 
-    [System.IO.File]::WriteAllText($StdoutPath, $Stdout)
+    $PersistedStdout = if ($SanitizeStdout) {
+        "[stdout sanitizado; el contrato se validó en memoria]`n"
+    }
+    else {
+        $Stdout
+    }
+    [System.IO.File]::WriteAllText($StdoutPath, $PersistedStdout)
     [System.IO.File]::WriteAllText($StderrPath, $Stderr)
     if ($ExitCode -ne 0) {
         throw "$Name terminó con código $ExitCode."
@@ -180,13 +200,21 @@ function Invoke-MeasuredCli {
         throw "$Name expuso una ruta absoluta por stderr."
     }
 
-    return [ordered]@{
+    if ($Stdout -match [regex]::Escape($ProjectRoot) -or $Stdout -match [regex]::Escape($EvidenceDirectory)) {
+        throw "$Name expuso una ruta absoluta por stdout."
+    }
+
+    $Result = [ordered]@{
         name = $Name
         status = "passed"
         exitCode = $ExitCode
         durationMs = [math]::Round($Stopwatch.Elapsed.TotalMilliseconds, 2)
         peakWorkingSetBytes = $PeakWorkingSetBytes
     }
+    if ($ReturnStdout) {
+        $Result.stdout = $Stdout
+    }
+    return $Result
 }
 
 function Assert-Output {
@@ -252,8 +280,11 @@ try {
     $InputRelative = Get-RelativePath -Path $InputPath
     $RecipeRelative = Get-RelativePath -Path $RecipePath
     $RulesRelative = Get-RelativePath -Path $RulesPath
+    $ProjectRulesRelative = Get-RelativePath -Path $ProjectRulesPath
+    $ProjectStoreRelative = Get-RelativePath -Path $ProjectStorePath
     $CsvOutputRelative = Get-RelativePath -Path $CsvOutputPath
     $ParquetOutputRelative = Get-RelativePath -Path $ParquetOutputPath
+    $ProjectOutputRelative = Get-RelativePath -Path $ProjectOutputPath
 
     [void]$CommandResults.Add((Invoke-MeasuredCli -Name "inspect" -Arguments @(
         "inspect", "--input", $InputRelative
@@ -261,16 +292,84 @@ try {
     [void]$CommandResults.Add((Invoke-MeasuredCli -Name "validate" -Arguments @(
         "validate", "--input", $InputRelative, "--rules", $RulesRelative
     )))
-    [void]$CommandResults.Add((Invoke-MeasuredCli -Name "transform-csv" -Arguments @(
-        "transform", "--input", $InputRelative, "--recipe", $RecipeRelative,
-        "--output", $CsvOutputRelative, "--format", "csv"
+    for ($Iteration = 1; $Iteration -le $SustainedRuns; $Iteration++) {
+        $CsvResult = Invoke-MeasuredCli -Name "transform-csv" -EvidenceTag "transform-csv-$Iteration" -Arguments @(
+            "transform", "--input", $InputRelative, "--recipe", $RecipeRelative,
+            "--output", $CsvOutputRelative, "--format", "csv"
+        )
+        $CsvResult.iteration = $Iteration
+        [void]$CommandResults.Add($CsvResult)
+        Assert-Output -Name "transform-csv" -Path $CsvOutputPath -Format "CSV"
+
+        $ParquetResult = Invoke-MeasuredCli -Name "transform-parquet" -EvidenceTag "transform-parquet-$Iteration" -Arguments @(
+            "transform", "--input", $InputRelative, "--recipe", $RecipeRelative,
+            "--output", $ParquetOutputRelative, "--format", "parquet"
+        )
+        $ParquetResult.iteration = $Iteration
+        [void]$CommandResults.Add($ParquetResult)
+        Assert-Output -Name "transform-parquet" -Path $ParquetOutputPath -Format "Parquet"
+    }
+
+    $ProjectName = "__columnia_benchmark__"
+    $SaveResult = Invoke-MeasuredCli -Name "project-save" -EvidenceTag "project-save" -ReturnStdout -SanitizeStdout -Arguments @(
+        "project-save", "--store", $ProjectStoreRelative, "--name", $ProjectName,
+        "--input", $InputRelative, "--recipe", $RecipeRelative,
+        "--rules", $ProjectRulesRelative, "--profile"
+    )
+    $SaveOutput = $SaveResult.stdout | ConvertFrom-Json
+    $ProjectId = [string]$SaveOutput.project.id
+    $SaveResult.Remove("stdout")
+    if ([string]::IsNullOrWhiteSpace($ProjectId) -or $ProjectId.Length -gt 128) {
+        throw "project-save no devolvió un identificador de proyecto válido."
+    }
+    [void]$CommandResults.Add($SaveResult)
+
+    $InspectResult = Invoke-MeasuredCli -Name "project-inspect" -EvidenceTag "project-inspect" -ReturnStdout -SanitizeStdout -Arguments @(
+        "project-inspect", "--store", $ProjectStoreRelative, "--id", $ProjectId
+    )
+    $InspectOutput = $InspectResult.stdout | ConvertFrom-Json
+    $InspectResult.Remove("stdout")
+    if ($InspectOutput.profileCached -ne $true -or $InspectOutput.recipeDraftPresent -ne $true -or
+        [int]$InspectOutput.history.entryCount -lt 1) {
+        throw "project-inspect no confirmó perfil, receta e historial del benchmark."
+    }
+    [void]$CommandResults.Add($InspectResult)
+
+    [void]$CommandResults.Add((Invoke-MeasuredCli -Name "project-export" -EvidenceTag "project-export" -Arguments @(
+        "project-export", "--store", $ProjectStoreRelative, "--id", $ProjectId,
+        "--output", $ProjectOutputRelative, "--format", "parquet"
     )))
-    Assert-Output -Name "transform-csv" -Path $CsvOutputPath -Format "CSV"
-    [void]$CommandResults.Add((Invoke-MeasuredCli -Name "transform-parquet" -Arguments @(
-        "transform", "--input", $InputRelative, "--recipe", $RecipeRelative,
-        "--output", $ParquetOutputRelative, "--format", "parquet"
-    )))
-    Assert-Output -Name "transform-parquet" -Path $ParquetOutputPath -Format "Parquet"
+    Assert-Output -Name "project-export" -Path $ProjectOutputPath -Format "Parquet"
+
+    $ListBeforeDelete = Invoke-MeasuredCli -Name "project-list" -EvidenceTag "project-list-before-delete" -ReturnStdout -SanitizeStdout -Arguments @(
+        "project-list", "--store", $ProjectStoreRelative
+    )
+    $ListOutput = $ListBeforeDelete.stdout | ConvertFrom-Json
+    $ListBeforeDelete.Remove("stdout")
+    if (@($ListOutput.projects).Count -ne 1) {
+        throw "project-list no devolvió exactamente el proyecto del benchmark."
+    }
+    [void]$CommandResults.Add($ListBeforeDelete)
+
+    $DeleteResult = Invoke-MeasuredCli -Name "project-delete" -EvidenceTag "project-delete" -ReturnStdout -SanitizeStdout -Arguments @(
+        "project-delete", "--store", $ProjectStoreRelative, "--id", $ProjectId, "--confirm", $ProjectId
+    )
+    $DeleteOutput = $DeleteResult.stdout | ConvertFrom-Json
+    $DeleteResult.Remove("stdout")
+    if ($DeleteOutput.deleted -ne $true) {
+        throw "project-delete no confirmó el borrado."
+    }
+    [void]$CommandResults.Add($DeleteResult)
+
+    $ListAfterDelete = Invoke-MeasuredCli -Name "project-list" -EvidenceTag "project-list-after-delete" -ReturnStdout -SanitizeStdout -Arguments @(
+        "project-list", "--store", $ProjectStoreRelative
+    )
+    $ListAfterOutput = $ListAfterDelete.stdout | ConvertFrom-Json
+    $ListAfterDelete.Remove("stdout")
+    if (@($ListAfterOutput.projects).Count -ne 0) {
+        throw "project-list conservó proyectos después del cleanup."
+    }
+    [void]$CommandResults.Add($ListAfterDelete)
     $Status = "passed"
 }
 catch {
@@ -296,6 +395,7 @@ finally {
         startedAt = $StartedAt.ToString("o")
         durationMs = [math]::Round($Timer.Elapsed.TotalMilliseconds, 2)
         targetMiB = $TargetMiB
+        sustainedRuns = $SustainedRuns
         targetBytes = [int64]$TargetMiB * 1024 * 1024
         input = [ordered]@{
             fileName = "benchmark-input.csv"

@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.46.0`.
+- Versión actual del prototipo: `0.47.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -723,6 +723,23 @@ MiB de working set y 246.98 MiB privados; el benchmark alcanzó 104,963,092 byte
 con cleanup confirmado. La auditoría manual con lector de pantalla y hardware
 High Contrast continúa pendiente.
 
+La versión 0.47.0 amplía `npm run perf:benchmark` a tres iteraciones sostenidas
+de transformaciones CSV/Parquet y añade un ciclo CLI durable de proyecto:
+`project-save` con receta, reglas y perfil, seguido de `project-inspect`,
+`project-export`, `project-list`, `project-delete` y un catálogo vacío final.
+El benchmark elimina su almacén temporal y publica únicamente tiempos, conteos,
+estados y picos de memoria; `perf:check` exige las operaciones y al menos tres
+iteraciones dentro del presupuesto de 512 MiB. Esto mide el motor CLI y no cierra
+todavía la medición nativa desde WebView2 ni la ejecución lazy/incremental.
+
+La validación Windows v0.47.0 pasó Vitest 130/130, Rust 127/127, Playwright
+9/9, evidencia visual, benchmark sostenido, ciclo durable de proyecto, CDP,
+reinicio, desktop/CLI, `perf:summary`, baseline de rendimiento y Package. El
+benchmark alcanzó 104,963,092 bytes y su pico de working set fue 476,659,712
+bytes; el gate CDP quedó en 451,100,672 bytes de working set y 242,634,752 bytes
+privados, con cleanup confirmado. Selector nativo, medición WebView2 sostenida,
+lazy/incremental y lector de pantalla manual siguen pendientes.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -890,7 +907,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.46.0
+## 8.1. Cola de ejecución recomendada desde v0.47.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -909,9 +926,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
    ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
    registra duraciones IPC por operación, mientras `npm run perf:benchmark` cubre
-   una muestra CLI de 100 MiB. Falta medir transformaciones sostenidas y el
-   presupuesto combinado de dataset e historial; el gate v0.46 compara además
-   bundle, memoria CDP y benchmark.
+   una muestra CLI de 100 MiB. v0.47 añade tres iteraciones sostenidas y un ciclo
+   durable de proyecto al benchmark; todavía falta medir transformaciones desde
+   la ventana Tauri y el presupuesto global de dataset+historial.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -991,6 +1008,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.44.0: telemetría IPC sanitizada por operación y presupuesto CDP de memoria aplicado al árbol nativo, con resumen de rendimiento ampliado | Implementada |
 | 2026-08-22 | Versión 0.45.0: estilos `forced-colors` y evidencia visual reproducible en desktop, móvil, escala 125% y alto contraste; lector de pantalla manual sigue pendiente | Implementada |
 | 2026-08-23 | Versión 0.46.0: baseline visual con hashes, gate de rendimiento CDP/benchmark/bundle y `verify:experience` compuesto; lazy/incremental sigue pendiente | Implementada |
+| 2026-08-23 | Versión 0.47.0: benchmark CLI sostenido con tres iteraciones y ciclo durable de proyecto con cleanup; medición WebView2 y lazy/incremental siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 

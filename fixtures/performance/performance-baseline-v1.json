@@ -8,8 +8,19 @@
     },
     "benchmark": {
       "minTargetMiB": 100,
+      "minSustainedRuns": 3,
       "maxPeakWorkingSetBytes": 536870912,
-      "requiredCommands": ["inspect", "validate", "transform-csv", "transform-parquet"]
+      "requiredCommands": [
+        "inspect",
+        "validate",
+        "transform-csv",
+        "transform-parquet",
+        "project-save",
+        "project-inspect",
+        "project-export",
+        "project-list",
+        "project-delete"
+      ]
     },
     "frontendBundle": {
       "rawBytes": 786432,
