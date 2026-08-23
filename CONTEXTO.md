@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.45.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.46.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `08e35ed` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-23, rama `master`, v0.46 validado |
 
 ## Para qué existe este documento
 
@@ -119,7 +119,12 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de `ProjectsPanel`, los IPC nativos de catálogo y, en el smoke debug, guarda/abre/consulta/elimina un proyecto sintético con cleanup; registra duración por comando y total, pero no rutas ni datos del catálogo. |
 | `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, conserva el perfil de memoria, el presupuesto y las duraciones nativas, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
 | `tools/capture-accessibility-evidence.mjs` | Construye el preview local, captura desktop/móvil/escala 125%/forced-colors y publica capturas más un resumen sanitizado de landmarks, foco, targets y overflow bajo `.local/validation/`. |
+| `tools/check-accessibility-baseline.mjs` | Compara la evidencia visual más reciente con el contrato versionado de `fixtures/accessibility/`, verificando escenarios, landmarks, targets, foco, overflow y SHA-256 de cada captura. |
 | `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide `columnia-cli` en inspect/validate/transform CSV+Parquet con duración y pico de working set, y conserva solo un resumen sin datos después del cleanup. |
+| `tools/check-performance-baseline.ps1` | Convierte el resumen CDP, el benchmark de datasets y el reporte Package en un gate contra `fixtures/performance/performance-baseline-v1.json`, con evidencia sanitizada y estado explícito. |
+| `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
+| `fixtures/accessibility/visual-baseline-v1.json` | Contrato versionado de escenarios y mínimos visuales; no contiene imágenes ni datos de usuario. |
+| `fixtures/performance/performance-baseline-v1.json` | Presupuestos versionados de memoria CDP, benchmark de 100 MiB y bundle frontend. |
 | `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, libros, calidad, lotes, atomicidad por trabajo y errores seguros. |
 | `fixtures/automation/` | Entradas, receta y resultados esperados del smoke de automatización. |
 | `README.md` | Descripción funcional y guía de uso/desarrollo. |
@@ -309,6 +314,10 @@ npm run smoke:cli
 npm run smoke:cdp
 npm run perf:summary
 npm run perf:benchmark
+npm run accessibility:visual
+npm run accessibility:check
+npm run perf:check
+npm run verify:experience
 ```
 
 | Perfil | Incluye |
@@ -317,6 +326,12 @@ npm run perf:benchmark
 | Full | Fast + Clippy con warnings como errores + pruebas Rust de biblioteca |
 | Release | Full + SBOM CycloneDX reproducible + build Tauri optimizado sin bundle |
 | Package | Release + MSI/NSIS en Windows + inventario diferencial con tamaño y SHA-256 |
+
+Después de generar evidencia, `npm run accessibility:check` valida el contrato
+visual versionado y el SHA-256 de cada captura. `npm run perf:check` compara la
+última evidencia CDP, el benchmark y el reporte Package contra los presupuestos
+versionados. `npm run verify:experience` ejecuta ambos gates juntos; requiere
+que esas evidencias ya existan y no abre la aplicación ni conserva datos.
 
 Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas absolutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error. Todos los perfiles registran métricas raw/gzip del frontend; Release añade el SBOM y Package añade únicamente instaladores producidos o actualizados en esa ejecución.
 
@@ -328,7 +343,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 130 pruebas frontend y 127 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -384,6 +399,9 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - v0.45.0 añade soporte visual para `forced-colors: active`, conserva foco/controles con colores del sistema y agrega `npm run accessibility:visual`, que captura cuatro escenarios reproducibles (desktop, móvil, escala de dispositivo 125% y alto contraste) con un resumen sin datos.
 - La evidencia v0.45.0 verificó en los cuatro escenarios los landmarks `main`/`nav`/`aside`, foco visible, targets mínimos de 24 px y ausencia de overflow horizontal; el lector de pantalla manual sigue siendo una validación externa pendiente.
 - Validación v0.45.0 completada en Windows: Vitest 130/130, Rust 127/127, Playwright 9/9, evidencia visual 4/4, CDP normal, reinicio real, desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: visual `.local/validation/accessibility-visual/20260823T035524Z`, CDP final `.local/validation/webview2-cdp/20260823T035854Z`, reinicio final `.local/validation/webview2-restart/20260823T035959Z` (prepare `.local/validation/webview2-cdp/20260823T035959Z`, verify `.local/validation/webview2-cdp/20260823T040108Z`), desktop/CLI/benchmark `.local/validation/*/20260823T034915Z`, Package `.local/validation/20260823T035550Z-08e35ed-package.json` y resumen `.local/validation/performance-summary/summary.json` (40 muestras CDP, 22 desktop). El CDP final observó 428.30/235.87 MiB y el reinicio 430.60/237.35 MiB en prepare, 419.52/233.23 MiB en verify, dentro del presupuesto y con cleanup.
+- v0.46.0 añade un baseline visual estructural versionado: cada captura conserva SHA-256 y `accessibility:check` valida los cuatro escenarios contra un fixture sin versionar imágenes ni datos.
+- v0.46.0 añade un gate de rendimiento que cruza CDP, benchmark de 100 MiB y bundle Package contra presupuestos versionados (512 MiB working set, 256 MiB memoria privada, 768/240 KiB raw/gzip) y publica evidencia local sanitizada. `verify:experience` ejecuta ambos gates.
+- Validación v0.46.0 completada en Windows: Vitest 130/130, Rust 127/127, Playwright 9/9, captura visual 4/4, baseline visual, benchmark de 100 MiB, CDP normal, reinicio real, smoke desktop/CLI, `perf:summary`, baseline de rendimiento y Package aprobados. Evidencias: visual `.local/validation/accessibility-visual/20260823T041648Z`, baseline visual `.local/validation/accessibility-baseline/20260823T042831Z`, benchmark `.local/validation/performance-benchmark/20260823T041752Z`, CDP `.local/validation/webview2-cdp/20260823T042258Z`, reinicio `.local/validation/webview2-restart/20260823T042438Z`, desktop `.local/validation/desktop-smoke/20260823T042811Z`, CLI `.local/validation/cli-smoke/20260823T042810Z`, Package `.local/validation/20260823T041915Z-72c81a2-package.json`, baseline de rendimiento `.local/validation/performance-baseline/20260823T042916Z` y resumen `.local/validation/performance-summary/summary.json` (43 muestras CDP, 23 desktop). El CDP observó 449,486,848 bytes de working set y 246,984,704 bytes privados, dentro del presupuesto; el benchmark alcanzó 104,963,092 bytes con cleanup confirmado.
 
 ### Planeado o pendiente
 
@@ -461,6 +479,7 @@ Al actualizarlo:
 | 2026-08-22 | v0.43.0 añade `smoke:restart` con dos procesos Tauri/WebView2 independientes: preparar→cerrar→reiniciar→reabrir→eliminar, con cleanup delegado a cada fase y evidencia sin datos ni rutas. | `tools/probe-webview2-restart.ps1`, `tools/probe-webview2-cdp.ps1`, `tools/probe-webview2-projects.mjs` |
 | 2026-08-22 | v0.44.0 añade duraciones sanitizadas por operación IPC y un presupuesto CDP de 512 MiB working set/256 MiB memoria privada, con muestras posteriores a los probes y resumen de rendimiento persistente. | `tools/probe-webview2-projects.mjs`, `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1` |
 | 2026-08-22 | v0.45.0 añade estilos `forced-colors` y captura reproducible de evidencia visual en cuatro escenarios, con validación de landmarks, foco, targets y overflow sin datos de usuario. | `src/styles.css`, `src/components/AccessibilityStyles.test.ts`, `tools/capture-accessibility-evidence.mjs` |
+| 2026-08-23 | v0.46.0 versiona los contratos de baseline visual y rendimiento; añade hashes de capturas, gates de memoria/benchmark/bundle y una verificación compuesta sin tocar el motor de datasets. | `fixtures/accessibility/`, `fixtures/performance/`, `tools/check-accessibility-baseline.mjs`, `tools/check-performance-baseline.ps1`, `tools/verify-experience.ps1` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

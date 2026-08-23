@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.45.0`.
+- Versión actual del prototipo: `0.46.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -708,6 +708,21 @@ La validación Windows v0.45.0 pasó Vitest 130/130, Rust 127/127, Playwright
 benchmark y Package. El bundle final quedó en 315,829 bytes raw/90,324 gzip y
 los límites de memoria CDP se mantuvieron dentro de presupuesto.
 
+La versión 0.46.0 convierte esas señales en contratos comparables. Cada captura
+visual conserva SHA-256 y `npm run accessibility:check` compara los cuatro casos
+contra `fixtures/accessibility/visual-baseline-v1.json`, verificando escenarios,
+landmarks, foco, targets y overflow sin versionar imágenes. `npm run perf:check`
+cruza el último resumen CDP, el benchmark de 100 MiB y el reporte Package contra
+`fixtures/performance/performance-baseline-v1.json`; `npm run verify:experience`
+ejecuta ambos gates después de generar evidencias.
+
+La validación Windows v0.46.0 pasó Vitest 130/130, Rust 127/127, Playwright
+9/9, captura y baseline visual 4/4, benchmark de 100 MiB, CDP normal, reinicio
+real, `perf:summary`, baseline de rendimiento y Package. El CDP observó 449.49
+MiB de working set y 246.98 MiB privados; el benchmark alcanzó 104,963,092 bytes
+con cleanup confirmado. La auditoría manual con lector de pantalla y hardware
+High Contrast continúa pendiente.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -875,7 +890,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.45.0
+## 8.1. Cola de ejecución recomendada desde v0.46.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -887,14 +902,16 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop, escala 125%,
    `forced-colors` y el ciclo de foco del `alertdialog`; `npm run
-   accessibility:visual` genera capturas canónicas reproducibles. Falta ejecutar
+   accessibility:visual` genera capturas canónicas reproducibles y
+   `accessibility:check` verifica su contrato/hash. Falta ejecutar
    lector de pantalla y validar en hardware real de Windows High Contrast.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, mantener
    cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
    ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
    registra duraciones IPC por operación, mientras `npm run perf:benchmark` cubre
    una muestra CLI de 100 MiB. Falta medir transformaciones sostenidas y el
-   presupuesto combinado de dataset e historial.
+   presupuesto combinado de dataset e historial; el gate v0.46 compara además
+   bundle, memoria CDP y benchmark.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -973,6 +990,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.43.0: dos procesos Tauri/WebView2 independientes preparan, cierran, reinician, recuperan, abren y eliminan un proyecto sintético; selector nativo sigue pendiente | Implementada |
 | 2026-08-22 | Versión 0.44.0: telemetría IPC sanitizada por operación y presupuesto CDP de memoria aplicado al árbol nativo, con resumen de rendimiento ampliado | Implementada |
 | 2026-08-22 | Versión 0.45.0: estilos `forced-colors` y evidencia visual reproducible en desktop, móvil, escala 125% y alto contraste; lector de pantalla manual sigue pendiente | Implementada |
+| 2026-08-23 | Versión 0.46.0: baseline visual con hashes, gate de rendimiento CDP/benchmark/bundle y `verify:experience` compuesto; lazy/incremental sigue pendiente | Implementada |
 
 ## 10. Fuentes de esta revisión
 

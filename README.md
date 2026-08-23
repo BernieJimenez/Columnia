@@ -83,6 +83,8 @@ Para generar evidencia visual reproducible ejecuta `npm run accessibility:visual
 El comando construye el preview y captura desktop, móvil, escala de dispositivo
 125% y `forced-colors`, validando landmarks, foco, targets mínimos y overflow; las
 imágenes y el resumen quedan en `.local/validation/accessibility-visual/`.
+Después ejecuta `npm run accessibility:check` para comparar los cuatro casos con
+el contrato versionado y verificar el SHA-256 de cada captura.
 
 En Windows, `npm run smoke:cdp` levanta el comando real `npm run tauri dev` con
 un puerto CDP de loopback aislado, verifica `/json/version` y `/json/list`, y
@@ -100,6 +102,11 @@ Para medir una entrada sintética cercana a 100 MiB sin conservarla en el árbol
 de trabajo ejecuta `npm run perf:benchmark`. El benchmark usa la CLI local para
 `inspect`, `validate` y transformaciones CSV/Parquet, registra duración y pico
 de working set, y deja solo un resumen en `.local/validation/`.
+
+`npm run perf:check` compara las evidencias CDP, benchmark y Package con los
+presupuestos de `fixtures/performance/performance-baseline-v1.json`. Para lanzar
+ambos gates juntos usa `npm run verify:experience` después de generar las
+evidencias; el comando no inicia Tauri ni conserva datasets.
 
 `npm run smoke:cdp` añade un perfil acotado del proceso debug (working set y
 memoria privada inicial, máxima y final) y ejecuta, solo en el build debug del

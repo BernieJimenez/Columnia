@@ -1,5 +1,6 @@
 import { chromium } from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,7 +153,11 @@ try {
       await page.goto(baseUrl, { waitUntil: "networkidle" });
       const inspection = await inspectShell(page, captureCase.forcedColors);
       const screenshotName = `${captureCase.name}.png`;
-      await page.screenshot({ path: join(evidenceDirectory, screenshotName), fullPage: true });
+      const screenshotPath = join(evidenceDirectory, screenshotName);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const screenshotSha256 = createHash("sha256")
+        .update(await readFile(screenshotPath))
+        .digest("hex");
       const valid = inspection.forcedColors === inspection.forcedColorsExpected
         && inspection.landmarks.main === 1
         && inspection.landmarks.navigation === 1
@@ -167,7 +172,8 @@ try {
         viewport: captureCase.viewport,
         deviceScaleFactor: captureCase.deviceScaleFactor,
         forcedColors: captureCase.forcedColors,
-        screenshot: relative(projectRoot, join(evidenceDirectory, screenshotName)).replaceAll("\\", "/"),
+        screenshot: relative(projectRoot, screenshotPath).replaceAll("\\", "/"),
+        screenshotSha256,
         valid,
         inspection,
       });
@@ -185,6 +191,7 @@ try {
   await mkdir(dirname(summaryPath), { recursive: true });
   await writeFile(summaryPath, `${JSON.stringify({
     schemaVersion: 1,
+    captureVersion: 2,
     status,
     generatedAt: new Date().toISOString(),
     baseUrl,

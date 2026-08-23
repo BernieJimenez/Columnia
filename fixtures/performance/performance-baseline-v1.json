@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "name": "Columnia local performance gate",
+  "budgets": {
+    "cdp": {
+      "workingSetBytes": 536870912,
+      "privateMemoryBytes": 268435456
+    },
+    "benchmark": {
+      "minTargetMiB": 100,
+      "maxPeakWorkingSetBytes": 536870912,
+      "requiredCommands": ["inspect", "validate", "transform-csv", "transform-parquet"]
+    },
+    "frontendBundle": {
+      "rawBytes": 786432,
+      "gzipBytes": 245760
+    }
+  }
+}
