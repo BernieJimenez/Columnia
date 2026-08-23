@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "captureVersion": 1,
+  "source": "tauri-release-binary",
+  "projectVersion": "0.49.0",
+  "fixturePath": "fixtures/automation/input.csv",
+  "owner": "Columnia maintainers",
+  "purpose": "Canonical release-shell screenshots for visual regression detection",
+  "approvedAt": "2026-08-23T18:55:02.740Z",
+  "requiredCases": [
+    {
+      "name": "desktop",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "deviceScaleFactor": 1,
+      "forcedColors": "none"
+    },
+    {
+      "name": "mobile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "deviceScaleFactor": 1,
+      "forcedColors": "none"
+    },
+    {
+      "name": "zoom-125",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "deviceScaleFactor": 1.25,
+      "forcedColors": "none"
+    },
+    {
+      "name": "forced-colors",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "deviceScaleFactor": 1,
+      "forcedColors": "active"
+    }
+  ],
+  "contract": {
+    "landmarks": [
+      "main",
+      "navigation",
+      "complementary"
+    ],
+    "minimumTargetSize": 24,
+    "requireVisibleFocus": true,
+    "requireNoHorizontalOverflow": true
+  },
+  "screenshots": {
+    "desktop": "fa3643813617470cd205a837102c233d1a3bafd3d5b6a9cb4ee610b51800ca04",
+    "mobile": "04beeb8899cb833f8c6e1dc6aedfae9779c76cadca3de823485f2466e1347090",
+    "zoom-125": "fa3643813617470cd205a837102c233d1a3bafd3d5b6a9cb4ee610b51800ca04",
+    "forced-colors": "660bb08f88c309ae1c15c1b6949410b9d7f63c103ca24a7b522ffd2b0bc12965"
+  }
+}

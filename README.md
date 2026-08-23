@@ -226,6 +226,12 @@ política de fixtures en
 
 La licencia del proyecto es [MIT](LICENSE).
 
+Para seguir un recorrido guiado, empieza por el
+[tutorial del primer dataset](docs/tutorials/first-dataset.md). Para operar la
+CLI consulta su [referencia completa](docs/reference/cli.md), y para validar el
+artefacto optimizado usa el [how-to de evidencia del release](docs/how-to/validate-release-evidence.md).
+Los cambios visibles se registran en [CHANGELOG.md](CHANGELOG.md).
+
 `Fast` comprueba formato, compilación Rust, pruebas frontend y build web. `Full`
 añade Clippy con warnings como errores y las pruebas Rust. `Release` agrega el
 binario Tauri optimizado sin crear instaladores ni usar servicios externos.

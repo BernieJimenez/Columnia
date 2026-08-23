@@ -149,6 +149,9 @@ function Invoke-Checked {
 }
 
 try {
+    Invoke-Checked "Documentation" $ProjectRoot {
+        & node tools/check-documentation.mjs
+    }
     Invoke-Checked "Repository governance" $ProjectRoot {
         & (Join-Path $ProjectRoot "tools\check-governance.ps1")
     }

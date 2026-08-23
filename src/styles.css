@@ -388,7 +388,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   button,
   input,
   select,
-  textarea { border-color: ButtonText; background: ButtonFace; color: ButtonText; }
+  textarea { border-color: ButtonText; background: ButtonFace; color: ButtonText; forced-color-adjust: none; }
   .primary-action,
   .skip-link { border-color: Highlight; background: Highlight; color: HighlightText; }
   button:focus-visible,

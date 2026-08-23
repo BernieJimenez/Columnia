@@ -5,9 +5,9 @@
 
 ## Estado general
 
-- Etapa actual: prototipo funcional de la Fase I1, con la Fase I0 cerrada y
-  avances verificados en seguridad (I2), calidad local (I3), supply chain (I4)
-  y empaquetado Windows (I5).
+- Etapa actual: prototipo funcional de la Fase I1, con las Fases I0 e I8
+  cerradas y avances verificados en seguridad (I2), calidad local (I3), supply
+  chain (I4) y empaquetado Windows (I5).
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
@@ -906,15 +906,17 @@ descargados, no los archivos locales previos a la subida.
 
 - [x] Mantener un README orientado al problema, privacidad, uso, automatización
   local y limitaciones honestas.
-- [ ] Documentación separada en tutorial, how-to, referencia y explicación.
-- [ ] ADR para decisiones duraderas; CHANGELOG para cambios publicados.
-- [ ] Script de capturas con dataset sintético estable y ventanas definidas.
-- [ ] Regenerar capturas desde el binario de release y detectar diferencias.
-- [ ] No acumular imágenes manuales sin dueño, fecha o propósito.
-- [ ] Checklist de enlaces, encoding UTF-8 y coherencia de versiones.
+- [x] Documentación separada en tutorial, how-to, referencia y explicación.
+- [x] ADR para decisiones duraderas; CHANGELOG para cambios publicados.
+- [x] Script de capturas con dataset sintético estable y ventanas definidas.
+- [x] Regenerar capturas desde el binario de release y detectar diferencias.
+- [x] No acumular imágenes manuales sin dueño, fecha o propósito.
+- [x] Checklist de enlaces, encoding UTF-8 y coherencia de versiones.
 
 **Gate:** una persona nueva puede instalar, verificar, usar y diagnosticar
-Columnia siguiendo solamente la documentación publicada.
+Columnia siguiendo solamente la documentación publicada; `docs:check` y el gate
+de evidencia release verifican los enlaces, las versiones, el contrato visual,
+el ownership y los hashes generados desde `columnia.exe`.
 
 ## 7. Objetivos cuantitativos provisionales
 
@@ -969,8 +971,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    targets mínimos, reduced-motion, viewport móvil/desktop, escala 125%,
    `forced-colors` y el ciclo de foco del `alertdialog`; `npm run
    accessibility:visual` genera capturas canónicas reproducibles y
-   `accessibility:check` verifica su contrato/hash. Falta ejecutar
-   lector de pantalla y validar en hardware real de Windows High Contrast.
+   `accessibility:check` verifica su contrato/hash. I8 añade la misma evidencia
+   desde el binario release mediante `accessibility:release` y
+   `accessibility:release:check`. Falta ejecutar lector de pantalla y validar
+   en hardware real de Windows High Contrast.
 3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, mantener
    cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
    ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
@@ -1063,6 +1067,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-23 | Versión 0.47.0: benchmark CLI sostenido con tres iteraciones y ciclo durable de proyecto con cleanup; medición WebView2 y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Versión 0.48.0: presupuestos de duración, stress de actualización/reapertura durable, `verify:tier` y checklist manual de accesibilidad; medición WebView2, lector real y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Versión 0.49.0: tres ciclos nativos de transformación/exportación dentro de WebView2, duraciones incorporadas al gate y presupuesto global del árbol; datasets grandes, lector real y lazy/incremental siguen pendientes | Implementada |
+| 2026-08-23 | Fase I8: documentación Diátaxis, índice de ADR/CHANGELOG, validadores de enlaces/UTF-8/versiones/ownership y evidencia visual reproducible desde el binario release con baseline de hashes; lector de pantalla manual sigue en I3 | Implementada |
 
 ## 10. Fuentes de esta revisión
 

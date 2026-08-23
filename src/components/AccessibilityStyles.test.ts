@@ -17,6 +17,7 @@ describe("contratos CSS de accesibilidad", () => {
     expect(styles).toContain("background: Canvas");
     expect(styles).toContain("background: Highlight");
     expect(styles).toContain("color: HighlightText");
+    expect(styles).toContain("forced-color-adjust: none");
     expect(styles).toMatch(/outline:\s*3px solid Highlight/);
   });
 });

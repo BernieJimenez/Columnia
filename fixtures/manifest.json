@@ -3,6 +3,7 @@
   "policy": "synthetic-only-no-pii",
   "files": [
     "accessibility/visual-baseline-v1.json",
+    "accessibility/release-evidence-baseline-v1.json",
     "automation/batch-collision-v1.json",
     "automation/batch-invalid-v1.json",
     "automation/batch-partial-v1.json",

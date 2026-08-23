@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fase I0 cerrada |
+| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fases I0 e I8 cerradas |
 
 ## Para qué existe este documento
 
@@ -121,6 +121,9 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, conserva el perfil de memoria, el presupuesto y las duraciones nativas, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
 | `tools/capture-accessibility-evidence.mjs` | Construye el preview local, captura desktop/móvil/escala 125%/forced-colors y publica capturas más un resumen sanitizado de landmarks, foco, targets y overflow bajo `.local/validation/`. |
 | `tools/check-accessibility-baseline.mjs` | Compara la evidencia visual más reciente con el contrato versionado de `fixtures/accessibility/`, verificando escenarios, landmarks, targets, foco, overflow y SHA-256 de cada captura. |
+| `tools/capture-release-evidence.ps1` / `tools/capture-release-evidence.mjs` | Construyen el binario Tauri sin bundle, lo exponen únicamente por CDP de loopback y capturan cuatro escenarios desde el ejecutable optimizado, con hashes de binario/fixture y sumario sanitizado. |
+| `tools/check-release-evidence.mjs` | Comprueba el sumario release contra el baseline de escenarios, contrato, versiones, hashes y ownership; solo `--update-baseline` acepta una diferencia visual intencional. |
+| `tools/check-documentation.mjs` | Valida el mapa Diátaxis, ADR/CHANGELOG, enlaces locales, UTF-8 sin BOM, coherencia de versiones y ownership de imágenes. |
 | `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide tres iteraciones sostenidas de transform CSV/Parquet, actualiza dos veces el mismo proyecto y verifica reapertura/exportación durable; conserva solo tiempos, conteos, estados y cleanup sin datos después de borrar el almacén temporal. |
 | `tools/check-performance-baseline.ps1` | Convierte el resumen CDP, el benchmark de datasets y el reporte Package en un gate contra `fixtures/performance/performance-baseline-v1.json`, incluyendo duración máxima por operación, con evidencia sanitizada y estado explícito. |
 | `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
@@ -134,7 +137,9 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `THREAT_MODEL.md` | Activos, fronteras de confianza, amenazas, controles implementados y riesgos residuales. |
 | `ROADMAP.md` | Plan, decisiones históricas, fases y pendientes. No sustituye la inspección del código. |
 | `CONTRIBUTING.md` | Ramas, commits, revisión local y límites de alcance. |
-| `docs/` | ADRs, gobierno del repositorio, auditoría de dependencias y política de fixtures. |
+| `docs/` | Tutoriales, how-to, referencias, explicaciones, ADRs, gobierno del repositorio, auditoría de dependencias y política de fixtures. |
+| `CHANGELOG.md` | Registro de cambios publicados y limitaciones conocidas por versión. |
+| `fixtures/accessibility/release-evidence-baseline-v1.json` | Casos, contrato, owner, propósito, fecha de aprobación y hashes de capturas generadas desde el binario release. |
 | `.codegraph/` | Índice semántico local del repositorio. Úsalo antes de búsquedas textuales para entender símbolos y rutas de llamadas. |
 | `.agents/skills/` | Skills locales disponibles para tareas especializadas del repositorio. |
 
@@ -322,6 +327,9 @@ npm run perf:summary
 npm run perf:benchmark
 npm run accessibility:visual
 npm run accessibility:check
+npm run docs:check
+npm run accessibility:release
+npm run accessibility:release:check
 npm run perf:check
 npm run verify:experience
 npm run verify:tier
@@ -339,6 +347,17 @@ visual versionado y el SHA-256 de cada captura. `npm run perf:check` compara la
 última evidencia CDP, el benchmark y el reporte Package contra los presupuestos
 versionados. `npm run verify:experience` ejecuta ambos gates juntos; requiere
 que esas evidencias ya existan y no abre la aplicación ni conserva datos.
+
+La evidencia de producto de I8 usa un flujo separado para que el contrato visual
+también se pruebe contra el ejecutable Tauri optimizado: `npm run
+accessibility:release` compila sin bundle, captura desktop, móvil, escala 125% y
+`forced-colors` mediante CDP de loopback y deja únicamente artefactos sanitizados
+en `.local/validation/release-evidence/`. `npm run
+accessibility:release:check` compara el resultado con
+`fixtures/accessibility/release-evidence-baseline-v1.json`; una actualización
+intencional exige inspección y el comando explícito
+`npm run accessibility:release:update-baseline`. El baseline no sustituye la
+auditoría manual con lector de pantalla ni la validación de hardware real.
 
 Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas absolutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error. Todos los perfiles registran métricas raw/gzip del frontend; Release añade el SBOM y Package añade únicamente instaladores producidos o actualizados en esa ejecución.
 
@@ -431,6 +450,8 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - Validación v0.48.0 completada en Windows con `npm run verify:tier`: Vitest 130/130, Rust 127/127, Playwright 9/9, build, evidencia/baseline visual 4/4, benchmark sostenido, Package, smoke CLI, smoke desktop, CDP, reinicio y gates finales aprobados. Evidencias: visual `.local/validation/accessibility-visual/20260823T052032Z`, baseline visual `.local/validation/accessibility-baseline/20260823T053241Z`, benchmark `.local/validation/performance-benchmark/20260823T053019Z`, CDP `.local/validation/webview2-cdp/20260823T052546Z`, reinicio `.local/validation/webview2-restart/20260823T052647Z`, desktop `.local/validation/desktop-smoke/20260823T052530Z`, CLI `.local/validation/cli-smoke/20260823T052526Z`, Package `.local/validation/20260823T052258Z-3b7950b-package.json`, baseline de rendimiento `.local/validation/performance-baseline/20260823T053242Z` y resumen `.local/validation/performance-summary/summary.json` (49 muestras CDP, 25 desktop). El gate CDP observó 438,829,056 bytes de working set y 242,012,160 bytes privados; el benchmark alcanzó 104,963,092 bytes, ejecutó tres iteraciones y dos actualizaciones, tuvo pico CLI de 467,546,112 bytes, duraciones máximas de 2,578.97/26,264.97/11,458.07/13,141.88 ms (transform/guardado/inspección/exportación) y confirmó cleanup.
 - Validación v0.49.0 completada en Windows con `npm run verify:tier` (9.09 minutos): Vitest 130/130, Rust 127/127, Playwright 9/9, build, evidencia/baseline visual 4/4, benchmark sostenido, Package, smoke CLI, smoke desktop, CDP sostenido, reinicio y gates finales aprobados. Evidencias: visual `.local/validation/accessibility-visual/20260823T055019Z`, baseline visual `.local/validation/accessibility-baseline/20260823T055904Z`, benchmark `.local/validation/performance-benchmark/20260823T055027Z`, CDP final `.local/validation/webview2-cdp/20260823T055801Z`, reinicio `.local/validation/webview2-restart/20260823T055558Z`, desktop `.local/validation/desktop-smoke/20260823T055552Z`, CLI `.local/validation/cli-smoke/20260823T055548Z`, Package `.local/validation/20260823T055253Z-d865c7a-package.json`, baseline de rendimiento `.local/validation/performance-baseline/20260823T055904Z` y resumen `.local/validation/performance-summary/summary.json` (59 muestras CDP, 26 desktop). El gate CDP observó 453,664,768 bytes de working set y 249,978,880 bytes privados; la señal nativa ejecutó tres ciclos con máximos de 9.8 ms de transformación y 4.7 ms de exportación. El benchmark alcanzó 104,963,092 bytes, ejecutó tres iteraciones y dos actualizaciones, tuvo pico CLI de 492,957,696 bytes, duraciones máximas de 6,243.26/26,306.45/11,436.06/13,285.38 ms (transform/guardado/inspección/exportación) y confirmó cleanup.
 
+- Fase I8 completada: la documentación está separada en tutorial, how-to, referencia y explicación; `CHANGELOG.md` y el índice de ADRs tienen entradas verificables; `docs:check` valida 14 Markdown, enlaces locales, UTF-8 sin BOM, versiones y ownership de imágenes. `accessibility:release` construyó el binario optimizado y capturó cuatro escenarios desde Tauri/WebView2 (`.local/validation/release-evidence/20260823T185353Z`); `accessibility:release:check` aprobó el baseline `.local/validation/release-evidence-check/20260823T185503Z` con fixture sintética de 44 bytes, controles legibles en `forced-colors` y contratos de landmarks, foco, targets y overflow. Las imágenes permanecen fuera de Git y sus hashes/owner/propósito viven en `fixtures/accessibility/release-evidence-baseline-v1.json`; la auditoría manual de lector de pantalla sigue siendo I3.
+
 ### Planeado o pendiente
 
 - ejecución lazy/incremental y datasets mayores que la memoria;
@@ -514,6 +535,7 @@ Al actualizarlo:
 | 2026-08-23 | v0.47.0 convierte el benchmark CLI en una señal sostenida y añade el ciclo durable de proyecto con receta, reglas, perfil, exportación y cleanup; no declara completada la medición nativa ni lazy/incremental. | `tools/benchmark-datasets.ps1`, `fixtures/performance/performance-baseline-v1.json`, `tools/check-performance-baseline.ps1` |
 | 2026-08-23 | v0.48.0 añade presupuestos de duración, stress de actualización/reapertura durable, `verify:tier` y checklist manual de accesibilidad; lector de pantalla real, medición WebView2 y lazy/incremental siguen pendientes. | `tools/benchmark-datasets.ps1`, `tools/check-performance-baseline.ps1`, `tools/verify-tier.ps1`, `ACCESSIBILITY_MANUAL_CHECKLIST.md` |
 | 2026-08-23 | v0.49.0 mide tres ciclos de transformación/exportación nativos dentro de WebView2 y los incorpora al gate junto al presupuesto global de memoria; datasets grandes, lector real y lazy/incremental siguen pendientes. | `tools/probe-webview2-projects.mjs`, `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1`, `tools/check-performance-baseline.ps1` |
+| 2026-08-23 | I8 separa la documentación por Diátaxis, mantiene CHANGELOG/ADR indexados y convierte la evidencia visual del release en un contrato reproducible desde `columnia.exe`; las capturas permanecen locales y el baseline conserva hashes, ownership y propósito. | `docs/`, `CHANGELOG.md`, `tools/check-documentation.mjs`, `tools/capture-release-evidence.ps1`, `tools/check-release-evidence.mjs`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
