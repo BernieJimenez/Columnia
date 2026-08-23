@@ -3,6 +3,8 @@ param(
     [int]$TargetMiB = 100,
     [ValidateRange(2, 5)]
     [int]$SustainedRuns = 3,
+    [ValidateRange(1, 3)]
+    [int]$ProjectUpdateRuns = 2,
     [ValidateRange(30, 900)]
     [int]$TimeoutSeconds = 900
 )
@@ -38,6 +40,17 @@ function Get-RelativePath {
     param([string]$Path)
 
     return $Path.Substring($ProjectRoot.Length).TrimStart("\", "/").Replace("\", "/")
+}
+
+function Write-SanitizedEvidenceText {
+    param(
+        [string]$Path,
+        [string]$Text
+    )
+
+    $Sanitized = $Text -replace [regex]::Escape($ProjectRoot), "[project-root]"
+    $Sanitized = $Sanitized -replace [regex]::Escape($EvidenceDirectory), "[evidence]"
+    [System.IO.File]::WriteAllText($Path, $Sanitized)
 }
 
 function Write-SyntheticCsv {
@@ -252,6 +265,11 @@ try {
         try {
             $ErrorActionPreference = "Continue"
             & cargo build --quiet --bin columnia-cli 1> $BuildStdout 2> $BuildStderr
+            foreach ($BuildLog in @($BuildStdout, $BuildStderr)) {
+                if (Test-Path -LiteralPath $BuildLog -PathType Leaf) {
+                    Write-SanitizedEvidenceText -Path $BuildLog -Text ([System.IO.File]::ReadAllText($BuildLog))
+                }
+            }
             if ($LASTEXITCODE -ne 0) {
                 throw "No se pudo compilar columnia-cli."
             }
@@ -335,6 +353,32 @@ try {
     }
     [void]$CommandResults.Add($InspectResult)
 
+    for ($Iteration = 1; $Iteration -le $ProjectUpdateRuns; $Iteration++) {
+        $UpdateResult = Invoke-MeasuredCli -Name "project-save-update" -EvidenceTag "project-save-update-$Iteration" -ReturnStdout -SanitizeStdout -Arguments @(
+            "project-save", "--store", $ProjectStoreRelative, "--name", $ProjectName,
+            "--id", $ProjectId, "--input", $InputRelative, "--recipe", $RecipeRelative,
+            "--rules", $ProjectRulesRelative, "--profile"
+        )
+        $UpdateOutput = $UpdateResult.stdout | ConvertFrom-Json
+        $UpdateResult.Remove("stdout")
+        $UpdateResult.iteration = $Iteration
+        if ($UpdateOutput.created -ne $false -or [string]$UpdateOutput.project.id -ne $ProjectId) {
+            throw "project-save-update no confirmó una actualización del mismo proyecto."
+        }
+        [void]$CommandResults.Add($UpdateResult)
+    }
+
+    $ReopenResult = Invoke-MeasuredCli -Name "project-inspect-reopen" -EvidenceTag "project-inspect-reopen" -ReturnStdout -SanitizeStdout -Arguments @(
+        "project-inspect", "--store", $ProjectStoreRelative, "--id", $ProjectId
+    )
+    $ReopenOutput = $ReopenResult.stdout | ConvertFrom-Json
+    $ReopenResult.Remove("stdout")
+    if ([string]$ReopenOutput.project.id -ne $ProjectId -or $ReopenOutput.profileCached -ne $true -or
+        $ReopenOutput.recipeDraftPresent -ne $true -or [int]$ReopenOutput.history.entryCount -lt 1) {
+        throw "project-inspect-reopen no confirmó la reapertura durable del proyecto."
+    }
+    [void]$CommandResults.Add($ReopenResult)
+
     [void]$CommandResults.Add((Invoke-MeasuredCli -Name "project-export" -EvidenceTag "project-export" -Arguments @(
         "project-export", "--store", $ProjectStoreRelative, "--id", $ProjectId,
         "--output", $ProjectOutputRelative, "--format", "parquet"
@@ -374,7 +418,8 @@ try {
 }
 catch {
     $FailureMessage = $_.Exception.Message
-    $_ | Format-List * -Force | Out-String | Set-Content -LiteralPath (Join-Path $EvidenceDirectory "failure.log") -Encoding utf8
+    $FailureLog = $_ | Format-List * -Force | Out-String
+    Write-SanitizedEvidenceText -Path (Join-Path $EvidenceDirectory "failure.log") -Text $FailureLog
 }
 finally {
     if (Test-Path -LiteralPath $WorkDirectory) {
@@ -396,6 +441,7 @@ finally {
         durationMs = [math]::Round($Timer.Elapsed.TotalMilliseconds, 2)
         targetMiB = $TargetMiB
         sustainedRuns = $SustainedRuns
+        projectUpdateRuns = $ProjectUpdateRuns
         targetBytes = [int64]$TargetMiB * 1024 * 1024
         input = [ordered]@{
             fileName = "benchmark-input.csv"
@@ -418,5 +464,5 @@ if ($Status -ne "passed") {
     exit 1
 }
 
-Write-Host "Benchmark de datasets aprobado: $InputSizeBytes bytes, $InputRowCount filas, inspect/validate/transform CSV+Parquet medidos."
+Write-Host "Benchmark de datasets aprobado: $InputSizeBytes bytes, $InputRowCount filas, transformaciones sostenidas y ciclo durable de proyecto medidos."
 Write-Host "Evidencia: $EvidenceRelativePath"

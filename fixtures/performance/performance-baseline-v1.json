@@ -9,14 +9,23 @@
     "benchmark": {
       "minTargetMiB": 100,
       "minSustainedRuns": 3,
+      "minProjectUpdateRuns": 2,
       "maxPeakWorkingSetBytes": 536870912,
+      "maxDurationsMs": {
+        "transform": 10000,
+        "projectSave": 60000,
+        "projectInspect": 30000,
+        "projectExport": 30000
+      },
       "requiredCommands": [
         "inspect",
         "validate",
         "transform-csv",
         "transform-parquet",
         "project-save",
+        "project-save-update",
         "project-inspect",
+        "project-inspect-reopen",
         "project-export",
         "project-list",
         "project-delete"

@@ -110,6 +110,16 @@ presupuestos de `fixtures/performance/performance-baseline-v1.json`. Para lanzar
 ambos gates juntos usa `npm run verify:experience` después de generar las
 evidencias; el comando no inicia Tauri ni conserva datasets.
 
+El gate de rendimiento también limita la duración máxima de transformaciones,
+guardado, inspección y exportación dentro del benchmark sostenido.
+
+Para repetir el tier completo en Windows usa `npm run verify:tier`. Ejecuta tests,
+build, evidencia visual, benchmark sostenido, Package, smokes CLI/WebView2 y los
+gates finales de experiencia en orden; admite `-SkipPackage` o `-SkipNative` si se
+necesita aislar una estación sin instalador o sin WebView2. La auditoría manual con
+lector de pantalla y High Contrast se registra en
+[ACCESSIBILITY_MANUAL_CHECKLIST.md](ACCESSIBILITY_MANUAL_CHECKLIST.md).
+
 `npm run smoke:cdp` añade un perfil acotado del proceso debug (working set y
 memoria privada inicial, máxima y final) y ejecuta, solo en el build debug del
 probe, un ciclo temporal nativo de dataset/receta/exportación/proyecto. La

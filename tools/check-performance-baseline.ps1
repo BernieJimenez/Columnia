@@ -106,12 +106,29 @@ try {
         $BenchmarkHasPeaks = $Commands.Count -gt 0 -and @($Commands | Where-Object { $null -eq $_.peakWorkingSetBytes }).Count -eq 0
         $PeakWorkingSet = if (-not $BenchmarkHasPeaks) { 0L } else { [int64](($Commands | ForEach-Object { [int64]$_.peakWorkingSetBytes } | Measure-Object -Maximum).Maximum) }
         $SustainedRuns = [int]$Benchmark.sustainedRuns
+        $ProjectUpdateRuns = [int]$Benchmark.projectUpdateRuns
+        $TransformCommands = @($Commands | Where-Object { $_.name -in @("transform-csv", "transform-parquet") })
+        $ProjectSaveCommands = @($Commands | Where-Object { $_.name -in @("project-save", "project-save-update") })
+        $ProjectInspectCommands = @($Commands | Where-Object { $_.name -in @("project-inspect", "project-inspect-reopen") })
+        $ProjectExportCommands = @($Commands | Where-Object { $_.name -eq "project-export" })
+        $MaxTransformDuration = if ($TransformCommands.Count -eq 0) { 0.0 } else { [double](($TransformCommands | ForEach-Object { [double]$_.durationMs } | Measure-Object -Maximum).Maximum) }
+        $MaxProjectSaveDuration = if ($ProjectSaveCommands.Count -eq 0) { 0.0 } else { [double](($ProjectSaveCommands | ForEach-Object { [double]$_.durationMs } | Measure-Object -Maximum).Maximum) }
+        $MaxProjectInspectDuration = if ($ProjectInspectCommands.Count -eq 0) { 0.0 } else { [double](($ProjectInspectCommands | ForEach-Object { [double]$_.durationMs } | Measure-Object -Maximum).Maximum) }
+        $MaxProjectExportDuration = if ($ProjectExportCommands.Count -eq 0) { 0.0 } else { [double](($ProjectExportCommands | ForEach-Object { [double]$_.durationMs } | Measure-Object -Maximum).Maximum) }
+        $DurationBudgets = $Baseline.budgets.benchmark.maxDurationsMs
+        $DurationsWithinBudget = $null -ne $DurationBudgets -and
+            $MaxTransformDuration -le [double]$DurationBudgets.transform -and
+            $MaxProjectSaveDuration -le [double]$DurationBudgets.projectSave -and
+            $MaxProjectInspectDuration -le [double]$DurationBudgets.projectInspect -and
+            $MaxProjectExportDuration -le [double]$DurationBudgets.projectExport
         $BenchmarkPassed = $BenchmarkHasPeaks -and $Benchmark.status -eq "passed" -and
             [bool]$Benchmark.cleanupConfirmed -and
             [int]$Benchmark.targetMiB -ge [int]$Baseline.budgets.benchmark.minTargetMiB -and
             $SustainedRuns -ge [int]$Baseline.budgets.benchmark.minSustainedRuns -and
+            $ProjectUpdateRuns -ge [int]$Baseline.budgets.benchmark.minProjectUpdateRuns -and
             $MissingCommands.Count -eq 0 -and
-            $PeakWorkingSet -le [int64]$Baseline.budgets.benchmark.maxPeakWorkingSetBytes
+            $PeakWorkingSet -le [int64]$Baseline.budgets.benchmark.maxPeakWorkingSetBytes -and
+            $DurationsWithinBudget
         $BenchmarkState = if ($BenchmarkPassed) { "passed" } else { "failed" }
         $BenchmarkMessage = if ($BenchmarkPassed) { "Benchmark de datasets dentro del contrato." } else { "Benchmark de datasets incompleto o fuera del presupuesto." }
         Add-Check -Id "dataset-benchmark" -State $BenchmarkState `
@@ -119,10 +136,18 @@ try {
                 status = $Benchmark.status
                 targetMiB = [int]$Benchmark.targetMiB
                 sustainedRuns = $SustainedRuns
+                projectUpdateRuns = $ProjectUpdateRuns
                 cleanupConfirmed = [bool]$Benchmark.cleanupConfirmed
                 commandNames = $CommandNames
                 missingCommands = $MissingCommands
                 peakWorkingSetBytes = $PeakWorkingSet
+                maxDurationsMs = [ordered]@{
+                    transform = $MaxTransformDuration
+                    projectSave = $MaxProjectSaveDuration
+                    projectInspect = $MaxProjectInspectDuration
+                    projectExport = $MaxProjectExportDuration
+                }
+                durationsWithinBudget = $DurationsWithinBudget
             }) -Budget $Baseline.budgets.benchmark -Source (Get-RelativePath $BenchmarkFile.FullName) `
             -Message $BenchmarkMessage
     }
