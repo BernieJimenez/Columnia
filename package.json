@@ -1,7 +1,7 @@
 {
   "name": "columnia",
   "private": true,
-  "version": "0.42.0",
+  "version": "0.43.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,6 +15,7 @@
     "smoke:cli": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-cli.ps1",
     "smoke:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-tauri.ps1",
     "smoke:cdp": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-cdp.ps1 -RunPlaywright -RunProjects -RunProjectMutations",
+    "smoke:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-restart.ps1",
     "perf:summary": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/summarize-performance.ps1",
     "perf:benchmark": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-datasets.ps1",
     "tauri": "tauri"

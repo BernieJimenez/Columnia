@@ -3,6 +3,11 @@ import { chromium } from "@playwright/test";
 const portArgumentIndex = process.argv.indexOf("--port");
 const port = portArgumentIndex >= 0 ? Number(process.argv[portArgumentIndex + 1]) : 9222;
 const runMutations = process.argv.includes("--mutate");
+const restartMode = process.argv.includes("--restart-prepare")
+  ? "prepare"
+  : process.argv.includes("--restart-verify")
+    ? "verify"
+    : "normal";
 const probeTimeoutMs = 15_000;
 const pollIntervalMs = 250;
 
@@ -24,7 +29,7 @@ function isProvisionalUrl(url) {
 
 async function inspectNativeProjectIpc(page) {
   try {
-    return await page.evaluate(async (shouldMutate) => {
+    return await page.evaluate(async ({ shouldMutate, restartMode: currentRestartMode }) => {
       const internals = window.__TAURI_INTERNALS__;
       if (!internals || typeof internals.invoke !== "function") {
         return {
@@ -132,7 +137,7 @@ async function inspectNativeProjectIpc(page) {
           textExtractions: [],
         };
         const qualityRule = { column: "label", kind: "non_empty", maxInvalid: 0 };
-        const interactions = [
+        const normalInteractions = [
           "probe_seed_dataset",
           "probe_save_transform_recipe",
           "apply_transform_recipe",
@@ -144,7 +149,92 @@ async function inspectNativeProjectIpc(page) {
           "get_dataset_page",
           "delete_project",
         ];
+        const prepareInteractions = [
+          "probe_seed_dataset",
+          "probe_save_transform_recipe",
+          "apply_transform_recipe",
+          "probe_export_dataset",
+          "save_project",
+          "list_projects",
+        ];
+        const verifyInteractions = [
+          "get_recovery_candidate",
+          "probe_reopen_project",
+          "open_project",
+          "get_dataset_page",
+          "delete_project",
+        ];
+        const interactions = currentRestartMode === "prepare"
+          ? prepareInteractions
+          : currentRestartMode === "verify"
+            ? verifyInteractions
+            : normalInteractions;
         try {
+          if (currentRestartMode === "verify") {
+            const recovery = await internals.invoke("get_recovery_candidate");
+            if (!isSummary(recovery) || !recovery.name.startsWith("__columnia_native_probe__")) {
+              throw new Error("recovery_invalid");
+            }
+            projectId = recovery.id;
+
+            const reopened = await internals.invoke("probe_reopen_project", { projectId });
+            const reopenedValid = Boolean(reopened)
+              && isSummary(reopened.project)
+              && reopened.project.id === projectId
+              && reopened.datasetFileName === "native-probe.csv"
+              && reopened.rowCount === 2
+              && reopened.columnCount === 2
+              && reopened.qualityRuleCount === 1
+              && reopened.recipeDraftPresent === true
+              && reopened.recoveryCandidatePresent === true
+              && forbiddenFields(reopened).length === 0;
+            if (!reopenedValid) throw new Error("reopen_after_restart_invalid");
+
+            const opened = await internals.invoke("open_project", { projectId });
+            const openedValid = Boolean(opened)
+              && isSummary(opened.project)
+              && opened.project.id === projectId
+              && opened.dataset?.fileName === "native-probe.csv"
+              && opened.dataset?.rowCount === 2
+              && opened.dataset?.columnCount === 2
+              && opened.workspace?.qualityRules?.length === 1
+              && opened.workspace.qualityRules[0]?.column === "label"
+              && opened.workspace.recipeDraft?.name === "Native probe recipe"
+              && forbiddenFields(opened).length === 0;
+            if (!openedValid) throw new Error("open_after_restart_invalid");
+
+            const page = await internals.invoke("get_dataset_page", { offset: 0, limit: 10 });
+            if (!(page?.offset === 0 && Array.isArray(page.rows) && page.rows.length === 2)) {
+              throw new Error("page_after_restart_invalid");
+            }
+
+            const deletedProjectId = projectId;
+            await internals.invoke("delete_project", { projectId });
+            projectId = null;
+            const after = await readCatalog();
+            if (!(after.valid
+              && after.projectsCount === before.projectsCount - 1
+              && !after.projects.some((project) => project.id === deletedProjectId))) {
+              throw new Error("restart_cleanup_invalid");
+            }
+            return {
+              status: "passed",
+              phase: "native_project_restart_verify",
+              commands: interactions,
+              projectsCountBefore: before.projectsCount,
+              projectsCountAfter: after.projectsCount,
+              recoveryPresentBefore: before.recoveryPresent,
+              recoveryPresentAfter: after.recoveryPresent,
+              projectSummariesValid: after.projectSummariesValid,
+              recoverySummaryValid: after.recoverySummaryValid,
+              forbiddenPathFields: before.forbiddenPathFields || after.forbiddenPathFields,
+              restartVerified: true,
+              mutationRequested: true,
+              cleanupConfirmed: true,
+              interactions,
+            };
+          }
+
           const seed = await internals.invoke("probe_seed_dataset");
           const seedValid = Boolean(seed)
             && seed.fileName === "native-probe.csv"
@@ -199,6 +289,32 @@ async function inspectNativeProjectIpc(page) {
             && saved.rowCount === 2
             && saved.columnCount === 2;
           if (!savedValid) throw new Error("save_invalid");
+
+          if (currentRestartMode === "prepare") {
+            const prepared = await readCatalog();
+            const restartReady = prepared.valid
+              && prepared.projectsCount === before.projectsCount + 1
+              && prepared.recoveryPresent
+              && prepared.projects.some((project) => project.id === projectId && isSummary(project));
+            if (!restartReady) throw new Error("restart_prepare_invalid");
+            return {
+              status: "passed",
+              phase: "native_project_restart_prepare",
+              commands: interactions,
+              projectsCountBefore: before.projectsCount,
+              projectsCountAfter: prepared.projectsCount,
+              recoveryPresentBefore: before.recoveryPresent,
+              recoveryPresentAfter: prepared.recoveryPresent,
+              projectSummariesValid: prepared.projectSummariesValid,
+              recoverySummaryValid: prepared.recoverySummaryValid,
+              forbiddenPathFields: before.forbiddenPathFields || prepared.forbiddenPathFields,
+              restartReady: true,
+              projectPersisted: true,
+              mutationRequested: true,
+              cleanupConfirmed: true,
+              interactions,
+            };
+          }
 
           const reopened = await internals.invoke("probe_reopen_project", { projectId });
           const reopenedValid = Boolean(reopened)
@@ -263,7 +379,7 @@ async function inspectNativeProjectIpc(page) {
             cleanupConfirmed: true,
             interactions,
           };
-        } catch {
+        } catch (error) {
           if (projectId) {
             try {
               await internals.invoke("delete_project", { projectId });
@@ -273,10 +389,17 @@ async function inspectNativeProjectIpc(page) {
           }
           return {
             status: "failed",
-            phase: "native_project_ipc_mutation_failed",
+            phase: currentRestartMode === "verify"
+              ? "native_project_restart_verify_failed"
+              : currentRestartMode === "prepare"
+                ? "native_project_restart_prepare_failed"
+                : "native_project_ipc_mutation_failed",
             commands: interactions,
             mutationRequested: true,
             cleanupConfirmed,
+            errorCode: error instanceof Error && /^(recovery|reopen|open|page|restart|seed|recipe|export|save|list|cleanup)_/.test(error.message)
+              ? error.message
+              : "invoke_failed",
             interactions,
           };
         }
@@ -289,7 +412,7 @@ async function inspectNativeProjectIpc(page) {
           interactions: [],
         };
       }
-    }, runMutations);
+    }, { shouldMutate: runMutations, restartMode });
   } catch {
     return {
       status: "failed",
@@ -444,6 +567,29 @@ async function inspectPage(page) {
 }
 
 function snapshotResult(status, pages, extra = {}) {
+  const nativeCommands = restartMode === "prepare"
+    ? [
+      "probe_seed_dataset",
+      "probe_save_transform_recipe",
+      "apply_transform_recipe",
+      "probe_export_dataset",
+      "save_project",
+      "list_projects",
+    ]
+    : restartMode === "verify"
+      ? ["get_recovery_candidate", "probe_reopen_project", "open_project", "get_dataset_page", "delete_project"]
+      : [
+        "probe_seed_dataset",
+        "probe_save_transform_recipe",
+        "apply_transform_recipe",
+        "probe_export_dataset",
+        "probe_reopen_project",
+        "save_project",
+        "list_projects",
+        "open_project",
+        "get_dataset_page",
+        "delete_project",
+      ];
   return {
     status,
     endpoint,
@@ -456,20 +602,7 @@ function snapshotResult(status, pages, extra = {}) {
       saveDisabledWithoutDataset: "button[type=submit]:disabled",
       noVisibleRoutes: "visible route anchors",
       actionNames: "all visible ProjectsPanel buttons",
-      nativeIpc: runMutations
-        ? [
-          "probe_seed_dataset",
-          "probe_save_transform_recipe",
-          "apply_transform_recipe",
-          "probe_export_dataset",
-          "probe_reopen_project",
-          "save_project",
-          "list_projects",
-          "open_project",
-          "get_dataset_page",
-          "delete_project",
-        ]
-        : ["list_projects", "get_recovery_candidate"],
+      nativeIpc: runMutations ? nativeCommands : ["list_projects", "get_recovery_candidate"],
     },
     interactions: [],
     ...extra,

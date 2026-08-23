@@ -5,7 +5,9 @@ param(
     [int]$TimeoutSeconds = 120,
     [switch]$RunPlaywright,
     [switch]$RunProjects,
-    [switch]$RunProjectMutations
+    [switch]$RunProjectMutations,
+    [ValidateSet("normal", "restart-prepare", "restart-verify")]
+    [string]$ProjectProbeMode = "normal"
 )
 
 $ErrorActionPreference = "Stop"
@@ -301,6 +303,12 @@ function Invoke-ProjectsProbe {
     if ($RunProjectMutations) {
         $RunnerArguments += "--mutate"
     }
+    if ($ProjectProbeMode -eq "restart-prepare") {
+        $RunnerArguments += "--restart-prepare"
+    }
+    elseif ($ProjectProbeMode -eq "restart-verify") {
+        $RunnerArguments += "--restart-verify"
+    }
     $Output = @(& $NodeCommand @RunnerArguments 2>&1)
     $OutputText = [string]::Join([Environment]::NewLine, @($Output | ForEach-Object { [string]$_ }))
     $LastJsonLine = @($Output | Where-Object { ([string]$_).TrimStart().StartsWith("{") } | Select-Object -Last 1)
@@ -502,6 +510,7 @@ finally {
         playwright = $PlaywrightPayload
         projectsRequested = [bool]$RunProjects
         projectsMutationRequested = [bool]$RunProjectMutations
+        projectProbeMode = $ProjectProbeMode
         projectsStatus = $ProjectsStatus
         projects = $ProjectsPayload
         cdpListenerObserved = $CdpListenerObserved

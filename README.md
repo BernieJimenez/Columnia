@@ -105,6 +105,12 @@ no IDs, datos ni rutas; esta señal no
 habilita CDP en el arranque normal ni sustituye todavía un presupuesto global
 de RAM.
 
+Para comprobar continuidad entre procesos ejecuta `npm run smoke:restart`. El
+comando corre dos fases aisladas: prepara y persiste el proyecto, termina la
+primera instancia `npm run tauri dev`, inicia una segunda, recupera el proyecto
+desde SQLite/snapshot y finalmente lo elimina. Cada fase conserva su cleanup y
+evidencia separada.
+
 ## Automatización por CLI
 
 La CLI reutiliza el motor Rust y entrega resultados JSON versión 1 para poder
