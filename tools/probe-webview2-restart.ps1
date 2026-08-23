@@ -39,11 +39,20 @@ function Invoke-RestartPhase {
         $detail = if ($OutputText) { $OutputText } else { "El probe no produjo salida." }
         throw "La fase $Mode falló: $detail"
     }
+    $PhaseSummaryPath = Join-Path $ProjectRoot (($Evidence -replace '/', '\') + '\summary.json')
+    if (-not (Test-Path -LiteralPath $PhaseSummaryPath -PathType Leaf)) {
+        throw "La fase $Mode no produjo summary.json en su evidencia."
+    }
+    $PhaseSummary = Get-Content -LiteralPath $PhaseSummaryPath -Raw | ConvertFrom-Json
+    $NativeIpc = if ($null -eq $PhaseSummary.projects) { $null } else { @($PhaseSummary.projects.pages)[0].nativeIpc }
     [ordered]@{
         mode = $Mode
         status = "passed"
         exitCode = $ExitCode
         evidenceDirectory = $Evidence
+        performanceBudget = $PhaseSummary.performanceBudget
+        nativeOperationCount = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeOperationCount }
+        nativeOperationDurationMs = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeOperationDurationMs }
     }
 }
 

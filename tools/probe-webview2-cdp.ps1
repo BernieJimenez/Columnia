@@ -7,7 +7,11 @@ param(
     [switch]$RunProjects,
     [switch]$RunProjectMutations,
     [ValidateSet("normal", "restart-prepare", "restart-verify")]
-    [string]$ProjectProbeMode = "normal"
+    [string]$ProjectProbeMode = "normal",
+    [ValidateRange(64, 4096)]
+    [int]$MemoryWorkingSetBudgetMiB = 512,
+    [ValidateRange(64, 4096)]
+    [int]$MemoryPrivateBudgetMiB = 256
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,6 +76,7 @@ $ProcessProfile = [ordered]@{
     lastWorkingSetBytes = $null
     peakPrivateMemoryBytes = 0L
 }
+$PerformanceBudget = $null
 $StartedAt = [DateTimeOffset]::UtcNow
 $Timer = [System.Diagnostics.Stopwatch]::StartNew()
 $PreviousWebViewArguments = $null
@@ -127,6 +132,36 @@ function Update-ProcessProfile {
     }
     if ($PrivateMemoryBytes -gt $script:ProcessProfile.peakPrivateMemoryBytes) {
         $script:ProcessProfile.peakPrivateMemoryBytes = $PrivateMemoryBytes
+    }
+}
+
+function Get-PerformanceBudget {
+    $WorkingSetBudgetBytes = [int64]$MemoryWorkingSetBudgetMiB * 1MB
+    $PrivateMemoryBudgetBytes = [int64]$MemoryPrivateBudgetMiB * 1MB
+    $Observed = $script:ProcessProfile.sampleCount -gt 0
+    $WorkingSetWithinBudget = -not $Observed -or $script:ProcessProfile.peakWorkingSetBytes -le $WorkingSetBudgetBytes
+    $PrivateMemoryWithinBudget = -not $Observed -or $script:ProcessProfile.peakPrivateMemoryBytes -le $PrivateMemoryBudgetBytes
+    $BudgetStatus = if (-not $Observed) {
+        "not_observed"
+    }
+    elseif ($WorkingSetWithinBudget -and $PrivateMemoryWithinBudget) {
+        "within_budget"
+    }
+    else {
+        "exceeded"
+    }
+
+    return [ordered]@{
+        schemaVersion = 1
+        status = $BudgetStatus
+        enforced = $true
+        sampleCount = $script:ProcessProfile.sampleCount
+        workingSetBudgetBytes = $WorkingSetBudgetBytes
+        privateMemoryBudgetBytes = $PrivateMemoryBudgetBytes
+        peakWorkingSetBytes = $script:ProcessProfile.peakWorkingSetBytes
+        peakPrivateMemoryBytes = $script:ProcessProfile.peakPrivateMemoryBytes
+        workingSetWithinBudget = $WorkingSetWithinBudget
+        privateMemoryWithinBudget = $PrivateMemoryWithinBudget
     }
 }
 
@@ -402,6 +437,7 @@ try {
 
                 if ($RunPlaywright -and ($PlaywrightStatus -eq "pending" -or $PlaywrightStatus -eq "not_ready")) {
                     Invoke-PlaywrightProbe
+                    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
                 }
                 if ($RunPlaywright -and $PlaywrightStatus -eq "passed") {
                     if (-not $RunProjects) {
@@ -411,6 +447,7 @@ try {
 
                     if ($ProjectsStatus -eq "pending" -or $ProjectsStatus -eq "not_ready") {
                         Invoke-ProjectsProbe
+                        Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
                     }
                     if ($ProjectsStatus -eq "passed") {
                         $Status = "supported"
@@ -431,6 +468,7 @@ try {
                 if (-not $RunPlaywright -and $RunProjects) {
                     if ($ProjectsStatus -eq "pending" -or $ProjectsStatus -eq "not_ready") {
                         Invoke-ProjectsProbe
+                        Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
                     }
                     if ($ProjectsStatus -eq "passed") {
                         $Status = "supported"
@@ -485,6 +523,12 @@ catch {
     $FailureMessage = $_.Exception.Message
 }
 finally {
+    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+    $PerformanceBudget = Get-PerformanceBudget
+    if ($Status -eq "supported" -and $PerformanceBudget.status -eq "exceeded") {
+        $Status = "failed"
+        $FailureMessage = "El perfil de memoria excedió el presupuesto configurado: working set <= $MemoryWorkingSetBudgetMiB MiB y memoria privada <= $MemoryPrivateBudgetMiB MiB."
+    }
     $CleanupConfirmed = Stop-CreatedProcesses
     $Timer.Stop()
     if ($JobHandle -ne [IntPtr]::Zero) {
@@ -520,6 +564,7 @@ finally {
         browser = if ($null -ne $VersionPayload) { [string]$VersionPayload.Browser } else { $null }
         targetCount = if ($null -ne $TargetsPayload) { @($TargetsPayload).Count } else { 0 }
         processProfile = $ProcessProfile
+        performanceBudget = $PerformanceBudget
         cleanupConfirmed = $CleanupConfirmed
         command = "npm run tauri dev"
         environmentVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"

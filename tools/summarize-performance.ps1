@@ -95,7 +95,8 @@ function New-Sample {
         [Nullable[DateTimeOffset]]$ObservedAt,
         [string]$Status,
         [object[]]$Metrics,
-        [object]$ProcessProfile = $null
+        [object]$ProcessProfile = $null,
+        [object]$PerformanceBudget = $null
     )
 
     [ordered]@{
@@ -105,6 +106,7 @@ function New-Sample {
         status = $Status
         metrics = @($Metrics)
         processProfile = $ProcessProfile
+        performanceBudget = $PerformanceBudget
     }
 }
 
@@ -166,13 +168,23 @@ function Get-CdpNativeSample {
     if ($null -ne $ProbeDurationMs) {
         [void]$Metrics.Add((New-Metric -Name "probeDurationMs" -ValueMs $ProbeDurationMs -State "observational"))
     }
+    $ProjectPage = if ($null -eq $Document.projects) { $null } else { @($Document.projects.pages)[0] }
+    $NativeOperationDurationMs = if ($null -eq $ProjectPage -or $null -eq $ProjectPage.nativeIpc) {
+        $null
+    }
+    else {
+        Get-Number $ProjectPage.nativeIpc.nativeOperationDurationMs
+    }
+    if ($null -ne $NativeOperationDurationMs) {
+        [void]$Metrics.Add((New-Metric -Name "nativeOperationDurationMs" -ValueMs $NativeOperationDurationMs -State "observational"))
+    }
     if ($Metrics.Count -eq 0) {
         return $null
     }
 
     $Status = if ($Document.playwrightStatus -eq "passed" -and $Document.status -eq "supported") { "observed" } else { "unavailable" }
     $ObservedAt = Get-ObservedAt -Document $Document -EvidenceName $EvidenceName
-    return New-Sample -Category "cdp-native" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile
+    return New-Sample -Category "cdp-native" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile -PerformanceBudget $Document.performanceBudget
 }
 
 function Get-DesktopSmokeSample {

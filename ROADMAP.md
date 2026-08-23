@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.39.0`.
+- Versión actual del prototipo: `0.44.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -682,6 +682,19 @@ seguida por una segunda fase independiente que recupera el candidato desde
 SQLite/snapshot, valida el workspace, abre, pagina y elimina solo el proyecto
 del probe. Cada fase conserva su propio Job Object y cleanup.
 
+La versión 0.44.0 añade una señal de rendimiento por operación al mismo ciclo:
+el runner mide cada comando IPC nativo y el total de receta, exportación,
+persistencia, reapertura y cleanup, conservando únicamente milisegundos y
+conteos. El probe CDP toma muestras posteriores al runner y aplica por defecto
+un presupuesto de 512 MiB de working set y 256 MiB de memoria privada al árbol
+de procesos propio; una ejecución soportada que exceda esos límites falla y el
+resumen de rendimiento conserva el detalle para comparar regresiones.
+
+La validación Windows v0.44.0 pasó Vitest 129/129, Playwright 9/9, CDP normal,
+reinicio real, desktop, CLI, benchmark y Package. El CDP normal observó 448.97
+MiB de working set y 251.92 MiB de memoria privada, dentro de los límites; las
+dos fases de reinicio también quedaron dentro de presupuesto y con cleanup.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -849,7 +862,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.43.0
+## 8.1. Cola de ejecución recomendada desde v0.44.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -862,12 +875,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
    `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
    y añadir capturas canónicas.
-3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, completar
-   presupuesto global de RAM y mantener cleanup 100 % repetible; el probe CDP
-   ya cubre receta/exportación nativas y `npm run perf:benchmark` cubre una muestra CLI de
-   100 MiB y `npm run smoke:cdp` ya conserva working set/memoria privada, pero la
-   compilación debug fría todavía puede excederla y falta comparar contra
-   `dataprepv1.1`.
+3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, mantener
+   cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
+   ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
+   registra duraciones IPC por operación, mientras `npm run perf:benchmark` cubre
+   una muestra CLI de 100 MiB. Falta medir transformaciones sostenidas y el
+   presupuesto combinado de dataset e historial.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -944,6 +957,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.41.0: receta JSON temporal, aplicación estructural, exportación CSV atómica con quality gate y workspace de proyecto restaurable verificados dentro de WebView2; selector nativo y continuidad entre procesos siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.42.0: reapertura durable desde una instancia fresca de `ProjectStore` con SQLite, snapshot, recovery y workspace verificados dentro del probe WebView2; selector nativo y reinicio de proceso real siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.43.0: dos procesos Tauri/WebView2 independientes preparan, cierran, reinician, recuperan, abren y eliminan un proyecto sintético; selector nativo sigue pendiente | Implementada |
+| 2026-08-22 | Versión 0.44.0: telemetría IPC sanitizada por operación y presupuesto CDP de memoria aplicado al árbol nativo, con resumen de rendimiento ampliado | Implementada |
 
 ## 10. Fuentes de esta revisión
 

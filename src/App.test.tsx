@@ -121,7 +121,7 @@ describe("App", () => {
 
   it("guarda y confirma el borrado de un proyecto sin descartar el dataset", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
-    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.43.0", platform: "windows" });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.44.0", platform: "windows" });
 
     const dataset: DatasetPreview = {
       fileName: "ventas.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 1,
@@ -177,7 +177,7 @@ describe("App", () => {
 
   it("abre desde el catálogo el proyecto recién guardado y restaura su workspace", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
-    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.43.0", platform: "windows" });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.44.0", platform: "windows" });
 
     const dataset: DatasetPreview = {
       fileName: "clientes.csv", fileSizeBytes: 96, rowCount: 1, columnCount: 1,

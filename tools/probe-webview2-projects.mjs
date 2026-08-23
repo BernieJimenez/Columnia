@@ -39,6 +39,24 @@ async function inspectNativeProjectIpc(page) {
         };
       }
 
+      const nativeOperationStartedAt = performance.now();
+      const operationTimingsMs = {};
+      const invoke = async (command, args) => {
+        const startedAt = performance.now();
+        try {
+          return await internals.invoke(command, args);
+        } finally {
+          const elapsedMs = Number((performance.now() - startedAt).toFixed(2));
+          operationTimingsMs[command] = [...(operationTimingsMs[command] ?? []), elapsedMs];
+        }
+      };
+      const timingEvidence = () => ({
+        nativeOperationCount: Object.values(operationTimingsMs)
+          .reduce((count, samples) => count + samples.length, 0),
+        nativeOperationDurationMs: Number((performance.now() - nativeOperationStartedAt).toFixed(2)),
+        nativeOperationTimingsMs: operationTimingsMs,
+      });
+
       const forbiddenFields = (value) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return [];
         return Object.keys(value).filter((key) => /path|filepath|sourcepath/i.test(key));
@@ -66,8 +84,8 @@ async function inspectNativeProjectIpc(page) {
       };
       const readCatalog = async () => {
         const [projects, recoveryCandidate] = await Promise.all([
-          internals.invoke("list_projects"),
-          internals.invoke("get_recovery_candidate"),
+          invoke("list_projects"),
+          invoke("get_recovery_candidate"),
         ]);
         const projectsArray = Array.isArray(projects);
         const recoveryValid = recoveryCandidate === null || isSummary(recoveryCandidate);
@@ -100,6 +118,7 @@ async function inspectNativeProjectIpc(page) {
             forbiddenPathFields: before.forbiddenPathFields,
             mutationRequested: shouldMutate,
             interactions: [],
+            ...timingEvidence(),
           };
         }
 
@@ -115,6 +134,7 @@ async function inspectNativeProjectIpc(page) {
             forbiddenPathFields: before.forbiddenPathFields,
             mutationRequested: false,
             interactions: [],
+            ...timingEvidence(),
           };
         }
 
@@ -171,13 +191,13 @@ async function inspectNativeProjectIpc(page) {
             : normalInteractions;
         try {
           if (currentRestartMode === "verify") {
-            const recovery = await internals.invoke("get_recovery_candidate");
+            const recovery = await invoke("get_recovery_candidate");
             if (!isSummary(recovery) || !recovery.name.startsWith("__columnia_native_probe__")) {
               throw new Error("recovery_invalid");
             }
             projectId = recovery.id;
 
-            const reopened = await internals.invoke("probe_reopen_project", { projectId });
+            const reopened = await invoke("probe_reopen_project", { projectId });
             const reopenedValid = Boolean(reopened)
               && isSummary(reopened.project)
               && reopened.project.id === projectId
@@ -190,7 +210,7 @@ async function inspectNativeProjectIpc(page) {
               && forbiddenFields(reopened).length === 0;
             if (!reopenedValid) throw new Error("reopen_after_restart_invalid");
 
-            const opened = await internals.invoke("open_project", { projectId });
+            const opened = await invoke("open_project", { projectId });
             const openedValid = Boolean(opened)
               && isSummary(opened.project)
               && opened.project.id === projectId
@@ -203,13 +223,13 @@ async function inspectNativeProjectIpc(page) {
               && forbiddenFields(opened).length === 0;
             if (!openedValid) throw new Error("open_after_restart_invalid");
 
-            const page = await internals.invoke("get_dataset_page", { offset: 0, limit: 10 });
+            const page = await invoke("get_dataset_page", { offset: 0, limit: 10 });
             if (!(page?.offset === 0 && Array.isArray(page.rows) && page.rows.length === 2)) {
               throw new Error("page_after_restart_invalid");
             }
 
             const deletedProjectId = projectId;
-            await internals.invoke("delete_project", { projectId });
+            await invoke("delete_project", { projectId });
             projectId = null;
             const after = await readCatalog();
             if (!(after.valid
@@ -232,10 +252,11 @@ async function inspectNativeProjectIpc(page) {
               mutationRequested: true,
               cleanupConfirmed: true,
               interactions,
+              ...timingEvidence(),
             };
           }
 
-          const seed = await internals.invoke("probe_seed_dataset");
+          const seed = await invoke("probe_seed_dataset");
           const seedValid = Boolean(seed)
             && seed.fileName === "native-probe.csv"
             && seed.rowCount === 2
@@ -243,7 +264,7 @@ async function inspectNativeProjectIpc(page) {
             && forbiddenFields(seed).length === 0;
           if (!seedValid) throw new Error("seed_invalid");
 
-          const savedRecipe = await internals.invoke("probe_save_transform_recipe", {
+          const savedRecipe = await invoke("probe_save_transform_recipe", {
             recipe,
             name: "Native probe recipe",
           });
@@ -255,7 +276,7 @@ async function inspectNativeProjectIpc(page) {
             && Object.keys(savedRecipe).every((key) => !/path|filepath|sourcepath/i.test(key));
           if (!savedRecipeValid) throw new Error("recipe_save_invalid");
 
-          const transformed = await internals.invoke("apply_transform_recipe", {
+          const transformed = await invoke("apply_transform_recipe", {
             recipe: savedRecipe.recipe,
           });
           const transformedValid = transformed?.changed === true
@@ -264,7 +285,7 @@ async function inspectNativeProjectIpc(page) {
             && transformed.dataset?.columns?.map((column) => column.name).join(",") === "id,label";
           if (!transformedValid) throw new Error("recipe_apply_invalid");
 
-          const exported = await internals.invoke("probe_export_dataset", {
+          const exported = await invoke("probe_export_dataset", {
             format: "csv",
             qualityRules: [qualityRule],
             allowUnvalidated: false,
@@ -276,7 +297,7 @@ async function inspectNativeProjectIpc(page) {
             && exported.fileSizeBytes > 0;
           if (!exportValid) throw new Error("export_invalid");
 
-          const saved = await internals.invoke("save_project", {
+          const saved = await invoke("save_project", {
             projectId: null,
             name: projectName,
             workspace: { qualityRules: [qualityRule], recipeDraft: savedRecipe },
@@ -313,10 +334,11 @@ async function inspectNativeProjectIpc(page) {
               mutationRequested: true,
               cleanupConfirmed: true,
               interactions,
+              ...timingEvidence(),
             };
           }
 
-          const reopened = await internals.invoke("probe_reopen_project", { projectId });
+          const reopened = await invoke("probe_reopen_project", { projectId });
           const reopenedValid = Boolean(reopened)
             && isSummary(reopened.project)
             && reopened.project.id === projectId
@@ -329,13 +351,13 @@ async function inspectNativeProjectIpc(page) {
             && forbiddenFields(reopened).length === 0;
           if (!reopenedValid) throw new Error("reopen_invalid");
 
-          const listed = await internals.invoke("list_projects");
+          const listed = await invoke("list_projects");
           const listedValid = Array.isArray(listed)
             && listed.length === before.projectsCount + 1
             && listed.some((project) => project.id === projectId && isSummary(project));
           if (!listedValid) throw new Error("list_invalid");
 
-          const opened = await internals.invoke("open_project", { projectId });
+          const opened = await invoke("open_project", { projectId });
           const openedValid = Boolean(opened)
             && isSummary(opened.project)
             && opened.project.id === projectId
@@ -350,11 +372,11 @@ async function inspectNativeProjectIpc(page) {
             && forbiddenFields(opened).length === 0;
           if (!openedValid) throw new Error("open_invalid");
 
-          const page = await internals.invoke("get_dataset_page", { offset: 0, limit: 10 });
+          const page = await invoke("get_dataset_page", { offset: 0, limit: 10 });
           const pageValid = page?.offset === 0 && Array.isArray(page.rows) && page.rows.length === 2;
           if (!pageValid) throw new Error("page_invalid");
 
-          await internals.invoke("delete_project", { projectId });
+          await invoke("delete_project", { projectId });
           projectId = null;
           const after = await readCatalog();
           const catalogRestored = after.valid && after.projectsCount === before.projectsCount;
@@ -378,11 +400,12 @@ async function inspectNativeProjectIpc(page) {
             mutationRequested: true,
             cleanupConfirmed: true,
             interactions,
+            ...timingEvidence(),
           };
         } catch (error) {
           if (projectId) {
             try {
-              await internals.invoke("delete_project", { projectId });
+              await invoke("delete_project", { projectId });
             } catch {
               cleanupConfirmed = false;
             }
@@ -401,6 +424,7 @@ async function inspectNativeProjectIpc(page) {
               ? error.message
               : "invoke_failed",
             interactions,
+            ...timingEvidence(),
           };
         }
       } catch {
@@ -410,6 +434,7 @@ async function inspectNativeProjectIpc(page) {
           error: "invoke_failed",
           mutationRequested: shouldMutate,
           interactions: [],
+          ...timingEvidence(),
         };
       }
     }, { shouldMutate: runMutations, restartMode });

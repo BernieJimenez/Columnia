@@ -8,14 +8,14 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.43.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.44.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Plataformas objetivo | Windows, macOS y Linux |
 | Plataforma verificada inicialmente | Windows |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-22, rama `master`, base `a66fe3d` con cambios locales pendientes |
+| Última revisión de este documento | 2026-08-22, rama `master`, base `d8ddd90` con cambios locales pendientes |
 
 ## Para qué existe este documento
 
@@ -113,10 +113,11 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/generate-sbom.ps1` | Genera offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
-| `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, puede conectar Playwright al WebView2, registra el working set/memoria privada del proceso debug y ejecuta probes DOM de solo lectura; restaura el entorno y limpia su Job Object. |
+| `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, perfila el árbol de procesos y aplica presupuestos observables de 512 MiB de working set y 256 MiB de memoria privada; restaura el entorno y limpia su Job Object. |
+| `tools/probe-webview2-restart.ps1` | Ejecuta las fases aisladas prepare/verify del reinicio real y eleva al resumen de cada fase el estado del presupuesto y el conteo/duración IPC, delegando el cleanup al probe CDP. |
 | `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y registra primer render, landmarks, `ProjectsPanel`, skip link, foco principal y cantidad de controles sin mutar datos. |
-| `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de `ProjectsPanel`, los IPC nativos de catálogo y, en el smoke debug, guarda/abre/consulta/elimina un proyecto sintético con cleanup; no registra rutas ni datos del catálogo. |
-| `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, conserva el perfil de memoria nativo, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
+| `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de `ProjectsPanel`, los IPC nativos de catálogo y, en el smoke debug, guarda/abre/consulta/elimina un proyecto sintético con cleanup; registra duración por comando y total, pero no rutas ni datos del catálogo. |
+| `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, conserva el perfil de memoria, el presupuesto y las duraciones nativas, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
 | `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide `columnia-cli` en inspect/validate/transform CSV+Parquet con duración y pico de working set, y conserva solo un resumen sin datos después del cleanup. |
 | `tools/smoke-cli.ps1` | Verifica la CLI real con fixtures deterministas, libros, calidad, lotes, atomicidad por trabajo y errores seguros. |
 | `fixtures/automation/` | Entradas, receta y resultados esperados del smoke de automatización. |
@@ -376,6 +377,9 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - v0.43.0 añade `npm run smoke:restart`: ejecuta dos procesos Tauri/WebView2 independientes. La primera fase persiste un proyecto sintético y termina; la segunda obtiene el recovery candidate, valida SQLite/snapshot/workspace, abre, pagina y elimina solo el proyecto del probe. Cada fase conserva evidencia privada y el wrapper solo publica estados, conteos y directorios de evidencia.
 - Validación inicial v0.43.0 del reinicio real: `restart-prepare` dejó el catálogo 0→1 y `restart-verify` 1→0, ambas fases con cleanup confirmado. Evidencia `.local/validation/webview2-restart/20260823T030656Z`; CDP prepare `.local/validation/webview2-cdp/20260823T030656Z`, verify `.local/validation/webview2-cdp/20260823T030750Z`.
 - Validación v0.43.0 completada en Windows: Vitest 129/129, Rust 127/127, Playwright 9/9, CDP normal y reinicio real, smoke desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: CDP normal `.local/validation/webview2-cdp/20260823T030941Z`, restart `.local/validation/webview2-restart/20260823T030656Z`, desktop `.local/validation/desktop-smoke/20260823T031037Z`, CLI `.local/validation/cli-smoke/20260823T030919Z`, benchmark `.local/validation/performance-benchmark/20260823T030919Z`, Package `.local/validation/20260823T031047Z-a66fe3d-package.json` y resumen `.local/validation/performance-summary/summary.json` (29 muestras CDP, 20 desktop). El reinicio confirmó prepare 0→1 y verify 1→0 con cleanup; la compilación fría continúa como señal observacional fuera del presupuesto de 3 s.
+- v0.44.0 añade telemetría sanitizada por operación al ciclo nativo de `ProjectsPanel`: el runner conserva conteo, duración total y muestras por comando IPC para receta, exportación, persistencia, reapertura y cleanup, sin IDs, rutas, filas ni nombres de usuario.
+- v0.44.0 convierte el perfil CDP en un gate de presupuesto de ventana: toma muestras después de los probes y antes del cleanup, publica `performanceBudget` con límites configurables (512 MiB working set y 256 MiB memoria privada por defecto) y falla una ejecución soportada si excede alguno. `npm run perf:summary` conserva ese bloque junto al perfil y las duraciones nativas.
+- Validación v0.44.0 completada en Windows: Vitest 129/129, Playwright 9/9, smoke CDP normal y reinicio real, smoke desktop, CLI, benchmark, `npm run perf:summary` y Package aprobados. Evidencias: CDP normal `.local/validation/webview2-cdp/20260823T032048Z`, reinicio final `.local/validation/webview2-restart/20260823T032932Z` (prepare `.local/validation/webview2-cdp/20260823T032932Z`, verify `.local/validation/webview2-cdp/20260823T033028Z`), desktop/CLI/benchmark `.local/validation/*/20260823T032441Z`, Package `.local/validation/20260823T032502Z-d8ddd90-package.json` y resumen `.local/validation/performance-summary/summary.json` (34 muestras CDP, 21 desktop). El CDP normal observó 448,970,752 bytes de working set y 251,916,288 bytes privados, ambos dentro de sus límites; el reinicio final observó 429.89/235.36 MiB en prepare y 428.11/236.12 MiB en verify, con 9 operaciones IPC por fase y cleanup confirmado. El primer render frío continúa como señal observacional fuera de 3 s.
 
 ### Planeado o pendiente
 
@@ -383,8 +387,8 @@ Al revisar este documento había 129 pruebas frontend y 127 pruebas Rust; las ra
 - DuckDB embebido;
 - joins, comparación de datasets y destinos de bases de datos;
 - auditoría manual con lector de pantalla/zoom/alto contraste y pruebas visuales; el probe CDP ya verifica el ciclo nativo temporal de proyectos, pero no reemplaza todavía una sesión manual de asistencia;
-- selector nativo de exportación/receta, comparación contra `dataprepv1.1` y presupuesto global de RAM; `npm run smoke:restart` ya cubre el reinicio real y el probe CDP cubre receta temporal, aplicación, exportación atómica y reapertura desde un `ProjectStore` fresco sin diálogos;
-- comparativa contra `dataprepv1.1`, presupuesto global de RAM y medición de transformaciones desde la ventana Tauri; el probe CDP ya registra el proceso debug y el benchmark CLI de 100 MiB aporta una señal reproducible;
+- selector nativo de exportación/receta y comparación contra `dataprepv1.1`; el presupuesto inicial de la ventana Tauri ya está instrumentado en CDP, pero falta compararlo con datasets grandes y medir transformaciones sostenidas;
+- medición de transformaciones desde la ventana Tauri y presupuesto integral dataset+historial; el probe CDP registra operaciones nativas de proyectos y el benchmark CLI de 100 MiB aporta una señal reproducible;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
 
@@ -451,6 +455,7 @@ Al actualizarlo:
 | 2026-08-22 | v0.41.0 añade persistencia temporal de receta, aplicación nativa y exportación CSV atómica con quality gate dentro del mismo probe WebView2; el workspace del proyecto restaura regla y borrador sin exponer rutas. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `tools/probe-webview2-projects.mjs` |
 | 2026-08-22 | v0.42.0 añade reapertura durable nativa bajo debug: una instancia fresca de `ProjectStore` valida SQLite, snapshot, recovery y workspace antes de la apertura IPC y cleanup. | `src-tauri/src/projects.rs`, `src-tauri/src/lib.rs`, `tools/probe-webview2-projects.mjs` |
 | 2026-08-22 | v0.43.0 añade `smoke:restart` con dos procesos Tauri/WebView2 independientes: preparar→cerrar→reiniciar→reabrir→eliminar, con cleanup delegado a cada fase y evidencia sin datos ni rutas. | `tools/probe-webview2-restart.ps1`, `tools/probe-webview2-cdp.ps1`, `tools/probe-webview2-projects.mjs` |
+| 2026-08-22 | v0.44.0 añade duraciones sanitizadas por operación IPC y un presupuesto CDP de 512 MiB working set/256 MiB memoria privada, con muestras posteriores a los probes y resumen de rendimiento persistente. | `tools/probe-webview2-projects.mjs`, `tools/probe-webview2-cdp.ps1`, `tools/summarize-performance.ps1` |
 | 2026-08-21 | La CLI administra proyectos en un `--store` obligatorio y canonicalizado mediante cinco comandos; exportar respeta las reglas guardadas y borrar exige confirmar el ID exacto, sin exponer rutas ni muestras en JSON. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `README.md`, `THREAT_MODEL.md` |
 | 2026-08-21 | SQLite v3 migra catálogos v1/v2 y conserva perfil cacheado e historial/cursor; abrir valida todo y crea una copia temporal de sesión, manteniendo 12 revisiones/1 GiB. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |
 | 2026-08-21 | El esquema SQLite v2 conserva reglas de calidad y borrador opcional de receta en cada proyecto, migra catálogos v1 y mantiene perfil e historial como estado temporal. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `src/features/projects/` |

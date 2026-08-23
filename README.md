@@ -101,9 +101,12 @@ memoria privada inicial, máxima y final) y ejecuta, solo en el build debug del
 probe, un ciclo temporal nativo de dataset/receta/exportación/proyecto. La
 reapertura durable crea un `ProjectStore` fresco y valida SQLite, snapshot,
 recovery y workspace antes del cleanup. La evidencia conserva conteos/estados,
-no IDs, datos ni rutas; esta señal no
-habilita CDP en el arranque normal ni sustituye todavía un presupuesto global
-de RAM.
+no IDs, datos ni rutas; esta señal no habilita CDP en el arranque normal. Desde
+v0.44.0 aplica por defecto un presupuesto de 512 MiB de working set y 256 MiB
+de memoria privada al árbol de procesos propio; si una ejecución soportada lo
+excede, falla. El mismo ciclo conserva duración total y muestras por comando
+IPC (solo milisegundos), que `npm run perf:summary` agrega junto al perfil de
+memoria.
 
 Para comprobar continuidad entre procesos ejecuta `npm run smoke:restart`. El
 comando corre dos fases aisladas: prepara y persiste el proyecto, termina la
