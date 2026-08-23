@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "policy": "synthetic-only-no-pii",
+  "files": [
+    "accessibility/visual-baseline-v1.json",
+    "automation/batch-collision-v1.json",
+    "automation/batch-invalid-v1.json",
+    "automation/batch-partial-v1.json",
+    "automation/batch-success-v1.json",
+    "automation/expected-batch-partial.json",
+    "automation/expected-batch-success.json",
+    "automation/expected-inspect-input.json",
+    "automation/expected-inspect-output-csv.json",
+    "automation/expected-inspect-output-parquet.json",
+    "automation/expected-inspect-workbook-generated.json",
+    "automation/expected-inspect-workbook.json",
+    "automation/expected-output.csv",
+    "automation/expected-validate-fail.json",
+    "automation/expected-validate-pass.json",
+    "automation/input.csv",
+    "automation/quality-fail-v1.json",
+    "automation/quality-input.csv",
+    "automation/quality-pass-transformed-v1.json",
+    "automation/quality-pass-v1.json",
+    "automation/recipe-incompatible-v1.json",
+    "automation/recipe-v1.json",
+    "performance/performance-baseline-v1.json"
+  ]
+}

@@ -149,6 +149,9 @@ function Invoke-Checked {
 }
 
 try {
+    Invoke-Checked "Repository governance" $ProjectRoot {
+        & (Join-Path $ProjectRoot "tools\check-governance.ps1")
+    }
     Invoke-Checked "Rust format" $TauriRoot { cargo fmt -- --check }
     Invoke-Checked "Rust check" $TauriRoot { cargo check }
     Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run }

@@ -7,6 +7,9 @@ Para entender rápidamente la arquitectura, el estado implementado, los riesgos
 y las reglas de trabajo, consulta el [contexto vivo del proyecto](CONTEXTO.md).
 Las fronteras de confianza, amenazas y controles se mantienen en el
 [threat model vivo](THREAT_MODEL.md).
+Las reglas de contribución, la licencia y las decisiones duraderas están en
+[CONTRIBUTING.md](CONTRIBUTING.md), [LICENSE](LICENSE) y la
+[documentación del repositorio](docs/README.md).
 
 El proyecto está en su primer hito técnico. Actualmente contiene el shell Tauri
 2, una interfaz React/TypeScript y el primer corte vertical del motor Polars:
@@ -20,13 +23,14 @@ nulos y texto Unicode, y se lee con una configuración conservadora de memoria.
 
 ## Plataformas objetivo
 
-- Windows
-- macOS
-- Linux
+- Windows x64: objetivo de soporte inicial y plataforma verificada actualmente.
+- macOS y Linux: objetivos de diseño; no se declararán soportados hasta compilar,
+  instalar y validar Columnia localmente en cada sistema.
 
 El diseño evita APIs exclusivas de un sistema operativo. Sin embargo, cada
 plataforma se considerará soportada únicamente después de compilar, instalar y
-probar Columnia localmente en ese sistema.
+probar Columnia localmente en ese sistema. El modelo de distribución inicial es
+abierto bajo MIT y no requiere telemetría ni un servicio remoto.
 
 ## Requisitos de desarrollo
 
@@ -205,10 +209,22 @@ reprobadas y 1 indica error de uso, carga o almacenamiento.
 La validación permanece completamente local. Desde PowerShell:
 
 ```powershell
+.\tools\check-governance.ps1
 .\tools\check.ps1 -Profile Fast
 .\tools\check.ps1 -Profile Full
 .\tools\check.ps1 -Profile Release
 ```
+
+## Gobernanza y documentación
+
+La [política de contribución](CONTRIBUTING.md) define ramas, commits y revisión
+local. Las decisiones técnicas duraderas viven en
+[`docs/adr/`](docs/adr/), el inventario de dependencias en
+[`docs/reference/dependency-audit.md`](docs/reference/dependency-audit.md) y la
+política de fixtures en
+[`docs/reference/fixtures-policy.md`](docs/reference/fixtures-policy.md).
+
+La licencia del proyecto es [MIT](LICENSE).
 
 `Fast` comprueba formato, compilación Rust, pruebas frontend y build web. `Full`
 añade Clippy con warnings como errores y las pruebas Rust. `Release` agrega el

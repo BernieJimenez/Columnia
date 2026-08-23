@@ -5,8 +5,9 @@
 
 ## Estado general
 
-- Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
-  seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
+- Etapa actual: prototipo funcional de la Fase I1, con la Fase I0 cerrada y
+  avances verificados en seguridad (I2), calidad local (I3), supply chain (I4)
+  y empaquetado Windows (I5).
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
@@ -16,8 +17,9 @@
 - Política de costos: no se adoptarán certificados, servicios ni herramientas
   de pago obligatorias.
 - Plataformas objetivo de diseño: Windows, macOS y Linux.
-- Plataforma inicial de verificación: Windows; macOS y Linux deberán verificarse
-  localmente en sus respectivos sistemas antes de declarar soporte público.
+- Plataforma inicial de soporte y verificación: Windows x64; macOS y Linux
+  deberán verificarse localmente en sus respectivos sistemas antes de declarar
+  soporte público.
 
 ## 1. Producto de referencia
 
@@ -300,17 +302,22 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
 
 ### Fase I0 — Contratos y gobierno del repositorio
 
-- [ ] Elegir licencia y modelo de distribución de Columnia.
-- [ ] Definir Windows x64 como objetivo inicial o aprobar una matriz distinta.
+- [x] Elegir licencia MIT y modelo de distribución abierta inicial, sin
+  telemetría ni servicio remoto obligatorio.
+- [x] Definir Windows x64 como objetivo inicial; macOS y Linux permanecen como
+  objetivos de diseño hasta su validación local.
 - [x] Adoptar SemVer para el prototipo y verificar localmente que npm, Cargo y
   Tauri mantengan la misma versión. Los tags se definirán antes del primer release.
-- [ ] Crear ADR para Tauri/Rust, motores de datos y frontera UI/backend.
-- [ ] Definir política local de ramas, revisión y commits.
-- [ ] Crear una lista local de dependencias desactualizadas y auditorías; no
+- [x] Crear ADR para Tauri/Rust, motores de datos y frontera UI/backend.
+- [x] Definir política local de ramas, revisión y commits.
+- [x] Crear una lista local de dependencias desactualizadas y auditorías; no
   depender de bots para mantenerlas.
-- [ ] Definir política para fixtures: solo datos sintéticos, nunca datos reales o PII.
+- [x] Definir y comprobar una política para fixtures: solo datos sintéticos,
+  nunca datos reales o PII.
 
-**Salida:** repositorio inicial gobernado y decisiones técnicas trazables.
+**Salida:** repositorio inicial gobernado y decisiones técnicas trazables en
+`LICENSE`, `CONTRIBUTING.md`, `docs/adr/`, `docs/reference/` y los gates de
+`governance:check`.
 
 ### Fase I1 — Prototipo vertical de Tauri y datos
 
@@ -933,7 +940,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Comparar infraestructura de DataPrep y ProcessDevKill.
 - [x] Diseñar desde el inicio para Windows, macOS y Linux.
 - [x] Aprobar la arquitectura Rust + Tauri + Polars + DuckDB.
-- [ ] Definir licencia y modelo de distribución.
+- [x] Definir licencia MIT y modelo de distribución abierta inicial.
 - [ ] Definir el usuario principal y el problema número uno de la primera versión.
 - [ ] Clasificar funciones actuales en conservar, rediseñar o eliminar.
 - [ ] Definir formatos y bases de datos obligatorios para la primera versión.
@@ -985,6 +992,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 
 | Fecha | Decisión | Estado |
 | --- | --- | --- |
+| 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
 | 2026-08-12 | Usar `../dataprepv1.1/` como referencia funcional, no como plantilla técnica automática | Aprobada |
 | 2026-08-12 | Nombre del producto y del proyecto: `Columnia` | Aprobada |
 | 2026-08-12 | Backend: Rust + Tauri 2 + Polars + DuckDB | Aprobada |

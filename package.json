@@ -1,6 +1,7 @@
 {
   "name": "columnia",
   "private": true,
+  "license": "MIT",
   "version": "0.49.0",
   "type": "module",
   "scripts": {
@@ -12,6 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
+    "governance:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-governance.ps1",
     "accessibility:visual": "node tools/capture-accessibility-evidence.mjs",
     "accessibility:check": "node tools/check-accessibility-baseline.mjs",
     "smoke:cli": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-cli.ps1",

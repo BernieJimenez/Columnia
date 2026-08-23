@@ -2,6 +2,7 @@
 name = "columnia"
 version = "0.49.0"
 description = "Estación local para preparar datos confiables"
+license = "MIT"
 edition = "2021"
 default-run = "columnia"
 

@@ -10,12 +10,13 @@
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.49.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
-| Plataformas objetivo | Windows, macOS y Linux |
-| Plataforma verificada inicialmente | Windows |
+| Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
+| Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
+| Plataforma verificada inicialmente | Windows x64 |
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado |
+| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fase I0 cerrada |
 
 ## Para qué existe este documento
 
@@ -132,6 +133,8 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `README.md` | Descripción funcional y guía de uso/desarrollo. |
 | `THREAT_MODEL.md` | Activos, fronteras de confianza, amenazas, controles implementados y riesgos residuales. |
 | `ROADMAP.md` | Plan, decisiones históricas, fases y pendientes. No sustituye la inspección del código. |
+| `CONTRIBUTING.md` | Ramas, commits, revisión local y límites de alcance. |
+| `docs/` | ADRs, gobierno del repositorio, auditoría de dependencias y política de fixtures. |
 | `.codegraph/` | Índice semántico local del repositorio. Úsalo antes de búsquedas textuales para entender símbolos y rutas de llamadas. |
 | `.agents/skills/` | Skills locales disponibles para tareas especializadas del repositorio. |
 
@@ -307,6 +310,7 @@ Playwright construye y sirve un preview Vite local en `http://127.0.0.1:4173` (e
 ### Gates locales
 
 ```powershell
+.\tools\check-governance.ps1
 .\tools\check.ps1 -Profile Fast
 .\tools\check.ps1 -Profile Full
 .\tools\check.ps1 -Profile Release
@@ -338,6 +342,12 @@ que esas evidencias ya existan y no abre la aplicación ni conserva datos.
 
 Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas absolutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error. Todos los perfiles registran métricas raw/gzip del frontend; Release añade el SBOM y Package añade únicamente instaladores producidos o actualizados en esa ejecución.
 
+`check-governance.ps1` comprueba la licencia MIT, el ADR de contratos, las
+políticas de ramas/commits, el inventario local de dependencias y el manifest de
+fixtures sintéticas. Estos contratos son independientes de la cobertura manual
+de accesibilidad, los benchmarks grandes y la automatización Win32 pendientes
+en fases posteriores.
+
 El presupuesto actual admite por archivo hasta 512 KiB raw/160 KiB gzip para JavaScript y 128 KiB raw/40 KiB gzip para CSS; el total JS+CSS no puede superar 768 KiB raw/240 KiB gzip. El baseline verificado es aproximadamente 308 KiB raw y 88 KiB gzip (315,829/90,324 bytes).
 
 `npm run perf:benchmark` usa tres iteraciones sostenidas de transformaciones
@@ -355,7 +365,7 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 130 pruebas frontend y 127 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -482,6 +492,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-23 | Se cerró la Fase I0 con licencia MIT, Windows x64 como soporte inicial, ADR de frontera Rust/UI, política local de ramas/commits, inventario de dependencias y manifest de fixtures sintéticas; `governance:check`, Fast y Full pasan. | `LICENSE`, `CONTRIBUTING.md`, `docs/adr/0001-contratos-del-repositorio.md`, `docs/reference/`, `tools/check-governance.ps1`, `src/governance.test.ts` |
 | 2026-08-23 | Se añadió un probe opt-in de selectores nativos: PowerShell conduce los diálogos Win32 y WebView2 espera los resultados IPC para abrir dataset, guardar/cargar receta y exportar sin exponer rutas; falta estabilizar el cierre automático del botón antes de elevarlo a gate. | `tools/probe-webview2-native-selectors.mjs`, `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-22 | El smoke desktop separa hitos monotónicos de Vite, proceso debug y ventana visible, y confirma cleanup con hasta dos intentos acotados; se añadieron contratos de landmarks, estados ARIA y alertdialog. | `tools/smoke-tauri.ps1`, `src/components/AccessibilityContracts.test.tsx` |
 | 2026-08-22 | Playwright 1.62 quedó configurado contra un preview Vite local (Edge en Windows, Chromium en otros sistemas) y E2E del shell web; los artefactos de diagnóstico quedan ignorados y la cobertura nativa Tauri/IPC sigue pendiente. | `playwright.config.ts`, `e2e/shell.spec.ts`, `package.json` |
@@ -542,6 +553,9 @@ Al actualizarlo:
 - [README.md](README.md): visión funcional y uso actual.
 - [THREAT_MODEL.md](THREAT_MODEL.md): fronteras de confianza, amenazas, controles y riesgos residuales.
 - [ROADMAP.md](ROADMAP.md): planificación, decisiones históricas y pendientes.
+- [CONTRIBUTING.md](CONTRIBUTING.md): ramas, commits y revisión local.
+- [docs/README.md](docs/README.md): ADRs, gobierno, dependencias y fixtures.
+- [LICENSE](LICENSE): licencia MIT del proyecto.
 - [package.json](package.json): scripts y dependencias frontend.
 - [src-tauri/Cargo.toml](src-tauri/Cargo.toml): dependencias del motor nativo.
 - [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json): configuración de escritorio y CSP.
