@@ -7,7 +7,7 @@
 
 - Etapa actual: prototipo funcional de la Fase I1, con avances verificados en
   seguridad (I2), calidad local (I3), supply chain (I4) y empaquetado Windows (I5).
-- Versión actual del prototipo: `0.37.0`.
+- Versión actual del prototipo: `0.38.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -630,6 +630,15 @@ aparezcan campos de rutas. La evidencia conserva únicamente conteos y estados;
 no hace clics, no escribe proyectos, no abre diálogos y no registra nombres ni
 datos del catálogo.
 
+La versión 0.38.0 añade `npm run perf:benchmark`, un benchmark local y
+reproducible de la CLI que genera una entrada sintética cercana a 100 MiB y mide
+`inspect`, `validate`, `transform` a CSV y `transform` a Parquet. Cada comando
+registra duración y pico de working set; los archivos de trabajo se eliminan al
+finalizar y la evidencia conserva solo tamaños, conteos y métricas. La primera
+muestra (100.11 MiB, 876,544 filas) observó un pico de 394.6 MiB durante la
+transformación CSV, por lo que el límite provisional de 500 MiB no se presenta
+como presupuesto final ni sustituye el benchmark de la ventana Tauri.
+
 ### Fase I2 — Frontera de seguridad del escritorio
 
 - [x] Definir CSP estricta: sin CDN, `object-src 'none'`, sin navegación remota,
@@ -797,7 +806,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [ ] Completar streaming/lazy y benchmark contra `dataprepv1.1`.
 
-## 8.1. Cola de ejecución recomendada desde v0.37.0
+## 8.1. Cola de ejecución recomendada desde v0.38.0
 
 1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
    para guardar, cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
@@ -809,11 +818,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    targets mínimos, reduced-motion, viewport móvil/desktop y el ciclo de foco del
    `alertdialog`; todavía falta ejecutar lector de pantalla, zoom y alto contraste,
    y añadir capturas canónicas.
-3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, medir CSV
-   de 100 MiB, RAM máxima, perfilado, receta y exportación, y mantener cleanup
-   100 % repetible; el primer render nativo ya se mide contra una señal CDP de 3 s
-   y `npm run perf:summary` conserva deltas de las muestras locales, pero la
-   compilación debug fría todavía puede excederla y faltan RAM/datasets de 100 MiB.
+3. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, completar
+   mediciones de RAM máxima, perfilado nativo, receta y exportación desde la
+   ventana, y mantener cleanup 100 % repetible; `npm run perf:benchmark` ya cubre
+   una muestra CLI de 100 MiB y `npm run perf:summary` conserva deltas, pero la
+   compilación debug fría todavía puede excederla y falta comparar contra
+   `dataprepv1.1`.
 4. **Ejecución lazy/incremental:** diseñar e implementar planes Polars lazy para
    evitar materializar el dataset completo cuando la operación lo permita.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
@@ -884,6 +894,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | 2026-08-22 | Versión 0.35.0: primer render, landmarks y foco verificados dentro de WebView2 mediante CDP; E2E responsive/reduced-motion añadido; acciones IPC de proyectos siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.36.0: smoke CDP combinado con contrato accesible de solo lectura de `ProjectsPanel` y resumen local de rendimiento con deltas; acciones IPC que abren diálogos o escriben proyectos siguen pendientes | Implementada |
 | 2026-08-22 | Versión 0.37.0: el probe CDP de `ProjectsPanel` invoca `list_projects` y `get_recovery_candidate` de forma nativa, valida formas sin rutas y conserva evidencia sin datos; las mutaciones IPC siguen pendientes | Implementada |
+| 2026-08-22 | Versión 0.38.0: benchmark CLI reproducible de 100 MiB con inspect/validate/transform CSV+Parquet, duración, working set y cleanup sin conservar datos; RAM final y perfilado Tauri siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 

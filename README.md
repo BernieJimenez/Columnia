@@ -90,6 +90,11 @@ supere el presupuesto, no ejecuta mutaciones de proyectos ni sustituye todavía
 los flujos IPC nativos. Para resumir las evidencias locales por categoría y
 comparar deltas entre ejecuciones usa `npm run perf:summary`.
 
+Para medir una entrada sintética cercana a 100 MiB sin conservarla en el árbol
+de trabajo ejecuta `npm run perf:benchmark`. El benchmark usa la CLI local para
+`inspect`, `validate` y transformaciones CSV/Parquet, registra duración y pico
+de working set, y deja solo un resumen en `.local/validation/`.
+
 ## Automatización por CLI
 
 La CLI reutiliza el motor Rust y entrega resultados JSON versión 1 para poder
