@@ -1103,8 +1103,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir `schema_contract` con columnas requeridas, control de columnas
   adicionales y orden opcional, migración DataPrep, bridge tipado, editor
   accesible y evaluación estructural compartida.
-- [ ] Completar los contratos de calidad versionados con integridad
-  referencial, fechas, monotonía, agregados y drift; después añadir
+- [x] Añadir `referential_integrity` con referencias locales explícitas para
+  claves simples y compuestas, migración segura desde DataPrep, bridge tipado,
+  editor accesible, tolerancias y evaluación compartida sin exponer valores.
+- [ ] Completar los contratos de calidad versionados con monotonía, agregados y
+  drift; después añadir
   versionado/compatibilidad explícita del documento.
 - [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
   preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.

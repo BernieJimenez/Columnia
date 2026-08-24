@@ -381,6 +381,7 @@ export type QualityRuleKind =
   | "dtype"
   | "unique_together"
   | "column_compare"
+  | "referential_integrity"
   | "date_range"
   | "conditional"
   | "schema_contract"
@@ -402,6 +403,7 @@ export interface QualityRule {
   min?: number;
   max?: number;
   values?: string[];
+  referenceValues?: string[];
   pattern?: string;
   dtype?: string;
   columns?: string[];

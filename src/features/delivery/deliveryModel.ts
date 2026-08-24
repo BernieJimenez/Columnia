@@ -151,6 +151,7 @@ export function validateQualityRuleDraft(
     const isDatasetRule = rule.kind === "row_count";
     const isTogetherRule = rule.kind === "unique_together";
     const isCompareRule = rule.kind === "column_compare";
+    const isReferentialRule = rule.kind === "referential_integrity";
     const isDateRangeRule = rule.kind === "date_range";
     const isConditionalRule = rule.kind === "conditional";
     const isSchemaRule = rule.kind === "schema_contract";
@@ -162,7 +163,62 @@ export function validateQualityRuleDraft(
       return `${label}: ${isSchemaRule ? "el esquema" : "la comprobación de filas"} debe usar el dataset completo.`;
     }
 
-    if (isCompareRule) {
+    if (isReferentialRule) {
+      const referenceColumns = rule.columns ?? [];
+      if (referenceColumns.length === 0) {
+        return `${label}: selecciona al menos una columna para la referencia.`;
+      }
+      if (referenceColumns.length > MAX_QUALITY_COLUMNS_PER_RULE) {
+        return `${label}: admite como máximo ${MAX_QUALITY_COLUMNS_PER_RULE} columnas de referencia.`;
+      }
+      if (referenceColumns[0] !== rule.column) {
+        return `${label}: la primera columna referenciada debe coincidir con la columna principal.`;
+      }
+      if (new Set(referenceColumns).size !== referenceColumns.length) {
+        return `${label}: no repitas columnas en la clave referencial.`;
+      }
+      const referenceColumnDefinitions = referenceColumns.map((name) => columns.get(name));
+      if (referenceColumnDefinitions.some((value) => !value)) {
+        return `${label}: todas las columnas referenciadas deben existir.`;
+      }
+      if (referenceColumnDefinitions.some((value) => {
+        const type = value?.dataType.toLowerCase() ?? "";
+        return type !== "string"
+          && type !== "boolean"
+          && !type.includes("int")
+          && !type.includes("float")
+          && !type.includes("decimal")
+          && !type.includes("number");
+      })) {
+        return `${label}: las columnas referenciadas deben ser texto, booleanas o numéricas.`;
+      }
+      if (!rule.referenceValues || rule.referenceValues.length === 0) {
+        return `${label}: indica al menos una referencia permitida.`;
+      }
+      if (rule.referenceValues.length > MAX_QUALITY_VALUES) {
+        return `${label}: admite como máximo ${MAX_QUALITY_VALUES} referencias permitidas.`;
+      }
+      if (new Set(rule.referenceValues).size !== rule.referenceValues.length) {
+        return `${label}: no repitas referencias permitidas.`;
+      }
+      if (referenceColumns.length === 1 && rule.referenceValues.some((value) => value.length === 0)) {
+        return `${label}: las referencias de una columna no pueden estar vacías.`;
+      }
+      if (referenceColumns.length > 1) {
+        for (const reference of rule.referenceValues) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(reference);
+          } catch {
+            return `${label}: cada referencia compuesta debe ser un arreglo JSON.`;
+          }
+          if (!Array.isArray(parsed) || parsed.length !== referenceColumns.length
+            || parsed.some((value) => value === null || typeof value === "object")) {
+            return `${label}: cada referencia compuesta debe contener ${referenceColumns.length} valores escalares.`;
+          }
+        }
+      }
+    } else if (isCompareRule) {
       const compareColumns = rule.columns ?? [];
       if (compareColumns.length !== 2) {
         return `${label}: selecciona exactamente dos columnas para comparar.`;
@@ -336,6 +392,10 @@ export function validateQualityRuleDraft(
       return `${label}: los valores permitidos solo aplican a allowed_values.`;
     }
 
+    if (!isReferentialRule && rule.referenceValues !== undefined) {
+      return `${label}: las referencias solo aplican a referential_integrity.`;
+    }
+
     if (rule.kind === "regex") {
       if (!rule.pattern) return `${label}: indica un patrón regular.`;
       try {
@@ -358,17 +418,19 @@ export function validateQualityRuleDraft(
       return `${label}: el tipo esperado solo aplica a dtype.`;
     }
 
-    if (isTogetherRule || isCompareRule) {
-      if (!rule.columns || rule.columns.length < 2) {
+    if (isTogetherRule || isCompareRule || isReferentialRule) {
+      if (!rule.columns || rule.columns.length < (isReferentialRule ? 1 : 2)) {
         return isCompareRule
           ? `${label}: selecciona exactamente dos columnas para comparar.`
-          : `${label}: selecciona al menos dos columnas.`;
+          : isReferentialRule
+            ? `${label}: selecciona al menos una columna para la referencia.`
+            : `${label}: selecciona al menos dos columnas.`;
       }
       if (rule.columns.some((name) => !columns.has(name))) {
         return `${label}: todas las columnas compuestas deben existir.`;
       }
     } else if (!isSchemaRule && rule.columns !== undefined) {
-      return `${label}: la selección múltiple solo aplica a unique_together o column_compare.`;
+      return `${label}: la selección múltiple solo aplica a unique_together, column_compare o referential_integrity.`;
     }
   }
 

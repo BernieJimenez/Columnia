@@ -208,6 +208,26 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("combobox", { name: "Operador comparar regla 1" })).toHaveValue("lte");
   });
 
+  it("expone claves y valores para integridad referencial simple y compuesta", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "referential_integrity" },
+    });
+
+    expect(screen.getByRole("checkbox", { name: "Columna referencial total, regla 1" })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "Valores de referencia regla 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Columna referencial limite, regla 1" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Valores de referencia regla 1" }), {
+      target: { value: "[10,12]\n[20,20]" },
+    });
+
+    expect(screen.getByRole("checkbox", { name: "Columna referencial limite, regla 1" })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "Valores de referencia regla 1" })).toHaveValue("[10,12]\n[20,20]");
+  });
+
   it("expone límites de fecha para date_range", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);

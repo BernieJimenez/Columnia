@@ -141,6 +141,7 @@ pub enum QualityRuleKind {
     Dtype,
     UniqueTogether,
     ColumnCompare,
+    ReferentialIntegrity,
     DateRange,
     Conditional,
     SchemaContract,
@@ -176,6 +177,7 @@ pub struct QualityRule {
     min: Option<f64>,
     max: Option<f64>,
     values: Option<Vec<String>>,
+    reference_values: Option<Vec<String>>,
     pattern: Option<String>,
     dtype: Option<String>,
     columns: Option<Vec<String>>,
@@ -198,6 +200,7 @@ pub struct QualityRuleResult {
     min: Option<f64>,
     max: Option<f64>,
     values: Option<Vec<String>>,
+    reference_values: Option<Vec<String>>,
     pattern: Option<String>,
     dtype: Option<String>,
     columns: Option<Vec<String>>,
@@ -4213,6 +4216,64 @@ fn migration_string_array(
     Ok(Some(values))
 }
 
+fn migration_reference_values(
+    map: &JsonMap<String, JsonValue>,
+    keys: &[&str],
+    column_count: usize,
+) -> Result<Option<Vec<String>>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| map.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(None);
+    };
+    let values = value
+        .as_array()
+        .ok_or_else(|| format!("El campo '{key}' debe ser una lista."))?;
+    if values.len() > MAX_QUALITY_VALUES {
+        return Err(format!(
+            "El campo '{key}' supera el máximo de {MAX_QUALITY_VALUES} valores."
+        ));
+    }
+    values
+        .iter()
+        .map(|value| {
+            if column_count == 1 {
+                match value {
+                    JsonValue::String(value) => Ok(value.clone()),
+                    JsonValue::Bool(value) => Ok(value.to_string()),
+                    JsonValue::Number(value) => Ok(value.to_string()),
+                    JsonValue::Null => Err(format!(
+                        "Los elementos de '{key}' deben ser valores escalares no nulos."
+                    )),
+                    JsonValue::Array(_) | JsonValue::Object(_) => Err(format!(
+                        "Los elementos de '{key}' deben ser escalares para una columna."
+                    )),
+                }
+            } else {
+                let components = value.as_array().ok_or_else(|| {
+                    format!(
+                        "Los elementos de '{key}' deben ser arreglos para una clave compuesta."
+                    )
+                })?;
+                if components.len() != column_count
+                    || components.iter().any(|component| {
+                        matches!(component, JsonValue::Null | JsonValue::Array(_) | JsonValue::Object(_))
+                    })
+                {
+                    return Err(format!(
+                        "Cada referencia de '{key}' debe contener {column_count} escalares no nulos."
+                    ));
+                }
+                serde_json::to_string(value).map_err(|error| {
+                    format!("No se pudo normalizar un valor de '{key}': {error}")
+                })
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
 fn migration_quality_kind(value: &str) -> Option<QualityRuleKind> {
     match value.trim().to_ascii_lowercase().as_str() {
         "not_null" => Some(QualityRuleKind::NotNull),
@@ -4224,6 +4285,7 @@ fn migration_quality_kind(value: &str) -> Option<QualityRuleKind> {
         "dtype" => Some(QualityRuleKind::Dtype),
         "unique_together" => Some(QualityRuleKind::UniqueTogether),
         "column_compare" | "column_comparison" => Some(QualityRuleKind::ColumnCompare),
+        "referential_integrity" | "referential" => Some(QualityRuleKind::ReferentialIntegrity),
         "date_range" => Some(QualityRuleKind::DateRange),
         "conditional" => Some(QualityRuleKind::Conditional),
         "schema_contract" | "schema" => Some(QualityRuleKind::SchemaContract),
@@ -4321,6 +4383,7 @@ fn migrate_conditional_then(
         min: None,
         max: None,
         values: None,
+        reference_values: None,
         pattern: None,
         dtype: None,
         columns: None,
@@ -4469,9 +4532,20 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             ));
             continue;
         };
-        let column = migration_string_field(&map, &["column"])
+        let mut column = migration_string_field(&map, &["column"])
             .filter(|column| !column.trim().is_empty())
             .unwrap_or_else(|| QUALITY_DATASET_COLUMN.to_owned());
+        if kind == QualityRuleKind::ReferentialIntegrity && column == QUALITY_DATASET_COLUMN {
+            column = map
+                .get("columns")
+                .or_else(|| map.get("key_columns"))
+                .and_then(JsonValue::as_array)
+                .and_then(|columns| columns.first())
+                .and_then(JsonValue::as_str)
+                .filter(|column| !column.trim().is_empty())
+                .unwrap_or(QUALITY_DATASET_COLUMN)
+                .to_owned();
+        }
         if !matches!(
             kind,
             QualityRuleKind::RowCount | QualityRuleKind::SchemaContract
@@ -4574,6 +4648,7 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             min: None,
             max: None,
             values: None,
+            reference_values: None,
             pattern: None,
             dtype: None,
             columns: None,
@@ -4655,6 +4730,35 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                             "column_compare necesita operator eq, ne, lt, lte, gt o gte."
                                 .to_owned(),
                         )
+                    } else {
+                        None
+                    }
+                }
+                QualityRuleKind::ReferentialIntegrity => {
+                    rule.columns =
+                        migration_string_array(&map, &["columns", "key_columns", "keyColumns"])?;
+                    if rule.columns.is_none() {
+                        rule.columns = Some(vec![rule.column.clone()]);
+                    }
+                    if let Some(columns) = rule.columns.as_ref() {
+                        if let Some(first) = columns.first() {
+                            rule.column = first.clone();
+                        }
+                    }
+                    let column_count = rule.columns.as_ref().map_or(0, Vec::len);
+                    rule.reference_values = migration_reference_values(
+                        &map,
+                        &["reference_values", "referenceValues", "reference"],
+                        column_count,
+                    )?;
+                    if rule
+                        .columns
+                        .as_ref()
+                        .is_none_or(|columns| columns.is_empty())
+                    {
+                        Some("referential_integrity necesita columns[].".to_owned())
+                    } else if rule.reference_values.as_ref().is_none_or(Vec::is_empty) {
+                        Some("referential_integrity necesita reference_values[].".to_owned())
                     } else {
                         None
                     }
@@ -4827,6 +4931,11 @@ fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), S
                 text_fields.push(("value", value.as_str()));
             }
         }
+        if let Some(reference_values) = rule.reference_values.as_deref() {
+            for value in reference_values {
+                text_fields.push(("referenceValue", value.as_str()));
+            }
+        }
         if let Some(columns) = rule.columns.as_deref() {
             for column in columns {
                 text_fields.push(("columns", column.as_str()));
@@ -4889,6 +4998,22 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
     {
         return Err(format!(
             "allowAdditional y requiredOrder solo aplican a schema_contract de '{}'.",
+            rule.column
+        ));
+    }
+    if rule.kind != QualityRuleKind::ReferentialIntegrity && rule.reference_values.is_some() {
+        return Err(format!(
+            "referenceValues solo aplica a referential_integrity de '{}'.",
+            rule.column
+        ));
+    }
+    if rule
+        .reference_values
+        .as_ref()
+        .is_some_and(|values| values.len() > MAX_QUALITY_VALUES)
+    {
+        return Err(format!(
+            "La regla de '{}' supera el máximo de {MAX_QUALITY_VALUES} referencias.",
             rule.column
         ));
     }
@@ -5279,6 +5404,149 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             {
                 return Err(format!(
                     "La regla column_compare de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::ReferentialIntegrity => {
+            let columns = rule
+                .columns
+                .as_ref()
+                .filter(|columns| !columns.is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "La regla referential_integrity de '{}' debe indicar columns[].",
+                        rule.column
+                    )
+                })?;
+            if columns.len() > MAX_QUALITY_COLUMNS_PER_RULE {
+                return Err(format!(
+                    "La regla referential_integrity de '{}' supera el máximo de {MAX_QUALITY_COLUMNS_PER_RULE} columnas.",
+                    rule.column
+                ));
+            }
+            if columns[0] != rule.column {
+                return Err(format!(
+                    "La primera columna de referential_integrity debe coincidir con '{}'.",
+                    rule.column
+                ));
+            }
+            if columns.iter().any(|column| column.trim().is_empty()) {
+                return Err("referential_integrity no admite nombres de columna vacíos.".to_owned());
+            }
+            if columns.iter().collect::<HashSet<_>>().len() != columns.len() {
+                return Err(
+                    "referential_integrity no admite columnas de clave duplicadas.".to_owned(),
+                );
+            }
+            let key_columns = columns
+                .iter()
+                .map(|name| {
+                    frame.column(name).map_err(|_| {
+                        format!(
+                            "La columna '{}' de la regla referential_integrity no existe.",
+                            name
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if key_columns.iter().any(|column| {
+                !matches!(
+                    column.dtype(),
+                    DataType::String
+                        | DataType::Boolean
+                        | DataType::Int8
+                        | DataType::Int16
+                        | DataType::Int32
+                        | DataType::Int64
+                        | DataType::UInt8
+                        | DataType::UInt16
+                        | DataType::UInt32
+                        | DataType::UInt64
+                        | DataType::Float32
+                        | DataType::Float64
+                )
+            }) {
+                return Err(
+                    "referential_integrity solo admite columnas String, Boolean o numéricas."
+                        .to_owned(),
+                );
+            }
+            let references = rule
+                .reference_values
+                .as_ref()
+                .filter(|values| !values.is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "La regla referential_integrity de '{}' debe indicar referenceValues[].",
+                        rule.column
+                    )
+                })?;
+            if references
+                .iter()
+                .any(|value| value.chars().count() > MAX_QUALITY_COLUMN_CHARS)
+            {
+                return Err(format!(
+                    "La regla referential_integrity de '{}' contiene una referencia demasiado larga.",
+                    rule.column
+                ));
+            }
+            if references.iter().collect::<HashSet<_>>().len() != references.len() {
+                return Err("referential_integrity no admite referencias duplicadas.".to_owned());
+            }
+            if columns.len() == 1 {
+                if references.iter().any(|value| value.is_empty()) {
+                    return Err(
+                        "referential_integrity no admite referencias vacías para una columna."
+                            .to_owned(),
+                    );
+                }
+            } else {
+                for reference in references {
+                    let value = serde_json::from_str::<JsonValue>(reference).map_err(|_| {
+                        format!(
+                            "Cada referencia compuesta de '{}' debe ser un arreglo JSON.",
+                            rule.column
+                        )
+                    })?;
+                    let components = value.as_array().ok_or_else(|| {
+                        format!(
+                            "Cada referencia compuesta de '{}' debe ser un arreglo JSON.",
+                            rule.column
+                        )
+                    })?;
+                    if components.len() != columns.len()
+                        || components.iter().any(|component| {
+                            matches!(
+                                component,
+                                JsonValue::Null | JsonValue::Array(_) | JsonValue::Object(_)
+                            )
+                        })
+                    {
+                        return Err(format!(
+                            "Cada referencia compuesta de '{}' debe contener {} escalares no nulos.",
+                            rule.column,
+                            columns.len()
+                        ));
+                    }
+                }
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.operator.is_some()
+                || rule.min_date.is_some()
+                || rule.max_date.is_some()
+                || rule.when.is_some()
+                || rule.then.is_some()
+                || rule.allow_additional.is_some()
+                || rule.required_order.is_some()
+            {
+                return Err(format!(
+                    "La regla referential_integrity de '{}' no admite parámetros de otra comprobación.",
                     rule.column
                 ));
             }
@@ -5711,6 +5979,59 @@ fn quality_numeric_value(value: AnyValue<'_>) -> Option<f64> {
     }
 }
 
+fn quality_reference_scalar_matches(value: AnyValue<'_>, expected: &str) -> bool {
+    match value {
+        AnyValue::String(actual) => actual == expected,
+        AnyValue::StringOwned(actual) => actual.as_str() == expected,
+        AnyValue::Boolean(actual) => expected
+            .parse::<bool>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::Int8(actual) => expected
+            .parse::<i8>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::Int16(actual) => expected
+            .parse::<i16>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::Int32(actual) => expected
+            .parse::<i32>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::Int64(actual) => expected
+            .parse::<i64>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::UInt8(actual) => expected
+            .parse::<u8>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::UInt16(actual) => expected
+            .parse::<u16>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::UInt32(actual) => expected
+            .parse::<u32>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::UInt64(actual) => expected
+            .parse::<u64>()
+            .is_ok_and(|expected| actual == expected),
+        AnyValue::Float32(actual) => expected
+            .parse::<f32>()
+            .is_ok_and(|expected| expected.is_finite() && actual.is_finite() && actual == expected),
+        AnyValue::Float64(actual) => expected
+            .parse::<f64>()
+            .is_ok_and(|expected| expected.is_finite() && actual.is_finite() && actual == expected),
+        AnyValue::Null => false,
+        _ => false,
+    }
+}
+
+fn quality_reference_json_component_matches(value: AnyValue<'_>, expected: &JsonValue) -> bool {
+    match expected {
+        JsonValue::String(expected) => quality_reference_scalar_matches(value, expected),
+        JsonValue::Bool(expected) => quality_reference_scalar_matches(value, &expected.to_string()),
+        JsonValue::Number(expected) => {
+            quality_reference_scalar_matches(value, &expected.to_string())
+        }
+        JsonValue::Null | JsonValue::Array(_) | JsonValue::Object(_) => false,
+    }
+}
+
 fn quality_conditional_row_invalid(
     frame: &DataFrame,
     row_index: usize,
@@ -5904,6 +6225,61 @@ where
                 }
                 (row_count, invalid_count)
             }
+            QualityRuleKind::ReferentialIntegrity => {
+                let columns = rule.columns.as_deref().expect("columns validadas");
+                let references = rule
+                    .reference_values
+                    .as_deref()
+                    .expect("referenceValues validados");
+                let key_columns = columns
+                    .iter()
+                    .map(|name| frame.column(name).map_err(|error| error.to_string()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let invalid_count = if key_columns.len() == 1 {
+                    let column = key_columns[0];
+                    (0..row_count)
+                        .filter(|row_index| {
+                            column.get(*row_index).ok().is_none_or(|value| {
+                                !references.iter().any(|reference| {
+                                    quality_reference_scalar_matches(value.clone(), reference)
+                                })
+                            })
+                        })
+                        .count()
+                } else {
+                    let parsed_references = references
+                        .iter()
+                        .map(|reference| {
+                            serde_json::from_str::<JsonValue>(reference)
+                                .expect("referencias compuestas validadas")
+                        })
+                        .collect::<Vec<_>>();
+                    (0..row_count)
+                        .filter(|row_index| {
+                            let values = key_columns
+                                .iter()
+                                .map(|column| column.get(*row_index))
+                                .collect::<Result<Vec<_>, _>>();
+                            let Ok(values) = values else {
+                                return true;
+                            };
+                            !parsed_references.iter().any(|reference| {
+                                let Some(components) = reference.as_array() else {
+                                    return false;
+                                };
+                                components.len() == values.len()
+                                    && values.iter().zip(components).all(|(value, expected)| {
+                                        quality_reference_json_component_matches(
+                                            value.clone(),
+                                            expected,
+                                        )
+                                    })
+                            })
+                        })
+                        .count()
+                };
+                (row_count, invalid_count)
+            }
             _ => {
                 let column = frame
                     .column(&rule.column)
@@ -5974,6 +6350,7 @@ where
                     QualityRuleKind::Dtype
                     | QualityRuleKind::UniqueTogether
                     | QualityRuleKind::ColumnCompare
+                    | QualityRuleKind::ReferentialIntegrity
                     | QualityRuleKind::DateRange
                     | QualityRuleKind::Conditional
                     | QualityRuleKind::SchemaContract
@@ -6001,6 +6378,7 @@ where
             min: rule.min,
             max: rule.max,
             values: rule.values.clone(),
+            reference_values: rule.reference_values.clone(),
             pattern: rule.pattern.clone(),
             dtype: rule.dtype.clone(),
             columns: rule.columns.clone(),
@@ -14855,6 +15233,7 @@ mod tests {
             min: None,
             max: None,
             values: None,
+            reference_values: None,
             pattern: None,
             dtype: None,
             columns: None,
@@ -14991,6 +15370,60 @@ mod tests {
     }
 
     #[test]
+    fn quality_rules_apply_simple_and_composite_referential_integrity() {
+        let frame = df![
+            "country" => &[Some("DO"), Some("US"), Some("MX"), None],
+            "code" => &[Some(1_i64), Some(2), Some(3), Some(4)]
+        ]
+        .unwrap();
+        let mut simple = quality_rule("country", QualityRuleKind::ReferentialIntegrity);
+        simple.columns = Some(vec!["country".to_owned()]);
+        simple.reference_values = Some(vec!["DO".to_owned(), "US".to_owned()]);
+        simple.max_invalid = Some(2);
+
+        let mut composite = quality_rule("country", QualityRuleKind::ReferentialIntegrity);
+        composite.columns = Some(vec!["country".to_owned(), "code".to_owned()]);
+        composite.reference_values = Some(vec![r#"["DO",1]"#.to_owned(), r#"["US",2]"#.to_owned()]);
+        composite.max_invalid = Some(2);
+
+        let result = evaluate_quality_rules(&frame, &[simple, composite]).unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.rules[0].invalid_count, 2);
+        assert_eq!(result.rules[1].invalid_count, 2);
+        assert_eq!(
+            result.rules[1].reference_values,
+            Some(vec![r#"["DO",1]"#.to_owned(), r#"["US",2]"#.to_owned()])
+        );
+    }
+
+    #[test]
+    fn referential_integrity_rejects_missing_duplicate_or_unsupported_keys() {
+        let date = Series::new("date".into(), [Some(0_i32)])
+            .cast(&DataType::Date)
+            .unwrap()
+            .into_column();
+        let frame = DataFrame::new(
+            1,
+            vec![Series::new("country".into(), ["DO"]).into_column(), date],
+        )
+        .unwrap();
+        let mut missing_values = quality_rule("country", QualityRuleKind::ReferentialIntegrity);
+        missing_values.columns = Some(vec!["country".to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[missing_values]).is_err());
+
+        let mut duplicate_columns = quality_rule("country", QualityRuleKind::ReferentialIntegrity);
+        duplicate_columns.columns = Some(vec!["country".to_owned(), "country".to_owned()]);
+        duplicate_columns.reference_values = Some(vec![r#"["DO","DO"]"#.to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[duplicate_columns]).is_err());
+
+        let mut unsupported = quality_rule("date", QualityRuleKind::ReferentialIntegrity);
+        unsupported.columns = Some(vec!["date".to_owned()]);
+        unsupported.reference_values = Some(vec!["2024-01-01".to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[unsupported]).is_err());
+    }
+
+    #[test]
     fn migrates_supported_quality_rules_and_omits_unsupported_semantics() {
         let result = migrate_quality_rules_document(serde_json::json!({
             "version": 3,
@@ -15025,6 +15458,50 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.severity == "omitted" && warning.source_kind == "not_null"));
+    }
+
+    #[test]
+    fn migrates_simple_and_composite_referential_integrity_values() {
+        let result = migrate_quality_rules_document(serde_json::json!({
+            "rules": [
+                {
+                    "kind": "referential_integrity",
+                    "column": "country",
+                    "reference_values": ["DO", "US", 3, true],
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "referential",
+                    "columns": ["country", "code"],
+                    "reference": [["DO", 1], ["US", 2]],
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "referential_integrity",
+                    "column": "country",
+                    "reference_values": [null],
+                    "max_invalid": 0
+                }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(result.converted_rules.len(), 2);
+        assert_eq!(result.omitted_rules, 1);
+        assert_eq!(
+            result.converted_rules[0].reference_values,
+            Some(vec![
+                "DO".to_owned(),
+                "US".to_owned(),
+                "3".to_owned(),
+                "true".to_owned()
+            ])
+        );
+        assert_eq!(result.converted_rules[1].column, "country");
+        assert_eq!(
+            result.converted_rules[1].reference_values,
+            Some(vec![r#"["DO",1]"#.to_owned(), r#"["US",2]"#.to_owned()])
+        );
     }
 
     #[test]

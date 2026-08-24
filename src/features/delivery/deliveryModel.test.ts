@@ -64,7 +64,10 @@ describe("validateQualityRuleDraft", () => {
     [{ ...validRule, kind: "column_compare", columns: ["total", "estado"], operator: "lte", maxInvalid: 0 }, /compartir tipo físico/],
     [{ ...validRule, column: "fecha", kind: "date_range", maxInvalid: 0 }, /fecha mínima/],
     [{ ...validRule, column: "fecha", kind: "date_range", minDate: "2024-12-31", maxDate: "2024-01-01", maxInvalid: 0 }, /no puede superar/],
-  ] satisfies Array<[QualityRule, RegExp]>)("rechaza borradores inválidos", (rule, message) => {
+    [{ ...validRule, kind: "referential_integrity", columns: ["total"], maxInvalid: 0 }, /al menos una referencia/],
+    [{ ...validRule, kind: "referential_integrity", columns: ["total", "limite"], referenceValues: ["10,12"], maxInvalid: 0 }, /arreglo JSON/],
+    [{ ...validRule, kind: "referential_integrity", columns: ["total", "total"], referenceValues: ["[10,10]"], maxInvalid: 0 }, /no repitas/],
+   ] satisfies Array<[QualityRule, RegExp]>)("rechaza borradores inválidos", (rule, message) => {
     expect(validateQualityRuleDraft([rule], dataset)).toMatch(message);
   });
 
@@ -88,6 +91,20 @@ describe("validateQualityRuleDraft", () => {
         kind: "conditional",
         when: { column: "estado", operator: "eq", value: "ok" },
         then: { column: "total", kind: "numeric_range", min: 0, maxInvalid: 0 },
+        maxInvalid: 0,
+      },
+      {
+        column: "estado",
+        kind: "referential_integrity",
+        columns: ["estado"],
+        referenceValues: ["ok", "pending"],
+        maxInvalid: 0,
+      },
+      {
+        column: "total",
+        kind: "referential_integrity",
+        columns: ["total", "limite"],
+        referenceValues: ["[10,12]", "[20,20]"],
         maxInvalid: 0,
       },
       {

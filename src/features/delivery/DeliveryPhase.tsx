@@ -76,10 +76,13 @@ export function DeliveryPhase({
     const rule = rules[index];
     const firstColumn = dataset.columns[0]?.name ?? "";
     const isSchemaRule = kind === "schema_contract";
-    const usesMultipleColumns = kind === "unique_together" || kind === "column_compare";
+    const isReferentialRule = kind === "referential_integrity";
+    const usesMultipleColumns = kind === "unique_together"
+      || kind === "column_compare"
+      || isReferentialRule;
     const nextColumns = usesMultipleColumns
       ? rule.columns?.filter((name) => dataset.columns.some((column) => column.name === name))
-        ?? dataset.columns.slice(0, 2).map((column) => column.name)
+        ?? dataset.columns.slice(0, isReferentialRule ? 1 : 2).map((column) => column.name)
       : undefined;
     const nextColumn = kind === "row_count" || isSchemaRule
       ? QUALITY_DATASET_COLUMN
@@ -98,6 +101,7 @@ export function DeliveryPhase({
       min: undefined,
       max: undefined,
       values: kind === "allowed_values" ? rule.values ?? [] : undefined,
+      referenceValues: isReferentialRule ? rule.referenceValues ?? [] : undefined,
       pattern: kind === "regex" ? rule.pattern ?? "" : undefined,
       dtype: kind === "dtype" ? rule.dtype ?? "string" : undefined,
       columns: isSchemaRule
@@ -226,12 +230,13 @@ export function DeliveryPhase({
                 const isDatasetRule = rule.kind === "row_count";
                 const isTogetherRule = rule.kind === "unique_together";
                 const isCompareRule = rule.kind === "column_compare";
+                const isReferentialRule = rule.kind === "referential_integrity";
                 const isConditionalRule = rule.kind === "conditional";
                 const isSchemaRule = rule.kind === "schema_contract";
                 return (
                   <fieldset className="quality-rule" key={index} disabled={busy}>
                     <legend>Regla {index + 1}</legend>
-                    {!isDatasetRule && !isSchemaRule && !isTogetherRule && !isCompareRule && <label>Columna
+                    {!isDatasetRule && !isSchemaRule && !isTogetherRule && !isCompareRule && !isReferentialRule && <label>Columna
                       <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
                         onChange={(event) => updateRule(index, { column: event.target.value })}>
                         {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
@@ -249,6 +254,7 @@ export function DeliveryPhase({
                         <option value="dtype">Tipo esperado</option>
                         <option value="unique_together" disabled={dataset.columns.length < 2}>Unicidad compuesta</option>
                         <option value="column_compare" disabled={dataset.columns.length < 2}>Comparar columnas</option>
+                        <option value="referential_integrity">Integridad referencial</option>
                         <option value="date_range">Rango de fechas</option>
                         <option value="conditional">Comprobación condicional</option>
                         <option value="schema_contract">Contrato de esquema</option>
@@ -373,6 +379,39 @@ export function DeliveryPhase({
                             {column.name}
                           </label>
                         ))}
+                      </fieldset>
+                    )}
+                    {isReferentialRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Clave y valores de referencia</legend>
+                        <p className="quality-rule__help">
+                          Selecciona una o más columnas. Para una sola columna, escribe un valor por línea; para varias, usa un arreglo JSON por línea.
+                        </p>
+                        {dataset.columns.map((column) => (
+                          <label key={column.name} className="quality-rule__check">
+                            <input
+                              type="checkbox"
+                              aria-label={`Columna referencial ${column.name}, regla ${index + 1}`}
+                              checked={rule.columns?.includes(column.name) ?? false}
+                              onChange={(event) => updateTogetherColumns(index, column.name, event.target.checked)}
+                            />
+                            {column.name}
+                          </label>
+                        ))}
+                        <label className="quality-rule__wide">Valores permitidos de referencia
+                          <textarea
+                            rows={3}
+                            aria-label={`Valores de referencia regla ${index + 1}`}
+                            aria-describedby={`quality-reference-values-help-${index}`}
+                            value={rule.referenceValues?.join("\n") ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              referenceValues: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                            })}
+                          />
+                          <span id={`quality-reference-values-help-${index}`} className="quality-rule__help">
+                            Clave simple: texto, número o booleano. Clave compuesta: por ejemplo [&quot;DO&quot;, 1].
+                          </span>
+                        </label>
                       </fieldset>
                     )}
                     {isCompareRule && (

@@ -12,7 +12,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
-| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `date_range`, `conditional`, `schema_contract` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir referencias, agregados y drift |
+| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `date_range`, `conditional`, `schema_contract` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir monotonía, agregados y drift |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución acotada por fila y joins Inner/Left/Full con historial | Parcial | Completar combinación independiente por columna y conflictos fuera del preview |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
@@ -177,14 +177,30 @@ casilla para permitir adicionales y un orden opcional. La migración reconoce
 `schema` como alias de `schema_contract`, conserva tolerancias y omite con
 advertencia listas vacías, nombres duplicados o parámetros malformados.
 
+## Duodécima entrega de paridad: integridad referencial local
+
+El contrato admite `referential_integrity` para comprobar que una clave simple
+o compuesta pertenezca a un catálogo explícito de referencias. Las claves
+simples usan valores escalares de texto, número o booleano; las compuestas usan
+un arreglo JSON por referencia, por ejemplo `["DO", 1]`. Los nulos y las claves
+ausentes en el catálogo cuentan como inválidos y respetan las tolerancias.
+
+La evaluación ocurre completamente en Rust sobre el snapshot activo y devuelve
+solo conteos. Entregar muestra checkboxes nativos para la clave y un textarea
+etiquetado para el catálogo, con ayuda sobre el formato compuesto. La migración
+reconoce `reference_values`/`referenceValues` y `reference`, además de aliases
+`referential` y `key_columns`; entradas malformadas, nulas o complejas se
+omiten con advertencia visible. No se conectan tablas remotas ni se incluyen
+valores de filas en los resultados.
+
 ## Primera vertical de migración de reglas DataPrep
 
 Entregar permite importar un contrato JSON de DataPrep mediante el selector
 nativo. Acepta una lista directa o un objeto con `rules`/`quality_rules`, y
 convierte de forma segura las reglas representables por Columnia:
 `not_null`, `non_empty`, `unique`, `numeric_range`, `allowed_values`, `regex`,
-`dtype`, `unique_together`, `column_compare`, `date_range`, `conditional`,
-`schema_contract` y `row_count`. Reconoce campos snake_case y
+`dtype`, `unique_together`, `column_compare`, `referential_integrity`,
+`date_range`, `conditional`, `schema_contract` y `row_count`. Reconoce campos snake_case y
 camelCase, conserva tolerancias por conteo y porcentaje, y aplica el límite de
 16 reglas y 1 MiB por archivo.
 
