@@ -143,6 +143,7 @@ pub enum QualityRuleKind {
     ColumnCompare,
     DateRange,
     Conditional,
+    SchemaContract,
     RowCount,
 }
 
@@ -183,6 +184,8 @@ pub struct QualityRule {
     max_date: Option<String>,
     when: Option<QualityCondition>,
     then: Option<Box<QualityRule>>,
+    allow_additional: Option<bool>,
+    required_order: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -203,6 +206,8 @@ pub struct QualityRuleResult {
     max_date: Option<String>,
     when: Option<QualityCondition>,
     then: Option<Box<QualityRule>>,
+    allow_additional: Option<bool>,
+    required_order: Option<Vec<String>>,
     checked_count: usize,
     invalid_count: usize,
     invalid_pct: f64,
@@ -4221,6 +4226,7 @@ fn migration_quality_kind(value: &str) -> Option<QualityRuleKind> {
         "column_compare" | "column_comparison" => Some(QualityRuleKind::ColumnCompare),
         "date_range" => Some(QualityRuleKind::DateRange),
         "conditional" => Some(QualityRuleKind::Conditional),
+        "schema_contract" | "schema" => Some(QualityRuleKind::SchemaContract),
         "row_count" => Some(QualityRuleKind::RowCount),
         _ => None,
     }
@@ -4323,6 +4329,8 @@ fn migrate_conditional_then(
         max_date: None,
         when: None,
         then: None,
+        allow_additional: None,
+        required_order: None,
     };
     match kind {
         QualityRuleKind::NumericRange => {
@@ -4464,7 +4472,11 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
         let column = migration_string_field(&map, &["column"])
             .filter(|column| !column.trim().is_empty())
             .unwrap_or_else(|| QUALITY_DATASET_COLUMN.to_owned());
-        if kind != QualityRuleKind::RowCount && column == QUALITY_DATASET_COLUMN {
+        if !matches!(
+            kind,
+            QualityRuleKind::RowCount | QualityRuleKind::SchemaContract
+        ) && column == QUALITY_DATASET_COLUMN
+        {
             omitted_rules += 1;
             warnings.push(migration_warning(
                 rule_index,
@@ -4570,6 +4582,8 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             max_date: None,
             when: None,
             then: None,
+            allow_additional: None,
+            required_order: None,
         };
 
         let conversion_result = (|| -> Result<Option<String>, String> {
@@ -4609,7 +4623,10 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                         .then(|| "dtype no contiene un tipo soportado.".to_owned())
                 }
                 QualityRuleKind::UniqueTogether => {
-                    rule.columns = migration_string_array(&map, &["columns", "required_columns"])?;
+                    rule.columns = migration_string_array(
+                        &map,
+                        &["columns", "required_columns", "requiredColumns"],
+                    )?;
                     rule.columns
                         .as_ref()
                         .filter(|columns| columns.len() >= 2)
@@ -4682,6 +4699,48 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                         Some("conditional necesita when.".to_owned())
                     } else {
                         None
+                    }
+                }
+                QualityRuleKind::SchemaContract => {
+                    rule.column = QUALITY_DATASET_COLUMN.to_owned();
+                    rule.columns = migration_string_array(
+                        &map,
+                        &["columns", "required_columns", "requiredColumns"],
+                    )?;
+                    let invalid_columns = rule.columns.as_ref().is_none_or(|columns| {
+                        columns.is_empty()
+                            || columns.iter().any(|column| column.trim().is_empty())
+                            || columns.iter().collect::<HashSet<_>>().len() != columns.len()
+                    });
+                    if invalid_columns {
+                        Some("schema_contract necesita columns[].".to_owned())
+                    } else {
+                        rule.allow_additional = Some(
+                            map.get("allow_additional")
+                                .or_else(|| map.get("allowAdditional"))
+                                .map(|value| {
+                                    value.as_bool().ok_or_else(|| {
+                                        "allowAdditional de schema_contract debe ser booleano."
+                                            .to_owned()
+                                    })
+                                })
+                                .transpose()?
+                                .unwrap_or(true),
+                        );
+                        rule.required_order =
+                            migration_string_array(&map, &["required_order", "requiredOrder"])?;
+                        let invalid_order = rule.required_order.as_ref().is_some_and(|order| {
+                            order.is_empty()
+                                || order.iter().any(|column| column.trim().is_empty())
+                                || order.iter().collect::<HashSet<_>>().len() != order.len()
+                        });
+                        if invalid_order {
+                            Some(
+                                "requiredOrder de schema_contract no puede estar vacío.".to_owned(),
+                            )
+                        } else {
+                            None
+                        }
                     }
                 }
                 QualityRuleKind::RowCount => {
@@ -4790,6 +4849,11 @@ fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), S
                 }
             }
         }
+        if let Some(required_order) = rule.required_order.as_deref() {
+            for column in required_order {
+                text_fields.push(("requiredOrder", column.as_str()));
+            }
+        }
     }
     validate_semantic_text_budget(
         "payload de reglas de calidad",
@@ -4820,6 +4884,14 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             rule.column
         ));
     }
+    if rule.kind != QualityRuleKind::SchemaContract
+        && (rule.allow_additional.is_some() || rule.required_order.is_some())
+    {
+        return Err(format!(
+            "allowAdditional y requiredOrder solo aplican a schema_contract de '{}'.",
+            rule.column
+        ));
+    }
     if rule
         .values
         .as_ref()
@@ -4841,16 +4913,23 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
         ));
     }
     let is_dataset_rule = rule.kind == QualityRuleKind::RowCount;
-    if rule.column.trim().is_empty() && !is_dataset_rule {
+    let is_schema_rule = rule.kind == QualityRuleKind::SchemaContract;
+    let is_dataset_level_rule = is_dataset_rule || is_schema_rule;
+    if rule.column.trim().is_empty() && !is_dataset_level_rule {
         return Err("La columna de una regla de calidad no puede estar vacía.".to_owned());
     }
-    if is_dataset_rule && rule.column != QUALITY_DATASET_COLUMN {
+    if is_dataset_level_rule && rule.column != QUALITY_DATASET_COLUMN {
         return Err(format!(
-            "La regla row_count debe usar la columna lógica '{}'.",
-            QUALITY_DATASET_COLUMN
+            "La regla {} debe usar la columna lógica '{}'.",
+            if is_schema_rule {
+                "schema_contract"
+            } else {
+                "row_count"
+            },
+            QUALITY_DATASET_COLUMN,
         ));
     }
-    let column = (!is_dataset_rule)
+    let column = (!is_dataset_level_rule)
         .then(|| frame.column(&rule.column))
         .transpose()
         .map_err(|_| {
@@ -5363,6 +5442,55 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             }
             Ok(())
         }
+        QualityRuleKind::SchemaContract => {
+            let required = rule
+                .columns
+                .as_ref()
+                .filter(|columns| !columns.is_empty())
+                .ok_or_else(|| "La regla schema_contract necesita columns[].".to_owned())?;
+            if required.iter().any(|column| column.trim().is_empty()) {
+                return Err("schema_contract no admite nombres de columna vacíos.".to_owned());
+            }
+            let unique_required = required.iter().collect::<HashSet<_>>();
+            if unique_required.len() != required.len() {
+                return Err("schema_contract no admite columnas requeridas duplicadas.".to_owned());
+            }
+            if let Some(order) = rule.required_order.as_ref() {
+                if order.len() > MAX_QUALITY_COLUMNS_PER_RULE {
+                    return Err(format!(
+                        "requiredOrder de schema_contract supera el máximo de {MAX_QUALITY_COLUMNS_PER_RULE} columnas."
+                    ));
+                }
+                if order.is_empty() || order.iter().any(|column| column.trim().is_empty()) {
+                    return Err(
+                        "requiredOrder de schema_contract debe contener nombres no vacíos."
+                            .to_owned(),
+                    );
+                }
+                let unique_order = order.iter().collect::<HashSet<_>>();
+                if unique_order.len() != order.len() {
+                    return Err(
+                        "requiredOrder de schema_contract no admite columnas duplicadas."
+                            .to_owned(),
+                    );
+                }
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.operator.is_some()
+                || rule.min_date.is_some()
+                || rule.max_date.is_some()
+            {
+                return Err(
+                    "La regla schema_contract no admite parámetros de otra comprobación."
+                        .to_owned(),
+                );
+            }
+            Ok(())
+        }
         QualityRuleKind::RowCount => {
             if rule.min.is_none() && rule.max.is_none() {
                 return Err("La regla row_count debe indicar min, max o ambos.".to_owned());
@@ -5704,6 +5832,34 @@ where
                     .count();
                 (row_count, invalid_count)
             }
+            QualityRuleKind::SchemaContract => {
+                let required = rule.columns.as_deref().expect("columns validadas");
+                let actual = frame
+                    .get_column_names()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>();
+                let missing_count = required
+                    .iter()
+                    .filter(|required_name| !actual.iter().any(|name| name == *required_name))
+                    .count();
+                let additional_count = if rule.allow_additional.unwrap_or(true) {
+                    0
+                } else {
+                    actual
+                        .iter()
+                        .filter(|name| {
+                            !required
+                                .iter()
+                                .any(|required_name| *required_name == **name)
+                        })
+                        .count()
+                };
+                let order_count = rule.required_order.as_ref().map_or(0, |required_order| {
+                    usize::from(actual.as_slice() != required_order.as_slice())
+                });
+                (1, missing_count + additional_count + order_count)
+            }
             QualityRuleKind::RowCount => {
                 let minimum_ok = rule.min.is_none_or(|minimum| row_count as f64 >= minimum);
                 let maximum_ok = rule.max.is_none_or(|maximum| row_count as f64 <= maximum);
@@ -5820,6 +5976,7 @@ where
                     | QualityRuleKind::ColumnCompare
                     | QualityRuleKind::DateRange
                     | QualityRuleKind::Conditional
+                    | QualityRuleKind::SchemaContract
                     | QualityRuleKind::RowCount => unreachable!("la regla se evaluó arriba"),
                 };
                 (row_count, invalid_count)
@@ -5852,6 +6009,8 @@ where
             max_date: rule.max_date.clone(),
             when: rule.when.clone(),
             then: rule.then.clone(),
+            allow_additional: rule.allow_additional,
+            required_order: rule.required_order.clone(),
             checked_count,
             invalid_count,
             invalid_pct,
@@ -14704,6 +14863,8 @@ mod tests {
             max_date: None,
             when: None,
             then: None,
+            allow_additional: None,
+            required_order: None,
         }
     }
 
@@ -14957,6 +15118,72 @@ mod tests {
         assert_eq!(
             rule.then.as_deref().and_then(|then| then.values.clone()),
             Some(vec!["active".to_owned()])
+        );
+    }
+
+    #[test]
+    fn quality_rules_validate_schema_required_additional_and_order_columns() {
+        let frame = df![
+            "status" => &["ok", "pending"],
+            "amount" => &[1_i64, 2],
+            "extra" => &[true, false]
+        ]
+        .unwrap();
+        let mut schema = quality_rule(QUALITY_DATASET_COLUMN, QualityRuleKind::SchemaContract);
+        schema.columns = Some(vec!["status".to_owned(), "amount".to_owned()]);
+        schema.allow_additional = Some(false);
+
+        let result = evaluate_quality_rules(&frame, &[schema.clone()]).unwrap();
+        assert!(!result.passed);
+        assert_eq!(result.rules[0].checked_count, 1);
+        assert_eq!(result.rules[0].invalid_count, 1);
+
+        schema.allow_additional = Some(true);
+        schema.required_order = Some(vec![
+            "status".to_owned(),
+            "amount".to_owned(),
+            "extra".to_owned(),
+        ]);
+        let result = evaluate_quality_rules(&frame, &[schema.clone()]).unwrap();
+        assert!(result.passed);
+
+        schema.required_order = Some(vec!["amount".to_owned(), "status".to_owned()]);
+        let result = evaluate_quality_rules(&frame, &[schema]).unwrap();
+        assert!(!result.passed);
+        assert_eq!(result.rules[0].invalid_count, 1);
+    }
+
+    #[test]
+    fn migrates_schema_contract_aliases_and_defaults_additional_columns() {
+        let result = migrate_quality_rules_document(serde_json::json!([
+            {
+                "kind": "schema",
+                "requiredColumns": ["status", "amount"],
+                "allowAdditional": false,
+                "required_order": ["status", "amount"],
+                "max_invalid": 0
+            },
+            {
+                "kind": "schema_contract",
+                "columns": ["status", "status"],
+                "max_invalid": 0
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(result.converted_rules.len(), 1);
+        assert_eq!(result.omitted_rules, 1);
+        let rule = &result.converted_rules[0];
+        assert_eq!(rule.kind, QualityRuleKind::SchemaContract);
+        assert_eq!(rule.column, QUALITY_DATASET_COLUMN);
+        assert_eq!(rule.allow_additional, Some(false));
+        assert_eq!(
+            rule.required_order,
+            Some(vec!["status".to_owned(), "amount".to_owned()])
+        );
+        assert_eq!(
+            rule.columns,
+            Some(vec!["status".to_owned(), "amount".to_owned()])
         );
     }
 

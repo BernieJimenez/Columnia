@@ -11,6 +11,7 @@ import { QUALITY_DATASET_COLUMN } from "../../bridge";
 
 export const MAX_QUALITY_RULES = 16;
 const MAX_QUALITY_VALUES = 128;
+const MAX_QUALITY_COLUMNS_PER_RULE = 16;
 const SUPPORTED_QUALITY_DTYPES = new Set([
   "string",
   "integer",
@@ -152,10 +153,13 @@ export function validateQualityRuleDraft(
     const isCompareRule = rule.kind === "column_compare";
     const isDateRangeRule = rule.kind === "date_range";
     const isConditionalRule = rule.kind === "conditional";
+    const isSchemaRule = rule.kind === "schema_contract";
     const column = columns.get(rule.column);
-    if (!isDatasetRule && !isTogetherRule && !column) return `${label}: selecciona una columna existente.`;
-    if (isDatasetRule && rule.column !== QUALITY_DATASET_COLUMN) {
-      return `${label}: la comprobación de filas debe usar el dataset completo.`;
+    if (!isDatasetRule && !isSchemaRule && !isTogetherRule && !column) {
+      return `${label}: selecciona una columna existente.`;
+    }
+    if ((isDatasetRule || isSchemaRule) && rule.column !== QUALITY_DATASET_COLUMN) {
+      return `${label}: ${isSchemaRule ? "el esquema" : "la comprobación de filas"} debe usar el dataset completo.`;
     }
 
     if (isCompareRule) {
@@ -187,6 +191,9 @@ export function validateQualityRuleDraft(
 
     if (!isConditionalRule && (rule.when !== undefined || rule.then !== undefined)) {
       return `${label}: when y then solo aplican a conditional.`;
+    }
+    if (!isSchemaRule && (rule.allowAdditional !== undefined || rule.requiredOrder !== undefined)) {
+      return `${label}: allowAdditional y requiredOrder solo aplican a schema_contract.`;
     }
     if (isConditionalRule) {
       const condition = rule.when;
@@ -289,6 +296,32 @@ export function validateQualityRuleDraft(
       return `${label}: las fechas límite solo aplican a date_range.`;
     }
 
+    if (isSchemaRule) {
+      const required = rule.columns ?? [];
+      if (required.length === 0) return `${label}: indica al menos una columna requerida.`;
+      if (required.length > MAX_QUALITY_COLUMNS_PER_RULE) {
+        return `${label}: admite como máximo ${MAX_QUALITY_COLUMNS_PER_RULE} columnas requeridas.`;
+      }
+      if (required.some((name) => name.trim().length === 0)) {
+        return `${label}: las columnas requeridas no pueden estar vacías.`;
+      }
+      if (new Set(required).size !== required.length) {
+        return `${label}: no repitas columnas requeridas.`;
+      }
+      if (rule.requiredOrder !== undefined) {
+        if (rule.requiredOrder.length === 0) return `${label}: el orden requerido no puede estar vacío.`;
+        if (rule.requiredOrder.length > MAX_QUALITY_COLUMNS_PER_RULE) {
+          return `${label}: el orden requerido supera el máximo permitido.`;
+        }
+        if (rule.requiredOrder.some((name) => name.trim().length === 0)) {
+          return `${label}: el orden requerido contiene una columna vacía.`;
+        }
+        if (new Set(rule.requiredOrder).size !== rule.requiredOrder.length) {
+          return `${label}: no repitas columnas en el orden requerido.`;
+        }
+      }
+    }
+
     if (rule.kind === "allowed_values") {
       if (!rule.values || rule.values.length === 0) {
         return `${label}: indica al menos un valor permitido.`;
@@ -334,7 +367,7 @@ export function validateQualityRuleDraft(
       if (rule.columns.some((name) => !columns.has(name))) {
         return `${label}: todas las columnas compuestas deben existir.`;
       }
-    } else if (rule.columns !== undefined) {
+    } else if (!isSchemaRule && rule.columns !== undefined) {
       return `${label}: la selección múltiple solo aplica a unique_together o column_compare.`;
     }
   }

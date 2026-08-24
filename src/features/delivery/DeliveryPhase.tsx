@@ -75,12 +75,13 @@ export function DeliveryPhase({
   function changeRuleKind(index: number, kind: QualityRuleKind) {
     const rule = rules[index];
     const firstColumn = dataset.columns[0]?.name ?? "";
+    const isSchemaRule = kind === "schema_contract";
     const usesMultipleColumns = kind === "unique_together" || kind === "column_compare";
     const nextColumns = usesMultipleColumns
       ? rule.columns?.filter((name) => dataset.columns.some((column) => column.name === name))
         ?? dataset.columns.slice(0, 2).map((column) => column.name)
       : undefined;
-    const nextColumn = kind === "row_count"
+    const nextColumn = kind === "row_count" || isSchemaRule
       ? QUALITY_DATASET_COLUMN
       : usesMultipleColumns
         ? nextColumns?.[0] ?? firstColumn
@@ -99,7 +100,9 @@ export function DeliveryPhase({
       values: kind === "allowed_values" ? rule.values ?? [] : undefined,
       pattern: kind === "regex" ? rule.pattern ?? "" : undefined,
       dtype: kind === "dtype" ? rule.dtype ?? "string" : undefined,
-      columns: usesMultipleColumns ? nextColumns : undefined,
+      columns: isSchemaRule
+        ? rule.columns ?? dataset.columns.map((column) => column.name)
+        : usesMultipleColumns ? nextColumns : undefined,
       operator: kind === "column_compare" ? rule.operator ?? "eq" : undefined,
       minDate: kind === "date_range" ? rule.minDate : undefined,
       maxDate: kind === "date_range" ? rule.maxDate : undefined,
@@ -109,6 +112,8 @@ export function DeliveryPhase({
       then: kind === "conditional"
         ? rule.then ?? { column: nextThenColumn, kind: "not_null", maxInvalid: 0 }
         : undefined,
+      allowAdditional: isSchemaRule ? rule.allowAdditional ?? true : undefined,
+      requiredOrder: isSchemaRule ? rule.requiredOrder : undefined,
     });
   }
 
@@ -222,10 +227,11 @@ export function DeliveryPhase({
                 const isTogetherRule = rule.kind === "unique_together";
                 const isCompareRule = rule.kind === "column_compare";
                 const isConditionalRule = rule.kind === "conditional";
+                const isSchemaRule = rule.kind === "schema_contract";
                 return (
                   <fieldset className="quality-rule" key={index} disabled={busy}>
                     <legend>Regla {index + 1}</legend>
-                    {!isDatasetRule && !isTogetherRule && !isCompareRule && <label>Columna
+                    {!isDatasetRule && !isSchemaRule && !isTogetherRule && !isCompareRule && <label>Columna
                       <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
                         onChange={(event) => updateRule(index, { column: event.target.value })}>
                         {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
@@ -245,6 +251,7 @@ export function DeliveryPhase({
                         <option value="column_compare" disabled={dataset.columns.length < 2}>Comparar columnas</option>
                         <option value="date_range">Rango de fechas</option>
                         <option value="conditional">Comprobación condicional</option>
+                        <option value="schema_contract">Contrato de esquema</option>
                         <option value="row_count">Conteo de filas</option>
                       </select>
                     </label>
@@ -564,6 +571,49 @@ export function DeliveryPhase({
                           )}
                         </fieldset>
                       </>
+                    )}
+                    {isSchemaRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Contrato de esquema</legend>
+                        <label className="quality-rule__wide">Columnas requeridas
+                          <textarea
+                            rows={3}
+                            aria-label={`Columnas requeridas esquema regla ${index + 1}`}
+                            value={rule.columns?.join("\n") ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              columns: event.target.value
+                                .split(/\r?\n/)
+                                .map((value) => value.trim())
+                                .filter((value) => value.length > 0),
+                            })}
+                          />
+                          <span className="quality-rule__help">Una columna por línea; el dataset puede tener columnas adicionales si se permite abajo.</span>
+                        </label>
+                        <label className="quality-rule__check">
+                          <input
+                            type="checkbox"
+                            aria-label={`Permitir columnas adicionales esquema regla ${index + 1}`}
+                            checked={rule.allowAdditional ?? true}
+                            onChange={(event) => updateRule(index, { allowAdditional: event.target.checked })}
+                          />
+                          Permitir columnas adicionales
+                        </label>
+                        <label className="quality-rule__wide">Orden requerido, opcional
+                          <textarea
+                            rows={2}
+                            aria-label={`Orden requerido esquema regla ${index + 1}`}
+                            value={rule.requiredOrder?.join("\n") ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              requiredOrder: event.target.value.trim().length === 0
+                                ? undefined
+                                : event.target.value
+                                  .split(/\r?\n/)
+                                  .map((value) => value.trim())
+                                  .filter((value) => value.length > 0),
+                            })}
+                          />
+                        </label>
+                      </fieldset>
                     )}
                     <button type="button" className="quality-rule__remove" aria-label={`Eliminar regla ${index + 1}`}
                       onClick={() => changeRules(rules.filter((_, ruleIndex) => ruleIndex !== index))}>Eliminar</button>

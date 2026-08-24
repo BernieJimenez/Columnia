@@ -12,7 +12,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
-| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `date_range`, `conditional` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir referencias, agregados y drift |
+| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `date_range`, `conditional`, `schema_contract` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir referencias, agregados y drift |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución acotada por fila y joins Inner/Left/Full con historial | Parcial | Completar combinación independiente por columna y conflictos fuera del preview |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
@@ -163,14 +163,28 @@ objetivo y parámetros de `then`. La migración reconoce el objeto `when` (con
 alias `op`/`val` y operador `eq` por defecto) y `then`; omite con advertencia
 subreglas globales o formas que no tengan una equivalencia segura.
 
+## Undécima entrega de paridad: contrato de esquema
+
+El contrato admite `schema_contract` para comprobar la estructura completa del
+dataset. Define `columns` o `requiredColumns`, puede rechazar columnas
+adicionales con `allowAdditional: false` y puede exigir un orden exacto con
+`requiredOrder`. La evaluación estructural usa `checkedCount = 1` y cuenta
+columnas faltantes, adicionales y un eventual desorden; no intenta tratar el
+esquema como una regla fila-a-fila.
+
+Entregar muestra un editor accesible con una columna requerida por línea, una
+casilla para permitir adicionales y un orden opcional. La migración reconoce
+`schema` como alias de `schema_contract`, conserva tolerancias y omite con
+advertencia listas vacías, nombres duplicados o parámetros malformados.
+
 ## Primera vertical de migración de reglas DataPrep
 
 Entregar permite importar un contrato JSON de DataPrep mediante el selector
 nativo. Acepta una lista directa o un objeto con `rules`/`quality_rules`, y
 convierte de forma segura las reglas representables por Columnia:
 `not_null`, `non_empty`, `unique`, `numeric_range`, `allowed_values`, `regex`,
-`dtype`, `unique_together`, `column_compare`, `date_range`, `conditional` y
-`row_count`. Reconoce campos snake_case y
+`dtype`, `unique_together`, `column_compare`, `date_range`, `conditional`,
+`schema_contract` y `row_count`. Reconoce campos snake_case y
 camelCase, conserva tolerancias por conteo y porcentaje, y aplica el límite de
 16 reglas y 1 MiB por archivo.
 

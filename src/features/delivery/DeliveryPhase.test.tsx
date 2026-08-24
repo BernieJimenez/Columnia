@@ -244,6 +244,29 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("textbox", { name: "Valores permitidos then regla 1" })).toBeInTheDocument();
   });
 
+  it("expone el contrato de esquema y sus restricciones estructurales", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "schema_contract" },
+    });
+
+    expect(screen.getByRole("textbox", { name: "Columnas requeridas esquema regla 1" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", {
+      name: "Permitir columnas adicionales esquema regla 1",
+    })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "Orden requerido esquema regla 1" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Permitir columnas adicionales esquema regla 1",
+    }));
+    expect(screen.getByRole("checkbox", {
+      name: "Permitir columnas adicionales esquema regla 1",
+    })).not.toBeChecked();
+  });
+
   it("importa reglas DataPrep, aplica las convertibles y muestra las omitidas", async () => {
     vi.spyOn(bridge, "pickQualityRulesMigration").mockResolvedValue({
       sourceVersion: "3",

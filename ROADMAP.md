@@ -1100,8 +1100,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir `conditional` a los contratos de calidad con condiciones `eq`, `ne`,
   `lt`, `lte`, `gt` y `gte`, subreglas fila-a-fila seguras, tolerancia exterior,
   migración DataPrep, bridge tipado, editor accesible y evaluación compartida.
+- [x] Añadir `schema_contract` con columnas requeridas, control de columnas
+  adicionales y orden opcional, migración DataPrep, bridge tipado, editor
+  accesible y evaluación estructural compartida.
 - [ ] Completar los contratos de calidad versionados con integridad
-  referencial, esquema, fechas, monotonía, agregados y drift; después añadir
+  referencial, fechas, monotonía, agregados y drift; después añadir
   versionado/compatibilidad explícita del documento.
 - [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
   preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.
@@ -1265,6 +1268,7 @@ del original.
 | 2026-08-24 | P1: `column_compare` completa la comparación de dos columnas con seis operadores, nulos inválidos, tolerancias, migración DataPrep, editor accesible y evaluación compartida por UI/CLI/exportación | Implementada |
 | 2026-08-24 | P1: `date_range` añade límites inclusivos de fecha, soporte texto/Date/Datetime, rechazo de nulos/fechas ilegibles, migración DataPrep, editor accesible y evaluación compartida | Implementada |
 | 2026-08-24 | P1: `conditional` añade condiciones eq/ne/lt/lte/gt/gte, subreglas then fila-a-fila seguras, tolerancia exterior, migración DataPrep, editor accesible y evaluación compartida | Implementada |
+| 2026-08-24 | P1: `schema_contract` añade columnas requeridas, control de adicionales y orden opcional, migración DataPrep, editor accesible y evaluación estructural compartida | Implementada |
 | 2026-08-23 | I3/I4/I5: cobertura V8 y smoke CDP reales pasan; `cargo audit`/`cargo deny`, npm audit, secret scan, notices, política de red y SBOM pasan; Package produjo MSI/NSIS 0.49.0. El benchmark CLI de 256 MiB pasó el flujo durable, pero excedió el presupuesto de 512 MiB; quedan selector Win32, lector de pantalla y VM limpia | Parcial, con evidencia |
 
 ## 10. Fuentes de esta revisión

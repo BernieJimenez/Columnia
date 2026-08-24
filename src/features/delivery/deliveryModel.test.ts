@@ -90,6 +90,14 @@ describe("validateQualityRuleDraft", () => {
         then: { column: "total", kind: "numeric_range", min: 0, maxInvalid: 0 },
         maxInvalid: 0,
       },
+      {
+        column: QUALITY_DATASET_COLUMN,
+        kind: "schema_contract",
+        columns: ["total", "limite"],
+        allowAdditional: true,
+        requiredOrder: ["total", "limite"],
+        maxInvalid: 0,
+      },
       { column: QUALITY_DATASET_COLUMN, kind: "row_count", min: 1, max: 10, maxInvalid: 0 },
     ];
 
@@ -108,6 +116,13 @@ describe("validateQualityRuleDraft", () => {
       then: { column: "total", kind: "unique", maxInvalid: 0 },
       maxInvalid: 0,
     }, /then solo admite/],
+    [{ column: QUALITY_DATASET_COLUMN, kind: "schema_contract", maxInvalid: 0 }, /columna requerida/],
+    [{
+      column: QUALITY_DATASET_COLUMN,
+      kind: "schema_contract",
+      columns: ["total", "total"],
+      maxInvalid: 0,
+    }, /no repitas/],
     [{ column: QUALITY_DATASET_COLUMN, kind: "row_count", maxInvalid: 0 }, /al menos un límite/],
   ] satisfies Array<[QualityRule, RegExp]>)("rechaza reglas avanzadas incompletas", (rule, message) => {
     expect(validateQualityRuleDraft([rule], dataset)).toMatch(message);

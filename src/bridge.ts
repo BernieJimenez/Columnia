@@ -383,6 +383,7 @@ export type QualityRuleKind =
   | "column_compare"
   | "date_range"
   | "conditional"
+  | "schema_contract"
   | "row_count";
 
 export type QualityComparison = "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
@@ -409,6 +410,8 @@ export interface QualityRule {
   maxDate?: string;
   when?: QualityCondition;
   then?: QualityRule;
+  allowAdditional?: boolean;
+  requiredOrder?: string[];
 }
 
 export interface QualityRuleResult extends QualityRule {
