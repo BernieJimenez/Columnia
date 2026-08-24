@@ -40,8 +40,16 @@ export interface DatasetComparison {
   currentOnlyColumns: string[];
   comparedOnlyColumns: string[];
   schemaCompatible: boolean;
+  keyColumns: string[];
+  matchedKeyCount: number;
+  currentOnlyKeyCount: number;
+  comparedOnlyKeyCount: number;
+  conflictingKeyCount: number;
+  duplicateKeyCount: number;
   canConsolidate: boolean;
 }
+
+export type DatasetJoinType = "inner" | "left" | "full";
 
 export type DatasetFormat = "csv" | "tsv" | "json" | "parquet" | "excel";
 
@@ -414,8 +422,15 @@ export function discardDatasetSelection(selectionId: string): Promise<void> {
   return invoke<void>("discard_dataset_selection", { selectionId });
 }
 
-export function compareDataset(): Promise<DatasetComparison | null> {
-  return invoke<DatasetComparison | null>("compare_dataset");
+export function compareDataset(keyColumns: string[] = []): Promise<DatasetComparison | null> {
+  return invoke<DatasetComparison | null>("compare_dataset", { keyColumns });
+}
+
+export function joinDataset(
+  keyColumns: string[],
+  joinType: DatasetJoinType,
+): Promise<DatasetPreview | null> {
+  return invoke<DatasetPreview | null>("join_dataset", { keyColumns, joinType });
 }
 
 export function clearDatasetComparison(): Promise<void> {

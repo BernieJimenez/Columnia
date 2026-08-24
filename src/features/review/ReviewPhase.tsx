@@ -1,6 +1,11 @@
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
-import type { DatasetPreview, DatasetProfile } from "../../bridge";
+import type {
+  DatasetColumn,
+  DatasetJoinType,
+  DatasetPreview,
+  DatasetProfile,
+} from "../../bridge";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
 import {
@@ -10,6 +15,7 @@ import {
   type ProfileStatus,
 } from "./reviewModel";
 import type { ComparisonStatus } from "./compareModel";
+import type { JoinStatus } from "./joinModel";
 
 interface ReviewPhaseProps {
   datasetStatus: ReadyDatasetStatus;
@@ -20,9 +26,16 @@ interface ReviewPhaseProps {
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
   comparisonStatus: ComparisonStatus;
+  datasetColumns: DatasetColumn[];
+  comparisonKeyColumns: string[];
+  onComparisonKeyColumnsChange: (columns: string[]) => void;
   onCompare: () => void;
   onClearComparison: () => void;
   onConsolidate: () => void;
+  joinStatus: JoinStatus;
+  joinType: DatasetJoinType;
+  onJoinTypeChange: (joinType: DatasetJoinType) => void;
+  onJoin: (joinType: DatasetJoinType) => void;
 }
 
 export function ReviewPhase({
@@ -34,9 +47,16 @@ export function ReviewPhase({
   onAnalyzeQuality,
   onCancelProfile,
   comparisonStatus,
+  datasetColumns,
+  comparisonKeyColumns,
+  onComparisonKeyColumnsChange,
   onCompare,
   onClearComparison,
   onConsolidate,
+  joinStatus,
+  joinType,
+  onJoinTypeChange,
+  onJoin,
 }: ReviewPhaseProps) {
   return (
     <>
@@ -50,9 +70,16 @@ export function ReviewPhase({
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
       <DatasetComparisonSection
         status={comparisonStatus}
+        datasetColumns={datasetColumns}
+        keyColumns={comparisonKeyColumns}
+        onKeyColumnsChange={onComparisonKeyColumnsChange}
         onCompare={onCompare}
         onClear={onClearComparison}
         onConsolidate={onConsolidate}
+        joinStatus={joinStatus}
+        joinType={joinType}
+        onJoinTypeChange={onJoinTypeChange}
+        onJoin={onJoin}
       />
 
       {reviewTab === "diagnosis" ? (
@@ -81,14 +108,28 @@ export function ReviewPhase({
 
 function DatasetComparisonSection({
   status,
+  datasetColumns,
+  keyColumns,
+  onKeyColumnsChange,
   onCompare,
   onClear,
   onConsolidate,
+  joinStatus,
+  joinType,
+  onJoinTypeChange,
+  onJoin,
 }: {
   status: ComparisonStatus;
+  datasetColumns: DatasetColumn[];
+  keyColumns: string[];
+  onKeyColumnsChange: (columns: string[]) => void;
   onCompare: () => void;
   onClear: () => void;
   onConsolidate: () => void;
+  joinStatus: JoinStatus;
+  joinType: DatasetJoinType;
+  onJoinTypeChange: (joinType: DatasetJoinType) => void;
+  onJoin: (joinType: DatasetJoinType) => void;
 }) {
   return (
     <section className="phase-section comparison-section" aria-labelledby="comparison-title">
@@ -97,13 +138,92 @@ function DatasetComparisonSection({
           <p className="step">Paridad de fuentes</p>
           <h3 id="comparison-title">Comparar datasets</h3>
         </div>
-        <button type="button" onClick={onCompare} disabled={status.kind === "loading"}>
+        <button
+          type="button"
+          onClick={onCompare}
+          disabled={status.kind === "loading" || joinStatus.kind === "loading"}
+        >
           {status.kind === "loading" ? "Comparando…" : "Elegir dataset para comparar"}
         </button>
       </div>
       <p className="profile-note">
         Contrasta filas como conjunto multivaluado y conserva el dataset activo hasta que decidas consolidar.
       </p>
+      <fieldset className="comparison-key-selector">
+        <legend>Claves explícitas (opcional)</legend>
+        <p>
+          Selecciona una o varias columnas para detectar claves nuevas, duplicadas y conflictos.
+          Sin selección se mantiene la comparación multivaluada por fila.
+        </p>
+        <div className="comparison-key-options">
+          {datasetColumns.map((column) => (
+            <label key={column.name}>
+              <input
+                type="checkbox"
+                checked={keyColumns.includes(column.name)}
+                disabled={joinStatus.kind === "loading"}
+                onChange={() => {
+                  onKeyColumnsChange(
+                    keyColumns.includes(column.name)
+                      ? keyColumns.filter((name) => name !== column.name)
+                      : [...keyColumns, column.name],
+                  );
+                }}
+              />
+              <span>
+                <strong>{column.name}</strong>
+                <small>{column.dataType}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+        {keyColumns.length > 0 && (
+          <p className="comparison-key-status" role="status">
+            Se comparará por: <strong>{keyColumns.join(", ")}</strong>
+          </p>
+        )}
+      </fieldset>
+      {keyColumns.length > 0 && (
+        <fieldset className="join-selector">
+          <legend>Unir datasets por clave</legend>
+          <p>Elige la relación y después selecciona la segunda fuente local.</p>
+          <div className="join-options">
+            {([
+              ["inner", "Inner", "Solo filas con clave en ambos datasets."],
+              ["left", "Left", "Conserva todas las filas del dataset activo."],
+              ["full", "Full", "Conserva las filas de ambos datasets."],
+            ] as const).map(([value, label, description]) => (
+              <label key={value}>
+                <input
+                  type="radio"
+                  name="dataset-join-type"
+                  value={value}
+                  checked={joinType === value}
+                  onChange={() => onJoinTypeChange(value)}
+                  disabled={joinStatus.kind === "loading"}
+                />
+                <span>
+                  <strong>{label}</strong>
+                  <small>{description}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="primary-action"
+            onClick={() => onJoin(joinType)}
+            disabled={joinStatus.kind === "loading"}
+          >
+            {joinStatus.kind === "loading" ? "Uniendo datasets…" : "Elegir fuente y unir"}
+          </button>
+        </fieldset>
+      )}
+      {joinStatus.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudieron unir los datasets: {joinStatus.message}
+        </p>
+      )}
       {status.kind === "loading" && (
         <p className="notice" role="status">Leyendo la segunda fuente local…</p>
       )}
@@ -138,6 +258,21 @@ function DatasetComparisonSection({
               <p>{status.comparison.comparedOnlyColumns.join(", ") || "Ninguna"}</p>
             </div>
           </div>
+          {status.comparison.keyColumns.length > 0 && (
+            <div className="comparison-key-summary" aria-label="Resultado de comparación por clave">
+              <h4>Resultado por clave</h4>
+              <p className="comparison-key-summary__columns">
+                Claves: <strong>{status.comparison.keyColumns.join(", ")}</strong>
+              </p>
+              <dl className="quality-summary">
+                <div><dt>Claves coincidentes</dt><dd>{status.comparison.matchedKeyCount.toLocaleString()}</dd></div>
+                <div><dt>Solo en el activo</dt><dd>{status.comparison.currentOnlyKeyCount.toLocaleString()}</dd></div>
+                <div><dt>Solo en el comparado</dt><dd>{status.comparison.comparedOnlyKeyCount.toLocaleString()}</dd></div>
+                <div><dt>Conflictos</dt><dd>{status.comparison.conflictingKeyCount.toLocaleString()}</dd></div>
+                <div><dt>Claves duplicadas</dt><dd>{status.comparison.duplicateKeyCount.toLocaleString()}</dd></div>
+              </dl>
+            </div>
+          )}
           <div className="comparison-actions">
             <button type="button" className="secondary-action" onClick={onClear}>Descartar comparación</button>
             <button type="button" className="primary-action" onClick={onConsolidate} disabled={!status.comparison.canConsolidate}>
@@ -146,7 +281,11 @@ function DatasetComparisonSection({
           </div>
           {!status.comparison.canConsolidate && (
             <p className="notice" role="note">
-              La consolidación requiere las mismas columnas en el mismo orden y con los mismos tipos.
+              {status.comparison.keyColumns.length > 0 && status.comparison.conflictingKeyCount > 0
+                ? "La consolidación por clave está bloqueada porque existen conflictos de valores."
+                : status.comparison.keyColumns.length > 0 && status.comparison.duplicateKeyCount > 0
+                  ? "La consolidación por clave está bloqueada porque existen claves duplicadas."
+                  : "La consolidación requiere las mismas columnas en el mismo orden y con los mismos tipos."}
             </p>
           )}
         </>

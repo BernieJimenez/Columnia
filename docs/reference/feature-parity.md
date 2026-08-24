@@ -13,7 +13,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados, estadísticas, calidad, outliers y lectura visual accesible | Implementada | Ampliar análisis exploratorio visual interactivo |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Implementada | Ampliar operaciones multidataset |
-| Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, filas multivaluadas, diferencias de columnas y consolidación compatible con historial | Parcial | Añadir claves explícitas, conflictos y joins con DuckDB |
+| Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura y joins Inner/Left/Full con historial | Parcial | Añadir resolución interactiva de conflictos de columnas |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON y script SQL | Parcial | Excel/conectores de base de datos |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas y CLI | Implementada | Comparar flujos avanzados del original |
@@ -62,7 +62,40 @@ dataset activo mientras Rust calcula:
 La consolidación se publica como un cambio del historial, invalida el perfil y
 las compuertas de entrega, y descarta el dataset comparado después de aplicar el
 cambio. Los libros usan la primera hoja por defecto en este corte; la selección
-explícita de hoja y la comparación por clave quedan en la siguiente iteración.
+explícita de hoja queda en la siguiente iteración.
+
+## Quinta entrega de paridad: comparación por clave
+
+La comparación ahora permite seleccionar una o varias columnas clave antes de
+elegir la segunda fuente:
+
+- informa claves coincidentes, exclusivas, duplicadas y con conflictos de valores;
+- valida que cada clave exista en ambas fuentes y conserve el mismo tipo;
+- bloquea la consolidación si hay conflictos, duplicados o esquemas incompatibles;
+- cuando es segura, conserva el dataset activo y agrega solo las filas con claves
+  nuevas, registrando la operación en el historial.
+
+La comparación sin claves mantiene el comportamiento multivaluado anterior.
+La resolución avanzada de conflictos queda pendiente.
+
+## Sexta entrega de paridad: joins multidataset
+
+Review permite unir el dataset activo con una segunda fuente local por las
+claves seleccionadas explícitamente:
+
+- `Inner` conserva solo las claves presentes en ambos datasets;
+- `Left` conserva todas las filas del dataset activo;
+- `Full` conserva las filas de ambos datasets;
+- las claves deben existir en ambas fuentes y mantener el mismo tipo;
+- columnas compartidas no clave del dataset comparado reciben el sufijo
+  `_right` de Polars, mientras las columnas de ambas fuentes se publican en el
+  preview resultante.
+
+La unión reemplaza el dataset activo únicamente después de calcular el frame,
+registra `Unir datasets (...)` en el historial, invalida el perfil y las
+compuertas de entrega, y no expone rutas del sistema al frontend. La siguiente
+entrega debe incorporar resolución interactiva para nombres y valores
+conflictivos.
 
 ## Tercera entrega de paridad: script SQL
 

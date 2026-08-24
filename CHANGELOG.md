@@ -16,7 +16,7 @@ los artefactos de validación locales.
 - Benchmark reproducible de 100 MiB contra `dataprepv1.1`, con comparación de
   duración, working set, conteos, fixture sintética y cleanup sin conservar datos.
 - Gate de cobertura V8 por capa para `src` (80% statements/lines, 75% branches y
-  functions) y 145 tests frontend.
+  functions) y 146 tests frontend.
 - Supply chain local con `npm audit`, `cargo-audit`, `cargo-deny`, secret scan,
   inventario reproducible de `THIRD_PARTY_NOTICES` y verificación de red sin
   telemetría.
@@ -33,17 +33,23 @@ los artefactos de validación locales.
 - Cuarta entrega de paridad funcional: visualizaciones compactas y accesibles de
   completitud y posibles outliers en Diagnóstico, con valores exactos y tablas
   equivalentes para lector de pantalla.
+- Quinta entrega de paridad funcional: comparación opcional por claves explícitas,
+  detección de duplicados/conflictos y consolidación segura de claves nuevas,
+  manteniendo el dataset activo hasta confirmar la operación.
+- Sexta entrega de paridad funcional: joins locales `Inner`, `Left` y `Full` por
+  claves explícitas, con validación de tipos, columnas compartidas sufijadas,
+  historial e invalidación de perfil/entrega.
 - Benchmark CLI de 256 MiB con 2,220,032 filas, tres transformaciones sostenidas
   y dos actualizaciones durables; el flujo pasa, pero su working set máximo es
   aproximadamente 1.12 GiB y queda fuera del presupuesto de 512 MiB.
 
 ### Validación
 
-- Verificados build Vite, contratos IPC, 133 pruebas Rust y 145 pruebas frontend,
+- Verificados build Vite, contratos IPC, 136 pruebas Rust y 146 pruebas frontend,
   pruebas del monitor,
   evidencia release desktop/móvil/zoom 125%/`forced-colors` y el gate
   `perf:i1:check`, cobertura frontend, auditorías de supply chain, smoke CDP
-  (`.local/validation/webview2-cdp/20260824T010540Z`), Release y Package con
+  (`.local/validation/webview2-cdp/20260824T011617Z`), Release y Package con
   MSI/NSIS.
 
 ## [0.49.0] - 2026-08-23

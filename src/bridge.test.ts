@@ -5,6 +5,7 @@ import {
   cancelOperation,
   clearDatasetComparison,
   compareDataset,
+  joinDataset,
   applySafeCorrections,
   applyTransformRecipe,
   exportDataset,
@@ -113,16 +114,27 @@ describe("desktop bridge", () => {
       currentOnlyColumns: [],
       comparedOnlyColumns: [],
       schemaCompatible: true,
+      keyColumns: ["id"],
+      matchedKeyCount: 1,
+      currentOnlyKeyCount: 0,
+      comparedOnlyKeyCount: 0,
+      conflictingKeyCount: 0,
+      duplicateKeyCount: 0,
       canConsolidate: true,
     });
 
-    await compareDataset();
+    await compareDataset(["id"]);
+    await joinDataset(["id"], "left");
     await useConsolidatedDataset();
     await clearDatasetComparison();
 
-    expect(invoke).toHaveBeenNthCalledWith(1, "compare_dataset");
-    expect(invoke).toHaveBeenNthCalledWith(2, "use_consolidated_dataset");
-    expect(invoke).toHaveBeenNthCalledWith(3, "clear_dataset_comparison");
+    expect(invoke).toHaveBeenNthCalledWith(1, "compare_dataset", { keyColumns: ["id"] });
+    expect(invoke).toHaveBeenNthCalledWith(2, "join_dataset", {
+      keyColumns: ["id"],
+      joinType: "left",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "use_consolidated_dataset");
+    expect(invoke).toHaveBeenNthCalledWith(4, "clear_dataset_comparison");
   });
 
   it("solicita una página por posición sin volver a entregar la ruta", async () => {

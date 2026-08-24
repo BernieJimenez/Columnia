@@ -41,6 +41,12 @@ import {
   type ComparisonStatus,
 } from "./features/review/compareModel";
 import {
+  beginJoin,
+  clearJoin,
+  failJoin,
+  type JoinStatus,
+} from "./features/review/joinModel";
+import {
   PAGE_SIZE,
   beginPageLoad,
   beginProfileAnalysis,
@@ -61,11 +67,13 @@ import {
   getAppInfo,
   getDatasetPage,
   getDatasetProfile,
+  joinDataset,
   loadDatasetSelection,
   pickDatasetSource,
   useConsolidatedDataset,
   type AppInfo,
   type CancellableOperation,
+  type DatasetJoinType,
   type DatasetPreview,
   type DatasetSourceInspection,
   type SavedRecipe,
@@ -100,6 +108,9 @@ export function App() {
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
+  const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
+  const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
+  const [joinType, setJoinType] = useState<DatasetJoinType>("inner");
   const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
   const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
@@ -112,6 +123,8 @@ export function App() {
     onDatasetChanged: (dataset) => {
       setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
       setComparisonStatus(clearComparison());
+      setComparisonKeyColumns([]);
+      setJoinStatus(clearJoin());
       void clearDatasetComparison().catch(() => undefined);
     },
     onProfileInvalidated: () => setProfileStatus({ kind: "idle" }),
@@ -123,7 +136,8 @@ export function App() {
     prepare.changeStatus.kind === "working" ||
     deliveryContract.gate.kind === "loading" ||
     exportStatus.kind === "loading" ||
-    comparisonStatus.kind === "loading";
+    comparisonStatus.kind === "loading" ||
+    joinStatus.kind === "loading";
   const projects = useProjectsController({
     connected: status.kind === "ready",
     blocked: coreOperationBusy,
@@ -138,6 +152,8 @@ export function App() {
       setDeliveryContract(deliveryContractFromRules(workspace.qualityRules));
       setExportStatus({ kind: "idle" });
       setComparisonStatus(clearComparison());
+      setComparisonKeyColumns([]);
+      setJoinStatus(clearJoin());
       await clearDatasetComparison().catch(() => undefined);
       setRecipeDraft(workspace.recipeDraft);
       setRecipeSession((current) => current + 1);
@@ -219,6 +235,10 @@ export function App() {
       setRecipeSession((current) => current + 1);
       setLoadInspection({ kind: "idle" });
       setProfileStatus({ kind: "idle" });
+      setComparisonStatus(clearComparison());
+      setComparisonKeyColumns([]);
+      setJoinStatus(clearJoin());
+      await clearDatasetComparison().catch(() => undefined);
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
       setExportStatus({ kind: "idle" });
@@ -309,7 +329,7 @@ export function App() {
   async function compareActiveDataset() {
     setComparisonStatus(beginComparison());
     try {
-      const comparison = await compareDataset();
+      const comparison = await compareDataset(comparisonKeyColumns);
       setComparisonStatus(comparison ? completeComparison(comparison) : clearComparison());
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -332,6 +352,8 @@ export function App() {
       const dataset = await useConsolidatedDataset();
       setDatasetStatus(createReadyDatasetStatus(dataset));
       setComparisonStatus(clearComparison());
+      setComparisonKeyColumns([]);
+      setJoinStatus(clearJoin());
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
@@ -342,6 +364,38 @@ export function App() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
+    }
+  }
+
+  async function joinActiveDataset(requestedJoinType: DatasetJoinType) {
+    if (comparisonKeyColumns.length === 0) {
+      setJoinStatus(failJoin("Selecciona al menos una columna clave para unir datasets."));
+      return;
+    }
+    setJoinStatus(beginJoin(requestedJoinType));
+    try {
+      const dataset = await joinDataset(comparisonKeyColumns, requestedJoinType);
+      if (!dataset) {
+        setJoinStatus(clearJoin());
+        return;
+      }
+      setDatasetStatus(createReadyDatasetStatus(dataset));
+      setComparisonStatus(clearComparison());
+      setComparisonKeyColumns([]);
+      setJoinStatus(clearJoin());
+      setProfileStatus({ kind: "idle" });
+      projects.unlinkActiveProject();
+      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
+      setRecipeDraft(null);
+      setRecipeSession((current) => current + 1);
+      prepare.resetChangeStatus();
+      await clearDatasetComparison().catch(() => undefined);
+      await prepare.refreshHistory();
+      setReviewTab("diagnosis");
+      setActivePhase("review");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setJoinStatus(failJoin(message));
     }
   }
 
@@ -528,9 +582,16 @@ export function App() {
               onAnalyzeQuality={analyzeQuality}
               onCancelProfile={() => cancelActiveOperation("profile")}
               comparisonStatus={comparisonStatus}
+              comparisonKeyColumns={comparisonKeyColumns}
+              onComparisonKeyColumnsChange={setComparisonKeyColumns}
+              datasetColumns={readyDataset.dataset.columns}
+              joinStatus={joinStatus}
+              joinType={joinType}
+              onJoinTypeChange={setJoinType}
               onCompare={() => void compareActiveDataset()}
               onClearComparison={() => void clearActiveComparison()}
               onConsolidate={() => void consolidateComparedDataset()}
+              onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
             />
           )}
 

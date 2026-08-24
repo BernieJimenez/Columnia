@@ -7,7 +7,8 @@
 
 - Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
   Fases I0, I4 e I8 cerradas, I3/I5 avanzadas y la Fase P1 de paridad funcional
-  con JSON, SQL, comparación/consolidación básica y visualizaciones accesibles;
+  con JSON, SQL, comparación/consolidación por clave, joins multidataset y
+  visualizaciones accesibles;
   I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
@@ -1010,7 +1011,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    ampliar después a datasets mayores y a operaciones que todavía requieren el
    camino eager.
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
-   benchmark; después añadir joins, comparación y destinos de base de datos.
+   benchmark; los joins, la comparación y la consolidación local ya tienen una
+   primera entrega; quedan destinos de base de datos y consultas más amplias.
 6. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
    licencias/avisos, smoke de instalador limpio, updater autenticado y validación
    real en macOS/Linux.
@@ -1025,7 +1027,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Implementar comparación local de dos datasets, diferencias por filas y
   columnas, y consolidación opt-in con historial cuando el esquema coincide.
 - [ ] Incorporar exportación Excel y destinos de base de datos.
-- [ ] Incorporar claves explícitas, conflictos por clave y joins multidataset.
+- [x] Incorporar claves explícitas, conflictos por clave y consolidación segura de
+  claves nuevas.
+- [x] Incorporar joins multidataset `Inner`, `Left` y `Full` por claves, con
+  validación de tipos, sufijo determinista para columnas compartidas e historial.
+- [ ] Añadir resolución interactiva de conflictos de columnas y valores.
 - [x] Añadir visualizaciones de análisis con tabla accesible equivalente para
   completitud y posibles outliers.
 - [ ] Ampliar visualizaciones con gráficos exploratorios, filtros e interacciones.

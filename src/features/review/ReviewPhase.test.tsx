@@ -84,9 +84,16 @@ describe("ReviewPhase", () => {
         onAnalyzeQuality={onAnalyzeQuality}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
         onCompare={() => undefined}
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
       />,
     );
 
@@ -102,6 +109,9 @@ describe("ReviewPhase", () => {
     const onCompare = vi.fn();
     const onClearComparison = vi.fn();
     const onConsolidate = vi.fn();
+    const onComparisonKeyColumnsChange = vi.fn();
+    const onJoin = vi.fn();
+    const onJoinTypeChange = vi.fn();
     render(
       <ReviewPhase
         datasetStatus={createReadyDatasetStatus(dataset)}
@@ -125,21 +135,41 @@ describe("ReviewPhase", () => {
             currentOnlyColumns: [],
             comparedOnlyColumns: [],
             schemaCompatible: true,
+            keyColumns: ["id"],
+            matchedKeyCount: 1,
+            currentOnlyKeyCount: 0,
+            comparedOnlyKeyCount: 0,
+            conflictingKeyCount: 0,
+            duplicateKeyCount: 0,
             canConsolidate: true,
           },
         }}
         onCompare={onCompare}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={["id"]}
+        onComparisonKeyColumnsChange={onComparisonKeyColumnsChange}
         onClearComparison={onClearComparison}
         onConsolidate={onConsolidate}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={onJoinTypeChange}
+        onJoin={onJoin}
       />,
     );
 
     expect(screen.getByText("actualizacion.csv")).toBeInTheDocument();
     expect(screen.getByText("Filas compartidas")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /id/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Left/ }));
     fireEvent.click(screen.getByRole("button", { name: "Consolidar filas" }));
     fireEvent.click(screen.getByRole("button", { name: "Descartar comparación" }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir fuente y unir" }));
     expect(onConsolidate).toHaveBeenCalledOnce();
     expect(onClearComparison).toHaveBeenCalledOnce();
+    expect(onComparisonKeyColumnsChange).toHaveBeenCalledWith([]);
+    expect(onJoinTypeChange).toHaveBeenCalledWith("left");
+    expect(onJoin).toHaveBeenCalledWith("inner");
   });
 
   it("muestra visualizaciones accesibles con valores equivalentes al perfil", () => {
@@ -153,9 +183,16 @@ describe("ReviewPhase", () => {
         onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
         onCompare={() => undefined}
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
       />,
     );
 

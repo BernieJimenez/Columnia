@@ -179,7 +179,39 @@ pub struct DatasetComparison {
     pub(crate) current_only_columns: Vec<String>,
     pub(crate) compared_only_columns: Vec<String>,
     pub(crate) schema_compatible: bool,
+    pub(crate) key_columns: Vec<String>,
+    pub(crate) matched_key_count: usize,
+    pub(crate) current_only_key_count: usize,
+    pub(crate) compared_only_key_count: usize,
+    pub(crate) conflicting_key_count: usize,
+    pub(crate) duplicate_key_count: usize,
     pub(crate) can_consolidate: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DatasetJoinType {
+    Inner,
+    Left,
+    Full,
+}
+
+impl DatasetJoinType {
+    fn polars_type(self) -> JoinType {
+        match self {
+            Self::Inner => JoinType::Inner,
+            Self::Left => JoinType::Left,
+            Self::Full => JoinType::Full,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Inner => "inner",
+            Self::Left => "left",
+            Self::Full => "full",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -831,6 +863,7 @@ struct PendingComparison {
     file_name: String,
     file_size_bytes: u64,
     frame: DataFrame,
+    key_columns: Vec<String>,
 }
 
 #[derive(Default)]
@@ -3315,11 +3348,163 @@ fn row_signatures(frame: &DataFrame, columns: &[String]) -> Result<HashMap<Strin
     Ok(counts)
 }
 
+fn key_rows(
+    frame: &DataFrame,
+    key_columns: &[String],
+) -> Result<HashMap<String, Vec<usize>>, String> {
+    let mut rows_by_key = HashMap::new();
+    for row_index in 0..frame.height() {
+        let signature = row_signature(frame, key_columns, row_index)?;
+        rows_by_key
+            .entry(signature)
+            .or_insert_with(Vec::new)
+            .push(row_index);
+    }
+    Ok(rows_by_key)
+}
+
+#[derive(Default)]
+struct KeyComparisonSummary {
+    matched_key_count: usize,
+    current_only_key_count: usize,
+    compared_only_key_count: usize,
+    conflicting_key_count: usize,
+    duplicate_key_count: usize,
+}
+
+fn validate_key_columns(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+) -> Result<(), String> {
+    if key_columns.is_empty() {
+        return Err("Selecciona al menos una columna clave para unir datasets.".to_owned());
+    }
+    for key in key_columns {
+        let current_column = current
+            .column(key)
+            .map_err(|_| format!("La columna clave '{key}' no existe en el dataset activo."))?;
+        let compared_column = compared
+            .column(key)
+            .map_err(|_| format!("La columna clave '{key}' no existe en el dataset comparado."))?;
+        if current_column.dtype() != compared_column.dtype() {
+            return Err(format!(
+                "La columna clave '{key}' tiene tipos incompatibles entre los datasets."
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn compare_keyed_frames(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+) -> Result<KeyComparisonSummary, String> {
+    validate_key_columns(current, compared, key_columns)?;
+
+    let current_rows = key_rows(current, key_columns)?;
+    let compared_rows = key_rows(compared, key_columns)?;
+    let current_keys = current_rows.keys().collect::<HashSet<_>>();
+    let compared_keys = compared_rows.keys().collect::<HashSet<_>>();
+    let shared_payload_columns = shared_columns
+        .iter()
+        .filter(|column| !key_columns.contains(column))
+        .cloned()
+        .collect::<Vec<_>>();
+    let duplicate_keys = current_rows
+        .iter()
+        .filter(|(_, rows)| rows.len() > 1)
+        .map(|(key, _)| key.clone())
+        .chain(
+            compared_rows
+                .iter()
+                .filter(|(_, rows)| rows.len() > 1)
+                .map(|(key, _)| key.clone()),
+        )
+        .collect::<HashSet<_>>();
+    let mut summary = KeyComparisonSummary {
+        matched_key_count: current_keys.intersection(&compared_keys).count(),
+        current_only_key_count: current_keys.difference(&compared_keys).count(),
+        compared_only_key_count: compared_keys.difference(&current_keys).count(),
+        duplicate_key_count: duplicate_keys.len(),
+        ..Default::default()
+    };
+
+    for key in current_keys.intersection(&compared_keys) {
+        let current_rows = &current_rows[*key];
+        let compared_rows = &compared_rows[*key];
+        if current_rows.len() != 1 || compared_rows.len() != 1 {
+            continue;
+        }
+        let current_payload = row_signature(current, &shared_payload_columns, current_rows[0])?;
+        let compared_payload = row_signature(compared, &shared_payload_columns, compared_rows[0])?;
+        if current_payload != compared_payload {
+            summary.conflicting_key_count += 1;
+        }
+    }
+
+    Ok(summary)
+}
+
+fn normalize_key_columns(key_columns: Option<Vec<String>>) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for key in key_columns.unwrap_or_default() {
+        if key.is_empty() {
+            return Err("Las columnas clave no pueden estar vacías.".to_owned());
+        }
+        if !normalized.contains(&key) {
+            normalized.push(key);
+        }
+    }
+    if normalized.len() > 16 {
+        return Err("La comparación admite como máximo 16 columnas clave.".to_owned());
+    }
+    Ok(normalized)
+}
+
+fn rows_with_new_keys(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+) -> Result<DataFrame, String> {
+    let current_keys = key_rows(current, key_columns)?;
+    let keep = (0..compared.height())
+        .map(|row_index| {
+            row_signature(compared, key_columns, row_index)
+                .map(|signature| !current_keys.contains_key(&signature))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    compared
+        .filter(&BooleanChunked::from_slice("new_keys".into(), &keep))
+        .map_err(|error| format!("No se pudieron seleccionar las claves nuevas: {error}"))
+}
+
+fn join_frames(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    join_type: DatasetJoinType,
+) -> Result<DataFrame, String> {
+    validate_key_columns(current, compared, key_columns)?;
+    current
+        .join(
+            compared,
+            key_columns.iter(),
+            key_columns.iter(),
+            JoinArgs::new(join_type.polars_type()).with_coalesce(JoinCoalesce::CoalesceColumns),
+            None,
+        )
+        .map_err(|error| format!("No se pudieron unir los datasets por clave: {error}"))
+}
+
 fn compare_frames(
     current: &DataFrame,
     current_file_name: &str,
     compared: &DataFrame,
     compared_file_name: &str,
+    key_columns: &[String],
 ) -> Result<DatasetComparison, String> {
     let current_columns = current
         .get_column_names()
@@ -3370,6 +3555,14 @@ fn compare_frames(
                 compared.height().saturating_sub(common),
             )
         };
+    let key_summary = if key_columns.is_empty() {
+        KeyComparisonSummary::default()
+    } else {
+        compare_keyed_frames(current, compared, key_columns, &shared_columns)?
+    };
+    let can_consolidate = schema_compatible
+        && key_summary.conflicting_key_count == 0
+        && key_summary.duplicate_key_count == 0;
 
     Ok(DatasetComparison {
         current_file_name: current_file_name.to_owned(),
@@ -3383,12 +3576,22 @@ fn compare_frames(
         current_only_columns,
         compared_only_columns,
         schema_compatible,
-        can_consolidate: schema_compatible,
+        key_columns: key_columns.to_vec(),
+        matched_key_count: key_summary.matched_key_count,
+        current_only_key_count: key_summary.current_only_key_count,
+        compared_only_key_count: key_summary.compared_only_key_count,
+        conflicting_key_count: key_summary.conflicting_key_count,
+        duplicate_key_count: key_summary.duplicate_key_count,
+        can_consolidate,
     })
 }
 
 #[tauri::command]
-pub async fn compare_dataset(app: AppHandle) -> Result<Option<DatasetComparison>, String> {
+pub async fn compare_dataset(
+    app: AppHandle,
+    key_columns: Option<Vec<String>>,
+) -> Result<Option<DatasetComparison>, String> {
+    let key_columns = normalize_key_columns(key_columns)?;
     let (current_frame, current_file_name) = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -3430,6 +3633,7 @@ pub async fn compare_dataset(app: AppHandle) -> Result<Option<DatasetComparison>
             &current_file_name,
             &compared_frame,
             &compared_file_name,
+            &key_columns,
         )?;
         let state = app.state::<DatasetState>();
         *state
@@ -3440,11 +3644,97 @@ pub async fn compare_dataset(app: AppHandle) -> Result<Option<DatasetComparison>
                 file_name: compared_file_name,
                 file_size_bytes,
                 frame: compared_frame,
+                key_columns,
             });
         Ok(Some(comparison))
     })
     .await
     .map_err(|error| format!("La comparación se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn join_dataset(
+    app: AppHandle,
+    key_columns: Vec<String>,
+    join_type: DatasetJoinType,
+) -> Result<Option<DatasetPreview>, String> {
+    let key_columns = normalize_key_columns(Some(key_columns))?;
+    if key_columns.is_empty() {
+        return Err("Selecciona al menos una columna clave para unir datasets.".to_owned());
+    }
+    let (current_frame, current_file_name, current_file_size) = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_ref().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        (
+            dataset.frame.clone(),
+            dataset.file_name.clone(),
+            dataset.file_size_bytes,
+        )
+    };
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter(
+            "Datasets compatibles",
+            &[
+                "csv", "tsv", "txt", "json", "jsonl", "ndjson", "parquet", "xlsx", "xls", "xlsb",
+                "ods",
+            ],
+        )
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
+    let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
+    let compared_file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset")
+        .to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let compared_frame = load_compare_frame(&path, &extension)?;
+        let joined = join_frames(&current_frame, &compared_frame, &key_columns, join_type)?;
+        let file_name = format!(
+            "Join {} · {} + {compared_file_name}",
+            join_type.label(),
+            current_file_name
+        );
+        let file_size_bytes = current_file_size.saturating_add(file_size_bytes);
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let preview = dataset_preview_with_size(&file_name, file_size_bytes, &joined)?;
+        dataset
+            .history
+            .record(&joined, &format!("Unir datasets ({})", join_type.label()))?;
+        dataset.source_path = None;
+        dataset.file_name = file_name;
+        dataset.file_size_bytes = file_size_bytes;
+        dataset.frame = joined;
+        dataset.profile = None;
+        drop(current);
+        *state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+        Ok(Some(preview))
+    })
+    .await
+    .map_err(|error| format!("La unión se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -3458,7 +3748,7 @@ pub fn clear_dataset_comparison(state: State<'_, DatasetState>) -> Result<(), St
 
 #[tauri::command]
 pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<DatasetPreview, String> {
-    let (compared_file_name, compared_file_size, compared_frame) = {
+    let (compared_file_name, compared_file_size, compared_frame, key_columns) = {
         let comparison = state
             .comparison
             .lock()
@@ -3470,6 +3760,7 @@ pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<Datase
             pending.file_name.clone(),
             pending.file_size_bytes,
             pending.frame.clone(),
+            pending.key_columns.clone(),
         )
     };
     let mut current = state
@@ -3489,12 +3780,37 @@ pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<Datase
     {
         return Err(
             "Los esquemas no son compatibles. La consolidación requiere las mismas columnas y tipos."
-                .to_owned(),
+            .to_owned(),
         );
     }
+    if !key_columns.is_empty() {
+        let shared_columns = dataset
+            .frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        let key_summary = compare_keyed_frames(
+            &dataset.frame,
+            &compared_frame,
+            &key_columns,
+            &shared_columns,
+        )?;
+        if key_summary.conflicting_key_count > 0 || key_summary.duplicate_key_count > 0 {
+            return Err(
+                "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar."
+                    .to_owned(),
+            );
+        }
+    }
+    let additions = if key_columns.is_empty() {
+        compared_frame.clone()
+    } else {
+        rows_with_new_keys(&dataset.frame, &compared_frame, &key_columns)?
+    };
     let mut consolidated = dataset.frame.clone();
     consolidated
-        .vstack_mut(&compared_frame)
+        .vstack_mut(&additions)
         .map_err(|error| format!("No se pudieron unir los datasets: {error}"))?;
     let file_name = format!("Consolidado · {} + {compared_file_name}", dataset.file_name);
     let file_size_bytes = dataset.file_size_bytes.saturating_add(compared_file_size);
@@ -7712,13 +8028,14 @@ mod tests {
         let (current, _) = load_csv(&current_path).expect("el dataset activo debe cargar");
         let (compared, _) = load_csv(&compared_path).expect("el dataset comparado debe cargar");
 
-        let result = compare_frames(&current, "activo.csv", &compared, "comparado.csv")
+        let result = compare_frames(&current, "activo.csv", &compared, "comparado.csv", &[])
             .expect("la comparación debe calcularse");
         assert_eq!(result.common_row_count, 1);
         assert_eq!(result.current_only_row_count, 1);
         assert_eq!(result.compared_only_row_count, 1);
         assert_eq!(result.shared_columns, vec!["id", "city"]);
         assert!(result.schema_compatible);
+        assert!(result.key_columns.is_empty());
         assert!(result.can_consolidate);
 
         let mut consolidated = current.clone();
@@ -7729,6 +8046,121 @@ mod tests {
 
         fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
         fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
+    }
+
+    #[test]
+    fn compares_explicit_keys_and_reports_conflicts_and_duplicate_keys() {
+        let current_path = temporary_csv("id,city,total\n1,Santo Domingo,10\n2,Santiago,20\n");
+        let compared_path = temporary_csv("id,city,total\n2,Santiago,25\n3,La Vega,30\n");
+        let (current, _) = load_csv(&current_path).expect("el dataset activo debe cargar");
+        let (compared, _) = load_csv(&compared_path).expect("el dataset comparado debe cargar");
+
+        let result = compare_frames(
+            &current,
+            "activo.csv",
+            &compared,
+            "comparado.csv",
+            &["id".to_owned()],
+        )
+        .expect("la comparación por clave debe calcularse");
+        assert_eq!(result.key_columns, vec!["id"]);
+        assert_eq!(result.matched_key_count, 1);
+        assert_eq!(result.current_only_key_count, 1);
+        assert_eq!(result.compared_only_key_count, 1);
+        assert_eq!(result.conflicting_key_count, 1);
+        assert_eq!(result.duplicate_key_count, 0);
+        assert!(!result.can_consolidate);
+
+        let duplicate_path =
+            temporary_csv("id,city,total\n2,Santiago,20\n2,Santiago,20\n3,La Vega,30\n");
+        let (duplicate, _) = load_csv(&duplicate_path).expect("el dataset duplicado debe cargar");
+        let duplicate_result = compare_frames(
+            &current,
+            "activo.csv",
+            &duplicate,
+            "duplicado.csv",
+            &["id".to_owned()],
+        )
+        .expect("la comparación duplicada debe calcularse");
+        assert_eq!(duplicate_result.duplicate_key_count, 1);
+        assert!(!duplicate_result.can_consolidate);
+
+        fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
+        fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
+        fs::remove_file(duplicate_path).expect("se debe limpiar el CSV duplicado");
+    }
+
+    #[test]
+    fn keyed_consolidation_only_appends_rows_with_new_keys() {
+        let current = DataFrame::new(
+            2,
+            vec![
+                Series::new("id".into(), &[1_i64, 2]).into_column(),
+                Series::new("city".into(), &["Santo Domingo", "Santiago"]).into_column(),
+            ],
+        )
+        .expect("el frame activo debe ser válido");
+        let compared = DataFrame::new(
+            2,
+            vec![
+                Series::new("id".into(), &[2_i64, 3]).into_column(),
+                Series::new("city".into(), &["Santiago", "La Vega"]).into_column(),
+            ],
+        )
+        .expect("el frame comparado debe ser válido");
+
+        let additions = rows_with_new_keys(&current, &compared, &["id".to_owned()])
+            .expect("se deben seleccionar las claves nuevas");
+        assert_eq!(additions.height(), 1);
+        assert_eq!(
+            additions.column("id").unwrap().i64().unwrap().get(0),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn joins_frames_by_key_for_inner_left_and_full_relations() {
+        let current = DataFrame::new(
+            2,
+            vec![
+                Series::new("id".into(), &[1_i64, 2]).into_column(),
+                Series::new("city".into(), &["Santo Domingo", "Santiago"]).into_column(),
+            ],
+        )
+        .expect("el frame activo debe ser válido");
+        let compared = DataFrame::new(
+            2,
+            vec![
+                Series::new("id".into(), &[2_i64, 3]).into_column(),
+                Series::new("city".into(), &["Santiago", "La Vega"]).into_column(),
+                Series::new("segment".into(), &["B", "C"]).into_column(),
+            ],
+        )
+        .expect("el frame comparado debe ser válido");
+        let key = ["id".to_owned()];
+
+        let inner = join_frames(&current, &compared, &key, DatasetJoinType::Inner)
+            .expect("la unión inner debe calcularse");
+        let left = join_frames(&current, &compared, &key, DatasetJoinType::Left)
+            .expect("la unión left debe calcularse");
+        let full = join_frames(&current, &compared, &key, DatasetJoinType::Full)
+            .expect("la unión full debe calcularse");
+
+        assert_eq!(inner.height(), 1);
+        assert_eq!(left.height(), 2);
+        assert_eq!(full.height(), 3);
+        assert!(inner
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "city_right"));
+        assert!(left
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "segment"));
+        assert!(full
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "segment"));
     }
 
     #[test]

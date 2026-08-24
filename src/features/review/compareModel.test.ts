@@ -19,6 +19,12 @@ const comparison = {
   currentOnlyColumns: [],
   comparedOnlyColumns: [],
   schemaCompatible: true,
+  keyColumns: ["id"],
+  matchedKeyCount: 1,
+  currentOnlyKeyCount: 0,
+  comparedOnlyKeyCount: 0,
+  conflictingKeyCount: 0,
+  duplicateKeyCount: 0,
   canConsolidate: true,
 };
 
