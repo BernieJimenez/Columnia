@@ -982,16 +982,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 
 ## 8.1. Cola de ejecución recomendada desde v0.49.0
 
-1. **E2E de proyectos en escritorio:** completar interacción real en WebView2
-   para cerrar/reiniciar, recuperar/abrir, validar, exportar y borrar;
-   Playwright ya cubre el shell web y el ciclo de proyectos con IPC simulado,
-   Vitest cubre guardar→catálogo→abrir→restaurar y el probe CDP ya ejerce un
-   ciclo nativo temporal de sembrar→receta→exportar→guardar→abrir→consultar→eliminar;
-   el probe opt-in `npm run smoke:native-selectors` ya ejerce el selector de
-   dataset, recetas y exportación con Win32 y evidencia sanitizada, pero aún
-   falta estabilizar el cierre automático del botón para convertirlo en gate;
-   `npm run smoke:restart` ya cubre el reinicio
-   real y la continuidad durable antes de abrir y borrar el proyecto.
+1. **Selector nativo Win32:** estabilizar el cierre automático de los diálogos
+   en `npm run smoke:native-selectors` para elevar ese recorrido a gate. El
+   ciclo WebView2 de proyectos, la reapertura durable y `npm run smoke:restart`
+   ya están cubiertos con evidencia; el shell web y los flujos simulados siguen
+   cubiertos por Playwright/Vitest.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop, escala 125%,
    `forced-colors` y el ciclo de foco del `alertdialog`; `npm run
@@ -1175,7 +1170,7 @@ del original.
   `columnia-quality-rules` v1, guardarlo atómicamente e importar de forma
   explícita Columnia v1, DataPrep v1–v3 y documentos legados compatibles; las
   versiones futuras y contratos ambiguos fallan antes de convertir reglas.
-- [ ] Completar la migración de reglas de calidad antiguas y v3, conservando
+- [ ] Completar la migración de semánticas de reglas antiguas y v3, conservando
   tolerancias, severidad,
   referencias, condiciones y reglas no soportadas como advertencias explícitas;
   nunca convertir una regla bloqueante en una entrega aprobada silenciosamente.

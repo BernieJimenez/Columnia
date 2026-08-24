@@ -11,8 +11,8 @@ Las reglas de contribución, la licencia y las decisiones duraderas están en
 [CONTRIBUTING.md](CONTRIBUTING.md), [LICENSE](LICENSE) y la
 [documentación del repositorio](docs/README.md).
 
-El proyecto está en su primer hito técnico. Actualmente contiene el shell Tauri
-2, una interfaz React/TypeScript y el primer corte vertical del motor Polars:
+El proyecto es un prototipo local verificable. Actualmente contiene el shell
+Tauri 2, una interfaz React/TypeScript y un corte vertical del motor Polars:
 selección nativa, carga local y vista previa de CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta
 500 MB. Los libros con varias hojas muestran un selector antes de cargar y React
 solo recibe un identificador opaco, nunca la ruta local. Este límite es provisional:
@@ -53,6 +53,9 @@ El esquema SQLite v3 conserva exactamente el dataset y su nombre visible aunque
 la fuente original haya desaparecido, además de las reglas de calidad, el
 borrador opcional de receta, el perfil cacheado y el historial Deshacer/Rehacer
 con su cursor. Los catálogos v1 y v2 se migran de forma compatible al abrirse.
+Los contratos de calidad intercambiados como archivos usan el formato canónico
+`columnia-quality-rules` v1 y conservan compatibilidad con DataPrep v1–v3 y el
+documento legado v1.
 Columnia valida el conjunto durable antes de activarlo; si un perfil o snapshot
 está corrupto, la apertura falla sin reemplazar el dataset actual.
 
@@ -90,17 +93,16 @@ imágenes y el resumen quedan en `.local/validation/accessibility-visual/`.
 Después ejecuta `npm run accessibility:check` para comparar los cuatro casos con
 el contrato versionado y verificar el SHA-256 de cada captura.
 
-En Windows, `npm run smoke:cdp` levanta el comando real `npm run tauri dev` con
-un puerto CDP de loopback aislado, verifica `/json/version` y `/json/list`, y
-usa `chromium.connectOverCDP` para medir primer render, landmarks y foco del
-WebView2, además de comprobar el contrato accesible de `ProjectsPanel` y los
-comandos IPC nativos. En el build debug, el ciclo temporal siembra un dataset,
-persiste/aplica una receta, exporta CSV con quality gate y guarda/abre/elimina
-un proyecto con ese workspace; la evidencia conserva solo estados y conteos.
-El probe restaura la variable de entorno y termina únicamente los procesos que
-creó; reporta el primer render aunque el arranque debug frío supere el
-presupuesto. Para resumir las evidencias locales por categoría y comparar
-deltas entre ejecuciones usa `npm run perf:summary`.
+En Windows, `npm run smoke:cdp` levanta `npm run tauri dev` con un puerto CDP de
+loopback aislado, verifica `/json/version` y `/json/list`, y usa
+`chromium.connectOverCDP` para medir primer render, landmarks y foco del
+WebView2, el contrato accesible de `ProjectsPanel` y comandos IPC nativos. En
+debug también siembra un dataset, aplica una receta, exporta CSV con quality
+gate y guarda/abre/elimina un proyecto; perfila working set/memoria privada,
+duraciones IPC y reapertura durable dentro de límites acotados. La evidencia
+conserva estados y conteos, nunca IDs, rutas o datos. El probe restaura el
+entorno y termina solo procesos propios; `npm run perf:summary` resume sus
+evidencias.
 
 Para medir una entrada sintética cercana a 100 MiB sin conservarla en el árbol
 de trabajo ejecuta `npm run perf:benchmark`. El benchmark usa la CLI local para
@@ -123,18 +125,6 @@ gates finales de experiencia en orden; admite `-SkipPackage` o `-SkipNative` si 
 necesita aislar una estación sin instalador o sin WebView2. La auditoría manual con
 lector de pantalla y High Contrast se registra en
 [ACCESSIBILITY_MANUAL_CHECKLIST.md](ACCESSIBILITY_MANUAL_CHECKLIST.md).
-
-`npm run smoke:cdp` añade un perfil acotado del proceso debug (working set y
-memoria privada inicial, máxima y final) y ejecuta, solo en el build debug del
-probe, un ciclo temporal nativo de dataset/receta/exportación/proyecto. La
-reapertura durable crea un `ProjectStore` fresco y valida SQLite, snapshot,
-recovery y workspace antes del cleanup. La evidencia conserva conteos/estados,
-no IDs, datos ni rutas; esta señal no habilita CDP en el arranque normal. Desde
-v0.44.0 aplica por defecto un presupuesto de 512 MiB de working set y 256 MiB
-de memoria privada al árbol de procesos propio; si una ejecución soportada lo
-excede, falla. El mismo ciclo conserva duración total y muestras por comando
-IPC (solo milisegundos), que `npm run perf:summary` agrega junto al perfil de
-memoria.
 
 El smoke opt-in `npm run smoke:native-selectors` añade automatización Win32
 sobre una sesión Windows interactiva para ejercer el selector de dataset, el
@@ -173,7 +163,9 @@ XLSB y ODS. Para libros son obligatorios `--sheet <nombre exacto>` y `--header
 first-row|generated`; esas opciones se rechazan para otros formatos. Las rutas y
 los valores del dataset no aparecen en el JSON ni en los errores. La salida se
 publica de forma atómica y CSV conserva la protección contra fórmulas. `validate`
-devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
+lee el documento `columnia-quality-rules` v1; también acepta el documento legado
+`{"version":1,"rules":[...]}`. Formatos o versiones futuras se rechazan.
+Devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
 
 Un manifiesto batch v1 contiene entre 1 y 64 trabajos `input`, `recipe`,
 `output` y `format`, más `sheet`/`header` para libros. Las rutas relativas se
@@ -272,11 +264,15 @@ el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
 El destino se reemplaza únicamente después de completar y sincronizar la
 escritura; cancelar o fallar conserva cualquier archivo anterior.
 Antes de exportar puede definirse un **contrato de calidad** de hasta dieciséis
-reglas exactas: no nulo, texto no vacío, unicidad o rango numérico inclusivo.
-Cada regla admite una tolerancia por cantidad o porcentaje y el resultado solo
-expone conteos, nunca muestras de los datos. Rust vuelve a evaluar el contrato
-sobre el mismo snapshot que escribirá antes de abrir el selector. Si no existen
-reglas, la entrega no validada requiere una confirmación explícita.
+reglas exactas. Incluye reglas básicas, `allowed_values`, `regex`, `dtype`,
+unicidad compuesta, comparación entre columnas, integridad referencial,
+monotonía, agregados, drift de distribución, rangos de fecha, condiciones,
+contratos de esquema y conteo de filas. Cada regla admite tolerancia por cantidad
+o porcentaje; Rust vuelve a evaluar el contrato sobre el snapshot que escribirá
+y el resultado solo expone conteos. Los contratos se pueden importar desde
+DataPrep y guardar como `columnia-quality-rules` v1 mediante diálogos nativos,
+sin exponer rutas a React. Si no existen reglas, la entrega no validada requiere
+una confirmación explícita.
 En **Revisar**, la vista previa permite recorrer el dataset en páginas de 50 filas sin volver a abrir
 el archivo ni enviar su ruta al frontend.
 El botón **Analizar calidad** calcula en Rust los nulos, la completitud y los

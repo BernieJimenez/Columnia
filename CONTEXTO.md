@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-24, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 en paridad incremental y M1 auditada para migración desde `dataprepv1.1` |
+| Última revisión de este documento | 2026-08-24, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con contratos de calidad versionados y M1 auditada para migración desde `dataprepv1.1` |
 
 ## Para qué existe este documento
 
@@ -278,13 +278,14 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 
 ### Entrega
 
-- exportación atómica a CSV o Parquet;
-- neutralización de fórmulas en columnas de texto al exportar CSV; Parquet conserva los valores originales;
-- cancelación cooperativa;
-- contratos de hasta 16 reglas: no nulo, texto no vacío, unicidad y rango numérico inclusivo;
-- tolerancia por cantidad y/o porcentaje;
-- resultados con conteos, nunca muestras de celdas;
-- confirmación explícita para exportar sin reglas.
+- exportación atómica a CSV o Parquet, con neutralización de fórmulas de texto en CSV;
+- contratos de hasta 16 reglas base y avanzadas: `allowed_values`, `regex`, `dtype`,
+  unicidad compuesta, comparación, referencias, monotonía, agregados, drift,
+  fechas, condiciones, esquema y conteo de filas;
+- tolerancias por cantidad y/o porcentaje, resultados con conteos y confirmación
+  explícita para exportar sin reglas;
+- importación desde DataPrep y guardado como `columnia-quality-rules` v1, con
+  diálogos nativos y rutas privadas en Rust.
 
 ## Invariantes de seguridad y privacidad
 
@@ -397,7 +398,9 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ramas específicas de symlinks/reparse points dependen de la plataforma. Son una fotografía orientativa, no un umbral: actualiza el número si cambia de forma material o elimina el conteo si deja de ser útil.
+La validación actual registra 202 pruebas frontend y 177 pruebas Rust; las ramas
+específicas de symlinks/reparse points dependen de la plataforma. Son una
+fotografía orientativa, no un umbral.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -411,7 +414,7 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
 - SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
-- Cobertura V8 por capa sobre `src` (145 tests) con gate 80/75/75/80; supply
+- Cobertura V8 por capa sobre `src` con gate 80/75/75/80; supply
   chain local con npm audit, cargo-audit 0.22.2, cargo-deny 0.20.2, secret scan,
   avisos de terceros y política de red/telemetría.
 - Instalador declarado `NSIS currentUser`, licencia MIT y avisos de terceros
@@ -431,7 +434,11 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - CLI batch v1 para 1–64 transformaciones, con preflight sin escrituras, colisiones rechazadas y atomicidad individual explícita.
 - Proyectos locales con catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, reglas de calidad, borrador opcional, perfil cacheado, historial/cursor y recuperación explícita aunque desaparezca la fuente original.
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
-- Fase P1 activa: matriz de paridad con `dataprepv1.1`, exportación JSON/SQL/Excel/SQLite atómica, privacidad de salida, comparación por clave/conflictos, resolución interactiva acotada por fila, joins `Inner`/`Left`/`Full`, consulta local restringida con filtros/agregaciones y visualizaciones accesibles disponibles en UI/Rust; los contratos de calidad se guardan como `columnia-quality-rules` v1 y migran DataPrep v1–v3/legados con rechazo de versiones futuras; Preparar también elimina filas completamente vacías, columnas completamente vacías, columnas constantes y columnas con alta nulidad, normaliza centinelas y booleanos textuales, detecta duplicados parecidos sin exponer celdas, intenta imputación conservadora de nulos, clasifica señales agregadas de privacidad y ofrece trazabilidad `_cambios` reversible; siguen pendientes análisis exploratorio amplio, políticas de calidad sin equivalencia segura, conectores remotos, bundles auditables, escala fuera de memoria y combinación independiente por columna.
+- Fase P1 activa: matriz de paridad con `dataprepv1.1`, exportación local atómica,
+  comparación/joins, consulta restringida, visualizaciones accesibles y reglas
+  de calidad versionadas; siguen pendientes el análisis exploratorio amplio,
+  políticas sin equivalencia segura, conectores remotos, bundles auditables,
+  escala fuera de memoria y combinación independiente por columna.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
 - Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.40.0 verificado en 314,827 bytes raw/90,154 gzip.
@@ -545,18 +552,9 @@ Al actualizarlo:
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
 | 2026-08-24 | P1 añade destinos locales Excel/SQLite, consulta SQL restringida con filtros, `GROUP BY` y agregaciones seguras, privacidad de exportación con máscara/hash y señales agregadas de limpieza; joins/DuckDB, conectores remotos, catálogo completo de PII y sesión operativa siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/prepare/PreparePhase.tsx`, `src/features/delivery/DeliveryPhase.tsx` |
-| 2026-08-24 | P1 completa `column_compare` en calidad: contrato Rust/TypeScript, seis operadores, nulos inválidos, tolerancias, migración segura desde `dataprepv1.1` y controles accesibles en Entregar; referencias, agregados y drift siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
-| 2026-08-24 | P1 completa `date_range` en calidad: límites inclusivos `minDate`/`maxDate`, parseo local seguro para texto y soporte Date/Datetime, nulos/fechas ilegibles inválidos, migración DataPrep y controles accesibles en Entregar; referencias, agregados y drift siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
-| 2026-08-24 | P1 completa `conditional` en calidad: condición `when` con seis operadores, subreglas `then` fila-a-fila seguras, tolerancia exterior, migración DataPrep, contrato IPC recursivo y editor accesible; referencias, agregados y drift siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
-| 2026-08-24 | P1 completa `schema_contract` en calidad: columnas requeridas, columnas adicionales opcionales, orden requerido, conteos estructurales, migración DataPrep, bridge tipado y editor accesible; monotonía, agregados y drift siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
-| 2026-08-24 | P1 completa `referential_integrity` en calidad: claves simples/compuestas contra referencias locales explícitas, normalización segura de migración DataPrep, bridge tipado, editor accesible, tolerancias y conteos sin muestras; monotonía, agregados y drift siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
-| 2026-08-24 | P1 completa `monotonic` en calidad: secuencias no decrecientes/no crecientes sobre texto, fechas, datetimes, booleanos y números, nulos que reinician la cadena, tolerancias, migración de `direction`/`order` desde DataPrep, bridge tipado y editor accesible; agregados y drift siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
-| 2026-08-24 | P1 completa `aggregate_check` y `aggregate_reconciliation` en calidad: conteo/suma/mínimo/máximo, expected/referencias, reconciliación de dos columnas, tolerancias absolutas/relativas, migración DataPrep, bridge tipado, editor accesible y evaluación privada solo con conteos; drift y versionado explícito siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
-| 2026-08-24 | P1 completa `distribution_drift` en calidad: medias numéricas contra `baseline`, `threshold`/`toleranceAbs`, nulos y textos no numéricos excluidos de la observación, conteos privados, migración de aliases DataPrep, bridge tipado, editor accesible y pruebas Rust/React; el versionado explícito del documento queda como siguiente decisión. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
+| 2026-08-24 | P1 amplía el contrato de calidad con `column_compare`, `date_range`, `conditional`, `schema_contract`, `referential_integrity`, `monotonic`, agregados y `distribution_drift`; todos comparten migración DataPrep, tolerancias, bridge tipado, editor accesible, evaluación Rust/UI/CLI y resultados basados en conteos. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
 | 2026-08-24 | P1 cierra el versionado del documento de calidad: formato canónico `columnia-quality-rules` v1, guardado atómico, importación Columnia/DataPrep v1–v3/legado, rechazo cerrado de contratos futuros o ambiguos, CLI retrocompatible y estado accesible sin rutas en React. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `docs/reference/cli.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 | 2026-08-24 | Validación del documento de calidad versionado: 177 pruebas Rust y 202 frontend, build Vite, Clippy estricto, formato, documentación, diff limpio, smoke CLI con contratos/calidad/proyectos y smoke WebView2 con IPC nativo, foco, landmarks y cleanup aprobados. | `.local/validation/cli-smoke/20260824T222619Z`, `.local/validation/webview2-cdp/20260824T222724Z`, `src-tauri/src/dataset.rs`, `src/bridge.test.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/DeliveryPhase.test.tsx` |
-| 2026-08-24 | Validación de `distribution_drift`: 175 pruebas Rust y 200 frontend, build Vite, contrato IPC, Clippy con `-D warnings`, formato, documentación, diff limpio y smoke WebView2 CDP con IPC nativo, foco, landmarks y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T221151Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.test.ts`, `src/features/delivery/DeliveryPhase.test.tsx` |
-| 2026-08-24 | Validación de agregados: 173 pruebas Rust y 196 frontend, build Vite, contrato IPC, Clippy con `-D warnings`, formato, documentación, diff limpio y smoke WebView2 CDP con IPC nativo, foco, landmarks y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T214909Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.test.ts`, `src/features/delivery/DeliveryPhase.test.tsx` |
 | 2026-08-24 | Validación de `monotonic`: 171 pruebas Rust y 191 frontend, build Vite, contrato IPC, Clippy con `-D warnings`, formato, documentación, diff limpio y smoke WebView2 CDP con IPC nativo, foco, landmarks y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T211555Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.test.ts`, `src/features/delivery/DeliveryPhase.test.tsx` |
 | 2026-08-24 | Validación de `referential_integrity`: 169 pruebas Rust y 188 frontend, build Vite, contrato IPC, Clippy con `-D warnings`, formato, documentación y smoke WebView2 CDP con IPC nativo, foco, landmarks y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T190500Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 | 2026-08-24 | Validación de `schema_contract`: 166 pruebas Rust y 184 frontend, build Vite, paridad IPC, Clippy con `-D warnings`, formato, diff limpio y smoke WebView2 CDP con IPC nativo, foco, landmarks y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T184643Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/DeliveryPhase.tsx` |

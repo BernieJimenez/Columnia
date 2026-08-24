@@ -8,6 +8,12 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Contrato de calidad versionado `columnia-quality-rules` v1, con guardado
+  atómico, importación de Columnia/DataPrep v1–v3 y compatibilidad con el
+  documento legado v1; versiones futuras y formatos ambiguos fallan cerrados.
+- Entregar permite importar y guardar contratos mediante diálogos nativos,
+  muestra el origen/versión y mantiene las rutas fuera de React; la CLI acepta
+  el formato canónico y el legado.
 - Fase I1 completa: recetas compatibles con renombres, casts, filtros y
   columnas calculadas ejecutadas mediante planes Polars lazy, con fallback eager
   atómico para operaciones que requieren validaciones específicas.
@@ -16,7 +22,7 @@ los artefactos de validación locales.
 - Benchmark reproducible de 100 MiB contra `dataprepv1.1`, con comparación de
   duración, working set, conteos, fixture sintética y cleanup sin conservar datos.
 - Gate de cobertura V8 por capa para `src` (80% statements/lines, 75% branches y
-  functions) y 146 tests frontend.
+  functions) y 202 tests frontend.
 - Supply chain local con `npm audit`, `cargo-audit`, `cargo-deny`, secret scan,
   inventario reproducible de `THIRD_PARTY_NOTICES` y verificación de red sin
   telemetría.
@@ -45,7 +51,7 @@ los artefactos de validación locales.
 
 ### Validación
 
-- Verificados build Vite, contratos IPC, 136 pruebas Rust y 146 pruebas frontend,
+- Verificados build Vite, contratos IPC, 177 pruebas Rust y 202 pruebas frontend,
   pruebas del monitor,
   evidencia release desktop/móvil/zoom 125%/`forced-colors` y el gate
   `perf:i1:check`, cobertura frontend, auditorías de supply chain, smoke CDP
