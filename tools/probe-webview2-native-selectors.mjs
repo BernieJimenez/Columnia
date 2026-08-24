@@ -10,8 +10,8 @@ const requestFileArgumentIndex = process.argv.indexOf("--request-file");
 const requestFile = requestFileArgumentIndex >= 0 ? resolve(process.argv[requestFileArgumentIndex + 1]) : null;
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = resolve(projectRoot, "fixtures", "automation", "input.csv");
-const helperTimeoutMs = 55_000;
-const probeTimeoutMs = 90_000;
+const helperTimeoutMs = 100_000;
+const probeTimeoutMs = 150_000;
 
 if (!Number.isInteger(port) || port < 1024 || port > 65535) {
   console.log(JSON.stringify({ status: "failed", phase: "native_selectors_invalid_port" }));
@@ -181,7 +181,7 @@ async function run() {
   const exported = await invokeWithNativeDialog(
     page,
     "export_dataset",
-    { format: "csv", qualityRules: [], allowUnvalidated: true, onProgress: null },
+    { format: "csv", qualityRules: [], allowUnvalidated: true, privacyMode: "none", onProgress: null },
     "save",
     exportPath,
   );

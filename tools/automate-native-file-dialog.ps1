@@ -5,12 +5,14 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Path,
     [ValidateRange(5, 120)]
-    [int]$TimeoutSeconds = 45
+    [int]$TimeoutSeconds = 90
 )
 
 $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -47,6 +49,24 @@ public static class ColumniaNativeDialogMethods {
     [DllImport("user32.dll", SetLastError = true)]
     private static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput {
+        public ushort virtualKey;
+        public ushort scanCode;
+        public uint flags;
+        public uint time;
+        public UIntPtr extraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input {
+        public uint type;
+        public KeyboardInput keyboard;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint inputCount, Input[] inputs, int inputSize);
+
     public static void SendControlA() {
         keybd_event(0x11, 0, 0, UIntPtr.Zero);
         keybd_event(0x41, 0, 0, UIntPtr.Zero);
@@ -56,8 +76,14 @@ public static class ColumniaNativeDialogMethods {
 
     public static void SendUnicodeText(string text) {
         foreach (char character in text) {
-            keybd_event(0, (byte)character, 4, UIntPtr.Zero);
-            keybd_event(0, (byte)character, 6, UIntPtr.Zero);
+            var inputs = new Input[2];
+            inputs[0].type = 1;
+            inputs[0].keyboard.scanCode = character;
+            inputs[0].keyboard.flags = 4;
+            inputs[1].type = 1;
+            inputs[1].keyboard.scanCode = character;
+            inputs[1].keyboard.flags = 6;
+            SendInput(2, inputs, Marshal.SizeOf(typeof(Input)));
         }
     }
 
@@ -85,6 +111,41 @@ $TargetDirectory = [System.IO.Path]::GetDirectoryName($TargetPath)
 $TargetFileName = [System.IO.Path]::GetFileName($TargetPath)
 $Deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
 $Stage = "preflight"
+$ActionDiagnostics = [System.Collections.Generic.List[string]]::new()
+
+function Get-ColumniaWindow {
+    return [ColumniaNativeDialogMethods]::FindWindow("Tauri Window", "Columnia")
+}
+
+function Get-NativeFileDialogElement {
+    try {
+        $titles = if ($Mode -eq "open") {
+            @("Abrir", "Open", "Abrir archivo", "Open File")
+        }
+        else {
+            @("Guardar como", "Save As", "Guardar", "Save")
+        }
+
+        $root = [System.Windows.Automation.AutomationElement]::RootElement
+        $windows = $root.FindAll(
+            [System.Windows.Automation.TreeScope]::Children,
+            [System.Windows.Automation.Condition]::TrueCondition
+        )
+        for ($index = 0; $index -lt $windows.Count; $index++) {
+            $window = $windows.Item($index)
+            $current = $window.Current
+            if ($current.ClassName -ne "#32770" -or $titles -notcontains $current.Name) {
+                continue
+            }
+            return $window
+        }
+    }
+    catch {
+        # UI Automation can briefly expose a stale shell tree while a common
+        # dialog refreshes. The Win32 title/handle path remains authoritative.
+    }
+    return $null
+}
 
 function Get-NativeFileDialog {
     $titles = if ($Mode -eq "open") {
@@ -99,11 +160,16 @@ function Get-NativeFileDialog {
             return $window
         }
     }
-    return $null
+
+    $automationDialog = Get-NativeFileDialogElement
+    if ($null -ne $automationDialog) {
+        return [IntPtr]$automationDialog.Current.NativeWindowHandle
+    }
+    return [IntPtr]::Zero
 }
 
 function Focus-ColumniaWindow {
-    $window = [ColumniaNativeDialogMethods]::FindWindow("Tauri Window", "Columnia")
+    $window = Get-ColumniaWindow
     if ($window -ne [IntPtr]::Zero) {
         [void][ColumniaNativeDialogMethods]::ShowWindow($window, 5)
         [void][ColumniaNativeDialogMethods]::SetForegroundWindow($window)
@@ -125,17 +191,146 @@ function Find-FileNameEditor {
         }
         return [IntPtr]::Zero
     }
+    # The Windows Save As dialog uses FileNameControlHost/Edit id 1001,
+    # whereas Open uses the legacy ComboBox/Edit id 1148.
+    $saveEditorHost = [ColumniaNativeDialogMethods]::GetDlgItem($Window, 1001)
+    if ($saveEditorHost -ne [IntPtr]::Zero) {
+        $saveEditor = [ColumniaNativeDialogMethods]::FindWindowEx($saveEditorHost, [IntPtr]::Zero, "Edit", $null)
+        if ($saveEditor -ne [IntPtr]::Zero) {
+            return $saveEditor
+        }
+        return $saveEditorHost
+    }
     return [ColumniaNativeDialogMethods]::FindWindowEx($Window, [IntPtr]::Zero, "Edit", $null)
 }
 
 function Find-ActionButton {
-    param([IntPtr]$Window)
+    param([object]$Window)
 
-    $knownButton = [ColumniaNativeDialogMethods]::GetDlgItem($Window, 1)
+    $windowHandle = [IntPtr]$Window
+    if ($windowHandle -eq [IntPtr]::Zero) {
+        return [IntPtr]::Zero
+    }
+
+    $knownButton = [ColumniaNativeDialogMethods]::GetDlgItem($windowHandle, 1)
     if ($knownButton -ne [IntPtr]::Zero) {
         return $knownButton
     }
+    return [IntPtr]::Zero
+}
+
+function Invoke-ActionWin32Button {
+    param([object]$Window)
+
+    try {
+        $windowHandle = [IntPtr]$Window
+        if ($windowHandle -eq [IntPtr]::Zero) {
+            [void]$ActionDiagnostics.Add("win32_window_missing")
+            return $false
+        }
+        $button = Find-ActionButton -Window $windowHandle
+        if ($button -eq [IntPtr]::Zero) {
+            [void]$ActionDiagnostics.Add("win32_button_missing")
+            return $false
+        }
+        if (-not [ColumniaNativeDialogMethods]::IsWindowEnabled($button)) {
+            [void]$ActionDiagnostics.Add("win32_button_disabled")
+            return $false
+        }
+        [void][ColumniaNativeDialogMethods]::SetFocus($button)
+        [void][ColumniaNativeDialogMethods]::PostMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        [void][ColumniaNativeDialogMethods]::SendMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        [void][ColumniaNativeDialogMethods]::SendMessage($windowHandle, 0x0111, [IntPtr]::new(1), $button)
+        [void]$ActionDiagnostics.Add("win32_button_invoked")
+        return $true
+    }
+    catch {
+        [void]$ActionDiagnostics.Add("win32_button_exception")
+        return $false
+    }
+}
+
+function Find-FileNameAutomationElement {
+    param([System.Windows.Automation.AutomationElement]$Window)
+
+    if ($null -eq $Window) {
+        return $null
+    }
+    $elements = $Window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition
+    )
+    for ($index = 0; $index -lt $elements.Count; $index++) {
+        $element = $elements.Item($index)
+        $current = $element.Current
+        if (
+            $current.ControlType.ProgrammaticName -eq "ControlType.Edit" -and
+            ($current.AutomationId -eq "1148" -or $current.AutomationId -eq "1001")
+        ) {
+            return $element
+        }
+    }
     return $null
+}
+
+function Set-FileNameAutomationValue {
+    param(
+        [System.Windows.Automation.AutomationElement]$Editor,
+        [string]$Value
+    )
+
+    if ($null -eq $Editor) {
+        return $false
+    }
+    try {
+        $pattern = $Editor.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        $pattern.SetValue($Value)
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Invoke-ActionAutomationButton {
+    param([System.Windows.Automation.AutomationElement]$Window)
+
+    if ($null -eq $Window) {
+        [void]$ActionDiagnostics.Add("uia_button_window_missing")
+        return $false
+    }
+    try {
+        $elements = $Window.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition
+        )
+        for ($index = 0; $index -lt $elements.Count; $index++) {
+            $element = $elements.Item($index)
+            $current = $element.Current
+            if ($current.ControlType.ProgrammaticName -ne "ControlType.Button" -or $current.AutomationId -ne "1") {
+                continue
+            }
+            if (-not $current.IsEnabled) {
+                [void]$ActionDiagnostics.Add("uia_button_disabled")
+                return $false
+            }
+            try {
+                $pattern = $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                $pattern.Invoke()
+                [void]$ActionDiagnostics.Add("uia_button_invoked")
+                return $true
+            }
+            catch {
+                [void]$ActionDiagnostics.Add("uia_button_invoke_exception")
+                return $false
+            }
+        }
+    }
+    catch {
+        [void]$ActionDiagnostics.Add("uia_button_tree_exception")
+        return $false
+    }
+    return $false
 }
 
 function Close-Dialog {
@@ -161,6 +356,7 @@ function Write-Result {
         mode = $Mode
         fileName = $TargetFileName
         errorCode = $ErrorCode
+        diagnostics = @($ActionDiagnostics)
     } | ConvertTo-Json -Compress
 }
 
@@ -184,8 +380,14 @@ try {
             continue
         }
 
+        $dialogElement = Get-NativeFileDialogElement
+
         $Stage = "find_filename_editor"
+        $automationEditor = Find-FileNameAutomationElement -Window $dialogElement
         $editor = Find-FileNameEditor -Window $dialog
+        if ($editor -eq [IntPtr]::Zero -and $null -ne $automationEditor) {
+            $editor = [IntPtr]$automationEditor.Current.NativeWindowHandle
+        }
         if ($editor -eq [IntPtr]::Zero) {
             Start-Sleep -Milliseconds 150
             continue
@@ -196,39 +398,46 @@ try {
         Start-Sleep -Milliseconds 250
         [void][ColumniaNativeDialogMethods]::SetFocus($editor)
 
-        # SetWindowText commits the full path without depending on the active
-        # keyboard layout. The keyboard route remains a fallback for common
-        # dialogs whose editor rejects WM_SETTEXT.
-        $textSet = [ColumniaNativeDialogMethods]::SetWindowText($editor, $TargetPath)
+        # UI Automation updates the common-dialog model, not only the HWND text.
+        # WM_SETTEXT alone can leave Open/Save logically disabled or uncommitted.
+        $textSet = Set-FileNameAutomationValue -Editor $automationEditor -Value $TargetPath
+        if (-not $textSet) {
+            $textSet = [ColumniaNativeDialogMethods]::SetWindowText($editor, $TargetPath)
+        }
         if (-not $textSet) {
             [ColumniaNativeDialogMethods]::SendControlA()
             [ColumniaNativeDialogMethods]::SendUnicodeText($TargetPath)
         }
-        [ColumniaNativeDialogMethods]::SendEnter()
-        Start-Sleep -Milliseconds 350
-        if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
-            [void][ColumniaNativeDialogMethods]::SetFocus($editor)
-            [System.Windows.Forms.SendKeys]::SendWait("^a")
-            [System.Windows.Forms.SendKeys]::SendWait($TargetPath)
-            [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+        Start-Sleep -Milliseconds 250
+
+        $Stage = "invoke_action_button"
+        # Updating the filename causes the shell dialog to rebuild parts of its
+        # UI tree. Reacquire the root element before locating the command.
+        $currentDialog = Get-NativeFileDialog
+        if ($currentDialog -ne [IntPtr]::Zero) {
+            $dialog = $currentDialog
         }
-        Start-Sleep -Milliseconds 350
+        $currentDialogElement = Get-NativeFileDialogElement
+        $win32Invoked = Invoke-ActionWin32Button -Window $dialog
+        $automationInvoked = $false
+        if (-not $win32Invoked) {
+            $automationInvoked = Invoke-ActionAutomationButton -Window $currentDialogElement
+        }
+        if (-not $automationInvoked -and -not $win32Invoked) {
+            [ColumniaNativeDialogMethods]::SendEnter()
+        }
+        Start-Sleep -Milliseconds 400
         if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
-            $Stage = "find_action_button"
-            $button = Find-ActionButton -Window $dialog
-            if ($button -eq [IntPtr]::Zero) {
-                throw "action_button_not_found"
+            $Stage = "invoke_action_button_fallback"
+            $currentDialog = Get-NativeFileDialog
+            if ($currentDialog -ne [IntPtr]::Zero) {
+                $dialog = $currentDialog
             }
-            if (-not [ColumniaNativeDialogMethods]::IsWindowEnabled($button)) {
-                [void][ColumniaNativeDialogMethods]::SetFocus($editor)
-                [System.Windows.Forms.SendKeys]::SendWait("^a")
-                [System.Windows.Forms.SendKeys]::SendWait($TargetPath)
+            $currentDialogElement = Get-NativeFileDialogElement
+            $win32Invoked = Invoke-ActionWin32Button -Window $dialog
+            if (-not $win32Invoked) {
+                [void](Invoke-ActionAutomationButton -Window $currentDialogElement)
             }
-            $Stage = "invoke_action_button"
-            [void][ColumniaNativeDialogMethods]::SetFocus($button)
-            [void][ColumniaNativeDialogMethods]::PostMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
-            [void][ColumniaNativeDialogMethods]::SendMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
-            [void][ColumniaNativeDialogMethods]::SendMessage($dialog, 0x0111, [IntPtr]::new(1), $button)
             Start-Sleep -Milliseconds 250
             if ((Get-NativeFileDialog) -ne [IntPtr]::Zero) {
                 [ColumniaNativeDialogMethods]::SendEnter()
@@ -241,7 +450,8 @@ try {
             $dialogStillOpen = (Get-NativeFileDialog) -ne [IntPtr]::Zero
             $targetExists = Test-Path -LiteralPath $TargetPath -PathType Leaf
             if (-not $dialogStillOpen -and $targetExists) {
-                Write-Result -Status "passed" -Phase (if ($Mode -eq "open") { "native_dialog_opened" } else { "native_dialog_saved" })
+                $successPhase = if ($Mode -eq "open") { "native_dialog_opened" } else { "native_dialog_saved" }
+                Write-Result -Status "passed" -Phase $successPhase
                 exit 0
             }
             if (-not $dialogStillOpen) {
@@ -258,11 +468,12 @@ try {
 }
 catch {
     Close-Dialog
+    $exceptionType = $_.Exception.GetType().Name
     $errorCode = if ($_.Exception.Message -match "^[a-z0-9_]+$") {
         $_.Exception.Message
     }
     else {
-        $Stage
+        "{0}_{1}" -f $Stage, $exceptionType
     }
     Write-Result -Status "failed" -Phase "native_dialog_failed" -ErrorCode $errorCode
     exit 1

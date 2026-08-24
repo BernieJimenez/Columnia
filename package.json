@@ -28,7 +28,7 @@
     "smoke:cli": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-cli.ps1",
     "smoke:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/smoke-tauri.ps1",
     "smoke:cdp": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-cdp.ps1 -RunPlaywright -RunProjects -RunProjectMutations",
-    "smoke:native-selectors": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-cdp.ps1 -RunPlaywright -RunNativeSelectors",
+    "smoke:native-selectors": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-cdp.ps1 -TimeoutSeconds 180 -RunPlaywright -RunNativeSelectors",
     "smoke:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/probe-webview2-restart.ps1",
     "perf:summary": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/summarize-performance.ps1",
     "perf:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-performance-baseline.ps1",

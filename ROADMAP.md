@@ -830,11 +830,12 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
 - [x] Mantener mocks controlados del runtime Tauri para pruebas del frontend.
 - [x] Verificar localmente la deriva de comandos, argumentos, retornos, campos y
   tipos entre Rust y TypeScript; la generación automática sigue siendo opcional.
-- [ ] Mantener E2E, accesibilidad WCAG 2.2 AA y pruebas visuales. Vitest cubre
-  guardar→catálogo→abrir→restaurar y contratos de landmarks/ARIA; CSS cubre
-  targets/reduced motion. La interacción real CDP y la evidencia visual release
-  ya pasan; falta estabilizar el selector nativo Win32 y la auditoría manual de
-  asistencia/visual.
+- [x] Mantener E2E, accesibilidad WCAG 2.2 AA, pruebas visuales y el recorrido
+  nativo Win32. Vitest cubre guardar→catálogo→abrir→restaurar y contratos de
+  landmarks/ARIA; CSS cubre targets/reduced motion; el gate WebView2 real
+  verifica Abrir/Guardar como, recetas y exportación sin exponer rutas.
+- [ ] Completar la auditoría manual de asistencia/visual con lector de pantalla
+  y hardware Windows High Contrast.
 - [x] Definir umbrales de cobertura por capa, no solo un porcentaje global.
   V8 cubre `src` con 80% statements/lines, 75% branches y 75% functions;
   `npm run test:coverage` los hace cumplir.
@@ -982,11 +983,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 
 ## 8.1. Cola de ejecución recomendada desde v0.49.0
 
-1. **Selector nativo Win32:** estabilizar el cierre automático de los diálogos
-   en `npm run smoke:native-selectors` para elevar ese recorrido a gate. El
-   ciclo WebView2 de proyectos, la reapertura durable y `npm run smoke:restart`
-   ya están cubiertos con evidencia; el shell web y los flujos simulados siguen
-   cubiertos por Playwright/Vitest.
+1. **Selector nativo Win32:** completado. `npm run smoke:native-selectors`
+   verifica abrir dataset, guardar/cargar receta y exportar en una sesión Windows
+   interactiva; `verify:tier` lo ejecuta junto a los demás smokes cuando no se
+   usa `-SkipNative`. La evidencia final está en
+   `.local/validation/webview2-cdp/20260824T233922Z`.
 2. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop, escala 125%,
    `forced-colors` y el ciclo de foco del `alertdialog`; `npm run
@@ -1284,7 +1285,7 @@ del original.
 | 2026-08-24 | P1: `conditional` añade condiciones eq/ne/lt/lte/gt/gte, subreglas then fila-a-fila seguras, tolerancia exterior, migración DataPrep, editor accesible y evaluación compartida | Implementada |
 | 2026-08-24 | P1: `schema_contract` añade columnas requeridas, control de adicionales y orden opcional, migración DataPrep, editor accesible y evaluación estructural compartida | Implementada |
 | 2026-08-24 | P1: documento de calidad `columnia-quality-rules` v1 con guardado atómico, compatibilidad explícita Columnia/DataPrep v1–v3/legado, rechazo de versiones futuras, CLI retrocompatible y UI sin exposición de rutas | Implementada |
-| 2026-08-23 | I3/I4/I5: cobertura V8 y smoke CDP reales pasan; `cargo audit`/`cargo deny`, npm audit, secret scan, notices, política de red y SBOM pasan; Package produjo MSI/NSIS 0.49.0. El benchmark CLI de 256 MiB pasó el flujo durable, pero excedió el presupuesto de 512 MiB; quedan selector Win32, lector de pantalla y VM limpia | Parcial, con evidencia |
+| 2026-08-24 | I3: selector nativo Win32 estabilizado y elevado a `verify:tier`; el smoke WebView2 verifica abrir dataset, guardar/cargar receta y exportar con variantes de editor Abrir/Guardar como, cleanup y evidencia sin rutas. Quedan lector de pantalla, High Contrast manual, datasets grandes y VM limpia | Parcial, con evidencia |
 
 ## 10. Fuentes de esta revisión
 

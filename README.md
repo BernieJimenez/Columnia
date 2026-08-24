@@ -126,13 +126,13 @@ necesita aislar una estación sin instalador o sin WebView2. La auditoría manua
 lector de pantalla y High Contrast se registra en
 [ACCESSIBILITY_MANUAL_CHECKLIST.md](ACCESSIBILITY_MANUAL_CHECKLIST.md).
 
-El smoke opt-in `npm run smoke:native-selectors` añade automatización Win32
-sobre una sesión Windows interactiva para ejercer el selector de dataset, el
-guardado/carga de recetas y el destino de exportación. Usa únicamente fixtures
-sintéticos y elimina sus temporales; la evidencia conserva estados y nombres
-de interacción, nunca rutas. Este recorrido no forma parte todavía de
-`verify:tier`: el cierre automático del botón del diálogo depende del escritorio
-interactivo y debe quedar estable antes de convertirlo en gate.
+El smoke `npm run smoke:native-selectors` añade automatización Win32 sobre una
+sesión Windows interactiva para ejercer el selector de dataset, el guardado/carga
+de recetas y el destino de exportación. Usa únicamente fixtures sintéticos y
+elimina sus temporales; la evidencia conserva estados y nombres de interacción,
+nunca rutas. El recorrido forma parte de `verify:tier` cuando no se usa
+`-SkipNative`; el gate contempla las variantes de editor de Abrir/Guardar como
+y mantiene el límite extendido de 180 s para el arranque nativo.
 
 Para comprobar continuidad entre procesos ejecuta `npm run smoke:restart`. El
 comando corre dos fases aisladas: prepara y persiste el proyecto, termina la

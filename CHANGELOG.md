@@ -11,6 +11,9 @@ los artefactos de validación locales.
 - Contrato de calidad versionado `columnia-quality-rules` v1, con guardado
   atómico, importación de Columnia/DataPrep v1–v3 y compatibilidad con el
   documento legado v1; versiones futuras y formatos ambiguos fallan cerrados.
+- Selector nativo Win32 estabilizado para Abrir/Guardar como, con soporte de
+  editores `1148`/`1001`, fallback de UI Automation/Win32/Unicode y entrada al
+  gate `verify:tier` mediante `npm run smoke:native-selectors`.
 - Entregar permite importar y guardar contratos mediante diálogos nativos,
   muestra el origen/versión y mantiene las rutas fuera de React; la CLI acepta
   el formato canónico y el legado.
@@ -55,7 +58,8 @@ los artefactos de validación locales.
   pruebas del monitor,
   evidencia release desktop/móvil/zoom 125%/`forced-colors` y el gate
   `perf:i1:check`, cobertura frontend, auditorías de supply chain, smoke CDP
-  (`.local/validation/webview2-cdp/20260824T011617Z`), Release y Package con
+  (`.local/validation/webview2-cdp/20260824T011617Z`), selectores nativos
+  (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
 ## [0.49.0] - 2026-08-23

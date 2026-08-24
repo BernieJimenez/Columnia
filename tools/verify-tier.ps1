@@ -62,6 +62,7 @@ try {
         Invoke-PowerShellStage "Smoke desktop (npm run tauri dev)" "tools/smoke-tauri.ps1" @("-TimeoutSeconds", "120")
         Invoke-NpmStage "Smoke WebView2/reinicio" @("run", "smoke:restart")
         Invoke-NpmStage "Smoke WebView2/CDP sostenido" @("run", "smoke:cdp")
+        Invoke-NpmStage "Smoke selectores nativos Win32" @("run", "smoke:native-selectors")
         Invoke-NpmStage "Resumen de rendimiento final" @("run", "perf:summary")
     }
 
