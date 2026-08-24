@@ -15,6 +15,7 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use polars::io::json::{JsonFormat, JsonWriter};
 use polars::lazy::dsl::{col, lit};
 use polars::prelude::*;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
@@ -81,7 +82,11 @@ pub struct ExportResult {
 const MAX_QUALITY_RULES: usize = 16;
 const MAX_QUALITY_COLUMN_CHARS: usize = 256;
 const MAX_QUALITY_TOTAL_TEXT_CHARS: usize = 2 * 1024;
+const MAX_QUALITY_VALUES: usize = 128;
+const MAX_QUALITY_COLUMNS_PER_RULE: usize = 16;
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+const QUALITY_DATASET_COLUMN: &str = "__dataset__";
+const QUALITY_MIGRATION_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -90,6 +95,11 @@ pub enum QualityRuleKind {
     NonEmpty,
     Unique,
     NumericRange,
+    AllowedValues,
+    Regex,
+    Dtype,
+    UniqueTogether,
+    RowCount,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -101,6 +111,10 @@ pub struct QualityRule {
     max_invalid_pct: Option<f64>,
     min: Option<f64>,
     max: Option<f64>,
+    values: Option<Vec<String>>,
+    pattern: Option<String>,
+    dtype: Option<String>,
+    columns: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -112,6 +126,10 @@ pub struct QualityRuleResult {
     max_invalid_pct: Option<f64>,
     min: Option<f64>,
     max: Option<f64>,
+    values: Option<Vec<String>>,
+    pattern: Option<String>,
+    dtype: Option<String>,
+    columns: Option<Vec<String>>,
     checked_count: usize,
     invalid_count: usize,
     invalid_pct: f64,
@@ -126,6 +144,24 @@ pub struct QualityValidationResult {
     pub(crate) total_rules: usize,
     pub(crate) failed_rules: usize,
     rules: Vec<QualityRuleResult>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityMigrationWarning {
+    rule_index: usize,
+    source_kind: String,
+    severity: &'static str,
+    message: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityMigrationResult {
+    source_version: Option<String>,
+    converted_rules: Vec<QualityRule>,
+    warnings: Vec<QualityMigrationWarning>,
+    omitted_rules: usize,
 }
 
 impl QualityValidationResult {
@@ -2818,32 +2854,456 @@ fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
     Ok(document)
 }
 
+fn migration_string_field(map: &JsonMap<String, JsonValue>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| map.get(*key).and_then(JsonValue::as_str).map(str::to_owned))
+}
+
+fn migration_number_field(
+    map: &JsonMap<String, JsonValue>,
+    keys: &[&str],
+) -> Result<Option<f64>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| map.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(None);
+    };
+    let number = value
+        .as_f64()
+        .filter(|number| number.is_finite())
+        .ok_or_else(|| format!("El campo '{key}' debe ser un número finito."))?;
+    Ok(Some(number))
+}
+
+fn migration_usize_field(
+    map: &JsonMap<String, JsonValue>,
+    keys: &[&str],
+) -> Result<Option<usize>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| map.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(None);
+    };
+    let number = value
+        .as_u64()
+        .and_then(|number| usize::try_from(number).ok())
+        .ok_or_else(|| format!("El campo '{key}' debe ser un entero no negativo."))?;
+    Ok(Some(number))
+}
+
+fn migration_string_array(
+    map: &JsonMap<String, JsonValue>,
+    keys: &[&str],
+) -> Result<Option<Vec<String>>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| map.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(None);
+    };
+    let values = value
+        .as_array()
+        .ok_or_else(|| format!("El campo '{key}' debe ser una lista."))?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("Todos los elementos de '{key}' deben ser texto."))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(values))
+}
+
+fn migration_quality_kind(value: &str) -> Option<QualityRuleKind> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "not_null" => Some(QualityRuleKind::NotNull),
+        "non_empty" => Some(QualityRuleKind::NonEmpty),
+        "unique" => Some(QualityRuleKind::Unique),
+        "numeric_range" => Some(QualityRuleKind::NumericRange),
+        "allowed_values" => Some(QualityRuleKind::AllowedValues),
+        "regex" => Some(QualityRuleKind::Regex),
+        "dtype" => Some(QualityRuleKind::Dtype),
+        "unique_together" => Some(QualityRuleKind::UniqueTogether),
+        "row_count" => Some(QualityRuleKind::RowCount),
+        _ => None,
+    }
+}
+
+fn migration_dtype(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "string" | "text" | "str" => Some("string"),
+        "integer" | "int" | "int64" => Some("integer"),
+        "numeric" | "number" | "float" | "float64" | "decimal" => Some("float"),
+        "boolean" | "bool" => Some("boolean"),
+        "date" => Some("date"),
+        "datetime" | "timestamp" => Some("datetime"),
+        _ => None,
+    }
+}
+
+fn migration_warning(
+    rule_index: usize,
+    source_kind: &str,
+    severity: &'static str,
+    message: impl Into<String>,
+) -> QualityMigrationWarning {
+    QualityMigrationWarning {
+        rule_index,
+        source_kind: source_kind.to_owned(),
+        severity,
+        message: message.into(),
+    }
+}
+
+fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigrationResult, String> {
+    let (source_version, raw_rules) = match document {
+        JsonValue::Array(rules) => (None, rules),
+        JsonValue::Object(document) => {
+            let source_version = document
+                .get("version")
+                .or_else(|| document.get("schema_version"))
+                .map(|value| value.to_string().trim_matches('"').to_owned());
+            let rules = document
+                .get("rules")
+                .or_else(|| document.get("quality_rules"))
+                .and_then(JsonValue::as_array)
+                .cloned()
+                .ok_or_else(|| "El documento debe contener una lista 'rules'.".to_owned())?;
+            (source_version, rules)
+        }
+        _ => {
+            return Err(
+                "Las reglas migradas deben ser una lista o un objeto con 'rules'.".to_owned(),
+            )
+        }
+    };
+
+    if raw_rules.len() > MAX_QUALITY_RULES {
+        return Err(format!(
+            "El documento contiene {} reglas; Columnia admite como máximo {} en un contrato.",
+            raw_rules.len(),
+            MAX_QUALITY_RULES
+        ));
+    }
+
+    let mut converted_rules = Vec::new();
+    let mut warnings = Vec::new();
+    let mut omitted_rules = 0;
+    for (zero_index, raw_rule) in raw_rules.into_iter().enumerate() {
+        let rule_index = zero_index + 1;
+        let JsonValue::Object(map) = raw_rule else {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                "unknown",
+                "omitted",
+                "La entrada no es un objeto JSON y se omitió.",
+            ));
+            continue;
+        };
+        let source_kind =
+            migration_string_field(&map, &["kind", "type"]).unwrap_or_else(|| "unknown".to_owned());
+        let Some(kind) = migration_quality_kind(&source_kind) else {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "omitted",
+                "La regla todavía no tiene representación equivalente en Columnia.",
+            ));
+            continue;
+        };
+        let column = migration_string_field(&map, &["column"])
+            .filter(|column| !column.trim().is_empty())
+            .unwrap_or_else(|| QUALITY_DATASET_COLUMN.to_owned());
+        if kind != QualityRuleKind::RowCount && column == QUALITY_DATASET_COLUMN {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "omitted",
+                "La regla necesita una columna concreta.",
+            ));
+            continue;
+        }
+
+        let severity = migration_string_field(&map, &["severity"])
+            .unwrap_or_else(|| "blocking".to_owned())
+            .to_ascii_lowercase();
+        if severity != "blocking" {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "omitted",
+                "La severidad no bloqueante no se convierte porque Columnia aún no tiene severidades por regla.",
+            ));
+            continue;
+        }
+        let on_missing = migration_string_field(&map, &["on_missing"])
+            .unwrap_or_else(|| "fail".to_owned())
+            .to_ascii_lowercase();
+        if on_missing != "fail" {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "omitted",
+                "La política on_missing no bloqueante no tiene equivalente seguro en Columnia.",
+            ));
+            continue;
+        }
+        let null_policy = migration_string_field(&map, &["null_policy"])
+            .unwrap_or_else(|| "invalid".to_owned())
+            .to_ascii_lowercase();
+        if null_policy != "invalid" {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "omitted",
+                "La política de nulos distinta de invalid no tiene equivalente seguro en Columnia.",
+            ));
+            continue;
+        }
+
+        let max_invalid = match migration_usize_field(&map, &["maxInvalid", "max_invalid"]) {
+            Ok(value) => value,
+            Err(error) => {
+                omitted_rules += 1;
+                warnings.push(migration_warning(
+                    rule_index,
+                    &source_kind,
+                    "omitted",
+                    error,
+                ));
+                continue;
+            }
+        };
+        let raw_max_invalid_pct =
+            match migration_number_field(&map, &["maxInvalidPct", "max_invalid_pct"]) {
+                Ok(value) => value,
+                Err(error) => {
+                    omitted_rules += 1;
+                    warnings.push(migration_warning(
+                        rule_index,
+                        &source_kind,
+                        "omitted",
+                        error,
+                    ));
+                    continue;
+                }
+            };
+        let max_invalid_pct = raw_max_invalid_pct.map(|number| number.clamp(0.0, 100.0));
+        let (max_invalid, max_invalid_pct) = if max_invalid.is_none() && max_invalid_pct.is_none() {
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "warning",
+                "La regla no traía tolerancia; se importó con máximo de inválidos igual a 0.",
+            ));
+            (Some(0), None)
+        } else {
+            (max_invalid, max_invalid_pct)
+        };
+        let mut rule = QualityRule {
+            column,
+            kind,
+            max_invalid,
+            max_invalid_pct,
+            min: None,
+            max: None,
+            values: None,
+            pattern: None,
+            dtype: None,
+            columns: None,
+        };
+
+        let conversion_result = (|| -> Result<Option<String>, String> {
+            Ok(match kind {
+                QualityRuleKind::NumericRange => {
+                    rule.min = migration_number_field(&map, &["min"])?;
+                    rule.max = migration_number_field(&map, &["max"])?;
+                    (rule.min.is_none() && rule.max.is_none())
+                        .then(|| "numeric_range necesita min o max.".to_owned())
+                }
+                QualityRuleKind::AllowedValues => {
+                    rule.values = migration_string_array(&map, &["values"])?;
+                    rule.values
+                        .as_ref()
+                        .filter(|values| !values.is_empty())
+                        .is_none()
+                        .then(|| "allowed_values necesita values[].".to_owned())
+                }
+                QualityRuleKind::Regex => {
+                    rule.pattern = migration_string_field(&map, &["pattern"]);
+                    rule.pattern
+                        .as_ref()
+                        .filter(|pattern| !pattern.is_empty())
+                        .is_none()
+                        .then(|| "regex necesita pattern.".to_owned())
+                }
+                QualityRuleKind::Dtype => {
+                    let source_dtype = migration_string_field(&map, &["dtype"]);
+                    rule.dtype = source_dtype
+                        .as_deref()
+                        .and_then(migration_dtype)
+                        .map(str::to_owned);
+                    source_dtype
+                        .as_ref()
+                        .filter(|_| rule.dtype.is_some())
+                        .is_none()
+                        .then(|| "dtype no contiene un tipo soportado.".to_owned())
+                }
+                QualityRuleKind::UniqueTogether => {
+                    rule.columns = migration_string_array(&map, &["columns", "required_columns"])?;
+                    rule.columns
+                        .as_ref()
+                        .filter(|columns| columns.len() >= 2)
+                        .is_none()
+                        .then(|| "unique_together necesita al menos dos columnas.".to_owned())
+                }
+                QualityRuleKind::RowCount => {
+                    rule.min = migration_number_field(&map, &["min_value", "min"])?;
+                    rule.max = migration_number_field(&map, &["max_value", "max"])?;
+                    (rule.min.is_none() && rule.max.is_none())
+                        .then(|| "row_count necesita min_value/min o max_value/max.".to_owned())
+                }
+                QualityRuleKind::NotNull | QualityRuleKind::NonEmpty | QualityRuleKind::Unique => {
+                    None
+                }
+            })
+        })();
+        let conversion_error = match conversion_result {
+            Ok(error) => error,
+            Err(error) => Some(error),
+        };
+        if let Some(error) = conversion_error {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "omitted",
+                error,
+            ));
+            continue;
+        }
+        if raw_max_invalid_pct.is_some_and(|value| value != value.clamp(0.0, 100.0)) {
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "warning",
+                "La tolerancia porcentual fue ajustada al intervalo 0–100.",
+            ));
+        }
+        converted_rules.push(rule);
+    }
+
+    Ok(QualityMigrationResult {
+        source_version,
+        converted_rules,
+        warnings,
+        omitted_rules,
+    })
+}
+
+fn load_quality_migration_file(path: &Path) -> Result<QualityMigrationResult, String> {
+    let path = canonicalize_existing_file(path, "el contrato de calidad seleccionado")?;
+    let file = File::open(path)
+        .map_err(|error| format!("No se pudo abrir el contrato de calidad: {error}"))?;
+    let size = file
+        .metadata()
+        .map_err(|error| format!("No se pudo verificar el contrato de calidad: {error}"))?
+        .len();
+    if size > QUALITY_MIGRATION_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "El contrato de calidad supera el límite local de {} bytes.",
+            QUALITY_MIGRATION_FILE_LIMIT_BYTES
+        ));
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(QUALITY_MIGRATION_FILE_LIMIT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("No se pudo leer el contrato de calidad: {error}"))?;
+    let document = serde_json::from_slice::<JsonValue>(&bytes)
+        .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))?;
+    migrate_quality_rules_document(document)
+}
+
 fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), String> {
     if quality_rules.len() > MAX_QUALITY_RULES {
         return Err(format!(
             "Se admiten como máximo {MAX_QUALITY_RULES} reglas de calidad."
         ));
     }
+    let mut text_fields = Vec::new();
+    for rule in quality_rules {
+        text_fields.push(("column", rule.column.as_str()));
+        if let Some(pattern) = rule.pattern.as_deref() {
+            text_fields.push(("pattern", pattern));
+        }
+        if let Some(values) = rule.values.as_deref() {
+            for value in values {
+                text_fields.push(("value", value.as_str()));
+            }
+        }
+        if let Some(columns) = rule.columns.as_deref() {
+            for column in columns {
+                text_fields.push(("columns", column.as_str()));
+            }
+        }
+    }
     validate_semantic_text_budget(
         "payload de reglas de calidad",
-        quality_rules
-            .iter()
-            .map(|rule| ("column", rule.column.as_str())),
+        text_fields,
         MAX_QUALITY_COLUMN_CHARS,
         MAX_QUALITY_TOTAL_TEXT_CHARS,
     )
 }
 
 fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Result<(), String> {
-    if rule.column.trim().is_empty() {
+    if rule
+        .values
+        .as_ref()
+        .is_some_and(|values| values.len() > MAX_QUALITY_VALUES)
+    {
+        return Err(format!(
+            "La regla de '{}' supera el máximo de {MAX_QUALITY_VALUES} valores permitidos.",
+            rule.column
+        ));
+    }
+    if rule
+        .columns
+        .as_ref()
+        .is_some_and(|columns| columns.is_empty() || columns.len() > MAX_QUALITY_COLUMNS_PER_RULE)
+    {
+        return Err(format!(
+            "La regla de '{}' debe tener entre 1 y {MAX_QUALITY_COLUMNS_PER_RULE} columnas.",
+            rule.column
+        ));
+    }
+    let is_dataset_rule = rule.kind == QualityRuleKind::RowCount;
+    if rule.column.trim().is_empty() && !is_dataset_rule {
         return Err("La columna de una regla de calidad no puede estar vacía.".to_owned());
     }
-    let column = frame.column(&rule.column).map_err(|_| {
-        format!(
-            "La columna '{}' de la regla de calidad no existe.",
-            rule.column
-        )
-    })?;
+    if is_dataset_rule && rule.column != QUALITY_DATASET_COLUMN {
+        return Err(format!(
+            "La regla row_count debe usar la columna lógica '{}'.",
+            QUALITY_DATASET_COLUMN
+        ));
+    }
+    let column = (!is_dataset_rule)
+        .then(|| frame.column(&rule.column))
+        .transpose()
+        .map_err(|_| {
+            format!(
+                "La columna '{}' de la regla de calidad no existe.",
+                rule.column
+            )
+        })?;
     if rule.max_invalid.is_none() && rule.max_invalid_pct.is_none() {
         return Err(format!(
             "La regla de '{}' debe indicar maxInvalid, maxInvalidPct o ambos.",
@@ -2876,49 +3336,310 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             rule.column
         ));
     }
-    if rule.kind == QualityRuleKind::NumericRange && rule.min.is_none() && rule.max.is_none() {
-        return Err(format!(
-            "La regla numeric_range de '{}' debe indicar min, max o ambos.",
-            rule.column
-        ));
-    }
-    if rule.kind == QualityRuleKind::NumericRange && column.dtype() == &DataType::Int64 {
-        for (name, value) in [("min", rule.min), ("max", rule.max)] {
-            if value.is_some_and(|number| {
-                number.fract() != 0.0 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&number)
-            }) {
-                return Err(format!(
-                    "{name} de '{}' debe ser un entero seguro para una columna Int64.",
-                    rule.column
-                ));
-            }
-        }
-    }
     match rule.kind {
-        QualityRuleKind::NonEmpty if column.dtype() != &DataType::String => Err(format!(
-            "La regla non_empty solo admite columnas String; '{}' es {}.",
-            rule.column,
-            column.dtype()
-        )),
+        QualityRuleKind::NotNull | QualityRuleKind::Unique
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some() =>
+        {
+            Err(format!(
+                "La regla '{}' no admite parámetros de otra comprobación.",
+                rule.column
+            ))
+        }
+        QualityRuleKind::NonEmpty
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some() =>
+        {
+            Err(format!(
+                "La regla '{}' no admite parámetros de otra comprobación.",
+                rule.column
+            ))
+        }
+        QualityRuleKind::NonEmpty
+            if column
+                .as_ref()
+                .is_none_or(|column| column.dtype() != &DataType::String) =>
+        {
+            Err(format!(
+                "La regla non_empty solo admite columnas String; '{}' es {}.",
+                rule.column,
+                column.map_or_else(|| "dataset".to_owned(), |value| value.dtype().to_string())
+            ))
+        }
         QualityRuleKind::NumericRange
-            if !matches!(column.dtype(), DataType::Int64 | DataType::Float64) =>
+            if column.as_ref().is_none_or(|column| {
+                !matches!(column.dtype(), DataType::Int64 | DataType::Float64)
+            }) =>
         {
             Err(format!(
                 "La regla numeric_range solo admite columnas Int64 o Float64; '{}' es {}.",
                 rule.column,
-                column.dtype()
+                column.map_or_else(|| "dataset".to_owned(), |value| value.dtype().to_string())
             ))
         }
-        QualityRuleKind::NotNull | QualityRuleKind::NonEmpty | QualityRuleKind::Unique
-            if rule.min.is_some() || rule.max.is_some() =>
+        QualityRuleKind::NumericRange if rule.min.is_none() && rule.max.is_none() => Err(format!(
+            "La regla numeric_range de '{}' debe indicar min, max o ambos.",
+            rule.column
+        )),
+        QualityRuleKind::NumericRange
+            if column
+                .as_ref()
+                .is_some_and(|column| column.dtype() == &DataType::Int64) =>
         {
-            Err(format!(
-                "Los límites min y max solo se admiten en reglas numeric_range ('{}').",
-                rule.column
-            ))
+            for (name, value) in [("min", rule.min), ("max", rule.max)] {
+                if value.is_some_and(|number| {
+                    number.fract() != 0.0
+                        || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&number)
+                }) {
+                    return Err(format!(
+                        "{name} de '{}' debe ser un entero seguro para una columna Int64.",
+                        rule.column
+                    ));
+                }
+            }
+            Ok(())
         }
-        _ => Ok(()),
+        QualityRuleKind::NumericRange => {
+            if rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+            {
+                return Err(format!(
+                    "La regla numeric_range de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::AllowedValues => {
+            let column = column.ok_or_else(|| "allowed_values requiere una columna.".to_owned())?;
+            let values = rule
+                .values
+                .as_ref()
+                .filter(|values| !values.is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "La regla allowed_values de '{}' debe indicar al menos un valor.",
+                        rule.column
+                    )
+                })?;
+            if column.dtype() != &DataType::String {
+                return Err(format!(
+                    "La regla allowed_values solo admite columnas String; '{}' es {}.",
+                    rule.column,
+                    column.dtype()
+                ));
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+            {
+                return Err(format!(
+                    "La regla allowed_values de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            if values
+                .iter()
+                .any(|value| value.chars().count() > MAX_QUALITY_COLUMN_CHARS)
+            {
+                return Err(format!(
+                    "La regla allowed_values de '{}' contiene un valor demasiado largo.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::Regex => {
+            let column = column.ok_or_else(|| "regex requiere una columna.".to_owned())?;
+            if column.dtype() != &DataType::String {
+                return Err(format!(
+                    "La regla regex solo admite columnas String; '{}' es {}.",
+                    rule.column,
+                    column.dtype()
+                ));
+            }
+            let pattern = rule
+                .pattern
+                .as_deref()
+                .filter(|pattern| !pattern.is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "La regla regex de '{}' debe indicar un patrón.",
+                        rule.column
+                    )
+                })?;
+            Regex::new(pattern).map_err(|error| {
+                format!(
+                    "El patrón regex de '{}' no es válido: {error}.",
+                    rule.column
+                )
+            })?;
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+            {
+                return Err(format!(
+                    "La regla regex de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::Dtype => {
+            let column = column.ok_or_else(|| "dtype requiere una columna.".to_owned())?;
+            let expected = rule
+                .dtype
+                .as_deref()
+                .filter(|dtype| !dtype.trim().is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "La regla dtype de '{}' debe indicar un tipo esperado.",
+                        rule.column
+                    )
+                })?;
+            if !quality_dtype_is_supported(expected) {
+                return Err(format!(
+                    "El tipo esperado '{}' de '{}' no está soportado.",
+                    expected, rule.column
+                ));
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.columns.is_some()
+            {
+                return Err(format!(
+                    "La regla dtype de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            let _ = column;
+            Ok(())
+        }
+        QualityRuleKind::UniqueTogether => {
+            let columns = rule
+                .columns
+                .as_ref()
+                .filter(|columns| columns.len() >= 2)
+                .ok_or_else(|| {
+                    format!(
+                        "La regla unique_together de '{}' debe indicar al menos dos columnas.",
+                        rule.column
+                    )
+                })?;
+            for name in columns {
+                frame.column(name).map_err(|_| {
+                    format!(
+                        "La columna '{}' de la regla unique_together no existe.",
+                        name
+                    )
+                })?;
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+            {
+                return Err(format!(
+                    "La regla unique_together de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::RowCount => {
+            if rule.min.is_none() && rule.max.is_none() {
+                return Err("La regla row_count debe indicar min, max o ambos.".to_owned());
+            }
+            if rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+            {
+                return Err("La regla row_count no admite parámetros adicionales.".to_owned());
+            }
+            Ok(())
+        }
+        QualityRuleKind::NotNull | QualityRuleKind::NonEmpty | QualityRuleKind::Unique => Ok(()),
     }
+}
+
+fn quality_dtype_is_supported(expected: &str) -> bool {
+    matches!(
+        expected.trim().to_ascii_lowercase().as_str(),
+        "string"
+            | "text"
+            | "integer"
+            | "int"
+            | "int64"
+            | "float"
+            | "decimal"
+            | "float64"
+            | "boolean"
+            | "bool"
+            | "date"
+            | "datetime"
+            | "timestamp"
+    )
+}
+
+fn quality_dtype_matches(actual: &DataType, expected: &str) -> bool {
+    match expected.trim().to_ascii_lowercase().as_str() {
+        "string" | "text" => actual == &DataType::String,
+        "integer" | "int" | "int64" => matches!(
+            actual,
+            DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64
+        ),
+        "float" | "decimal" | "float64" => matches!(actual, DataType::Float32 | DataType::Float64),
+        "boolean" | "bool" => actual == &DataType::Boolean,
+        "date" => actual == &DataType::Date,
+        "datetime" | "timestamp" => matches!(actual, DataType::Datetime(_, _)),
+        _ => false,
+    }
+}
+
+fn duplicate_combination_count(frame: &DataFrame, columns: &[String]) -> Result<usize, String> {
+    let mut seen = HashSet::new();
+    let mut duplicate_count = 0;
+    for row_index in 0..frame.height() {
+        let key = columns
+            .iter()
+            .map(|name| {
+                frame
+                    .column(name)
+                    .and_then(|column| column.get(row_index))
+                    .map(|value| format!("{value:?}"))
+                    .map_err(|error| format!("No se pudo evaluar unique_together: {error}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !seen.insert(key) {
+            duplicate_count += 1;
+        }
+    }
+    Ok(duplicate_count)
 }
 
 fn evaluate_quality_rules(
@@ -2947,56 +3668,107 @@ where
     let mut results = Vec::with_capacity(quality_rules.len());
     for rule in quality_rules {
         ensure_not_cancelled(is_cancelled())?;
-        let column = frame
-            .column(&rule.column)
-            .map_err(|error| error.to_string())?;
-        let invalid_count = match rule.kind {
-            QualityRuleKind::NotNull => column.null_count(),
-            QualityRuleKind::NonEmpty => column
-                .str()
-                .map_err(|error| error.to_string())?
-                .iter()
-                .filter(|value| value.is_none_or(|text| text.trim().is_empty()))
-                .count(),
-            QualityRuleKind::Unique => {
-                let distinct_including_null = column
-                    .n_unique()
-                    .map_err(|error| format!("No se pudo evaluar unique: {error}"))?;
-                let distinct_non_null =
-                    distinct_including_null.saturating_sub(usize::from(column.null_count() > 0));
-                row_count.saturating_sub(distinct_non_null)
+        let (checked_count, invalid_count) = match rule.kind {
+            QualityRuleKind::RowCount => {
+                let minimum_ok = rule.min.is_none_or(|minimum| row_count as f64 >= minimum);
+                let maximum_ok = rule.max.is_none_or(|maximum| row_count as f64 <= maximum);
+                (1, usize::from(!(minimum_ok && maximum_ok)))
             }
-            QualityRuleKind::NumericRange => match column.dtype() {
-                DataType::Int64 => column
-                    .i64()
-                    .map_err(|error| error.to_string())?
-                    .iter()
-                    .filter(|value| {
-                        value.is_none_or(|number| {
-                            rule.min.is_some_and(|minimum| number < minimum as i64)
-                                || rule.max.is_some_and(|maximum| number > maximum as i64)
-                        })
-                    })
-                    .count(),
-                DataType::Float64 => column
-                    .f64()
-                    .map_err(|error| error.to_string())?
-                    .iter()
-                    .filter(|value| {
-                        value.is_none_or(|number| {
-                            !number.is_finite()
-                                || rule.min.is_some_and(|minimum| number < minimum)
-                                || rule.max.is_some_and(|maximum| number > maximum)
-                        })
-                    })
-                    .count(),
-                _ => unreachable!("el tipo numérico ya fue validado"),
-            },
+            QualityRuleKind::Dtype => {
+                let column = frame
+                    .column(&rule.column)
+                    .map_err(|error| error.to_string())?;
+                let expected = rule.dtype.as_deref().expect("dtype validado");
+                (
+                    1,
+                    usize::from(!quality_dtype_matches(column.dtype(), expected)),
+                )
+            }
+            QualityRuleKind::UniqueTogether => (
+                row_count,
+                duplicate_combination_count(
+                    frame,
+                    rule.columns.as_deref().expect("columns validadas"),
+                )?,
+            ),
+            _ => {
+                let column = frame
+                    .column(&rule.column)
+                    .map_err(|error| error.to_string())?;
+                let invalid_count = match rule.kind {
+                    QualityRuleKind::NotNull => column.null_count(),
+                    QualityRuleKind::NonEmpty => column
+                        .str()
+                        .map_err(|error| error.to_string())?
+                        .iter()
+                        .filter(|value| value.is_none_or(|text| text.trim().is_empty()))
+                        .count(),
+                    QualityRuleKind::Unique => {
+                        let distinct_including_null = column
+                            .n_unique()
+                            .map_err(|error| format!("No se pudo evaluar unique: {error}"))?;
+                        let distinct_non_null = distinct_including_null
+                            .saturating_sub(usize::from(column.null_count() > 0));
+                        row_count.saturating_sub(distinct_non_null)
+                    }
+                    QualityRuleKind::NumericRange => match column.dtype() {
+                        DataType::Int64 => column
+                            .i64()
+                            .map_err(|error| error.to_string())?
+                            .iter()
+                            .filter(|value| {
+                                value.is_none_or(|number| {
+                                    rule.min.is_some_and(|minimum| number < minimum as i64)
+                                        || rule.max.is_some_and(|maximum| number > maximum as i64)
+                                })
+                            })
+                            .count(),
+                        DataType::Float64 => column
+                            .f64()
+                            .map_err(|error| error.to_string())?
+                            .iter()
+                            .filter(|value| {
+                                value.is_none_or(|number| {
+                                    !number.is_finite()
+                                        || rule.min.is_some_and(|minimum| number < minimum)
+                                        || rule.max.is_some_and(|maximum| number > maximum)
+                                })
+                            })
+                            .count(),
+                        _ => unreachable!("el tipo numérico ya fue validado"),
+                    },
+                    QualityRuleKind::AllowedValues => {
+                        let allowed = rule.values.as_ref().expect("values validados");
+                        column
+                            .str()
+                            .map_err(|error| error.to_string())?
+                            .iter()
+                            .filter(|value| {
+                                value.is_none_or(|text| !allowed.iter().any(|item| item == text))
+                            })
+                            .count()
+                    }
+                    QualityRuleKind::Regex => {
+                        let pattern = rule.pattern.as_deref().expect("pattern validado");
+                        let regex = Regex::new(pattern).expect("pattern validado");
+                        column
+                            .str()
+                            .map_err(|error| error.to_string())?
+                            .iter()
+                            .filter(|value| value.is_none_or(|text| !regex.is_match(text)))
+                            .count()
+                    }
+                    QualityRuleKind::Dtype
+                    | QualityRuleKind::UniqueTogether
+                    | QualityRuleKind::RowCount => unreachable!("la regla se evaluó arriba"),
+                };
+                (row_count, invalid_count)
+            }
         };
-        let invalid_pct = if row_count == 0 {
+        let invalid_pct = if checked_count == 0 {
             0.0
         } else {
-            invalid_count as f64 * 100.0 / row_count as f64
+            invalid_count as f64 * 100.0 / checked_count as f64
         };
         let passed = rule
             .max_invalid
@@ -3011,7 +3783,11 @@ where
             max_invalid_pct: rule.max_invalid_pct,
             min: rule.min,
             max: rule.max,
-            checked_count: row_count,
+            values: rule.values.clone(),
+            pattern: rule.pattern.clone(),
+            dtype: rule.dtype.clone(),
+            columns: rule.columns.clone(),
+            checked_count,
             invalid_count,
             invalid_pct,
             passed,
@@ -4247,6 +5023,27 @@ pub async fn pick_transform_recipe(
     let loaded = tauri::async_runtime::spawn_blocking(move || load_recipe_file(&path))
         .await
         .map_err(|error| format!("La carga de la receta se interrumpió: {error}"))??;
+    Ok(Some(loaded))
+}
+
+#[tauri::command]
+pub async fn pick_quality_rules_migration(
+    app: AppHandle,
+) -> Result<Option<QualityMigrationResult>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Reglas DataPrep", &["json"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo resolver el contrato seleccionado: {error}"))?;
+    let loaded = tauri::async_runtime::spawn_blocking(move || load_quality_migration_file(&path))
+        .await
+        .map_err(|error| format!("La migración del contrato se interrumpió: {error}"))??;
     Ok(Some(loaded))
 }
 
@@ -10438,6 +11235,10 @@ mod tests {
             max_invalid_pct: None,
             min: None,
             max: None,
+            values: None,
+            pattern: None,
+            dtype: None,
+            columns: None,
         }
     }
 
@@ -10484,6 +11285,131 @@ mod tests {
         assert!(result.rules[1..].iter().all(|rule| rule.passed));
         assert_eq!(result.failed_rules, 1);
         assert!(!result.passed);
+    }
+
+    #[test]
+    fn quality_rules_apply_the_first_advanced_v3_slice() {
+        let frame = df![
+            "status" => &[Some("ok"), Some("bad"), None, Some("ok")],
+            "email" => &[Some("a@example.com"), Some("invalid"), Some("b@example.com"), Some("c@example.com")],
+            "number" => &[1_i64, 2, 3, 4],
+            "key_a" => &["a", "a", "a", "b"],
+            "key_b" => &[1_i64, 1, 2, 1]
+        ]
+        .unwrap();
+
+        let mut allowed_values = quality_rule("status", QualityRuleKind::AllowedValues);
+        allowed_values.values = Some(vec!["ok".to_owned(), "pending".to_owned()]);
+        allowed_values.max_invalid = Some(2);
+
+        let mut regex = quality_rule("email", QualityRuleKind::Regex);
+        regex.pattern = Some(r"^[^@]+@[^@]+$".to_owned());
+        regex.max_invalid = Some(1);
+
+        let mut dtype = quality_rule("number", QualityRuleKind::Dtype);
+        dtype.dtype = Some("integer".to_owned());
+
+        let mut unique_together = quality_rule("key_a", QualityRuleKind::UniqueTogether);
+        unique_together.columns = Some(vec!["key_a".to_owned(), "key_b".to_owned()]);
+        unique_together.max_invalid = Some(1);
+
+        let mut row_count = quality_rule(QUALITY_DATASET_COLUMN, QualityRuleKind::RowCount);
+        row_count.min = Some(4.0);
+        row_count.max = Some(4.0);
+
+        let result = evaluate_quality_rules(
+            &frame,
+            &[allowed_values, regex, dtype, unique_together, row_count],
+        )
+        .unwrap();
+
+        assert!(result.passed);
+        assert_eq!(
+            result
+                .rules
+                .iter()
+                .map(|rule| rule.invalid_count)
+                .collect::<Vec<_>>(),
+            vec![2, 1, 0, 1, 0]
+        );
+        assert_eq!(result.rules[4].checked_count, 1);
+        assert_eq!(result.rules[4].invalid_pct, 0.0);
+    }
+
+    #[test]
+    fn advanced_quality_rules_reject_invalid_parameters() {
+        let frame = df!["text" => &["ok"], "number" => &[1_i64]].unwrap();
+
+        let mut bad_regex = quality_rule("text", QualityRuleKind::Regex);
+        bad_regex.pattern = Some("[".to_owned());
+        assert!(evaluate_quality_rules(&frame, &[bad_regex]).is_err());
+
+        let mut bad_values = quality_rule("number", QualityRuleKind::AllowedValues);
+        bad_values.values = Some(vec!["1".to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[bad_values]).is_err());
+
+        let mut missing_key = quality_rule("text", QualityRuleKind::UniqueTogether);
+        missing_key.columns = Some(vec!["text".to_owned(), "missing".to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[missing_key]).is_err());
+
+        let missing_row_bounds = quality_rule(QUALITY_DATASET_COLUMN, QualityRuleKind::RowCount);
+        assert!(evaluate_quality_rules(&frame, &[missing_row_bounds]).is_err());
+
+        let mut bad_dtype = quality_rule("text", QualityRuleKind::Dtype);
+        bad_dtype.dtype = Some("money".to_owned());
+        assert!(evaluate_quality_rules(&frame, &[bad_dtype]).is_err());
+    }
+
+    #[test]
+    fn migrates_supported_quality_rules_and_omits_unsupported_semantics() {
+        let result = migrate_quality_rules_document(serde_json::json!({
+            "version": 3,
+            "rules": [
+                {"kind": "allowed_values", "column": "status", "values": ["ok"], "max_invalid": 1},
+                {"type": "regex", "column": "email", "pattern": "^.+@.+$", "maxInvalidPct": 5},
+                {"kind": "column_compare", "column": "left", "other_column": "right"},
+                {"kind": "not_null", "column": "id", "severity": "warning", "max_invalid": 0},
+                {"kind": "unique_together", "column": "a", "columns": ["a", "b"]}
+            ]
+        }))
+        .expect("el documento de migración debe ser válido");
+
+        assert_eq!(result.source_version.as_deref(), Some("3"));
+        assert_eq!(result.converted_rules.len(), 3);
+        assert_eq!(result.omitted_rules, 2);
+        assert_eq!(result.converted_rules[0].max_invalid, Some(1));
+        assert_eq!(result.converted_rules[1].max_invalid_pct, Some(5.0));
+        assert!(result.warnings.iter().any(
+            |warning| warning.severity == "omitted" && warning.source_kind == "column_compare"
+        ));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.severity == "omitted" && warning.source_kind == "not_null"));
+    }
+
+    #[test]
+    fn migration_defaults_tolerance_clamps_percentages_and_isolates_bad_rules() {
+        let result = migrate_quality_rules_document(serde_json::json!([
+            {"kind": "not_null", "column": "id"},
+            {"kind": "allowed_values", "column": "status", "values": "not-a-list"},
+            {"kind": "row_count", "min_value": 1, "maxInvalidPct": 120}
+        ]))
+        .expect("el documento de migración debe ser válido");
+
+        assert_eq!(result.converted_rules.len(), 2);
+        assert_eq!(result.omitted_rules, 1);
+        assert_eq!(result.converted_rules[0].max_invalid, Some(0));
+        assert_eq!(result.converted_rules[1].max_invalid_pct, Some(100.0));
+        assert!(result.warnings.iter().any(|warning| {
+            warning.severity == "warning" && warning.message.contains("no traía tolerancia")
+        }));
+        assert!(result.warnings.iter().any(|warning| {
+            warning.severity == "warning" && warning.message.contains("ajustada")
+        }));
+        assert!(result.warnings.iter().any(|warning| {
+            warning.severity == "omitted" && warning.message.contains("debe ser una lista")
+        }));
     }
 
     #[test]

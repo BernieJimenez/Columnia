@@ -19,6 +19,7 @@ import {
   discardDatasetSelection,
   loadDatasetSelection,
   pickDatasetSource,
+  pickQualityRulesMigration,
   pickTransformRecipe,
   removeDuplicates,
   redoLastChange,
@@ -373,5 +374,22 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenCalledWith("validate_quality_rules", { qualityRules });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("rows");
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
+  });
+
+  it("importa reglas DataPrep mediante un selector nativo sin exponer rutas", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      sourceVersion: "3",
+      convertedRules: [{ column: "status", kind: "not_null", maxInvalid: 0 }],
+      warnings: [],
+      omittedRules: 0,
+    });
+
+    await expect(pickQualityRulesMigration()).resolves.toMatchObject({
+      sourceVersion: "3",
+      omittedRules: 0,
+    });
+
+    expect(invoke).toHaveBeenCalledWith("pick_quality_rules_migration");
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1] ?? {})).not.toContain("path");
   });
 });

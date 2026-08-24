@@ -332,7 +332,18 @@ export interface OperationProgress {
 export type CancellableOperation = OperationProgress["operation"];
 export type ExportFormat = "csv" | "json" | "parquet" | "sql";
 
-export type QualityRuleKind = "not_null" | "non_empty" | "unique" | "numeric_range";
+export const QUALITY_DATASET_COLUMN = "__dataset__";
+
+export type QualityRuleKind =
+  | "not_null"
+  | "non_empty"
+  | "unique"
+  | "numeric_range"
+  | "allowed_values"
+  | "regex"
+  | "dtype"
+  | "unique_together"
+  | "row_count";
 
 export interface QualityRule {
   column: string;
@@ -341,6 +352,10 @@ export interface QualityRule {
   maxInvalidPct?: number;
   min?: number;
   max?: number;
+  values?: string[];
+  pattern?: string;
+  dtype?: string;
+  columns?: string[];
 }
 
 export interface QualityRuleResult extends QualityRule {
@@ -356,6 +371,20 @@ export interface QualityValidationResult {
   totalRules: number;
   failedRules: number;
   rules: QualityRuleResult[];
+}
+
+export interface QualityMigrationWarning {
+  ruleIndex: number;
+  sourceKind: string;
+  severity: "warning" | "omitted";
+  message: string;
+}
+
+export interface QualityMigrationResult {
+  sourceVersion: string | null;
+  convertedRules: QualityRule[];
+  warnings: QualityMigrationWarning[];
+  omittedRules: number;
 }
 
 export interface ExportResult {
@@ -473,6 +502,10 @@ export function validateQualityRules(
   qualityRules: QualityRule[],
 ): Promise<QualityValidationResult> {
   return invoke<QualityValidationResult>("validate_quality_rules", { qualityRules });
+}
+
+export function pickQualityRulesMigration(): Promise<QualityMigrationResult | null> {
+  return invoke<QualityMigrationResult | null>("pick_quality_rules_migration");
 }
 
 export function removeDuplicates(): Promise<DatasetMutation> {

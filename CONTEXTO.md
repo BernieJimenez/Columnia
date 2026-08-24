@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-24, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas y Fase P1 con JSON, SQL, comparación por clave, joins y visualizaciones accesibles |
+| Última revisión de este documento | 2026-08-24, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 en paridad incremental y M1 auditada para migración desde `dataprepv1.1` |
 
 ## Para qué existe este documento
 
@@ -82,7 +82,7 @@ La interfaz sigue cuatro fases declaradas en `src/App.tsx`:
 1. **Cargar**: inspecciona una fuente local, permite seleccionar una hoja cuando corresponde y materializa el dataset activo.
 2. **Revisar**: pagina la vista previa y calcula el perfil de calidad bajo demanda.
 3. **Preparar**: aplica correcciones simples o una receta estructural atómica; ofrece Deshacer/Rehacer.
-4. **Entregar**: valida un contrato de calidad y exporta CSV o Parquet.
+4. **Entregar**: valida un contrato de calidad y exporta CSV, JSON, Parquet o SQL.
 
 Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una operación activa bloquea la navegación que pueda competir con ella. Si el dataset cambia, cualquier validación de entrega previa queda obsoleta y debe ejecutarse de nuevo.
 
@@ -431,7 +431,7 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - CLI batch v1 para 1–64 transformaciones, con preflight sin escrituras, colisiones rechazadas y atomicidad individual explícita.
 - Proyectos locales con catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, reglas de calidad, borrador opcional, perfil cacheado, historial/cursor y recuperación explícita aunque desaparezca la fuente original.
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
-- Fase P1 activa: matriz de paridad con `dataprepv1.1`, exportación JSON/SQL atómica, comparación por clave/conflictos, joins `Inner`/`Left`/`Full` y visualizaciones accesibles de completitud/outliers disponibles en UI/Rust; la resolución interactiva de conflictos sigue pendiente.
+- Fase P1 activa: matriz de paridad con `dataprepv1.1`, exportación JSON/SQL atómica, comparación por clave/conflictos, joins `Inner`/`Left`/`Full` y visualizaciones accesibles de completitud/outliers disponibles en UI/Rust; siguen pendientes análisis exploratorio, reglas de calidad amplias, Excel/DB, privacidad, escala fuera de memoria y resolución interactiva de conflictos.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
 - Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.40.0 verificado en 314,827 bytes raw/90,154 gzip.
@@ -544,8 +544,10 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-24 | Auditoría M1 y primera vertical de migración desde `dataprepv1.1`: se separó la paridad funcional pendiente de la compatibilidad de artefactos, y Entregar ya importa parcialmente contratos JSON de reglas representables con tolerancias, límites y warnings/omitidas; pipelines, sesiones y round-trip siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
 | 2026-08-24 | Validación de la quinta entrega P1: 135 pruebas Rust, 145 frontend, cobertura V8, build Vite, clippy, documentación y smoke WebView2 CDP con IPC nativo, foco, landmarks y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T011617Z`, `src-tauri/src/dataset.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx` |
 | 2026-08-24 | P1 añade joins multidataset `Inner`, `Left` y `Full` por claves explícitas: valida existencia/tipos, conserva la relación seleccionada, sufija columnas compartidas y registra la unión en historial; la resolución interactiva de conflictos sigue pendiente. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `docs/reference/feature-parity.md` |
+| 2026-08-23 | P1 amplía la calidad v3 con `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; el mismo contrato se evalúa en Rust para UI, CLI y exportación, con límites de payload, controles accesibles y pruebas avanzadas. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx`, `src/features/delivery/deliveryModel.ts`, `docs/reference/feature-parity.md` |
 | 2026-08-24 | P1 añade comparación por claves explícitas: valida presencia y tipos, informa claves coincidentes/exclusivas/duplicadas/conflictivas y consolida solo claves nuevas cuando la operación es segura; los joins multidataset siguen pendientes. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `docs/reference/feature-parity.md` |
 | 2026-08-24 | Validación de la cuarta entrega P1: 145 pruebas frontend, cobertura V8, build Vite, documentación y smoke WebView2 CDP con Playwright/ProjectsPanel, foco, landmarks, IPC nativo y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T010540Z`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx` |
 | 2026-08-24 | P1 añade visualizaciones accesibles en Diagnóstico: barras de completitud y posibles outliers con valores exactos, soporte responsive/forced-colors y tablas equivalentes para lector de pantalla; los gráficos exploratorios interactivos siguen pendientes. | `src/features/review/ReviewPhase.tsx`, `src/styles.css`, `src/features/review/ReviewPhase.test.tsx`, `docs/reference/feature-parity.md` |

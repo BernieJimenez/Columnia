@@ -688,6 +688,7 @@ dependencies = [
  "calamine",
  "chrono",
  "polars",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

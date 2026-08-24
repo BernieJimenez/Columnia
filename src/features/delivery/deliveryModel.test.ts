@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { DatasetPreview, QualityRule, QualityValidationResult } from "../../bridge";
+import { QUALITY_DATASET_COLUMN, type DatasetPreview, type QualityRule, type QualityValidationResult } from "../../bridge";
 import {
   INITIAL_DELIVERY_CONTRACT,
   MAX_QUALITY_RULES,
@@ -47,11 +47,11 @@ const passedResult: QualityValidationResult = {
 describe("validateQualityRuleDraft", () => {
   it("acepta un contrato válido", () => {
     expect(validateQualityRuleDraft([validRule], dataset)).toBeNull();
+    expect(validateQualityRuleDraft([{ ...validRule, maxInvalidPct: 0 }], dataset)).toBeNull();
   });
 
   it.each([
     [{ ...validRule, column: "ausente" }, /columna existente/],
-    [{ ...validRule, maxInvalidPct: 0 }, /exactamente una tolerancia/],
     [{ ...validRule, maxInvalid: -1 }, /entero igual o mayor/],
     [{ ...validRule, maxInvalid: undefined, maxInvalidPct: 101 }, /entre 0 y 100/],
     [{ ...validRule, kind: "numeric_range", maxInvalid: 0 }, /al menos un límite/],
@@ -67,6 +67,27 @@ describe("validateQualityRuleDraft", () => {
     expect(validateQualityRuleDraft(rules, dataset)).toBe(
       `El contrato admite como máximo ${MAX_QUALITY_RULES} reglas.`,
     );
+  });
+
+  it("acepta la primera extensión avanzada del contrato v3", () => {
+    const advancedRules: QualityRule[] = [
+      { column: "estado", kind: "allowed_values", values: ["ok", "pending"], maxInvalid: 0 },
+      { column: "estado", kind: "regex", pattern: "^(ok|pending)$", maxInvalidPct: 0 },
+      { column: "total", kind: "dtype", dtype: "integer", maxInvalid: 0 },
+      { column: "total", kind: "unique_together", columns: ["total", "estado"], maxInvalid: 0 },
+      { column: QUALITY_DATASET_COLUMN, kind: "row_count", min: 1, max: 10, maxInvalid: 0 },
+    ];
+
+    expect(validateQualityRuleDraft(advancedRules, dataset)).toBeNull();
+  });
+
+  it.each([
+    [{ column: "estado", kind: "allowed_values", maxInvalid: 0 }, /al menos un valor/],
+    [{ column: "estado", kind: "regex", pattern: "[", maxInvalid: 0 }, /patrón regular no es válido/],
+    [{ column: "total", kind: "unique_together", columns: ["total"], maxInvalid: 0 }, /al menos dos columnas/],
+    [{ column: QUALITY_DATASET_COLUMN, kind: "row_count", maxInvalid: 0 }, /al menos un límite/],
+  ] satisfies Array<[QualityRule, RegExp]>)("rechaza reglas avanzadas incompletas", (rule, message) => {
+    expect(validateQualityRuleDraft([rule], dataset)).toMatch(message);
   });
 });
 

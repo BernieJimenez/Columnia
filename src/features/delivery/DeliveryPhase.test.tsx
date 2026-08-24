@@ -126,4 +126,42 @@ describe("DeliveryPhase", () => {
       validation: { kind: "explicitly_unvalidated" },
     });
   });
+
+  it("expone los parámetros de una regla avanzada según su tipo", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "allowed_values" },
+    });
+
+    expect(screen.getByRole("textbox", { name: "Valores permitidos regla 1" })).toBeInTheDocument();
+    expect(screen.getByText("Un valor por línea; se compara sin transformar.")).toBeInTheDocument();
+  });
+
+  it("importa reglas DataPrep, aplica las convertibles y muestra las omitidas", async () => {
+    vi.spyOn(bridge, "pickQualityRulesMigration").mockResolvedValue({
+      sourceVersion: "3",
+      convertedRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      omittedRules: 1,
+      warnings: [{
+        ruleIndex: 2,
+        sourceKind: "column_compare",
+        severity: "omitted",
+        message: "La regla no tiene una representación equivalente.",
+      }],
+    });
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar reglas DataPrep" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Importación revisada"));
+    expect(screen.getByRole("status")).toHaveTextContent("1 reglas convertidas");
+    expect(screen.getByRole("status")).toHaveTextContent("1 omitidas");
+    expect(screen.getByRole("status")).toHaveTextContent("column_compare");
+    expect(screen.getByRole("combobox", { name: "Comprobación regla 1" })).toHaveValue("not_null");
+  });
 });

@@ -8,7 +8,9 @@
 - Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
   Fases I0, I4 e I8 cerradas, I3/I5 avanzadas y la Fase P1 de paridad funcional
   con JSON, SQL, comparación/consolidación por clave, joins multidataset y
-  visualizaciones accesibles;
+  visualizaciones accesibles y primera extensión de calidad v3; la Fase M1 ya
+  tiene una primera vertical de importación segura de reglas de calidad y
+  mantiene pendientes pipelines, sesiones y round-trip completo;
   I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
@@ -1013,7 +1015,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 5. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
    benchmark; los joins, la comparación y la consolidación local ya tienen una
    primera entrega; quedan destinos de base de datos y consultas más amplias.
-6. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
+6. **Migración M1 desde `dataprepv1.1`:** inventario y fixtures sintéticas,
+   importación de pipelines/sesiones/reglas, informe de operaciones no
+   convertidas y round-trip completo hacia proyectos Columnia.
+7. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
    licencias/avisos, smoke de instalador limpio, updater autenticado y validación
    real en macOS/Linux.
 
@@ -1027,6 +1032,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Implementar comparación local de dos datasets, diferencias por filas y
   columnas, y consolidación opt-in con historial cuando el esquema coincide.
 - [ ] Incorporar exportación Excel y destinos de base de datos.
+- [ ] Completar la entrega compatible con DataPrep: Excel, SQLite/PostgreSQL/
+  MySQL/SQL Server, prueba de conexión, políticas de tabla y bundle con reporte,
+  diccionario, calidad, receta, manifest/hash y apertura segura de la carpeta.
 - [x] Incorporar claves explícitas, conflictos por clave y consolidación segura de
   claves nuevas.
 - [x] Incorporar joins multidataset `Inner`, `Left` y `Full` por claves, con
@@ -1034,12 +1042,90 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [ ] Añadir resolución interactiva de conflictos de columnas y valores.
 - [x] Añadir visualizaciones de análisis con tabla accesible equivalente para
   completitud y posibles outliers.
-- [ ] Ampliar visualizaciones con gráficos exploratorios, filtros e interacciones.
-- [ ] Añadir detección de PII y reglas de privacidad visibles.
-- [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria.
+- [ ] Migrar el catálogo completo de limpieza sugerida: duplicados exactos y
+  difusos, columnas/filas vacías, constantes, identificadores y alto porcentaje
+  de nulos, centinelas, imputación, booleanos, PII, auditoría `_cambios` y
+  confirmación por impacto.
+- [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
+  distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
+  nulos, validación de formatos, centinelas, casi duplicados, completitud,
+  calendario y series temporales, siempre con tabla accesible equivalente.
+- [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
+  `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
+  payload, evaluación Rust, bridge tipado, editor accesible y pruebas.
+- [ ] Completar los contratos de calidad versionados con comparación de columnas,
+  condicionales, integridad referencial, esquema, fechas, monotonía, agregados y
+  drift; después añadir versionado/compatibilidad explícita del documento.
+- [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
+  preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.
+- [ ] Añadir consulta SQL local de solo lectura con límite, DuckDB y resultados
+  sanitizados; no permitir SQL ni rutas arbitrarias desde React.
+- [ ] Añadir detección, enmascarado/hash y modos de privacidad visibles para
+  datos personales, recetas, reports, manifests y destinos SQL.
+- [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
+  Parquet cacheado, chunks, comparación/joins grandes, historial degradado y
+  presupuestos explícitos sin materialización silenciosa.
+- [ ] Completar la paridad de sesión operativa: archivos recientes, muestras,
+  arrastrar/soltar, preferencias, caché derivada, historial de ejecuciones y
+  apertura segura de outputs; el modelo durable de proyectos de Columnia se
+  conserva como reemplazo de la sesión persistente original.
 
 **Gate:** cada capacidad marcada como implementada debe tener contrato, prueba
 automatizada y una fila de paridad con evidencia del original.
+
+### Fase M1 — Migración de compatibilidad desde `dataprepv1.1`
+
+Esta fase no copia Python ni `pywebview`: convierte los artefactos que una
+persona ya tiene en DataPrep para que puedan abrirse y continuar en Columnia.
+La auditoría se hizo contra `src/dataprep/core/bridge_contract.py`,
+`src/dataprep/core/recipes.py`, `src/dataprep/core/cleaner.py`,
+`src/dataprep/capabilities/analysis.py`, `src/dataprep/api.py` y la UI React
+del original.
+
+- [x] Registrar la brecha funcional: Columnia ya cubre entradas, preview,
+  perfil básico, recetas nativas, proyectos, JSON/SQL, comparación por clave,
+  joins y visualizaciones accesibles básicas; no cubre todavía el catálogo
+  completo de análisis/limpieza/calidad/entrega ni los artefactos legacy.
+- [ ] Definir un inventario de formatos de migración y fixtures sintéticas para
+  pipelines, sesiones, reglas de calidad y recetas antiguas, sin incluir rutas
+  reales ni celdas de usuario.
+- [ ] Importar pipelines JSON de DataPrep, incluyendo operaciones de limpieza,
+  configuración de transformaciones, columnas, filtros, outliers, grupos,
+  contactos y opciones de exportación; producir una receta Columnia versionada.
+- [x] Implementar la primera vertical de migración de reglas de calidad: selector
+  nativo JSON, conversión de reglas representables, tolerancias por conteo y
+  porcentaje, warnings/omitidas para severidad o políticas no equivalentes,
+  límites de archivo y sin exponer rutas al frontend.
+- [ ] Completar la migración de reglas de calidad antiguas y v3, conservando
+  tolerancias, severidad,
+  referencias, condiciones y reglas no soportadas como advertencias explícitas;
+  nunca convertir una regla bloqueante en una entrega aprobada silenciosamente.
+- [ ] Importar sesiones guardadas de DataPrep: dataset/origen, hoja, etapa,
+  operaciones aplicadas, receta, reglas y análisis; cuando no sea seguro guardar
+  un snapshot, conservar solo una referencia reproducible y explicarlo.
+- [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
+  con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
+  colisiones de nombres antes de escribir cualquier snapshot.
+- [ ] Crear un informe de migración con operaciones convertidas, omitidas,
+  advertencias, acciones manuales y hash de los artefactos; no publicar secretos,
+  rutas administradas ni valores de datasets en el resultado.
+- [ ] Añadir compatibilidad de bridge solo donde sea necesaria para la migración:
+  contrato versionado, operación larga/cancelable, errores sanitizados y
+  compatibilidad de recetas; no exponer la allowlist Python completa.
+- [ ] Verificar round-trip y regresión con fixtures: cargar/importar → revisar →
+  preparar → validar → exportar, comparar conteos/columnas/tipos y comprobar que
+  una importación parcial no reemplaza un proyecto válido.
+
+#### Límites de alcance de M1
+
+- No se migran restos de Marimo, la implementación Python, `pywebview`,
+  dependencias ECharts ni la estructura interna del bridge.
+- El modelo multi-tabla/esquema estrella y los proyectos legacy se mantienen como
+  capacidades opcionales: no se convierten en requisito de la primera migración
+  sin una decisión de producto explícita.
+- Los proyectos SQLite/Parquet, historial y reglas nativos de Columnia son la
+  representación final; la compatibilidad se mide por comportamiento observable,
+  no por igualdad de archivos internos.
 
 ## 9. Registro de decisiones
 
@@ -1118,6 +1204,7 @@ automatizada y una fila de paridad con evidencia del original.
 | 2026-08-23 | Versión 0.49.0: tres ciclos nativos de transformación/exportación dentro de WebView2, duraciones incorporadas al gate y presupuesto global del árbol; datasets grandes, lector real y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Fase I8: documentación Diátaxis, índice de ADR/CHANGELOG, validadores de enlaces/UTF-8/versiones/ownership y evidencia visual reproducible desde el binario release con baseline de hashes; lector de pantalla manual sigue en I3 | Implementada |
 | 2026-08-23 | Fase I1 completa: receta Polars lazy con fallback eager seguro, monitor nativo compacto de CPU/RAM, benchmark cruzado de 100 MiB contra `dataprepv1.1` y revisión visual desktop/móvil/zoom/forced-colors | Implementada |
+| 2026-08-23 | P1: contrato de calidad v3 ampliado con `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; evaluación Rust/CLI/exportación, bridge/UI accesibles y tests end-to-end | Implementada |
 | 2026-08-23 | I3/I4/I5: cobertura V8 y smoke CDP reales pasan; `cargo audit`/`cargo deny`, npm audit, secret scan, notices, política de red y SBOM pasan; Package produjo MSI/NSIS 0.49.0. El benchmark CLI de 256 MiB pasó el flujo durable, pero excedió el presupuesto de 512 MiB; quedan selector Win32, lector de pantalla y VM limpia | Parcial, con evidencia |
 
 ## 10. Fuentes de esta revisión

@@ -1,4 +1,15 @@
-import { validateQualityRules, type DatasetPreview, type ExportFormat, type QualityRule, type QualityRuleKind } from "../../bridge";
+import { useState } from "react";
+
+import {
+  QUALITY_DATASET_COLUMN,
+  pickQualityRulesMigration,
+  validateQualityRules,
+  type DatasetPreview,
+  type ExportFormat,
+  type QualityMigrationResult,
+  type QualityRule,
+  type QualityRuleKind,
+} from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { DatasetMetrics, formatFileSize } from "./DatasetMetrics";
 import {
@@ -27,6 +38,11 @@ export function DeliveryPhase({
   onExport,
   onCancelExport,
 }: DeliveryPhaseProps) {
+  const [migrationState, setMigrationState] = useState<
+    | { kind: "idle" }
+    | { kind: "ready"; result: QualityMigrationResult }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
   const rules = contract.kind === "with_contract" ? contract.rules : [];
   const validationError = validateQualityRuleDraft(rules, dataset);
   const gatePassed = contract.gate.kind === "ready" && contract.gate.result.passed;
@@ -53,6 +69,38 @@ export function DeliveryPhase({
       ruleIndex === index ? { ...rule, ...update } : rule));
   }
 
+  function changeRuleKind(index: number, kind: QualityRuleKind) {
+    const rule = rules[index];
+    const firstColumn = dataset.columns[0]?.name ?? "";
+    const nextColumns = kind === "unique_together"
+      ? rule.columns?.filter((name) => dataset.columns.some((column) => column.name === name))
+        ?? dataset.columns.slice(0, 2).map((column) => column.name)
+      : undefined;
+    const nextColumn = kind === "row_count"
+      ? QUALITY_DATASET_COLUMN
+      : kind === "unique_together"
+        ? nextColumns?.[0] ?? firstColumn
+        : rule.column === QUALITY_DATASET_COLUMN ? firstColumn : rule.column;
+    updateRule(index, {
+      kind,
+      column: nextColumn,
+      min: undefined,
+      max: undefined,
+      values: kind === "allowed_values" ? rule.values ?? [] : undefined,
+      pattern: kind === "regex" ? rule.pattern ?? "" : undefined,
+      dtype: kind === "dtype" ? rule.dtype ?? "string" : undefined,
+      columns: kind === "unique_together" ? nextColumns : undefined,
+    });
+  }
+
+  function updateTogetherColumns(index: number, name: string, checked: boolean) {
+    const current = rules[index].columns ?? [];
+    const next = checked
+      ? [...current, name]
+      : current.filter((column) => column !== name);
+    updateRule(index, { columns: next, column: next[0] ?? dataset.columns[0]?.name ?? "" });
+  }
+
   async function runQualityGate() {
     if (contract.kind !== "with_contract" || validationError) return;
     onContractAction({ kind: "gate_changed", gate: { kind: "loading" } });
@@ -66,6 +114,22 @@ export function DeliveryPhase({
           kind: "error",
           message: error instanceof Error ? error.message : String(error),
         },
+      });
+    }
+  }
+
+  async function importQualityRules() {
+    setMigrationState({ kind: "idle" });
+    try {
+      const result = await pickQualityRulesMigration();
+      if (result) {
+        onContractAction({ kind: "rules_changed", rules: result.convertedRules });
+        setMigrationState({ kind: "ready", result });
+      }
+    } catch (error: unknown) {
+      setMigrationState({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -110,59 +174,131 @@ export function DeliveryPhase({
           <>
             <div className="quality-rules">
               {rules.map((rule, index) => {
-                const percentageTolerance = rule.maxInvalidPct !== undefined;
+                const hasCountTolerance = rule.maxInvalid !== undefined;
+                const hasPercentageTolerance = rule.maxInvalidPct !== undefined;
+                const toleranceMode = hasCountTolerance && hasPercentageTolerance
+                  ? "both"
+                  : hasPercentageTolerance ? "percentage" : "count";
+                const isDatasetRule = rule.kind === "row_count";
+                const isTogetherRule = rule.kind === "unique_together";
                 return (
                   <fieldset className="quality-rule" key={index} disabled={busy}>
                     <legend>Regla {index + 1}</legend>
-                    <label>Columna
+                    {!isDatasetRule && !isTogetherRule && <label>Columna
                       <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
                         onChange={(event) => updateRule(index, { column: event.target.value })}>
                         {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
                       </select>
-                    </label>
+                    </label>}
                     <label>Comprobación
                       <select aria-label={`Comprobación regla ${index + 1}`} value={rule.kind}
-                        onChange={(event) => {
-                          const kind = event.target.value as QualityRuleKind;
-                          updateRule(index, { kind, min: undefined, max: undefined });
-                        }}>
+                        onChange={(event) => changeRuleKind(index, event.target.value as QualityRuleKind)}>
                         <option value="not_null">Sin nulos</option>
                         <option value="non_empty">Texto no vacío</option>
                         <option value="unique">Valores únicos</option>
                         <option value="numeric_range">Rango numérico</option>
+                        <option value="allowed_values">Valores permitidos</option>
+                        <option value="regex">Expresión regular</option>
+                        <option value="dtype">Tipo esperado</option>
+                        <option value="unique_together" disabled={dataset.columns.length < 2}>Unicidad compuesta</option>
+                        <option value="row_count">Conteo de filas</option>
                       </select>
                     </label>
                     <label>Tolerancia
-                      <select aria-label={`Tolerancia regla ${index + 1}`} value={percentageTolerance ? "percentage" : "count"}
-                        onChange={(event) => updateRule(index, event.target.value === "percentage"
-                          ? { maxInvalid: undefined, maxInvalidPct: 0 }
-                          : { maxInvalid: 0, maxInvalidPct: undefined })}>
+                      <select aria-label={`Tolerancia regla ${index + 1}`} value={toleranceMode}
+                        onChange={(event) => {
+                          const mode = event.target.value;
+                          updateRule(index, mode === "both"
+                            ? { maxInvalid: rule.maxInvalid ?? 0, maxInvalidPct: rule.maxInvalidPct ?? 0 }
+                            : mode === "percentage"
+                              ? { maxInvalid: undefined, maxInvalidPct: rule.maxInvalidPct ?? 0 }
+                              : { maxInvalid: rule.maxInvalid ?? 0, maxInvalidPct: undefined });
+                        }}>
                         <option value="count">Máximo inválidos</option>
                         <option value="percentage">Máximo porcentaje</option>
+                        <option value="both">Ambas tolerancias</option>
                       </select>
                     </label>
-                    <label>{percentageTolerance ? "Porcentaje máximo" : "Inválidos máximos"}
-                      <input type="number" min="0" max={percentageTolerance ? "100" : undefined}
-                        step={percentageTolerance ? "0.1" : "1"}
-                        aria-label={`${percentageTolerance ? "Porcentaje" : "Inválidos"} regla ${index + 1}`}
-                        value={percentageTolerance ? rule.maxInvalidPct ?? 0 : rule.maxInvalid ?? 0}
-                        onChange={(event) => updateRule(index, percentageTolerance
-                          ? { maxInvalidPct: Number(event.target.value) }
-                          : { maxInvalid: Number(event.target.value) })} />
-                    </label>
-                    {rule.kind === "numeric_range" && (
+                    {(toleranceMode === "count" || toleranceMode === "both") && <label>Inválidos máximos
+                      <input type="number" min="0" step="1"
+                        aria-label={`Inválidos regla ${index + 1}`}
+                        value={rule.maxInvalid ?? 0}
+                        onChange={(event) => updateRule(index, { maxInvalid: Number(event.target.value) })} />
+                    </label>}
+                    {(toleranceMode === "percentage" || toleranceMode === "both") && <label>Porcentaje máximo
+                      <input type="number" min="0" max="100" step="0.1"
+                        aria-label={`Porcentaje regla ${index + 1}`}
+                        value={rule.maxInvalidPct ?? 0}
+                        onChange={(event) => updateRule(index, { maxInvalidPct: Number(event.target.value) })} />
+                    </label>}
+                    {(rule.kind === "numeric_range" || rule.kind === "row_count") && (
                       <>
-                        <label>Mínimo inclusivo
+                        <label>{rule.kind === "row_count" ? "Filas mínimas" : "Mínimo inclusivo"}
                           <input type="number" aria-label={`Mínimo regla ${index + 1}`}
                             value={rule.min ?? ""}
                             onChange={(event) => updateRule(index, { min: event.target.value === "" ? undefined : Number(event.target.value) })} />
                         </label>
-                        <label>Máximo inclusivo
+                        <label>{rule.kind === "row_count" ? "Filas máximas" : "Máximo inclusivo"}
                           <input type="number" aria-label={`Máximo regla ${index + 1}`}
                             value={rule.max ?? ""}
                             onChange={(event) => updateRule(index, { max: event.target.value === "" ? undefined : Number(event.target.value) })} />
                         </label>
                       </>
+                    )}
+                    {rule.kind === "allowed_values" && (
+                      <label className="quality-rule__wide">Valores permitidos
+                        <textarea
+                          rows={2}
+                          aria-label={`Valores permitidos regla ${index + 1}`}
+                          aria-describedby={`quality-values-help-${index}`}
+                          value={rule.values?.join("\n") ?? ""}
+                          onChange={(event) => updateRule(index, {
+                            values: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                          })}
+                        />
+                        <span id={`quality-values-help-${index}`} className="quality-rule__help">Un valor por línea; se compara sin transformar.</span>
+                      </label>
+                    )}
+                    {rule.kind === "regex" && (
+                      <label className="quality-rule__wide">Patrón regular
+                        <input
+                          type="text"
+                          aria-label={`Patrón regular regla ${index + 1}`}
+                          aria-describedby={`quality-regex-help-${index}`}
+                          value={rule.pattern ?? ""}
+                          onChange={(event) => updateRule(index, { pattern: event.target.value })}
+                        />
+                        <span id={`quality-regex-help-${index}`} className="quality-rule__help">Sintaxis regex compatible con Rust.</span>
+                      </label>
+                    )}
+                    {rule.kind === "dtype" && (
+                      <label>Tipo esperado
+                        <select aria-label={`Tipo esperado regla ${index + 1}`} value={rule.dtype ?? "string"}
+                          onChange={(event) => updateRule(index, { dtype: event.target.value })}>
+                          <option value="string">Texto</option>
+                          <option value="integer">Entero</option>
+                          <option value="float">Decimal</option>
+                          <option value="boolean">Booleano</option>
+                          <option value="date">Fecha</option>
+                          <option value="datetime">Fecha y hora</option>
+                        </select>
+                      </label>
+                    )}
+                    {isTogetherRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Columnas que deben ser únicas juntas</legend>
+                        {dataset.columns.map((column) => (
+                          <label key={column.name} className="quality-rule__check">
+                            <input
+                              type="checkbox"
+                              aria-label={`Columna compuesta ${column.name}, regla ${index + 1}`}
+                              checked={rule.columns?.includes(column.name) ?? false}
+                              onChange={(event) => updateTogetherColumns(index, column.name, event.target.checked)}
+                            />
+                            {column.name}
+                          </label>
+                        ))}
+                      </fieldset>
                     )}
                     <button type="button" className="quality-rule__remove" aria-label={`Eliminar regla ${index + 1}`}
                       onClick={() => changeRules(rules.filter((_, ruleIndex) => ruleIndex !== index))}>Eliminar</button>
@@ -171,12 +307,29 @@ export function DeliveryPhase({
               })}
             </div>
             <div className="quality-contract__actions">
+              <button type="button" onClick={() => void importQualityRules()} disabled={busy}>Importar reglas DataPrep</button>
               <button type="button" onClick={addRule} disabled={busy || rules.length >= MAX_QUALITY_RULES}>Añadir regla</button>
               <button type="button" className="primary-action" onClick={() => void runQualityGate()}
                 disabled={busy || validationError !== null}>Validar contrato</button>
               <span>{rules.length}/{MAX_QUALITY_RULES} reglas</span>
             </div>
             {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
+            {migrationState.kind === "ready" && (
+              <div className="notice quality-migration-result" role="status" aria-live="polite">
+                <strong>Importación revisada</strong>
+                <span>{migrationState.result.convertedRules.length} reglas convertidas · {migrationState.result.omittedRules} omitidas{migrationState.result.sourceVersion ? ` · versión ${migrationState.result.sourceVersion}` : ""}</span>
+                {migrationState.result.warnings.length > 0 && (
+                  <ul>
+                    {migrationState.result.warnings.map((warning, index) => (
+                      <li key={`${warning.ruleIndex}-${index}`}>
+                        <strong>{warning.severity === "omitted" ? "Omitida" : "Advertencia"} · regla {warning.ruleIndex} · {warning.sourceKind}</strong>: {warning.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {migrationState.kind === "error" && <p className="notice notice--error" role="alert">No se pudo importar el contrato: {migrationState.message}</p>}
           </>
         ) : (
           <div className="quality-contract__unvalidated">
@@ -207,7 +360,7 @@ export function DeliveryPhase({
             <span>{contract.gate.result.failedRules} de {contract.gate.result.totalRules} reglas fallaron · {contract.gate.result.rowCount.toLocaleString()} filas comprobadas</span>
             <ul>
               {contract.gate.result.rules.map((result, index) => (
-                <li key={index}>{result.column}: {result.invalidCount.toLocaleString()} inválidos ({result.invalidPct.toFixed(2)}%) · {result.passed ? "aprobada" : "fallida"}</li>
+                <li key={index}>{result.column === QUALITY_DATASET_COLUMN ? "Dataset" : result.column}: {result.invalidCount.toLocaleString()} inválidos ({result.invalidPct.toFixed(2)}%) · {result.passed ? "aprobada" : "fallida"}</li>
               ))}
             </ul>
           </div>

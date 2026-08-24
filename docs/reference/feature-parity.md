@@ -11,12 +11,13 @@ claro y esté cubierta por una prueba o evidencia local.
 | --- | --- | --- | --- | --- |
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
-| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados, estadísticas, calidad, outliers y lectura visual accesible | Implementada | Ampliar análisis exploratorio visual interactivo |
-| Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Implementada | Ampliar operaciones multidataset |
+| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
+| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir comparación, condicionales, referencias, fechas, agregados y drift |
+| Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura y joins Inner/Left/Full con historial | Parcial | Añadir resolución interactiva de conflictos de columnas |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
-| Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON y script SQL | Parcial | Excel/conectores de base de datos |
-| Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas y CLI | Implementada | Comparar flujos avanzados del original |
+| Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON y script SQL | Parcial | Excel, conectores, bundles auditables y privacidad |
+| Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas y CLI | Parcial | Importar sesiones/pipelines y completar caché/actividad |
 | Privacidad | Redacción, PII y operación local | Sin telemetría; límites y contratos de privacidad; detección PII pendiente | Parcial | Inventario de PII y reglas explícitas |
 | Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles; benchmark CLI validado hasta 256 MiB, con RAM fuera del presupuesto | Parcial | Ejecución incremental real y presupuesto integral |
 
@@ -97,6 +98,41 @@ compuertas de entrega, y no expone rutas del sistema al frontend. La siguiente
 entrega debe incorporar resolución interactiva para nombres y valores
 conflictivos.
 
+## Séptima entrega de paridad: primera slice de calidad v3
+
+El contrato de calidad de Entregar ahora admite cinco comprobaciones avanzadas
+que también recorren CLI y exportación porque se evalúan en el mismo motor Rust:
+
+- `allowed_values` para catálogos textuales;
+- `regex` con compilación segura y rechazo de patrones inválidos;
+- `dtype` para verificar el tipo físico de una columna;
+- `unique_together` para detectar duplicados de una clave compuesta;
+- `row_count` para límites inclusivos sobre el tamaño del dataset.
+
+Cada regla conserva la tolerancia por conteo o porcentaje, rechaza parámetros que
+pertenecen a otro tipo, limita el texto y el número de valores/columnas, y no
+devuelve muestras ni celdas. La UI muestra solo los controles relevantes, con
+etiquetas y ayudas aptas para teclado y lector de pantalla. La compatibilidad
+restante del contrato v3 sigue en P1/M1.
+
+## Primera vertical de migración de reglas DataPrep
+
+Entregar permite importar un contrato JSON de DataPrep mediante el selector
+nativo. Acepta una lista directa o un objeto con `rules`/`quality_rules`, y
+convierte de forma segura las reglas representables por Columnia:
+`not_null`, `non_empty`, `unique`, `numeric_range`, `allowed_values`, `regex`,
+`dtype`, `unique_together` y `row_count`. Reconoce campos snake_case y
+camelCase, conserva tolerancias por conteo y porcentaje, y aplica el límite de
+16 reglas y 1 MiB por archivo.
+
+La importación es deliberadamente parcial: reglas desconocidas, severidades no
+bloqueantes, políticas `on_missing`/`null_policy` incompatibles y parámetros
+malformados se omiten con un informe visible por regla. Una regla sin tolerancia
+se importa como bloqueante con máximo de inválidos igual a cero; nunca se
+convierte silenciosamente una política no equivalente en una aprobación.
+Pipelines JSON, sesiones guardadas y el round-trip hacia proyectos siguen
+pendientes en M1.
+
 ## Tercera entrega de paridad: script SQL
 
 Entregar ahora ofrece un cuarto formato con la misma compuerta de calidad:
@@ -123,3 +159,25 @@ La matriz se contrastó con el bridge y las vistas existentes del original:
 
 Esta matriz se actualizará con cada entrega de paridad y no sustituye los gates
 de contratos, privacidad, accesibilidad y rendimiento.
+
+## Brecha de migración desde `dataprepv1.1`
+
+La migración tiene dos capas distintas:
+
+1. **Paridad funcional:** ya existe una primera slice de calidad v3, pero todavía
+   faltan el catálogo completo de limpieza
+   sugerida, el optimizador de transformaciones, el análisis exploratorio
+   (distribuciones, correlaciones, grupos, nulos, centinelas, casi duplicados,
+   calendario y series temporales), las reglas de calidad versionadas restantes, la
+   exportación Excel, los destinos SQLite/PostgreSQL/MySQL/SQL Server, los
+   bundles auditables y el procesamiento fuera de memoria.
+2. **Compatibilidad de artefactos:** Columnia ya importa parcialmente contratos
+   JSON de reglas de calidad de DataPrep, con conversión segura e informe de
+   omitidas. Todavía no importa pipelines JSON ni sesiones guardadas, y la
+   verificación de round-trip sigue pendiente en la Fase M1 del roadmap.
+
+Columnia ya tiene una representación nativa distinta —Tauri/Rust/Polars,
+proyectos SQLite/Parquet y comandos estrechos—, por lo que la migración no
+debe copiar módulos Python ni prometer compatibilidad binaria de archivos
+internos. La unidad de compatibilidad será el resultado observable y un
+informe claro de cualquier operación no convertida.
