@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelOperation,
+  clearDatasetComparison,
+  compareDataset,
   applySafeCorrections,
   applyTransformRecipe,
   exportDataset,
@@ -22,6 +24,7 @@ import {
   saveProject,
   saveTransformRecipe,
   trimTextValues,
+  useConsolidatedDataset,
   undoLastChange,
   validateQualityRules,
   type QualityRule,
@@ -95,6 +98,31 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenLastCalledWith("discard_dataset_selection", {
       selectionId: "selection-1",
     });
+  });
+
+  it("compara y consolida datasets mediante comandos opacos", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      currentFileName: "a.csv",
+      comparedFileName: "b.csv",
+      currentRowCount: 2,
+      comparedRowCount: 2,
+      commonRowCount: 1,
+      currentOnlyRowCount: 1,
+      comparedOnlyRowCount: 1,
+      sharedColumns: ["id"],
+      currentOnlyColumns: [],
+      comparedOnlyColumns: [],
+      schemaCompatible: true,
+      canConsolidate: true,
+    });
+
+    await compareDataset();
+    await useConsolidatedDataset();
+    await clearDatasetComparison();
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "compare_dataset");
+    expect(invoke).toHaveBeenNthCalledWith(2, "use_consolidated_dataset");
+    expect(invoke).toHaveBeenNthCalledWith(3, "clear_dataset_comparison");
   });
 
   it("solicita una página por posición sin volver a entregar la ruta", async () => {
@@ -275,6 +303,46 @@ describe("desktop bridge", () => {
       format: "parquet",
       qualityRules,
       allowUnvalidated: false,
+      onProgress: expect.any(Channel),
+    });
+  });
+
+  it("conserva JSON como formato de exportación tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      fileName: "datos-columnia.json",
+      fileSizeBytes: 128,
+      format: "JSON",
+    });
+
+    await expect(exportDataset("json", [], true)).resolves.toEqual({
+      fileName: "datos-columnia.json",
+      fileSizeBytes: 128,
+      format: "JSON",
+    });
+    expect(invoke).toHaveBeenCalledWith("export_dataset", {
+      format: "json",
+      qualityRules: [],
+      allowUnvalidated: true,
+      onProgress: expect.any(Channel),
+    });
+  });
+
+  it("conserva SQL como formato de exportación tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      fileName: "datos-columnia.sql",
+      fileSizeBytes: 256,
+      format: "SQL",
+    });
+
+    await expect(exportDataset("sql", [], true)).resolves.toEqual({
+      fileName: "datos-columnia.sql",
+      fileSizeBytes: 256,
+      format: "SQL",
+    });
+    expect(invoke).toHaveBeenCalledWith("export_dataset", {
+      format: "sql",
+      qualityRules: [],
+      allowUnvalidated: true,
       onProgress: expect.any(Channel),
     });
   });

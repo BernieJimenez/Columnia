@@ -13,15 +13,15 @@ use crate::{
 };
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|parquet [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
-const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|parquet\n\nAplica una receta Columnia y publica la salida atómicamente. CSV conserva la protección contra fórmulas de hojas de cálculo.\n";
+const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql\n\nAplica una receta Columnia y publica la salida atómicamente. CSV conserva la protección contra fórmulas de hojas de cálculo. SQL produce un script portable con transacción y valores escapados.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia versión 1 con {\"version\":1,\"rules\":[...]}. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
 const PROJECT_INSPECT_HELP: &str = "USO:\n  columnia-cli project-inspect --store <directorio> --id <id>\n\nEmite metadatos, flags y conteos del proyecto sin abrir una sesión de escritorio.\n";
-const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|parquet [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica.\n";
+const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica.\n";
 const PROJECT_DELETE_HELP: &str = "USO:\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nElimina el proyecto solo cuando --confirm coincide exactamente con --id.\n";
 const BATCH_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const BATCH_MAX_JOBS: usize = 64;
@@ -31,28 +31,36 @@ const BATCH_MAX_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutomationFormat {
     Csv,
+    Json,
     Parquet,
+    Sql,
 }
 
 impl AutomationFormat {
     fn extension(self) -> &'static str {
         match self {
             Self::Csv => "csv",
+            Self::Json => "json",
             Self::Parquet => "parquet",
+            Self::Sql => "sql",
         }
     }
 
     fn dataset_format(self) -> ExportFormat {
         match self {
             Self::Csv => ExportFormat::Csv,
+            Self::Json => ExportFormat::Json,
             Self::Parquet => ExportFormat::Parquet,
+            Self::Sql => ExportFormat::Sql,
         }
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Csv => "CSV",
+            Self::Json => "JSON",
             Self::Parquet => "Parquet",
+            Self::Sql => "SQL",
         }
     }
 }
@@ -215,14 +223,18 @@ struct BatchJobDocument {
 #[serde(rename_all = "lowercase")]
 enum BatchFormat {
     Csv,
+    Json,
     Parquet,
+    Sql,
 }
 
 impl From<BatchFormat> for AutomationFormat {
     fn from(value: BatchFormat) -> Self {
         match value {
             BatchFormat::Csv => Self::Csv,
+            BatchFormat::Json => Self::Json,
             BatchFormat::Parquet => Self::Parquet,
+            BatchFormat::Sql => Self::Sql,
         }
     }
 }
@@ -420,9 +432,11 @@ fn optional_text_flag(
 fn parse_format(value: OsString) -> Result<AutomationFormat, AutomationError> {
     match value.to_str() {
         Some("csv") => Ok(AutomationFormat::Csv),
+        Some("json") => Ok(AutomationFormat::Json),
         Some("parquet") => Ok(AutomationFormat::Parquet),
+        Some("sql") => Ok(AutomationFormat::Sql),
         _ => Err(AutomationError::new(
-            "La opción --format debe ser csv o parquet.",
+            "La opción --format debe ser csv, json, parquet o sql.",
         )),
     }
 }
@@ -1344,6 +1358,43 @@ mod tests {
         assert!(!json
             .to_string()
             .contains(directory.path().to_str().unwrap()));
+    }
+
+    #[test]
+    fn transform_exports_json_with_the_same_atomic_contract() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("source.csv");
+        let recipe = directory.path().join("recipe.json");
+        let output = directory.path().join("result.json");
+        fs::write(&input, "city,value\nSanto Domingo,30\n").unwrap();
+        write_recipe(&recipe, "city", "place");
+
+        let result =
+            transform(&input, None, None, &recipe, &output, AutomationFormat::Json).unwrap();
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["outputFileName"], "result.json");
+        assert_eq!(json["format"], "JSON");
+        let rows: serde_json::Value = serde_json::from_slice(&fs::read(output).unwrap()).unwrap();
+        assert_eq!(rows[0]["place"], "Santo Domingo");
+    }
+
+    #[test]
+    fn transform_exports_sql_with_the_same_atomic_contract() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("source.csv");
+        let recipe = directory.path().join("recipe.json");
+        let output = directory.path().join("result.sql");
+        fs::write(&input, "city,value\nSanto Domingo,30\n").unwrap();
+        write_recipe(&recipe, "city", "place");
+
+        let result =
+            transform(&input, None, None, &recipe, &output, AutomationFormat::Sql).unwrap();
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["outputFileName"], "result.sql");
+        assert_eq!(json["format"], "SQL");
+        let script = fs::read_to_string(output).unwrap();
+        assert!(script.contains("\"place\" TEXT"));
+        assert!(script.contains("'Santo Domingo'"));
     }
 
     #[test]

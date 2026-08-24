@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DatasetPreview } from "../../bridge";
+import type { DatasetPreview, DatasetProfile } from "../../bridge";
 import { DataPreview, ReviewPhase } from "./ReviewPhase";
 import { createReadyDatasetStatus } from "../load/loadModel";
 
@@ -19,6 +19,58 @@ const dataset: DatasetPreview = {
   rows: [["51", null], ["52", "ok"]],
 };
 
+const profile: DatasetProfile = {
+  rowCount: 120,
+  duplicateRowCount: 3,
+  duplicatePercentage: 2.5,
+  columns: [
+    {
+      name: "id",
+      dataType: "Int64",
+      nullCount: 0,
+      completenessPercentage: 100,
+      uniqueCount: 120,
+      minimum: "1",
+      maximum: "120",
+      mean: 60.5,
+      emptyCount: null,
+      minimumLength: null,
+      maximumLength: null,
+      averageLength: null,
+      suggestedType: null,
+      typeMatchPercentage: null,
+      invalidTypeCount: null,
+      standardDeviation: 34.6,
+      firstQuartile: 30,
+      median: 60,
+      thirdQuartile: 90,
+      outlierCount: 2,
+    },
+    {
+      name: "nombre",
+      dataType: "String",
+      nullCount: 6,
+      completenessPercentage: 95,
+      uniqueCount: 110,
+      minimum: "Ana",
+      maximum: "Zoe",
+      mean: null,
+      emptyCount: 2,
+      minimumLength: 3,
+      maximumLength: 12,
+      averageLength: 6.4,
+      suggestedType: null,
+      typeMatchPercentage: null,
+      invalidTypeCount: null,
+      standardDeviation: null,
+      firstQuartile: null,
+      median: null,
+      thirdQuartile: null,
+      outlierCount: null,
+    },
+  ],
+};
+
 describe("ReviewPhase", () => {
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
     const onAnalyzeQuality = vi.fn();
@@ -31,6 +83,10 @@ describe("ReviewPhase", () => {
         onPageChange={() => undefined}
         onAnalyzeQuality={onAnalyzeQuality}
         onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
       />,
     );
 
@@ -40,6 +96,79 @@ describe("ReviewPhase", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Analizar calidad" }));
     expect(onAnalyzeQuality).toHaveBeenCalledOnce();
+  });
+
+  it("muestra diferencias de fuentes y permite consolidar un esquema compatible", () => {
+    const onCompare = vi.fn();
+    const onClearComparison = vi.fn();
+    const onConsolidate = vi.fn();
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{
+          kind: "ready",
+          comparison: {
+            currentFileName: "datos.csv",
+            comparedFileName: "actualizacion.csv",
+            currentRowCount: 2,
+            comparedRowCount: 2,
+            commonRowCount: 1,
+            currentOnlyRowCount: 1,
+            comparedOnlyRowCount: 1,
+            sharedColumns: ["id"],
+            currentOnlyColumns: [],
+            comparedOnlyColumns: [],
+            schemaCompatible: true,
+            canConsolidate: true,
+          },
+        }}
+        onCompare={onCompare}
+        onClearComparison={onClearComparison}
+        onConsolidate={onConsolidate}
+      />,
+    );
+
+    expect(screen.getByText("actualizacion.csv")).toBeInTheDocument();
+    expect(screen.getByText("Filas compartidas")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Consolidar filas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Descartar comparación" }));
+    expect(onConsolidate).toHaveBeenCalledOnce();
+    expect(onClearComparison).toHaveBeenCalledOnce();
+  });
+
+  it("muestra visualizaciones accesibles con valores equivalentes al perfil", () => {
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Señales del perfil" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Completitud por columna" })).toHaveTextContent(
+      "nombre95.0%",
+    );
+    expect(screen.getByRole("list", { name: "Posibles outliers por columna" })).toHaveTextContent(
+      "id2",
+    );
+    expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
+      "95.0%",
+    );
   });
 
   it("anuncia el rango, representa null y solicita saltos exactos de 50", () => {

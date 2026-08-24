@@ -28,6 +28,21 @@ export interface DatasetPreview {
   rows: Array<Array<string | null>>;
 }
 
+export interface DatasetComparison {
+  currentFileName: string;
+  comparedFileName: string;
+  currentRowCount: number;
+  comparedRowCount: number;
+  commonRowCount: number;
+  currentOnlyRowCount: number;
+  comparedOnlyRowCount: number;
+  sharedColumns: string[];
+  currentOnlyColumns: string[];
+  comparedOnlyColumns: string[];
+  schemaCompatible: boolean;
+  canConsolidate: boolean;
+}
+
 export type DatasetFormat = "csv" | "tsv" | "json" | "parquet" | "excel";
 
 export interface WorkbookSheet {
@@ -307,7 +322,7 @@ export interface OperationProgress {
 }
 
 export type CancellableOperation = OperationProgress["operation"];
-export type ExportFormat = "csv" | "parquet";
+export type ExportFormat = "csv" | "json" | "parquet" | "sql";
 
 export type QualityRuleKind = "not_null" | "non_empty" | "unique" | "numeric_range";
 
@@ -338,7 +353,7 @@ export interface QualityValidationResult {
 export interface ExportResult {
   fileName: string;
   fileSizeBytes: number;
-  format: "CSV" | "Parquet";
+  format: "CSV" | "JSON" | "Parquet" | "SQL";
 }
 
 export interface ProjectSummary {
@@ -397,6 +412,18 @@ export function loadDatasetSelection(
 
 export function discardDatasetSelection(selectionId: string): Promise<void> {
   return invoke<void>("discard_dataset_selection", { selectionId });
+}
+
+export function compareDataset(): Promise<DatasetComparison | null> {
+  return invoke<DatasetComparison | null>("compare_dataset");
+}
+
+export function clearDatasetComparison(): Promise<void> {
+  return invoke<void>("clear_dataset_comparison");
+}
+
+export function useConsolidatedDataset(): Promise<DatasetPreview> {
+  return invoke<DatasetPreview>("use_consolidated_dataset");
 }
 
 export function getDatasetPage(offset: number, limit: number): Promise<DatasetPage> {

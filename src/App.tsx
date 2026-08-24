@@ -34,6 +34,13 @@ import { ProjectsPanel } from "./features/projects/ProjectsPanel";
 import { useProjectsController } from "./features/projects/useProjectsController";
 import { ReviewPhase } from "./features/review/ReviewPhase";
 import {
+  beginComparison,
+  clearComparison,
+  completeComparison,
+  failComparison,
+  type ComparisonStatus,
+} from "./features/review/compareModel";
+import {
   PAGE_SIZE,
   beginPageLoad,
   beginProfileAnalysis,
@@ -47,6 +54,8 @@ import { ResourceMonitor } from "./components/ResourceMonitor";
 
 import {
   cancelOperation,
+  clearDatasetComparison,
+  compareDataset,
   discardDatasetSelection,
   exportDataset,
   getAppInfo,
@@ -54,6 +63,7 @@ import {
   getDatasetProfile,
   loadDatasetSelection,
   pickDatasetSource,
+  useConsolidatedDataset,
   type AppInfo,
   type CancellableOperation,
   type DatasetPreview,
@@ -89,6 +99,7 @@ export function App() {
   const [status, setStatus] = useState<AppStatus>({ kind: "loading" });
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
+  const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
   const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
   const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
@@ -98,8 +109,11 @@ export function App() {
   const [recipeSession, setRecipeSession] = useState(0);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
-    onDatasetChanged: (dataset) =>
-      setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false }),
+    onDatasetChanged: (dataset) => {
+      setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
+      setComparisonStatus(clearComparison());
+      void clearDatasetComparison().catch(() => undefined);
+    },
     onProfileInvalidated: () => setProfileStatus({ kind: "idle" }),
     onDeliveryInvalidated: invalidateDeliveryGate,
   });
@@ -108,7 +122,8 @@ export function App() {
     profileStatus.kind === "loading" ||
     prepare.changeStatus.kind === "working" ||
     deliveryContract.gate.kind === "loading" ||
-    exportStatus.kind === "loading";
+    exportStatus.kind === "loading" ||
+    comparisonStatus.kind === "loading";
   const projects = useProjectsController({
     connected: status.kind === "ready",
     blocked: coreOperationBusy,
@@ -122,6 +137,8 @@ export function App() {
       await prepare.refreshHistory();
       setDeliveryContract(deliveryContractFromRules(workspace.qualityRules));
       setExportStatus({ kind: "idle" });
+      setComparisonStatus(clearComparison());
+      await clearDatasetComparison().catch(() => undefined);
       setRecipeDraft(workspace.recipeDraft);
       setRecipeSession((current) => current + 1);
       setReviewTab("diagnosis");
@@ -286,6 +303,45 @@ export function App() {
       }
       const message = error instanceof Error ? error.message : String(error);
       setProfileStatus({ kind: "error", message });
+    }
+  }
+
+  async function compareActiveDataset() {
+    setComparisonStatus(beginComparison());
+    try {
+      const comparison = await compareDataset();
+      setComparisonStatus(comparison ? completeComparison(comparison) : clearComparison());
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setComparisonStatus(failComparison(message));
+    }
+  }
+
+  async function clearActiveComparison() {
+    try {
+      await clearDatasetComparison();
+      setComparisonStatus(clearComparison());
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setComparisonStatus(failComparison(message));
+    }
+  }
+
+  async function consolidateComparedDataset() {
+    try {
+      const dataset = await useConsolidatedDataset();
+      setDatasetStatus(createReadyDatasetStatus(dataset));
+      setComparisonStatus(clearComparison());
+      setProfileStatus({ kind: "idle" });
+      projects.unlinkActiveProject();
+      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
+      setRecipeDraft(null);
+      setRecipeSession((current) => current + 1);
+      prepare.resetChangeStatus();
+      await prepare.refreshHistory();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setComparisonStatus(failComparison(message));
     }
   }
 
@@ -471,6 +527,10 @@ export function App() {
               onPageChange={changePage}
               onAnalyzeQuality={analyzeQuality}
               onCancelProfile={() => cancelActiveOperation("profile")}
+              comparisonStatus={comparisonStatus}
+              onCompare={() => void compareActiveDataset()}
+              onClearComparison={() => void clearActiveComparison()}
+              onConsolidate={() => void consolidateComparedDataset()}
             />
           )}
 

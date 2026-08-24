@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
     fs::{self, File},
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -12,6 +12,7 @@ use std::{
 
 use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
+use polars::io::json::{JsonFormat, JsonWriter};
 use polars::lazy::dsl::{col, lit};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -44,21 +45,27 @@ pub struct OperationProgress {
 #[serde(rename_all = "lowercase")]
 pub enum ExportFormat {
     Csv,
+    Json,
     Parquet,
+    Sql,
 }
 
 impl ExportFormat {
     fn extension(self) -> &'static str {
         match self {
             Self::Csv => "csv",
+            Self::Json => "json",
             Self::Parquet => "parquet",
+            Self::Sql => "sql",
         }
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Csv => "CSV",
+            Self::Json => "JSON",
             Self::Parquet => "Parquet",
+            Self::Sql => "SQL",
         }
     }
 }
@@ -156,6 +163,23 @@ pub struct DatasetPreview {
     pub(crate) column_count: usize,
     pub(crate) columns: Vec<DatasetColumn>,
     rows: Vec<Vec<Option<String>>>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetComparison {
+    pub(crate) current_file_name: String,
+    pub(crate) compared_file_name: String,
+    pub(crate) current_row_count: usize,
+    pub(crate) compared_row_count: usize,
+    pub(crate) common_row_count: usize,
+    pub(crate) current_only_row_count: usize,
+    pub(crate) compared_only_row_count: usize,
+    pub(crate) shared_columns: Vec<String>,
+    pub(crate) current_only_columns: Vec<String>,
+    pub(crate) compared_only_columns: Vec<String>,
+    pub(crate) schema_compatible: bool,
+    pub(crate) can_consolidate: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -803,10 +827,17 @@ struct PendingSelection {
     sheets: Vec<String>,
 }
 
+struct PendingComparison {
+    file_name: String,
+    file_size_bytes: u64,
+    frame: DataFrame,
+}
+
 #[derive(Default)]
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
     pending_selection: Mutex<Option<PendingSelection>>,
+    comparison: Mutex<Option<PendingComparison>>,
     load_generation: AtomicU64,
     profile_generation: AtomicU64,
     export_generation: AtomicU64,
@@ -3034,8 +3065,142 @@ fn frame_for_export(frame: &DataFrame, format: ExportFormat) -> Result<DataFrame
         // CSV suele abrirse en hojas de cálculo: una comilla inicial fuerza texto y evita
         // ejecutar celdas controladas por datos. Parquet conserva los valores originales.
         ExportFormat::Csv => csv_formula_safe_frame(frame),
+        ExportFormat::Json => Ok(frame.clone()),
         ExportFormat::Parquet => Ok(frame.clone()),
+        ExportFormat::Sql => Ok(frame.clone()),
     }
+}
+
+fn sql_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn sql_type(data_type: &DataType) -> &'static str {
+    match data_type {
+        DataType::Boolean => "BOOLEAN",
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64 => "BIGINT",
+        DataType::Float32 | DataType::Float64 => "DOUBLE",
+        DataType::Date => "DATE",
+        DataType::Datetime(_, _) => "TIMESTAMP",
+        _ => "TEXT",
+    }
+}
+
+fn sql_value(value: AnyValue<'_>) -> Result<String, String> {
+    match value {
+        AnyValue::Null => Ok("NULL".to_owned()),
+        AnyValue::Boolean(value) => Ok(if value { "TRUE" } else { "FALSE" }.to_owned()),
+        AnyValue::Int8(value) => Ok(value.to_string()),
+        AnyValue::Int16(value) => Ok(value.to_string()),
+        AnyValue::Int32(value) => Ok(value.to_string()),
+        AnyValue::Int64(value) => Ok(value.to_string()),
+        AnyValue::UInt8(value) => Ok(value.to_string()),
+        AnyValue::UInt16(value) => Ok(value.to_string()),
+        AnyValue::UInt32(value) => Ok(value.to_string()),
+        AnyValue::UInt64(value) => Ok(value.to_string()),
+        AnyValue::Float32(value) if value.is_finite() => Ok(value.to_string()),
+        AnyValue::Float64(value) if value.is_finite() => Ok(value.to_string()),
+        AnyValue::Float32(_) | AnyValue::Float64(_) => {
+            Err("SQL no puede representar valores numéricos no finitos.".to_owned())
+        }
+        AnyValue::String(value) => Ok(sql_string_literal(value)),
+        AnyValue::StringOwned(value) => Ok(sql_string_literal(value.as_str())),
+        value => Ok(sql_string_literal(&value.to_string())),
+    }
+}
+
+fn write_sql_script<F, C>(
+    frame: &DataFrame,
+    output: &mut File,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(u8),
+    C: Fn() -> bool,
+{
+    const TABLE: &str = "dataset";
+    if frame.width() == 0 {
+        return Err("SQL requiere al menos una columna para crear la tabla.".to_owned());
+    }
+    let table = sql_identifier(TABLE);
+    writeln!(
+        output,
+        "-- Exportado por Columnia como script SQL portable."
+    )
+    .map_err(|error| format!("No se pudo escribir el encabezado SQL: {error}"))?;
+    writeln!(output, "BEGIN TRANSACTION;")
+        .map_err(|error| format!("No se pudo escribir el inicio SQL: {error}"))?;
+    writeln!(output, "DROP TABLE IF EXISTS {table};")
+        .map_err(|error| format!("No se pudo escribir la limpieza SQL: {error}"))?;
+    write!(output, "CREATE TABLE {table} (")
+        .map_err(|error| format!("No se pudo escribir el esquema SQL: {error}"))?;
+    for (index, column) in frame.columns().iter().enumerate() {
+        if index > 0 {
+            write!(output, ", ")
+                .map_err(|error| format!("No se pudo escribir el esquema SQL: {error}"))?;
+        }
+        write!(
+            output,
+            "{} {}",
+            sql_identifier(column.name().as_str()),
+            sql_type(column.dtype())
+        )
+        .map_err(|error| format!("No se pudo escribir el esquema SQL: {error}"))?;
+    }
+    writeln!(output, ");").map_err(|error| format!("No se pudo cerrar el esquema SQL: {error}"))?;
+
+    let columns = frame.columns();
+    for row_index in 0..frame.height() {
+        ensure_not_cancelled(is_cancelled())?;
+        write!(output, "INSERT INTO {table} (")
+            .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+        for (index, column) in columns.iter().enumerate() {
+            if index > 0 {
+                write!(output, ", ")
+                    .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+            }
+            write!(output, "{}", sql_identifier(column.name().as_str()))
+                .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+        }
+        write!(output, ") VALUES (")
+            .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+        for (index, column) in columns.iter().enumerate() {
+            if index > 0 {
+                write!(output, ", ")
+                    .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+            }
+            let value = column.get(row_index).map_err(|error| {
+                format!("No se pudo leer la fila {row_index} para SQL: {error}")
+            })?;
+            write!(output, "{}", sql_value(value)?)
+                .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+        }
+        writeln!(output, ");")
+            .map_err(|error| format!("No se pudo cerrar una fila SQL: {error}"))?;
+        let percent = if frame.height() == 0 {
+            85
+        } else {
+            30 + (((row_index + 1) * 55) / frame.height()) as u8
+        };
+        report(percent);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    writeln!(output, "COMMIT;")
+        .map_err(|error| format!("No se pudo escribir el cierre SQL: {error}"))?;
+    report(85);
+    Ok(())
 }
 
 fn export_frame_atomic<F, C>(
@@ -3055,7 +3220,7 @@ where
         .parent()
         .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
     report("Preparando archivo temporal", 10);
-    let temporary = tempfile::NamedTempFile::new_in(parent)
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo crear el archivo temporal: {error}"))?;
     let mut output_frame = frame_for_export(frame, format)?;
 
@@ -3064,10 +3229,20 @@ where
         ExportFormat::Csv => CsvWriter::new(temporary.as_file())
             .finish(&mut output_frame)
             .map_err(|error| format!("No se pudo escribir el CSV: {error}"))?,
+        ExportFormat::Json => JsonWriter::new(temporary.as_file())
+            .with_json_format(JsonFormat::Json)
+            .finish(&mut output_frame)
+            .map_err(|error| format!("No se pudo escribir el JSON: {error}"))?,
         ExportFormat::Parquet => ParquetWriter::new(temporary.as_file())
             .finish(&mut output_frame)
             .map(|_| ())
             .map_err(|error| format!("No se pudo escribir Parquet: {error}"))?,
+        ExportFormat::Sql => write_sql_script(
+            frame,
+            temporary.as_file_mut(),
+            |percent| report("Escribiendo SQL", percent),
+            &is_cancelled,
+        )?,
     }
 
     temporary
@@ -3093,6 +3268,251 @@ where
         file_size_bytes,
         format: format.label(),
     })
+}
+
+fn load_compare_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
+    if spreadsheet_extensions(extension) {
+        let sheets = inspect_workbook(path)?;
+        let sheet = sheets
+            .first()
+            .ok_or_else(|| "El libro no contiene hojas que se puedan comparar.".to_owned())?;
+        load_spreadsheet_sheet(path, sheet, SpreadsheetHeaderMode::FirstRow)
+    } else {
+        load_dataset_with_progress(path, |_, _| {}, || false).map(|(frame, _)| frame)
+    }
+}
+
+fn row_signature(
+    frame: &DataFrame,
+    columns: &[String],
+    row_index: usize,
+) -> Result<String, String> {
+    let mut signature = String::new();
+    for name in columns {
+        let value = frame
+            .column(name)
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?
+            .get(row_index)
+            .map_err(|error| format!("No se pudo comparar la fila {row_index}: {error}"))?;
+        match preview_value(value) {
+            Some(value) => {
+                use std::fmt::Write;
+                write!(&mut signature, "v{}:{value};", value.len())
+                    .map_err(|_| "No se pudo preparar la comparación.".to_owned())?;
+            }
+            None => signature.push_str("n;"),
+        }
+    }
+    Ok(signature)
+}
+
+fn row_signatures(frame: &DataFrame, columns: &[String]) -> Result<HashMap<String, usize>, String> {
+    let mut counts = HashMap::new();
+    for row_index in 0..frame.height() {
+        let signature = row_signature(frame, columns, row_index)?;
+        *counts.entry(signature).or_insert(0) += 1;
+    }
+    Ok(counts)
+}
+
+fn compare_frames(
+    current: &DataFrame,
+    current_file_name: &str,
+    compared: &DataFrame,
+    compared_file_name: &str,
+) -> Result<DatasetComparison, String> {
+    let current_columns = current
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let compared_columns = compared
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let shared_columns = current_columns
+        .iter()
+        .filter(|name| compared_columns.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let current_only_columns = current_columns
+        .iter()
+        .filter(|name| !compared_columns.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let compared_only_columns = compared_columns
+        .iter()
+        .filter(|name| !current_columns.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let schema_compatible = current_columns == compared_columns
+        && current
+            .columns()
+            .iter()
+            .zip(compared.columns())
+            .all(|(left, right)| left.dtype() == right.dtype());
+    let (common_row_count, current_only_row_count, compared_only_row_count) =
+        if shared_columns.is_empty() {
+            (0, current.height(), compared.height())
+        } else {
+            let current_rows = row_signatures(current, &shared_columns)?;
+            let compared_rows = row_signatures(compared, &shared_columns)?;
+            let common = current_rows
+                .iter()
+                .map(|(signature, count)| {
+                    (*count).min(compared_rows.get(signature).copied().unwrap_or(0))
+                })
+                .sum::<usize>();
+            (
+                common,
+                current.height().saturating_sub(common),
+                compared.height().saturating_sub(common),
+            )
+        };
+
+    Ok(DatasetComparison {
+        current_file_name: current_file_name.to_owned(),
+        compared_file_name: compared_file_name.to_owned(),
+        current_row_count: current.height(),
+        compared_row_count: compared.height(),
+        common_row_count,
+        current_only_row_count,
+        compared_only_row_count,
+        shared_columns,
+        current_only_columns,
+        compared_only_columns,
+        schema_compatible,
+        can_consolidate: schema_compatible,
+    })
+}
+
+#[tauri::command]
+pub async fn compare_dataset(app: AppHandle) -> Result<Option<DatasetComparison>, String> {
+    let (current_frame, current_file_name) = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_ref().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        (dataset.frame.clone(), dataset.file_name.clone())
+    };
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter(
+            "Datasets compatibles",
+            &[
+                "csv", "tsv", "txt", "json", "jsonl", "ndjson", "parquet", "xlsx", "xls", "xlsb",
+                "ods",
+            ],
+        )
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
+    let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
+    let compared_file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset")
+        .to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let compared_frame = load_compare_frame(&path, &extension)?;
+        let comparison = compare_frames(
+            &current_frame,
+            &current_file_name,
+            &compared_frame,
+            &compared_file_name,
+        )?;
+        let state = app.state::<DatasetState>();
+        *state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? =
+            Some(PendingComparison {
+                file_name: compared_file_name,
+                file_size_bytes,
+                frame: compared_frame,
+            });
+        Ok(Some(comparison))
+    })
+    .await
+    .map_err(|error| format!("La comparación se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub fn clear_dataset_comparison(state: State<'_, DatasetState>) -> Result<(), String> {
+    *state
+        .comparison
+        .lock()
+        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<DatasetPreview, String> {
+    let (compared_file_name, compared_file_size, compared_frame) = {
+        let comparison = state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+        let pending = comparison
+            .as_ref()
+            .ok_or_else(|| "No hay un dataset comparado listo para consolidar.".to_owned())?;
+        (
+            pending.file_name.clone(),
+            pending.file_size_bytes,
+            pending.frame.clone(),
+        )
+    };
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    if dataset.frame.get_column_names() != compared_frame.get_column_names()
+        || dataset
+            .frame
+            .columns()
+            .iter()
+            .zip(compared_frame.columns())
+            .any(|(left, right)| left.dtype() != right.dtype())
+    {
+        return Err(
+            "Los esquemas no son compatibles. La consolidación requiere las mismas columnas y tipos."
+                .to_owned(),
+        );
+    }
+    let mut consolidated = dataset.frame.clone();
+    consolidated
+        .vstack_mut(&compared_frame)
+        .map_err(|error| format!("No se pudieron unir los datasets: {error}"))?;
+    let file_name = format!("Consolidado · {} + {compared_file_name}", dataset.file_name);
+    let file_size_bytes = dataset.file_size_bytes.saturating_add(compared_file_size);
+    let preview = dataset_preview_with_size(&file_name, file_size_bytes, &consolidated)?;
+    dataset
+        .history
+        .record(&consolidated, "Consolidar datasets")?;
+    dataset.source_path = None;
+    dataset.file_name = file_name;
+    dataset.file_size_bytes = file_size_bytes;
+    dataset.frame = consolidated;
+    dataset.profile = None;
+    drop(current);
+    *state
+        .comparison
+        .lock()
+        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+    Ok(preview)
 }
 
 #[tauri::command]
@@ -3262,6 +3682,10 @@ pub async fn load_dataset_selection(
                 profile: None,
                 history,
             });
+        *state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
         let mut selection = state
             .pending_selection
             .lock()
@@ -7226,6 +7650,85 @@ mod tests {
         assert!(bytes.starts_with(b"PAR1"));
         assert!(bytes.ends_with(b"PAR1"));
         fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn exports_a_valid_json_array() {
+        let source = temporary_csv("city,value\nSanto Domingo,30\nSantiago,28\n");
+        let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let destination = directory.path().join("resultado.json");
+
+        export_frame_atomic(
+            &frame,
+            &destination,
+            ExportFormat::Json,
+            |_, _| {},
+            || false,
+        )
+        .expect("JSON debe exportarse");
+
+        let value: JsonValue = serde_json::from_slice(&fs::read(&destination).unwrap())
+            .expect("la salida debe ser JSON válido");
+        let rows = value.as_array().expect("la salida debe ser un arreglo");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["city"], "Santo Domingo");
+        assert_eq!(rows[1]["city"], "Santiago");
+        fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn exports_a_portable_sql_script_with_escaped_values_and_nulls() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("name".into(), &["O'Brien", "Ana"]).into_column(),
+                Series::new("total".into(), &[Some(10_i64), None]).into_column(),
+                Series::new("active".into(), &[true, false]).into_column(),
+            ],
+        )
+        .expect("el frame tipado debe ser válido");
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let destination = directory.path().join("resultado.sql");
+
+        export_frame_atomic(&frame, &destination, ExportFormat::Sql, |_, _| {}, || false)
+            .expect("SQL debe exportarse");
+
+        let script = fs::read_to_string(&destination).expect("se debe leer SQL");
+        assert!(script.contains("CREATE TABLE \"dataset\""));
+        assert!(script.contains("\"name\" TEXT"));
+        assert!(script.contains("\"total\" BIGINT"));
+        assert!(script.contains("'O''Brien'"));
+        assert!(script.contains("NULL"));
+        assert!(script.contains("TRUE"));
+        assert!(script.contains("BEGIN TRANSACTION;"));
+        assert!(script.contains("COMMIT;"));
+    }
+
+    #[test]
+    fn compares_multiset_rows_and_reports_schema_differences_before_consolidation() {
+        let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+        let compared_path = temporary_csv("id,city\n2,Santiago\n3,La Vega\n");
+        let (current, _) = load_csv(&current_path).expect("el dataset activo debe cargar");
+        let (compared, _) = load_csv(&compared_path).expect("el dataset comparado debe cargar");
+
+        let result = compare_frames(&current, "activo.csv", &compared, "comparado.csv")
+            .expect("la comparación debe calcularse");
+        assert_eq!(result.common_row_count, 1);
+        assert_eq!(result.current_only_row_count, 1);
+        assert_eq!(result.compared_only_row_count, 1);
+        assert_eq!(result.shared_columns, vec!["id", "city"]);
+        assert!(result.schema_compatible);
+        assert!(result.can_consolidate);
+
+        let mut consolidated = current.clone();
+        consolidated
+            .vstack_mut(&compared)
+            .expect("los esquemas compatibles deben consolidarse");
+        assert_eq!(consolidated.height(), 4);
+
+        fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
+        fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
     }
 
     #[test]

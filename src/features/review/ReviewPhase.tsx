@@ -9,6 +9,7 @@ import {
   previousPageOffset,
   type ProfileStatus,
 } from "./reviewModel";
+import type { ComparisonStatus } from "./compareModel";
 
 interface ReviewPhaseProps {
   datasetStatus: ReadyDatasetStatus;
@@ -18,6 +19,10 @@ interface ReviewPhaseProps {
   onPageChange: (offset: number) => void;
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
+  comparisonStatus: ComparisonStatus;
+  onCompare: () => void;
+  onClearComparison: () => void;
+  onConsolidate: () => void;
 }
 
 export function ReviewPhase({
@@ -28,6 +33,10 @@ export function ReviewPhase({
   onPageChange,
   onAnalyzeQuality,
   onCancelProfile,
+  comparisonStatus,
+  onCompare,
+  onClearComparison,
+  onConsolidate,
 }: ReviewPhaseProps) {
   return (
     <>
@@ -39,6 +48,12 @@ export function ReviewPhase({
         </div>
       </header>
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
+      <DatasetComparisonSection
+        status={comparisonStatus}
+        onCompare={onCompare}
+        onClear={onClearComparison}
+        onConsolidate={onConsolidate}
+      />
 
       {reviewTab === "diagnosis" ? (
         <div id="review-diagnosis-panel" role="tabpanel" aria-labelledby="review-diagnosis-tab">
@@ -61,6 +76,82 @@ export function ReviewPhase({
         </div>
       )}
     </>
+  );
+}
+
+function DatasetComparisonSection({
+  status,
+  onCompare,
+  onClear,
+  onConsolidate,
+}: {
+  status: ComparisonStatus;
+  onCompare: () => void;
+  onClear: () => void;
+  onConsolidate: () => void;
+}) {
+  return (
+    <section className="phase-section comparison-section" aria-labelledby="comparison-title">
+      <div className="section-heading">
+        <div>
+          <p className="step">Paridad de fuentes</p>
+          <h3 id="comparison-title">Comparar datasets</h3>
+        </div>
+        <button type="button" onClick={onCompare} disabled={status.kind === "loading"}>
+          {status.kind === "loading" ? "Comparando…" : "Elegir dataset para comparar"}
+        </button>
+      </div>
+      <p className="profile-note">
+        Contrasta filas como conjunto multivaluado y conserva el dataset activo hasta que decidas consolidar.
+      </p>
+      {status.kind === "loading" && (
+        <p className="notice" role="status">Leyendo la segunda fuente local…</p>
+      )}
+      {status.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo comparar la fuente: {status.message}
+        </p>
+      )}
+      {status.kind === "ready" && (
+        <>
+          <p className="comparison-source" aria-live="polite">
+            <strong>{status.comparison.currentFileName}</strong>
+            <span aria-hidden="true"> ↔ </span>
+            <strong>{status.comparison.comparedFileName}</strong>
+          </p>
+          <dl className="quality-summary" aria-label="Resumen de comparación">
+            <div><dt>Filas compartidas</dt><dd>{status.comparison.commonRowCount.toLocaleString()}</dd></div>
+            <div><dt>Solo en el activo</dt><dd>{status.comparison.currentOnlyRowCount.toLocaleString()}</dd></div>
+            <div><dt>Solo en el comparado</dt><dd>{status.comparison.comparedOnlyRowCount.toLocaleString()}</dd></div>
+          </dl>
+          <div className="comparison-columns" aria-label="Resultado de columnas">
+            <div>
+              <h4>Columnas compartidas ({status.comparison.sharedColumns.length})</h4>
+              <p>{status.comparison.sharedColumns.join(", ") || "Ninguna"}</p>
+            </div>
+            <div>
+              <h4>Solo en el activo ({status.comparison.currentOnlyColumns.length})</h4>
+              <p>{status.comparison.currentOnlyColumns.join(", ") || "Ninguna"}</p>
+            </div>
+            <div>
+              <h4>Solo en el comparado ({status.comparison.comparedOnlyColumns.length})</h4>
+              <p>{status.comparison.comparedOnlyColumns.join(", ") || "Ninguna"}</p>
+            </div>
+          </div>
+          <div className="comparison-actions">
+            <button type="button" className="secondary-action" onClick={onClear}>Descartar comparación</button>
+            <button type="button" className="primary-action" onClick={onConsolidate} disabled={!status.comparison.canConsolidate}>
+              Consolidar filas
+            </button>
+          </div>
+          {!status.comparison.canConsolidate && (
+            <p className="notice" role="note">
+              La consolidación requiere las mismas columnas en el mismo orden y con los mismos tipos.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -199,6 +290,7 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
           <dd>{profile.rowCount.toLocaleString()}</dd>
         </div>
       </dl>
+      <QualityVisuals profile={profile} />
       <div
         className="profile-region"
         role="region"
@@ -334,6 +426,83 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
       )}
     </>
   );
+}
+
+function QualityVisuals({ profile }: { profile: DatasetProfile }) {
+  const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
+  const maxOutlierCount = Math.max(
+    1,
+    ...numericColumns.map((column) => Math.max(0, column.outlierCount ?? 0)),
+  );
+
+  if (profile.columns.length === 0) return null;
+
+  return (
+    <section className="quality-visuals" aria-labelledby="quality-visuals-title">
+      <div className="quality-visuals__heading">
+        <div>
+          <p className="step">Lectura rápida</p>
+          <h4 id="quality-visuals-title">Señales del perfil</h4>
+        </div>
+        <p>
+          Las barras ayudan a detectar patrones; las tablas de abajo conservan los valores exactos
+          y el equivalente para lector de pantalla.
+        </p>
+      </div>
+      <div className="quality-chart-grid">
+        <div className="quality-chart" role="group" aria-labelledby="quality-completeness-title">
+          <h5 id="quality-completeness-title">Completitud por columna</h5>
+          <p className="quality-chart__note">Porcentaje de filas con un valor no nulo.</p>
+          <div className="quality-chart__bars" role="list" aria-label="Completitud por columna">
+            {profile.columns.map((column) => {
+              const percentage = clampPercentage(column.completenessPercentage);
+
+              return (
+                <div className="quality-chart__item" role="listitem" key={column.name}>
+                  <div className="quality-chart__label">
+                    <span title={column.name}>{column.name}</span>
+                    <strong>{percentage.toFixed(1)}%</strong>
+                  </div>
+                  <div className="quality-chart__track" aria-hidden="true">
+                    <span style={{ width: `${percentage}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {numericColumns.length > 0 && (
+          <div className="quality-chart" role="group" aria-labelledby="quality-outliers-title">
+            <h5 id="quality-outliers-title">Posibles outliers</h5>
+            <p className="quality-chart__note">Filas fuera del rango IQR de 1.5×.</p>
+            <div className="quality-chart__bars" role="list" aria-label="Posibles outliers por columna">
+              {numericColumns.map((column) => {
+                const count = Math.max(0, column.outlierCount ?? 0);
+                const percentage = (count / maxOutlierCount) * 100;
+
+                return (
+                  <div className="quality-chart__item" role="listitem" key={column.name}>
+                    <div className="quality-chart__label">
+                      <span title={column.name}>{column.name}</span>
+                      <strong>{count.toLocaleString()}</strong>
+                    </div>
+                    <div className="quality-chart__track" aria-hidden="true">
+                      <span style={{ width: `${percentage}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function clampPercentage(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, value));
 }
 
 function suggestedTypeLabel(type: string | null): string {

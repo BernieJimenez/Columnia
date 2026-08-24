@@ -96,4 +96,34 @@ describe("DeliveryPhase", () => {
       },
     }));
   });
+
+  it("ofrece exportación JSON con la misma compuerta de calidad", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Entiendo y deseo exportar sin contrato de calidad",
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar JSON" }));
+
+    expect(onExport).toHaveBeenCalledWith({
+      format: "json",
+      validation: { kind: "explicitly_unvalidated" },
+    });
+  });
+
+  it("ofrece exportación SQL con la misma compuerta de calidad", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Entiendo y deseo exportar sin contrato de calidad",
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar SQL" }));
+
+    expect(onExport).toHaveBeenCalledWith({
+      format: "sql",
+      validation: { kind: "explicitly_unvalidated" },
+    });
+  });
 });

@@ -6,8 +6,9 @@
 ## Estado general
 
 - Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
-  Fases I0, I4 e I8 cerradas y avances verificados en calidad local (I3) y
-  empaquetado Windows (I5); I3/I5 conservan validaciones externas de plataforma.
+  Fases I0, I4 e I8 cerradas, I3/I5 avanzadas y la Fase P1 de paridad funcional
+  con JSON, SQL, comparación/consolidación básica y visualizaciones accesibles;
+  I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
@@ -1013,6 +1014,26 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 6. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
    licencias/avisos, smoke de instalador limpio, updater autenticado y validación
    real en macOS/Linux.
+
+### Fase P1 — Paridad funcional con `dataprepv1.1`
+
+- [x] Crear una matriz verificable de entradas, transformaciones, proyectos,
+  visualizaciones, salidas, privacidad y escala.
+- [x] Implementar exportación JSON atómica en UI, Rust, CLI, batch y proyectos.
+- [x] Implementar exportación SQL atómica como script portable en UI, Rust, CLI,
+  batch y proyectos.
+- [x] Implementar comparación local de dos datasets, diferencias por filas y
+  columnas, y consolidación opt-in con historial cuando el esquema coincide.
+- [ ] Incorporar exportación Excel y destinos de base de datos.
+- [ ] Incorporar claves explícitas, conflictos por clave y joins multidataset.
+- [x] Añadir visualizaciones de análisis con tabla accesible equivalente para
+  completitud y posibles outliers.
+- [ ] Ampliar visualizaciones con gráficos exploratorios, filtros e interacciones.
+- [ ] Añadir detección de PII y reglas de privacidad visibles.
+- [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria.
+
+**Gate:** cada capacidad marcada como implementada debe tener contrato, prueba
+automatizada y una fila de paridad con evidencia del original.
 
 ## 9. Registro de decisiones
 

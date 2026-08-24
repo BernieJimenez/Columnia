@@ -5,22 +5,22 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 
 | Ecosistema | Paquete | Version | Licencia | Fuente |
 | --- | --- | --- | --- | --- |
+| cargo | png | 0.18.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | png | 0.17.16 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | plist | 1.10.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | planus | 1.1.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | png | 0.18.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-async | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-arrow-format | 0.2.1 | Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-arrow | 0.55.2 | MIT AND Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | pkg-config | 0.3.33 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | planus | 1.1.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | phf_shared | 0.12.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | phf_macros | 0.13.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | phf_generator | 0.13.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | phf_codegen | 0.13.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | phf_shared | 0.12.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | phf_shared | 0.13.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | pkg-config | 0.3.33 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | piper | 0.2.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | phf_shared | 0.13.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-async | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-buffer | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-ooc | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-mem-engine | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-lazy | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
@@ -28,14 +28,15 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | polars-plan | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-parquet-format | 0.1.0 | MIT AND Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-parquet | 0.55.2 | MIT AND Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-io | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-json | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-core | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-config | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-compute | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-buffer | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-core | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-dtype | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-io | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-expr | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-error | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-dtype | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | phf_codegen | 0.13.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | objc2-foundation | 0.3.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | objc2-exception-helper | 0.1.1 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | objc2-encode | 4.1.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
@@ -67,7 +68,6 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | ordered-stream | 0.2.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | option-ext | 0.2.0 | MPL-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | openssl-probe | 0.2.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-row | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | regex-automata | 0.4.18 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | regex | 1.13.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | ref-cast-impl | 1.0.26 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -99,100 +99,101 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | rustls | 0.23.43 | Apache-2.0 OR ISC OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | rustix | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | rustc_version | 0.4.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | precomputed-hash | 0.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | raw-cpuid | 11.6.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | powerfmt | 0.2.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | potential_utf | 0.1.5 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | proc-macro-crate | 1.3.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | proc-macro-error | 1.0.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | portable-atomic-util | 0.2.7 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | precomputed-hash | 0.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | proc-macro-crate | 3.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | proc-macro-crate | 2.0.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | portable-atomic-util | 0.2.7 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-stream | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | proc-macro-crate | 1.3.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | portable-atomic | 1.15.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-sql | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-schema | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | polars-time | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | portable-atomic | 1.15.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-row | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-stream | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polling | 3.11.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-utils | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | proc-macro-error-attr | 1.0.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | rand | 0.10.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | polars-time | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | proc-macro-error | 1.0.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | r-efi | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | rand_core | 0.10.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | raw-cpuid | 11.6.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | quote | 1.0.47 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | rand | 0.10.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | rand_pcg | 0.10.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | rand_distr | 0.6.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | quote | 1.0.47 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | quick-xml | 0.39.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | rand_core | 0.10.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | quinn-udp | 0.5.15 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | psm | 0.1.32 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | quick-xml | 0.41.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | quinn-udp | 0.5.15 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | proc-macro-error-attr | 1.0.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | quick-xml | 0.39.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | quinn-proto | 0.11.16 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | quinn | 0.11.11 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | quick-xml | 0.41.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hermit-abi | 0.5.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | heck | 0.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | heck | 0.4.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hashlink | 0.10.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hermit-abi | 0.5.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hex | 0.4.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | http | 1.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | html5ever | 0.38.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | home | 0.5.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hex | 0.4.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hashbrown | 0.17.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gtk3-macros | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gtk-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gtk | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | h2 | 0.4.18 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hashbrown | 0.15.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hashbrown | 0.12.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hashlink | 0.10.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | halfbrown | 0.4.0 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | half | 2.7.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | http | 1.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | h2 | 0.4.18 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hashbrown | 0.12.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hashbrown | 0.17.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hashbrown | 0.16.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hashbrown | 0.15.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | http-body | 1.1.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | icu_collections | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | ico | 0.5.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | iana-time-zone-haiku | 0.1.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | iana-time-zone | 0.1.65 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | icu_collections | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | icu_locale_core | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | icu_properties | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | icu_normalizer_data | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | icu_normalizer | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | icu_locale_core | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hyper-util | 0.1.20 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | iana-time-zone | 0.1.65 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | humantime | 2.4.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | httparse | 1.10.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | http-body-util | 0.1.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | http-body | 1.1.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | humantime | 2.4.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hybrid-array | 0.4.14 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | hyper-util | 0.1.20 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | hyper-rustls | 0.27.9 | Apache-2.0 OR ISC OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | hyper | 1.11.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | hybrid-array | 0.4.14 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-sink | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-macro | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-lite | 2.6.1 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-task | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gdk-pixbuf | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gdk | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gtk3-macros | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | futures-util | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-io | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | fs4 | 1.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | foreign-types-shared | 0.3.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-executor | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-core | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | futures-channel | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gdk-pixbuf-sys | 0.18.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | glib | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gio-sys | 0.18.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gio | 0.18.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | glib-macros | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gobject-sys | 0.18.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | glob | 0.3.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | glib-sys | 0.18.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | getrandom | 0.4.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gdkx11 | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gdkwayland-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-task | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-sink | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gdk | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | gdk-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | gdkx11-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | getrandom | 0.3.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | getrandom | 0.2.17 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gdk-pixbuf-sys | 0.18.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gdk-pixbuf | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-macro | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-channel | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | fs4 | 1.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-core | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-lite | 2.6.1 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-io | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | futures-executor | 0.3.34 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gdkwayland-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | glib-sys | 0.18.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | glib-macros | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | glib | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | glob | 0.3.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gtk-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gtk | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gobject-sys | 0.18.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gio-sys | 0.18.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | generic-array | 0.14.7 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | icu_properties | 2.2.0 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gdkx11-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gdkx11 | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | getrandom | 0.2.17 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | gio | 0.18.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | getrandom | 0.4.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | getrandom | 0.3.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | lz4 | 1.28.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | lru-slab | 0.1.2 | MIT OR Apache-2.0 OR Zlib | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | log | 0.4.33 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -224,6 +225,7 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | new_debug_unreachable | 1.0.6 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | ndk-sys | 0.6.0+11769913 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | ndk | 0.9.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | libdbus-sys | 0.2.7 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | itoa | 1.0.18 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | itertools | 0.14.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | ipnet | 2.12.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -240,13 +242,13 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | indexmap | 1.9.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | idna_adapter | 1.2.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | jiff-static | 0.2.35 | Unlicense OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | keyboard-types | 0.7.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | jsonptr | 0.6.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | jsonpath_lib_polars_vendor | 0.0.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | json-patch | 3.0.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | libappindicator | 0.9.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | libdbus-sys | 0.2.7 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | keyboard-types | 0.7.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | libc | 0.2.189 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | libappindicator-sys | 0.9.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | libappindicator | 0.9.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | js-sys | 0.3.104 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | jni | 0.21.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | jiff-tzdb-platform | 0.1.3 | Unlicense OR MIT | registry+https://github.com/rust-lang/crates.io-index |
@@ -286,13 +288,14 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | windows-result | 0.3.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows-numerics | 0.3.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows-numerics | 0.2.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | version-compare | 0.2.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | webkit2gtk-sys | 2.0.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | vcpkg | 0.2.15 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | value-trait | 0.12.2 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | uuid | 1.24.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | version_check | 0.9.5 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | vswhom-sys | 0.1.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | version-compare | 0.2.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | vswhom | 0.1.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | virtue | 0.0.18 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | version_check | 0.9.5 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | utf8_iter | 1.0.4 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | unicode-width | 0.2.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -301,23 +304,22 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | urlpattern | 0.3.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | url | 2.5.8 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | unty | 0.0.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | walkdir | 2.5.0 | Unlicense/MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | web-sys | 0.3.104 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | vswhom-sys | 0.1.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | wasm-streams | 0.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | wasm-streams | 0.4.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | web-time | 1.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | webkit2gtk-sys | 2.0.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | wasm-bindgen-shared | 0.2.127 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | web-sys | 0.3.104 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | webkit2gtk | 2.0.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | web_atoms | 0.2.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | wasm-bindgen-shared | 0.2.127 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | wasip2 | 1.0.4+wasi-0.2.12 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | web-time | 1.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | wasm-bindgen-macro-support | 0.2.127 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | wasi | 0.11.1+wasi-snapshot-preview1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | want | 0.3.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | wasm-bindgen | 0.2.127 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | wasm-bindgen-macro-support | 0.2.127 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | walkdir | 2.5.0 | Unlicense/MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | wasip2 | 1.0.4+wasi-0.2.12 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | wasm-bindgen-macro | 0.2.127 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | wasm-bindgen-futures | 0.4.77 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows-targets | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | wasm-bindgen | 0.2.127 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zbus_macros | 5.19.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zbus | 5.19.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | yoke-derive | 0.8.2 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -349,37 +351,38 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | zlib-rs | 0.6.7 | Zlib | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zip | 8.6.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | zerovec-derive | 0.11.3 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_aarch64_msvc | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | winnow | 1.0.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_aarch64_msvc | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_i686_gnu | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_i686_gnullvm | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_aarch64_gnullvm | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_aarch64_msvc | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_i686_gnu | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_i686_gnu | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_aarch64_gnullvm | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows-threading | 0.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_i686_gnu | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows-targets | 0.53.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows-targets | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows-threading | 0.2.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows-targets | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows-threading | 0.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_aarch64_gnullvm | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows-version | 0.1.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_i686_gnullvm | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows-threading | 0.2.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_i686_gnullvm | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_x86_64_msvc | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_x86_64_gnullvm | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_x86_64_msvc | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | winnow | 1.0.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_x86_64_gnullvm | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | winnow | 0.7.15 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | winnow | 0.5.40 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_x86_64_gnullvm | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_i686_msvc | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_x86_64_msvc | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_x86_64_gnullvm | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_i686_msvc | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_i686_msvc | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_x86_64_gnu | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | windows_x86_64_gnullvm | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_i686_gnullvm | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_i686_msvc | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_x86_64_gnu | 0.53.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | windows_x86_64_gnu | 0.52.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | windows_x86_64_gnu | 0.42.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | sqlparser_derive | 0.5.0 | Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | sqlparser | 0.62.0 | Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | soup3-sys | 0.5.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
@@ -411,6 +414,7 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | swift-rs | 1.0.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | subtle | 2.6.1 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | strum_macros | 0.28.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | simdutf8 | 0.1.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | serde_core | 1.0.229 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | serde-untagged | 0.1.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | serde | 1.0.229 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -431,7 +435,7 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | sha2 | 0.11.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | sha2 | 0.10.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | signal-hook | 0.4.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | simdutf8 | 0.1.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | simd-json | 0.17.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | simd-adler32 | 0.3.10 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | servo_arc | 0.4.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -442,7 +446,6 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | serialize-to-javascript-impl | 0.1.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | serialize-to-javascript | 0.1.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | serde_with_macros | 3.22.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tao | 0.35.3 | Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | toml_writer | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | toml_parser | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | toml_edit | 0.25.13+spec-1.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
@@ -474,194 +477,197 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | cargo | typenum | 1.20.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | typeid | 1.0.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | typed-path | 0.12.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tauri-runtime | 2.11.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tokio-util | 0.7.19 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tauri-plugin-single-instance | 2.4.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tauri-plugin-fs | 2.5.1 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tauri-runtime-wry | 2.11.4 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tempfile | 3.27.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tauri-plugin-dialog | 2.7.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tauri-runtime | 2.11.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tauri-winres | 0.3.6 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tauri-utils | 2.9.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tauri-plugin-dialog | 2.7.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tauri | 2.11.5 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tauri-runtime-wry | 2.11.4 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tauri-plugin | 2.6.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | target-lexicon | 0.12.16 | Apache-2.0 WITH LLVM-exception | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tao-macros | 0.1.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tauri-build | 2.6.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tauri-plugin | 2.6.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tao | 0.35.3 | Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tauri | 2.11.5 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tauri-macros | 2.6.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tauri-codegen | 2.6.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tendril | 0.5.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tauri-build | 2.6.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tempfile | 3.27.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tinyvec | 1.12.0 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tinystr | 0.8.3 | Unicode-3.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tokio | 1.53.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | tokio-util | 0.7.19 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | time-macros | 0.2.32 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tokio-rustls | 0.26.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | tokio-macros | 2.7.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | time-macros | 0.2.32 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | thiserror-impl | 1.0.69 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tokio | 1.53.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | time-core | 0.1.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | thiserror | 2.0.20 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | thiserror | 1.0.69 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | thiserror-impl | 2.0.20 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | time-core | 0.1.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | tendril | 0.5.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | thiserror-impl | 1.0.69 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | time | 0.3.55 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | thread_local | 1.1.10 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | foreign-types-macros | 0.2.4 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| npm | shebang-regex | 3.0.0 | UNKNOWN | https://registry.npmjs.org/shebang-regex/-/shebang-regex-3.0.0.tgz |
-| npm | shebang-command | 2.0.0 | UNKNOWN | https://registry.npmjs.org/shebang-command/-/shebang-command-2.0.0.tgz |
-| npm | path-key | 3.1.1 | UNKNOWN | https://registry.npmjs.org/path-key/-/path-key-3.1.1.tgz |
-| npm | which | 2.0.2 | UNKNOWN | https://registry.npmjs.org/which/-/which-2.0.2.tgz |
-| npm | jackspeak | 3.4.3 | UNKNOWN | https://registry.npmjs.org/jackspeak/-/jackspeak-3.4.3.tgz |
-| npm | signal-exit | 4.1.0 | UNKNOWN | https://registry.npmjs.org/signal-exit/-/signal-exit-4.1.0.tgz |
+| cargo | thiserror-impl | 2.0.20 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | npm | isexe | 2.0.0 | UNKNOWN | https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz |
-| npm | cross-spawn | 7.0.6 | UNKNOWN | https://registry.npmjs.org/cross-spawn/-/cross-spawn-7.0.6.tgz |
-| npm | std-env | 3.10.0 | UNKNOWN | https://registry.npmjs.org/std-env/-/std-env-3.10.0.tgz |
-| npm | source-map-js | 1.2.1 | UNKNOWN | https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz |
-| npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
-| npm | test-exclude | 7.0.2 | UNKNOWN | https://registry.npmjs.org/test-exclude/-/test-exclude-7.0.2.tgz |
-| npm | foreground-child | 3.3.1 | UNKNOWN | https://registry.npmjs.org/foreground-child/-/foreground-child-3.3.1.tgz |
-| npm | glob | 10.5.0 | UNKNOWN | https://registry.npmjs.org/glob/-/glob-10.5.0.tgz |
-| npm | @istanbuljs/schema | 0.1.6 | UNKNOWN | https://registry.npmjs.org/@istanbuljs/schema/-/schema-0.1.6.tgz |
-| npm | @isaacs/cliui | 8.0.2 | UNKNOWN | https://registry.npmjs.org/@isaacs/cliui/-/cliui-8.0.2.tgz |
-| npm | ansi-regex | 5.0.1 | UNKNOWN | package-lock.json |
-| npm | strip-ansi-cjs | 6.0.1 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz |
-| npm | strip-ansi | 7.2.0 | UNKNOWN | package-lock.json |
-| npm | strip-ansi | 7.2.0 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.2.0.tgz |
-| npm | ansi-styles | 4.3.0 | UNKNOWN | https://registry.npmjs.org/ansi-styles/-/ansi-styles-4.3.0.tgz |
-| npm | wrap-ansi-cjs | 7.0.0 | UNKNOWN | https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-7.0.0.tgz |
-| npm | ansi-regex | 6.3.0 | UNKNOWN | https://registry.npmjs.org/ansi-regex/-/ansi-regex-6.3.0.tgz |
-| npm | emoji-regex | 9.2.2 | UNKNOWN | https://registry.npmjs.org/emoji-regex/-/emoji-regex-9.2.2.tgz |
-| npm | is-fullwidth-code-point | 3.0.0 | UNKNOWN | https://registry.npmjs.org/is-fullwidth-code-point/-/is-fullwidth-code-point-3.0.0.tgz |
-| npm | emoji-regex | 8.0.0 | UNKNOWN | https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz |
+| npm | which | 2.0.2 | UNKNOWN | https://registry.npmjs.org/which/-/which-2.0.2.tgz |
+| npm | shebang-regex | 3.0.0 | UNKNOWN | https://registry.npmjs.org/shebang-regex/-/shebang-regex-3.0.0.tgz |
+| npm | signal-exit | 4.1.0 | UNKNOWN | https://registry.npmjs.org/signal-exit/-/signal-exit-4.1.0.tgz |
 | npm | string-width-cjs | 4.2.3 | UNKNOWN | https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz |
-| npm | strip-ansi | 6.0.1 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz |
-| npm | eastasianwidth | 0.2.0 | UNKNOWN | https://registry.npmjs.org/eastasianwidth/-/eastasianwidth-0.2.0.tgz |
-| npm | string-width | 5.1.2 | UNKNOWN | https://registry.npmjs.org/string-width/-/string-width-5.1.2.tgz |
+| npm | @isaacs/cliui | 8.0.2 | UNKNOWN | https://registry.npmjs.org/@isaacs/cliui/-/cliui-8.0.2.tgz |
+| npm | jackspeak | 3.4.3 | UNKNOWN | https://registry.npmjs.org/jackspeak/-/jackspeak-3.4.3.tgz |
+| npm | shebang-command | 2.0.0 | UNKNOWN | https://registry.npmjs.org/shebang-command/-/shebang-command-2.0.0.tgz |
+| npm | @istanbuljs/schema | 0.1.6 | UNKNOWN | https://registry.npmjs.org/@istanbuljs/schema/-/schema-0.1.6.tgz |
+| npm | test-exclude | 7.0.2 | UNKNOWN | https://registry.npmjs.org/test-exclude/-/test-exclude-7.0.2.tgz |
+| npm | std-env | 3.10.0 | UNKNOWN | https://registry.npmjs.org/std-env/-/std-env-3.10.0.tgz |
+| npm | glob | 10.5.0 | UNKNOWN | https://registry.npmjs.org/glob/-/glob-10.5.0.tgz |
+| npm | path-key | 3.1.1 | UNKNOWN | https://registry.npmjs.org/path-key/-/path-key-3.1.1.tgz |
+| npm | cross-spawn | 7.0.6 | UNKNOWN | https://registry.npmjs.org/cross-spawn/-/cross-spawn-7.0.6.tgz |
+| npm | foreground-child | 3.3.1 | UNKNOWN | https://registry.npmjs.org/foreground-child/-/foreground-child-3.3.1.tgz |
+| npm | emoji-regex | 8.0.0 | UNKNOWN | https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz |
+| npm | ansi-regex | 6.3.0 | UNKNOWN | https://registry.npmjs.org/ansi-regex/-/ansi-regex-6.3.0.tgz |
+| npm | strip-ansi | 7.2.0 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.2.0.tgz |
 | npm | ansi-regex | 5.0.1 | UNKNOWN | package-lock.json |
+| npm | wrap-ansi-cjs | 7.0.0 | UNKNOWN | https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-7.0.0.tgz |
+| npm | color-name | 1.1.4 | UNKNOWN | https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz |
+| npm | color-convert | 2.0.1 | UNKNOWN | https://registry.npmjs.org/color-convert/-/color-convert-2.0.1.tgz |
+| npm | ansi-styles | 4.3.0 | UNKNOWN | https://registry.npmjs.org/ansi-styles/-/ansi-styles-4.3.0.tgz |
+| npm | strip-ansi-cjs | 6.0.1 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz |
+| npm | ansi-regex | 5.0.1 | UNKNOWN | package-lock.json |
+| npm | strip-ansi | 6.0.1 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz |
+| npm | is-fullwidth-code-point | 3.0.0 | UNKNOWN | https://registry.npmjs.org/is-fullwidth-code-point/-/is-fullwidth-code-point-3.0.0.tgz |
+| npm | string-width | 5.1.2 | UNKNOWN | https://registry.npmjs.org/string-width/-/string-width-5.1.2.tgz |
+| npm | strip-ansi | 7.2.0 | UNKNOWN | package-lock.json |
+| npm | emoji-regex | 9.2.2 | UNKNOWN | https://registry.npmjs.org/emoji-regex/-/emoji-regex-9.2.2.tgz |
+| npm | eastasianwidth | 0.2.0 | UNKNOWN | https://registry.npmjs.org/eastasianwidth/-/eastasianwidth-0.2.0.tgz |
+| npm | source-map-js | 1.2.1 | UNKNOWN | https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz |
+| npm | debug | 4.4.3 | UNKNOWN | https://registry.npmjs.org/debug/-/debug-4.4.3.tgz |
 | npm | js-tokens | 10.0.0 | UNKNOWN | https://registry.npmjs.org/js-tokens/-/js-tokens-10.0.0.tgz |
 | npm | @types/estree | 1.0.9 | UNKNOWN | package-lock.json |
-| npm | estree-walker | 3.0.3 | UNKNOWN | https://registry.npmjs.org/estree-walker/-/estree-walker-3.0.3.tgz |
-| npm | debug | 4.4.3 | UNKNOWN | https://registry.npmjs.org/debug/-/debug-4.4.3.tgz |
+| npm | ms | 2.1.3 | UNKNOWN | https://registry.npmjs.org/ms/-/ms-2.1.3.tgz |
+| npm | istanbul-lib-coverage | 3.2.2 | UNKNOWN | package-lock.json |
 | npm | istanbul-lib-report | 3.0.1 | UNKNOWN | https://registry.npmjs.org/istanbul-lib-report/-/istanbul-lib-report-3.0.1.tgz |
 | npm | istanbul-lib-coverage | 3.2.2 | UNKNOWN | https://registry.npmjs.org/istanbul-lib-coverage/-/istanbul-lib-coverage-3.2.2.tgz |
-| npm | ms | 2.1.3 | UNKNOWN | https://registry.npmjs.org/ms/-/ms-2.1.3.tgz |
-| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
+| npm | estree-walker | 3.0.3 | UNKNOWN | https://registry.npmjs.org/estree-walker/-/estree-walker-3.0.3.tgz |
+| npm | @jridgewell/resolve-uri | 3.1.2 | UNKNOWN | https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz |
 | npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz |
 | npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
 | npm | @jridgewell/sourcemap-codec | 1.5.5 | UNKNOWN | package-lock.json |
-| npm | @jridgewell/resolve-uri | 3.1.2 | UNKNOWN | https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz |
+| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
 | npm | ast-v8-to-istanbul | 0.3.12 | UNKNOWN | https://registry.npmjs.org/ast-v8-to-istanbul/-/ast-v8-to-istanbul-0.3.12.tgz |
 | npm | @bcoe/v8-coverage | 1.0.2 | UNKNOWN | https://registry.npmjs.org/@bcoe/v8-coverage/-/v8-coverage-1.0.2.tgz |
-| npm | @jridgewell/sourcemap-codec | 1.5.5 | UNKNOWN | package-lock.json |
-| npm | istanbul-lib-coverage | 3.2.2 | UNKNOWN | package-lock.json |
+| npm | make-dir | 4.0.0 | UNKNOWN | https://registry.npmjs.org/make-dir/-/make-dir-4.0.0.tgz |
+| npm | magic-string | 0.30.21 | UNKNOWN | https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz |
 | npm | istanbul-lib-report | 3.0.1 | UNKNOWN | package-lock.json |
 | npm | html-escaper | 2.0.2 | UNKNOWN | https://registry.npmjs.org/html-escaper/-/html-escaper-2.0.2.tgz |
-| npm | istanbul-reports | 3.2.0 | UNKNOWN | https://registry.npmjs.org/istanbul-reports/-/istanbul-reports-3.2.0.tgz |
-| npm | magic-string | 0.30.21 | UNKNOWN | https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz |
-| npm | @babel/parser | 7.29.8 | UNKNOWN | package-lock.json |
-| npm | magicast | 0.3.5 | UNKNOWN | https://registry.npmjs.org/magicast/-/magicast-0.3.5.tgz |
 | npm | @jridgewell/sourcemap-codec | 1.5.5 | UNKNOWN | https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz |
-| npm | istanbul-lib-coverage | 3.2.2 | UNKNOWN | package-lock.json |
-| npm | supports-color | 7.2.0 | UNKNOWN | https://registry.npmjs.org/supports-color/-/supports-color-7.2.0.tgz |
-| npm | semver | 7.8.5 | UNKNOWN | https://registry.npmjs.org/semver/-/semver-7.8.5.tgz |
-| npm | make-dir | 4.0.0 | UNKNOWN | https://registry.npmjs.org/make-dir/-/make-dir-4.0.0.tgz |
-| npm | has-flag | 4.0.0 | UNKNOWN | https://registry.npmjs.org/has-flag/-/has-flag-4.0.0.tgz |
-| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
-| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
-| npm | istanbul-lib-source-maps | 5.0.6 | UNKNOWN | https://registry.npmjs.org/istanbul-lib-source-maps/-/istanbul-lib-source-maps-5.0.6.tgz |
-| npm | color-convert | 2.0.1 | UNKNOWN | https://registry.npmjs.org/color-convert/-/color-convert-2.0.1.tgz |
-| npm | data-urls | 5.0.0 | UNKNOWN | https://registry.npmjs.org/data-urls/-/data-urls-5.0.0.tgz |
-| npm | rrweb-cssom | 0.8.0 | UNKNOWN | package-lock.json |
-| npm | lru-cache | 10.4.3 | UNKNOWN | https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz |
-| npm | whatwg-mimetype | 4.0.0 | UNKNOWN | package-lock.json |
-| npm | html-encoding-sniffer | 4.0.0 | UNKNOWN | https://registry.npmjs.org/html-encoding-sniffer/-/html-encoding-sniffer-4.0.0.tgz |
-| npm | decimal.js | 10.6.0 | UNKNOWN | https://registry.npmjs.org/decimal.js/-/decimal.js-10.6.0.tgz |
-| npm | whatwg-url | 14.2.0 | UNKNOWN | package-lock.json |
-| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | https://registry.npmjs.org/@csstools/css-tokenizer/-/css-tokenizer-3.0.4.tgz |
-| npm | @csstools/css-calc | 2.1.4 | UNKNOWN | package-lock.json |
-| npm | @csstools/color-helpers | 5.1.0 | UNKNOWN | https://registry.npmjs.org/@csstools/color-helpers/-/color-helpers-5.1.0.tgz |
-| npm | @csstools/css-color-parser | 3.1.0 | UNKNOWN | https://registry.npmjs.org/@csstools/css-color-parser/-/css-color-parser-3.1.0.tgz |
-| npm | @csstools/css-parser-algorithms | 3.0.5 | UNKNOWN | package-lock.json |
-| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | package-lock.json |
-| npm | @csstools/css-parser-algorithms | 3.0.5 | UNKNOWN | https://registry.npmjs.org/@csstools/css-parser-algorithms/-/css-parser-algorithms-3.0.5.tgz |
-| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | package-lock.json |
-| npm | whatwg-encoding | 3.1.1 | UNKNOWN | package-lock.json |
-| npm | rrweb-cssom | 0.8.0 | UNKNOWN | https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.8.0.tgz |
-| npm | entities | 6.0.1 | UNKNOWN | https://registry.npmjs.org/entities/-/entities-6.0.1.tgz |
-| npm | parse5 | 7.3.0 | UNKNOWN | https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz |
-| npm | saxes | 6.0.0 | UNKNOWN | https://registry.npmjs.org/saxes/-/saxes-6.0.0.tgz |
-| npm | tough-cookie | 5.1.2 | UNKNOWN | https://registry.npmjs.org/tough-cookie/-/tough-cookie-5.1.2.tgz |
-| npm | symbol-tree | 3.2.4 | UNKNOWN | https://registry.npmjs.org/symbol-tree/-/symbol-tree-3.2.4.tgz |
-| npm | xmlchars | 2.2.0 | UNKNOWN | https://registry.npmjs.org/xmlchars/-/xmlchars-2.2.0.tgz |
-| npm | nwsapi | 2.2.24 | UNKNOWN | https://registry.npmjs.org/nwsapi/-/nwsapi-2.2.24.tgz |
-| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
-| npm | agent-base | 7.1.4 | UNKNOWN | https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz |
-| npm | http-proxy-agent | 7.0.2 | UNKNOWN | https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz |
-| npm | https-proxy-agent | 7.0.6 | UNKNOWN | https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz |
-| npm | is-potential-custom-element-name | 1.0.1 | UNKNOWN | https://registry.npmjs.org/is-potential-custom-element-name/-/is-potential-custom-element-name-1.0.1.tgz |
-| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
-| npm | agent-base | 7.1.4 | UNKNOWN | package-lock.json |
-| npm | strip-ansi | 7.2.0 | UNKNOWN | package-lock.json |
-| npm | string-width | 5.1.2 | UNKNOWN | package-lock.json |
-| npm | ansi-styles | 6.2.3 | UNKNOWN | https://registry.npmjs.org/ansi-styles/-/ansi-styles-6.2.3.tgz |
-| npm | @pkgjs/parseargs | 0.11.0 | UNKNOWN | https://registry.npmjs.org/@pkgjs/parseargs/-/parseargs-0.11.0.tgz |
-| npm | balanced-match | 1.0.2 | UNKNOWN | https://registry.npmjs.org/balanced-match/-/balanced-match-1.0.2.tgz |
-| npm | brace-expansion | 2.1.4 | UNKNOWN | https://registry.npmjs.org/brace-expansion/-/brace-expansion-2.1.4.tgz |
-| npm | minimatch | 9.0.9 | UNKNOWN | https://registry.npmjs.org/minimatch/-/minimatch-9.0.9.tgz |
-| npm | wrap-ansi | 8.1.0 | UNKNOWN | https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-8.1.0.tgz |
-| npm | emoji-regex | 8.0.0 | UNKNOWN | https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz |
-| npm | string-width | 4.2.3 | UNKNOWN | https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz |
-| npm | color-name | 1.1.4 | UNKNOWN | https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz |
-| npm | is-fullwidth-code-point | 3.0.0 | UNKNOWN | package-lock.json |
-| npm | ansi-regex | 5.0.1 | UNKNOWN | package-lock.json |
-| npm | strip-ansi | 6.0.1 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz |
-| npm | strip-ansi | 6.0.1 | UNKNOWN | package-lock.json |
-| npm | minipass | 7.1.3 | UNKNOWN | https://registry.npmjs.org/minipass/-/minipass-7.1.3.tgz |
-| npm | cssstyle | 4.6.0 | UNKNOWN | https://registry.npmjs.org/cssstyle/-/cssstyle-4.6.0.tgz |
-| npm | jsdom | 26.1.0 | UNKNOWN | https://registry.npmjs.org/jsdom/-/jsdom-26.1.0.tgz |
-| npm | vitest | 3.2.7 | UNKNOWN | package-lock.json |
-| npm | @asamuzakjp/css-color | 3.2.0 | UNKNOWN | https://registry.npmjs.org/@asamuzakjp/css-color/-/css-color-3.2.0.tgz |
-| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | package-lock.json |
-| npm | @csstools/css-parser-algorithms | 3.0.5 | UNKNOWN | package-lock.json |
-| npm | @csstools/css-calc | 2.1.4 | UNKNOWN | https://registry.npmjs.org/@csstools/css-calc/-/css-calc-2.1.4.tgz |
-| npm | tinyrainbow | 2.0.0 | UNKNOWN | https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-2.0.0.tgz |
-| npm | lru-cache | 10.4.3 | UNKNOWN | https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz |
-| npm | path-scurry | 1.11.1 | UNKNOWN | https://registry.npmjs.org/path-scurry/-/path-scurry-1.11.1.tgz |
-| npm | package-json-from-dist | 1.0.1 | UNKNOWN | https://registry.npmjs.org/package-json-from-dist/-/package-json-from-dist-1.0.1.tgz |
-| npm | minipass | 7.1.3 | UNKNOWN | package-lock.json |
-| npm | balanced-match | 4.0.4 | UNKNOWN | https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.4.tgz |
-| npm | brace-expansion | 5.0.9 | UNKNOWN | https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.9.tgz |
-| npm | minimatch | 10.2.6 | UNKNOWN | https://registry.npmjs.org/minimatch/-/minimatch-10.2.6.tgz |
-| npm | @types/react | 19.2.18 | UNKNOWN | package-lock.json |
-| npm | @types/react-dom | 19.2.4 | UNKNOWN | https://registry.npmjs.org/@types/react-dom/-/react-dom-19.2.4.tgz |
-| npm | undici-types | 7.18.2 | UNKNOWN | https://registry.npmjs.org/undici-types/-/undici-types-7.18.2.tgz |
-| npm | @types/react | 19.2.18 | UNKNOWN | https://registry.npmjs.org/@types/react/-/react-19.2.18.tgz |
-| npm | @babel/core | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/core/-/core-7.29.7.tgz |
-| npm | @vitejs/plugin-react | 4.7.0 | UNKNOWN | https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz |
-| npm | csstype | 3.2.3 | UNKNOWN | https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz |
-| npm | @types/node | 24.13.3 | UNKNOWN | https://registry.npmjs.org/@types/node/-/node-24.13.3.tgz |
-| npm | react-is | 17.0.2 | UNKNOWN | https://registry.npmjs.org/react-is/-/react-is-17.0.2.tgz |
-| npm | ansi-styles | 5.2.0 | UNKNOWN | https://registry.npmjs.org/ansi-styles/-/ansi-styles-5.2.0.tgz |
-| npm | ansi-regex | 5.0.1 | UNKNOWN | https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz |
-| npm | @types/react-dom | 19.2.4 | UNKNOWN | package-lock.json |
-| npm | react | 19.2.8 | UNKNOWN | package-lock.json |
-| npm | react-dom | 19.2.8 | UNKNOWN | package-lock.json |
-| npm | @types/react | 19.2.18 | UNKNOWN | package-lock.json |
-| npm | @babel/code-frame | 7.29.7 | UNKNOWN | package-lock.json |
-| npm | baseline-browser-mapping | 2.11.13 | UNKNOWN | https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.11.13.tgz |
-| npm | browserslist | 4.28.8 | UNKNOWN | https://registry.npmjs.org/browserslist/-/browserslist-4.28.8.tgz |
-| npm | @babel/helper-validator-option | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/helper-validator-option/-/helper-validator-option-7.29.7.tgz |
-| npm | caniuse-lite | 1.0.30001809 | UNKNOWN | https://registry.npmjs.org/caniuse-lite/-/caniuse-lite-1.0.30001809.tgz |
-| npm | update-browserslist-db | 1.3.1 | UNKNOWN | https://registry.npmjs.org/update-browserslist-db/-/update-browserslist-db-1.3.1.tgz |
-| npm | node-releases | 2.0.53 | UNKNOWN | https://registry.npmjs.org/node-releases/-/node-releases-2.0.53.tgz |
-| npm | electron-to-chromium | 1.5.405 | UNKNOWN | https://registry.npmjs.org/electron-to-chromium/-/electron-to-chromium-1.5.405.tgz |
-| npm | @babel/compat-data | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/compat-data/-/compat-data-7.29.7.tgz |
 | npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
 | npm | @babel/parser | 7.29.8 | UNKNOWN | package-lock.json |
+| npm | magicast | 0.3.5 | UNKNOWN | https://registry.npmjs.org/magicast/-/magicast-0.3.5.tgz |
+| npm | istanbul-reports | 3.2.0 | UNKNOWN | https://registry.npmjs.org/istanbul-reports/-/istanbul-reports-3.2.0.tgz |
+| npm | has-flag | 4.0.0 | UNKNOWN | https://registry.npmjs.org/has-flag/-/has-flag-4.0.0.tgz |
+| npm | supports-color | 7.2.0 | UNKNOWN | https://registry.npmjs.org/supports-color/-/supports-color-7.2.0.tgz |
+| npm | semver | 7.8.5 | UNKNOWN | https://registry.npmjs.org/semver/-/semver-7.8.5.tgz |
+| npm | istanbul-lib-source-maps | 5.0.6 | UNKNOWN | https://registry.npmjs.org/istanbul-lib-source-maps/-/istanbul-lib-source-maps-5.0.6.tgz |
+| npm | istanbul-lib-coverage | 3.2.2 | UNKNOWN | package-lock.json |
+| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
+| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
+| npm | whatwg-url | 14.2.0 | UNKNOWN | package-lock.json |
+| npm | whatwg-mimetype | 4.0.0 | UNKNOWN | package-lock.json |
+| npm | data-urls | 5.0.0 | UNKNOWN | https://registry.npmjs.org/data-urls/-/data-urls-5.0.0.tgz |
+| npm | decimal.js | 10.6.0 | UNKNOWN | https://registry.npmjs.org/decimal.js/-/decimal.js-10.6.0.tgz |
+| npm | http-proxy-agent | 7.0.2 | UNKNOWN | https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz |
+| npm | whatwg-encoding | 3.1.1 | UNKNOWN | package-lock.json |
+| npm | html-encoding-sniffer | 4.0.0 | UNKNOWN | https://registry.npmjs.org/html-encoding-sniffer/-/html-encoding-sniffer-4.0.0.tgz |
+| npm | rrweb-cssom | 0.8.0 | UNKNOWN | package-lock.json |
+| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | package-lock.json |
+| npm | @csstools/css-parser-algorithms | 3.0.5 | UNKNOWN | package-lock.json |
+| npm | @csstools/css-calc | 2.1.4 | UNKNOWN | package-lock.json |
+| npm | @csstools/css-parser-algorithms | 3.0.5 | UNKNOWN | https://registry.npmjs.org/@csstools/css-parser-algorithms/-/css-parser-algorithms-3.0.5.tgz |
+| npm | lru-cache | 10.4.3 | UNKNOWN | https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz |
+| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | https://registry.npmjs.org/@csstools/css-tokenizer/-/css-tokenizer-3.0.4.tgz |
+| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | package-lock.json |
+| npm | agent-base | 7.1.4 | UNKNOWN | https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz |
+| npm | xmlchars | 2.2.0 | UNKNOWN | https://registry.npmjs.org/xmlchars/-/xmlchars-2.2.0.tgz |
+| npm | saxes | 6.0.0 | UNKNOWN | https://registry.npmjs.org/saxes/-/saxes-6.0.0.tgz |
+| npm | rrweb-cssom | 0.8.0 | UNKNOWN | https://registry.npmjs.org/rrweb-cssom/-/rrweb-cssom-0.8.0.tgz |
+| npm | symbol-tree | 3.2.4 | UNKNOWN | https://registry.npmjs.org/symbol-tree/-/symbol-tree-3.2.4.tgz |
+| npm | tldts-core | 6.1.86 | UNKNOWN | https://registry.npmjs.org/tldts-core/-/tldts-core-6.1.86.tgz |
+| npm | tldts | 6.1.86 | UNKNOWN | https://registry.npmjs.org/tldts/-/tldts-6.1.86.tgz |
+| npm | tough-cookie | 5.1.2 | UNKNOWN | https://registry.npmjs.org/tough-cookie/-/tough-cookie-5.1.2.tgz |
+| npm | entities | 6.0.1 | UNKNOWN | https://registry.npmjs.org/entities/-/entities-6.0.1.tgz |
+| npm | agent-base | 7.1.4 | UNKNOWN | package-lock.json |
+| npm | https-proxy-agent | 7.0.6 | UNKNOWN | https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz |
+| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
+| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
+| npm | parse5 | 7.3.0 | UNKNOWN | https://registry.npmjs.org/parse5/-/parse5-7.3.0.tgz |
+| npm | nwsapi | 2.2.24 | UNKNOWN | https://registry.npmjs.org/nwsapi/-/nwsapi-2.2.24.tgz |
+| npm | is-potential-custom-element-name | 1.0.1 | UNKNOWN | https://registry.npmjs.org/is-potential-custom-element-name/-/is-potential-custom-element-name-1.0.1.tgz |
+| npm | @csstools/color-helpers | 5.1.0 | UNKNOWN | https://registry.npmjs.org/@csstools/color-helpers/-/color-helpers-5.1.0.tgz |
+| npm | @pkgjs/parseargs | 0.11.0 | UNKNOWN | https://registry.npmjs.org/@pkgjs/parseargs/-/parseargs-0.11.0.tgz |
+| npm | strip-ansi | 7.2.0 | UNKNOWN | package-lock.json |
+| npm | string-width | 5.1.2 | UNKNOWN | package-lock.json |
+| npm | minimatch | 9.0.9 | UNKNOWN | https://registry.npmjs.org/minimatch/-/minimatch-9.0.9.tgz |
+| npm | minipass | 7.1.3 | UNKNOWN | https://registry.npmjs.org/minipass/-/minipass-7.1.3.tgz |
+| npm | balanced-match | 1.0.2 | UNKNOWN | https://registry.npmjs.org/balanced-match/-/balanced-match-1.0.2.tgz |
+| npm | brace-expansion | 2.1.4 | UNKNOWN | https://registry.npmjs.org/brace-expansion/-/brace-expansion-2.1.4.tgz |
+| npm | ansi-styles | 6.2.3 | UNKNOWN | https://registry.npmjs.org/ansi-styles/-/ansi-styles-6.2.3.tgz |
+| npm | is-fullwidth-code-point | 3.0.0 | UNKNOWN | package-lock.json |
+| npm | emoji-regex | 8.0.0 | UNKNOWN | https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz |
+| npm | string-width | 4.2.3 | UNKNOWN | https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz |
+| npm | strip-ansi | 6.0.1 | UNKNOWN | package-lock.json |
+| npm | wrap-ansi | 8.1.0 | UNKNOWN | https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-8.1.0.tgz |
+| npm | ansi-regex | 5.0.1 | UNKNOWN | package-lock.json |
+| npm | strip-ansi | 6.0.1 | UNKNOWN | https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz |
+| npm | package-json-from-dist | 1.0.1 | UNKNOWN | https://registry.npmjs.org/package-json-from-dist/-/package-json-from-dist-1.0.1.tgz |
+| npm | @asamuzakjp/css-color | 3.2.0 | UNKNOWN | https://registry.npmjs.org/@asamuzakjp/css-color/-/css-color-3.2.0.tgz |
+| npm | cssstyle | 4.6.0 | UNKNOWN | https://registry.npmjs.org/cssstyle/-/cssstyle-4.6.0.tgz |
+| npm | jsdom | 26.1.0 | UNKNOWN | https://registry.npmjs.org/jsdom/-/jsdom-26.1.0.tgz |
+| npm | @csstools/css-calc | 2.1.4 | UNKNOWN | https://registry.npmjs.org/@csstools/css-calc/-/css-calc-2.1.4.tgz |
+| npm | @csstools/css-color-parser | 3.1.0 | UNKNOWN | https://registry.npmjs.org/@csstools/css-color-parser/-/css-color-parser-3.1.0.tgz |
+| npm | @csstools/css-tokenizer | 3.0.4 | UNKNOWN | package-lock.json |
+| npm | @csstools/css-parser-algorithms | 3.0.5 | UNKNOWN | package-lock.json |
+| npm | vitest | 3.2.7 | UNKNOWN | package-lock.json |
+| npm | minipass | 7.1.3 | UNKNOWN | package-lock.json |
+| npm | lru-cache | 10.4.3 | UNKNOWN | https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz |
+| npm | path-scurry | 1.11.1 | UNKNOWN | https://registry.npmjs.org/path-scurry/-/path-scurry-1.11.1.tgz |
+| npm | minimatch | 10.2.6 | UNKNOWN | https://registry.npmjs.org/minimatch/-/minimatch-10.2.6.tgz |
+| npm | tinyrainbow | 2.0.0 | UNKNOWN | https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-2.0.0.tgz |
+| npm | balanced-match | 4.0.4 | UNKNOWN | https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.4.tgz |
+| npm | brace-expansion | 5.0.9 | UNKNOWN | https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.9.tgz |
+| npm | @types/react | 19.2.18 | UNKNOWN | https://registry.npmjs.org/@types/react/-/react-19.2.18.tgz |
+| npm | @types/react | 19.2.18 | UNKNOWN | package-lock.json |
+| npm | @types/react-dom | 19.2.4 | UNKNOWN | https://registry.npmjs.org/@types/react-dom/-/react-dom-19.2.4.tgz |
+| npm | csstype | 3.2.3 | UNKNOWN | https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz |
+| npm | @babel/code-frame | 7.29.7 | UNKNOWN | package-lock.json |
+| npm | @babel/core | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/core/-/core-7.29.7.tgz |
+| npm | @vitejs/plugin-react | 4.7.0 | UNKNOWN | https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz |
+| npm | undici-types | 7.18.2 | UNKNOWN | https://registry.npmjs.org/undici-types/-/undici-types-7.18.2.tgz |
+| npm | @types/react-dom | 19.2.4 | UNKNOWN | package-lock.json |
+| npm | react-is | 17.0.2 | UNKNOWN | https://registry.npmjs.org/react-is/-/react-is-17.0.2.tgz |
+| npm | ansi-styles | 5.2.0 | UNKNOWN | https://registry.npmjs.org/ansi-styles/-/ansi-styles-5.2.0.tgz |
+| npm | @types/react | 19.2.18 | UNKNOWN | package-lock.json |
+| npm | @types/node | 24.13.3 | UNKNOWN | https://registry.npmjs.org/@types/node/-/node-24.13.3.tgz |
+| npm | react | 19.2.8 | UNKNOWN | package-lock.json |
+| npm | react-dom | 19.2.8 | UNKNOWN | package-lock.json |
 | npm | @babel/generator | 7.29.8 | UNKNOWN | https://registry.npmjs.org/@babel/generator/-/generator-7.29.8.tgz |
+| npm | caniuse-lite | 1.0.30001809 | UNKNOWN | https://registry.npmjs.org/caniuse-lite/-/caniuse-lite-1.0.30001809.tgz |
+| npm | baseline-browser-mapping | 2.11.13 | UNKNOWN | https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.11.13.tgz |
+| npm | browserslist | 4.28.8 | UNKNOWN | https://registry.npmjs.org/browserslist/-/browserslist-4.28.8.tgz |
+| npm | electron-to-chromium | 1.5.405 | UNKNOWN | https://registry.npmjs.org/electron-to-chromium/-/electron-to-chromium-1.5.405.tgz |
+| npm | browserslist | 4.28.8 | UNKNOWN | package-lock.json |
+| npm | update-browserslist-db | 1.3.1 | UNKNOWN | https://registry.npmjs.org/update-browserslist-db/-/update-browserslist-db-1.3.1.tgz |
+| npm | node-releases | 2.0.53 | UNKNOWN | https://registry.npmjs.org/node-releases/-/node-releases-2.0.53.tgz |
+| npm | @babel/helper-validator-option | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/helper-validator-option/-/helper-validator-option-7.29.7.tgz |
 | npm | @jridgewell/gen-mapping | 0.3.13 | UNKNOWN | package-lock.json |
+| npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
+| npm | @babel/parser | 7.29.8 | UNKNOWN | package-lock.json |
+| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
+| npm | @babel/compat-data | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/compat-data/-/compat-data-7.29.7.tgz |
 | npm | @babel/helper-compilation-targets | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/helper-compilation-targets/-/helper-compilation-targets-7.29.7.tgz |
 | npm | jsesc | 3.1.0 | UNKNOWN | https://registry.npmjs.org/jsesc/-/jsesc-3.1.0.tgz |
-| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
+| npm | ansi-regex | 5.0.1 | UNKNOWN | https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz |
 | npm | css.escape | 1.5.1 | UNKNOWN | https://registry.npmjs.org/css.escape/-/css.escape-1.5.1.tgz |
 | npm | dequal | 2.0.3 | UNKNOWN | https://registry.npmjs.org/dequal/-/dequal-2.0.3.tgz |
 | npm | aria-query | 5.3.0 | UNKNOWN | https://registry.npmjs.org/aria-query/-/aria-query-5.3.0.tgz |
@@ -693,38 +699,38 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | npm | js-tokens | 4.0.0 | UNKNOWN | https://registry.npmjs.org/js-tokens/-/js-tokens-4.0.0.tgz |
 | npm | @babel/helper-validator-identifier | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/helper-validator-identifier/-/helper-validator-identifier-7.29.7.tgz |
 | npm | @babel/code-frame | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.7.tgz |
-| npm | browserslist | 4.28.8 | UNKNOWN | package-lock.json |
+| npm | @babel/helper-plugin-utils | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/helper-plugin-utils/-/helper-plugin-utils-7.29.7.tgz |
 | npm | @babel/core | 7.29.7 | UNKNOWN | package-lock.json |
 | npm | @babel/plugin-transform-react-jsx-self | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/plugin-transform-react-jsx-self/-/plugin-transform-react-jsx-self-7.29.7.tgz |
-| npm | semver | 6.3.1 | UNKNOWN | https://registry.npmjs.org/semver/-/semver-6.3.1.tgz |
-| npm | @babel/helper-plugin-utils | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/helper-plugin-utils/-/helper-plugin-utils-7.29.7.tgz |
+| npm | @babel/plugin-transform-react-jsx-source | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/plugin-transform-react-jsx-source/-/plugin-transform-react-jsx-source-7.29.7.tgz |
+| npm | @rolldown/pluginutils | 1.0.0-beta.27 | UNKNOWN | https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-beta.27.tgz |
 | npm | @babel/helper-plugin-utils | 7.29.7 | UNKNOWN | package-lock.json |
 | npm | @babel/core | 7.29.7 | UNKNOWN | package-lock.json |
-| npm | @babel/plugin-transform-react-jsx-source | 7.29.7 | UNKNOWN | https://registry.npmjs.org/@babel/plugin-transform-react-jsx-source/-/plugin-transform-react-jsx-source-7.29.7.tgz |
-| npm | json5 | 2.2.3 | UNKNOWN | https://registry.npmjs.org/json5/-/json5-2.2.3.tgz |
+| npm | semver | 6.3.1 | UNKNOWN | https://registry.npmjs.org/semver/-/semver-6.3.1.tgz |
+| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
 | npm | @jridgewell/gen-mapping | 0.3.13 | UNKNOWN | package-lock.json |
 | npm | @jridgewell/remapping | 2.3.5 | UNKNOWN | https://registry.npmjs.org/@jridgewell/remapping/-/remapping-2.3.5.tgz |
-| npm | @babel/helper-validator-identifier | 7.29.7 | UNKNOWN | package-lock.json |
-| npm | @jridgewell/trace-mapping | 0.3.31 | UNKNOWN | package-lock.json |
+| npm | convert-source-map | 2.0.0 | UNKNOWN | https://registry.npmjs.org/convert-source-map/-/convert-source-map-2.0.0.tgz |
+| npm | json5 | 2.2.3 | UNKNOWN | https://registry.npmjs.org/json5/-/json5-2.2.3.tgz |
 | npm | gensync | 1.0.0-beta.2 | UNKNOWN | https://registry.npmjs.org/gensync/-/gensync-1.0.0-beta.2.tgz |
 | npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
-| npm | convert-source-map | 2.0.0 | UNKNOWN | https://registry.npmjs.org/convert-source-map/-/convert-source-map-2.0.0.tgz |
-| npm | @rolldown/pluginutils | 1.0.0-beta.27 | UNKNOWN | https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-beta.27.tgz |
+| npm | @types/babel__core | 7.20.5 | UNKNOWN | https://registry.npmjs.org/@types/babel__core/-/babel__core-7.20.5.tgz |
+| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
 | npm | react-refresh | 0.17.0 | UNKNOWN | https://registry.npmjs.org/react-refresh/-/react-refresh-0.17.0.tgz |
 | npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
-| npm | @types/babel__traverse | 7.28.0 | UNKNOWN | https://registry.npmjs.org/@types/babel__traverse/-/babel__traverse-7.28.0.tgz |
-| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
+| npm | @vitest/coverage-v8 | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/coverage-v8/-/coverage-v8-3.2.7.tgz |
+| npm | @jridgewell/sourcemap-codec | 1.5.5 | UNKNOWN | package-lock.json |
 | npm | @jridgewell/gen-mapping | 0.3.13 | UNKNOWN | https://registry.npmjs.org/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz |
 | npm | @ampproject/remapping | 2.3.0 | UNKNOWN | https://registry.npmjs.org/@ampproject/remapping/-/remapping-2.3.0.tgz |
-| npm | @vitest/coverage-v8 | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/coverage-v8/-/coverage-v8-3.2.7.tgz |
-| npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
+| npm | @types/babel__traverse | 7.28.0 | UNKNOWN | https://registry.npmjs.org/@types/babel__traverse/-/babel__traverse-7.28.0.tgz |
+| npm | @types/babel__generator | 7.27.0 | UNKNOWN | https://registry.npmjs.org/@types/babel__generator/-/babel__generator-7.27.0.tgz |
 | npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
 | npm | @babel/parser | 7.29.8 | UNKNOWN | package-lock.json |
-| npm | @types/babel__core | 7.20.5 | UNKNOWN | https://registry.npmjs.org/@types/babel__core/-/babel__core-7.20.5.tgz |
-| npm | @types/babel__generator | 7.27.0 | UNKNOWN | https://registry.npmjs.org/@types/babel__generator/-/babel__generator-7.27.0.tgz |
+| npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
+| npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
 | npm | @babel/parser | 7.29.8 | UNKNOWN | package-lock.json |
 | npm | @types/babel__template | 7.4.4 | UNKNOWN | https://registry.npmjs.org/@types/babel__template/-/babel__template-7.4.4.tgz |
-| npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
+| npm | @babel/helper-validator-identifier | 7.29.7 | UNKNOWN | package-lock.json |
 | npm | @babel/helper-validator-identifier | 7.29.7 | UNKNOWN | package-lock.json |
 | npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
 | npm | @babel/traverse | 7.29.8 | UNKNOWN | package-lock.json |
@@ -756,255 +762,257 @@ Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucio
 | npm | @babel/code-frame | 7.29.7 | UNKNOWN | package-lock.json |
 | npm | @babel/traverse | 7.29.8 | UNKNOWN | https://registry.npmjs.org/@babel/traverse/-/traverse-7.29.8.tgz |
 | npm | @babel/types | 7.29.8 | UNKNOWN | package-lock.json |
-| cargo | chrono-tz | 0.10.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | chrono | 0.4.45 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | chacha20 | 0.10.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | codepage | 0.1.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | compact_str | 0.9.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | comfy-table | 7.2.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | combine | 4.6.7 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cfg_aliases | 0.2.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cc | 1.4.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | castaway | 0.2.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cargo_toml | 0.22.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cesu8 | 1.1.0 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cfg-if | 1.0.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cfg-expr | 0.15.8 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cfb | 0.7.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crossbeam-channel | 0.5.16 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crc32fast | 1.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cpufeatures | 0.3.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crossbeam-deque | 0.8.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crossbeam-utils | 0.8.22 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crossbeam-queue | 0.3.13 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crossbeam-epoch | 0.9.20 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cookie | 0.18.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | codepage | 0.1.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | compact_str | 0.9.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | constant_time_eq | 0.4.2 | CC0-1.0 OR MIT-0 OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | const-oid | 0.10.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | core-foundation | 0.10.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | core-graphics-types | 0.2.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | core-graphics | 0.25.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bitflags | 2.13.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bitflags | 1.3.2 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bit-vec | 0.8.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | blake3 | 1.8.6 | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | block2 | 0.6.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | block-buffer | 0.12.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | block-buffer | 0.10.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bit-set | 0.8.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | autocfg | 1.5.1 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | atomic-waker | 1.1.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | atoi_simd | 0.18.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | base64 | 0.21.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bincode_derive | 2.0.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bincode | 2.0.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | base64 | 0.22.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | blocking | 1.6.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cairo-sys-rs | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cairo-rs | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bytes | 1.12.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | calamine | 0.36.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cargo_metadata | 0.19.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cargo-platform | 0.1.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | camino | 1.2.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | byteorder | 1.5.0 | Unlicense OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | brotli-decompressor | 5.0.3 | BSD-3-Clause/MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | brotli | 8.0.4 | BSD-3-Clause AND MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | boxcar | 0.2.14 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bs58 | 0.5.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bytemuck_derive | 1.12.0 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bytemuck | 1.25.2 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | bumpalo | 3.20.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crossterm | 0.29.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | endi | 1.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | embed_plist | 1.2.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | enumflags2 | 0.7.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | erased-serde | 0.4.10 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | equivalent | 1.0.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | enumflags2_derive | 0.7.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | embed-resource | 3.0.11 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dtor | 0.3.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dtoa-short | 0.3.5 | MPL-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dtoa | 1.0.11 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dtor-proc-macro | 0.0.6 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | either | 1.17.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dyn-clone | 1.0.20 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | errno | 0.3.14 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | flate2 | 1.1.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | find-msvc-tools | 0.1.10 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | field-offset | 0.3.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | fnv | 1.0.7 | Apache-2.0 / MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | foreign-types | 0.5.0 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | foldhash | 0.2.0 | Zlib | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | foldhash | 0.1.5 | Zlib | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | fdeflate | 0.3.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | event-listener | 5.4.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | ethnum | 1.5.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | fallible-iterator | 0.3.0 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | fastrand | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | fast-float2 | 0.2.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | fallible-streaming-iterator | 0.1.9 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | darling_macro | 0.23.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | darling_core | 0.23.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | darling | 0.23.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dbus | 0.9.12 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | defmt-macros | 1.1.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | defmt | 1.1.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | debug_unsafe | 0.1.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | ctor-proc-macro | 0.0.7 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crypto-common | 0.1.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | chrono-tz | 0.10.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cfg-expr | 0.15.8 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cfb | 0.7.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cesu8 | 1.1.0 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cfg-if | 1.0.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | chrono | 0.4.45 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | chacha20 | 0.10.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cfg_aliases | 0.2.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cookie | 0.18.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crossbeam-queue | 0.3.13 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crossbeam-epoch | 0.9.20 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crossbeam-deque | 0.8.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crossbeam-utils | 0.8.22 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | crunchy | 0.2.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | crossterm_winapi | 0.9.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | crypto-common | 0.2.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | ctor | 0.8.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cssparser-macros | 0.6.1 | MPL-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | cssparser | 0.36.0 | MPL-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | defmt-parser | 1.0.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dlopen2 | 0.8.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | displaydoc | 0.2.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dlopen2_derive | 0.4.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dpi | 0.1.2 | Apache-2.0 AND MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dom_query | 0.27.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | document-features | 0.2.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dirs-sys | 0.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | derive_more-impl | 2.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | derive_more | 2.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crossterm | 0.29.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crossbeam-channel | 0.5.16 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | core-graphics | 0.25.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | core-foundation | 0.10.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | core-graphics-types | 0.2.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crc32fast | 1.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cpufeatures | 0.3.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cc | 1.4.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | block-buffer | 0.10.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | blake3 | 1.8.6 | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bitflags | 2.13.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | block-buffer | 0.12.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | boxcar | 0.2.14 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | blocking | 1.6.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | block2 | 0.6.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bitflags | 1.3.2 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | base64 | 0.22.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | base64 | 0.21.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | autocfg | 1.5.1 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bincode | 2.0.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bit-vec | 0.8.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bit-set | 0.8.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bincode_derive | 2.0.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | brotli | 8.0.4 | BSD-3-Clause AND MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | camino | 1.2.5 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | calamine | 0.36.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cairo-sys-rs | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cargo-platform | 0.1.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | castaway | 0.2.4 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cargo_toml | 0.22.3 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cargo_metadata | 0.19.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cairo-rs | 0.18.5 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bumpalo | 3.20.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bs58 | 0.5.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | brotli-decompressor | 5.0.3 | BSD-3-Clause/MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bytemuck | 1.25.2 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bytes | 1.12.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | byteorder | 1.5.0 | Unlicense OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | bytemuck_derive | 1.12.0 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | equivalent | 1.0.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | enumflags2_derive | 0.7.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | enumflags2 | 0.7.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | erased-serde | 0.4.10 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | event-listener | 5.4.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | ethnum | 1.5.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | errno | 0.3.14 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | endi | 1.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dyn-clone | 1.0.20 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dtor-proc-macro | 0.0.6 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | either | 1.17.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | embed_plist | 1.2.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | embed-resource | 3.0.11 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | foldhash | 0.1.5 | Zlib | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | fnv | 1.0.7 | Apache-2.0 / MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | float-cmp | 0.10.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | foldhash | 0.2.0 | Zlib | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | foreign-types-shared | 0.3.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | foreign-types-macros | 0.2.4 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | foreign-types | 0.5.0 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | flate2 | 1.1.9 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | fast-float2 | 0.2.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | fallible-streaming-iterator | 0.1.9 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | fallible-iterator | 0.3.0 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | fastrand | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | find-msvc-tools | 0.1.10 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | field-offset | 0.3.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | fdeflate | 0.3.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dtor | 0.3.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | debug_unsafe | 0.1.4 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dbus | 0.9.12 | Apache-2.0/MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | darling_macro | 0.23.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | defmt | 1.1.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | deranged | 0.5.8 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | digest | 0.10.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | dirs | 6.0.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | digest-io | 0.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | defmt-parser | 1.0.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | defmt-macros | 1.1.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | darling_core | 0.23.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cssparser | 0.36.0 | MPL-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crypto-common | 0.2.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | crypto-common | 0.1.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | cssparser-macros | 0.6.1 | MPL-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | darling | 0.23.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | ctor-proc-macro | 0.0.7 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | ctor | 0.8.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | derive_more | 2.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | document-features | 0.2.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dlopen2_derive | 0.4.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dlopen2 | 0.8.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dom_query | 0.27.0 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dtoa-short | 0.3.5 | MPL-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dtoa | 1.0.11 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dpi | 0.1.2 | Apache-2.0 AND MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | displaydoc | 0.2.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | digest | 0.11.3 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| npm | assertion-error | 2.0.1 | UNKNOWN | https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz |
-| npm | @types/deep-eql | 4.0.2 | UNKNOWN | https://registry.npmjs.org/@types/deep-eql/-/deep-eql-4.0.2.tgz |
-| npm | @types/chai | 5.2.3 | UNKNOWN | https://registry.npmjs.org/@types/chai/-/chai-5.2.3.tgz |
-| npm | @types/node | 24.13.3 | UNKNOWN | package-lock.json |
-| npm | @vitest/spy | 3.2.7 | UNKNOWN | package-lock.json |
+| cargo | digest | 0.10.7 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | derive_more-impl | 2.1.1 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | digest-io | 0.1.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dirs-sys | 0.5.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | dirs | 6.0.0 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | npm | @types/chai | 5.2.3 | UNKNOWN | package-lock.json |
 | npm | @vitest/expect | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/expect/-/expect-3.2.7.tgz |
-| npm | vitest | 3.2.7 | UNKNOWN | https://registry.npmjs.org/vitest/-/vitest-3.2.7.tgz |
-| npm | @rollup/rollup-win32-x64-msvc | 4.62.4 | UNKNOWN | https://registry.npmjs.org/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.62.4.tgz |
-| npm | @rollup/rollup-win32-x64-gnu | 4.62.4 | UNKNOWN | https://registry.npmjs.org/@rollup/rollup-win32-x64-gnu/-/rollup-win32-x64-gnu-4.62.4.tgz |
-| npm | rollup | 4.62.4 | UNKNOWN | https://registry.npmjs.org/rollup/-/rollup-4.62.4.tgz |
-| npm | @types/estree | 1.0.9 | UNKNOWN | https://registry.npmjs.org/@types/estree/-/estree-1.0.9.tgz |
-| npm | picomatch | 4.0.5 | UNKNOWN | package-lock.json |
-| npm | fdir | 6.5.0 | UNKNOWN | package-lock.json |
-| npm | tinyglobby | 0.2.17 | UNKNOWN | https://registry.npmjs.org/tinyglobby/-/tinyglobby-0.2.17.tgz |
-| npm | @vitest/utils | 3.2.7 | UNKNOWN | package-lock.json |
-| npm | @vitest/utils | 3.2.7 | UNKNOWN | package-lock.json |
-| npm | @vitest/runner | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/runner/-/runner-3.2.7.tgz |
-| npm | tinyrainbow | 2.0.0 | UNKNOWN | package-lock.json |
-| npm | pathe | 2.0.3 | UNKNOWN | package-lock.json |
-| npm | @vitest/snapshot | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/snapshot/-/snapshot-3.2.7.tgz |
-| npm | js-tokens | 9.0.1 | UNKNOWN | https://registry.npmjs.org/js-tokens/-/js-tokens-9.0.1.tgz |
-| npm | strip-literal | 3.1.0 | UNKNOWN | https://registry.npmjs.org/strip-literal/-/strip-literal-3.1.0.tgz |
-| npm | @vitest/pretty-format | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-3.2.7.tgz |
-| npm | @vitest/mocker | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/mocker/-/mocker-3.2.7.tgz |
+| npm | @types/node | 24.13.3 | UNKNOWN | package-lock.json |
+| npm | @vitest/spy | 3.2.7 | UNKNOWN | package-lock.json |
 | npm | tinyrainbow | 2.0.0 | UNKNOWN | package-lock.json |
 | npm | chai | 5.3.3 | UNKNOWN | package-lock.json |
-| npm | @vitest/spy | 3.2.7 | UNKNOWN | package-lock.json |
-| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
+| npm | @vitest/utils | 3.2.7 | UNKNOWN | package-lock.json |
+| npm | assertion-error | 2.0.1 | UNKNOWN | https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz |
+| npm | fdir | 6.5.0 | UNKNOWN | package-lock.json |
+| npm | tinyglobby | 0.2.17 | UNKNOWN | https://registry.npmjs.org/tinyglobby/-/tinyglobby-0.2.17.tgz |
+| npm | @types/estree | 1.0.9 | UNKNOWN | https://registry.npmjs.org/@types/estree/-/estree-1.0.9.tgz |
+| npm | picomatch | 4.0.5 | UNKNOWN | package-lock.json |
+| npm | @types/deep-eql | 4.0.2 | UNKNOWN | https://registry.npmjs.org/@types/deep-eql/-/deep-eql-4.0.2.tgz |
+| npm | @types/chai | 5.2.3 | UNKNOWN | https://registry.npmjs.org/@types/chai/-/chai-5.2.3.tgz |
+| npm | vitest | 3.2.7 | UNKNOWN | https://registry.npmjs.org/vitest/-/vitest-3.2.7.tgz |
+| npm | @vitest/mocker | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/mocker/-/mocker-3.2.7.tgz |
+| npm | js-tokens | 9.0.1 | UNKNOWN | https://registry.npmjs.org/js-tokens/-/js-tokens-9.0.1.tgz |
+| npm | strip-literal | 3.1.0 | UNKNOWN | https://registry.npmjs.org/strip-literal/-/strip-literal-3.1.0.tgz |
+| npm | pathe | 2.0.3 | UNKNOWN | package-lock.json |
+| npm | @vitest/snapshot | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/snapshot/-/snapshot-3.2.7.tgz |
+| npm | pathe | 2.0.3 | UNKNOWN | package-lock.json |
+| npm | magic-string | 0.30.21 | UNKNOWN | package-lock.json |
+| npm | @vitest/pretty-format | 3.2.7 | UNKNOWN | package-lock.json |
+| npm | @vitest/utils | 3.2.7 | UNKNOWN | package-lock.json |
 | npm | magic-string | 0.30.21 | UNKNOWN | package-lock.json |
 | npm | estree-walker | 3.0.3 | UNKNOWN | package-lock.json |
-| npm | tr46 | 5.1.1 | UNKNOWN | https://registry.npmjs.org/tr46/-/tr46-5.1.1.tgz |
-| npm | whatwg-url | 14.2.0 | UNKNOWN | https://registry.npmjs.org/whatwg-url/-/whatwg-url-14.2.0.tgz |
-| npm | whatwg-mimetype | 4.0.0 | UNKNOWN | https://registry.npmjs.org/whatwg-mimetype/-/whatwg-mimetype-4.0.0.tgz |
-| npm | punycode | 2.3.1 | UNKNOWN | https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz |
-| npm | xml-name-validator | 5.0.0 | UNKNOWN | https://registry.npmjs.org/xml-name-validator/-/xml-name-validator-5.0.0.tgz |
-| npm | ws | 8.21.3 | UNKNOWN | https://registry.npmjs.org/ws/-/ws-8.21.3.tgz |
+| npm | @vitest/spy | 3.2.7 | UNKNOWN | package-lock.json |
+| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
+| npm | @vitest/runner | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/runner/-/runner-3.2.7.tgz |
+| npm | tinyrainbow | 2.0.0 | UNKNOWN | package-lock.json |
+| npm | @vitest/pretty-format | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-3.2.7.tgz |
+| npm | @rollup/rollup-win32-x64-msvc | 4.62.4 | UNKNOWN | https://registry.npmjs.org/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.62.4.tgz |
 | npm | webidl-conversions | 7.0.0 | UNKNOWN | package-lock.json |
-| npm | safer-buffer | 2.1.2 | UNKNOWN | https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz |
-| npm | w3c-xmlserializer | 5.0.0 | UNKNOWN | https://registry.npmjs.org/w3c-xmlserializer/-/w3c-xmlserializer-5.0.0.tgz |
-| npm | tldts-core | 6.1.86 | UNKNOWN | https://registry.npmjs.org/tldts-core/-/tldts-core-6.1.86.tgz |
-| npm | tldts | 6.1.86 | UNKNOWN | https://registry.npmjs.org/tldts/-/tldts-6.1.86.tgz |
-| npm | xml-name-validator | 5.0.0 | UNKNOWN | package-lock.json |
-| npm | iconv-lite | 0.6.3 | UNKNOWN | https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz |
-| npm | whatwg-encoding | 3.1.1 | UNKNOWN | https://registry.npmjs.org/whatwg-encoding/-/whatwg-encoding-3.1.1.tgz |
-| npm | webidl-conversions | 7.0.0 | UNKNOWN | https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-7.0.0.tgz |
-| npm | react-dom | 19.2.8 | UNKNOWN | https://registry.npmjs.org/react-dom/-/react-dom-19.2.8.tgz |
-| npm | picomatch | 4.0.5 | UNKNOWN | https://registry.npmjs.org/picomatch/-/picomatch-4.0.5.tgz |
-| npm | picomatch | 4.0.5 | UNKNOWN | package-lock.json |
-| npm | fdir | 6.5.0 | UNKNOWN | https://registry.npmjs.org/fdir/-/fdir-6.5.0.tgz |
-| npm | postcss | 8.5.26 | UNKNOWN | https://registry.npmjs.org/postcss/-/postcss-8.5.26.tgz |
-| npm | source-map-js | 1.2.1 | UNKNOWN | package-lock.json |
-| npm | picocolors | 1.1.1 | UNKNOWN | package-lock.json |
-| npm | nanoid | 3.3.18 | UNKNOWN | https://registry.npmjs.org/nanoid/-/nanoid-3.3.18.tgz |
-| npm | @esbuild/win32-x64 | 0.28.2 | UNKNOWN | https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz |
-| npm | react | 19.2.8 | UNKNOWN | https://registry.npmjs.org/react/-/react-19.2.8.tgz |
-| npm | scheduler | 0.27.0 | UNKNOWN | https://registry.npmjs.org/scheduler/-/scheduler-0.27.0.tgz |
+| npm | punycode | 2.3.1 | UNKNOWN | https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz |
+| npm | tr46 | 5.1.1 | UNKNOWN | https://registry.npmjs.org/tr46/-/tr46-5.1.1.tgz |
+| npm | ws | 8.21.3 | UNKNOWN | https://registry.npmjs.org/ws/-/ws-8.21.3.tgz |
 | npm | react | 19.2.8 | UNKNOWN | package-lock.json |
-| npm | typescript | 5.8.3 | UNKNOWN | https://registry.npmjs.org/typescript/-/typescript-5.8.3.tgz |
-| npm | esbuild | 0.28.2 | UNKNOWN | https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz |
-| npm | @types/node | 24.13.3 | UNKNOWN | package-lock.json |
+| npm | react-dom | 19.2.8 | UNKNOWN | https://registry.npmjs.org/react-dom/-/react-dom-19.2.8.tgz |
+| npm | xml-name-validator | 5.0.0 | UNKNOWN | https://registry.npmjs.org/xml-name-validator/-/xml-name-validator-5.0.0.tgz |
+| npm | whatwg-url | 14.2.0 | UNKNOWN | https://registry.npmjs.org/whatwg-url/-/whatwg-url-14.2.0.tgz |
+| npm | webidl-conversions | 7.0.0 | UNKNOWN | https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-7.0.0.tgz |
+| npm | xml-name-validator | 5.0.0 | UNKNOWN | package-lock.json |
+| npm | w3c-xmlserializer | 5.0.0 | UNKNOWN | https://registry.npmjs.org/w3c-xmlserializer/-/w3c-xmlserializer-5.0.0.tgz |
+| npm | whatwg-encoding | 3.1.1 | UNKNOWN | https://registry.npmjs.org/whatwg-encoding/-/whatwg-encoding-3.1.1.tgz |
+| npm | whatwg-mimetype | 4.0.0 | UNKNOWN | https://registry.npmjs.org/whatwg-mimetype/-/whatwg-mimetype-4.0.0.tgz |
+| npm | safer-buffer | 2.1.2 | UNKNOWN | https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz |
+| npm | iconv-lite | 0.6.3 | UNKNOWN | https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz |
+| npm | scheduler | 0.27.0 | UNKNOWN | https://registry.npmjs.org/scheduler/-/scheduler-0.27.0.tgz |
+| npm | nanoid | 3.3.18 | UNKNOWN | https://registry.npmjs.org/nanoid/-/nanoid-3.3.18.tgz |
+| npm | postcss | 8.5.26 | UNKNOWN | https://registry.npmjs.org/postcss/-/postcss-8.5.26.tgz |
+| npm | picomatch | 4.0.5 | UNKNOWN | https://registry.npmjs.org/picomatch/-/picomatch-4.0.5.tgz |
+| npm | picocolors | 1.1.1 | UNKNOWN | package-lock.json |
+| npm | @rollup/rollup-win32-x64-gnu | 4.62.4 | UNKNOWN | https://registry.npmjs.org/@rollup/rollup-win32-x64-gnu/-/rollup-win32-x64-gnu-4.62.4.tgz |
+| npm | rollup | 4.62.4 | UNKNOWN | https://registry.npmjs.org/rollup/-/rollup-4.62.4.tgz |
+| npm | source-map-js | 1.2.1 | UNKNOWN | package-lock.json |
+| npm | picomatch | 4.0.5 | UNKNOWN | package-lock.json |
 | npm | vite | 7.3.6 | UNKNOWN | https://registry.npmjs.org/vite/-/vite-7.3.6.tgz |
-| npm | @vitest/pretty-format | 3.2.7 | UNKNOWN | package-lock.json |
-| cargo | android_system_properties | 0.1.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | alloc-stdlib | 0.2.4 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | anyhow | 1.0.104 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | array-init-cursor | 0.2.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | argminmax | 0.6.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| npm | typescript | 5.8.3 | UNKNOWN | https://registry.npmjs.org/typescript/-/typescript-5.8.3.tgz |
+| npm | react | 19.2.8 | UNKNOWN | https://registry.npmjs.org/react/-/react-19.2.8.tgz |
+| npm | @types/node | 24.13.3 | UNKNOWN | package-lock.json |
+| npm | fdir | 6.5.0 | UNKNOWN | https://registry.npmjs.org/fdir/-/fdir-6.5.0.tgz |
+| npm | @esbuild/win32-x64 | 0.28.2 | UNKNOWN | https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz |
+| npm | esbuild | 0.28.2 | UNKNOWN | https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz |
 | cargo | ar_archive_writer | 0.5.3 | Apache-2.0 WITH LLVM-exception | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | alloc-no-stdlib | 2.0.4 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
-| npm | why-is-node-running | 2.3.0 | UNKNOWN | https://registry.npmjs.org/why-is-node-running/-/why-is-node-running-2.3.0.tgz |
-| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
-| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
-| npm | siginfo | 2.0.0 | UNKNOWN | https://registry.npmjs.org/siginfo/-/siginfo-2.0.0.tgz |
-| cargo | aho-corasick | 1.1.5 | Unlicense OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | anyhow | 1.0.104 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | android_system_properties | 0.1.6 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | argminmax | 0.6.3 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | arrayvec | 0.7.8 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | arrayref | 0.3.9 | BSD-2-Clause | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | array-init-cursor | 0.2.1 | MIT/Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
 | npm | stackback | 0.0.2 | UNKNOWN | https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz |
-| cargo | arrayref | 0.3.9 | BSD-2-Clause | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-stream-impl | 0.3.6 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-stream | 0.3.6 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-signal | 0.2.14 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-task | 4.7.1 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | atk-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | atk | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-trait | 0.1.92 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-recursion | 1.1.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-channel | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| npm | siginfo | 2.0.0 | UNKNOWN | https://registry.npmjs.org/siginfo/-/siginfo-2.0.0.tgz |
+| cargo | ahash | 0.8.12 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | alloc-stdlib | 0.2.4 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | alloc-no-stdlib | 2.0.4 | BSD-3-Clause | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | aho-corasick | 1.1.5 | Unlicense OR MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | async-broadcast | 0.7.2 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | arrayvec | 0.7.8 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-executor | 1.14.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-process | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| cargo | async-lock | 3.4.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-trait | 0.1.92 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-task | 4.7.1 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-stream-impl | 0.3.6 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | atk | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | atomic-waker | 1.1.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | atoi_simd | 0.18.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | atk-sys | 0.18.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-stream | 0.3.6 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | async-io | 2.6.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
-| npm | check-error | 2.1.3 | UNKNOWN | https://registry.npmjs.org/check-error/-/check-error-2.1.3.tgz |
-| npm | assertion-error | 2.0.1 | UNKNOWN | package-lock.json |
-| npm | chai | 5.3.3 | UNKNOWN | https://registry.npmjs.org/chai/-/chai-5.3.3.tgz |
-| npm | deep-eql | 5.0.2 | UNKNOWN | https://registry.npmjs.org/deep-eql/-/deep-eql-5.0.2.tgz |
-| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
-| npm | pathval | 2.0.1 | UNKNOWN | https://registry.npmjs.org/pathval/-/pathval-2.0.1.tgz |
+| cargo | async-executor | 1.14.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-channel | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-lock | 3.4.2 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-signal | 0.2.14 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-recursion | 1.1.1 | MIT OR Apache-2.0 | registry+https://github.com/rust-lang/crates.io-index |
+| cargo | async-process | 2.5.0 | Apache-2.0 OR MIT | registry+https://github.com/rust-lang/crates.io-index |
+| npm | why-is-node-running | 2.3.0 | UNKNOWN | https://registry.npmjs.org/why-is-node-running/-/why-is-node-running-2.3.0.tgz |
 | npm | loupe | 3.2.1 | UNKNOWN | package-lock.json |
-| npm | tinyrainbow | 2.0.0 | UNKNOWN | package-lock.json |
-| npm | @vitest/spy | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/spy/-/spy-3.2.7.tgz |
-| npm | pathe | 2.0.3 | UNKNOWN | package-lock.json |
-| npm | magic-string | 0.30.21 | UNKNOWN | package-lock.json |
-| npm | tinyspy | 4.0.4 | UNKNOWN | https://registry.npmjs.org/tinyspy/-/tinyspy-4.0.4.tgz |
-| npm | loupe | 3.2.1 | UNKNOWN | https://registry.npmjs.org/loupe/-/loupe-3.2.1.tgz |
-| npm | @vitest/pretty-format | 3.2.7 | UNKNOWN | package-lock.json |
-| npm | @vitest/utils | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/utils/-/utils-3.2.7.tgz |
-| npm | expect-type | 1.4.0 | UNKNOWN | https://registry.npmjs.org/expect-type/-/expect-type-1.4.0.tgz |
-| npm | vite-node | 3.2.4 | UNKNOWN | https://registry.npmjs.org/vite-node/-/vite-node-3.2.4.tgz |
-| npm | tinyrainbow | 2.0.0 | UNKNOWN | package-lock.json |
-| npm | tinypool | 1.1.1 | UNKNOWN | https://registry.npmjs.org/tinypool/-/tinypool-1.1.1.tgz |
-| npm | cac | 6.7.14 | UNKNOWN | https://registry.npmjs.org/cac/-/cac-6.7.14.tgz |
-| npm | pathe | 2.0.3 | UNKNOWN | package-lock.json |
-| npm | es-module-lexer | 1.7.0 | UNKNOWN | https://registry.npmjs.org/es-module-lexer/-/es-module-lexer-1.7.0.tgz |
-| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
-| npm | tinyglobby | 0.2.17 | UNKNOWN | package-lock.json |
-| npm | pathe | 2.0.3 | UNKNOWN | https://registry.npmjs.org/pathe/-/pathe-2.0.3.tgz |
-| npm | magic-string | 0.30.21 | UNKNOWN | package-lock.json |
+| npm | deep-eql | 5.0.2 | UNKNOWN | https://registry.npmjs.org/deep-eql/-/deep-eql-5.0.2.tgz |
+| npm | check-error | 2.1.3 | UNKNOWN | https://registry.npmjs.org/check-error/-/check-error-2.1.3.tgz |
+| npm | pathval | 2.0.1 | UNKNOWN | https://registry.npmjs.org/pathval/-/pathval-2.0.1.tgz |
 | npm | jsdom | 26.1.0 | UNKNOWN | package-lock.json |
-| npm | picomatch | 4.0.5 | UNKNOWN | package-lock.json |
-| npm | tinyexec | 0.3.2 | UNKNOWN | https://registry.npmjs.org/tinyexec/-/tinyexec-0.3.2.tgz |
-| npm | tinybench | 2.9.0 | UNKNOWN | https://registry.npmjs.org/tinybench/-/tinybench-2.9.0.tgz |
+| npm | expect-type | 1.4.0 | UNKNOWN | https://registry.npmjs.org/expect-type/-/expect-type-1.4.0.tgz |
+| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
+| npm | assertion-error | 2.0.1 | UNKNOWN | package-lock.json |
+| npm | @vitest/utils | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/utils/-/utils-3.2.7.tgz |
+| npm | tinyspy | 4.0.4 | UNKNOWN | https://registry.npmjs.org/tinyspy/-/tinyspy-4.0.4.tgz |
+| npm | @vitest/spy | 3.2.7 | UNKNOWN | https://registry.npmjs.org/@vitest/spy/-/spy-3.2.7.tgz |
+| npm | @vitest/pretty-format | 3.2.7 | UNKNOWN | package-lock.json |
+| npm | chai | 5.3.3 | UNKNOWN | https://registry.npmjs.org/chai/-/chai-5.3.3.tgz |
+| npm | tinyrainbow | 2.0.0 | UNKNOWN | package-lock.json |
+| npm | loupe | 3.2.1 | UNKNOWN | https://registry.npmjs.org/loupe/-/loupe-3.2.1.tgz |
+| npm | magic-string | 0.30.21 | UNKNOWN | package-lock.json |
+| npm | debug | 4.4.3 | UNKNOWN | package-lock.json |
+| npm | cac | 6.7.14 | UNKNOWN | https://registry.npmjs.org/cac/-/cac-6.7.14.tgz |
+| npm | vite-node | 3.2.4 | UNKNOWN | https://registry.npmjs.org/vite-node/-/vite-node-3.2.4.tgz |
+| npm | es-module-lexer | 1.7.0 | UNKNOWN | https://registry.npmjs.org/es-module-lexer/-/es-module-lexer-1.7.0.tgz |
+| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
+| npm | vite | 7.3.6 | UNKNOWN | package-lock.json |
+| npm | pathe | 2.0.3 | UNKNOWN | package-lock.json |
+| npm | tinyrainbow | 2.0.0 | UNKNOWN | package-lock.json |
 | npm | std-env | 3.10.0 | UNKNOWN | package-lock.json |
+| npm | picomatch | 4.0.5 | UNKNOWN | package-lock.json |
+| npm | pathe | 2.0.3 | UNKNOWN | https://registry.npmjs.org/pathe/-/pathe-2.0.3.tgz |
+| npm | tinybench | 2.9.0 | UNKNOWN | https://registry.npmjs.org/tinybench/-/tinybench-2.9.0.tgz |
+| npm | tinypool | 1.1.1 | UNKNOWN | https://registry.npmjs.org/tinypool/-/tinypool-1.1.1.tgz |
+| npm | tinyglobby | 0.2.17 | UNKNOWN | package-lock.json |
+| npm | tinyexec | 0.3.2 | UNKNOWN | https://registry.npmjs.org/tinyexec/-/tinyexec-0.3.2.tgz |
 
-Total: 1001 dependencias de terceros.
+Total: 1009 dependencias de terceros.

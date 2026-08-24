@@ -223,8 +223,14 @@ export function DeliveryPhase({
           <button type="button" onClick={() => requestExport("csv")} disabled={busy || !exportAllowed}>
             Exportar CSV
           </button>
+          <button type="button" onClick={() => requestExport("json")} disabled={busy || !exportAllowed}>
+            Exportar JSON
+          </button>
           <button type="button" onClick={() => requestExport("parquet")} disabled={busy || !exportAllowed}>
             Exportar Parquet
+          </button>
+          <button type="button" onClick={() => requestExport("sql")} disabled={busy || !exportAllowed}>
+            Exportar SQL
           </button>
         </div>
       </section>

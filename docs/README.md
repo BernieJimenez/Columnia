@@ -26,6 +26,8 @@ comportamiento implementado.
   [auditoría de dependencias](reference/dependency-audit.md).
 - [Política de fixtures](reference/fixtures-policy.md).
 - [Red, privacidad y telemetría](reference/network-privacy.md).
+- [Paridad funcional con `dataprepv1.1`](reference/feature-parity.md): matriz
+  de capacidades migradas, parciales y pendientes.
 
 ### Explicación
 

@@ -16,22 +16,35 @@ los artefactos de validación locales.
 - Benchmark reproducible de 100 MiB contra `dataprepv1.1`, con comparación de
   duración, working set, conteos, fixture sintética y cleanup sin conservar datos.
 - Gate de cobertura V8 por capa para `src` (80% statements/lines, 75% branches y
-  functions) y 137 tests frontend.
+  functions) y 145 tests frontend.
 - Supply chain local con `npm audit`, `cargo-audit`, `cargo-deny`, secret scan,
   inventario reproducible de `THIRD_PARTY_NOTICES` y verificación de red sin
   telemetría.
 - Contrato de instalador NSIS `currentUser`, recursos MIT/third-party notices y
   política WebView2 `downloadBootstrapper`; Polars actualizado a `0.55.2`.
+- Primera entrega de paridad funcional: exportación JSON atómica en UI, Rust,
+  CLI, batch y proyectos, con matriz comparativa frente a `dataprepv1.1`.
+- Segunda entrega de paridad funcional: comparación local de dos datasets,
+  diferencias multivaluadas de filas/columnas y consolidación opt-in con
+  historial cuando el esquema es compatible.
+- Tercera entrega de paridad funcional: exportación SQL como script portable y
+  atómico en Entregar, CLI, batch y proyectos, con escape de identificadores,
+  valores y transacción explícita.
+- Cuarta entrega de paridad funcional: visualizaciones compactas y accesibles de
+  completitud y posibles outliers en Diagnóstico, con valores exactos y tablas
+  equivalentes para lector de pantalla.
 - Benchmark CLI de 256 MiB con 2,220,032 filas, tres transformaciones sostenidas
   y dos actualizaciones durables; el flujo pasa, pero su working set máximo es
   aproximadamente 1.12 GiB y queda fuera del presupuesto de 512 MiB.
 
 ### Validación
 
-- Verificados build Vite, contratos IPC, 128 pruebas Rust, pruebas del monitor,
+- Verificados build Vite, contratos IPC, 133 pruebas Rust y 145 pruebas frontend,
+  pruebas del monitor,
   evidencia release desktop/móvil/zoom 125%/`forced-colors` y el gate
-  `perf:i1:check`, cobertura frontend, auditorías de supply chain, smoke CDP,
-  Release y Package con MSI/NSIS.
+  `perf:i1:check`, cobertura frontend, auditorías de supply chain, smoke CDP
+  (`.local/validation/webview2-cdp/20260824T010540Z`), Release y Package con
+  MSI/NSIS.
 
 ## [0.49.0] - 2026-08-23
 

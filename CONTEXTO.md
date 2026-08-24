@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-23, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas con pendientes nativos/manuales/VM |
+| Última revisión de este documento | 2026-08-24, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas y Fase P1 con JSON, SQL, comparación/consolidación básica y visualizaciones accesibles |
 
 ## Para qué existe este documento
 
@@ -118,6 +118,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/check-network-policy.mjs` / `docs/reference/network-privacy.md` | Inventario local de red, CSP productivo y política de telemetría desactivada por defecto. |
 | `tools/check-installer-contract.ps1` / `THIRD_PARTY_NOTICES.md` | Contrato de NSIS currentUser, WebView2 bootstrapper y recursos legales reproducibles. |
 | `tools/generate-sbom.ps1` / `tools/extract-package-lock-packages.mjs` | Generan offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles, compatible con Windows PowerShell 5.1. |
+| `docs/reference/feature-parity.md` | Matriz de paridad verificable con `dataprepv1.1`, con entregas JSON/SQL, comparación y visualizaciones accesibles documentadas. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
 | `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, perfila el árbol de procesos y aplica presupuestos observables de 512 MiB de working set, 256 MiB de memoria privada y transformaciones nativas sostenidas; restaura el entorno y limpia su Job Object. |
@@ -410,7 +411,7 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
 - SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
-- Cobertura V8 por capa sobre `src` (135 tests) con gate 80/75/75/80; supply
+- Cobertura V8 por capa sobre `src` (145 tests) con gate 80/75/75/80; supply
   chain local con npm audit, cargo-audit 0.22.2, cargo-deny 0.20.2, secret scan,
   avisos de terceros y política de red/telemetría.
 - Instalador declarado `NSIS currentUser`, licencia MIT y avisos de terceros
@@ -430,6 +431,7 @@ Al revisar este documento había 132 pruebas frontend y 127 pruebas Rust; las ra
 - CLI batch v1 para 1–64 transformaciones, con preflight sin escrituras, colisiones rechazadas y atomicidad individual explícita.
 - Proyectos locales con catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, reglas de calidad, borrador opcional, perfil cacheado, historial/cursor y recuperación explícita aunque desaparezca la fuente original.
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
+- Fase P1 activa: matriz de paridad con `dataprepv1.1`, exportación JSON/SQL atómica, comparación/consolidación básica y visualizaciones accesibles de completitud/outliers disponibles en UI/Rust; el segundo dataset no reemplaza el activo hasta consolidar.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
 - Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.40.0 verificado en 314,827 bytes raw/90,154 gzip.
@@ -542,6 +544,12 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-24 | Validación de la cuarta entrega P1: 145 pruebas frontend, cobertura V8, build Vite, documentación y smoke WebView2 CDP con Playwright/ProjectsPanel, foco, landmarks, IPC nativo y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T010540Z`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx` |
+| 2026-08-24 | P1 añade visualizaciones accesibles en Diagnóstico: barras de completitud y posibles outliers con valores exactos, soporte responsive/forced-colors y tablas equivalentes para lector de pantalla; los gráficos exploratorios interactivos siguen pendientes. | `src/features/review/ReviewPhase.tsx`, `src/styles.css`, `src/features/review/ReviewPhase.test.tsx`, `docs/reference/feature-parity.md` |
+| 2026-08-24 | Validación de la tercera entrega P1: 144 pruebas frontend, 133 Rust, build, cobertura, clippy, documentación y smoke WebView2 CDP con Playwright/ProjectsPanel y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T005528Z`, `src-tauri/src/dataset.rs`, `src/features/delivery/DeliveryPhase.tsx` |
+| 2026-08-24 | P1 añade script SQL portable: Entregar, CLI, batch y proyectos publican una tabla `dataset` con transacción, escape de identificadores/valores y escritura atómica; no hay conexión directa ni secretos de base de datos. | `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/features/delivery/DeliveryPhase.tsx`, `docs/reference/feature-parity.md` |
+| 2026-08-24 | Validación posterior a la segunda entrega P1: 142 pruebas frontend, 131 Rust, build, cobertura V8, clippy, documentación y smoke WebView2 CDP con Playwright/ProjectsPanel y cleanup aprobados. | `.local/validation/webview2-cdp/20260824T004109Z`, `src/features/review/ReviewPhase.test.tsx`, `src-tauri/src/dataset.rs` |
+| 2026-08-24 | P1 añade comparación/consolidación básica: el dataset secundario se lee localmente, se comparan filas multivaluadas y columnas, y la consolidación compatible se registra en historial sin exponer rutas. Excel usa la primera hoja; claves explícitas, conflictos y joins siguen pendientes. | `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | I3/I4/I5 avanzan con 137 tests frontend, cobertura V8, smoke CDP real, auditorías npm/Cargo con excepciones transitivas explícitas, secret scan, notices, política de red sin telemetría y contrato NSIS/WebView2 con recursos legales; Release y Package pasan con MSI/NSIS 0.49.0. Quedan pendientes el selector nativo estable, la auditoría manual y la validación desde VM limpia. | `vitest.config.ts`, `.local/validation/20260823T224857Z`, `.local/validation/20260823T225136Z-ac3c0a1-release.json`, `.local/validation/20260823T225800Z-ac3c0a1-package.json`, `tools/check-supply-chain.ps1`, `src-tauri/deny.toml`, `tools/check-network-policy.mjs`, `tools/check-installer-contract.ps1`, `docs/reference/network-privacy.md` |
 | 2026-08-23 | Se cerró la Fase I0 con licencia MIT, Windows x64 como soporte inicial, ADR de frontera Rust/UI, política local de ramas/commits, inventario de dependencias y manifest de fixtures sintéticas; `governance:check`, Fast y Full pasan. | `LICENSE`, `CONTRIBUTING.md`, `docs/adr/0001-contratos-del-repositorio.md`, `docs/reference/`, `tools/check-governance.ps1`, `src/governance.test.ts` |
 | 2026-08-23 | Se añadió un probe opt-in de selectores nativos: PowerShell conduce los diálogos Win32 y WebView2 espera los resultados IPC para abrir dataset, guardar/cargar receta y exportar sin exponer rutas; falta estabilizar el cierre automático del botón antes de elevarlo a gate. | `tools/probe-webview2-native-selectors.mjs`, `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-cdp.ps1` |
