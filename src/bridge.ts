@@ -131,6 +131,12 @@ export interface DatasetMutation {
   affectedRowCount: number;
 }
 
+export interface ColumnRemovalResult {
+  dataset: DatasetPreview;
+  removedColumnCount: number;
+  removedColumns: string[];
+}
+
 export interface ColumnRename {
   from: string;
   to: string;
@@ -554,6 +560,14 @@ export function removeDuplicates(): Promise<DatasetMutation> {
 
 export function removeEmptyRows(): Promise<DatasetMutation> {
   return invoke<DatasetMutation>("remove_empty_rows");
+}
+
+export function removeConstantColumns(): Promise<ColumnRemovalResult> {
+  return invoke<ColumnRemovalResult>("remove_constant_columns");
+}
+
+export function removeEmptyColumns(): Promise<ColumnRemovalResult> {
+  return invoke<ColumnRemovalResult>("remove_empty_columns");
 }
 
 export function normalizeColumnNames(): Promise<ColumnNormalizationResult> {

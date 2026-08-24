@@ -48,6 +48,8 @@ function ControllerHarness({
   });
   return <>
     <button type="button" onClick={controller.applyDuplicateRemoval}>Duplicar</button>
+    <button type="button" onClick={controller.applyConstantColumnRemoval}>Constantes</button>
+    <button type="button" onClick={controller.applyEmptyColumnRemoval}>Vacías</button>
     <button type="button" onClick={controller.undoChange}>Deshacer controlador</button>
     <output>{controller.changeStatus.kind === "applied" ? controller.changeStatus.message : controller.changeStatus.kind}</output>
     <span data-testid="history-index">{controller.historyStatus.currentIndex}</span>
@@ -85,6 +87,48 @@ describe("usePrepareController", () => {
     fireEvent.click(screen.getByRole("button", { name: "Deshacer controlador" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Se deshizo el último cambio."));
     expect(bridge.undoLastChange).toHaveBeenCalledOnce();
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("publica la eliminación de columnas constantes y sus nombres", async () => {
+    vi.spyOn(bridge, "removeConstantColumns").mockResolvedValue({
+      dataset,
+      removedColumnCount: 2,
+      removedColumns: ["pais", "segmento"],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Constantes" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se eliminaron 2 columnas constantes: pais, segmento.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("publica la eliminación de columnas completamente vacías", async () => {
+    vi.spyOn(bridge, "removeEmptyColumns").mockResolvedValue({
+      dataset,
+      removedColumnCount: 1,
+      removedColumns: ["notas"],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Vacías" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se eliminaron 1 columnas completamente vacías: notas.",
+    ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();

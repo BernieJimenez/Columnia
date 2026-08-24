@@ -386,6 +386,14 @@ pub struct DatasetMutation {
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ColumnRemovalResult {
+    dataset: DatasetPreview,
+    removed_column_count: usize,
+    removed_columns: Vec<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ColumnRename {
     from: String,
     to: String,
@@ -2501,6 +2509,86 @@ fn remove_empty_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize),
         .map_err(|error| format!("No se pudieron eliminar las filas vacías: {error}"))?;
     let affected_row_count = frame.height().saturating_sub(cleaned.height());
     Ok((cleaned, affected_row_count))
+}
+
+fn remove_constant_columns_from_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, Vec<String>), String> {
+    if frame.height() <= 1 || frame.width() <= 1 {
+        return Ok((frame.clone(), Vec::new()));
+    }
+
+    let candidates = frame
+        .columns()
+        .iter()
+        .filter_map(|column| {
+            let null_count = column.null_count();
+            let unique_count = column
+                .n_unique()
+                .ok()?
+                .saturating_sub(usize::from(null_count > 0));
+            (unique_count <= 1 && null_count < frame.height()).then(|| column.name().to_string())
+        })
+        .collect::<Vec<_>>();
+    let removable_count = candidates.len().min(frame.width().saturating_sub(1));
+    let removed_columns = candidates
+        .into_iter()
+        .take(removable_count)
+        .collect::<Vec<_>>();
+    if removed_columns.is_empty() {
+        return Ok((frame.clone(), removed_columns));
+    }
+
+    let remaining_columns = frame
+        .get_column_names()
+        .iter()
+        .filter(|name| {
+            !removed_columns
+                .iter()
+                .any(|removed| removed == name.as_str())
+        })
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let cleaned = frame
+        .select(&remaining_columns)
+        .map_err(|error| format!("No se pudieron eliminar columnas constantes: {error}"))?;
+    Ok((cleaned, removed_columns))
+}
+
+fn remove_empty_columns_from_frame(frame: &DataFrame) -> Result<(DataFrame, Vec<String>), String> {
+    if frame.height() == 0 || frame.width() <= 1 {
+        return Ok((frame.clone(), Vec::new()));
+    }
+
+    let candidates = frame
+        .columns()
+        .iter()
+        .filter(|column| column.null_count() == frame.height())
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    let removable_count = candidates.len().min(frame.width().saturating_sub(1));
+    let removed_columns = candidates
+        .into_iter()
+        .take(removable_count)
+        .collect::<Vec<_>>();
+    if removed_columns.is_empty() {
+        return Ok((frame.clone(), removed_columns));
+    }
+
+    let remaining_columns = frame
+        .get_column_names()
+        .iter()
+        .filter(|name| {
+            !removed_columns
+                .iter()
+                .any(|removed| removed == name.as_str())
+        })
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let cleaned = frame
+        .select(&remaining_columns)
+        .map_err(|error| format!("No se pudieron eliminar columnas vacías: {error}"))?;
+    Ok((cleaned, removed_columns))
 }
 
 fn normalize_column_name(name: &str) -> String {
@@ -6509,6 +6597,60 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
     })
     .await
     .map_err(|error| format!("La eliminación de filas vacías se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, removed_columns) = remove_constant_columns_from_frame(&dataset.frame)?;
+        let preview = if removed_columns.is_empty() {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        } else {
+            publish_candidate(dataset, cleaned, "Eliminar columnas constantes")?
+        };
+        Ok(ColumnRemovalResult {
+            dataset: preview,
+            removed_column_count: removed_columns.len(),
+            removed_columns,
+        })
+    })
+    .await
+    .map_err(|error| format!("La eliminación de columnas constantes se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, removed_columns) = remove_empty_columns_from_frame(&dataset.frame)?;
+        let preview = if removed_columns.is_empty() {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        } else {
+            publish_candidate(dataset, cleaned, "Eliminar columnas completamente vacías")?
+        };
+        Ok(ColumnRemovalResult {
+            dataset: preview,
+            removed_column_count: removed_columns.len(),
+            removed_columns,
+        })
+    })
+    .await
+    .map_err(|error| format!("La eliminación de columnas vacías se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -10846,6 +10988,59 @@ mod tests {
             dataset_page(&cleaned, 0, 10).unwrap().rows[0][0].as_deref(),
             Some("Ana")
         );
+    }
+
+    #[test]
+    fn removes_constant_columns_but_preserves_a_usable_dataset() {
+        let frame = df![
+            "id" => &[1_i64, 2, 3],
+            "constant" => &[Some("activo"), None, Some("activo")],
+            "all_null" => &[None::<String>, None, None]
+        ]
+        .unwrap();
+
+        let (cleaned, removed_columns) = remove_constant_columns_from_frame(&frame)
+            .expect("las columnas constantes deben poder eliminarse");
+        assert_eq!(removed_columns, vec!["constant"]);
+        assert_eq!(cleaned.get_column_names(), vec!["id", "all_null"]);
+        assert_eq!(cleaned.height(), 3);
+
+        let all_constant = df![
+            "first" => &["same", "same"],
+            "second" => &[1_i64, 1]
+        ]
+        .unwrap();
+        let (kept, removed) = remove_constant_columns_from_frame(&all_constant)
+            .expect("el dataset debe conservar una columna");
+        assert_eq!(removed.len(), 1);
+        assert_eq!(kept.width(), 1);
+        assert_eq!(kept.height(), 2);
+    }
+
+    #[test]
+    fn removes_only_completely_empty_columns_and_keeps_one_column() {
+        let frame = df![
+            "id" => &[1_i64, 2],
+            "empty" => &[None::<String>, None],
+            "partial" => &[Some("ok"), None]
+        ]
+        .unwrap();
+
+        let (cleaned, removed_columns) = remove_empty_columns_from_frame(&frame)
+            .expect("las columnas vacías deben poder eliminarse");
+        assert_eq!(removed_columns, vec!["empty"]);
+        assert_eq!(cleaned.get_column_names(), vec!["id", "partial"]);
+
+        let all_empty = df![
+            "first" => &[None::<String>, None],
+            "second" => &[None::<i64>, None]
+        ]
+        .unwrap();
+        let (kept, removed) = remove_empty_columns_from_frame(&all_empty)
+            .expect("el dataset debe conservar una columna");
+        assert_eq!(removed.len(), 1);
+        assert_eq!(kept.width(), 1);
+        assert_eq!(kept.height(), 2);
     }
 
     #[test]

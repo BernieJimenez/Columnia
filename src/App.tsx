@@ -631,6 +631,8 @@ export function App() {
               onCancelProfile={() => cancelActiveOperation("profile")}
               onRemoveDuplicates={prepare.applyDuplicateRemoval}
               onRemoveEmptyRows={prepare.applyEmptyRowRemoval}
+              onRemoveConstantColumns={prepare.applyConstantColumnRemoval}
+              onRemoveEmptyColumns={prepare.applyEmptyColumnRemoval}
               onNormalizeColumns={prepare.applyColumnNormalization}
               onApplyRecommended={prepare.applyRecommendedCorrections}
               onTrimText={prepare.trimText}

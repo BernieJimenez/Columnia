@@ -72,6 +72,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .cleaning-signals { border-left: 3px solid #126d68; }
 .cleaning-signals__list { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: #405650; line-height: 1.5; }
 .cleaning-signals__privacy { color: #7a4f1b; }
+.cleaning-signals__action { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #ced9d5; }
+.cleaning-signals__action p { margin: 0; color: #627770; font-size: .78rem; line-height: 1.45; }
+.cleaning-signals__action button { flex: 0 0 auto; }
 .history-bar { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 18px 0 8px; padding: 12px 14px; border: 1px solid #b8c9c4; background: #eef4f1; box-shadow: 0 5px 12px rgba(24, 52, 58, .08); }
 .history-bar strong, .history-bar small { display: block; }
 .history-bar small { margin-top: 3px; color: #627770; font-size: .75rem; }
@@ -416,6 +419,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .cleaning-signals { border-left-color: #7bd2c8; }
   .cleaning-signals__list { color: #d3e1df; }
   .cleaning-signals__privacy { color: #f1c77a; }
+  .cleaning-signals__action { border-color: #426067; }
+  .cleaning-signals__action p { color: #b6c9c7; }
   .history-bar { border-color: #426067; background: #214249; }
   .history-bar small { color: #afc2bd; }
   .history-actions button { border-color: #7bd2c8; color: #7bd2c8; }
@@ -585,6 +590,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .comparison-key-options label,
   .join-selector,
   .join-options label,
+  .cleaning-signals__action,
   .conflict-resolution,
   .conflict-resolution__item,
   .conflict-resolution__choices label { border-color: ButtonText; background: Canvas; color: CanvasText; }
@@ -592,7 +598,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .conflict-resolution__heading p:last-child,
   .conflict-resolution__item legend,
   .conflict-resolution__item li,
-  .conflict-resolution__item code { color: CanvasText; }
+  .conflict-resolution__item code,
+  .cleaning-signals__action p { color: CanvasText; }
   .comparison-key-options label:has(input:checked) { border-color: Highlight; background: HighlightText; }
   .join-options label:has(input:checked) { border-color: Highlight; background: HighlightText; }
   .quality-chart__track { border-color: ButtonText; background: Canvas; }

@@ -18,6 +18,8 @@ interface PreparePhaseProps {
   onCancelProfile: () => void;
   onRemoveDuplicates: () => void;
   onRemoveEmptyRows: () => void;
+  onRemoveConstantColumns: () => void;
+  onRemoveEmptyColumns: () => void;
   onNormalizeColumns: () => void;
   onApplyRecommended: () => void;
   onTrimText: () => void;
@@ -39,6 +41,8 @@ export function PreparePhase({
   onCancelProfile,
   onRemoveDuplicates,
   onRemoveEmptyRows,
+  onRemoveConstantColumns,
+  onRemoveEmptyColumns,
   onNormalizeColumns,
   onApplyRecommended,
   onTrimText,
@@ -150,7 +154,14 @@ export function PreparePhase({
           Aplicar recomendadas
         </button>
       </section>
-      {profileStatus.kind === "ready" && <CleaningSignals profile={profileStatus.profile} />}
+      {profileStatus.kind === "ready" && (
+        <CleaningSignals
+          profile={profileStatus.profile}
+          busy={changing}
+          onRemoveConstantColumns={onRemoveConstantColumns}
+          onRemoveEmptyColumns={onRemoveEmptyColumns}
+        />
+      )}
       <section className="prepare-card" aria-labelledby="normalize-columns-title">
         <div>
           <p className="step">Recomendada y segura</p>
@@ -283,10 +294,23 @@ export function PreparePhase({
   );
 }
 
-function CleaningSignals({ profile }: { profile: DatasetProfile }) {
+function CleaningSignals({
+  profile,
+  busy,
+  onRemoveConstantColumns,
+  onRemoveEmptyColumns,
+}: {
+  profile: DatasetProfile;
+  busy: boolean;
+  onRemoveConstantColumns: () => void;
+  onRemoveEmptyColumns: () => void;
+}) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
   const constant = profile.columns.filter(
     (column) => profile.rowCount > 1 && column.uniqueCount <= 1 && column.nullCount < profile.rowCount,
+  );
+  const empty = profile.columns.filter(
+    (column) => profile.rowCount > 0 && column.nullCount === profile.rowCount,
   );
   const typeDrift = profile.columns.filter(
     (column) => (column.invalidTypeCount ?? 0) > 0,
@@ -294,7 +318,7 @@ function CleaningSignals({ profile }: { profile: DatasetProfile }) {
   const personal = profile.columns.filter((column) =>
     /(email|correo|mail|phone|tel[eé]fono|address|direcci[oó]n|dni|cedula|c[eé]dula|ssn)/i.test(column.name),
   );
-  const hasSignals = profile.duplicateRowCount > 0 || incomplete.length > 0 || constant.length > 0 || typeDrift.length > 0 || personal.length > 0;
+  const hasSignals = profile.duplicateRowCount > 0 || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || typeDrift.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -304,7 +328,8 @@ function CleaningSignals({ profile }: { profile: DatasetProfile }) {
         <p>Las señales usan solo esquema y métricas agregadas; no muestran celdas ni valores personales.</p>
       </div>
       {hasSignals ? (
-        <ul className="cleaning-signals__list">
+        <>
+          <ul className="cleaning-signals__list">
           {profile.duplicateRowCount > 0 && (
             <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas de forma reversible.</li>
           )}
@@ -314,13 +339,39 @@ function CleaningSignals({ profile }: { profile: DatasetProfile }) {
           {constant.length > 0 && (
             <li><strong>Constantes:</strong> {constant.map((column) => column.name).join(", ")} {constant.length === 1 ? "no cambia" : "no cambian"} entre filas.</li>
           )}
+          {empty.length > 0 && (
+            <li><strong>Vacías:</strong> {empty.map((column) => column.name).join(", ")} no contiene valores en ninguna fila.</li>
+          )}
           {typeDrift.length > 0 && (
             <li><strong>Tipos sugeridos:</strong> {typeDrift.map((column) => column.name).join(", ")} contiene valores que no coinciden con la sugerencia detectada.</li>
           )}
           {personal.length > 0 && (
             <li className="cleaning-signals__privacy"><strong>Posible dato personal:</strong> revisa el tratamiento de {personal.map((column) => column.name).join(", ")} antes de exportar o compartir.</li>
           )}
-        </ul>
+          </ul>
+          {constant.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes retirar estas columnas de baja información; se conservará al menos una
+                columna para que el dataset siga siendo utilizable.
+              </p>
+              <button type="button" onClick={onRemoveConstantColumns} disabled={busy}>
+                Eliminar columnas constantes
+              </button>
+            </div>
+          )}
+          {empty.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes retirar estas columnas sin información; se conservará al menos una
+                columna para que el dataset siga siendo utilizable.
+              </p>
+              <button type="button" onClick={onRemoveEmptyColumns} disabled={busy}>
+                Eliminar columnas vacías
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <p className="notice notice--success" role="status">No se detectaron señales de limpieza en el perfil actual.</p>
       )}

@@ -55,6 +55,27 @@ const cleaningSignalsProfile: DatasetProfile = {
     median: null,
     thirdQuartile: null,
     outlierCount: null,
+  }, {
+    name: "empty_column",
+    dataType: "String",
+    nullCount: 2,
+    completenessPercentage: 0,
+    uniqueCount: 0,
+    minimum: null,
+    maximum: null,
+    mean: null,
+    emptyCount: 0,
+    minimumLength: null,
+    maximumLength: null,
+    averageLength: null,
+    suggestedType: null,
+    typeMatchPercentage: null,
+    invalidTypeCount: null,
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
   }],
 };
 
@@ -72,6 +93,8 @@ describe("PreparePhase", () => {
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
       onTrimText={() => undefined}
@@ -108,7 +131,7 @@ describe("PreparePhase", () => {
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
       historyStatus={history} onAnalyzeQuality={() => undefined} onCancelProfile={() => undefined}
       recipeDraft={null} recipeSession={0}
-      onRemoveDuplicates={() => undefined} onNormalizeColumns={() => undefined}
+      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onNormalizeColumns={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onApplyRecommended={() => undefined} onTrimText={() => undefined}
       onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
@@ -123,6 +146,8 @@ describe("PreparePhase", () => {
   });
 
   it("expone señales agregadas de limpieza y privacidad sin mostrar celdas", () => {
+    const onRemoveConstantColumns = vi.fn();
+    const onRemoveEmptyColumns = vi.fn();
     render(<PreparePhase
       dataset={dataset}
       profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
@@ -134,6 +159,8 @@ describe("PreparePhase", () => {
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={onRemoveConstantColumns}
+      onRemoveEmptyColumns={onRemoveEmptyColumns}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
       onTrimText={() => undefined}
@@ -148,6 +175,10 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("list")).toHaveTextContent("1 filas adicionales");
     expect(screen.getByRole("list")).toHaveTextContent("Posible dato personal: revisa el tratamiento de email");
     expect(screen.getByRole("list")).toHaveTextContent("Tipos sugeridos:");
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
+    expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas vacías" }));
+    expect(onRemoveEmptyColumns).toHaveBeenCalledOnce();
   });
 });
 

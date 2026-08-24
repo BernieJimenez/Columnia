@@ -100,6 +100,8 @@ pub fn run() {
             dataset::pick_quality_rules_migration,
             dataset::remove_duplicates,
             dataset::remove_empty_rows,
+            dataset::remove_constant_columns,
+            dataset::remove_empty_columns,
             dataset::normalize_column_names,
             dataset::trim_text_values,
             dataset::normalize_text_values,

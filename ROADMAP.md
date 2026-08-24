@@ -1054,6 +1054,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir eliminación explícita de filas completamente vacías (nulos o texto
   en blanco), con impacto contado, orden estable, historial reversible y control
   accesible en Preparar.
+- [x] Añadir eliminación explícita y reversible de columnas constantes detectadas
+  en el perfil, con nombres e impacto reportados, exclusión de columnas totalmente
+  nulas y conservación de al menos una columna utilizable.
+- [x] Añadir eliminación explícita y reversible de columnas completamente vacías,
+  diferenciada de las constantes, con reporte de nombres/impacto y conservación
+  de al menos una columna utilizable.
 - [ ] Migrar el catálogo completo de limpieza sugerida: duplicados exactos y
   difusos, columnas/filas vacías, constantes, identificadores y alto porcentaje
   de nulos, centinelas, imputación, booleanos, PII, auditoría `_cambios` y

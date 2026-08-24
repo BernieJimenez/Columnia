@@ -6,7 +6,9 @@ import {
   getHistoryState,
   normalizeColumnNames,
   normalizeTextValues,
+  removeConstantColumns,
   removeEmptyRows,
+  removeEmptyColumns,
   removeDuplicates,
   redoLastChange,
   trimTextValues,
@@ -76,6 +78,46 @@ export function usePrepareController({
         message: result.affectedRowCount === 0
           ? "No se detectaron filas completamente vacías."
           : `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas completamente vacías.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyConstantColumnRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "constant_columns" });
+    try {
+      const result = await removeConstantColumns();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: result.removedColumnCount === 0
+          ? "No se eliminaron columnas constantes; se conserva al menos una columna del dataset."
+          : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas constantes: ${result.removedColumns.join(", ")}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyEmptyColumnRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "empty_columns" });
+    try {
+      const result = await removeEmptyColumns();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: result.removedColumnCount === 0
+          ? "No se eliminaron columnas vacías; se conserva al menos una columna del dataset."
+          : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas completamente vacías: ${result.removedColumns.join(", ")}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -214,6 +256,8 @@ export function usePrepareController({
     refreshHistory,
     applyDuplicateRemoval,
     applyEmptyRowRemoval,
+    applyConstantColumnRemoval,
+    applyEmptyColumnRemoval,
     applyColumnNormalization,
     applyRecommendedCorrections,
     trimText: () => applyTextChange("trim"),

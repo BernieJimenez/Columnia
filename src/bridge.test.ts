@@ -24,6 +24,8 @@ import {
   pickTransformRecipe,
   queryDataset,
   removeDuplicates,
+  removeConstantColumns,
+  removeEmptyColumns,
   redoLastChange,
   saveProject,
   saveTransformRecipe,
@@ -222,6 +224,30 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(5, "apply_safe_corrections");
     expect(invoke).toHaveBeenNthCalledWith(6, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(7, "redo_last_change");
+  });
+
+  it("elimina columnas constantes mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: { fileName: "datos.csv" },
+      removedColumnCount: 1,
+      removedColumns: ["pais"],
+    });
+
+    await removeConstantColumns();
+
+    expect(invoke).toHaveBeenCalledWith("remove_constant_columns");
+  });
+
+  it("elimina columnas completamente vacías mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: { fileName: "datos.csv" },
+      removedColumnCount: 1,
+      removedColumns: ["notas"],
+    });
+
+    await removeEmptyColumns();
+
+    expect(invoke).toHaveBeenCalledWith("remove_empty_columns");
   });
 
   it("envía una receta estructural completa en una sola invocación", async () => {

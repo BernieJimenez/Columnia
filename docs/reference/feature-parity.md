@@ -188,6 +188,25 @@ valores son todos nulos o texto en blanco. Conserva el orden de las filas,
 reporta el impacto y registra una revisión reversible en el historial; no
 elimina filas parcialmente incompletas ni decide imputaciones automáticamente.
 
+## Limpieza segura de columnas constantes
+
+Preparar también permite retirar columnas que tienen un único valor no nulo entre
+las filas. La operación usa las métricas agregadas del perfil, reporta nombres e
+impacto, excluye columnas completamente nulas, conserva el orden y deja al menos
+una columna para que el dataset siga siendo utilizable. El cambio queda registrado
+en el historial, invalida el perfil y puede deshacerse.
+
+La detección de identificadores, columnas con alto porcentaje de nulos, centinelas,
+imputación y duplicados difusos siguen formando parte del catálogo pendiente.
+
+## Limpieza segura de columnas completamente vacías
+
+Preparar distingue las columnas 100% nulas de las columnas constantes y ofrece una
+acción independiente para retirarlas. Reporta los nombres y el impacto, conserva
+el orden y deja al menos una columna aunque todo el esquema esté vacío; la acción
+se registra en historial, invalida el perfil y puede deshacerse. Las columnas con
+solo parte de sus valores nulos no se eliminan automáticamente.
+
 ## Consulta local restringida
 
 Revisar ofrece una consulta SQL de solo lectura sobre la tabla lógica `dataset`.
