@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DatasetPreview, DatasetProfile } from "../../bridge";
+import * as bridge from "../../bridge";
 import { DataPreview, ReviewPhase } from "./ReviewPhase";
 import { createReadyDatasetStatus } from "../load/loadModel";
 
@@ -172,6 +173,47 @@ describe("ReviewPhase", () => {
     expect(onJoin).toHaveBeenCalledWith("inner");
   });
 
+  it("ejecuta la consulta SQL segura y muestra el resultado accesible", async () => {
+    vi.spyOn(bridge, "queryDataset").mockResolvedValue({
+      columns: [{ name: "id", dataType: "Int64" }],
+      rowCount: 2,
+      offset: 0,
+      rows: [["1"]],
+      truncated: true,
+    });
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Consulta SQL de solo lectura" }), {
+      target: { value: "SELECT id FROM dataset LIMIT 1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 filas disponibles"));
+    expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
+    expect(bridge.queryDataset).toHaveBeenCalledWith("SELECT id FROM dataset LIMIT 1");
+  });
+
   it("muestra visualizaciones accesibles con valores equivalentes al perfil", () => {
     render(
       <ReviewPhase
@@ -202,6 +244,10 @@ describe("ReviewPhase", () => {
     );
     expect(screen.getByRole("list", { name: "Posibles outliers por columna" })).toHaveTextContent(
       "id2",
+    );
+    expect(screen.getByRole("heading", { name: "Distribución numérica" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Distribución numérica por columna" })).toHaveTextContent(
+      "Q1 30 · Mediana 60 · Q3 90",
     );
     expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
       "95.0%",

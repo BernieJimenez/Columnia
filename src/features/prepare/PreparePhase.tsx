@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
-import type { DatasetPreview, HistoryState, SavedRecipe, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
@@ -148,6 +148,7 @@ export function PreparePhase({
           Aplicar recomendadas
         </button>
       </section>
+      {profileStatus.kind === "ready" && <CleaningSignals profile={profileStatus.profile} />}
       <section className="prepare-card" aria-labelledby="normalize-columns-title">
         <div>
           <p className="step">Recomendada y segura</p>
@@ -267,5 +268,50 @@ export function PreparePhase({
       </div>
       )}
     </>
+  );
+}
+
+function CleaningSignals({ profile }: { profile: DatasetProfile }) {
+  const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
+  const constant = profile.columns.filter(
+    (column) => profile.rowCount > 1 && column.uniqueCount <= 1 && column.nullCount < profile.rowCount,
+  );
+  const typeDrift = profile.columns.filter(
+    (column) => (column.invalidTypeCount ?? 0) > 0,
+  );
+  const personal = profile.columns.filter((column) =>
+    /(email|correo|mail|phone|tel[eé]fono|address|direcci[oó]n|dni|cedula|c[eé]dula|ssn)/i.test(column.name),
+  );
+  const hasSignals = profile.duplicateRowCount > 0 || incomplete.length > 0 || constant.length > 0 || typeDrift.length > 0 || personal.length > 0;
+
+  return (
+    <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
+      <div>
+        <p className="step">Catálogo de limpieza</p>
+        <h3 id="cleaning-signals-title">Señales para revisar</h3>
+        <p>Las señales usan solo esquema y métricas agregadas; no muestran celdas ni valores personales.</p>
+      </div>
+      {hasSignals ? (
+        <ul className="cleaning-signals__list">
+          {profile.duplicateRowCount > 0 && (
+            <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas de forma reversible.</li>
+          )}
+          {incomplete.length > 0 && (
+            <li><strong>Completitud:</strong> {incomplete.length} {incomplete.length === 1 ? "columna tiene" : "columnas tienen"} al menos un nulo: {incomplete.map((column) => column.name).join(", ")}.</li>
+          )}
+          {constant.length > 0 && (
+            <li><strong>Constantes:</strong> {constant.map((column) => column.name).join(", ")} {constant.length === 1 ? "no cambia" : "no cambian"} entre filas.</li>
+          )}
+          {typeDrift.length > 0 && (
+            <li><strong>Tipos sugeridos:</strong> {typeDrift.map((column) => column.name).join(", ")} contiene valores que no coinciden con la sugerencia detectada.</li>
+          )}
+          {personal.length > 0 && (
+            <li className="cleaning-signals__privacy"><strong>Posible dato personal:</strong> revisa el tratamiento de {personal.map((column) => column.name).join(", ")} antes de exportar o compartir.</li>
+          )}
+        </ul>
+      ) : (
+        <p className="notice notice--success" role="status">No se detectaron señales de limpieza en el perfil actual.</p>
+      )}
+    </section>
   );
 }

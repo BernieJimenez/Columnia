@@ -21,6 +21,7 @@ import {
   pickDatasetSource,
   pickQualityRulesMigration,
   pickTransformRecipe,
+  queryDataset,
   removeDuplicates,
   redoLastChange,
   saveProject,
@@ -147,6 +148,24 @@ describe("desktop bridge", () => {
     });
 
     expect(invoke).toHaveBeenCalledWith("get_dataset_page", { offset: 50, limit: 50 });
+  });
+
+  it("ejecuta consultas locales sin enviar rutas ni datos adicionales", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      columns: [{ name: "city", dataType: "String" }],
+      rowCount: 3,
+      offset: 1,
+      rows: [["Santiago"]],
+      truncated: true,
+    });
+
+    await expect(queryDataset("SELECT city FROM dataset LIMIT 1 OFFSET 1")).resolves.toMatchObject({
+      rowCount: 3,
+      truncated: true,
+    });
+    expect(invoke).toHaveBeenCalledWith("query_dataset", {
+      query: "SELECT city FROM dataset LIMIT 1 OFFSET 1",
+    });
   });
 
   it("solicita el perfil del dataset activo sin argumentos", async () => {
@@ -316,6 +335,7 @@ describe("desktop bridge", () => {
       format: "parquet",
       qualityRules,
       allowUnvalidated: false,
+      privacyMode: "none",
       onProgress: expect.any(Channel),
     });
   });
@@ -336,6 +356,7 @@ describe("desktop bridge", () => {
       format: "json",
       qualityRules: [],
       allowUnvalidated: true,
+      privacyMode: "none",
       onProgress: expect.any(Channel),
     });
   });
@@ -356,8 +377,26 @@ describe("desktop bridge", () => {
       format: "sql",
       qualityRules: [],
       allowUnvalidated: true,
+      privacyMode: "none",
       onProgress: expect.any(Channel),
     });
+  });
+
+  it("conserva Excel y SQLite como destinos de exportación tipados", async () => {
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ fileName: "datos.xlsx", fileSizeBytes: 512, format: "Excel" })
+      .mockResolvedValueOnce({ fileName: "datos.sqlite", fileSizeBytes: 1024, format: "SQLite" });
+
+    await expect(exportDataset("excel", [], true)).resolves.toMatchObject({
+      fileName: "datos.xlsx",
+      format: "Excel",
+    });
+    await expect(exportDataset("sqlite", [], true)).resolves.toMatchObject({
+      fileName: "datos.sqlite",
+      format: "SQLite",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(1, "export_dataset", expect.objectContaining({ format: "excel", privacyMode: "none" }));
+    expect(invoke).toHaveBeenNthCalledWith(2, "export_dataset", expect.objectContaining({ format: "sqlite", privacyMode: "none" }));
   });
 
   it("valida reglas sin enviar muestras ni valores al backend", async () => {

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatasetPreview, HistoryState, LoadedRecipe, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, TransformRecipe } from "../../bridge";
 import { PreparePhase } from "./PreparePhase";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { EMPTY_HISTORY } from "./prepareModel";
@@ -28,6 +28,34 @@ const emptyRecipe: TransformRecipe = {
   renames: [], casts: [], dateParses: [], filters: [], calculatedColumn: null,
   findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
   outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
+};
+
+const cleaningSignalsProfile: DatasetProfile = {
+  rowCount: 2,
+  duplicateRowCount: 1,
+  duplicatePercentage: 50,
+  columns: [{
+    name: "email",
+    dataType: "String",
+    nullCount: 1,
+    completenessPercentage: 50,
+    uniqueCount: 1,
+    minimum: "ana@example.com",
+    maximum: "ana@example.com",
+    mean: null,
+    emptyCount: 0,
+    minimumLength: 15,
+    maximumLength: 15,
+    averageLength: 15,
+    suggestedType: null,
+    typeMatchPercentage: 50,
+    invalidTypeCount: 1,
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
+  }],
 };
 
 describe("PreparePhase", () => {
@@ -90,6 +118,33 @@ describe("PreparePhase", () => {
     expect(onUndo).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
     expect(screen.getByText(/Etapa actual: Normalizar texto/)).toBeInTheDocument();
+  });
+
+  it("expone señales agregadas de limpieza y privacidad sin mostrar celdas", () => {
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onAnalyzeQuality={() => undefined}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
+    expect(screen.getByRole("list")).toHaveTextContent("1 filas adicionales");
+    expect(screen.getByRole("list")).toHaveTextContent("Posible dato personal: revisa el tratamiento de email");
+    expect(screen.getByRole("list")).toHaveTextContent("Tipos sugeridos:");
   });
 });
 

@@ -439,7 +439,7 @@ export function App() {
         setExportStatus((current) =>
           current.kind === "loading" ? { ...current, progress } : current,
         );
-      });
+      }, request.privacyMode);
       setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
     } catch (error: unknown) {
       if (isCancellationError(error)) {

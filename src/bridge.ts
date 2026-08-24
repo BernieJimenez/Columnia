@@ -75,6 +75,14 @@ export interface DatasetPage {
   rows: Array<Array<string | null>>;
 }
 
+export interface DatasetQueryResult {
+  columns: DatasetColumn[];
+  rowCount: number;
+  offset: number;
+  rows: Array<Array<string | null>>;
+  truncated: boolean;
+}
+
 export interface ColumnProfile {
   name: string;
   dataType: string;
@@ -330,7 +338,8 @@ export interface OperationProgress {
 }
 
 export type CancellableOperation = OperationProgress["operation"];
-export type ExportFormat = "csv" | "json" | "parquet" | "sql";
+export type ExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite";
+export type PrivacyMode = "none" | "mask" | "hash";
 
 export const QUALITY_DATASET_COLUMN = "__dataset__";
 
@@ -390,7 +399,7 @@ export interface QualityMigrationResult {
 export interface ExportResult {
   fileName: string;
   fileSizeBytes: number;
-  format: "CSV" | "JSON" | "Parquet" | "SQL";
+  format: "CSV" | "JSON" | "Parquet" | "SQL" | "Excel" | "SQLite";
 }
 
 export interface ProjectSummary {
@@ -474,6 +483,10 @@ export function getDatasetPage(offset: number, limit: number): Promise<DatasetPa
   return invoke<DatasetPage>("get_dataset_page", { offset, limit });
 }
 
+export function queryDataset(query: string): Promise<DatasetQueryResult> {
+  return invoke<DatasetQueryResult>("query_dataset", { query });
+}
+
 export function getDatasetProfile(onProgress?: ProgressHandler): Promise<DatasetProfile> {
   return invoke<DatasetProfile>("get_dataset_profile", {
     onProgress: progressChannel(onProgress),
@@ -489,11 +502,13 @@ export function exportDataset(
   qualityRules: QualityRule[],
   allowUnvalidated: boolean,
   onProgress?: ProgressHandler,
+  privacyMode: PrivacyMode = "none",
 ): Promise<ExportResult | null> {
   return invoke<ExportResult | null>("export_dataset", {
     format,
     qualityRules,
     allowUnvalidated,
+    privacyMode,
     onProgress: progressChannel(onProgress),
   });
 }

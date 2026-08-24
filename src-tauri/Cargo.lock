@@ -692,6 +692,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sysinfo 0.37.2",
  "tauri",
  "tauri-build",
@@ -699,6 +700,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "unicode-normalization",
+ "zip",
 ]
 
 [[package]]

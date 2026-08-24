@@ -89,6 +89,7 @@ pub fn run() {
             dataset::clear_dataset_comparison,
             dataset::use_consolidated_dataset,
             dataset::get_dataset_page,
+            dataset::query_dataset,
             dataset::get_dataset_profile,
             dataset::validate_quality_rules,
             dataset::cancel_operation,

@@ -55,6 +55,7 @@ describe("DeliveryPhase", () => {
 
     expect(onExport).toHaveBeenCalledWith({
       format: "parquet",
+      privacyMode: "none",
       validation: { kind: "explicitly_unvalidated" },
     });
   });
@@ -90,6 +91,7 @@ describe("DeliveryPhase", () => {
     fireEvent.click(exportButton);
     await waitFor(() => expect(onExport).toHaveBeenCalledWith({
       format: "csv",
+      privacyMode: "none",
       validation: {
         kind: "contract",
         rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
@@ -108,6 +110,7 @@ describe("DeliveryPhase", () => {
 
     expect(onExport).toHaveBeenCalledWith({
       format: "json",
+      privacyMode: "none",
       validation: { kind: "explicitly_unvalidated" },
     });
   });
@@ -123,6 +126,48 @@ describe("DeliveryPhase", () => {
 
     expect(onExport).toHaveBeenCalledWith({
       format: "sql",
+      privacyMode: "none",
+      validation: { kind: "explicitly_unvalidated" },
+    });
+  });
+
+  it("ofrece destinos Excel y SQLite con la compuerta de calidad", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Entiendo y deseo exportar sin contrato de calidad",
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Excel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar SQLite" }));
+
+    expect(onExport).toHaveBeenNthCalledWith(1, {
+      format: "excel",
+      privacyMode: "none",
+      validation: { kind: "explicitly_unvalidated" },
+    });
+    expect(onExport).toHaveBeenNthCalledWith(2, {
+      format: "sqlite",
+      privacyMode: "none",
+      validation: { kind: "explicitly_unvalidated" },
+    });
+  });
+
+  it("permite seleccionar una política de privacidad antes de exportar", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Entiendo y deseo exportar sin contrato de calidad",
+    }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Protección de datos personales" }), {
+      target: { value: "hash" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Excel" }));
+
+    expect(onExport).toHaveBeenCalledWith({
+      format: "excel",
+      privacyMode: "hash",
       validation: { kind: "explicitly_unvalidated" },
     });
   });

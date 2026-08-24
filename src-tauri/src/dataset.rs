@@ -10,20 +10,24 @@ use std::{
     },
 };
 
+use ::zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use polars::io::json::{JsonFormat, JsonWriter};
 use polars::lazy::dsl::{col, lit};
 use polars::prelude::*;
 use regex::Regex;
+use rusqlite::{params_from_iter, types::Value as SqlValue, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
+use sha2::{Digest, Sha256};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
+const MAX_QUERY_CHARS: usize = 2 * 1024;
 const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 500 * 1024 * 1024;
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
@@ -49,6 +53,8 @@ pub enum ExportFormat {
     Json,
     Parquet,
     Sql,
+    Excel,
+    Sqlite,
 }
 
 impl ExportFormat {
@@ -58,6 +64,8 @@ impl ExportFormat {
             Self::Json => "json",
             Self::Parquet => "parquet",
             Self::Sql => "sql",
+            Self::Excel => "xlsx",
+            Self::Sqlite => "sqlite",
         }
     }
 
@@ -67,8 +75,18 @@ impl ExportFormat {
             Self::Json => "JSON",
             Self::Parquet => "Parquet",
             Self::Sql => "SQL",
+            Self::Excel => "Excel",
+            Self::Sqlite => "SQLite",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PrivacyMode {
+    None,
+    Mask,
+    Hash,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -199,6 +217,16 @@ pub struct DatasetPreview {
     pub(crate) column_count: usize,
     pub(crate) columns: Vec<DatasetColumn>,
     rows: Vec<Vec<Option<String>>>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetQueryResult {
+    columns: Vec<DatasetColumn>,
+    row_count: usize,
+    offset: usize,
+    rows: Vec<Vec<Option<String>>>,
+    truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -1263,6 +1291,701 @@ fn dataset_page(frame: &DataFrame, offset: usize, limit: usize) -> Result<Datase
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(DatasetPage { offset, rows })
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LocalAggregate {
+    Count,
+    Sum,
+    Average,
+    Minimum,
+    Maximum,
+}
+
+#[derive(Clone, Debug)]
+enum LocalProjection {
+    Column {
+        name: String,
+        output_name: String,
+    },
+    Aggregate {
+        function: LocalAggregate,
+        column: Option<String>,
+        output_name: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LocalPredicateOperator {
+    IsNull,
+    IsNotNull,
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
+#[derive(Clone, Debug)]
+struct LocalPredicate {
+    column: String,
+    operator: LocalPredicateOperator,
+    value: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct LocalQueryPlan {
+    projections: Vec<LocalProjection>,
+    predicates: Vec<LocalPredicate>,
+    group_by: Option<String>,
+    offset: usize,
+    limit: usize,
+    aggregate: bool,
+}
+
+type LocalGroupRows = Vec<(Option<String>, Vec<usize>)>;
+
+fn local_identifier(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+        let value = value[1..value.len() - 1].replace("\"\"", "\"");
+        if !value.is_empty() {
+            return Ok(value);
+        }
+    } else if !value.is_empty()
+        && value
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '_' || character == '.')
+    {
+        return Ok(value.to_owned());
+    }
+    Err("La consulta solo permite nombres de columnas simples o entre comillas dobles.".to_owned())
+}
+
+fn split_local_sql_list(value: &str) -> Result<Vec<String>, String> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let characters = value.chars().collect::<Vec<_>>();
+    for (index, character) in characters.iter().enumerate() {
+        match character {
+            '\'' => {
+                if quoted && characters.get(index + 1) == Some(&'\'') {
+                    continue;
+                }
+                quoted = !quoted;
+            }
+            '(' if !quoted => depth = depth.saturating_add(1),
+            ')' if !quoted => {
+                if depth == 0 {
+                    return Err("La lista de columnas tiene paréntesis desbalanceados.".to_owned());
+                }
+                depth -= 1;
+            }
+            ',' if !quoted && depth == 0 => {
+                let part = characters[start..index].iter().collect::<String>();
+                if part.trim().is_empty() {
+                    return Err("La proyección contiene una expresión vacía.".to_owned());
+                }
+                parts.push(part);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    if quoted || depth != 0 {
+        return Err("La consulta tiene comillas o paréntesis desbalanceados.".to_owned());
+    }
+    let part = characters[start..].iter().collect::<String>();
+    if part.trim().is_empty() {
+        return Err("La proyección contiene una expresión vacía.".to_owned());
+    }
+    parts.push(part);
+    Ok(parts)
+}
+
+fn split_local_predicates(value: &str) -> Result<Vec<String>, String> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut quoted = false;
+    let characters = value.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < characters.len() {
+        match characters[index] {
+            '\'' => {
+                if quoted && characters.get(index + 1) == Some(&'\'') {
+                    index += 2;
+                    continue;
+                }
+                quoted = !quoted;
+                index += 1;
+            }
+            _ if !quoted
+                && index + 3 <= characters.len()
+                && characters[index..index + 3]
+                    .iter()
+                    .map(|character| character.to_ascii_lowercase())
+                    .eq(['a', 'n', 'd'])
+                && (index == 0 || characters[index - 1].is_whitespace())
+                && (index + 3 == characters.len() || characters[index + 3].is_whitespace()) =>
+            {
+                let part = characters[start..index].iter().collect::<String>();
+                if part.trim().is_empty() {
+                    return Err("El filtro contiene una condición vacía.".to_owned());
+                }
+                parts.push(part);
+                index += 3;
+                start = index;
+            }
+            _ => index += 1,
+        }
+    }
+    if quoted {
+        return Err("El filtro contiene comillas desbalanceadas.".to_owned());
+    }
+    let part = characters[start..].iter().collect::<String>();
+    if part.trim().is_empty() {
+        return Err("El filtro contiene una condición vacía.".to_owned());
+    }
+    parts.push(part);
+    Ok(parts)
+}
+
+fn parse_local_literal(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.len() >= 2 && value.starts_with('\'') && value.ends_with('\'') {
+        return Ok(value[1..value.len() - 1].replace("''", "'"));
+    }
+    let numeric = Regex::new(r"^-?(?:\d+(?:\.\d*)?|\.\d+)$")
+        .expect("el patrón numérico local debe ser válido");
+    if numeric.is_match(value) || matches!(value.to_ascii_lowercase().as_str(), "true" | "false") {
+        return Ok(value.to_owned());
+    }
+    Err("Los filtros solo permiten literales entre comillas, números o booleanos.".to_owned())
+}
+
+fn parse_local_projection(
+    projection: &str,
+    frame: &DataFrame,
+    group_by: Option<&str>,
+) -> Result<(Vec<LocalProjection>, bool), String> {
+    if projection.trim() == "*" {
+        return Ok((
+            frame
+                .get_column_names()
+                .iter()
+                .map(|name| LocalProjection::Column {
+                    name: name.to_string(),
+                    output_name: name.to_string(),
+                })
+                .collect(),
+            false,
+        ));
+    }
+
+    let aggregate_pattern = Regex::new(
+        r#"(?is)^\s*(count|sum|avg|average|min|max)\s*\(\s*(\*|(?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*\)(?:\s+as\s+((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+)))?\s*$"#,
+    )
+    .expect("el patrón de agregaciones locales debe ser válido");
+    let column_pattern = Regex::new(r#"(?is)^\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*$"#)
+        .expect("el patrón de columnas locales debe ser válido");
+    let mut projections = Vec::new();
+    let mut aggregate = false;
+    let mut column_projection = false;
+
+    for expression in split_local_sql_list(projection)? {
+        if let Some(captures) = aggregate_pattern.captures(&expression) {
+            aggregate = true;
+            if column_projection
+                && (group_by.is_none()
+                    || projections.iter().any(|projection| {
+                        matches!(projection, LocalProjection::Column { name, .. } if Some(name.as_str()) != group_by)
+                    }))
+            {
+                return Err("No mezcles columnas y agregaciones salvo la clave GROUP BY.".to_owned());
+            }
+            let function = match captures
+                .get(1)
+                .expect("la función agregada debe existir")
+                .as_str()
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "count" => LocalAggregate::Count,
+                "sum" => LocalAggregate::Sum,
+                "avg" | "average" => LocalAggregate::Average,
+                "min" => LocalAggregate::Minimum,
+                "max" => LocalAggregate::Maximum,
+                _ => unreachable!("la expresión ya fue validada por el patrón"),
+            };
+            let argument = captures
+                .get(2)
+                .expect("el argumento agregado debe existir")
+                .as_str();
+            let column = if argument == "*" {
+                if !matches!(function, LocalAggregate::Count) {
+                    return Err("COUNT es la única agregación que permite '*'.".to_owned());
+                }
+                None
+            } else {
+                Some(local_identifier(argument)?)
+            };
+            if let Some(column) = &column {
+                frame.column(column).map_err(|_| {
+                    format!("La columna '{column}' no existe en el dataset activo.")
+                })?;
+            }
+            let default_name = match (&function, &column) {
+                (LocalAggregate::Count, None) => "count".to_owned(),
+                (LocalAggregate::Count, Some(column)) => format!("count_{column}"),
+                (LocalAggregate::Sum, Some(column)) => format!("sum_{column}"),
+                (LocalAggregate::Average, Some(column)) => format!("avg_{column}"),
+                (LocalAggregate::Minimum, Some(column)) => format!("min_{column}"),
+                (LocalAggregate::Maximum, Some(column)) => format!("max_{column}"),
+                _ => unreachable!("las agregaciones no válidas ya fueron rechazadas"),
+            };
+            let output_name = captures
+                .get(3)
+                .map(|value| local_identifier(value.as_str()))
+                .transpose()?
+                .unwrap_or(default_name);
+            projections.push(LocalProjection::Aggregate {
+                function,
+                column,
+                output_name,
+            });
+        } else if let Some(captures) = column_pattern.captures(&expression) {
+            column_projection = true;
+            let name =
+                local_identifier(captures.get(1).expect("la columna debe existir").as_str())?;
+            if aggregate && (group_by.is_none() || Some(name.as_str()) != group_by) {
+                return Err("No mezcles columnas y agregaciones en una misma consulta.".to_owned());
+            }
+            frame
+                .column(&name)
+                .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))?;
+            projections.push(LocalProjection::Column {
+                name: name.clone(),
+                output_name: name,
+            });
+        } else {
+            return Err("La proyección solo permite columnas o COUNT/SUM/AVG/MIN/MAX.".to_owned());
+        }
+    }
+    Ok((projections, aggregate))
+}
+
+fn parse_local_predicates(
+    where_clause: Option<&str>,
+    frame: &DataFrame,
+) -> Result<Vec<LocalPredicate>, String> {
+    let Some(where_clause) = where_clause else {
+        return Ok(Vec::new());
+    };
+    let null_pattern = Regex::new(r"(?is)^\s*(.+?)\s+is\s+(not\s+)?null\s*$")
+        .expect("el patrón de nulos local debe ser válido");
+    let comparison_pattern = Regex::new(r"(?is)^\s*(.+?)\s*(<>|!=|>=|<=|=|>|<)\s*(.+?)\s*$")
+        .expect("el patrón de comparación local debe ser válido");
+    split_local_predicates(where_clause)?
+        .into_iter()
+        .map(|condition| {
+            if let Some(captures) = null_pattern.captures(&condition) {
+                let column =
+                    local_identifier(captures.get(1).expect("la columna debe existir").as_str())?;
+                frame.column(&column).map_err(|_| {
+                    format!("La columna '{column}' no existe en el dataset activo.")
+                })?;
+                return Ok(LocalPredicate {
+                    column,
+                    operator: if captures.get(2).is_some() {
+                        LocalPredicateOperator::IsNotNull
+                    } else {
+                        LocalPredicateOperator::IsNull
+                    },
+                    value: None,
+                });
+            }
+            let captures = comparison_pattern.captures(&condition).ok_or_else(|| {
+                "El filtro solo permite comparaciones simples o IS NULL.".to_owned()
+            })?;
+            let column =
+                local_identifier(captures.get(1).expect("la columna debe existir").as_str())?;
+            frame
+                .column(&column)
+                .map_err(|_| format!("La columna '{column}' no existe en el dataset activo."))?;
+            let operator = match captures.get(2).expect("el operador debe existir").as_str() {
+                "=" => LocalPredicateOperator::Eq,
+                "!=" | "<>" => LocalPredicateOperator::Neq,
+                ">" => LocalPredicateOperator::Gt,
+                ">=" => LocalPredicateOperator::Gte,
+                "<" => LocalPredicateOperator::Lt,
+                "<=" => LocalPredicateOperator::Lte,
+                _ => unreachable!("el operador ya fue validado por el patrón"),
+            };
+            Ok(LocalPredicate {
+                column,
+                operator,
+                value: Some(parse_local_literal(
+                    captures.get(3).expect("el literal debe existir").as_str(),
+                )?),
+            })
+        })
+        .collect()
+}
+
+fn parse_local_query(query: &str, frame: &DataFrame) -> Result<LocalQueryPlan, String> {
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Err(format!(
+            "La consulta supera el límite local de {MAX_QUERY_CHARS} caracteres."
+        ));
+    }
+    if query.contains(';') || query.contains("--") || query.contains("/*") || query.contains("*/") {
+        return Err(
+            "La consulta solo permite una sentencia SELECT sin comentarios ni separadores."
+                .to_owned(),
+        );
+    }
+    let pattern = Regex::new(
+        r"(?is)^\s*select\s+(.+?)\s+from\s+dataset(?:\s+where\s+(.+?))?(?:\s+group\s+by\s+(.+?))?(?:\s+limit\s+(\d+))?(?:\s+offset\s+(\d+))?\s*$",
+    )
+    .map_err(|_| "No se pudo preparar el analizador SQL local.".to_owned())?;
+    let captures = pattern.captures(query).ok_or_else(|| {
+        "Usa SELECT columnas FROM dataset con LIMIT y OFFSET opcionales.".to_owned()
+    })?;
+    let projection = captures
+        .get(1)
+        .map(|value| value.as_str().trim())
+        .unwrap_or_default();
+    let limit = captures
+        .get(4)
+        .map(|value| value.as_str().parse::<usize>())
+        .transpose()
+        .map_err(|_| "LIMIT debe ser un entero válido.".to_owned())?
+        .unwrap_or(50);
+    let offset = captures
+        .get(5)
+        .map(|value| value.as_str().parse::<usize>())
+        .transpose()
+        .map_err(|_| "OFFSET debe ser un entero válido.".to_owned())?
+        .unwrap_or(0);
+    if limit == 0 || limit > MAX_PAGE_SIZE {
+        return Err(format!("LIMIT debe estar entre 1 y {MAX_PAGE_SIZE}."));
+    }
+
+    let group_by = captures
+        .get(3)
+        .map(|value| local_identifier(value.as_str()))
+        .transpose()?;
+    if let Some(group_by) = &group_by {
+        frame
+            .column(group_by)
+            .map_err(|_| format!("La columna '{group_by}' no existe en el dataset activo."))?;
+    }
+    let (projections, aggregate) = parse_local_projection(projection, frame, group_by.as_deref())?;
+    if group_by.is_some() && !aggregate {
+        return Err("GROUP BY necesita al menos una agregación.".to_owned());
+    }
+    let predicates = parse_local_predicates(captures.get(2).map(|value| value.as_str()), frame)?;
+    Ok(LocalQueryPlan {
+        projections,
+        predicates,
+        group_by,
+        offset,
+        limit,
+        aggregate,
+    })
+}
+
+fn local_compare(left: AnyValue<'_>, right: &str, operator: LocalPredicateOperator) -> bool {
+    let Some(left) = preview_value(left) else {
+        return false;
+    };
+    let ordering = match (left.parse::<f64>(), right.parse::<f64>()) {
+        (Ok(left), Ok(right)) => left.partial_cmp(&right),
+        _ => Some(left.as_str().cmp(right)),
+    };
+    match operator {
+        LocalPredicateOperator::Eq => ordering == Some(std::cmp::Ordering::Equal),
+        LocalPredicateOperator::Neq => ordering != Some(std::cmp::Ordering::Equal),
+        LocalPredicateOperator::Gt => ordering == Some(std::cmp::Ordering::Greater),
+        LocalPredicateOperator::Gte => matches!(
+            ordering,
+            Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+        ),
+        LocalPredicateOperator::Lt => ordering == Some(std::cmp::Ordering::Less),
+        LocalPredicateOperator::Lte => matches!(
+            ordering,
+            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+        ),
+        LocalPredicateOperator::IsNull | LocalPredicateOperator::IsNotNull => false,
+    }
+}
+
+fn local_predicate_matches(
+    frame: &DataFrame,
+    row_index: usize,
+    predicate: &LocalPredicate,
+) -> Result<bool, String> {
+    let value = frame
+        .column(&predicate.column)
+        .map_err(|_| {
+            format!(
+                "La columna '{}' no existe en el dataset activo.",
+                predicate.column
+            )
+        })?
+        .get(row_index)
+        .map_err(|error| format!("No se pudo evaluar el filtro local: {error}"))?;
+    Ok(match predicate.operator {
+        LocalPredicateOperator::IsNull => matches!(value, AnyValue::Null),
+        LocalPredicateOperator::IsNotNull => !matches!(value, AnyValue::Null),
+        operator => local_compare(
+            value,
+            predicate.value.as_deref().unwrap_or_default(),
+            operator,
+        ),
+    })
+}
+
+fn aggregate_result(
+    frame: &DataFrame,
+    projection: &LocalProjection,
+    rows: &[usize],
+) -> Result<Option<String>, String> {
+    let LocalProjection::Aggregate {
+        function, column, ..
+    } = projection
+    else {
+        return Ok(None);
+    };
+    if matches!(function, LocalAggregate::Count) && column.is_none() {
+        return Ok(Some(rows.len().to_string()));
+    }
+    let column_name = column
+        .as_deref()
+        .ok_or_else(|| "La agregación necesita una columna válida.".to_owned())?;
+    let series = frame
+        .column(column_name)
+        .map_err(|_| format!("La columna '{column_name}' no existe en el dataset activo."))?;
+    if matches!(function, LocalAggregate::Count) {
+        return Ok(Some(
+            rows.iter()
+                .filter_map(|row| series.get(*row).ok())
+                .filter(|value| !matches!(value, AnyValue::Null))
+                .count()
+                .to_string(),
+        ));
+    }
+    let values = rows
+        .iter()
+        .filter_map(|row| series.get(*row).ok())
+        .filter_map(|value| preview_value(value))
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        return Ok(None);
+    }
+    match function {
+        LocalAggregate::Sum | LocalAggregate::Average => {
+            let numbers = values
+                .iter()
+                .filter_map(|value| value.parse::<f64>().ok())
+                .collect::<Vec<_>>();
+            if numbers.len() != values.len() {
+                return Err(format!(
+                    "La columna '{column_name}' debe ser numérica para SUM/AVG."
+                ));
+            }
+            let total = numbers.iter().sum::<f64>();
+            if matches!(function, LocalAggregate::Average) {
+                Ok(Some((total / numbers.len() as f64).to_string()))
+            } else {
+                Ok(Some(total.to_string()))
+            }
+        }
+        LocalAggregate::Minimum | LocalAggregate::Maximum => {
+            let numbers = values
+                .iter()
+                .map(|value| value.parse::<f64>())
+                .collect::<Result<Vec<_>, _>>();
+            if let Ok(numbers) = numbers {
+                let value = if matches!(function, LocalAggregate::Minimum) {
+                    numbers.iter().copied().fold(f64::INFINITY, f64::min)
+                } else {
+                    numbers.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+                };
+                Ok(Some(value.to_string()))
+            } else {
+                let value = if matches!(function, LocalAggregate::Minimum) {
+                    values.iter().min()
+                } else {
+                    values.iter().max()
+                };
+                Ok(value.cloned())
+            }
+        }
+        LocalAggregate::Count => unreachable!("COUNT se resuelve antes"),
+    }
+}
+
+fn grouped_local_rows(
+    frame: &DataFrame,
+    rows: &[usize],
+    group_by: &str,
+) -> Result<LocalGroupRows, String> {
+    let group_column = frame
+        .column(group_by)
+        .map_err(|_| format!("La columna '{group_by}' no existe en el dataset activo."))?;
+    let mut groups = Vec::<(Option<String>, Vec<usize>)>::new();
+    let mut positions = HashMap::<Option<String>, usize>::new();
+    for row_index in rows {
+        let key = preview_value(
+            group_column
+                .get(*row_index)
+                .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))?,
+        );
+        if let Some(position) = positions.get(&key) {
+            groups[*position].1.push(*row_index);
+        } else {
+            positions.insert(key.clone(), groups.len());
+            groups.push((key, vec![*row_index]));
+        }
+    }
+    Ok(groups)
+}
+
+fn local_query_row(
+    frame: &DataFrame,
+    projections: &[LocalProjection],
+    rows: &[usize],
+    group_value: Option<&Option<String>>,
+) -> Result<Vec<Option<String>>, String> {
+    projections
+        .iter()
+        .map(|projection| match projection {
+            LocalProjection::Column { .. } => Ok(group_value.cloned().flatten()),
+            LocalProjection::Aggregate { .. } => aggregate_result(frame, projection, rows),
+        })
+        .collect()
+}
+
+fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryResult, String> {
+    let plan = parse_local_query(query, frame)?;
+    let mut matching_rows = Vec::new();
+    for row_index in 0..frame.height() {
+        let mut matches = true;
+        for predicate in &plan.predicates {
+            if !local_predicate_matches(frame, row_index, predicate)? {
+                matches = false;
+                break;
+            }
+        }
+        if matches {
+            matching_rows.push(row_index);
+        }
+    }
+    let columns = plan
+        .projections
+        .iter()
+        .map(|projection| match projection {
+            LocalProjection::Column { name, output_name } => frame
+                .column(name)
+                .map(|column| DatasetColumn {
+                    name: output_name.clone(),
+                    data_type: column.dtype().to_string(),
+                })
+                .map_err(|_| format!("La columna '{name}' no existe en el dataset activo.")),
+            LocalProjection::Aggregate {
+                function,
+                column,
+                output_name,
+            } => Ok(DatasetColumn {
+                name: output_name.clone(),
+                data_type: match function {
+                    LocalAggregate::Count => "UInt64".to_owned(),
+                    LocalAggregate::Sum | LocalAggregate::Average => "Float64".to_owned(),
+                    LocalAggregate::Minimum | LocalAggregate::Maximum => column
+                        .as_deref()
+                        .and_then(|name| frame.column(name).ok())
+                        .map(|column| column.dtype().to_string())
+                        .unwrap_or_else(|| "String".to_owned()),
+                },
+            }),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let (row_count, rows, offset, truncated) = if plan.aggregate {
+        let aggregate_rows = if let Some(group_by) = &plan.group_by {
+            grouped_local_rows(frame, &matching_rows, group_by)?
+                .iter()
+                .map(|(group_value, group_rows)| {
+                    local_query_row(frame, &plan.projections, group_rows, Some(group_value))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            vec![local_query_row(
+                frame,
+                &plan.projections,
+                &matching_rows,
+                None,
+            )?]
+        };
+        let row_count = aggregate_rows.len();
+        if plan.offset > row_count {
+            return Err("La página solicitada está fuera del resultado agregado.".to_owned());
+        }
+        let end = plan.offset.saturating_add(plan.limit).min(row_count);
+        (
+            row_count,
+            aggregate_rows[plan.offset..end].to_vec(),
+            plan.offset,
+            plan.offset.saturating_add(plan.limit) < row_count,
+        )
+    } else {
+        if plan.offset > matching_rows.len() {
+            return Err("La página solicitada está fuera del resultado filtrado.".to_owned());
+        }
+        let end = plan
+            .offset
+            .saturating_add(plan.limit)
+            .min(matching_rows.len());
+        let rows = matching_rows[plan.offset..end]
+            .iter()
+            .map(|row_index| {
+                plan.projections
+                    .iter()
+                    .map(|projection| {
+                        let LocalProjection::Column { name, .. } = projection else {
+                            return Ok(None);
+                        };
+                        frame
+                            .column(name)
+                            .map_err(|error| {
+                                format!("No se pudo preparar la consulta local: {error}")
+                            })?
+                            .get(*row_index)
+                            .map_err(|error| {
+                                format!("No se pudo preparar la consulta local: {error}")
+                            })
+                            .map(preview_value)
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        (
+            matching_rows.len(),
+            rows,
+            plan.offset,
+            plan.offset.saturating_add(plan.limit) < matching_rows.len(),
+        )
+    };
+    Ok(DatasetQueryResult {
+        columns,
+        row_count,
+        offset,
+        rows,
+        truncated,
+    })
 }
 
 fn numeric_value(value: AnyValue<'_>) -> Option<f64> {
@@ -3877,6 +4600,8 @@ fn frame_for_export(frame: &DataFrame, format: ExportFormat) -> Result<DataFrame
         ExportFormat::Json => Ok(frame.clone()),
         ExportFormat::Parquet => Ok(frame.clone()),
         ExportFormat::Sql => Ok(frame.clone()),
+        ExportFormat::Excel => Ok(frame.clone()),
+        ExportFormat::Sqlite => Ok(frame.clone()),
     }
 }
 
@@ -4012,10 +4737,361 @@ where
     Ok(())
 }
 
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn xlsx_column_name(mut index: usize) -> String {
+    let mut name = String::new();
+    loop {
+        name.insert(0, (b'A' + (index % 26) as u8) as char);
+        if index < 26 {
+            break;
+        }
+        index = (index / 26) - 1;
+    }
+    name
+}
+
+fn xlsx_cell(column_index: usize, row_index: usize, value: AnyValue<'_>) -> Result<String, String> {
+    let reference = format!("{}{}", xlsx_column_name(column_index), row_index + 1);
+    let cell = match value {
+        AnyValue::Null => format!("<c r=\"{reference}\"/>"),
+        AnyValue::Boolean(value) => format!(
+            "<c r=\"{reference}\" t=\"b\"><v>{}</v></c>",
+            if value { 1 } else { 0 }
+        ),
+        AnyValue::Int8(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::Int16(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::Int32(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::Int64(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt8(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt16(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt32(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::UInt64(value) => format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"),
+        AnyValue::Float32(value) if value.is_finite() => {
+            format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>")
+        }
+        AnyValue::Float64(value) if value.is_finite() => {
+            format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>")
+        }
+        AnyValue::Float32(_) | AnyValue::Float64(_) => {
+            return Err("Excel no puede representar valores numéricos no finitos.".to_owned())
+        }
+        AnyValue::String(value) => format!(
+            "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
+            xml_escape(value)
+        ),
+        AnyValue::StringOwned(value) => format!(
+            "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
+            xml_escape(value.as_str())
+        ),
+        value => format!(
+            "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
+            xml_escape(&value.to_string())
+        ),
+    };
+    Ok(cell)
+}
+
+fn write_xlsx<F, C>(
+    frame: &DataFrame,
+    output: &mut File,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(u8),
+    C: Fn() -> bool,
+{
+    if frame.width() == 0 {
+        return Err("Excel requiere al menos una columna.".to_owned());
+    }
+    const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#;
+    const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
+    const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
+    const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
+    const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs></styleSheet>"#;
+
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut archive = ZipWriter::new(output);
+    for (name, contents) in [
+        ("[Content_Types].xml", CONTENT_TYPES),
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", WORKBOOK),
+        ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS),
+        ("xl/styles.xml", STYLES),
+    ] {
+        archive
+            .start_file(name, options)
+            .map_err(|error| format!("No se pudo preparar el libro Excel: {error}"))?;
+        archive
+            .write_all(contents.as_bytes())
+            .map_err(|error| format!("No se pudo escribir el libro Excel: {error}"))?;
+    }
+
+    archive
+        .start_file("xl/worksheets/sheet1.xml", options)
+        .map_err(|error| format!("No se pudo preparar la hoja Excel: {error}"))?;
+    archive
+        .write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>"#)
+        .map_err(|error| format!("No se pudo escribir la hoja Excel: {error}"))?;
+
+    archive
+        .write_all(b"<row r=\"1\">")
+        .map_err(|error| format!("No se pudo escribir el encabezado Excel: {error}"))?;
+    for (column_index, column) in frame.columns().iter().enumerate() {
+        let header = xlsx_cell(column_index, 0, AnyValue::String(column.name().as_str()))?;
+        archive
+            .write_all(header.as_bytes())
+            .map_err(|error| format!("No se pudo escribir el encabezado Excel: {error}"))?;
+    }
+    archive
+        .write_all(b"</row>")
+        .map_err(|error| format!("No se pudo cerrar el encabezado Excel: {error}"))?;
+
+    for row_index in 0..frame.height() {
+        ensure_not_cancelled(is_cancelled())?;
+        write!(archive, "<row r=\"{}\">", row_index + 2)
+            .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
+        for (column_index, column) in frame.columns().iter().enumerate() {
+            let value = column.get(row_index).map_err(|error| {
+                format!("No se pudo leer la fila {row_index} para Excel: {error}")
+            })?;
+            archive
+                .write_all(xlsx_cell(column_index, row_index + 1, value)?.as_bytes())
+                .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
+        }
+        archive
+            .write_all(b"</row>")
+            .map_err(|error| format!("No se pudo cerrar una fila Excel: {error}"))?;
+        let percent = if frame.height() == 0 {
+            85
+        } else {
+            30 + (((row_index + 1) * 55) / frame.height()) as u8
+        };
+        report(percent);
+    }
+    archive
+        .write_all(b"</sheetData></worksheet>")
+        .map_err(|error| format!("No se pudo cerrar la hoja Excel: {error}"))?;
+    archive
+        .finish()
+        .map_err(|error| format!("No se pudo finalizar el libro Excel: {error}"))?;
+    report(85);
+    Ok(())
+}
+
+fn sqlite_type(data_type: &DataType) -> &'static str {
+    match data_type {
+        DataType::Boolean
+        | DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64 => "INTEGER",
+        DataType::Float32 | DataType::Float64 => "REAL",
+        _ => "TEXT",
+    }
+}
+
+fn sqlite_value(value: AnyValue<'_>) -> Result<SqlValue, String> {
+    match value {
+        AnyValue::Null => Ok(SqlValue::Null),
+        AnyValue::Boolean(value) => Ok(SqlValue::Integer(i64::from(value))),
+        AnyValue::Int8(value) => Ok(SqlValue::Integer(i64::from(value))),
+        AnyValue::Int16(value) => Ok(SqlValue::Integer(i64::from(value))),
+        AnyValue::Int32(value) => Ok(SqlValue::Integer(i64::from(value))),
+        AnyValue::Int64(value) => Ok(SqlValue::Integer(value)),
+        AnyValue::UInt8(value) => Ok(SqlValue::Integer(i64::from(value))),
+        AnyValue::UInt16(value) => Ok(SqlValue::Integer(i64::from(value))),
+        AnyValue::UInt32(value) => Ok(SqlValue::Integer(i64::from(value))),
+        AnyValue::UInt64(value) => i64::try_from(value)
+            .map(SqlValue::Integer)
+            .or_else(|_| Ok(SqlValue::Text(value.to_string()))),
+        AnyValue::Float32(value) if value.is_finite() => Ok(SqlValue::Real(value as f64)),
+        AnyValue::Float64(value) if value.is_finite() => Ok(SqlValue::Real(value)),
+        AnyValue::Float32(_) | AnyValue::Float64(_) => {
+            Err("SQLite no puede representar valores numéricos no finitos.".to_owned())
+        }
+        AnyValue::String(value) => Ok(SqlValue::Text(value.to_owned())),
+        AnyValue::StringOwned(value) => Ok(SqlValue::Text(value.to_string())),
+        value => Ok(SqlValue::Text(value.to_string())),
+    }
+}
+
+fn write_sqlite_database<F, C>(
+    frame: &DataFrame,
+    path: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(u8),
+    C: Fn() -> bool,
+{
+    if frame.width() == 0 {
+        return Err("SQLite requiere al menos una columna.".to_owned());
+    }
+    let mut connection = Connection::open(path)
+        .map_err(|error| format!("No se pudo crear la base SQLite: {error}"))?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("No se pudo iniciar la transacción SQLite: {error}"))?;
+    transaction
+        .execute_batch("DROP TABLE IF EXISTS \"dataset\";")
+        .map_err(|error| format!("No se pudo preparar la tabla SQLite: {error}"))?;
+    let definition = frame
+        .columns()
+        .iter()
+        .map(|column| {
+            format!(
+                "{} {}",
+                sql_identifier(column.name().as_str()),
+                sqlite_type(column.dtype())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    transaction
+        .execute_batch(&format!("CREATE TABLE \"dataset\" ({definition});"))
+        .map_err(|error| format!("No se pudo crear la tabla SQLite: {error}"))?;
+    let placeholders = (0..frame.width())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let columns = frame
+        .columns()
+        .iter()
+        .map(|column| sql_identifier(column.name().as_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut statement = transaction
+        .prepare(&format!(
+            "INSERT INTO \"dataset\" ({columns}) VALUES ({placeholders});"
+        ))
+        .map_err(|error| format!("No se pudo preparar la inserción SQLite: {error}"))?;
+    for row_index in 0..frame.height() {
+        ensure_not_cancelled(is_cancelled())?;
+        let values = frame
+            .columns()
+            .iter()
+            .map(|column| {
+                column
+                    .get(row_index)
+                    .map_err(|error| {
+                        format!("No se pudo leer la fila {row_index} para SQLite: {error}")
+                    })
+                    .and_then(sqlite_value)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        statement
+            .execute(params_from_iter(values))
+            .map_err(|error| {
+                format!("No se pudo insertar la fila {row_index} en SQLite: {error}")
+            })?;
+        let percent = if frame.height() == 0 {
+            85
+        } else {
+            30 + (((row_index + 1) * 55) / frame.height()) as u8
+        };
+        report(percent);
+    }
+    drop(statement);
+    transaction
+        .commit()
+        .map_err(|error| format!("No se pudo confirmar la base SQLite: {error}"))?;
+    connection
+        .execute_batch("PRAGMA user_version = 1;")
+        .map_err(|error| format!("No se pudo versionar la base SQLite: {error}"))?;
+    report(85);
+    Ok(())
+}
+
+fn is_likely_personal_column(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    [
+        "email",
+        "correo",
+        "mail",
+        "phone",
+        "telefono",
+        "tel",
+        "address",
+        "direccion",
+        "dni",
+        "cedula",
+        "ssn",
+    ]
+    .iter()
+    .any(|token| normalized.contains(token))
+}
+
+fn privacy_safe_frame(frame: &DataFrame, mode: PrivacyMode) -> Result<DataFrame, String> {
+    if mode == PrivacyMode::None {
+        return Ok(frame.clone());
+    }
+    let mut safe = frame.clone();
+    for column in frame.columns().iter().filter(|column| {
+        column.dtype() == &DataType::String && is_likely_personal_column(column.name().as_str())
+    }) {
+        let values = column
+            .str()
+            .map_err(|_| {
+                "No se pudo preparar una columna para protección de privacidad.".to_owned()
+            })?
+            .iter()
+            .map(|value| {
+                value.map(|value| match mode {
+                    PrivacyMode::None => value.to_owned(),
+                    PrivacyMode::Mask => "[REDACTED]".to_owned(),
+                    PrivacyMode::Hash => format!("{:x}", Sha256::digest(value.as_bytes())),
+                })
+            })
+            .collect::<Vec<_>>();
+        safe.replace(
+            column.name().as_str(),
+            Column::new(column.name().clone(), values),
+        )
+        .map_err(|_| "No se pudo proteger una columna de datos personales.".to_owned())?;
+    }
+    Ok(safe)
+}
+
 fn export_frame_atomic<F, C>(
     frame: &DataFrame,
     destination: &Path,
     format: ExportFormat,
+    report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    export_frame_atomic_with_privacy(
+        frame,
+        destination,
+        format,
+        PrivacyMode::None,
+        report,
+        is_cancelled,
+    )
+}
+
+fn export_frame_atomic_with_privacy<F, C>(
+    frame: &DataFrame,
+    destination: &Path,
+    format: ExportFormat,
+    privacy_mode: PrivacyMode,
     mut report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
@@ -4031,7 +5107,8 @@ where
     report("Preparando archivo temporal", 10);
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo crear el archivo temporal: {error}"))?;
-    let mut output_frame = frame_for_export(frame, format)?;
+    let protected_frame = privacy_safe_frame(frame, privacy_mode)?;
+    let mut output_frame = frame_for_export(&protected_frame, format)?;
 
     report("Escribiendo dataset", 25);
     match format {
@@ -4047,9 +5124,21 @@ where
             .map(|_| ())
             .map_err(|error| format!("No se pudo escribir Parquet: {error}"))?,
         ExportFormat::Sql => write_sql_script(
-            frame,
+            &protected_frame,
             temporary.as_file_mut(),
             |percent| report("Escribiendo SQL", percent),
+            &is_cancelled,
+        )?,
+        ExportFormat::Excel => write_xlsx(
+            &protected_frame,
+            temporary.as_file_mut(),
+            |percent| report("Escribiendo Excel", percent),
+            &is_cancelled,
+        )?,
+        ExportFormat::Sqlite => write_sqlite_database(
+            &protected_frame,
+            temporary.path(),
+            |percent| report("Escribiendo SQLite", percent),
             &is_cancelled,
         )?,
     }
@@ -4831,6 +5920,25 @@ pub fn get_dataset_page(
 }
 
 #[tauri::command]
+pub async fn query_dataset(app: AppHandle, query: String) -> Result<DatasetQueryResult, String> {
+    let frame = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        current
+            .as_ref()
+            .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?
+            .frame
+            .clone()
+    };
+    tauri::async_runtime::spawn_blocking(move || execute_local_query(&frame, &query))
+        .await
+        .map_err(|error| format!("La consulta local se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn get_dataset_profile(
     app: AppHandle,
     on_progress: Channel<OperationProgress>,
@@ -4902,6 +6010,7 @@ pub async fn export_dataset(
     format: ExportFormat,
     quality_rules: Vec<QualityRule>,
     allow_unvalidated: bool,
+    privacy_mode: PrivacyMode,
     on_progress: Channel<OperationProgress>,
 ) -> Result<Option<ExportResult>, String> {
     validate_quality_rules_payload(&quality_rules)?;
@@ -4963,10 +6072,11 @@ pub async fn export_dataset(
     );
 
     tauri::async_runtime::spawn_blocking(move || {
-        export_frame_atomic(
+        export_frame_atomic_with_privacy(
             &frame,
             &destination,
             format,
+            privacy_mode,
             |stage, percent| send_progress(&on_progress, "export", stage, percent),
             || app.state::<DatasetState>().export_was_cancelled(generation),
         )
@@ -8083,6 +9193,7 @@ mod tests {
     };
 
     use super::*;
+    use ::zip::ZipArchive;
 
     fn temporary_csv(contents: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -8529,6 +9640,114 @@ mod tests {
     }
 
     #[test]
+    fn local_query_is_read_only_projected_and_bounded() {
+        let frame = df![
+            "city" => &["Santo Domingo", "Santiago", "La Vega"],
+            "value" => &[10_i64, 20_i64, 30_i64]
+        ]
+        .unwrap();
+        let result =
+            execute_local_query(&frame, "SELECT city, value FROM dataset LIMIT 1 OFFSET 1")
+                .expect("la consulta segura debe ejecutarse");
+        assert_eq!(
+            result
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["city", "value"]
+        );
+        assert_eq!(result.row_count, 3);
+        assert_eq!(result.offset, 1);
+        assert_eq!(
+            result.rows,
+            vec![vec![Some("Santiago".to_owned()), Some("20".to_owned())]]
+        );
+        assert!(result.truncated);
+        assert!(execute_local_query(&frame, "DELETE FROM dataset").is_err());
+        assert!(execute_local_query(&frame, "SELECT * FROM dataset LIMIT 201").is_err());
+        assert!(execute_local_query(&frame, "SELECT missing FROM dataset").is_err());
+    }
+
+    #[test]
+    fn local_query_filters_nulls_and_calculates_bounded_aggregates() {
+        let frame = df![
+            "city" => &[Some("Santo Domingo"), None, Some("Santiago"), Some("Santiago")],
+            "value" => &[Some(10_i64), Some(20_i64), Some(30_i64), Some(40_i64)]
+        ]
+        .unwrap();
+
+        let filtered = execute_local_query(
+            &frame,
+            "SELECT city, value FROM dataset WHERE city IS NOT NULL AND value >= 30 LIMIT 1",
+        )
+        .expect("el filtro local debe ejecutarse");
+        assert_eq!(filtered.row_count, 2);
+        assert_eq!(
+            filtered.rows,
+            vec![vec![Some("Santiago".to_owned()), Some("30".to_owned())]]
+        );
+        assert!(filtered.truncated);
+
+        let aggregate = execute_local_query(
+            &frame,
+            "SELECT COUNT(*) AS total, AVG(value) AS average, MAX(value) AS highest FROM dataset WHERE value >= 20",
+        )
+        .expect("las agregaciones locales deben ejecutarse");
+        assert_eq!(aggregate.row_count, 1);
+        assert_eq!(
+            aggregate
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["total", "average", "highest"]
+        );
+        assert_eq!(
+            aggregate.rows,
+            vec![vec![
+                Some("3".to_owned()),
+                Some("30".to_owned()),
+                Some("40".to_owned())
+            ]]
+        );
+
+        let grouped = execute_local_query(
+            &frame,
+            "SELECT city, COUNT(*) AS total, SUM(value) AS sum_value FROM dataset GROUP BY city LIMIT 10",
+        )
+        .expect("GROUP BY local debe ejecutarse");
+        assert_eq!(grouped.row_count, 3);
+        assert_eq!(
+            grouped.rows[0],
+            vec![
+                Some("Santo Domingo".to_owned()),
+                Some("1".to_owned()),
+                Some("10".to_owned())
+            ]
+        );
+        assert_eq!(
+            grouped.rows[1],
+            vec![None, Some("1".to_owned()), Some("20".to_owned())]
+        );
+        assert_eq!(
+            grouped.rows[2],
+            vec![
+                Some("Santiago".to_owned()),
+                Some("2".to_owned()),
+                Some("70".to_owned())
+            ]
+        );
+
+        assert!(
+            execute_local_query(&frame, "SELECT city FROM dataset WHERE city = untrusted").is_err()
+        );
+        assert!(execute_local_query(&frame, "SELECT SUM(city) FROM dataset").is_err());
+        assert!(execute_local_query(&frame, "SELECT city, COUNT(*) FROM dataset").is_err());
+        assert!(execute_local_query(&frame, "SELECT city FROM dataset GROUP BY city").is_err());
+    }
+
+    #[test]
     fn profiles_nulls_uniques_and_numeric_statistics() {
         let path = temporary_csv(
             "city,temperature\nSanto Domingo,30\nSantiago,\nSantiago,28\nSantiago,28\n,25\n",
@@ -8816,6 +10035,115 @@ mod tests {
         assert!(script.contains("TRUE"));
         assert!(script.contains("BEGIN TRANSACTION;"));
         assert!(script.contains("COMMIT;"));
+    }
+
+    #[test]
+    fn exports_a_real_xlsx_with_safe_inline_strings() {
+        let frame = df![
+            "name" => &["A&B", "=SUM(A1:A2)"],
+            "count" => &[1_i64, 2_i64]
+        ]
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("resultado.xlsx");
+        export_frame_atomic(
+            &frame,
+            &destination,
+            ExportFormat::Excel,
+            |_, _| {},
+            || false,
+        )
+        .expect("Excel debe publicarse");
+
+        let bytes = fs::read(&destination).unwrap();
+        assert_eq!(&bytes[..2], b"PK");
+        let mut archive = ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut sheet = String::new();
+        archive
+            .by_name("xl/worksheets/sheet1.xml")
+            .unwrap()
+            .read_to_string(&mut sheet)
+            .unwrap();
+        assert!(sheet.contains("A&amp;B"));
+        assert!(sheet.contains("=SUM(A1:A2)"));
+        assert!(sheet.contains("t=\"inlineStr\""));
+        let mut workbook = open_workbook_auto(&destination).expect("Excel debe poder reabrirse");
+        let range = workbook
+            .worksheet_range("dataset")
+            .expect("la hoja dataset debe existir");
+        assert_eq!(
+            range.get((0, 0)).map(ToString::to_string).as_deref(),
+            Some("name")
+        );
+        assert_eq!(
+            range.get((1, 0)).map(ToString::to_string).as_deref(),
+            Some("A&B")
+        );
+    }
+
+    #[test]
+    fn exports_a_typed_sqlite_database_atomically() {
+        let frame = df![
+            "name" => &[Some("Santo Domingo"), None],
+            "count" => &[Some(2_i64), Some(3_i64)]
+        ]
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("resultado.sqlite");
+        export_frame_atomic(
+            &frame,
+            &destination,
+            ExportFormat::Sqlite,
+            |_, _| {},
+            || false,
+        )
+        .expect("SQLite debe publicarse");
+
+        let connection = Connection::open(&destination).unwrap();
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM dataset", [], |row| row.get(0))
+            .unwrap();
+        let nullable: Option<String> = connection
+            .query_row("SELECT name FROM dataset WHERE count = 3", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(nullable, None);
+    }
+
+    #[test]
+    fn privacy_modes_mask_or_hash_detected_text_columns_only() {
+        let frame = df![
+            "email" => &["ana@example.com"],
+            "city" => &["Santo Domingo"]
+        ]
+        .unwrap();
+
+        let masked = privacy_safe_frame(&frame, PrivacyMode::Mask).unwrap();
+        assert_eq!(
+            masked.column("email").unwrap().str().unwrap().get(0),
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            masked.column("city").unwrap().str().unwrap().get(0),
+            Some("Santo Domingo")
+        );
+
+        let hashed = privacy_safe_frame(&frame, PrivacyMode::Hash).unwrap();
+        let hashed_value = hashed
+            .column("email")
+            .unwrap()
+            .str()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        assert_eq!(hashed_value.len(), 64);
+        assert_ne!(hashed_value, "ana@example.com");
+        assert_eq!(
+            privacy_safe_frame(&frame, PrivacyMode::None).unwrap(),
+            frame
+        );
     }
 
     #[test]

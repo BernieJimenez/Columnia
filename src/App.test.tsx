@@ -541,7 +541,7 @@ describe("App", () => {
     expect(validationSpy).toHaveBeenCalledWith([{ column: "total", kind: "not_null", maxInvalid: 0 }]);
     fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
     await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(
-      "csv", [{ column: "total", kind: "not_null", maxInvalid: 0 }], false, expect.any(Function),
+      "csv", [{ column: "total", kind: "not_null", maxInvalid: 0 }], false, expect.any(Function), "none",
     ));
   });
 

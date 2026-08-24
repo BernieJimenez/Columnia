@@ -6,6 +6,7 @@ import {
   validateQualityRules,
   type DatasetPreview,
   type ExportFormat,
+  type PrivacyMode,
   type QualityMigrationResult,
   type QualityRule,
   type QualityRuleKind,
@@ -38,6 +39,7 @@ export function DeliveryPhase({
   onExport,
   onCancelExport,
 }: DeliveryPhaseProps) {
+  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
   const [migrationState, setMigrationState] = useState<
     | { kind: "idle" }
     | { kind: "ready"; result: QualityMigrationResult }
@@ -136,9 +138,9 @@ export function DeliveryPhase({
 
   function requestExport(format: ExportFormat) {
     if (contract.kind === "with_contract") {
-      onExport({ format, validation: { kind: "contract", rules: contract.rules } });
+      onExport({ format, privacyMode, validation: { kind: "contract", rules: contract.rules } });
     } else if (contract.confirmation === "confirmed") {
-      onExport({ format, validation: { kind: "explicitly_unvalidated" } });
+      onExport({ format, privacyMode, validation: { kind: "explicitly_unvalidated" } });
     }
   }
 
@@ -372,6 +374,19 @@ export function DeliveryPhase({
           <h3 id="export-title">Exportar dataset activo</h3>
           <p>El destino solo aparece cuando el archivo está completo.</p>
         </div>
+        <label className="privacy-mode">
+          Protección de datos personales
+          <select
+            aria-label="Protección de datos personales"
+            value={privacyMode}
+            onChange={(event) => setPrivacyMode(event.target.value as PrivacyMode)}
+            disabled={busy || !exportAllowed}
+          >
+            <option value="none">Sin protección adicional</option>
+            <option value="mask">Enmascarar columnas detectadas</option>
+            <option value="hash">Aplicar hash SHA-256 a columnas detectadas</option>
+          </select>
+        </label>
         <div className="export-actions">
           <button type="button" onClick={() => requestExport("csv")} disabled={busy || !exportAllowed}>
             Exportar CSV
@@ -384,6 +399,12 @@ export function DeliveryPhase({
           </button>
           <button type="button" onClick={() => requestExport("sql")} disabled={busy || !exportAllowed}>
             Exportar SQL
+          </button>
+          <button type="button" onClick={() => requestExport("excel")} disabled={busy || !exportAllowed}>
+            Exportar Excel
+          </button>
+          <button type="button" onClick={() => requestExport("sqlite")} disabled={busy || !exportAllowed}>
+            Exportar SQLite
           </button>
         </div>
       </section>

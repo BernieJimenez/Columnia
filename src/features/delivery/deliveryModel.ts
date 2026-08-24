@@ -4,6 +4,7 @@ import type {
   ExportResult,
   OperationProgress,
   QualityRule,
+  PrivacyMode,
   QualityValidationResult,
 } from "../../bridge";
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
@@ -57,10 +58,12 @@ export type DeliveryExportState =
 export type DeliveryExportRequest =
   | {
       format: ExportFormat;
+      privacyMode: PrivacyMode;
       validation: { kind: "contract"; rules: QualityRule[] };
     }
   | {
       format: ExportFormat;
+      privacyMode: PrivacyMode;
       validation: { kind: "explicitly_unvalidated" };
     };
 

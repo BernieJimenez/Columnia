@@ -1,10 +1,14 @@
+import { useState } from "react";
+
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
+import { queryDataset } from "../../bridge";
 import type {
   DatasetColumn,
   DatasetJoinType,
   DatasetPreview,
   DatasetProfile,
+  DatasetQueryResult,
 } from "../../bridge";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
@@ -319,6 +323,7 @@ function QualitySection({
         )}
       </div>
       <DatasetMetrics dataset={dataset} />
+      <LocalQueryPanel />
       {status.kind === "loading" && (
         <OperationProgressView
           progress={status.progress}
@@ -334,6 +339,69 @@ function QualitySection({
       )}
       {status.kind === "ready" && <QualityProfile profile={status.profile} />}
     </section>
+  );
+}
+
+function LocalQueryPanel() {
+  const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
+  const [state, setState] = useState<
+    | { kind: "idle" }
+    | { kind: "loading" }
+    | { kind: "ready"; result: DatasetQueryResult }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+
+  async function runQuery() {
+    setState({ kind: "loading" });
+    try {
+      setState({ kind: "ready", result: await queryDataset(query) });
+    } catch (error: unknown) {
+      setState({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return (
+    <section className="local-query" aria-labelledby="local-query-title">
+      <div className="local-query__heading">
+        <div>
+          <p className="step">Consulta segura</p>
+          <h4 id="local-query-title">Explorar con SQL local</h4>
+          <p>Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples, GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.</p>
+        </div>
+        <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
+          {state.kind === "loading" ? "Consultando…" : "Ejecutar consulta"}
+        </button>
+      </div>
+      <label className="local-query__field">
+        Consulta SQL de solo lectura
+        <textarea
+          aria-label="Consulta SQL de solo lectura"
+          rows={2}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          spellCheck={false}
+        />
+      </label>
+      {state.kind === "error" && <p className="notice notice--error" role="alert">No se pudo ejecutar la consulta: {state.message}</p>}
+      {state.kind === "ready" && <LocalQueryResult result={state.result} />}
+    </section>
+  );
+}
+
+function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
+  return (
+    <div className="local-query__result" role="status" aria-live="polite">
+      <p>{result.rowCount.toLocaleString()} filas disponibles · mostrando desde {result.offset + 1}{result.truncated ? " · resultado truncado por LIMIT" : ""}</p>
+      <div className="profile-region" role="region" tabIndex={0} aria-label="Resultado de consulta SQL">
+        <table>
+          <thead><tr>{result.columns.map((column) => <th key={column.name} scope="col"><span>{column.name}</span><small>{column.dataType}</small></th>)}</tr></thead>
+          <tbody>{result.rows.map((row, rowIndex) => <tr key={result.offset + rowIndex}>{row.map((value, columnIndex) => <td key={columnIndex}>{value ?? <span className="null-value">null</span>}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -569,6 +637,10 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
 
 function QualityVisuals({ profile }: { profile: DatasetProfile }) {
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
+  const distributionColumns = numericColumns.filter((column) =>
+    [column.minimum, column.maximum, column.firstQuartile, column.median, column.thirdQuartile]
+      .every((value) => value !== null && Number.isFinite(Number(value))),
+  );
   const maxOutlierCount = Math.max(
     1,
     ...numericColumns.map((column) => Math.max(0, column.outlierCount ?? 0)),
@@ -628,6 +700,41 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                     <div className="quality-chart__track" aria-hidden="true">
                       <span style={{ width: `${percentage}%` }} />
                     </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {distributionColumns.length > 0 && (
+          <div className="quality-chart" role="group" aria-labelledby="quality-distribution-title">
+            <h5 id="quality-distribution-title">Distribución numérica</h5>
+            <p className="quality-chart__note">Rango mínimo–máximo y caja entre Q1 y Q3; la marca central es la mediana.</p>
+            <div className="quality-chart__bars" role="list" aria-label="Distribución numérica por columna">
+              {distributionColumns.map((column) => {
+                const minimum = Number(column.minimum);
+                const maximum = Number(column.maximum);
+                const firstQuartile = Number(column.firstQuartile);
+                const median = Number(column.median);
+                const thirdQuartile = Number(column.thirdQuartile);
+                const span = Math.max(maximum - minimum, Number.EPSILON);
+                const left = ((firstQuartile - minimum) / span) * 100;
+                const width = ((thirdQuartile - firstQuartile) / span) * 100;
+                const medianPosition = ((median - firstQuartile) / Math.max(thirdQuartile - firstQuartile, Number.EPSILON)) * 100;
+
+                return (
+                  <div className="quality-chart__item" role="listitem" key={column.name}>
+                    <div className="quality-chart__label">
+                      <span title={column.name}>{column.name}</span>
+                      <strong>Q1 {formatStatistic(firstQuartile)} · Mediana {formatStatistic(median)} · Q3 {formatStatistic(thirdQuartile)}</strong>
+                    </div>
+                    <div className="quality-boxplot" aria-hidden="true">
+                      <span className="quality-boxplot__whisker" />
+                      <span className="quality-boxplot__box" style={{ left: `${clampPercentage(left)}%`, width: `${clampPercentage(width)}%` }}>
+                        <span className="quality-boxplot__median" style={{ left: `${clampPercentage(medianPosition)}%` }} />
+                      </span>
+                    </div>
+                    <small className="quality-chart__range">Mín. {formatStatistic(minimum)} · Máx. {formatStatistic(maximum)}</small>
                   </div>
                 );
               })}

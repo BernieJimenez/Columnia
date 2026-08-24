@@ -1031,7 +1031,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   batch y proyectos.
 - [x] Implementar comparación local de dos datasets, diferencias por filas y
   columnas, y consolidación opt-in con historial cuando el esquema coincide.
-- [ ] Incorporar exportación Excel y destinos de base de datos.
+- [x] Incorporar exportación Excel `.xlsx` y destino local SQLite con publicación
+  atómica, esquema/datos tipados, CLI, batch, proyectos, cancelación y pruebas
+  de reapertura.
 - [ ] Completar la entrega compatible con DataPrep: Excel, SQLite/PostgreSQL/
   MySQL/SQL Server, prueba de conexión, políticas de tabla y bundle con reporte,
   diccionario, calidad, receta, manifest/hash y apertura segura de la carpeta.
@@ -1042,10 +1044,15 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [ ] Añadir resolución interactiva de conflictos de columnas y valores.
 - [x] Añadir visualizaciones de análisis con tabla accesible equivalente para
   completitud y posibles outliers.
+- [x] Añadir la primera lectura agregada del catálogo de limpieza: duplicados,
+  columnas incompletas/constantes, desajustes de tipo y posibles nombres de PII,
+  con acciones seguras existentes y sin mostrar celdas.
 - [ ] Migrar el catálogo completo de limpieza sugerida: duplicados exactos y
   difusos, columnas/filas vacías, constantes, identificadores y alto porcentaje
   de nulos, centinelas, imputación, booleanos, PII, auditoría `_cambios` y
   confirmación por impacto.
+- [x] Añadir una visualización accesible de distribución numérica tipo boxplot
+  usando mínimo, cuartiles, mediana y máximo, con tabla exacta equivalente.
 - [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
   distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
@@ -1058,9 +1065,19 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   drift; después añadir versionado/compatibilidad explícita del documento.
 - [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
   preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.
-- [ ] Añadir consulta SQL local de solo lectura con límite, DuckDB y resultados
-  sanitizados; no permitir SQL ni rutas arbitrarias desde React.
-- [ ] Añadir detección, enmascarado/hash y modos de privacidad visibles para
+- [x] Añadir consulta SQL local restringida de solo lectura sobre `dataset`, con
+  proyección, `LIMIT`/`OFFSET`, presupuesto de caracteres, resultado paginado y
+  tabla accesible; no permite escritura ni rutas desde React.
+- [x] Ampliar la consulta local con filtros simples (`=`, desigualdad, orden
+  numérico, `IS NULL`/`IS NOT NULL`) y agregaciones acotadas (`COUNT`, `SUM`,
+  `AVG`, `MIN`, `MAX`), con presupuesto y resultados tabulares seguros.
+- [x] Añadir `GROUP BY` de una columna con orden estable, grupos nulos y
+  paginación segura sobre agregaciones.
+- [ ] Completar consulta con joins y DuckDB después de validar el benchmark y
+  ampliar los límites de forma explícita.
+- [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
+  para columnas personales detectadas durante la exportación.
+- [ ] Completar detección, enmascarado/hash y modos de privacidad visibles para
   datos personales, recetas, reports, manifests y destinos SQL.
 - [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
   Parquet cacheado, chunks, comparación/joins grandes, historial degradado y

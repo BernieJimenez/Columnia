@@ -160,6 +160,32 @@ La matriz se contrastó con el bridge y las vistas existentes del original:
 Esta matriz se actualizará con cada entrega de paridad y no sustituye los gates
 de contratos, privacidad, accesibilidad y rendimiento.
 
+## Destinos locales y privacidad de entrega
+
+Entregar conserva la misma compuerta de calidad para CSV, JSON, Parquet, SQL,
+Excel y SQLite. Excel se publica como un libro `.xlsx` real con una hoja
+`dataset`; SQLite se publica con una transacción atómica, columnas tipadas y la
+misma tabla lógica `dataset`. Ambos destinos también están disponibles en CLI,
+batch y exportación de proyectos, sin entregar rutas al frontend.
+
+Antes de publicar se puede elegir no proteger, enmascarar o aplicar SHA-256 a
+columnas de texto cuyos nombres sugieren correo, teléfono, dirección o
+identificadores personales. La calidad se valida sobre el dataset preparado y
+la protección se aplica solo al snapshot de salida. El catálogo completo de PII
+para recetas, manifests, reports y conectores remotos sigue pendiente.
+
+## Consulta local restringida
+
+Revisar ofrece una consulta SQL de solo lectura sobre la tabla lógica `dataset`.
+La primera vertical permite seleccionar columnas existentes y paginar con
+`LIMIT`/`OFFSET` hasta 200 filas, con presupuesto de 2 KiB. También acepta
+filtros simples (`=`, desigualdad, comparaciones numéricas, `IS NULL` e
+`IS NOT NULL`), `GROUP BY` de una columna y agregaciones acotadas (`COUNT`,
+`SUM`, `AVG`, `MIN`, `MAX`).
+Rechaza escrituras, comentarios, separadores, tablas externas y operaciones no
+representadas, y devuelve una tabla accesible con tipos y valores nulos
+explícitos. Joins y DuckDB quedan fuera de esta vertical.
+
 ## Brecha de migración desde `dataprepv1.1`
 
 La migración tiene dos capas distintas:
@@ -168,9 +194,10 @@ La migración tiene dos capas distintas:
    faltan el catálogo completo de limpieza
    sugerida, el optimizador de transformaciones, el análisis exploratorio
    (distribuciones, correlaciones, grupos, nulos, centinelas, casi duplicados,
-   calendario y series temporales), las reglas de calidad versionadas restantes, la
-   exportación Excel, los destinos SQLite/PostgreSQL/MySQL/SQL Server, los
-   bundles auditables y el procesamiento fuera de memoria.
+   calendario y series temporales), las reglas de calidad versionadas restantes, los
+   conectores PostgreSQL/MySQL/SQL Server, los bundles auditables y el procesamiento
+   fuera de memoria; Excel y SQLite locales ya están cubiertos en la primera
+   vertical de entrega.
 2. **Compatibilidad de artefactos:** Columnia ya importa parcialmente contratos
    JSON de reglas de calidad de DataPrep, con conversión segura e informe de
    omitidas. Todavía no importa pipelines JSON ni sesiones guardadas, y la
