@@ -8,9 +8,9 @@
 - Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
   Fases I0, I4 e I8 cerradas, I3/I5 avanzadas y la Fase P1 de paridad funcional
   con JSON, SQL, comparación/consolidación por clave, joins multidataset y
-  visualizaciones accesibles y primera extensión de calidad v3; la Fase M1 ya
-  tiene una primera vertical de importación segura de reglas de calidad y
-  mantiene pendientes pipelines, sesiones y round-trip completo;
+  visualizaciones accesibles y contratos de calidad v3 con documento canónico
+  Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, y mantiene
+  pendientes pipelines, sesiones y round-trip completo hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.49.0`.
 - Implementación: iniciada el 2026-08-12.
@@ -1117,8 +1117,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   umbral/tolerancia absoluta, exclusión de nulos y textos no numéricos, migración
   DataPrep, bridge tipado, editor accesible y resultados privados basados en
   conteos.
-- [ ] Añadir versionado/compatibilidad explícita del documento de reglas de
-  calidad.
+- [x] Añadir versionado/compatibilidad explícita del documento de reglas de
+  calidad: formato canónico Columnia v1, guardado atómico, selector nativo,
+  compatibilidad con DataPrep v1–v3 y legado v1/sin versión, rechazo seguro de
+  formatos/campos/versiones futuras y contrato IPC sin rutas.
 - [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
   preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.
 - [x] Añadir consulta SQL local restringida de solo lectura sobre `dataset`, con
@@ -1169,6 +1171,10 @@ del original.
   nativo JSON, conversión de reglas representables, tolerancias por conteo y
   porcentaje, warnings/omitidas para severidad o políticas no equivalentes,
   límites de archivo y sin exponer rutas al frontend.
+- [x] Versionar el artefacto de reglas con el formato canónico
+  `columnia-quality-rules` v1, guardarlo atómicamente e importar de forma
+  explícita Columnia v1, DataPrep v1–v3 y documentos legados compatibles; las
+  versiones futuras y contratos ambiguos fallan antes de convertir reglas.
 - [ ] Completar la migración de reglas de calidad antiguas y v3, conservando
   tolerancias, severidad,
   referencias, condiciones y reglas no soportadas como advertencias explícitas;
@@ -1282,6 +1288,7 @@ del original.
 | 2026-08-24 | P1: `date_range` añade límites inclusivos de fecha, soporte texto/Date/Datetime, rechazo de nulos/fechas ilegibles, migración DataPrep, editor accesible y evaluación compartida | Implementada |
 | 2026-08-24 | P1: `conditional` añade condiciones eq/ne/lt/lte/gt/gte, subreglas then fila-a-fila seguras, tolerancia exterior, migración DataPrep, editor accesible y evaluación compartida | Implementada |
 | 2026-08-24 | P1: `schema_contract` añade columnas requeridas, control de adicionales y orden opcional, migración DataPrep, editor accesible y evaluación estructural compartida | Implementada |
+| 2026-08-24 | P1: documento de calidad `columnia-quality-rules` v1 con guardado atómico, compatibilidad explícita Columnia/DataPrep v1–v3/legado, rechazo de versiones futuras, CLI retrocompatible y UI sin exposición de rutas | Implementada |
 | 2026-08-23 | I3/I4/I5: cobertura V8 y smoke CDP reales pasan; `cargo audit`/`cargo deny`, npm audit, secret scan, notices, política de red y SBOM pasan; Package produjo MSI/NSIS 0.49.0. El benchmark CLI de 256 MiB pasó el flujo durable, pero excedió el presupuesto de 512 MiB; quedan selector Win32, lector de pantalla y VM limpia | Parcial, con evidencia |
 
 ## 10. Fuentes de esta revisión

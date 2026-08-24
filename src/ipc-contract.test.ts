@@ -476,6 +476,7 @@ describe("contrato IPC", () => {
       ["QualityValidationResult", "QualityValidationResult"],
       ["QualityMigrationWarning", "QualityMigrationWarning"],
       ["QualityMigrationResult", "QualityMigrationResult"],
+      ["QualityRulesDocument", "QualityRulesDocument"],
       ["DatasetColumn", "DatasetColumn"],
       ["DatasetPreview", "DatasetPreview"],
       ["WorkbookSheet", "WorkbookSheet"],

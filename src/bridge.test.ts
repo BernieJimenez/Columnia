@@ -33,6 +33,7 @@ import {
   removeHighNullColumns,
   redoLastChange,
   saveProject,
+  saveQualityRulesDocument,
   saveTransformRecipe,
   trimTextValues,
   useConsolidatedDataset,
@@ -489,6 +490,7 @@ describe("desktop bridge", () => {
 
   it("importa reglas DataPrep mediante un selector nativo sin exponer rutas", async () => {
     vi.mocked(invoke).mockResolvedValue({
+      sourceFormat: "dataprep",
       sourceVersion: "3",
       convertedRules: [{ column: "status", kind: "not_null", maxInvalid: 0 }],
       warnings: [],
@@ -502,5 +504,23 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledWith("pick_quality_rules_migration");
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1] ?? {})).not.toContain("path");
+  });
+
+  it("guarda un documento de calidad versionado sin entregar rutas", async () => {
+    const qualityRules: QualityRule[] = [
+      { column: "total", kind: "not_null", maxInvalid: 0 },
+    ];
+    vi.mocked(invoke).mockResolvedValue({
+      format: "columnia-quality-rules",
+      version: 1,
+      rules: qualityRules,
+    });
+
+    await expect(saveQualityRulesDocument(qualityRules)).resolves.toMatchObject({
+      format: "columnia-quality-rules",
+      version: 1,
+    });
+    expect(invoke).toHaveBeenCalledWith("save_quality_rules_document", { qualityRules });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
   });
 });

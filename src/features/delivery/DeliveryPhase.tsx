@@ -3,11 +3,13 @@ import { useState } from "react";
 import {
   QUALITY_DATASET_COLUMN,
   pickQualityRulesMigration,
+  saveQualityRulesDocument,
   validateQualityRules,
   type DatasetPreview,
   type ExportFormat,
   type PrivacyMode,
   type QualityMigrationResult,
+  type QualityRulesDocument,
   type QualityComparison,
   type QualityAggregate,
   type QualityMonotonicDirection,
@@ -45,7 +47,14 @@ export function DeliveryPhase({
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
   const [migrationState, setMigrationState] = useState<
     | { kind: "idle" }
+    | { kind: "working" }
     | { kind: "ready"; result: QualityMigrationResult }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+  const [qualityFileState, setQualityFileState] = useState<
+    | { kind: "idle" }
+    | { kind: "working" }
+    | { kind: "ready"; document: QualityRulesDocument }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const rules = contract.kind === "with_contract" ? contract.rules : [];
@@ -54,9 +63,13 @@ export function DeliveryPhase({
   const exportAllowed = contract.kind === "with_contract"
     ? gatePassed
     : contract.confirmation === "confirmed";
-  const busy = exportState.kind === "loading" || contract.gate.kind === "loading";
+  const busy = exportState.kind === "loading"
+    || contract.gate.kind === "loading"
+    || migrationState.kind === "working"
+    || qualityFileState.kind === "working";
 
   function changeRules(nextRules: QualityRule[]) {
+    setQualityFileState({ kind: "idle" });
     onContractAction({ kind: "rules_changed", rules: nextRules });
   }
 
@@ -197,15 +210,33 @@ export function DeliveryPhase({
   }
 
   async function importQualityRules() {
-    setMigrationState({ kind: "idle" });
+    setQualityFileState({ kind: "idle" });
+    setMigrationState({ kind: "working" });
     try {
       const result = await pickQualityRulesMigration();
       if (result) {
         onContractAction({ kind: "rules_changed", rules: result.convertedRules });
         setMigrationState({ kind: "ready", result });
+      } else {
+        setMigrationState({ kind: "idle" });
       }
     } catch (error: unknown) {
       setMigrationState({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function saveQualityContract() {
+    if (contract.kind !== "with_contract" || validationError) return;
+    setMigrationState({ kind: "idle" });
+    setQualityFileState({ kind: "working" });
+    try {
+      const document = await saveQualityRulesDocument(contract.rules);
+      setQualityFileState(document ? { kind: "ready", document } : { kind: "idle" });
+    } catch (error: unknown) {
+      setQualityFileState({
         kind: "error",
         message: error instanceof Error ? error.message : String(error),
       });
@@ -841,17 +872,25 @@ export function DeliveryPhase({
               })}
             </div>
             <div className="quality-contract__actions">
-              <button type="button" onClick={() => void importQualityRules()} disabled={busy}>Importar reglas DataPrep</button>
+              <button type="button" onClick={() => void importQualityRules()} disabled={busy}>Importar contrato</button>
+              <button type="button" onClick={() => void saveQualityContract()}
+                disabled={busy || validationError !== null}>Guardar contrato</button>
               <button type="button" onClick={addRule} disabled={busy || rules.length >= MAX_QUALITY_RULES}>Añadir regla</button>
               <button type="button" className="primary-action" onClick={() => void runQualityGate()}
                 disabled={busy || validationError !== null}>Validar contrato</button>
               <span>{rules.length}/{MAX_QUALITY_RULES} reglas</span>
             </div>
             {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
+            {migrationState.kind === "working" && <p className="notice" role="status">Importando y comprobando compatibilidad…</p>}
             {migrationState.kind === "ready" && (
               <div className="notice quality-migration-result" role="status" aria-live="polite">
                 <strong>Importación revisada</strong>
-                <span>{migrationState.result.convertedRules.length} reglas convertidas · {migrationState.result.omittedRules} omitidas{migrationState.result.sourceVersion ? ` · versión ${migrationState.result.sourceVersion}` : ""}</span>
+                <span>
+                  {migrationState.result.convertedRules.length} reglas importadas · {migrationState.result.omittedRules} omitidas · origen {migrationState.result.sourceFormat === "columnia"
+                    ? "Columnia"
+                    : migrationState.result.sourceFormat === "dataprep" ? "DataPrep" : "legado"}
+                  {migrationState.result.sourceVersion ? ` v${migrationState.result.sourceVersion}` : " sin versión"}
+                </span>
                 {migrationState.result.warnings.length > 0 && (
                   <ul>
                     {migrationState.result.warnings.map((warning, index) => (
@@ -864,6 +903,13 @@ export function DeliveryPhase({
               </div>
             )}
             {migrationState.kind === "error" && <p className="notice notice--error" role="alert">No se pudo importar el contrato: {migrationState.message}</p>}
+            {qualityFileState.kind === "working" && <p className="notice" role="status">Guardando contrato versionado…</p>}
+            {qualityFileState.kind === "ready" && (
+              <p className="notice" role="status" aria-live="polite">
+                Contrato guardado · formato Columnia v{qualityFileState.document.version} · {qualityFileState.document.rules.length} reglas.
+              </p>
+            )}
+            {qualityFileState.kind === "error" && <p className="notice notice--error" role="alert">No se pudo guardar el contrato: {qualityFileState.message}</p>}
           </>
         ) : (
           <div className="quality-contract__unvalidated">

@@ -12,7 +12,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
-| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y compatibilidad explícita |
+| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución acotada por fila y joins Inner/Left/Full con historial | Parcial | Completar combinación independiente por columna y conflictos fuera del preview |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
@@ -245,10 +245,37 @@ y `drift`, `baseline`/`baselineValues`, `reference_values`/`referenceValues`,
 `threshold` y `tolerance_abs`/`toleranceAbs`; las reglas incompatibles se omiten con
 advertencia visible.
 
+## Decimosexta entrega de paridad: documento de calidad versionado
+
+Columnia guarda el contrato de calidad en un documento canónico, independiente
+del contrato JSON v1 que usa la salida de la CLI:
+
+```json
+{
+  "format": "columnia-quality-rules",
+  "version": 1,
+  "rules": []
+}
+```
+
+Entregar usa diálogos nativos para importar y guardar, publica en React solo el
+documento o el resultado de conversión —nunca una ruta— y reemplaza el destino
+de forma atómica. El lector limita cada archivo a 1 MiB y el contrato a 16
+reglas. Los documentos Columnia son estrictos: un `format` distinto, campos
+desconocidos o una versión futura se rechazan sin intentar una conversión
+permisiva.
+
+La matriz de compatibilidad acepta Columnia v1, DataPrep v1–v3 y documentos
+legados con una lista directa o un objeto `rules`/`quality_rules` sin versión.
+La CLI también conserva la lectura del documento histórico de Columnia
+`{"version":1,"rules":[...]}`. El resultado visible identifica origen y versión;
+una versión DataPrep posterior a v3 falla de forma cerrada.
+
 ## Primera vertical de migración de reglas DataPrep
 
 Entregar permite importar un contrato JSON de DataPrep mediante el selector
-nativo. Acepta una lista directa o un objeto con `rules`/`quality_rules`, y
+nativo y guardar el resultado como documento Columnia v1. Acepta una lista
+directa o un objeto con `rules`/`quality_rules`, informa origen y versión, y
 convierte de forma segura las reglas representables por Columnia:
 `not_null`, `non_empty`, `unique`, `numeric_range`, `allowed_values`, `regex`,
 `dtype`, `unique_together`, `column_compare`, `referential_integrity`, `monotonic`,
@@ -411,13 +438,15 @@ La migración tiene dos capas distintas:
    faltan el catálogo completo de limpieza
    sugerida, el optimizador de transformaciones, el análisis exploratorio
    (distribuciones, correlaciones, grupos, nulos, centinelas, casi duplicados,
-   calendario y series temporales), las reglas de calidad versionadas restantes, los
-   conectores PostgreSQL/MySQL/SQL Server, los bundles auditables y el procesamiento
+   calendario y series temporales), la severidad y las políticas de calidad que
+   aún no tienen equivalencia segura, los conectores PostgreSQL/MySQL/SQL Server,
+   los bundles auditables y el procesamiento
    fuera de memoria; Excel y SQLite locales ya están cubiertos en la primera
    vertical de entrega.
 2. **Compatibilidad de artefactos:** Columnia ya importa parcialmente contratos
-   JSON de reglas de calidad de DataPrep, con conversión segura e informe de
-   omitidas. Todavía no importa pipelines JSON ni sesiones guardadas, y la
+   JSON de reglas de calidad de DataPrep v1–v3, guarda el documento canónico
+   Columnia v1 y produce una conversión segura con informe de omitidas. Todavía
+   no importa pipelines JSON ni sesiones guardadas, y la
    verificación de round-trip sigue pendiente en la Fase M1 del roadmap.
 
 Columnia ya tiene una representación nativa distinta —Tauri/Rust/Polars,

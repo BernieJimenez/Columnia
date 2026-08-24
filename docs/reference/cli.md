@@ -39,8 +39,13 @@ no pueden ser el input ni la receta; los fallos no dejan outputs parciales.
 validate --input FILE [--sheet NAME --header first-row|generated] --rules RULES
 ```
 
-Evalúa un contrato de calidad JSON v1 y devuelve únicamente conteos. Código 0
-indica contrato aprobado, 2 contrato reprobado y 1 error de uso o carga.
+Evalúa el documento canónico de calidad Columnia v1 y devuelve únicamente
+conteos. Su forma es
+`{"format":"columnia-quality-rules","version":1,"rules":[...]}`. Por
+compatibilidad, también admite el documento histórico
+`{"version":1,"rules":[...]}`; otros formatos, campos o versiones se rechazan.
+Código 0 indica contrato aprobado, 2 contrato reprobado y 1 error de uso o
+carga.
 
 ### `batch`
 

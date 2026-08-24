@@ -452,10 +452,17 @@ export interface QualityMigrationWarning {
 }
 
 export interface QualityMigrationResult {
+  sourceFormat: "columnia" | "dataprep" | "legacy";
   sourceVersion: string | null;
   convertedRules: QualityRule[];
   warnings: QualityMigrationWarning[];
   omittedRules: number;
+}
+
+export interface QualityRulesDocument {
+  format: string;
+  version: number;
+  rules: QualityRule[];
 }
 
 export interface ExportResult {
@@ -589,6 +596,12 @@ export function validateQualityRules(
 
 export function pickQualityRulesMigration(): Promise<QualityMigrationResult | null> {
   return invoke<QualityMigrationResult | null>("pick_quality_rules_migration");
+}
+
+export function saveQualityRulesDocument(
+  qualityRules: QualityRule[],
+): Promise<QualityRulesDocument | null> {
+  return invoke<QualityRulesDocument | null>("save_quality_rules_document", { qualityRules });
 }
 
 export function removeDuplicates(): Promise<DatasetMutation> {

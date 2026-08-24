@@ -343,8 +343,9 @@ describe("DeliveryPhase", () => {
     })).not.toBeChecked();
   });
 
-  it("importa reglas DataPrep, aplica las convertibles y muestra las omitidas", async () => {
+  it("importa reglas DataPrep, aplica las convertibles y muestra la compatibilidad", async () => {
     vi.spyOn(bridge, "pickQualityRulesMigration").mockResolvedValue({
+      sourceFormat: "dataprep",
       sourceVersion: "3",
       convertedRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
       omittedRules: 1,
@@ -359,12 +360,33 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={onExport} />);
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Importar reglas DataPrep" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar contrato" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Importación revisada"));
-    expect(screen.getByRole("status")).toHaveTextContent("1 reglas convertidas");
+    expect(screen.getByRole("status")).toHaveTextContent("1 reglas importadas");
     expect(screen.getByRole("status")).toHaveTextContent("1 omitidas");
+    expect(screen.getByRole("status")).toHaveTextContent("origen DataPrep v3");
     expect(screen.getByRole("status")).toHaveTextContent("column_compare");
     expect(screen.getByRole("combobox", { name: "Comprobación regla 1" })).toHaveValue("not_null");
+  });
+
+  it("guarda el contrato activo como documento Columnia v1", async () => {
+    const save = vi.spyOn(bridge, "saveQualityRulesDocument").mockResolvedValue({
+      format: "columnia-quality-rules",
+      version: 1,
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+    });
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar contrato" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato guardado"));
+    expect(screen.getByRole("status")).toHaveTextContent("Columnia v1");
+    expect(screen.getByRole("status")).toHaveTextContent("1 reglas");
+    expect(save).toHaveBeenCalledWith([
+      { column: "total", kind: "not_null", maxInvalid: 0 },
+    ]);
   });
 });

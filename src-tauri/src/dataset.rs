@@ -128,6 +128,9 @@ const MAX_QUALITY_COLUMNS_PER_RULE: usize = 16;
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const QUALITY_DATASET_COLUMN: &str = "__dataset__";
 const QUALITY_MIGRATION_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
+const QUALITY_RULES_DOCUMENT_FORMAT: &str = "columnia-quality-rules";
+const QUALITY_RULES_DOCUMENT_VERSION: u8 = 1;
+const DATAPREP_QUALITY_DOCUMENT_MAX_VERSION: u8 = 3;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -273,10 +276,19 @@ pub struct QualityMigrationWarning {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityMigrationResult {
+    source_format: &'static str,
     source_version: Option<String>,
     converted_rules: Vec<QualityRule>,
     warnings: Vec<QualityMigrationWarning>,
     omitted_rules: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualityRulesDocument {
+    format: String,
+    version: u8,
+    rules: Vec<QualityRule>,
 }
 
 impl QualityValidationResult {
@@ -4543,21 +4555,136 @@ fn migration_warning(
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyQualityRulesDocument {
+    version: u8,
+    rules: Vec<QualityRule>,
+}
+
+fn build_quality_rules_document(rules: Vec<QualityRule>) -> Result<QualityRulesDocument, String> {
+    let document = QualityRulesDocument {
+        format: QUALITY_RULES_DOCUMENT_FORMAT.to_owned(),
+        version: QUALITY_RULES_DOCUMENT_VERSION,
+        rules,
+    };
+    validate_quality_rules_document(&document)?;
+    Ok(document)
+}
+
+fn validate_quality_rules_document(document: &QualityRulesDocument) -> Result<(), String> {
+    if document.format != QUALITY_RULES_DOCUMENT_FORMAT {
+        return Err(format!(
+            "El formato del contrato debe ser '{QUALITY_RULES_DOCUMENT_FORMAT}'."
+        ));
+    }
+    if document.version != QUALITY_RULES_DOCUMENT_VERSION {
+        return Err(format!(
+            "La versión {} del contrato de calidad no es compatible; Columnia admite la versión {QUALITY_RULES_DOCUMENT_VERSION}.",
+            document.version
+        ));
+    }
+    validate_quality_rules_payload(&document.rules)?;
+    let encoded = serde_json::to_vec(document)
+        .map_err(|error| format!("No se pudo validar el contrato de calidad: {error}"))?;
+    if encoded.len() as u64 > QUALITY_MIGRATION_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "El contrato de calidad supera el límite local de {} bytes.",
+            QUALITY_MIGRATION_FILE_LIMIT_BYTES
+        ));
+    }
+    Ok(())
+}
+
+fn parse_quality_rules_document(
+    document: JsonValue,
+    allow_legacy_v1: bool,
+) -> Result<QualityRulesDocument, String> {
+    if document
+        .as_object()
+        .is_some_and(|map| map.contains_key("format"))
+    {
+        let document = serde_json::from_value::<QualityRulesDocument>(document)
+            .map_err(|error| format!("El contrato Columnia no es válido: {error}"))?;
+        validate_quality_rules_document(&document)?;
+        return Ok(document);
+    }
+    if !allow_legacy_v1 {
+        return Err(format!(
+            "El contrato Columnia debe declarar format='{QUALITY_RULES_DOCUMENT_FORMAT}'."
+        ));
+    }
+    let legacy = serde_json::from_value::<LegacyQualityRulesDocument>(document)
+        .map_err(|error| format!("El contrato de calidad v1 no es válido: {error}"))?;
+    if legacy.version != QUALITY_RULES_DOCUMENT_VERSION {
+        return Err(format!(
+            "La versión {} del contrato de calidad no es compatible; Columnia admite la versión {QUALITY_RULES_DOCUMENT_VERSION}.",
+            legacy.version
+        ));
+    }
+    build_quality_rules_document(legacy.rules)
+}
+
+fn migration_quality_document_version(
+    document: &JsonMap<String, JsonValue>,
+) -> Result<Option<u8>, String> {
+    let Some((field, raw_version)) = ["version", "schema_version"]
+        .iter()
+        .find_map(|field| document.get(*field).map(|value| (*field, value)))
+    else {
+        return Ok(None);
+    };
+    let version = raw_version
+        .as_u64()
+        .and_then(|value| u8::try_from(value).ok())
+        .or_else(|| raw_version.as_str()?.trim().parse::<u8>().ok())
+        .ok_or_else(|| format!("El campo '{field}' debe ser un entero de versión."))?;
+    if !(1..=DATAPREP_QUALITY_DOCUMENT_MAX_VERSION).contains(&version) {
+        return Err(format!(
+            "La versión DataPrep {version} no es compatible; se admiten las versiones 1 a {DATAPREP_QUALITY_DOCUMENT_MAX_VERSION}."
+        ));
+    }
+    Ok(Some(version))
+}
+
 fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigrationResult, String> {
-    let (source_version, raw_rules) = match document {
-        JsonValue::Array(rules) => (None, rules),
+    if document
+        .as_object()
+        .is_some_and(|map| map.contains_key("format"))
+    {
+        let document = parse_quality_rules_document(document, false)?;
+        return Ok(QualityMigrationResult {
+            source_format: "columnia",
+            source_version: Some(document.version.to_string()),
+            converted_rules: document.rules,
+            warnings: Vec::new(),
+            omitted_rules: 0,
+        });
+    }
+
+    let (source_format, source_version, raw_rules) = match document {
+        JsonValue::Array(rules) => ("legacy", None, rules),
         JsonValue::Object(document) => {
-            let source_version = document
-                .get("version")
-                .or_else(|| document.get("schema_version"))
-                .map(|value| value.to_string().trim_matches('"').to_owned());
+            let source_version = migration_quality_document_version(&document)?;
+            let source_format = if document.contains_key("quality_rules")
+                || document.contains_key("schema_version")
+                || source_version.is_some_and(|version| version >= 2)
+            {
+                "dataprep"
+            } else {
+                "legacy"
+            };
             let rules = document
                 .get("rules")
                 .or_else(|| document.get("quality_rules"))
                 .and_then(JsonValue::as_array)
                 .cloned()
                 .ok_or_else(|| "El documento debe contener una lista 'rules'.".to_owned())?;
-            (source_version, rules)
+            (
+                source_format,
+                source_version.map(|version| version.to_string()),
+                rules,
+            )
         }
         _ => {
             return Err(
@@ -5064,6 +5191,7 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
     }
 
     Ok(QualityMigrationResult {
+        source_format,
         source_version,
         converted_rules,
         warnings,
@@ -5071,8 +5199,15 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
     })
 }
 
-fn load_quality_migration_file(path: &Path) -> Result<QualityMigrationResult, String> {
+fn read_quality_rules_json(path: &Path) -> Result<JsonValue, String> {
     let path = canonicalize_existing_file(path, "el contrato de calidad seleccionado")?;
+    if !path
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    {
+        return Err("El contrato de calidad debe ser JSON.".to_owned());
+    }
     let file = File::open(path)
         .map_err(|error| format!("No se pudo abrir el contrato de calidad: {error}"))?;
     let size = file
@@ -5089,9 +5224,44 @@ fn load_quality_migration_file(path: &Path) -> Result<QualityMigrationResult, St
     file.take(QUALITY_MIGRATION_FILE_LIMIT_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| format!("No se pudo leer el contrato de calidad: {error}"))?;
-    let document = serde_json::from_slice::<JsonValue>(&bytes)
-        .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))?;
-    migrate_quality_rules_document(document)
+    if bytes.len() as u64 > QUALITY_MIGRATION_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "El contrato de calidad supera el límite local de {} bytes.",
+            QUALITY_MIGRATION_FILE_LIMIT_BYTES
+        ));
+    }
+    serde_json::from_slice::<JsonValue>(&bytes)
+        .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))
+}
+
+fn save_quality_rules_atomic(
+    document: &QualityRulesDocument,
+    destination: &Path,
+) -> Result<(), String> {
+    validate_quality_rules_document(document)?;
+    let destination = canonicalize_write_destination(destination, "el contrato de calidad")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta del contrato de calidad.".to_owned())?;
+    let temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar el contrato de calidad: {error}"))?;
+    serde_json::to_writer_pretty(temporary.as_file(), document)
+        .map_err(|error| format!("No se pudo escribir el contrato de calidad: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el contrato de calidad: {error}"))?;
+    temporary.persist(&destination).map_err(|error| {
+        format!(
+            "No se pudo publicar el contrato de calidad: {}",
+            error.error
+        )
+    })?;
+    Ok(())
+}
+
+fn load_quality_migration_file(path: &Path) -> Result<QualityMigrationResult, String> {
+    migrate_quality_rules_document(read_quality_rules_json(path)?)
 }
 
 fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), String> {
@@ -8992,13 +9162,42 @@ pub async fn pick_transform_recipe(
 }
 
 #[tauri::command]
+pub async fn save_quality_rules_document(
+    app: AppHandle,
+    quality_rules: Vec<QualityRule>,
+) -> Result<Option<QualityRulesDocument>, String> {
+    let document = build_quality_rules_document(quality_rules)?;
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Contrato de calidad Columnia", &["json"])
+        .set_file_name("columnia-quality-rules-v1.json")
+        .blocking_save_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let destination = recipe_path_with_extension(
+        selection
+            .into_path()
+            .map_err(|error| format!("No se pudo resolver el destino del contrato: {error}"))?,
+    );
+    let saved = document.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        save_quality_rules_atomic(&document, &destination)
+    })
+    .await
+    .map_err(|error| format!("El guardado del contrato se interrumpió: {error}"))??;
+    Ok(Some(saved))
+}
+
+#[tauri::command]
 pub async fn pick_quality_rules_migration(
     app: AppHandle,
 ) -> Result<Option<QualityMigrationResult>, String> {
     let selection = app
         .dialog()
         .file()
-        .add_filter("Reglas DataPrep", &["json"])
+        .add_filter("Contrato de calidad", &["json"])
         .blocking_pick_file();
     let Some(selection) = selection else {
         return Ok(None);
@@ -11607,35 +11806,8 @@ pub(crate) fn load_dataset_for_automation(
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct QualityRulesDocument {
-    version: u8,
-    rules: Vec<QualityRule>,
-}
-
 pub(crate) fn load_quality_rules_for_automation(input: &Path) -> Result<Vec<QualityRule>, String> {
-    let canonical = canonicalize_existing_file(input, "el contrato de calidad")?;
-    if !canonical
-        .extension()
-        .and_then(OsStr::to_str)
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
-    {
-        return Err("El contrato de calidad debe ser JSON.".to_owned());
-    }
-    validate_file_size(
-        fs::metadata(&canonical)
-            .map_err(|error| format!("No se pudo verificar el contrato de calidad: {error}"))?
-            .len(),
-    )?;
-    let bytes = fs::read(canonical)
-        .map_err(|error| format!("No se pudo leer el contrato de calidad: {error}"))?;
-    let document: QualityRulesDocument = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))?;
-    if document.version != 1 {
-        return Err("La versión del contrato de calidad no es compatible.".to_owned());
-    }
-    validate_quality_rules_payload(&document.rules)?;
+    let document = parse_quality_rules_document(read_quality_rules_json(input)?, true)?;
     Ok(document.rules)
 }
 
@@ -16352,6 +16524,90 @@ mod tests {
             Some(vec!["1".to_owned(), "3".to_owned()])
         );
         assert_eq!(result.converted_rules[1].tolerance_abs, Some(0.1));
+    }
+
+    #[test]
+    fn quality_rules_document_roundtrips_canonical_and_legacy_v1() {
+        let directory = tempfile::tempdir().unwrap();
+        let canonical_path = directory.path().join("quality.json");
+        let legacy_path = directory.path().join("legacy.json");
+        let first_rule = quality_rule("amount", QualityRuleKind::NotNull);
+        let first_document = build_quality_rules_document(vec![first_rule.clone()]).unwrap();
+
+        save_quality_rules_atomic(&first_document, &canonical_path).unwrap();
+        let loaded = load_quality_rules_for_automation(&canonical_path).unwrap();
+        assert_eq!(loaded, vec![first_rule]);
+        let imported = load_quality_migration_file(&canonical_path).unwrap();
+        assert_eq!(imported.source_format, "columnia");
+        assert_eq!(imported.source_version.as_deref(), Some("1"));
+        assert_eq!(imported.omitted_rules, 0);
+
+        let mut replacement = quality_rule("amount", QualityRuleKind::NumericRange);
+        replacement.min = Some(0.0);
+        let replacement_document = build_quality_rules_document(vec![replacement.clone()]).unwrap();
+        save_quality_rules_atomic(&replacement_document, &canonical_path).unwrap();
+        assert_eq!(
+            load_quality_rules_for_automation(&canonical_path).unwrap(),
+            vec![replacement]
+        );
+
+        fs::write(
+            &legacy_path,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "rules": [quality_rule("amount", QualityRuleKind::NotNull)]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            load_quality_rules_for_automation(&legacy_path)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn quality_rules_document_rejects_future_or_ambiguous_contracts() {
+        let canonical_future = serde_json::json!({
+            "format": QUALITY_RULES_DOCUMENT_FORMAT,
+            "version": 2,
+            "rules": []
+        });
+        assert!(migrate_quality_rules_document(canonical_future)
+            .unwrap_err()
+            .contains("no es compatible"));
+
+        let wrong_format = serde_json::json!({
+            "format": "another-quality-format",
+            "version": 1,
+            "rules": []
+        });
+        assert!(migrate_quality_rules_document(wrong_format)
+            .unwrap_err()
+            .contains("formato"));
+
+        let unknown_field = serde_json::json!({
+            "format": QUALITY_RULES_DOCUMENT_FORMAT,
+            "version": 1,
+            "rules": [],
+            "extra": true
+        });
+        assert!(migrate_quality_rules_document(unknown_field).is_err());
+
+        let dataprep_future = serde_json::json!({
+            "version": 4,
+            "rules": []
+        });
+        assert!(migrate_quality_rules_document(dataprep_future)
+            .unwrap_err()
+            .contains("DataPrep 4"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let legacy_future = directory.path().join("legacy-future.json");
+        fs::write(&legacy_future, br#"{"version":2,"rules":[]}"#).unwrap();
+        assert!(load_quality_rules_for_automation(&legacy_future).is_err());
     }
 
     #[test]

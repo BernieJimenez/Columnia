@@ -97,6 +97,7 @@ pub fn run() {
             dataset::export_dataset,
             dataset::save_transform_recipe,
             dataset::pick_transform_recipe,
+            dataset::save_quality_rules_document,
             dataset::pick_quality_rules_migration,
             dataset::remove_duplicates,
             dataset::remove_empty_rows,
