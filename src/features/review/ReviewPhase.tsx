@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
@@ -9,6 +9,8 @@ import type {
   DatasetPreview,
   DatasetProfile,
   DatasetQueryResult,
+  ConflictResolution,
+  ConflictSource,
 } from "../../bridge";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
@@ -36,6 +38,7 @@ interface ReviewPhaseProps {
   onCompare: () => void;
   onClearComparison: () => void;
   onConsolidate: () => void;
+  onResolveConflicts: (decisions: ConflictResolution[]) => void;
   joinStatus: JoinStatus;
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
@@ -57,6 +60,7 @@ export function ReviewPhase({
   onCompare,
   onClearComparison,
   onConsolidate,
+  onResolveConflicts,
   joinStatus,
   joinType,
   onJoinTypeChange,
@@ -80,6 +84,7 @@ export function ReviewPhase({
         onCompare={onCompare}
         onClear={onClearComparison}
         onConsolidate={onConsolidate}
+        onResolveConflicts={onResolveConflicts}
         joinStatus={joinStatus}
         joinType={joinType}
         onJoinTypeChange={onJoinTypeChange}
@@ -118,6 +123,7 @@ function DatasetComparisonSection({
   onCompare,
   onClear,
   onConsolidate,
+  onResolveConflicts,
   joinStatus,
   joinType,
   onJoinTypeChange,
@@ -130,11 +136,17 @@ function DatasetComparisonSection({
   onCompare: () => void;
   onClear: () => void;
   onConsolidate: () => void;
+  onResolveConflicts: (decisions: ConflictResolution[]) => void;
   joinStatus: JoinStatus;
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
 }) {
+  const [conflictChoices, setConflictChoices] = useState<Record<number, ConflictSource>>({});
+  useEffect(() => {
+    setConflictChoices({});
+  }, [status.kind, status.kind === "ready" ? status.comparison.comparedFileName : null]);
+
   return (
     <section className="phase-section comparison-section" aria-labelledby="comparison-title">
       <div className="section-heading">
@@ -276,6 +288,67 @@ function DatasetComparisonSection({
                 <div><dt>Claves duplicadas</dt><dd>{status.comparison.duplicateKeyCount.toLocaleString()}</dd></div>
               </dl>
             </div>
+          )}
+          {status.comparison.conflicts.length > 0 && (
+            <section className="conflict-resolution" aria-labelledby="conflict-resolution-title">
+              <div className="conflict-resolution__heading">
+                <div>
+                  <p className="step">Decisión explícita</p>
+                  <h4 id="conflict-resolution-title">Resolver conflictos por clave</h4>
+                  <p>Elige qué fila conservar para cada clave. No se modifica nada hasta confirmar todas las decisiones.</p>
+                </div>
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={() => onResolveConflicts(Object.entries(conflictChoices).map(([conflictIndex, source]) => ({
+                    conflictIndex: Number(conflictIndex),
+                    source,
+                  })))}
+                  disabled={status.comparison.conflictsTruncated || Object.keys(conflictChoices).length !== status.comparison.conflicts.length}
+                >
+                  Resolver conflictos
+                </button>
+              </div>
+              {status.comparison.conflicts.map((conflict, conflictIndex) => (
+                <fieldset className="conflict-resolution__item" key={conflictIndex}>
+                  <legend>
+                    Conflicto {conflictIndex + 1} · clave {conflict.key.map((value) => value ?? "null").join(" · ")}
+                  </legend>
+                  <ul>
+                    {conflict.cells.map((cell) => (
+                      <li key={cell.column}>
+                        <strong>{cell.column}</strong>
+                        <span>Activo: <code>{cell.current ?? "null"}</code></span>
+                        <span>Comparado: <code>{cell.compared ?? "null"}</code></span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="conflict-resolution__choices">
+                    <label>
+                      <input
+                        type="radio"
+                        name={`conflict-${conflictIndex}`}
+                        checked={conflictChoices[conflictIndex] === "current"}
+                        onChange={() => setConflictChoices((current) => ({ ...current, [conflictIndex]: "current" }))}
+                      />
+                      Conservar activo
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name={`conflict-${conflictIndex}`}
+                        checked={conflictChoices[conflictIndex] === "compared"}
+                        onChange={() => setConflictChoices((current) => ({ ...current, [conflictIndex]: "compared" }))}
+                      />
+                      Usar comparado
+                    </label>
+                  </div>
+                </fieldset>
+              ))}
+              {status.comparison.conflictsTruncated && (
+                <p className="notice notice--error" role="alert">Hay más conflictos que el límite visible; la resolución está bloqueada hasta reducir la comparación.</p>
+              )}
+            </section>
           )}
           <div className="comparison-actions">
             <button type="button" className="secondary-action" onClick={onClear}>Descartar comparación</button>

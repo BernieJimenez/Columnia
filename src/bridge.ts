@@ -19,6 +19,17 @@ export interface DatasetColumn {
   dataType: string;
 }
 
+export interface DatasetConflictCell {
+  column: string;
+  current: string | null;
+  compared: string | null;
+}
+
+export interface DatasetConflict {
+  key: Array<string | null>;
+  cells: DatasetConflictCell[];
+}
+
 export interface DatasetPreview {
   fileName: string;
   fileSizeBytes: number;
@@ -46,6 +57,8 @@ export interface DatasetComparison {
   comparedOnlyKeyCount: number;
   conflictingKeyCount: number;
   duplicateKeyCount: number;
+  conflicts: DatasetConflict[];
+  conflictsTruncated: boolean;
   canConsolidate: boolean;
 }
 
@@ -340,6 +353,12 @@ export interface OperationProgress {
 export type CancellableOperation = OperationProgress["operation"];
 export type ExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite";
 export type PrivacyMode = "none" | "mask" | "hash";
+export type ConflictSource = "current" | "compared";
+
+export interface ConflictResolution {
+  conflictIndex: number;
+  source: ConflictSource;
+}
 
 export const QUALITY_DATASET_COLUMN = "__dataset__";
 
@@ -471,6 +490,12 @@ export function joinDataset(
   return invoke<DatasetPreview | null>("join_dataset", { keyColumns, joinType });
 }
 
+export function resolveDatasetConflicts(
+  decisions: ConflictResolution[],
+): Promise<DatasetPreview> {
+  return invoke<DatasetPreview>("resolve_dataset_conflicts", { decisions });
+}
+
 export function clearDatasetComparison(): Promise<void> {
   return invoke<void>("clear_dataset_comparison");
 }
@@ -525,6 +550,10 @@ export function pickQualityRulesMigration(): Promise<QualityMigrationResult | nu
 
 export function removeDuplicates(): Promise<DatasetMutation> {
   return invoke<DatasetMutation>("remove_duplicates");
+}
+
+export function removeEmptyRows(): Promise<DatasetMutation> {
+  return invoke<DatasetMutation>("remove_empty_rows");
 }
 
 export function normalizeColumnNames(): Promise<ColumnNormalizationResult> {

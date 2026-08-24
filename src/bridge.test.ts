@@ -5,6 +5,7 @@ import {
   cancelOperation,
   clearDatasetComparison,
   compareDataset,
+  resolveDatasetConflicts,
   joinDataset,
   applySafeCorrections,
   applyTransformRecipe,
@@ -122,6 +123,8 @@ describe("desktop bridge", () => {
       comparedOnlyKeyCount: 0,
       conflictingKeyCount: 0,
       duplicateKeyCount: 0,
+      conflicts: [],
+      conflictsTruncated: false,
       canConsolidate: true,
     });
 
@@ -137,6 +140,16 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(3, "use_consolidated_dataset");
     expect(invoke).toHaveBeenNthCalledWith(4, "clear_dataset_comparison");
+  });
+
+  it("resuelve conflictos por clave con decisiones serializables", async () => {
+    vi.mocked(invoke).mockResolvedValue({ fileName: "Resuelto · datos.csv" });
+
+    await resolveDatasetConflicts([{ conflictIndex: 0, source: "compared" }]);
+
+    expect(invoke).toHaveBeenCalledWith("resolve_dataset_conflicts", {
+      decisions: [{ conflictIndex: 0, source: "compared" }],
+    });
   });
 
   it("solicita una página por posición sin volver a entregar la ruta", async () => {

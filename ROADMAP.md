@@ -1041,12 +1041,19 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   claves nuevas.
 - [x] Incorporar joins multidataset `Inner`, `Left` y `Full` por claves, con
   validación de tipos, sufijo determinista para columnas compartidas e historial.
-- [ ] Añadir resolución interactiva de conflictos de columnas y valores.
+- [x] Añadir resolución interactiva acotada de conflictos por clave: mostrar las
+  celdas divergentes, exigir una decisión por conflicto y conservar la fila del
+  dataset activo o la comparada con historial reversible.
+- [ ] Ampliar la resolución a una combinación independiente por columna/valor y
+  a conflictos fuera del límite visible sin ocultar decisiones pendientes.
 - [x] Añadir visualizaciones de análisis con tabla accesible equivalente para
   completitud y posibles outliers.
 - [x] Añadir la primera lectura agregada del catálogo de limpieza: duplicados,
   columnas incompletas/constantes, desajustes de tipo y posibles nombres de PII,
   con acciones seguras existentes y sin mostrar celdas.
+- [x] Añadir eliminación explícita de filas completamente vacías (nulos o texto
+  en blanco), con impacto contado, orden estable, historial reversible y control
+  accesible en Preparar.
 - [ ] Migrar el catálogo completo de limpieza sugerida: duplicados exactos y
   difusos, columnas/filas vacías, constantes, identificadores y alto porcentaje
   de nulos, centinelas, imputación, booleanos, PII, auditoría `_cambios` y

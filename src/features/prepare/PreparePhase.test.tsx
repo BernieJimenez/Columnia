@@ -71,6 +71,7 @@ describe("PreparePhase", () => {
       onAnalyzeQuality={() => undefined}
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
       onTrimText={() => undefined}
@@ -108,6 +109,7 @@ describe("PreparePhase", () => {
       historyStatus={history} onAnalyzeQuality={() => undefined} onCancelProfile={() => undefined}
       recipeDraft={null} recipeSession={0}
       onRemoveDuplicates={() => undefined} onNormalizeColumns={() => undefined}
+      onRemoveEmptyRows={() => undefined}
       onApplyRecommended={() => undefined} onTrimText={() => undefined}
       onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
       onRecipeDraftChange={() => undefined}
@@ -131,6 +133,7 @@ describe("PreparePhase", () => {
       onAnalyzeQuality={() => undefined}
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
       onTrimText={() => undefined}

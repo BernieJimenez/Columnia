@@ -17,6 +17,7 @@ interface PreparePhaseProps {
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
   onRemoveDuplicates: () => void;
+  onRemoveEmptyRows: () => void;
   onNormalizeColumns: () => void;
   onApplyRecommended: () => void;
   onTrimText: () => void;
@@ -37,6 +38,7 @@ export function PreparePhase({
   onAnalyzeQuality,
   onCancelProfile,
   onRemoveDuplicates,
+  onRemoveEmptyRows,
   onNormalizeColumns,
   onApplyRecommended,
   onTrimText,
@@ -224,6 +226,16 @@ export function PreparePhase({
         ) : (
           <p className="profile-note">Este dataset no contiene columnas de texto.</p>
         )}
+      </section>
+      <section className="prepare-card" aria-labelledby="empty-rows-title">
+        <div>
+          <p className="step">Corrección segura</p>
+          <h3 id="empty-rows-title">Filas completamente vacías</h3>
+          <p>Elimina filas cuyos valores son todos nulos o texto en blanco. La operación conserva el orden y es reversible.</p>
+        </div>
+        <button type="button" onClick={onRemoveEmptyRows} disabled={changing}>
+          Eliminar filas vacías
+        </button>
       </section>
       {profileStatus.kind === "loading" ? (
         <OperationProgressView

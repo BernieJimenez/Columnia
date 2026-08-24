@@ -70,11 +70,13 @@ import {
   joinDataset,
   loadDatasetSelection,
   pickDatasetSource,
+  resolveDatasetConflicts,
   useConsolidatedDataset,
   type AppInfo,
   type CancellableOperation,
   type DatasetJoinType,
   type DatasetPreview,
+  type ConflictResolution,
   type DatasetSourceInspection,
   type SavedRecipe,
   type SpreadsheetHeaderMode,
@@ -367,6 +369,27 @@ export function App() {
     }
   }
 
+  async function resolveComparedConflicts(decisions: ConflictResolution[]) {
+    setComparisonStatus(beginComparison());
+    try {
+      const dataset = await resolveDatasetConflicts(decisions);
+      setDatasetStatus(createReadyDatasetStatus(dataset));
+      setComparisonStatus(clearComparison());
+      setComparisonKeyColumns([]);
+      setJoinStatus(clearJoin());
+      setProfileStatus({ kind: "idle" });
+      projects.unlinkActiveProject();
+      setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
+      setRecipeDraft(null);
+      setRecipeSession((current) => current + 1);
+      prepare.resetChangeStatus();
+      await prepare.refreshHistory();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setComparisonStatus(failComparison(message));
+    }
+  }
+
   async function joinActiveDataset(requestedJoinType: DatasetJoinType) {
     if (comparisonKeyColumns.length === 0) {
       setJoinStatus(failJoin("Selecciona al menos una columna clave para unir datasets."));
@@ -591,6 +614,7 @@ export function App() {
               onCompare={() => void compareActiveDataset()}
               onClearComparison={() => void clearActiveComparison()}
               onConsolidate={() => void consolidateComparedDataset()}
+              onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}
               onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
             />
           )}
@@ -606,6 +630,7 @@ export function App() {
               onAnalyzeQuality={analyzeQuality}
               onCancelProfile={() => cancelActiveOperation("profile")}
               onRemoveDuplicates={prepare.applyDuplicateRemoval}
+              onRemoveEmptyRows={prepare.applyEmptyRowRemoval}
               onNormalizeColumns={prepare.applyColumnNormalization}
               onApplyRecommended={prepare.applyRecommendedCorrections}
               onTrimText={prepare.trimText}

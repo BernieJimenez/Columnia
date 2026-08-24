@@ -6,6 +6,7 @@ import {
   getHistoryState,
   normalizeColumnNames,
   normalizeTextValues,
+  removeEmptyRows,
   removeDuplicates,
   redoLastChange,
   trimTextValues,
@@ -55,6 +56,26 @@ export function usePrepareController({
       setChangeStatus({
         kind: "applied",
         message: `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas adicionales.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyEmptyRowRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "empty_rows" });
+    try {
+      const result = await removeEmptyRows();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: result.affectedRowCount === 0
+          ? "No se detectaron filas completamente vacías."
+          : `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas completamente vacías.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -192,6 +213,7 @@ export function usePrepareController({
     resetChangeStatus,
     refreshHistory,
     applyDuplicateRemoval,
+    applyEmptyRowRemoval,
     applyColumnNormalization,
     applyRecommendedCorrections,
     trimText: () => applyTextChange("trim"),

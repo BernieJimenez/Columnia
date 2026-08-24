@@ -320,6 +320,19 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .comparison-key-summary h4 { margin: 0; color: #31535a; font-size: .84rem; }
 .comparison-key-summary__columns { margin: 7px 0 0; color: #627770; font-size: .8rem; overflow-wrap: anywhere; }
 .comparison-key-summary .quality-summary { grid-template-columns: repeat(5, minmax(120px, 1fr)); margin-top: 12px; }
+.conflict-resolution { display: grid; gap: 12px; margin-top: 16px; padding: 14px; border: 1px solid #d3b16b; background: #fff9e9; }
+.conflict-resolution__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.conflict-resolution__heading h4 { margin: 0; color: #694f1e; font-size: .9rem; }
+.conflict-resolution__heading p:last-child { max-width: 680px; margin: 6px 0 0; color: #765f2f; font-size: .78rem; line-height: 1.45; }
+.conflict-resolution__item { display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid #ddc78f; background: #fffdf5; }
+.conflict-resolution__item legend { padding: 0 6px; color: #694f1e; font-size: .76rem; font-weight: 800; }
+.conflict-resolution__item ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.conflict-resolution__item li { display: grid; grid-template-columns: minmax(90px, .35fr) repeat(2, minmax(0, 1fr)); gap: 10px; align-items: baseline; color: #765f2f; font-size: .78rem; }
+.conflict-resolution__item code { overflow-wrap: anywhere; color: #493d24; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.conflict-resolution__choices { display: flex; flex-wrap: wrap; gap: 10px; }
+.conflict-resolution__choices label { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 7px 10px; border: 1px solid #ddc78f; background: #fff8dc; color: #694f1e; cursor: pointer; }
+.conflict-resolution__choices label:has(input:checked) { border-color: #9a6e18; background: #f7e9bc; }
+.conflict-resolution__choices input { flex: 0 0 auto; }
 .comparison-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 @media (max-width: 900px) {
@@ -348,6 +361,9 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .join-selector button { justify-self: stretch; }
   .quality-chart-grid { grid-template-columns: 1fr; }
   .comparison-actions { align-items: stretch; flex-direction: column-reverse; }
+  .conflict-resolution__heading { flex-direction: column; }
+  .conflict-resolution__heading button { width: 100%; }
+  .conflict-resolution__item li { grid-template-columns: 1fr; gap: 3px; }
   .pagination { align-items: stretch; flex-direction: column; }
   .quality__header { align-items: stretch; flex-direction: column; }
   .quality-summary { grid-template-columns: 1fr; }
@@ -472,6 +488,13 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .comparison-columns > div { border-color: #426067; background: #214249; }
   .comparison-columns h4 { color: #c6d8d4; }
   .comparison-columns p { color: #afc2bd; }
+  .conflict-resolution { border-color: #8b763f; background: #3d3824; }
+  .conflict-resolution__heading h4, .conflict-resolution__item legend { color: #f3d98f; }
+  .conflict-resolution__heading p:last-child, .conflict-resolution__item li { color: #dfcf9d; }
+  .conflict-resolution__item { border-color: #8b763f; background: #302e20; }
+  .conflict-resolution__item code { color: #f2e4b5; }
+  .conflict-resolution__choices label { border-color: #8b763f; background: #3b3520; color: #f3d98f; }
+  .conflict-resolution__choices label:has(input:checked) { border-color: #d7b85f; background: #5b4d28; }
   .quality-summary div { border-color: #426067; background: #214249; }
   .quality-summary dt { color: #afc2bd; }
   .quality-summary dd { color: #e4eeeb; }
@@ -561,7 +584,15 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .comparison-key-summary,
   .comparison-key-options label,
   .join-selector,
-  .join-options label { border-color: ButtonText; background: Canvas; }
+  .join-options label,
+  .conflict-resolution,
+  .conflict-resolution__item,
+  .conflict-resolution__choices label { border-color: ButtonText; background: Canvas; color: CanvasText; }
+  .conflict-resolution__heading h4,
+  .conflict-resolution__heading p:last-child,
+  .conflict-resolution__item legend,
+  .conflict-resolution__item li,
+  .conflict-resolution__item code { color: CanvasText; }
   .comparison-key-options label:has(input:checked) { border-color: Highlight; background: HighlightText; }
   .join-options label:has(input:checked) { border-color: Highlight; background: HighlightText; }
   .quality-chart__track { border-color: ButtonText; background: Canvas; }

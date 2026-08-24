@@ -25,6 +25,8 @@ const comparison = {
   comparedOnlyKeyCount: 0,
   conflictingKeyCount: 0,
   duplicateKeyCount: 0,
+  conflicts: [],
+  conflictsTruncated: false,
   canConsolidate: true,
 };
 

@@ -14,7 +14,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir comparación, condicionales, referencias, fechas, agregados y drift |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
-| Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura y joins Inner/Left/Full con historial | Parcial | Añadir resolución interactiva de conflictos de columnas |
+| Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución acotada por fila y joins Inner/Left/Full con historial | Parcial | Completar combinación independiente por columna y conflictos fuera del preview |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON y script SQL | Parcial | Excel, conectores, bundles auditables y privacidad |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas y CLI | Parcial | Importar sesiones/pipelines y completar caché/actividad |
@@ -77,7 +77,14 @@ elegir la segunda fuente:
   nuevas, registrando la operación en el historial.
 
 La comparación sin claves mantiene el comportamiento multivaluado anterior.
-La resolución avanzada de conflictos queda pendiente.
+
+Cuando una comparación por clave encuentra valores divergentes, Review muestra un
+preview acotado de las celdas diferentes y exige elegir entre conservar la fila
+activa o usar la fila comparada. La resolución queda bloqueada si faltan decisiones
+o si el preview superó su límite; al confirmar, Rust reemplaza únicamente las filas
+seleccionadas, registra la operación en el historial y descarta la comparación
+pendiente. La combinación independiente por columna sigue siendo una brecha
+explícita.
 
 ## Sexta entrega de paridad: joins multidataset
 
@@ -94,9 +101,9 @@ claves seleccionadas explícitamente:
 
 La unión reemplaza el dataset activo únicamente después de calcular el frame,
 registra `Unir datasets (...)` en el historial, invalida el perfil y las
-compuertas de entrega, y no expone rutas del sistema al frontend. La siguiente
-entrega debe incorporar resolución interactiva para nombres y valores
-conflictivos.
+compuertas de entrega, y no expone rutas del sistema al frontend. La brecha
+restante es combinar conflictos de forma independiente por columna/valor y
+resolver previews que superen el límite visible.
 
 ## Séptima entrega de paridad: primera slice de calidad v3
 
@@ -173,6 +180,13 @@ columnas de texto cuyos nombres sugieren correo, teléfono, dirección o
 identificadores personales. La calidad se valida sobre el dataset preparado y
 la protección se aplica solo al snapshot de salida. El catálogo completo de PII
 para recetas, manifests, reports y conectores remotos sigue pendiente.
+
+## Limpieza segura de filas vacías
+
+Preparar ofrece una acción explícita para eliminar únicamente filas cuyos
+valores son todos nulos o texto en blanco. Conserva el orden de las filas,
+reporta el impacto y registra una revisión reversible en el historial; no
+elimina filas parcialmente incompletas ni decide imputaciones automáticamente.
 
 ## Consulta local restringida
 

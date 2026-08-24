@@ -91,6 +91,7 @@ describe("ReviewPhase", () => {
         onCompare={() => undefined}
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={() => undefined}
@@ -142,6 +143,8 @@ describe("ReviewPhase", () => {
             comparedOnlyKeyCount: 0,
             conflictingKeyCount: 0,
             duplicateKeyCount: 0,
+            conflicts: [],
+            conflictsTruncated: false,
             canConsolidate: true,
           },
         }}
@@ -151,6 +154,7 @@ describe("ReviewPhase", () => {
         onComparisonKeyColumnsChange={onComparisonKeyColumnsChange}
         onClearComparison={onClearComparison}
         onConsolidate={onConsolidate}
+        onResolveConflicts={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={onJoinTypeChange}
@@ -197,6 +201,7 @@ describe("ReviewPhase", () => {
         onCompare={() => undefined}
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={() => undefined}
@@ -231,6 +236,7 @@ describe("ReviewPhase", () => {
         onCompare={() => undefined}
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={() => undefined}
@@ -252,6 +258,69 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
       "95.0%",
     );
+  });
+
+  it("exige y emite una decisión explícita por conflicto", () => {
+    const onResolveConflicts = vi.fn();
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{
+          kind: "ready",
+          comparison: {
+            currentFileName: "datos.csv",
+            comparedFileName: "actualizacion.csv",
+            currentRowCount: 2,
+            comparedRowCount: 2,
+            commonRowCount: 2,
+            currentOnlyRowCount: 0,
+            comparedOnlyRowCount: 0,
+            sharedColumns: ["id", "nota"],
+            currentOnlyColumns: [],
+            comparedOnlyColumns: [],
+            schemaCompatible: true,
+            keyColumns: ["id"],
+            matchedKeyCount: 1,
+            currentOnlyKeyCount: 0,
+            comparedOnlyKeyCount: 0,
+            conflictingKeyCount: 1,
+            duplicateKeyCount: 0,
+            conflicts: [{
+              key: ["51"],
+              cells: [{ column: "nota", current: null, compared: "ok" }],
+            }],
+            conflictsTruncated: false,
+            canConsolidate: false,
+          },
+        }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={["id"]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={onResolveConflicts}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    const resolveButton = screen.getByRole("button", { name: "Resolver conflictos" });
+    expect(resolveButton).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado" }));
+    expect(resolveButton).toBeEnabled();
+    fireEvent.click(resolveButton);
+    expect(onResolveConflicts).toHaveBeenCalledWith([
+      { conflictIndex: 0, source: "compared" },
+    ]);
   });
 
   it("anuncia el rango, representa null y solicita saltos exactos de 50", () => {

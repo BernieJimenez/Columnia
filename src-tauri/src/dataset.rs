@@ -28,6 +28,7 @@ use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
+const MAX_CONFLICT_PREVIEW: usize = 50;
 const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 500 * 1024 * 1024;
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
@@ -249,7 +250,38 @@ pub struct DatasetComparison {
     pub(crate) compared_only_key_count: usize,
     pub(crate) conflicting_key_count: usize,
     pub(crate) duplicate_key_count: usize,
+    pub(crate) conflicts: Vec<DatasetConflict>,
+    pub(crate) conflicts_truncated: bool,
     pub(crate) can_consolidate: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetConflict {
+    pub(crate) key: Vec<Option<String>>,
+    pub(crate) cells: Vec<DatasetConflictCell>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetConflictCell {
+    pub(crate) column: String,
+    pub(crate) current: Option<String>,
+    pub(crate) compared: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConflictSource {
+    Current,
+    Compared,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConflictResolution {
+    conflict_index: usize,
+    source: ConflictSource,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -2448,6 +2480,25 @@ fn remove_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String
     let cleaned = frame
         .unique_stable(None, UniqueKeepStrategy::First, None)
         .map_err(|error| format!("No se pudieron eliminar las filas duplicadas: {error}"))?;
+    let affected_row_count = frame.height().saturating_sub(cleaned.height());
+    Ok((cleaned, affected_row_count))
+}
+
+fn remove_empty_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
+    let keep = (0..frame.height())
+        .map(|row_index| {
+            frame.columns().iter().any(|column| {
+                column
+                    .get(row_index)
+                    .ok()
+                    .and_then(preview_value)
+                    .is_some_and(|value| !value.trim().is_empty())
+            })
+        })
+        .collect::<Vec<_>>();
+    let cleaned = frame
+        .filter(&BooleanChunked::from_slice("non_empty_row".into(), &keep))
+        .map_err(|error| format!("No se pudieron eliminar las filas vacías: {error}"))?;
     let affected_row_count = frame.height().saturating_sub(cleaned.height());
     Ok((cleaned, affected_row_count))
 }
@@ -5313,6 +5364,106 @@ fn compare_keyed_frames(
     Ok(summary)
 }
 
+struct KeyConflictRows {
+    current_row_index: usize,
+    compared_row_index: usize,
+    conflict: DatasetConflict,
+}
+
+fn collect_key_conflicts(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    validate_key_columns(current, compared, key_columns)?;
+    let current_rows = key_rows(current, key_columns)?;
+    let compared_rows = key_rows(compared, key_columns)?;
+    let shared_payload_columns = shared_columns
+        .iter()
+        .filter(|column| !key_columns.contains(column))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    let mut conflicts = Vec::new();
+    let mut truncated = false;
+
+    for current_row_index in 0..current.height() {
+        let signature = row_signature(current, key_columns, current_row_index)?;
+        if !seen.insert(signature.clone()) {
+            continue;
+        }
+        let Some(current_key_rows) = current_rows.get(&signature) else {
+            continue;
+        };
+        let Some(compared_key_rows) = compared_rows.get(&signature) else {
+            continue;
+        };
+        if current_key_rows.len() != 1 || compared_key_rows.len() != 1 {
+            continue;
+        }
+        let current_row_index = current_key_rows[0];
+        let compared_row_index = compared_key_rows[0];
+        let current_payload = row_signature(current, &shared_payload_columns, current_row_index)?;
+        let compared_payload =
+            row_signature(compared, &shared_payload_columns, compared_row_index)?;
+        if current_payload == compared_payload {
+            continue;
+        }
+
+        let key = key_columns
+            .iter()
+            .map(|column| {
+                current
+                    .column(column)
+                    .map_err(|error| format!("No se pudo leer la clave '{column}': {error}"))?
+                    .get(current_row_index)
+                    .map_err(|error| format!("No se pudo leer la fila en conflicto: {error}"))
+                    .map(preview_value)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let cells = shared_payload_columns
+            .iter()
+            .map(|column| {
+                let current_value = current
+                    .column(column)
+                    .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+                    .get(current_row_index)
+                    .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
+                    .map(preview_value)?;
+                let compared_value = compared
+                    .column(column)
+                    .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+                    .get(compared_row_index)
+                    .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
+                    .map(preview_value)?;
+                Ok((column.clone(), current_value, compared_value))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+            .into_iter()
+            .filter(|(_, current_value, compared_value)| current_value != compared_value)
+            .map(|(column, current, compared)| DatasetConflictCell {
+                column,
+                current,
+                compared,
+            })
+            .collect::<Vec<_>>();
+        if cells.is_empty() {
+            continue;
+        }
+        if conflicts.len() >= MAX_CONFLICT_PREVIEW {
+            truncated = true;
+            break;
+        }
+        conflicts.push(KeyConflictRows {
+            current_row_index,
+            compared_row_index,
+            conflict: DatasetConflict { key, cells },
+        });
+    }
+    Ok((conflicts, truncated))
+}
+
 fn normalize_key_columns(key_columns: Option<Vec<String>>) -> Result<Vec<String>, String> {
     let mut normalized = Vec::new();
     for key in key_columns.unwrap_or_default() {
@@ -5420,10 +5571,13 @@ fn compare_frames(
                 compared.height().saturating_sub(common),
             )
         };
-    let key_summary = if key_columns.is_empty() {
-        KeyComparisonSummary::default()
+    let (key_summary, conflicts, conflicts_truncated) = if key_columns.is_empty() {
+        (KeyComparisonSummary::default(), Vec::new(), false)
     } else {
-        compare_keyed_frames(current, compared, key_columns, &shared_columns)?
+        let summary = compare_keyed_frames(current, compared, key_columns, &shared_columns)?;
+        let (conflicts, truncated) =
+            collect_key_conflicts(current, compared, key_columns, &shared_columns)?;
+        (summary, conflicts, truncated)
     };
     let can_consolidate = schema_compatible
         && key_summary.conflicting_key_count == 0
@@ -5447,6 +5601,8 @@ fn compare_frames(
         compared_only_key_count: key_summary.compared_only_key_count,
         conflicting_key_count: key_summary.conflicting_key_count,
         duplicate_key_count: key_summary.duplicate_key_count,
+        conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
+        conflicts_truncated,
         can_consolidate,
     })
 }
@@ -5600,6 +5756,150 @@ pub async fn join_dataset(
     })
     .await
     .map_err(|error| format!("La unión se interrumpió: {error}"))?
+}
+
+fn resolved_conflict_frame(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    decisions: &[ConflictResolution],
+) -> Result<DataFrame, String> {
+    if key_columns.is_empty() {
+        return Err("La resolución de conflictos requiere al menos una columna clave.".to_owned());
+    }
+    if current.get_column_names() != compared.get_column_names()
+        || current
+            .columns()
+            .iter()
+            .zip(compared.columns())
+            .any(|(left, right)| left.dtype() != right.dtype())
+    {
+        return Err("Los esquemas no son compatibles para resolver conflictos.".to_owned());
+    }
+    let shared_columns = current
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let (conflicts, truncated) =
+        collect_key_conflicts(current, compared, key_columns, &shared_columns)?;
+    if truncated {
+        return Err(format!(
+            "Hay más de {MAX_CONFLICT_PREVIEW} conflictos; reduce el dataset antes de resolverlos."
+        ));
+    }
+    if conflicts.len() != decisions.len() {
+        return Err("Debes elegir un origen para cada conflicto visible.".to_owned());
+    }
+    let mut choices = HashMap::new();
+    for decision in decisions {
+        if decision.conflict_index >= conflicts.len()
+            || choices
+                .insert(decision.conflict_index, decision.source)
+                .is_some()
+        {
+            return Err(
+                "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
+            );
+        }
+    }
+    if choices.len() != conflicts.len() {
+        return Err("Faltan decisiones de resolución para algunos conflictos.".to_owned());
+    }
+
+    let mut combined = current.clone();
+    combined
+        .vstack_mut(compared)
+        .map_err(|error| format!("No se pudieron preparar las filas en conflicto: {error}"))?;
+    let conflict_rows = conflicts
+        .iter()
+        .enumerate()
+        .map(|(index, conflict)| (conflict.current_row_index, index))
+        .collect::<HashMap<_, _>>();
+    let selected_rows = (0..current.height())
+        .map(|row_index| {
+            let source = conflict_rows
+                .get(&row_index)
+                .and_then(|index| choices.get(index).copied());
+            match source {
+                Some(ConflictSource::Compared) => {
+                    let conflict_index = conflict_rows
+                        .get(&row_index)
+                        .copied()
+                        .ok_or_else(|| "No se encontró la fila en conflicto.".to_owned())?;
+                    let compared_row = conflicts
+                        .get(conflict_index)
+                        .map(|conflict| conflict.compared_row_index)
+                        .ok_or_else(|| {
+                            "No se encontró la fila comparada en conflicto.".to_owned()
+                        })?;
+                    u32::try_from(current.height().saturating_add(compared_row))
+                        .map_err(|_| "El dataset excede el límite de filas resoluble.".to_owned())
+                }
+                _ => u32::try_from(row_index)
+                    .map_err(|_| "El dataset excede el límite de filas resoluble.".to_owned()),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    combined
+        .take(&UInt32Chunked::from_vec(
+            "resolved_rows".into(),
+            selected_rows,
+        ))
+        .map_err(|error| format!("No se pudo construir el dataset resuelto: {error}"))
+}
+
+#[tauri::command]
+pub async fn resolve_dataset_conflicts(
+    app: AppHandle,
+    decisions: Vec<ConflictResolution>,
+) -> Result<DatasetPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let (compared_file_name, compared_file_size, compared_frame, key_columns) = {
+            let comparison = state
+                .comparison
+                .lock()
+                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let pending = comparison
+                .as_ref()
+                .ok_or_else(|| "No hay una comparación activa para resolver.".to_owned())?;
+            (
+                pending.file_name.clone(),
+                pending.file_size_bytes,
+                pending.frame.clone(),
+                pending.key_columns.clone(),
+            )
+        };
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let resolved =
+            resolved_conflict_frame(&dataset.frame, &compared_frame, &key_columns, &decisions)?;
+        let file_name = format!("Resuelto · {} + {compared_file_name}", dataset.file_name);
+        let file_size_bytes = dataset.file_size_bytes.saturating_add(compared_file_size);
+        let preview = dataset_preview_with_size(&file_name, file_size_bytes, &resolved)?;
+        dataset
+            .history
+            .record(&resolved, "Resolver conflictos por clave")?;
+        dataset.source_path = None;
+        dataset.file_name = file_name;
+        dataset.file_size_bytes = file_size_bytes;
+        dataset.frame = resolved;
+        dataset.profile = None;
+        drop(current);
+        *state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+        Ok(preview)
+    })
+    .await
+    .map_err(|error| format!("La resolución de conflictos se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -6183,6 +6483,32 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
     })
     .await
     .map_err(|error| format!("La eliminación de duplicados se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, affected_row_count) = remove_empty_rows_from_frame(&dataset.frame)?;
+        let preview = if affected_row_count > 0 {
+            publish_candidate(dataset, cleaned, "Eliminar filas completamente vacías")?
+        } else {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        };
+        Ok(DatasetMutation {
+            dataset: preview,
+            affected_row_count,
+        })
+    })
+    .await
+    .map_err(|error| format!("La eliminación de filas vacías se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -10209,6 +10535,11 @@ mod tests {
         .expect("la comparación duplicada debe calcularse");
         assert_eq!(duplicate_result.duplicate_key_count, 1);
         assert!(!duplicate_result.can_consolidate);
+        assert_eq!(result.conflicts.len(), 1);
+        assert_eq!(result.conflicts[0].key, vec![Some("2".to_owned())]);
+        assert_eq!(result.conflicts[0].cells[0].column, "total");
+        assert_eq!(result.conflicts[0].cells[0].current, Some("20".to_owned()));
+        assert_eq!(result.conflicts[0].cells[0].compared, Some("25".to_owned()));
 
         fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
         fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
@@ -10241,6 +10572,118 @@ mod tests {
             additions.column("id").unwrap().i64().unwrap().get(0),
             Some(3)
         );
+    }
+
+    #[test]
+    fn resolves_each_key_conflict_from_the_selected_row_source() {
+        let current = DataFrame::new(
+            2,
+            vec![
+                Series::new("id".into(), &[1_i64, 2]).into_column(),
+                Series::new("city".into(), &["Santo Domingo", "Santiago"]).into_column(),
+            ],
+        )
+        .expect("el frame activo debe ser válido");
+        let compared = DataFrame::new(
+            2,
+            vec![
+                Series::new("id".into(), &[1_i64, 2]).into_column(),
+                Series::new("city".into(), &["La Vega", "Santiago"]).into_column(),
+            ],
+        )
+        .expect("el frame comparado debe ser válido");
+        let key_columns = vec!["id".to_owned()];
+        let shared_columns = vec!["id".to_owned(), "city".to_owned()];
+        let (conflicts, truncated) =
+            collect_key_conflicts(&current, &compared, &key_columns, &shared_columns)
+                .expect("los conflictos deben poder inspeccionarse");
+        assert!(!truncated);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].conflict.key, vec![Some("1".to_owned())]);
+        assert_eq!(conflicts[0].conflict.cells[0].column, "city");
+
+        let resolved = resolved_conflict_frame(
+            &current,
+            &compared,
+            &key_columns,
+            &[ConflictResolution {
+                conflict_index: 0,
+                source: ConflictSource::Compared,
+            }],
+        )
+        .expect("la resolución debe construir un frame válido");
+        assert_eq!(
+            resolved.column("id").unwrap().i64().unwrap().get(0),
+            Some(1)
+        );
+        assert_eq!(
+            resolved.column("city").unwrap().str().unwrap().get(0),
+            Some("La Vega")
+        );
+        assert_eq!(
+            resolved.column("city").unwrap().str().unwrap().get(1),
+            Some("Santiago")
+        );
+        assert!(resolved_conflict_frame(&current, &compared, &key_columns, &[]).is_err());
+        assert!(resolved_conflict_frame(
+            &current,
+            &compared,
+            &key_columns,
+            &[
+                ConflictResolution {
+                    conflict_index: 0,
+                    source: ConflictSource::Current,
+                },
+                ConflictResolution {
+                    conflict_index: 0,
+                    source: ConflictSource::Compared,
+                },
+            ],
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn blocks_resolution_when_conflicts_exceed_the_visible_preview_limit() {
+        let ids = (0_i64..51).collect::<Vec<_>>();
+        let current_values = ids
+            .iter()
+            .map(|id| format!("activo-{id}"))
+            .collect::<Vec<_>>();
+        let compared_values = ids
+            .iter()
+            .map(|id| format!("comparado-{id}"))
+            .collect::<Vec<_>>();
+        let current = DataFrame::new(
+            ids.len(),
+            vec![
+                Series::new("id".into(), ids.clone()).into_column(),
+                Series::new("value".into(), current_values).into_column(),
+            ],
+        )
+        .expect("el frame activo debe ser válido");
+        let compared = DataFrame::new(
+            ids.len(),
+            vec![
+                Series::new("id".into(), ids).into_column(),
+                Series::new("value".into(), compared_values).into_column(),
+            ],
+        )
+        .expect("el frame comparado debe ser válido");
+        let key_columns = vec!["id".to_owned()];
+        let result = compare_frames(
+            &current,
+            "activo.csv",
+            &compared,
+            "comparado.csv",
+            &key_columns,
+        )
+        .expect("la comparación debe calcularse");
+
+        assert_eq!(result.conflicting_key_count, 51);
+        assert_eq!(result.conflicts.len(), 50);
+        assert!(result.conflicts_truncated);
+        assert!(resolved_conflict_frame(&current, &compared, &key_columns, &[]).is_err());
     }
 
     #[test]
@@ -10385,6 +10828,24 @@ mod tests {
         assert_eq!(page.rows[1][0].as_deref(), Some("Santiago"));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn removes_only_rows_that_are_completely_empty() {
+        let frame = df![
+            "name" => &[Some("Ana"), Some(""), None, Some("  ")],
+            "amount" => &[Some(10_i64), None, None, None]
+        ]
+        .unwrap();
+
+        let (cleaned, affected_row_count) =
+            remove_empty_rows_from_frame(&frame).expect("las filas vacías deben eliminarse");
+        assert_eq!(affected_row_count, 3);
+        assert_eq!(cleaned.height(), 1);
+        assert_eq!(
+            dataset_page(&cleaned, 0, 10).unwrap().rows[0][0].as_deref(),
+            Some("Ana")
+        );
     }
 
     #[test]

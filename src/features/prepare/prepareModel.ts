@@ -4,7 +4,7 @@ export type ChangeStatus =
   | { kind: "idle" }
   | {
       kind: "working";
-      action: "safe" | "duplicates" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+      action: "safe" | "duplicates" | "empty_rows" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
     }
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
@@ -56,6 +56,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
   const messages: Record<typeof action, string> = {
     safe: "Aplicando correcciones recomendadas…",
     duplicates: "Eliminando duplicados…",
+    empty_rows: "Eliminando filas vacías…",
     columns: "Normalizando nombres de columnas…",
     trim: "Recortando espacios exteriores…",
     text: "Normalizando texto seleccionado…",
