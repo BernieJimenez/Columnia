@@ -20,6 +20,10 @@ interface PreparePhaseProps {
   onRemoveEmptyRows: () => void;
   onRemoveConstantColumns: () => void;
   onRemoveEmptyColumns: () => void;
+  onRemoveHighNullColumns: () => void;
+  onNormalizeSentinels: () => void;
+  onNormalizeBooleans: () => void;
+  onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
   onApplyRecommended: () => void;
   onTrimText: () => void;
@@ -43,6 +47,10 @@ export function PreparePhase({
   onRemoveEmptyRows,
   onRemoveConstantColumns,
   onRemoveEmptyColumns,
+  onRemoveHighNullColumns,
+  onNormalizeSentinels,
+  onNormalizeBooleans,
+  onEnableRowAudit,
   onNormalizeColumns,
   onApplyRecommended,
   onTrimText,
@@ -159,9 +167,30 @@ export function PreparePhase({
           profile={profileStatus.profile}
           busy={changing}
           onRemoveConstantColumns={onRemoveConstantColumns}
-          onRemoveEmptyColumns={onRemoveEmptyColumns}
+              onRemoveEmptyColumns={onRemoveEmptyColumns}
+              onRemoveHighNullColumns={onRemoveHighNullColumns}
+              onNormalizeSentinels={onNormalizeSentinels}
+              onNormalizeBooleans={onNormalizeBooleans}
         />
       )}
+      <section className="prepare-card" aria-labelledby="row-audit-title">
+        <div>
+          <p className="step">Trazabilidad local</p>
+          <h3 id="row-audit-title">Cambios por fila</h3>
+          <p>
+            {dataset.columns.some((column) => column.name === "_cambios")
+              ? "La columna _cambios está activa; cada corrección posterior añadirá su operación a la fila afectada."
+              : "Activa una columna reservada _cambios para conservar una etiqueta breve de las correcciones posteriores."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onEnableRowAudit}
+          disabled={changing || dataset.columns.some((column) => column.name === "_cambios")}
+        >
+          {dataset.columns.some((column) => column.name === "_cambios") ? "Trazabilidad activa" : "Activar trazabilidad"}
+        </button>
+      </section>
       <section className="prepare-card" aria-labelledby="normalize-columns-title">
         <div>
           <p className="step">Recomendada y segura</p>
@@ -299,11 +328,17 @@ function CleaningSignals({
   busy,
   onRemoveConstantColumns,
   onRemoveEmptyColumns,
+  onRemoveHighNullColumns,
+  onNormalizeSentinels,
+  onNormalizeBooleans,
 }: {
   profile: DatasetProfile;
   busy: boolean;
   onRemoveConstantColumns: () => void;
   onRemoveEmptyColumns: () => void;
+  onRemoveHighNullColumns: () => void;
+  onNormalizeSentinels: () => void;
+  onNormalizeBooleans: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
   const constant = profile.columns.filter(
@@ -312,13 +347,19 @@ function CleaningSignals({
   const empty = profile.columns.filter(
     (column) => profile.rowCount > 0 && column.nullCount === profile.rowCount,
   );
+  const highNull = profile.columns.filter(
+    (column) => profile.rowCount > 0 && column.nullCount > 0 && column.nullCount < profile.rowCount &&
+      column.nullCount * 100 >= profile.rowCount * 80,
+  );
+  const sentinels = profile.columns.filter((column) => (column.sentinelCount ?? 0) > 0);
+  const booleans = profile.columns.filter(
+    (column) => column.suggestedType === "boolean" && (column.typeMatchPercentage ?? 0) >= 90,
+  );
   const typeDrift = profile.columns.filter(
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
-  const personal = profile.columns.filter((column) =>
-    /(email|correo|mail|phone|tel[eé]fono|address|direcci[oó]n|dni|cedula|c[eé]dula|ssn)/i.test(column.name),
-  );
-  const hasSignals = profile.duplicateRowCount > 0 || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || typeDrift.length > 0 || personal.length > 0;
+  const personal = profile.columns.filter((column) => column.privacySignal !== null);
+  const hasSignals = profile.duplicateRowCount > 0 || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || booleans.length > 0 || typeDrift.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -341,6 +382,15 @@ function CleaningSignals({
           )}
           {empty.length > 0 && (
             <li><strong>Vacías:</strong> {empty.map((column) => column.name).join(", ")} no contiene valores en ninguna fila.</li>
+          )}
+          {highNull.length > 0 && (
+            <li><strong>Alta nulidad:</strong> {highNull.map((column) => column.name).join(", ")} tiene al menos 80% de valores nulos.</li>
+          )}
+          {sentinels.length > 0 && (
+            <li><strong>Valores centinela:</strong> {sentinels.map((column) => `${column.name} (${(column.sentinelCount ?? 0).toLocaleString()})`).join(", ")} usa tokens textuales que pueden representar datos ausentes.</li>
+          )}
+          {booleans.length > 0 && (
+            <li><strong>Booleanos:</strong> {booleans.map((column) => column.name).join(", ")} admite alias textuales que pueden canonicalizarse como `true`/`false`.</li>
           )}
           {typeDrift.length > 0 && (
             <li><strong>Tipos sugeridos:</strong> {typeDrift.map((column) => column.name).join(", ")} contiene valores que no coinciden con la sugerencia detectada.</li>
@@ -368,6 +418,39 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onRemoveEmptyColumns} disabled={busy}>
                 Eliminar columnas vacías
+              </button>
+            </div>
+          )}
+          {highNull.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Estas columnas tienen poca información disponible; la acción usa un umbral explícito
+                de 80% y no elimina columnas completamente vacías ni todas las columnas del dataset.
+              </p>
+              <button type="button" onClick={onRemoveHighNullColumns} disabled={busy}>
+                Eliminar columnas con alta nulidad
+              </button>
+            </div>
+          )}
+          {sentinels.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes convertir los tokens ausentes conocidos a valores nulos; la operación es
+                reversible y no modifica números ni la columna de trazabilidad.
+              </p>
+              <button type="button" onClick={onNormalizeSentinels} disabled={busy}>
+                Convertir centinelas a nulos
+              </button>
+            </div>
+          )}
+          {booleans.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                La normalización solo convierte `yes`/`no`, `sí`/`no` y `true`/`false` a
+                `true`/`false`; deja intactos los valores que no reconoce.
+              </p>
+              <button type="button" onClick={onNormalizeBooleans} disabled={busy}>
+                Normalizar booleanos
               </button>
             </div>
           )}

@@ -196,8 +196,8 @@ impacto, excluye columnas completamente nulas, conserva el orden y deja al menos
 una columna para que el dataset siga siendo utilizable. El cambio queda registrado
 en el historial, invalida el perfil y puede deshacerse.
 
-La detección de identificadores, columnas con alto porcentaje de nulos, centinelas,
-imputación y duplicados difusos siguen formando parte del catálogo pendiente.
+La detección de identificadores, imputación y duplicados difusos siguen formando
+parte del catálogo pendiente.
 
 ## Limpieza segura de columnas completamente vacías
 
@@ -206,6 +206,47 @@ acción independiente para retirarlas. Reporta los nombres y el impacto, conserv
 el orden y deja al menos una columna aunque todo el esquema esté vacío; la acción
 se registra en historial, invalida el perfil y puede deshacerse. Las columnas con
 solo parte de sus valores nulos no se eliminan automáticamente.
+
+## Tratamiento seguro de columnas con alta nulidad
+
+Preparar identifica columnas con al menos 80% de valores nulos, sin incluir las
+columnas 100% nulas que tienen una acción separada. El umbral aparece en la UI,
+la operación reporta nombres e impacto, conserva el orden y deja al menos una
+columna; el cambio se registra en historial y puede deshacerse. Las columnas bajo
+el umbral no se eliminan automáticamente.
+
+## Normalización segura de valores centinela
+
+El perfil cuenta, sin mostrar valores, tokens textuales ausentes conocidos como
+`N/A`, `null`, `unknown`, `missing`, `sin datos` y equivalentes normalizados. Preparar
+permite convertir esos tokens a nulos en columnas de texto, conservando otros tipos
+y `_cambios`; el impacto por celda/columna se informa y el cambio queda en historial
+reversible. La lista es deliberadamente conservadora: no convierte números
+centinela ni valores arbitrarios sin una regla explícita.
+
+## Normalización segura de booleanos
+
+El perfil identifica columnas de texto con una coincidencia booleana de al menos
+90%. Preparar puede canonicalizar únicamente `yes`/`no`, `sí`/`no` y `true`/`false`
+como `true`/`false`, conserva los valores no reconocidos y registra el cambio en el
+historial. La operación no convierte identificadores numéricos ni altera columnas
+que no sean de texto.
+
+## Señales agregadas de privacidad e identificadores
+
+Columnia clasifica nombres de columnas con señales conservadoras de correo,
+teléfono, dirección, identificador o nombre. Solo publica la categoría y el nombre
+de la columna en el perfil; no inspecciona ni devuelve muestras para esta señal. La
+protección de salida con máscara/hash sigue siendo una decisión independiente y
+explícita.
+
+## Trazabilidad local por fila
+
+Preparar permite activar la columna reservada `_cambios`. Se crea como texto nulo y
+las mutaciones posteriores conservan la columna y añaden una etiqueta breve de la
+operación por fila, con límite de longitud y registro reversible en historial. La
+limpieza textual general no modifica `_cambios`; deshacer/rehacer restaura también
+la trazabilidad. Esta vertical no pretende sustituir un log de auditoría externo.
 
 ## Consulta local restringida
 

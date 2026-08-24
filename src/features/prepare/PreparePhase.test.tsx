@@ -31,9 +31,9 @@ const emptyRecipe: TransformRecipe = {
 };
 
 const cleaningSignalsProfile: DatasetProfile = {
-  rowCount: 2,
+  rowCount: 5,
   duplicateRowCount: 1,
-  duplicatePercentage: 50,
+  duplicatePercentage: 20,
   columns: [{
     name: "email",
     dataType: "String",
@@ -47,9 +47,11 @@ const cleaningSignalsProfile: DatasetProfile = {
     minimumLength: 15,
     maximumLength: 15,
     averageLength: 15,
-    suggestedType: null,
-    typeMatchPercentage: 50,
+    suggestedType: "boolean",
+    typeMatchPercentage: 100,
     invalidTypeCount: 1,
+    sentinelCount: 1,
+    privacySignal: "email",
     standardDeviation: null,
     firstQuartile: null,
     median: null,
@@ -58,7 +60,7 @@ const cleaningSignalsProfile: DatasetProfile = {
   }, {
     name: "empty_column",
     dataType: "String",
-    nullCount: 2,
+    nullCount: 5,
     completenessPercentage: 0,
     uniqueCount: 0,
     minimum: null,
@@ -71,6 +73,31 @@ const cleaningSignalsProfile: DatasetProfile = {
     suggestedType: null,
     typeMatchPercentage: null,
     invalidTypeCount: null,
+    sentinelCount: null,
+    privacySignal: null,
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
+  }, {
+    name: "high_null",
+    dataType: "String",
+    nullCount: 4,
+    completenessPercentage: 20,
+    uniqueCount: 1,
+    minimum: "ok",
+    maximum: "ok",
+    mean: null,
+    emptyCount: 0,
+    minimumLength: 2,
+    maximumLength: 2,
+    averageLength: 2,
+    suggestedType: null,
+    typeMatchPercentage: null,
+    invalidTypeCount: null,
+    sentinelCount: null,
+    privacySignal: null,
     standardDeviation: null,
     firstQuartile: null,
     median: null,
@@ -94,7 +121,11 @@ describe("PreparePhase", () => {
       onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={() => undefined}
-      onRemoveEmptyColumns={() => undefined}
+    onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeSentinels={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onEnableRowAudit={() => undefined}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
       onTrimText={() => undefined}
@@ -131,7 +162,7 @@ describe("PreparePhase", () => {
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
       historyStatus={history} onAnalyzeQuality={() => undefined} onCancelProfile={() => undefined}
       recipeDraft={null} recipeSession={0}
-      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onNormalizeColumns={() => undefined}
+      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeSentinels={() => undefined} onNormalizeBooleans={() => undefined} onEnableRowAudit={() => undefined} onNormalizeColumns={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onApplyRecommended={() => undefined} onTrimText={() => undefined}
       onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
@@ -148,6 +179,10 @@ describe("PreparePhase", () => {
   it("expone señales agregadas de limpieza y privacidad sin mostrar celdas", () => {
     const onRemoveConstantColumns = vi.fn();
     const onRemoveEmptyColumns = vi.fn();
+    const onRemoveHighNullColumns = vi.fn();
+    const onNormalizeSentinels = vi.fn();
+    const onNormalizeBooleans = vi.fn();
+    const onEnableRowAudit = vi.fn();
     render(<PreparePhase
       dataset={dataset}
       profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
@@ -161,6 +196,10 @@ describe("PreparePhase", () => {
       onRemoveEmptyRows={() => undefined}
       onRemoveConstantColumns={onRemoveConstantColumns}
       onRemoveEmptyColumns={onRemoveEmptyColumns}
+      onRemoveHighNullColumns={onRemoveHighNullColumns}
+      onNormalizeSentinels={onNormalizeSentinels}
+      onNormalizeBooleans={onNormalizeBooleans}
+      onEnableRowAudit={onEnableRowAudit}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
       onTrimText={() => undefined}
@@ -179,6 +218,14 @@ describe("PreparePhase", () => {
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas vacías" }));
     expect(onRemoveEmptyColumns).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas con alta nulidad" }));
+    expect(onRemoveHighNullColumns).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Convertir centinelas a nulos" }));
+    expect(onNormalizeSentinels).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Normalizar booleanos" }));
+    expect(onNormalizeBooleans).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Activar trazabilidad" }));
+    expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });
 });
 

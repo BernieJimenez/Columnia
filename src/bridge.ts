@@ -112,6 +112,8 @@ export interface ColumnProfile {
   suggestedType: "boolean" | "integer" | "decimal" | "date" | null;
   typeMatchPercentage: number | null;
   invalidTypeCount: number | null;
+  sentinelCount: number | null;
+  privacySignal: "email" | "phone" | "address" | "identifier" | "name" | null;
   standardDeviation: number | null;
   firstQuartile: number | null;
   median: number | null;
@@ -562,12 +564,20 @@ export function removeEmptyRows(): Promise<DatasetMutation> {
   return invoke<DatasetMutation>("remove_empty_rows");
 }
 
+export function enableRowAudit(): Promise<DatasetMutation> {
+  return invoke<DatasetMutation>("enable_row_audit");
+}
+
 export function removeConstantColumns(): Promise<ColumnRemovalResult> {
   return invoke<ColumnRemovalResult>("remove_constant_columns");
 }
 
 export function removeEmptyColumns(): Promise<ColumnRemovalResult> {
   return invoke<ColumnRemovalResult>("remove_empty_columns");
+}
+
+export function removeHighNullColumns(): Promise<ColumnRemovalResult> {
+  return invoke<ColumnRemovalResult>("remove_high_null_columns");
 }
 
 export function normalizeColumnNames(): Promise<ColumnNormalizationResult> {
@@ -583,6 +593,14 @@ export function normalizeTextValues(
   removeAccents: boolean,
 ): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("normalize_text_values", { columns, removeAccents });
+}
+
+export function normalizeSentinelValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("normalize_sentinel_values");
+}
+
+export function normalizeBooleanValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("normalize_boolean_values");
 }
 
 export function applySafeCorrections(): Promise<SafeCorrectionsResult> {

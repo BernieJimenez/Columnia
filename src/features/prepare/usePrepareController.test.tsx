@@ -50,6 +50,10 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyDuplicateRemoval}>Duplicar</button>
     <button type="button" onClick={controller.applyConstantColumnRemoval}>Constantes</button>
     <button type="button" onClick={controller.applyEmptyColumnRemoval}>Vacías</button>
+    <button type="button" onClick={controller.applyHighNullColumnRemoval}>Alta nulidad</button>
+    <button type="button" onClick={controller.applySentinelNormalization}>Centinelas</button>
+    <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
+    <button type="button" onClick={controller.applyRowAudit}>Auditoría</button>
     <button type="button" onClick={controller.undoChange}>Deshacer controlador</button>
     <output>{controller.changeStatus.kind === "applied" ? controller.changeStatus.message : controller.changeStatus.kind}</output>
     <span data-testid="history-index">{controller.historyStatus.currentIndex}</span>
@@ -130,6 +134,95 @@ describe("usePrepareController", () => {
       "Se eliminaron 1 columnas completamente vacías: notas.",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("publica la eliminación de columnas con alta nulidad", async () => {
+    vi.spyOn(bridge, "removeHighNullColumns").mockResolvedValue({
+      dataset,
+      removedColumnCount: 1,
+      removedColumns: ["comentarios"],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Alta nulidad" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se eliminaron 1 columnas con alta nulidad: comentarios.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("convierte centinelas a nulos y publica el impacto por columna", async () => {
+    vi.spyOn(bridge, "normalizeSentinelValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 2,
+      changedCellCount: 3,
+      changedColumns: [{ name: "estado", changedCellCount: 3 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Centinelas" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se convirtieron 3 valores centinela a nulos en: estado.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("normaliza alias booleanos y publica el impacto por columna", async () => {
+    vi.spyOn(bridge, "normalizeBooleanValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 2,
+      changedCellCount: 2,
+      changedColumns: [{ name: "activo", changedCellCount: 2 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Booleanos" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se normalizaron 2 valores booleanos en: activo.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("activa la trazabilidad por fila y refresca historial", async () => {
+    const auditedDataset = {
+      ...dataset,
+      columns: [...dataset.columns, { name: "_cambios", dataType: "String" }],
+    };
+    vi.spyOn(bridge, "enableRowAudit").mockResolvedValue({
+      dataset: auditedDataset,
+      affectedRowCount: 0,
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Auditoría" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "La trazabilidad por fila está activa; los cambios futuros se anotarán en _cambios.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(auditedDataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
   });

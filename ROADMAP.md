@@ -1060,6 +1060,19 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir eliminación explícita y reversible de columnas completamente vacías,
   diferenciada de las constantes, con reporte de nombres/impacto y conservación
   de al menos una columna utilizable.
+- [x] Añadir tratamiento explícito de columnas con alta nulidad usando un umbral
+  visible del 80%, excluyendo columnas 100% nulas, con impacto, historial reversible
+  y conservación de al menos una columna utilizable.
+- [x] Detectar valores centinela textuales conocidos en el perfil y permitir su
+  conversión reversible a nulos, con conteo por columna, acción accesible y
+  exclusión de tipos no textuales y de `_cambios`.
+- [x] Normalizar alias booleanos textuales (`yes`/`no`, `sí`/`no`, `true`/`false`)
+  de forma reversible, conservando tokens no reconocidos y mostrando el impacto.
+- [x] Clasificar señales agregadas de privacidad por nombre de columna (correo,
+  teléfono, dirección, identificador y nombre) sin exponer valores en el perfil.
+- [x] Activar una columna reservada `_cambios` para trazabilidad local por fila;
+  las mutaciones posteriores conservan/añaden la etiqueta de operación y la
+  columna queda protegida de la limpieza textual general.
 - [ ] Migrar el catálogo completo de limpieza sugerida: duplicados exactos y
   difusos, columnas/filas vacías, constantes, identificadores y alto porcentaje
   de nulos, centinelas, imputación, booleanos, PII, auditoría `_cambios` y

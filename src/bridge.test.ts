@@ -14,7 +14,10 @@ import {
   getDatasetPage,
   getDatasetProfile,
   getHistoryState,
+  enableRowAudit,
   normalizeColumnNames,
+  normalizeSentinelValues,
+  normalizeBooleanValues,
   normalizeTextValues,
   openProject,
   discardDatasetSelection,
@@ -26,6 +29,7 @@ import {
   removeDuplicates,
   removeConstantColumns,
   removeEmptyColumns,
+  removeHighNullColumns,
   redoLastChange,
   saveProject,
   saveTransformRecipe,
@@ -210,6 +214,8 @@ describe("desktop bridge", () => {
     await normalizeColumnNames();
     await trimTextValues();
     await normalizeTextValues(["city"], true);
+    await normalizeSentinelValues();
+    await normalizeBooleanValues();
     await applySafeCorrections();
     await undoLastChange();
     await redoLastChange();
@@ -221,9 +227,19 @@ describe("desktop bridge", () => {
       columns: ["city"],
       removeAccents: true,
     });
-    expect(invoke).toHaveBeenNthCalledWith(5, "apply_safe_corrections");
-    expect(invoke).toHaveBeenNthCalledWith(6, "undo_last_change");
-    expect(invoke).toHaveBeenNthCalledWith(7, "redo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(5, "normalize_sentinel_values");
+    expect(invoke).toHaveBeenNthCalledWith(6, "normalize_boolean_values");
+    expect(invoke).toHaveBeenNthCalledWith(7, "apply_safe_corrections");
+    expect(invoke).toHaveBeenNthCalledWith(8, "undo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(9, "redo_last_change");
+  });
+
+  it("activa la columna reservada de trazabilidad sin enviar rutas", async () => {
+    vi.mocked(invoke).mockResolvedValue({ dataset: {}, affectedRowCount: 0 });
+
+    await enableRowAudit();
+
+    expect(invoke).toHaveBeenCalledWith("enable_row_audit");
   });
 
   it("elimina columnas constantes mediante un comando tipado", async () => {
@@ -248,6 +264,18 @@ describe("desktop bridge", () => {
     await removeEmptyColumns();
 
     expect(invoke).toHaveBeenCalledWith("remove_empty_columns");
+  });
+
+  it("elimina columnas con alta nulidad mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: { fileName: "datos.csv" },
+      removedColumnCount: 1,
+      removedColumns: ["comentarios"],
+    });
+
+    await removeHighNullColumns();
+
+    expect(invoke).toHaveBeenCalledWith("remove_high_null_columns");
   });
 
   it("envía una receta estructural completa en una sola invocación", async () => {

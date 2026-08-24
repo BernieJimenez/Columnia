@@ -633,6 +633,10 @@ export function App() {
               onRemoveEmptyRows={prepare.applyEmptyRowRemoval}
               onRemoveConstantColumns={prepare.applyConstantColumnRemoval}
               onRemoveEmptyColumns={prepare.applyEmptyColumnRemoval}
+              onRemoveHighNullColumns={prepare.applyHighNullColumnRemoval}
+              onNormalizeSentinels={prepare.applySentinelNormalization}
+              onNormalizeBooleans={prepare.applyBooleanNormalization}
+              onEnableRowAudit={prepare.applyRowAudit}
               onNormalizeColumns={prepare.applyColumnNormalization}
               onApplyRecommended={prepare.applyRecommendedCorrections}
               onTrimText={prepare.trimText}

@@ -29,11 +29,33 @@ const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
 const MAX_CONFLICT_PREVIEW: usize = 50;
+const HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE: usize = 80;
+const SENTINEL_VALUES: &[&str] = &[
+    "na",
+    "n/a",
+    "n.a.",
+    "null",
+    "none",
+    "nil",
+    "unknown",
+    "unk",
+    "missing",
+    "not available",
+    "not applicable",
+    "sin dato",
+    "sin datos",
+    "s/d",
+    "n/d",
+    "no disponible",
+    "desconocido",
+    "desconocida",
+];
 const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 500 * 1024 * 1024;
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 const HISTORY_MAX_ENTRIES: usize = 12;
 const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_AUDIT_CELL_CHARS: usize = 2048;
 const RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
@@ -361,6 +383,10 @@ pub struct ColumnProfile {
     suggested_type: Option<String>,
     type_match_percentage: Option<f64>,
     invalid_type_count: Option<usize>,
+    #[serde(default)]
+    sentinel_count: Option<usize>,
+    #[serde(default)]
+    privacy_signal: Option<String>,
     standard_deviation: Option<f64>,
     first_quartile: Option<f64>,
     median: Option<f64>,
@@ -945,14 +971,77 @@ impl HistoryManager {
 
 fn publish_candidate(
     dataset: &mut LoadedDataset,
-    candidate: DataFrame,
+    mut candidate: DataFrame,
     label: &str,
 ) -> Result<DatasetPreview, String> {
+    let audit_active = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .any(|name| name.as_str() == "_cambios");
+    if audit_active && label != "Activar trazabilidad por fila" {
+        append_audit_label(&mut candidate, label)?;
+    }
     let preview = loaded_dataset_preview(dataset, &candidate)?;
     dataset.history.record(&candidate, label)?;
     dataset.frame = candidate;
     dataset.profile = None;
     Ok(preview)
+}
+
+fn append_audit_label(frame: &mut DataFrame, label: &str) -> Result<(), String> {
+    let has_audit = frame
+        .get_column_names()
+        .iter()
+        .any(|name| name.as_str() == "_cambios");
+    if !has_audit {
+        frame
+            .with_column(Column::new(
+                "_cambios".into(),
+                vec![Some(label.to_owned()); frame.height()],
+            ))
+            .map_err(|error| format!("No se pudo conservar la trazabilidad _cambios: {error}"))?;
+        return Ok(());
+    }
+
+    let audit = frame
+        .column("_cambios")
+        .map_err(|_| "La columna de trazabilidad _cambios no está disponible.".to_owned())?
+        .str()
+        .map_err(|_| "La columna de trazabilidad _cambios debe ser texto.".to_owned())?;
+    let values = audit
+        .iter()
+        .map(|previous| {
+            let next = match previous {
+                Some(previous) if !previous.trim().is_empty() => format!("{previous}; {label}"),
+                _ => label.to_owned(),
+            };
+            Some(next.chars().take(MAX_AUDIT_CELL_CHARS).collect::<String>())
+        })
+        .collect::<Vec<_>>();
+    frame
+        .replace("_cambios", Column::new("_cambios".into(), values))
+        .map_err(|error| format!("No se pudo actualizar la trazabilidad _cambios: {error}"))?;
+    Ok(())
+}
+
+fn add_audit_column_to_frame(frame: &DataFrame) -> Result<(DataFrame, bool), String> {
+    if frame
+        .get_column_names()
+        .iter()
+        .any(|name| name.as_str() == "_cambios")
+    {
+        return Ok((frame.clone(), false));
+    }
+
+    let mut candidate = frame.clone();
+    candidate
+        .with_column(Column::new(
+            "_cambios".into(),
+            vec![None::<String>; frame.height()],
+        ))
+        .map_err(|error| format!("No se pudo activar la trazabilidad _cambios: {error}"))?;
+    Ok((candidate, true))
 }
 
 #[derive(Clone)]
@@ -2183,6 +2272,7 @@ fn numeric_statistics(column: &Column) -> Result<Option<NumericStatistics>, Stri
 
 struct TextStatistics {
     empty_count: usize,
+    sentinel_count: usize,
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
     average_length: Option<f64>,
@@ -2199,6 +2289,84 @@ fn is_supported_date(value: &str) -> bool {
         .any(|format| NaiveDate::parse_from_str(value, format).is_ok())
 }
 
+fn is_missing_sentinel(value: &str) -> bool {
+    let normalized = normalize_text_value(value, true);
+    SENTINEL_VALUES.contains(&normalized.as_str())
+}
+
+fn boolean_token(value: &str) -> Option<&'static str> {
+    match normalize_text_value(value, true).as_str() {
+        "true" | "yes" | "si" => Some("true"),
+        "false" | "no" => Some("false"),
+        _ => None,
+    }
+}
+
+fn is_boolean_candidate(column: &Column) -> Result<bool, String> {
+    if column.dtype() != &DataType::String {
+        return Ok(false);
+    }
+    let values = column
+        .str()
+        .map_err(|error| format!("No se pudo analizar una columna booleana: {error}"))?;
+    let non_empty = values
+        .iter()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .collect::<Vec<_>>();
+    if non_empty.len() < 3 {
+        return Ok(false);
+    }
+    let recognized = non_empty
+        .iter()
+        .filter(|value| boolean_token(value).is_some())
+        .count();
+    Ok(recognized * 100 >= non_empty.len() * 90)
+}
+
+fn privacy_signal(column_name: &str) -> Option<&'static str> {
+    let normalized = normalize_text_value(column_name, true);
+    let tokens = normalized
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let compact = tokens.join("");
+    let has_token = |values: &[&str]| {
+        values
+            .iter()
+            .any(|value| tokens.iter().any(|token| token == value))
+    };
+    let has_text = |values: &[&str]| values.iter().any(|value| compact.contains(value));
+
+    if has_text(&["email", "correo", "mail"]) {
+        Some("email")
+    } else if has_text(&["phone", "telefono", "tel", "movil", "celular"]) {
+        Some("phone")
+    } else if has_text(&["address", "direccion", "domicilio"]) {
+        Some("address")
+    } else if has_token(&[
+        "id",
+        "uuid",
+        "identifier",
+        "identificador",
+        "codigo",
+        "code",
+        "clave",
+        "key",
+        "dni",
+        "cedula",
+        "pasaporte",
+        "passport",
+        "ssn",
+    ]) {
+        Some("identifier")
+    } else if has_text(&["name", "nombre", "apellido", "surname"]) {
+        Some("name")
+    } else {
+        None
+    }
+}
+
 fn suggest_text_type(values: &[&str]) -> (Option<&'static str>, Option<f64>, Option<usize>) {
     if values.len() < 3 {
         return (None, None, None);
@@ -2206,12 +2374,7 @@ fn suggest_text_type(values: &[&str]) -> (Option<&'static str>, Option<f64>, Opt
 
     let boolean_count = values
         .iter()
-        .filter(|value| {
-            matches!(
-                value.to_lowercase().as_str(),
-                "true" | "false" | "yes" | "no" | "si" | "sí"
-            )
-        })
+        .filter(|value| boolean_token(value).is_some())
         .count();
     let integer_count = values
         .iter()
@@ -2258,6 +2421,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         .str()
         .map_err(|error| format!("No se pudo analizar la columna de texto: {error}"))?;
     let mut empty_count = 0;
+    let mut sentinel_count = 0;
     let mut value_count = 0;
     let mut total_length = 0;
     let mut minimum_length: Option<usize> = None;
@@ -2268,6 +2432,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         let length = value.chars().count();
         let trimmed = value.trim();
         empty_count += usize::from(trimmed.is_empty());
+        sentinel_count += usize::from(is_missing_sentinel(trimmed));
         if !trimmed.is_empty() {
             non_empty_values.push(trimmed);
         }
@@ -2282,6 +2447,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         suggest_text_type(&non_empty_values);
     Ok(Some(TextStatistics {
         empty_count,
+        sentinel_count,
         minimum_length,
         maximum_length,
         average_length,
@@ -2391,6 +2557,10 @@ where
             invalid_type_count: text_statistics
                 .as_ref()
                 .and_then(|statistics| statistics.invalid_type_count),
+            sentinel_count: text_statistics
+                .as_ref()
+                .map(|statistics| statistics.sentinel_count),
+            privacy_signal: privacy_signal(column.name()).map(str::to_owned),
             standard_deviation: numeric_statistics
                 .as_ref()
                 .and_then(|statistics| statistics.standard_deviation),
@@ -2591,6 +2761,52 @@ fn remove_empty_columns_from_frame(frame: &DataFrame) -> Result<(DataFrame, Vec<
     Ok((cleaned, removed_columns))
 }
 
+fn remove_high_null_columns_from_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, Vec<String>), String> {
+    if frame.height() == 0 || frame.width() <= 1 {
+        return Ok((frame.clone(), Vec::new()));
+    }
+
+    let candidates = frame
+        .columns()
+        .iter()
+        .filter(|column| {
+            let null_count = column.null_count();
+            null_count > 0
+                && null_count < frame.height()
+                && null_count.saturating_mul(100)
+                    >= frame
+                        .height()
+                        .saturating_mul(HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE)
+        })
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    let removable_count = candidates.len().min(frame.width().saturating_sub(1));
+    let removed_columns = candidates
+        .into_iter()
+        .take(removable_count)
+        .collect::<Vec<_>>();
+    if removed_columns.is_empty() {
+        return Ok((frame.clone(), removed_columns));
+    }
+
+    let remaining_columns = frame
+        .get_column_names()
+        .iter()
+        .filter(|name| {
+            !removed_columns
+                .iter()
+                .any(|removed| removed == name.as_str())
+        })
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let cleaned = frame
+        .select(&remaining_columns)
+        .map_err(|error| format!("No se pudieron eliminar columnas con alta nulidad: {error}"))?;
+    Ok((cleaned, removed_columns))
+}
+
 fn normalize_column_name(name: &str) -> String {
     let decomposed = name
         .nfd()
@@ -2659,6 +2875,8 @@ fn normalized_column_names(frame: &DataFrame) -> (Vec<String>, Vec<ColumnRename>
 enum TextCleaningMode {
     Trim,
     Normalize { remove_accents: bool },
+    Sentinels,
+    Booleans,
 }
 
 fn normalize_text_value(value: &str, remove_accents: bool) -> String {
@@ -2695,6 +2913,10 @@ fn clean_text_columns(
             .columns()
             .iter()
             .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+            .filter(|column| {
+                !matches!(mode, TextCleaningMode::Booleans)
+                    || is_boolean_candidate(column).unwrap_or(false)
+            })
             .map(|column| column.name().to_string())
             .collect(),
     };
@@ -2717,11 +2939,23 @@ fn clean_text_columns(
             .iter()
             .enumerate()
             .map(|(row_index, value)| {
-                value.map(|original| {
+                value.and_then(|original| {
+                    if matches!(mode, TextCleaningMode::Sentinels) && is_missing_sentinel(original)
+                    {
+                        column_changes += 1;
+                        changed_cell_count += 1;
+                        changed_rows[row_index] = true;
+                        return None;
+                    }
+
                     let next = match mode {
                         TextCleaningMode::Trim => original.trim().to_owned(),
                         TextCleaningMode::Normalize { remove_accents } => {
                             normalize_text_value(original, remove_accents)
+                        }
+                        TextCleaningMode::Sentinels => original.to_owned(),
+                        TextCleaningMode::Booleans => {
+                            boolean_token(original).unwrap_or(original).to_owned()
                         }
                     };
                     if next != original {
@@ -2729,7 +2963,7 @@ fn clean_text_columns(
                         changed_cell_count += 1;
                         changed_rows[row_index] = true;
                     }
-                    next
+                    Some(next)
                 })
             })
             .collect();
@@ -6600,6 +6834,32 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
 }
 
 #[tauri::command]
+pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (candidate, added) = add_audit_column_to_frame(&dataset.frame)?;
+        let preview = if added {
+            publish_candidate(dataset, candidate, "Activar trazabilidad por fila")?
+        } else {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        };
+        Ok(DatasetMutation {
+            dataset: preview,
+            affected_row_count: 0,
+        })
+    })
+    .await
+    .map_err(|error| format!("La activación de trazabilidad se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -6654,6 +6914,35 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
 }
 
 #[tauri::command]
+pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, removed_columns) = remove_high_null_columns_from_frame(&dataset.frame)?;
+        let preview = if removed_columns.is_empty() {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        } else {
+            publish_candidate(dataset, cleaned, "Eliminar columnas con alta nulidad")?
+        };
+        Ok(ColumnRemovalResult {
+            dataset: preview,
+            removed_column_count: removed_columns.len(),
+            removed_columns,
+        })
+    })
+    .await
+    .map_err(|error| {
+        format!("La eliminación de columnas con alta nulidad se interrumpió: {error}")
+    })?
+}
+
+#[tauri::command]
 pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -6705,6 +6994,8 @@ fn apply_text_cleaning(
     let label = match mode {
         TextCleaningMode::Trim => "Recortar espacios",
         TextCleaningMode::Normalize { .. } => "Normalizar texto",
+        TextCleaningMode::Sentinels => "Normalizar valores centinela",
+        TextCleaningMode::Booleans => "Normalizar booleanos",
     };
     let preview = if changed_cell_count > 0 {
         publish_candidate(dataset, cleaned, label)?
@@ -6744,6 +7035,24 @@ pub async fn normalize_text_values(
     })
     .await
     .map_err(|error| format!("La normalización de texto se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn normalize_sentinel_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_text_cleaning(app, None, TextCleaningMode::Sentinels)
+    })
+    .await
+    .map_err(|error| format!("La normalización de valores centinela se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn normalize_boolean_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_text_cleaning(app, None, TextCleaningMode::Booleans)
+    })
+    .await
+    .map_err(|error| format!("La normalización de booleanos se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -11041,6 +11350,137 @@ mod tests {
         assert_eq!(removed.len(), 1);
         assert_eq!(kept.width(), 1);
         assert_eq!(kept.height(), 2);
+    }
+
+    #[test]
+    fn removes_columns_at_or_above_eighty_percent_null_but_not_empty_or_below_threshold() {
+        let frame = df![
+            "id" => &[1_i64, 2, 3, 4, 5],
+            "high" => &[Some("ok"), None, None, None, None],
+            "below" => &[Some("a"), Some("b"), None, None, None],
+            "empty" => &[None::<String>, None, None, None, None]
+        ]
+        .unwrap();
+
+        let (cleaned, removed_columns) = remove_high_null_columns_from_frame(&frame)
+            .expect("las columnas con alta nulidad deben poder eliminarse");
+        assert_eq!(removed_columns, vec!["high"]);
+        assert_eq!(cleaned.get_column_names(), vec!["id", "below", "empty"]);
+
+        let all_high = df![
+            "first" => &[Some("ok"), None, None, None, None],
+            "second" => &[Some("ok"), None, None, None, None]
+        ]
+        .unwrap();
+        let (kept, removed) = remove_high_null_columns_from_frame(&all_high)
+            .expect("el dataset debe conservar una columna");
+        assert_eq!(removed.len(), 1);
+        assert_eq!(kept.width(), 1);
+        assert_eq!(kept.height(), 5);
+    }
+
+    #[test]
+    fn normalizes_known_text_sentinels_to_null_without_touching_other_types() {
+        let frame = df![
+            "status" => &[Some("N/A"), Some("Normal"), None, Some("Sin datos"), Some("n/a")],
+            "amount" => &[1_i64, 2, 3, 4, 5]
+        ]
+        .unwrap();
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        assert_eq!(profile.columns[0].sentinel_count, Some(3));
+        assert_eq!(profile.columns[1].sentinel_count, None);
+
+        let (cleaned, affected_rows, changed_cells, changed_columns) =
+            clean_text_columns(&frame, None, TextCleaningMode::Sentinels)
+                .expect("los centinelas deben poder normalizarse");
+        let values = cleaned
+            .column("status")
+            .expect("la columna debe conservarse")
+            .str()
+            .expect("la columna debe seguir siendo texto");
+
+        assert_eq!(affected_rows, 3);
+        assert_eq!(changed_cells, 3);
+        assert_eq!(changed_columns[0].name, "status");
+        assert_eq!(values.get(0), None);
+        assert_eq!(values.get(1), Some("Normal"));
+        assert_eq!(values.get(2), None);
+        assert_eq!(values.get(3), None);
+        assert_eq!(values.get(4), None);
+        assert_eq!(
+            cleaned.column("amount").unwrap().i64().unwrap().get(0),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn normalizes_boolean_aliases_and_profiles_privacy_signals() {
+        let frame = df![
+            "active" => &[Some("YES"), Some("no"), Some("true"), Some("sí")],
+            "email_address" => &[Some("a@example.com"), Some("b@example.com"), Some("c@example.com"), Some("d@example.com")],
+            "customer_id" => &[Some("1"), Some("2"), Some("3"), Some("4")]
+        ]
+        .unwrap();
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        assert_eq!(
+            profile.columns[0].suggested_type,
+            Some("boolean".to_owned())
+        );
+        assert_eq!(profile.columns[0].type_match_percentage, Some(100.0));
+        assert_eq!(profile.columns[1].privacy_signal, Some("email".to_owned()));
+        assert_eq!(
+            profile.columns[2].privacy_signal,
+            Some("identifier".to_owned())
+        );
+
+        let (cleaned, rows, cells, columns) =
+            clean_text_columns(&frame, None, TextCleaningMode::Booleans)
+                .expect("los alias booleanos deben poder normalizarse");
+        let active = cleaned.column("active").unwrap().str().unwrap();
+        assert_eq!(active.get(0), Some("true"));
+        assert_eq!(active.get(1), Some("false"));
+        assert_eq!(active.get(2), Some("true"));
+        assert_eq!(active.get(3), Some("true"));
+        assert_eq!(rows, 3);
+        assert_eq!(cells, 3);
+        assert_eq!(columns[0].name, "active");
+        assert_eq!(columns[0].changed_cell_count, 3);
+    }
+
+    #[test]
+    fn activates_row_audit_and_appends_future_change_labels() {
+        let path = temporary_csv("value\n1\n2\n");
+        let (original, _) = load_csv(&path).expect("el CSV debe cargar");
+        let mut dataset = loaded_dataset(path.clone(), original);
+        let (audited, added) = add_audit_column_to_frame(&dataset.frame)
+            .expect("la columna de auditoría debe poder añadirse");
+        assert!(added);
+        publish_candidate(&mut dataset, audited, "Activar trazabilidad por fila")
+            .expect("la activación debe publicarse");
+        assert_eq!(
+            dataset
+                .frame
+                .column("_cambios")
+                .unwrap()
+                .str()
+                .unwrap()
+                .get(0),
+            None
+        );
+
+        let mut changed = dataset.frame.clone();
+        changed
+            .replace("value", Column::new("value".into(), ["3", "2"]))
+            .expect("el cambio de prueba debe aplicarse");
+        publish_candidate(&mut dataset, changed, "Normalizar booleanos")
+            .expect("el cambio posterior debe publicarse");
+        let audit = dataset.frame.column("_cambios").unwrap().str().unwrap();
+        assert_eq!(audit.get(0), Some("Normalizar booleanos"));
+        assert_eq!(audit.get(1), Some("Normalizar booleanos"));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]

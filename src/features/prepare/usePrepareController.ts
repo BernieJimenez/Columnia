@@ -3,12 +3,16 @@ import { useState } from "react";
 import {
   applySafeCorrections,
   applyTransformRecipe,
+  enableRowAudit,
   getHistoryState,
   normalizeColumnNames,
+  normalizeSentinelValues,
+  normalizeBooleanValues,
   normalizeTextValues,
   removeConstantColumns,
   removeEmptyRows,
   removeEmptyColumns,
+  removeHighNullColumns,
   removeDuplicates,
   redoLastChange,
   trimTextValues,
@@ -118,6 +122,89 @@ export function usePrepareController({
         message: result.removedColumnCount === 0
           ? "No se eliminaron columnas vacías; se conserva al menos una columna del dataset."
           : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas completamente vacías: ${result.removedColumns.join(", ")}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyHighNullColumnRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "high_null_columns" });
+    try {
+      const result = await removeHighNullColumns();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: result.removedColumnCount === 0
+          ? "No se detectaron columnas con al menos 80% de valores nulos."
+          : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas con alta nulidad: ${result.removedColumns.join(", ")}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applySentinelNormalization() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "sentinels" });
+    try {
+      const result = await normalizeSentinelValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se detectaron valores centinela conocidos en las columnas de texto."
+          : `Se convirtieron ${result.changedCellCount.toLocaleString()} valores centinela a nulos en: ${columns}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyBooleanNormalization() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "booleans" });
+    try {
+      const result = await normalizeBooleanValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se encontraron alias booleanos que necesitaran normalización."
+          : `Se normalizaron ${result.changedCellCount.toLocaleString()} valores booleanos en: ${columns}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyRowAudit() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "audit" });
+    try {
+      const result = await enableRowAudit();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const enabled = result.dataset.columns.some((column) => column.name === "_cambios");
+      setChangeStatus({
+        kind: "applied",
+        message: enabled
+          ? "La trazabilidad por fila está activa; los cambios futuros se anotarán en _cambios."
+          : "La trazabilidad por fila no produjo cambios.",
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -258,6 +345,10 @@ export function usePrepareController({
     applyEmptyRowRemoval,
     applyConstantColumnRemoval,
     applyEmptyColumnRemoval,
+    applyHighNullColumnRemoval,
+    applySentinelNormalization,
+    applyBooleanNormalization,
+    applyRowAudit,
     applyColumnNormalization,
     applyRecommendedCorrections,
     trimText: () => applyTextChange("trim"),
