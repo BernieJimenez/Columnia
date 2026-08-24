@@ -9,6 +9,8 @@ import {
   type PrivacyMode,
   type QualityMigrationResult,
   type QualityComparison,
+  type QualityAggregate,
+  type QualityMonotonicDirection,
   type QualityRule,
   type QualityRuleKind,
 } from "../../bridge";
@@ -77,12 +79,22 @@ export function DeliveryPhase({
     const firstColumn = dataset.columns[0]?.name ?? "";
     const isSchemaRule = kind === "schema_contract";
     const isReferentialRule = kind === "referential_integrity";
+    const isMonotonicRule = kind === "monotonic";
+    const isAggregateCheckRule = kind === "aggregate_check";
+    const isAggregateReconciliationRule = kind === "aggregate_reconciliation";
+    const isDistributionDriftRule = kind === "distribution_drift";
+    const isAggregateRule = isAggregateCheckRule || isAggregateReconciliationRule;
     const usesMultipleColumns = kind === "unique_together"
       || kind === "column_compare"
-      || isReferentialRule;
+      || isReferentialRule
+      || isAggregateReconciliationRule;
+    const minimumColumns = isReferentialRule ? 1 : 2;
+    const retainedColumns = rule.columns?.filter((name) =>
+      dataset.columns.some((column) => column.name === name));
     const nextColumns = usesMultipleColumns
-      ? rule.columns?.filter((name) => dataset.columns.some((column) => column.name === name))
-        ?? dataset.columns.slice(0, isReferentialRule ? 1 : 2).map((column) => column.name)
+      ? retainedColumns && retainedColumns.length >= minimumColumns
+        ? retainedColumns
+        : dataset.columns.slice(0, minimumColumns).map((column) => column.name)
       : undefined;
     const nextColumn = kind === "row_count" || isSchemaRule
       ? QUALITY_DATASET_COLUMN
@@ -102,6 +114,13 @@ export function DeliveryPhase({
       max: undefined,
       values: kind === "allowed_values" ? rule.values ?? [] : undefined,
       referenceValues: isReferentialRule ? rule.referenceValues ?? [] : undefined,
+      baseline: isDistributionDriftRule ? rule.baseline ?? [] : undefined,
+      direction: isMonotonicRule ? rule.direction ?? "increasing" : undefined,
+      expected: isAggregateCheckRule ? rule.expected ?? 0 : undefined,
+      aggregate: isAggregateCheckRule ? rule.aggregate ?? "sum" : undefined,
+      toleranceAbs: isAggregateRule ? rule.toleranceAbs : undefined,
+      toleranceRel: isAggregateRule ? rule.toleranceRel : undefined,
+      threshold: isDistributionDriftRule ? rule.threshold : undefined,
       pattern: kind === "regex" ? rule.pattern ?? "" : undefined,
       dtype: kind === "dtype" ? rule.dtype ?? "string" : undefined,
       columns: isSchemaRule
@@ -139,6 +158,17 @@ export function DeliveryPhase({
   }
 
   function updateComparisonColumn(index: number, position: 0 | 1, name: string) {
+    const rule = rules[index];
+    const current = rule.columns ?? dataset.columns.slice(0, 2).map((column) => column.name);
+    const next = [...current];
+    next[position] = name;
+    updateRule(index, {
+      columns: next,
+      column: next[0] ?? dataset.columns[0]?.name ?? "",
+    });
+  }
+
+  function updateAggregateColumn(index: number, position: 0 | 1, name: string) {
     const rule = rules[index];
     const current = rule.columns ?? dataset.columns.slice(0, 2).map((column) => column.name);
     const next = [...current];
@@ -231,12 +261,17 @@ export function DeliveryPhase({
                 const isTogetherRule = rule.kind === "unique_together";
                 const isCompareRule = rule.kind === "column_compare";
                 const isReferentialRule = rule.kind === "referential_integrity";
+                const isMonotonicRule = rule.kind === "monotonic";
+                const isAggregateCheckRule = rule.kind === "aggregate_check";
+                const isAggregateReconciliationRule = rule.kind === "aggregate_reconciliation";
+                const isAggregateRule = isAggregateCheckRule || isAggregateReconciliationRule;
+                const isDistributionDriftRule = rule.kind === "distribution_drift";
                 const isConditionalRule = rule.kind === "conditional";
                 const isSchemaRule = rule.kind === "schema_contract";
                 return (
                   <fieldset className="quality-rule" key={index} disabled={busy}>
                     <legend>Regla {index + 1}</legend>
-                    {!isDatasetRule && !isSchemaRule && !isTogetherRule && !isCompareRule && !isReferentialRule && <label>Columna
+                    {!isDatasetRule && !isSchemaRule && !isTogetherRule && !isCompareRule && !isReferentialRule && !isAggregateReconciliationRule && <label>Columna
                       <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
                         onChange={(event) => updateRule(index, { column: event.target.value })}>
                         {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
@@ -255,6 +290,10 @@ export function DeliveryPhase({
                         <option value="unique_together" disabled={dataset.columns.length < 2}>Unicidad compuesta</option>
                         <option value="column_compare" disabled={dataset.columns.length < 2}>Comparar columnas</option>
                         <option value="referential_integrity">Integridad referencial</option>
+                        <option value="monotonic">Monotonicidad</option>
+                        <option value="aggregate_check">Comprobación agregada</option>
+                        <option value="aggregate_reconciliation" disabled={dataset.columns.length < 2}>Reconciliación agregada</option>
+                        <option value="distribution_drift">Drift de distribución</option>
                         <option value="date_range">Rango de fechas</option>
                         <option value="conditional">Comprobación condicional</option>
                         <option value="schema_contract">Contrato de esquema</option>
@@ -411,6 +450,147 @@ export function DeliveryPhase({
                           <span id={`quality-reference-values-help-${index}`} className="quality-rule__help">
                             Clave simple: texto, número o booleano. Clave compuesta: por ejemplo [&quot;DO&quot;, 1].
                           </span>
+                        </label>
+                      </fieldset>
+                    )}
+                    {isMonotonicRule && (
+                      <label>Dirección de la secuencia
+                        <select
+                          aria-label={`Dirección monotónica regla ${index + 1}`}
+                          value={rule.direction ?? "increasing"}
+                          onChange={(event) => updateRule(index, {
+                            direction: event.target.value as QualityMonotonicDirection,
+                          })}
+                        >
+                          <option value="increasing">No decreciente</option>
+                          <option value="decreasing">No creciente</option>
+                        </select>
+                      </label>
+                    )}
+                    {isAggregateCheckRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Comprobación agregada</legend>
+                        <label>Agregación
+                          <select
+                            aria-label={`Agregación regla ${index + 1}`}
+                            value={rule.aggregate ?? "sum"}
+                            onChange={(event) => updateRule(index, {
+                              aggregate: event.target.value as QualityAggregate,
+                            })}
+                          >
+                            <option value="count">Conteo</option>
+                            <option value="sum">Suma</option>
+                            <option value="min">Mínimo</option>
+                            <option value="max">Máximo</option>
+                          </select>
+                        </label>
+                        <label>Valor esperado
+                          <input
+                            type="number"
+                            step="any"
+                            aria-label={`Valor esperado agregado regla ${index + 1}`}
+                            value={rule.expected ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              expected: event.target.value === "" ? undefined : Number(event.target.value),
+                              referenceValues: undefined,
+                            })}
+                          />
+                        </label>
+                        <label className="quality-rule__wide">Referencias numéricas opcionales
+                          <textarea
+                            rows={2}
+                            aria-label={`Referencias agregadas regla ${index + 1}`}
+                            value={rule.referenceValues?.join("\n") ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              referenceValues: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                              expected: undefined,
+                            })}
+                          />
+                          <span className="quality-rule__help">Usa el valor esperado o estas referencias; se suman cuando la agregación es suma.</span>
+                        </label>
+                      </fieldset>
+                    )}
+                    {isDistributionDriftRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Drift de distribución</legend>
+                        <label className="quality-rule__wide">Línea base numérica
+                          <textarea
+                            rows={3}
+                            aria-label={`Línea base de distribución regla ${index + 1}`}
+                            aria-describedby={`quality-drift-baseline-help-${index}`}
+                            value={rule.baseline?.join("\n") ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              baseline: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                              referenceValues: undefined,
+                            })}
+                          />
+                          <span id={`quality-drift-baseline-help-${index}`} className="quality-rule__help">
+                            Un número por línea; se compara la media actual con la media de esta línea base.
+                          </span>
+                        </label>
+                        <label>Umbral absoluto
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            aria-label={`Umbral de drift regla ${index + 1}`}
+                            value={rule.threshold ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              threshold: event.target.value === "" ? undefined : Number(event.target.value),
+                            })}
+                          />
+                        </label>
+                      </fieldset>
+                    )}
+                    {isAggregateReconciliationRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Reconciliar sumas</legend>
+                        <label>Columna izquierda
+                          <select
+                            aria-label={`Columna izquierda agregada regla ${index + 1}`}
+                            value={rule.columns?.[0] ?? ""}
+                            onChange={(event) => updateAggregateColumn(index, 0, event.target.value)}
+                          >
+                            {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
+                          </select>
+                        </label>
+                        <label>Columna derecha
+                          <select
+                            aria-label={`Columna derecha agregada regla ${index + 1}`}
+                            value={rule.columns?.[1] ?? ""}
+                            onChange={(event) => updateAggregateColumn(index, 1, event.target.value)}
+                          >
+                            {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
+                          </select>
+                        </label>
+                      </fieldset>
+                    )}
+                    {isAggregateRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Tolerancia numérica del agregado</legend>
+                        <label>Tolerancia absoluta
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            aria-label={`Tolerancia absoluta agregada regla ${index + 1}`}
+                            value={rule.toleranceAbs ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              toleranceAbs: event.target.value === "" ? undefined : Number(event.target.value),
+                            })}
+                          />
+                        </label>
+                        <label>Tolerancia relativa
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            aria-label={`Tolerancia relativa agregada regla ${index + 1}`}
+                            value={rule.toleranceRel ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              toleranceRel: event.target.value === "" ? undefined : Number(event.target.value),
+                            })}
+                          />
                         </label>
                       </fieldset>
                     )}

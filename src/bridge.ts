@@ -382,12 +382,18 @@ export type QualityRuleKind =
   | "unique_together"
   | "column_compare"
   | "referential_integrity"
+  | "monotonic"
+  | "aggregate_check"
+  | "aggregate_reconciliation"
+  | "distribution_drift"
   | "date_range"
   | "conditional"
   | "schema_contract"
   | "row_count";
 
 export type QualityComparison = "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
+export type QualityMonotonicDirection = "increasing" | "decreasing";
+export type QualityAggregate = "count" | "sum" | "min" | "max";
 
 export interface QualityCondition {
   column: string;
@@ -404,6 +410,13 @@ export interface QualityRule {
   max?: number;
   values?: string[];
   referenceValues?: string[];
+  baseline?: string[];
+  direction?: QualityMonotonicDirection;
+  expected?: number;
+  aggregate?: QualityAggregate;
+  toleranceAbs?: number;
+  toleranceRel?: number;
+  threshold?: number;
   pattern?: string;
   dtype?: string;
   columns?: string[];

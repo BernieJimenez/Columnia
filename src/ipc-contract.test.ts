@@ -286,6 +286,8 @@ function normalizeRustFieldType(type: string): string {
     [
       "QualityRuleKind",
       "QualityComparison",
+      "QualityMonotonicDirection",
+      "QualityAggregate",
       "RecipeCastTarget",
       "RecipeDateFormat",
       "RecipeDateTarget",

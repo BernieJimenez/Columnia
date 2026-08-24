@@ -1106,9 +1106,19 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir `referential_integrity` con referencias locales explícitas para
   claves simples y compuestas, migración segura desde DataPrep, bridge tipado,
   editor accesible, tolerancias y evaluación compartida sin exponer valores.
-- [ ] Completar los contratos de calidad versionados con monotonía, agregados y
-  drift; después añadir
-  versionado/compatibilidad explícita del documento.
+- [x] Añadir `monotonic` con direcciones no decreciente/no creciente,
+  tolerancias por inversión, migración segura desde DataPrep, bridge tipado,
+  editor accesible y evaluación compartida; los nulos reinician la cadena.
+- [x] Añadir `aggregate_check` y `aggregate_reconciliation` para conteo, suma,
+  mínimo, máximo y reconciliación de dos columnas, con `expected`/referencias,
+  tolerancias absolutas/relativas, migración DataPrep, bridge tipado, editor
+  accesible y resultados privados basados en conteos.
+- [x] Añadir `distribution_drift` con línea base numérica, comparación de medias,
+  umbral/tolerancia absoluta, exclusión de nulos y textos no numéricos, migración
+  DataPrep, bridge tipado, editor accesible y resultados privados basados en
+  conteos.
+- [ ] Añadir versionado/compatibilidad explícita del documento de reglas de
+  calidad.
 - [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
   preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.
 - [x] Añadir consulta SQL local restringida de solo lectura sobre `dataset`, con

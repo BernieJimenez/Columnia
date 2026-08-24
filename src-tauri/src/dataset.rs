@@ -142,6 +142,10 @@ pub enum QualityRuleKind {
     UniqueTogether,
     ColumnCompare,
     ReferentialIntegrity,
+    Monotonic,
+    AggregateCheck,
+    AggregateReconciliation,
+    DistributionDrift,
     DateRange,
     Conditional,
     SchemaContract,
@@ -157,6 +161,22 @@ pub enum QualityComparison {
     Lte,
     Gt,
     Gte,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityMonotonicDirection {
+    Increasing,
+    Decreasing,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityAggregate {
+    Count,
+    Sum,
+    Min,
+    Max,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -178,6 +198,13 @@ pub struct QualityRule {
     max: Option<f64>,
     values: Option<Vec<String>>,
     reference_values: Option<Vec<String>>,
+    baseline: Option<Vec<String>>,
+    direction: Option<QualityMonotonicDirection>,
+    expected: Option<f64>,
+    aggregate: Option<QualityAggregate>,
+    tolerance_abs: Option<f64>,
+    tolerance_rel: Option<f64>,
+    threshold: Option<f64>,
     pattern: Option<String>,
     dtype: Option<String>,
     columns: Option<Vec<String>>,
@@ -201,6 +228,13 @@ pub struct QualityRuleResult {
     max: Option<f64>,
     values: Option<Vec<String>>,
     reference_values: Option<Vec<String>>,
+    baseline: Option<Vec<String>>,
+    direction: Option<QualityMonotonicDirection>,
+    expected: Option<f64>,
+    aggregate: Option<QualityAggregate>,
+    tolerance_abs: Option<f64>,
+    tolerance_rel: Option<f64>,
+    threshold: Option<f64>,
     pattern: Option<String>,
     dtype: Option<String>,
     columns: Option<Vec<String>>,
@@ -4286,10 +4320,38 @@ fn migration_quality_kind(value: &str) -> Option<QualityRuleKind> {
         "unique_together" => Some(QualityRuleKind::UniqueTogether),
         "column_compare" | "column_comparison" => Some(QualityRuleKind::ColumnCompare),
         "referential_integrity" | "referential" => Some(QualityRuleKind::ReferentialIntegrity),
+        "monotonic" => Some(QualityRuleKind::Monotonic),
+        "aggregate_check" | "aggregate" => Some(QualityRuleKind::AggregateCheck),
+        "aggregate_reconciliation" | "aggregate_reconcile" | "reconciliation" => {
+            Some(QualityRuleKind::AggregateReconciliation)
+        }
+        "distribution_drift" | "drift" => Some(QualityRuleKind::DistributionDrift),
         "date_range" => Some(QualityRuleKind::DateRange),
         "conditional" => Some(QualityRuleKind::Conditional),
         "schema_contract" | "schema" => Some(QualityRuleKind::SchemaContract),
         "row_count" => Some(QualityRuleKind::RowCount),
+        _ => None,
+    }
+}
+
+fn migration_quality_monotonic_direction(value: &str) -> Option<QualityMonotonicDirection> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "increasing" | "increase" | "asc" | "ascending" => {
+            Some(QualityMonotonicDirection::Increasing)
+        }
+        "decreasing" | "decrease" | "desc" | "descending" => {
+            Some(QualityMonotonicDirection::Decreasing)
+        }
+        _ => None,
+    }
+}
+
+fn migration_quality_aggregate(value: &str) -> Option<QualityAggregate> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "count" | "counts" | "n" => Some(QualityAggregate::Count),
+        "sum" | "total" => Some(QualityAggregate::Sum),
+        "min" | "minimum" => Some(QualityAggregate::Min),
+        "max" | "maximum" => Some(QualityAggregate::Max),
         _ => None,
     }
 }
@@ -4384,6 +4446,13 @@ fn migrate_conditional_then(
         max: None,
         values: None,
         reference_values: None,
+        baseline: None,
+        direction: None,
+        expected: None,
+        aggregate: None,
+        tolerance_abs: None,
+        tolerance_rel: None,
+        threshold: None,
         pattern: None,
         dtype: None,
         columns: None,
@@ -4649,6 +4718,13 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             max: None,
             values: None,
             reference_values: None,
+            baseline: None,
+            direction: None,
+            expected: None,
+            aggregate: None,
+            tolerance_abs: None,
+            tolerance_rel: None,
+            threshold: None,
             pattern: None,
             dtype: None,
             columns: None,
@@ -4759,6 +4835,110 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                         Some("referential_integrity necesita columns[].".to_owned())
                     } else if rule.reference_values.as_ref().is_none_or(Vec::is_empty) {
                         Some("referential_integrity necesita reference_values[].".to_owned())
+                    } else {
+                        None
+                    }
+                }
+                QualityRuleKind::Monotonic => {
+                    let source_direction = migration_string_field(&map, &["direction", "order"]);
+                    rule.direction = match source_direction.as_deref() {
+                        Some(value) => {
+                            Some(migration_quality_monotonic_direction(value).ok_or_else(|| {
+                                "monotonic necesita direction increasing o decreasing.".to_owned()
+                            })?)
+                        }
+                        None => Some(QualityMonotonicDirection::Increasing),
+                    };
+                    None
+                }
+                QualityRuleKind::AggregateCheck => {
+                    rule.expected = migration_number_field(
+                        &map,
+                        &["expected", "expected_value", "expectedValue"],
+                    )?;
+                    rule.aggregate = migration_string_field(&map, &["aggregate", "aggregation"])
+                        .map(|value| {
+                            migration_quality_aggregate(&value).ok_or_else(|| {
+                                "aggregate_check necesita aggregate count, sum, min o max."
+                                    .to_owned()
+                            })
+                        })
+                        .transpose()?;
+                    rule.reference_values = migration_reference_values(
+                        &map,
+                        &["reference_values", "referenceValues", "reference"],
+                        1,
+                    )?;
+                    rule.tolerance_abs = migration_number_field(
+                        &map,
+                        &["tolerance_abs", "toleranceAbs", "absolute_tolerance"],
+                    )?;
+                    rule.tolerance_rel = migration_number_field(
+                        &map,
+                        &["tolerance_rel", "toleranceRel", "relative_tolerance"],
+                    )?;
+                    if rule.expected.is_none()
+                        && rule.reference_values.as_ref().is_none_or(Vec::is_empty)
+                    {
+                        Some("aggregate_check necesita expected o reference_values.".to_owned())
+                    } else {
+                        None
+                    }
+                }
+                QualityRuleKind::AggregateReconciliation => {
+                    rule.columns = migration_string_array(&map, &["columns", "source_columns"])?;
+                    rule.expected = migration_number_field(
+                        &map,
+                        &["expected", "expected_value", "expectedValue"],
+                    )?;
+                    rule.reference_values = migration_reference_values(
+                        &map,
+                        &["reference_values", "referenceValues", "reference"],
+                        1,
+                    )?;
+                    rule.tolerance_abs = migration_number_field(
+                        &map,
+                        &["tolerance_abs", "toleranceAbs", "absolute_tolerance"],
+                    )?;
+                    rule.tolerance_rel = migration_number_field(
+                        &map,
+                        &["tolerance_rel", "toleranceRel", "relative_tolerance"],
+                    )?;
+                    if rule
+                        .columns
+                        .as_ref()
+                        .is_none_or(|columns| columns.len() < 2)
+                        && rule.expected.is_none()
+                        && rule.reference_values.as_ref().is_none_or(Vec::is_empty)
+                    {
+                        Some(
+                            "aggregate_reconciliation necesita dos columnas o expected/reference_values."
+                                .to_owned(),
+                        )
+                    } else {
+                        None
+                    }
+                }
+                QualityRuleKind::DistributionDrift => {
+                    rule.baseline =
+                        migration_reference_values(&map, &["baseline", "baselineValues"], 1)?;
+                    if rule.baseline.as_ref().is_none_or(Vec::is_empty) {
+                        rule.baseline = migration_reference_values(
+                            &map,
+                            &["reference_values", "referenceValues", "reference"],
+                            1,
+                        )?;
+                    }
+                    rule.threshold = migration_number_field(
+                        &map,
+                        &["threshold", "drift_threshold", "driftThreshold"],
+                    )?;
+                    rule.tolerance_abs = migration_number_field(
+                        &map,
+                        &["tolerance_abs", "toleranceAbs", "absolute_tolerance"],
+                    )?;
+                    if rule.baseline.as_ref().is_none_or(Vec::is_empty) {
+                        Some("distribution_drift necesita baseline[].".to_owned())
                     } else {
                         None
                     }
@@ -5001,9 +5181,41 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             rule.column
         ));
     }
-    if rule.kind != QualityRuleKind::ReferentialIntegrity && rule.reference_values.is_some() {
+    let is_aggregate_rule = matches!(
+        rule.kind,
+        QualityRuleKind::AggregateCheck | QualityRuleKind::AggregateReconciliation
+    );
+    let is_distribution_drift = rule.kind == QualityRuleKind::DistributionDrift;
+    let is_aggregate_or_drift = is_aggregate_rule || is_distribution_drift;
+    if !is_distribution_drift && (rule.baseline.is_some() || rule.threshold.is_some()) {
         return Err(format!(
-            "referenceValues solo aplica a referential_integrity de '{}'.",
+            "baseline y threshold solo aplican a distribution_drift de '{}'.",
+            rule.column
+        ));
+    }
+    if rule.kind != QualityRuleKind::ReferentialIntegrity
+        && !is_aggregate_or_drift
+        && rule.reference_values.is_some()
+    {
+        return Err(format!(
+            "referenceValues solo aplica a referential_integrity, reglas agregadas o distribution_drift de '{}'.",
+            rule.column
+        ));
+    }
+    if rule.kind != QualityRuleKind::Monotonic && rule.direction.is_some() {
+        return Err(format!(
+            "direction solo aplica a monotonic de '{}'.",
+            rule.column
+        ));
+    }
+    if !is_aggregate_or_drift
+        && (rule.expected.is_some()
+            || rule.aggregate.is_some()
+            || rule.tolerance_abs.is_some()
+            || rule.tolerance_rel.is_some())
+    {
+        return Err(format!(
+            "expected, aggregate y tolerancias numéricas solo aplican a reglas agregadas de '{}'.",
             rule.column
         ));
     }
@@ -5014,6 +5226,16 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
     {
         return Err(format!(
             "La regla de '{}' supera el máximo de {MAX_QUALITY_VALUES} referencias.",
+            rule.column
+        ));
+    }
+    if rule
+        .baseline
+        .as_ref()
+        .is_some_and(|values| values.len() > MAX_QUALITY_VALUES)
+    {
+        return Err(format!(
+            "La línea base de '{}' supera el máximo de {MAX_QUALITY_VALUES} valores.",
             rule.column
         ));
     }
@@ -5077,13 +5299,29 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             ));
         }
     }
-    for (name, value) in [("min", rule.min), ("max", rule.max)] {
+    for (name, value) in [
+        ("min", rule.min),
+        ("max", rule.max),
+        ("expected", rule.expected),
+        ("toleranceAbs", rule.tolerance_abs),
+        ("toleranceRel", rule.tolerance_rel),
+        ("threshold", rule.threshold),
+    ] {
         if value.is_some_and(|number| !number.is_finite()) {
             return Err(format!(
                 "{name} de '{}' debe ser un número finito.",
                 rule.column
             ));
         }
+    }
+    if rule.tolerance_abs.is_some_and(|value| value < 0.0)
+        || rule.tolerance_rel.is_some_and(|value| value < 0.0)
+        || rule.threshold.is_some_and(|value| value < 0.0)
+    {
+        return Err(format!(
+            "Las tolerancias y umbral de '{}' deben ser mayores o iguales que cero.",
+            rule.column
+        ));
     }
     if rule
         .min
@@ -5547,6 +5785,274 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             {
                 return Err(format!(
                     "La regla referential_integrity de '{}' no admite parámetros de otra comprobación.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::Monotonic => {
+            let column = column.ok_or_else(|| "monotonic requiere una columna.".to_owned())?;
+            if !matches!(
+                column.dtype(),
+                DataType::String
+                    | DataType::Date
+                    | DataType::Datetime(_, _)
+                    | DataType::Boolean
+                    | DataType::Int8
+                    | DataType::Int16
+                    | DataType::Int32
+                    | DataType::Int64
+                    | DataType::UInt8
+                    | DataType::UInt16
+                    | DataType::UInt32
+                    | DataType::UInt64
+                    | DataType::Float32
+                    | DataType::Float64
+            ) {
+                return Err(format!(
+                    "La regla monotonic solo admite texto, fechas o columnas numéricas; '{}' es {}.",
+                    rule.column,
+                    column.dtype()
+                ));
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.reference_values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+                || rule.operator.is_some()
+                || rule.min_date.is_some()
+                || rule.max_date.is_some()
+                || rule.when.is_some()
+                || rule.then.is_some()
+                || rule.allow_additional.is_some()
+                || rule.required_order.is_some()
+            {
+                return Err(format!(
+                    "La regla monotonic de '{}' no admite parámetros de otra comprobación.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::DistributionDrift => {
+            let column = column.ok_or_else(|| {
+                format!(
+                    "La regla distribution_drift de '{}' requiere una columna.",
+                    rule.column
+                )
+            })?;
+            if !matches!(
+                column.dtype(),
+                DataType::String
+                    | DataType::Boolean
+                    | DataType::Int8
+                    | DataType::Int16
+                    | DataType::Int32
+                    | DataType::Int64
+                    | DataType::UInt8
+                    | DataType::UInt16
+                    | DataType::UInt32
+                    | DataType::UInt64
+                    | DataType::Float32
+                    | DataType::Float64
+            ) {
+                return Err(format!(
+                    "distribution_drift solo admite texto numérico, booleanos o columnas numéricas; '{}' es {}.",
+                    rule.column,
+                    column.dtype()
+                ));
+            }
+            let baseline = rule
+                .baseline
+                .as_ref()
+                .filter(|values| !values.is_empty())
+                .or(rule
+                    .reference_values
+                    .as_ref()
+                    .filter(|values| !values.is_empty()))
+                .ok_or_else(|| {
+                    format!(
+                        "La regla distribution_drift de '{}' debe indicar baseline[].",
+                        rule.column
+                    )
+                })?;
+            if baseline
+                .iter()
+                .any(|value| quality_aggregate_text_value(value).is_none())
+            {
+                return Err(format!(
+                    "La línea base de distribution_drift en '{}' debe contener números finitos.",
+                    rule.column
+                ));
+            }
+            if rule.expected.is_some()
+                || rule.aggregate.is_some()
+                || rule.tolerance_rel.is_some()
+                || rule.values.is_some()
+                || rule.min.is_some()
+                || rule.max.is_some()
+                || rule.direction.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+                || rule.operator.is_some()
+                || rule.min_date.is_some()
+                || rule.max_date.is_some()
+                || rule.when.is_some()
+                || rule.then.is_some()
+                || rule.allow_additional.is_some()
+                || rule.required_order.is_some()
+            {
+                return Err(format!(
+                    "La regla distribution_drift de '{}' no admite parámetros de otra comprobación.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::AggregateCheck | QualityRuleKind::AggregateReconciliation => {
+            let column = column.ok_or_else(|| {
+                format!(
+                    "La regla agregada de '{}' requiere una columna.",
+                    rule.column
+                )
+            })?;
+            let supports_aggregate = |value: &Column| {
+                matches!(
+                    value.dtype(),
+                    DataType::String
+                        | DataType::Boolean
+                        | DataType::Int8
+                        | DataType::Int16
+                        | DataType::Int32
+                        | DataType::Int64
+                        | DataType::UInt8
+                        | DataType::UInt16
+                        | DataType::UInt32
+                        | DataType::UInt64
+                        | DataType::Float32
+                        | DataType::Float64
+                )
+            };
+            if !supports_aggregate(column) {
+                return Err(format!(
+                    "Las reglas agregadas solo admiten texto numérico, booleanos o columnas numéricas; '{}' es {}.",
+                    rule.column,
+                    column.dtype()
+                ));
+            }
+            if rule
+                .reference_values
+                .as_ref()
+                .is_some_and(|values| values.is_empty())
+            {
+                return Err(format!(
+                    "La regla agregada de '{}' no admite referenceValues vacío.",
+                    rule.column
+                ));
+            }
+            if rule.reference_values.as_ref().is_some_and(|values| {
+                values
+                    .iter()
+                    .any(|value| quality_aggregate_text_value(value).is_none())
+            }) {
+                return Err(format!(
+                    "Las referencias agregadas de '{}' deben ser números finitos.",
+                    rule.column
+                ));
+            }
+            let has_expected = rule.expected.is_some();
+            let has_references = rule
+                .reference_values
+                .as_ref()
+                .is_some_and(|values| !values.is_empty());
+            let has_column_pair = rule.kind == QualityRuleKind::AggregateReconciliation
+                && rule
+                    .columns
+                    .as_ref()
+                    .is_some_and(|columns| columns.len() >= 2);
+            if !has_column_pair && !has_expected && !has_references {
+                return Err(format!(
+                    "La regla {} de '{}' necesita expected o referenceValues.",
+                    if rule.kind == QualityRuleKind::AggregateCheck {
+                        "aggregate_check"
+                    } else {
+                        "aggregate_reconciliation"
+                    },
+                    rule.column
+                ));
+            }
+            if let Some(aggregate) = rule.aggregate {
+                if rule.kind == QualityRuleKind::AggregateReconciliation
+                    && rule
+                        .columns
+                        .as_ref()
+                        .is_some_and(|columns| columns.len() >= 2)
+                {
+                    return Err(
+                        "aggregate_reconciliation por columnas siempre compara sumas y no admite aggregate."
+                            .to_owned(),
+                    );
+                }
+                let _ = aggregate;
+            }
+            if rule.kind == QualityRuleKind::AggregateCheck && rule.columns.is_some() {
+                return Err(
+                    "aggregate_check no admite columns; selecciona una sola columna.".to_owned(),
+                );
+            }
+            if rule.kind == QualityRuleKind::AggregateReconciliation {
+                if let Some(columns) = rule.columns.as_ref() {
+                    if columns.len() != 2 {
+                        return Err(
+                            "aggregate_reconciliation necesita exactamente dos columnas."
+                                .to_owned(),
+                        );
+                    }
+                    if columns[0] != rule.column {
+                        return Err(
+                            "La primera columna de aggregate_reconciliation debe coincidir con la columna principal."
+                                .to_owned(),
+                        );
+                    }
+                    if columns[0] == columns[1] {
+                        return Err(
+                            "aggregate_reconciliation necesita dos columnas distintas.".to_owned()
+                        );
+                    }
+                    let right = frame.column(&columns[1]).map_err(|_| {
+                        format!(
+                            "La columna '{}' de aggregate_reconciliation no existe.",
+                            columns[1]
+                        )
+                    })?;
+                    if !supports_aggregate(right) {
+                        return Err(format!(
+                            "La columna '{}' de aggregate_reconciliation no es agregable.",
+                            columns[1]
+                        ));
+                    }
+                }
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.direction.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.operator.is_some()
+                || rule.min_date.is_some()
+                || rule.max_date.is_some()
+                || rule.when.is_some()
+                || rule.then.is_some()
+                || rule.allow_additional.is_some()
+                || rule.required_order.is_some()
+            {
+                return Err(format!(
+                    "La regla agregada de '{}' no admite parámetros de otra comprobación.",
                     rule.column
                 ));
             }
@@ -6032,6 +6538,119 @@ fn quality_reference_json_component_matches(value: AnyValue<'_>, expected: &Json
     }
 }
 
+fn quality_monotonic_ordering(
+    left: AnyValue<'_>,
+    right: AnyValue<'_>,
+) -> Option<std::cmp::Ordering> {
+    if matches!(&left, AnyValue::Date(_) | AnyValue::Datetime(_, _, _))
+        || matches!(&right, AnyValue::Date(_) | AnyValue::Datetime(_, _, _))
+    {
+        return quality_datetime_value(left)
+            .zip(quality_datetime_value(right))
+            .map(|(left, right)| left.cmp(&right));
+    }
+    quality_value_ordering(left, right)
+}
+
+fn quality_aggregate_text_value(value: &str) -> Option<f64> {
+    value
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
+}
+
+fn quality_aggregate_numeric_value(value: AnyValue<'_>) -> Option<f64> {
+    match value {
+        AnyValue::Int8(value) => Some(value as f64),
+        AnyValue::Int16(value) => Some(value as f64),
+        AnyValue::Int32(value) => Some(value as f64),
+        AnyValue::Int64(value) => Some(value as f64),
+        AnyValue::UInt8(value) => Some(value as f64),
+        AnyValue::UInt16(value) => Some(value as f64),
+        AnyValue::UInt32(value) => Some(value as f64),
+        AnyValue::UInt64(value) => (value as f64).is_finite().then_some(value as f64),
+        AnyValue::Float32(value) => value.is_finite().then_some(value as f64),
+        AnyValue::Float64(value) => value.is_finite().then_some(value),
+        AnyValue::Boolean(value) => Some(if value { 1.0 } else { 0.0 }),
+        AnyValue::String(value) => quality_aggregate_text_value(value),
+        AnyValue::StringOwned(value) => quality_aggregate_text_value(value.as_str()),
+        _ => None,
+    }
+}
+
+fn quality_aggregate_observation<C>(
+    column: &Column,
+    row_count: usize,
+    is_cancelled: &C,
+) -> Result<(usize, f64, Option<f64>, Option<f64>), String>
+where
+    C: Fn() -> bool,
+{
+    let mut count = 0;
+    let mut sum = 0.0;
+    let mut minimum = None;
+    let mut maximum = None;
+    for row_index in 0..row_count {
+        if row_index % 1024 == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let value = column.get(row_index).map_err(|error| error.to_string())?;
+        let Some(number) = quality_aggregate_numeric_value(value) else {
+            continue;
+        };
+        count += 1;
+        sum += number;
+        minimum = Some(minimum.map_or(number, |current: f64| current.min(number)));
+        maximum = Some(maximum.map_or(number, |current: f64| current.max(number)));
+    }
+    Ok((count, sum, minimum, maximum))
+}
+
+fn quality_aggregate_expected(rule: &QualityRule, aggregate: QualityAggregate) -> Option<f64> {
+    if let Some(expected) = rule.expected {
+        return Some(expected);
+    }
+    let references = rule.reference_values.as_deref()?;
+    if aggregate == QualityAggregate::Sum {
+        let mut total = 0.0;
+        for reference in references {
+            total += quality_aggregate_text_value(reference)?;
+        }
+        Some(total)
+    } else {
+        references
+            .first()
+            .and_then(|reference| quality_aggregate_text_value(reference))
+    }
+}
+
+fn quality_aggregate_tolerance(rule: &QualityRule, reference: f64) -> f64 {
+    let relative = rule
+        .tolerance_rel
+        .map_or(0.0, |value| reference.abs() * value);
+    rule.tolerance_abs.unwrap_or(0.0).max(relative)
+}
+
+fn quality_distribution_baseline_mean(rule: &QualityRule) -> Option<f64> {
+    let values = rule
+        .baseline
+        .as_deref()
+        .filter(|values| !values.is_empty())
+        .or(rule
+            .reference_values
+            .as_deref()
+            .filter(|values| !values.is_empty()))?;
+    let mut count = 0usize;
+    let mut sum = 0.0;
+    for value in values {
+        let number = quality_aggregate_text_value(value)?;
+        count += 1;
+        sum += number;
+    }
+    (count > 0).then_some(sum / count as f64)
+}
+
 fn quality_conditional_row_invalid(
     frame: &DataFrame,
     row_index: usize,
@@ -6280,6 +6899,103 @@ where
                 };
                 (row_count, invalid_count)
             }
+            QualityRuleKind::Monotonic => {
+                let column = frame
+                    .column(&rule.column)
+                    .map_err(|error| error.to_string())?;
+                let direction = rule
+                    .direction
+                    .unwrap_or(QualityMonotonicDirection::Increasing);
+                let mut previous: Option<AnyValue<'_>> = None;
+                let mut invalid_count = 0;
+                for row_index in 0..row_count {
+                    let value = column.get(row_index).map_err(|error| error.to_string())?;
+                    if matches!(&value, AnyValue::Null) {
+                        previous = None;
+                        continue;
+                    }
+                    if let Some(previous_value) = previous.as_ref() {
+                        let invalid =
+                            match quality_monotonic_ordering(previous_value.clone(), value.clone())
+                            {
+                                Some(ordering) => match direction {
+                                    QualityMonotonicDirection::Increasing => {
+                                        ordering == std::cmp::Ordering::Greater
+                                    }
+                                    QualityMonotonicDirection::Decreasing => {
+                                        ordering == std::cmp::Ordering::Less
+                                    }
+                                },
+                                None => true,
+                            };
+                        invalid_count += usize::from(invalid);
+                    }
+                    previous = Some(value);
+                }
+                (row_count, invalid_count)
+            }
+            QualityRuleKind::DistributionDrift => {
+                let column = frame
+                    .column(&rule.column)
+                    .map_err(|error| error.to_string())?;
+                let (count, sum, _, _) =
+                    quality_aggregate_observation(column, row_count, &is_cancelled)?;
+                let observed_mean = if count == 0 { 0.0 } else { sum / count as f64 };
+                let baseline_mean = quality_distribution_baseline_mean(rule)
+                    .expect("baseline validado para distribution_drift");
+                let threshold = rule.tolerance_abs.or(rule.threshold).unwrap_or(0.0);
+                (
+                    row_count,
+                    usize::from((observed_mean - baseline_mean).abs() > threshold),
+                )
+            }
+            QualityRuleKind::AggregateCheck | QualityRuleKind::AggregateReconciliation => {
+                let is_reconciliation = rule.kind == QualityRuleKind::AggregateReconciliation;
+                let has_column_pair = is_reconciliation
+                    && rule
+                        .columns
+                        .as_ref()
+                        .is_some_and(|columns| columns.len() >= 2);
+                if has_column_pair {
+                    let columns = rule.columns.as_deref().expect("columns validadas");
+                    let left = frame
+                        .column(&columns[0])
+                        .map_err(|error| error.to_string())?;
+                    let right = frame
+                        .column(&columns[1])
+                        .map_err(|error| error.to_string())?;
+                    let (_, left_sum, _, _) =
+                        quality_aggregate_observation(left, row_count, &is_cancelled)?;
+                    let (_, right_sum, _, _) =
+                        quality_aggregate_observation(right, row_count, &is_cancelled)?;
+                    let reference = left_sum.abs().max(right_sum.abs());
+                    let tolerance = quality_aggregate_tolerance(rule, reference);
+                    (
+                        row_count,
+                        usize::from((left_sum - right_sum).abs() > tolerance),
+                    )
+                } else {
+                    let column = frame
+                        .column(&rule.column)
+                        .map_err(|error| error.to_string())?;
+                    let aggregate = rule.aggregate.unwrap_or(QualityAggregate::Sum);
+                    let (count, sum, minimum, maximum) =
+                        quality_aggregate_observation(column, row_count, &is_cancelled)?;
+                    let observed = match aggregate {
+                        QualityAggregate::Count => Some(count as f64),
+                        QualityAggregate::Sum => Some(sum),
+                        QualityAggregate::Min => minimum,
+                        QualityAggregate::Max => maximum,
+                    };
+                    let expected = quality_aggregate_expected(rule, aggregate)
+                        .expect("expected o referenceValues validados");
+                    let tolerance = quality_aggregate_tolerance(rule, expected);
+                    let invalid = usize::from(
+                        observed.is_none_or(|value| (value - expected).abs() > tolerance),
+                    );
+                    (row_count, invalid)
+                }
+            }
             _ => {
                 let column = frame
                     .column(&rule.column)
@@ -6351,6 +7067,10 @@ where
                     | QualityRuleKind::UniqueTogether
                     | QualityRuleKind::ColumnCompare
                     | QualityRuleKind::ReferentialIntegrity
+                    | QualityRuleKind::Monotonic
+                    | QualityRuleKind::AggregateCheck
+                    | QualityRuleKind::AggregateReconciliation
+                    | QualityRuleKind::DistributionDrift
                     | QualityRuleKind::DateRange
                     | QualityRuleKind::Conditional
                     | QualityRuleKind::SchemaContract
@@ -6379,6 +7099,13 @@ where
             max: rule.max,
             values: rule.values.clone(),
             reference_values: rule.reference_values.clone(),
+            baseline: rule.baseline.clone(),
+            direction: rule.direction,
+            expected: rule.expected,
+            aggregate: rule.aggregate,
+            tolerance_abs: rule.tolerance_abs,
+            tolerance_rel: rule.tolerance_rel,
+            threshold: rule.threshold,
             pattern: rule.pattern.clone(),
             dtype: rule.dtype.clone(),
             columns: rule.columns.clone(),
@@ -15234,6 +15961,13 @@ mod tests {
             max: None,
             values: None,
             reference_values: None,
+            baseline: None,
+            direction: None,
+            expected: None,
+            aggregate: None,
+            tolerance_abs: None,
+            tolerance_rel: None,
+            threshold: None,
             pattern: None,
             dtype: None,
             columns: None,
@@ -15421,6 +16155,203 @@ mod tests {
         unsupported.columns = Some(vec!["date".to_owned()]);
         unsupported.reference_values = Some(vec!["2024-01-01".to_owned()]);
         assert!(evaluate_quality_rules(&frame, &[unsupported]).is_err());
+    }
+
+    #[test]
+    fn quality_rules_apply_non_strict_increasing_and_decreasing_sequences() {
+        let frame = df![
+            "value" => &[Some(1_i64), Some(2), Some(2), Some(1), Some(3), None, Some(2)]
+        ]
+        .unwrap();
+        let mut increasing = quality_rule("value", QualityRuleKind::Monotonic);
+        increasing.direction = Some(QualityMonotonicDirection::Increasing);
+        increasing.max_invalid = Some(1);
+
+        let mut decreasing = quality_rule("value", QualityRuleKind::Monotonic);
+        decreasing.direction = Some(QualityMonotonicDirection::Decreasing);
+        decreasing.max_invalid = Some(2);
+
+        let result = evaluate_quality_rules(&frame, &[increasing, decreasing]).unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.rules[0].checked_count, 7);
+        assert_eq!(result.rules[0].invalid_count, 1);
+        assert_eq!(result.rules[1].invalid_count, 2);
+        assert_eq!(
+            result.rules[0].direction,
+            Some(QualityMonotonicDirection::Increasing)
+        );
+    }
+
+    #[test]
+    fn monotonic_rejects_extra_parameters_and_migrates_direction_aliases() {
+        let frame = df!["value" => &[1_i64, 2]].unwrap();
+        let mut extra = quality_rule("value", QualityRuleKind::Monotonic);
+        extra.direction = Some(QualityMonotonicDirection::Increasing);
+        extra.values = Some(vec!["1".to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[extra]).is_err());
+
+        let result = migrate_quality_rules_document(serde_json::json!([
+            {"kind": "monotonic", "column": "value", "direction": "desc"},
+            {"kind": "monotonic", "column": "value", "order": "sideways"}
+        ]))
+        .unwrap();
+        assert_eq!(result.converted_rules.len(), 1);
+        assert_eq!(result.omitted_rules, 1);
+        assert_eq!(
+            result.converted_rules[0].direction,
+            Some(QualityMonotonicDirection::Decreasing)
+        );
+    }
+
+    #[test]
+    fn quality_rules_apply_aggregate_checks_and_reconciliation() {
+        let frame = df![
+            "amount" => &[Some(1_i64), Some(2), Some(3), None],
+            "ledger" => &[Some(0_i64), Some(3), Some(3), None]
+        ]
+        .unwrap();
+        let mut sum = quality_rule("amount", QualityRuleKind::AggregateCheck);
+        sum.expected = Some(6.0);
+        sum.aggregate = Some(QualityAggregate::Sum);
+
+        let mut count = quality_rule("amount", QualityRuleKind::AggregateCheck);
+        count.expected = Some(3.0);
+        count.aggregate = Some(QualityAggregate::Count);
+
+        let mut minimum = quality_rule("amount", QualityRuleKind::AggregateCheck);
+        minimum.expected = Some(1.0);
+        minimum.aggregate = Some(QualityAggregate::Min);
+
+        let mut maximum = quality_rule("amount", QualityRuleKind::AggregateCheck);
+        maximum.expected = Some(3.0);
+        maximum.aggregate = Some(QualityAggregate::Max);
+
+        let mut reconciliation = quality_rule("amount", QualityRuleKind::AggregateReconciliation);
+        reconciliation.columns = Some(vec!["amount".to_owned(), "ledger".to_owned()]);
+        reconciliation.tolerance_abs = Some(0.01);
+
+        let result =
+            evaluate_quality_rules(&frame, &[sum, count, minimum, maximum, reconciliation])
+                .unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.rules[0].checked_count, 4);
+        assert_eq!(result.rules[1].checked_count, 4);
+        assert_eq!(result.rules[4].invalid_count, 0);
+        assert_eq!(result.rules[4].aggregate, None);
+    }
+
+    #[test]
+    fn aggregate_rules_reject_invalid_payloads_and_migrate_legacy_fields() {
+        let frame = df!["amount" => &[1_i64, 2], "ledger" => &[1_i64, 2]].unwrap();
+        let mut extra = quality_rule("amount", QualityRuleKind::AggregateCheck);
+        extra.expected = Some(3.0);
+        extra.values = Some(vec!["3".to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[extra]).is_err());
+
+        let result = migrate_quality_rules_document(serde_json::json!([
+            {
+                "kind": "aggregate_check",
+                "column": "amount",
+                "aggregate": "total",
+                "expected": 3,
+                "toleranceAbs": 0.5
+            },
+            {
+                "kind": "aggregate_reconciliation",
+                "column": "amount",
+                "columns": ["amount", "ledger"],
+                "toleranceRel": 0.01
+            },
+            {
+                "kind": "aggregate_check",
+                "column": "amount",
+                "aggregate": "sideways",
+                "expected": 3
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(result.converted_rules.len(), 2);
+        assert_eq!(result.omitted_rules, 1);
+        assert_eq!(
+            result.converted_rules[0].aggregate,
+            Some(QualityAggregate::Sum)
+        );
+        assert_eq!(result.converted_rules[0].tolerance_abs, Some(0.5));
+        assert_eq!(
+            result.converted_rules[1].columns,
+            Some(vec!["amount".to_owned(), "ledger".to_owned()])
+        );
+        assert_eq!(result.converted_rules[1].tolerance_rel, Some(0.01));
+    }
+
+    #[test]
+    fn quality_rules_apply_distribution_drift_to_numeric_means() {
+        let frame = df!["amount" => &[Some(1_i64), Some(2), Some(3), None]].unwrap();
+        let mut passing = quality_rule("amount", QualityRuleKind::DistributionDrift);
+        passing.baseline = Some(vec!["1".to_owned(), "3".to_owned()]);
+        passing.threshold = Some(0.0);
+
+        let mut failing = quality_rule("amount", QualityRuleKind::DistributionDrift);
+        failing.baseline = Some(vec!["4".to_owned(), "6".to_owned()]);
+        failing.threshold = Some(2.0);
+
+        let result = evaluate_quality_rules(&frame, &[passing, failing]).unwrap();
+
+        assert_eq!(result.rules[0].checked_count, 4);
+        assert_eq!(result.rules[0].invalid_count, 0);
+        assert_eq!(result.rules[1].checked_count, 4);
+        assert_eq!(result.rules[1].invalid_count, 1);
+        assert!(!result.rules[1].passed);
+        assert_eq!(result.failed_rules, 1);
+    }
+
+    #[test]
+    fn distribution_drift_rejects_invalid_baselines_and_migrates_aliases() {
+        let frame = df!["amount" => &[1_i64, 2]].unwrap();
+        let mut invalid_baseline = quality_rule("amount", QualityRuleKind::DistributionDrift);
+        invalid_baseline.baseline = Some(vec!["not-a-number".to_owned()]);
+        assert!(evaluate_quality_rules(&frame, &[invalid_baseline]).is_err());
+
+        let mut invalid_threshold = quality_rule("amount", QualityRuleKind::DistributionDrift);
+        invalid_threshold.baseline = Some(vec!["1".to_owned()]);
+        invalid_threshold.threshold = Some(-1.0);
+        assert!(evaluate_quality_rules(&frame, &[invalid_threshold]).is_err());
+
+        let result = migrate_quality_rules_document(serde_json::json!([
+            {
+                "kind": "drift",
+                "column": "amount",
+                "baseline": [1, 3],
+                "threshold": 0.5
+            },
+            {
+                "kind": "distribution_drift",
+                "column": "amount",
+                "referenceValues": [2, 2],
+                "toleranceAbs": 0.1
+            },
+            {
+                "kind": "distribution_drift",
+                "column": "amount",
+                "baseline": []
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(result.converted_rules.len(), 2);
+        assert_eq!(result.omitted_rules, 1);
+        assert_eq!(
+            result.converted_rules[0].kind,
+            QualityRuleKind::DistributionDrift
+        );
+        assert_eq!(
+            result.converted_rules[0].baseline,
+            Some(vec!["1".to_owned(), "3".to_owned()])
+        );
+        assert_eq!(result.converted_rules[1].tolerance_abs, Some(0.1));
     }
 
     #[test]

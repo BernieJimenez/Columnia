@@ -228,6 +228,62 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("textbox", { name: "Valores de referencia regla 1" })).toHaveValue("[10,12]\n[20,20]");
   });
 
+  it("expone la dirección de monotonicidad", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "monotonic" },
+    });
+
+    const direction = screen.getByRole("combobox", { name: "Dirección monotónica regla 1" });
+    expect(direction).toHaveValue("increasing");
+    fireEvent.change(direction, { target: { value: "decreasing" } });
+    expect(direction).toHaveValue("decreasing");
+  });
+
+  it("expone controles de agregación y reconciliación", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
+    fireEvent.change(kind, { target: { value: "aggregate_check" } });
+
+    expect(screen.getByRole("combobox", { name: "Agregación regla 1" })).toHaveValue("sum");
+    expect(screen.getByRole("spinbutton", { name: "Valor esperado agregado regla 1" })).toHaveValue(0);
+    expect(screen.getByRole("textbox", { name: "Referencias agregadas regla 1" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Agregación regla 1" }), {
+      target: { value: "max" },
+    });
+    expect(screen.getByRole("combobox", { name: "Agregación regla 1" })).toHaveValue("max");
+
+    fireEvent.change(kind, { target: { value: "aggregate_reconciliation" } });
+    expect(screen.getByRole("combobox", { name: "Columna izquierda agregada regla 1" })).toHaveValue("total");
+    expect(screen.getByRole("combobox", { name: "Columna derecha agregada regla 1" })).toHaveValue("limite");
+    expect(screen.getByRole("spinbutton", { name: "Tolerancia absoluta agregada regla 1" })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "Tolerancia relativa agregada regla 1" })).toBeInTheDocument();
+  });
+
+  it("expone controles de línea base para distribution_drift", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "distribution_drift" },
+    });
+
+    const baseline = screen.getByRole("textbox", { name: "Línea base de distribución regla 1" });
+    expect(baseline).toBeInTheDocument();
+    fireEvent.change(baseline, { target: { value: "10\n20" } });
+    const threshold = screen.getByRole("spinbutton", { name: "Umbral de drift regla 1" });
+    fireEvent.change(threshold, { target: { value: "2" } });
+    expect(baseline).toHaveValue("10\n20");
+    expect(threshold).toHaveValue(2);
+  });
+
   it("expone límites de fecha para date_range", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);

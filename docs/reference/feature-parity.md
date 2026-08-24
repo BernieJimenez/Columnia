@@ -12,7 +12,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
-| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `date_range`, `conditional`, `schema_contract` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir monotonía, agregados y drift |
+| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y compatibilidad explícita |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución acotada por fila y joins Inner/Left/Full con historial | Parcial | Completar combinación independiente por columna y conflictos fuera del preview |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
@@ -193,14 +193,67 @@ reconoce `reference_values`/`referenceValues` y `reference`, además de aliases
 omiten con advertencia visible. No se conectan tablas remotas ni se incluyen
 valores de filas en los resultados.
 
+## Decimotercera entrega de paridad: monotonía de secuencias
+
+El contrato admite `monotonic` para comprobar que una columna conserve un orden
+no decreciente (`increasing`) o no creciente (`decreasing`). La comparación es
+no estricta, cuenta cada inversión como un inválido y reutiliza las tolerancias
+por conteo y porcentaje del contrato. Los nulos reinician la cadena y no se
+convierten en muestras ni valores expuestos; el resultado mantiene solo los
+conteos agregados.
+
+La evaluación compartida soporta texto, fechas, datetimes, booleanos y columnas
+numéricas. Entregar muestra un selector accesible con las opciones “No
+decreciente” y “No creciente”. La migración DataPrep reconoce `direction` y
+`order`, además de aliases como `asc`, `ascending`, `desc` y `descending`; si
+falta la dirección se conserva el comportamiento compatible de DataPrep y se
+usa `increasing`. Direcciones inválidas se omiten con advertencia visible.
+
+## Decimocuarta entrega de paridad: agregados y reconciliaciones
+
+El contrato admite `aggregate_check` para comparar una agregación de una columna
+contra `expected` o una lista de `referenceValues`. Soporta `count`, `sum`,
+`min` y `max`; por defecto usa `sum`. También admite
+`aggregate_reconciliation`, que suma dos columnas y comprueba que sus totales
+coincidan. Ambas reglas aceptan `toleranceAbs` y `toleranceRel`, con límites
+inclusivos; el resultado cuenta como máximo una inversión agregada por regla y
+no expone el valor observado.
+
+Los valores numéricos se leen de columnas numéricas, booleanas o texto
+numérico. Nulos y textos no numéricos quedan fuera de la observación agregada,
+manteniendo el conteo de filas revisadas para calcular la tolerancia porcentual.
+Entregar muestra selectores accesibles para la agregación, columnas de
+reconciliación, valor esperado, referencias y tolerancias absoluta/relativa.
+La migración reconoce `aggregate_check`/`aggregate_reconciliation`, aliases de
+agregación (`total`, `minimum`, `maximum`) y variantes snake_case/camelCase de
+`expected`, `toleranceAbs` y `toleranceRel`; configuraciones incompatibles se
+omiten con advertencia visible.
+
+## Decimoquinta entrega de paridad: drift de distribución
+
+El contrato admite `distribution_drift` para comparar la media numérica observada
+de una columna contra la media de una línea base (`baseline`). El umbral inclusivo
+se expresa con `threshold`; `toleranceAbs` se conserva como alias de compatibilidad
+y tiene prioridad cuando ambos están presentes. Los nulos y textos no numéricos
+quedan fuera de ambas medias, pero el conteo de filas revisadas permanece completo
+para aplicar las tolerancias de la compuerta.
+
+Entregar muestra un editor accesible para la línea base y el umbral absoluto. La
+evaluación devuelve únicamente conteos, porcentajes y estado, sin publicar la media
+observada ni valores del dataset. La migración DataPrep reconoce `distribution_drift`
+y `drift`, `baseline`/`baselineValues`, `reference_values`/`referenceValues`,
+`threshold` y `tolerance_abs`/`toleranceAbs`; las reglas incompatibles se omiten con
+advertencia visible.
+
 ## Primera vertical de migración de reglas DataPrep
 
 Entregar permite importar un contrato JSON de DataPrep mediante el selector
 nativo. Acepta una lista directa o un objeto con `rules`/`quality_rules`, y
 convierte de forma segura las reglas representables por Columnia:
 `not_null`, `non_empty`, `unique`, `numeric_range`, `allowed_values`, `regex`,
-`dtype`, `unique_together`, `column_compare`, `referential_integrity`,
-`date_range`, `conditional`, `schema_contract` y `row_count`. Reconoce campos snake_case y
+`dtype`, `unique_together`, `column_compare`, `referential_integrity`, `monotonic`,
+`aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y
+`row_count`. Reconoce campos snake_case y
 camelCase, conserva tolerancias por conteo y porcentaje, y aplica el límite de
 16 reglas y 1 MiB por archivo.
 

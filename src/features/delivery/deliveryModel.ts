@@ -22,6 +22,8 @@ const SUPPORTED_QUALITY_DTYPES = new Set([
 ]);
 const QUALITY_COMPARISONS = new Set(["eq", "ne", "lt", "lte", "gt", "gte"]);
 const ORDERING_COMPARISONS = new Set(["lt", "lte", "gt", "gte"]);
+const MONOTONIC_DIRECTIONS = new Set(["increasing", "decreasing"]);
+const QUALITY_AGGREGATES = new Set(["count", "sum", "min", "max"]);
 
 function parseQualityDateBound(value: string): number | null {
   const normalized = value.trim();
@@ -37,6 +39,28 @@ function parseQualityDateBound(value: string): number | null {
 function supportsQualityOrdering(dataType: string): boolean {
   const normalized = dataType.toLowerCase();
   return normalized === "string"
+    || normalized.includes("int")
+    || normalized.includes("float")
+    || normalized.includes("decimal")
+    || normalized.includes("number");
+}
+
+function supportsQualityMonotonic(dataType: string): boolean {
+  const normalized = dataType.toLowerCase();
+  return normalized === "string"
+    || normalized === "date"
+    || normalized === "datetime"
+    || normalized === "boolean"
+    || normalized.includes("int")
+    || normalized.includes("float")
+    || normalized.includes("decimal")
+    || normalized.includes("number");
+}
+
+function supportsQualityAggregate(dataType: string): boolean {
+  const normalized = dataType.toLowerCase();
+  return normalized === "string"
+    || normalized === "boolean"
     || normalized.includes("int")
     || normalized.includes("float")
     || normalized.includes("decimal")
@@ -152,6 +176,11 @@ export function validateQualityRuleDraft(
     const isTogetherRule = rule.kind === "unique_together";
     const isCompareRule = rule.kind === "column_compare";
     const isReferentialRule = rule.kind === "referential_integrity";
+    const isMonotonicRule = rule.kind === "monotonic";
+    const isAggregateCheckRule = rule.kind === "aggregate_check";
+    const isAggregateReconciliationRule = rule.kind === "aggregate_reconciliation";
+    const isAggregateRule = isAggregateCheckRule || isAggregateReconciliationRule;
+    const isDistributionDriftRule = rule.kind === "distribution_drift";
     const isDateRangeRule = rule.kind === "date_range";
     const isConditionalRule = rule.kind === "conditional";
     const isSchemaRule = rule.kind === "schema_contract";
@@ -240,6 +269,27 @@ export function validateQualityRuleDraft(
       }
       if (ORDERING_COMPARISONS.has(rule.operator) && !supportsQualityOrdering(left.dataType)) {
         return `${label}: ese operador solo aplica a texto o columnas numéricas.`;
+      }
+    } else if (isAggregateReconciliationRule) {
+      const aggregateColumns = rule.columns ?? [];
+      if (aggregateColumns.length !== 2) {
+        return `${label}: selecciona exactamente dos columnas para reconciliar.`;
+      }
+      if (aggregateColumns[0] !== rule.column) {
+        return `${label}: la primera columna reconciliada debe coincidir con la columna principal.`;
+      }
+      if (aggregateColumns[0] === aggregateColumns[1]) {
+        return `${label}: selecciona dos columnas distintas para reconciliar.`;
+      }
+      const left = columns.get(aggregateColumns[0]);
+      const right = columns.get(aggregateColumns[1]);
+      if (!left || !right) return `${label}: ambas columnas reconciliadas deben existir.`;
+      if (!supportsQualityAggregate(left.dataType) || !supportsQualityAggregate(right.dataType)) {
+        return `${label}: las columnas reconciliadas deben ser texto numérico, booleanas o numéricas.`;
+      }
+    } else if (isDistributionDriftRule) {
+      if (!column || !supportsQualityAggregate(column.dataType)) {
+        return `${label}: distribution_drift solo aplica a texto numérico, booleanos o columnas numéricas.`;
       }
     } else if (rule.operator !== undefined) {
       return `${label}: el operador solo aplica a column_compare.`;
@@ -392,8 +442,103 @@ export function validateQualityRuleDraft(
       return `${label}: los valores permitidos solo aplican a allowed_values.`;
     }
 
-    if (!isReferentialRule && rule.referenceValues !== undefined) {
-      return `${label}: las referencias solo aplican a referential_integrity.`;
+    if (!isReferentialRule && !isAggregateRule && !isDistributionDriftRule && rule.referenceValues !== undefined) {
+      return `${label}: las referencias solo aplican a referential_integrity, reglas agregadas o distribution_drift.`;
+    }
+    if (!isDistributionDriftRule && (rule.baseline !== undefined || rule.threshold !== undefined)) {
+      return `${label}: baseline y threshold solo aplican a distribution_drift.`;
+    }
+    if (!isMonotonicRule && rule.direction !== undefined) {
+      return `${label}: direction solo aplica a monotonic.`;
+    }
+    if (isMonotonicRule) {
+      if (!column || !supportsQualityMonotonic(column.dataType)) {
+        return `${label}: monotonic solo aplica a texto, fechas, booleanos o columnas numéricas.`;
+      }
+      if (rule.direction !== undefined && !MONOTONIC_DIRECTIONS.has(rule.direction)) {
+        return `${label}: selecciona una dirección monotónica válida.`;
+      }
+    }
+
+    if (!isAggregateRule && !isDistributionDriftRule && (
+      rule.expected !== undefined
+      || rule.aggregate !== undefined
+      || rule.toleranceAbs !== undefined
+      || rule.toleranceRel !== undefined
+    )) {
+      return `${label}: expected, aggregate y tolerancias numéricas solo aplican a reglas agregadas.`;
+    }
+    if (isAggregateRule) {
+      if (!column || !supportsQualityAggregate(column.dataType)) {
+        return `${label}: las reglas agregadas solo aplican a texto numérico, booleanos o columnas numéricas.`;
+      }
+      if (isAggregateCheckRule && rule.columns !== undefined) {
+        return `${label}: aggregate_check solo admite una columna principal.`;
+      }
+      if (rule.aggregate !== undefined && !QUALITY_AGGREGATES.has(rule.aggregate)) {
+        return `${label}: selecciona una agregación válida.`;
+      }
+      if (isAggregateReconciliationRule && rule.aggregate !== undefined) {
+        return `${label}: aggregate_reconciliation compara sumas y no necesita aggregate.`;
+      }
+      const hasColumnPair = isAggregateReconciliationRule
+        && rule.columns?.length === 2;
+      if (!hasColumnPair && rule.expected === undefined && (!rule.referenceValues || rule.referenceValues.length === 0)) {
+        return `${label}: indica un valor esperado o referencias numéricas.`;
+      }
+      if (rule.expected !== undefined && !Number.isFinite(rule.expected)) {
+        return `${label}: el valor esperado debe ser finito.`;
+      }
+      if (rule.referenceValues !== undefined) {
+        if (rule.referenceValues.length === 0) return `${label}: las referencias numéricas no pueden estar vacías.`;
+        if (rule.referenceValues.length > MAX_QUALITY_VALUES) {
+          return `${label}: admite como máximo ${MAX_QUALITY_VALUES} referencias numéricas.`;
+        }
+        if (rule.referenceValues.some((value) => !Number.isFinite(Number(value.trim())))) {
+          return `${label}: todas las referencias numéricas deben ser finitas.`;
+        }
+      }
+      if (rule.toleranceAbs !== undefined && (
+        !Number.isFinite(rule.toleranceAbs) || rule.toleranceAbs < 0
+      )) {
+        return `${label}: la tolerancia absoluta debe ser finita y mayor o igual que cero.`;
+      }
+      if (rule.toleranceRel !== undefined && (
+        !Number.isFinite(rule.toleranceRel) || rule.toleranceRel < 0
+      )) {
+        return `${label}: la tolerancia relativa debe ser finita y mayor o igual que cero.`;
+      }
+    } else if (isDistributionDriftRule) {
+      const baseline = rule.baseline ?? rule.referenceValues;
+      if (!baseline || baseline.length === 0) {
+        return `${label}: indica una línea base numérica.`;
+      }
+      if (baseline.length > MAX_QUALITY_VALUES) {
+        return `${label}: admite como máximo ${MAX_QUALITY_VALUES} valores de línea base.`;
+      }
+      if (baseline.some((value) => value.trim().length === 0 || !Number.isFinite(Number(value.trim())))) {
+        return `${label}: todos los valores de línea base deben ser finitos.`;
+      }
+      if (rule.expected !== undefined || rule.aggregate !== undefined || rule.toleranceRel !== undefined) {
+        return `${label}: distribution_drift solo admite línea base, threshold y tolerancia absoluta.`;
+      }
+      if (rule.threshold !== undefined && (
+        !Number.isFinite(rule.threshold) || rule.threshold < 0
+      )) {
+        return `${label}: el umbral debe ser finito y mayor o igual que cero.`;
+      }
+      if (rule.toleranceAbs !== undefined && (
+        !Number.isFinite(rule.toleranceAbs) || rule.toleranceAbs < 0
+      )) {
+        return `${label}: la tolerancia absoluta debe ser finita y mayor o igual que cero.`;
+      }
+    } else if (
+      rule.expected !== undefined
+      || rule.aggregate !== undefined
+      || rule.toleranceAbs !== undefined
+      || rule.toleranceRel !== undefined
+    ) {
+      return `${label}: los parámetros agregados solo aplican a aggregate_check o aggregate_reconciliation.`;
     }
 
     if (rule.kind === "regex") {
@@ -418,10 +563,12 @@ export function validateQualityRuleDraft(
       return `${label}: el tipo esperado solo aplica a dtype.`;
     }
 
-    if (isTogetherRule || isCompareRule || isReferentialRule) {
+    if (isTogetherRule || isCompareRule || isReferentialRule || isAggregateReconciliationRule) {
       if (!rule.columns || rule.columns.length < (isReferentialRule ? 1 : 2)) {
         return isCompareRule
           ? `${label}: selecciona exactamente dos columnas para comparar.`
+          : isAggregateReconciliationRule
+            ? `${label}: selecciona exactamente dos columnas para reconciliar.`
           : isReferentialRule
             ? `${label}: selecciona al menos una columna para la referencia.`
             : `${label}: selecciona al menos dos columnas.`;
@@ -430,7 +577,7 @@ export function validateQualityRuleDraft(
         return `${label}: todas las columnas compuestas deben existir.`;
       }
     } else if (!isSchemaRule && rule.columns !== undefined) {
-      return `${label}: la selección múltiple solo aplica a unique_together, column_compare o referential_integrity.`;
+      return `${label}: la selección múltiple solo aplica a unique_together, column_compare, referential_integrity o aggregate_reconciliation.`;
     }
   }
 

@@ -67,6 +67,15 @@ describe("validateQualityRuleDraft", () => {
     [{ ...validRule, kind: "referential_integrity", columns: ["total"], maxInvalid: 0 }, /al menos una referencia/],
     [{ ...validRule, kind: "referential_integrity", columns: ["total", "limite"], referenceValues: ["10,12"], maxInvalid: 0 }, /arreglo JSON/],
     [{ ...validRule, kind: "referential_integrity", columns: ["total", "total"], referenceValues: ["[10,10]"], maxInvalid: 0 }, /no repitas/],
+    [{ ...validRule, direction: "decreasing" }, /direction solo aplica/],
+    [{ ...validRule, kind: "monotonic", direction: "sideways" } as unknown as QualityRule, /dirección monotónica válida/],
+    [{ ...validRule, kind: "aggregate_check", maxInvalid: 0 }, /valor esperado o referencias/],
+    [{ ...validRule, kind: "aggregate_check", expected: 2, referenceValues: ["bad"], maxInvalid: 0 }, /referencias numéricas/],
+    [{ ...validRule, kind: "aggregate_reconciliation", columns: ["total"], maxInvalid: 0 }, /exactamente dos columnas/],
+    [{ ...validRule, kind: "aggregate_check", expected: 2, toleranceAbs: -1, maxInvalid: 0 }, /tolerancia absoluta/],
+    [{ ...validRule, kind: "distribution_drift", maxInvalid: 0 }, /línea base numérica/],
+    [{ ...validRule, kind: "distribution_drift", baseline: ["bad"], maxInvalid: 0 }, /línea base deben ser finitos/],
+    [{ ...validRule, kind: "distribution_drift", baseline: ["1", "2"], threshold: -1, maxInvalid: 0 }, /umbral/],
    ] satisfies Array<[QualityRule, RegExp]>)("rechaza borradores inválidos", (rule, message) => {
     expect(validateQualityRuleDraft([rule], dataset)).toMatch(message);
   });
@@ -105,6 +114,22 @@ describe("validateQualityRuleDraft", () => {
         kind: "referential_integrity",
         columns: ["total", "limite"],
         referenceValues: ["[10,12]", "[20,20]"],
+        maxInvalid: 0,
+      },
+      { column: "total", kind: "monotonic", direction: "increasing", maxInvalid: 0 },
+      { column: "total", kind: "aggregate_check", aggregate: "sum", expected: 30, maxInvalid: 0 },
+      {
+        column: "total",
+        kind: "aggregate_reconciliation",
+        columns: ["total", "limite"],
+        toleranceAbs: 2,
+        maxInvalid: 0,
+      },
+      {
+        column: "total",
+        kind: "distribution_drift",
+        baseline: ["10", "20"],
+        threshold: 0,
         maxInvalid: 0,
       },
       {
