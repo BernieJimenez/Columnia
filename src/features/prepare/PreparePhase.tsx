@@ -23,6 +23,7 @@ interface PreparePhaseProps {
   onRemoveHighNullColumns: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
+  onImputeMissingValues: () => void;
   onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
   onApplyRecommended: () => void;
@@ -50,6 +51,7 @@ export function PreparePhase({
   onRemoveHighNullColumns,
   onNormalizeSentinels,
   onNormalizeBooleans,
+  onImputeMissingValues,
   onEnableRowAudit,
   onNormalizeColumns,
   onApplyRecommended,
@@ -171,6 +173,7 @@ export function PreparePhase({
               onRemoveHighNullColumns={onRemoveHighNullColumns}
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
+              onImputeMissingValues={onImputeMissingValues}
         />
       )}
       <section className="prepare-card" aria-labelledby="row-audit-title">
@@ -331,6 +334,7 @@ function CleaningSignals({
   onRemoveHighNullColumns,
   onNormalizeSentinels,
   onNormalizeBooleans,
+  onImputeMissingValues,
 }: {
   profile: DatasetProfile;
   busy: boolean;
@@ -339,8 +343,12 @@ function CleaningSignals({
   onRemoveHighNullColumns: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
+  onImputeMissingValues: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
+  const imputable = incomplete.filter(
+    (column) => column.nullCount > 0 && column.nullCount < profile.rowCount && column.name !== "_cambios",
+  );
   const constant = profile.columns.filter(
     (column) => profile.rowCount > 1 && column.uniqueCount <= 1 && column.nullCount < profile.rowCount,
   );
@@ -352,6 +360,7 @@ function CleaningSignals({
       column.nullCount * 100 >= profile.rowCount * 80,
   );
   const sentinels = profile.columns.filter((column) => (column.sentinelCount ?? 0) > 0);
+  const nearDuplicates = profile.nearDuplicateRowCount > 0;
   const booleans = profile.columns.filter(
     (column) => column.suggestedType === "boolean" && (column.typeMatchPercentage ?? 0) >= 90,
   );
@@ -359,7 +368,7 @@ function CleaningSignals({
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
-  const hasSignals = profile.duplicateRowCount > 0 || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || booleans.length > 0 || typeDrift.length > 0 || personal.length > 0;
+  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || booleans.length > 0 || typeDrift.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -373,6 +382,9 @@ function CleaningSignals({
           <ul className="cleaning-signals__list">
           {profile.duplicateRowCount > 0 && (
             <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas de forma reversible.</li>
+          )}
+          {nearDuplicates && (
+            <li><strong>Duplicados parecidos:</strong> {profile.nearDuplicateRowCount.toLocaleString()} filas adicionales coinciden al normalizar mayúsculas, espacios y acentos; requieren revisión manual.</li>
           )}
           {incomplete.length > 0 && (
             <li><strong>Completitud:</strong> {incomplete.length} {incomplete.length === 1 ? "columna tiene" : "columnas tienen"} al menos un nulo: {incomplete.map((column) => column.name).join(", ")}.</li>
@@ -451,6 +463,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onNormalizeBooleans} disabled={busy}>
                 Normalizar booleanos
+              </button>
+            </div>
+          )}
+          {imputable.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Intenta completar solo nulos: usa el valor textual más repetido cuando aparece al
+                menos dos veces y la mediana observada para columnas numéricas. No modifica blancos,
+                centinelas ni _cambios.
+              </p>
+              <button type="button" onClick={onImputeMissingValues} disabled={busy}>
+                Intentar imputación conservadora
               </button>
             </div>
           )}

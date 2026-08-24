@@ -19,9 +19,11 @@ const dataset: DatasetPreview = {
   columnCount: 2,
   columns: [
     { name: "total", dataType: "Int64" },
+    { name: "limite", dataType: "Int64" },
     { name: "estado", dataType: "String" },
+    { name: "fecha", dataType: "String" },
   ],
-  rows: [["10", "ok"], ["20", "ok"]],
+  rows: [["10", "12", "ok", "2024-01-01"], ["20", "20", "ok", "2024-06-01"]],
 };
 
 const validRule: QualityRule = {
@@ -58,6 +60,10 @@ describe("validateQualityRuleDraft", () => {
     [{ ...validRule, kind: "numeric_range", min: 2.5 }, /enteros seguros/],
     [{ ...validRule, kind: "numeric_range", min: 20, max: 10 }, /mínimo no puede superar/],
     [{ ...validRule, min: 10 }, /solo se permiten para rangos/],
+    [{ ...validRule, kind: "column_compare", columns: ["total", "limite"], maxInvalid: 0 }, /operador de comparación/],
+    [{ ...validRule, kind: "column_compare", columns: ["total", "estado"], operator: "lte", maxInvalid: 0 }, /compartir tipo físico/],
+    [{ ...validRule, column: "fecha", kind: "date_range", maxInvalid: 0 }, /fecha mínima/],
+    [{ ...validRule, column: "fecha", kind: "date_range", minDate: "2024-12-31", maxDate: "2024-01-01", maxInvalid: 0 }, /no puede superar/],
   ] satisfies Array<[QualityRule, RegExp]>)("rechaza borradores inválidos", (rule, message) => {
     expect(validateQualityRuleDraft([rule], dataset)).toMatch(message);
   });
@@ -75,6 +81,15 @@ describe("validateQualityRuleDraft", () => {
       { column: "estado", kind: "regex", pattern: "^(ok|pending)$", maxInvalidPct: 0 },
       { column: "total", kind: "dtype", dtype: "integer", maxInvalid: 0 },
       { column: "total", kind: "unique_together", columns: ["total", "estado"], maxInvalid: 0 },
+      { column: "total", kind: "column_compare", columns: ["total", "limite"], operator: "lte", maxInvalid: 0 },
+      { column: "fecha", kind: "date_range", minDate: "2024-01-01", maxDate: "2024-12-31", maxInvalid: 0 },
+      {
+        column: "total",
+        kind: "conditional",
+        when: { column: "estado", operator: "eq", value: "ok" },
+        then: { column: "total", kind: "numeric_range", min: 0, maxInvalid: 0 },
+        maxInvalid: 0,
+      },
       { column: QUALITY_DATASET_COLUMN, kind: "row_count", min: 1, max: 10, maxInvalid: 0 },
     ];
 
@@ -85,6 +100,14 @@ describe("validateQualityRuleDraft", () => {
     [{ column: "estado", kind: "allowed_values", maxInvalid: 0 }, /al menos un valor/],
     [{ column: "estado", kind: "regex", pattern: "[", maxInvalid: 0 }, /patrón regular no es válido/],
     [{ column: "total", kind: "unique_together", columns: ["total"], maxInvalid: 0 }, /al menos dos columnas/],
+    [{ column: "total", kind: "conditional", maxInvalid: 0 }, /condición when/],
+    [{
+      column: "total",
+      kind: "conditional",
+      when: { column: "estado", operator: "eq", value: "ok" },
+      then: { column: "total", kind: "unique", maxInvalid: 0 },
+      maxInvalid: 0,
+    }, /then solo admite/],
     [{ column: QUALITY_DATASET_COLUMN, kind: "row_count", maxInvalid: 0 }, /al menos un límite/],
   ] satisfies Array<[QualityRule, RegExp]>)("rechaza reglas avanzadas incompletas", (rule, message) => {
     expect(validateQualityRuleDraft([rule], dataset)).toMatch(message);

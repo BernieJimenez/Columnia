@@ -21,9 +21,14 @@ const dataset: DatasetPreview = {
   fileName: "ventas.csv",
   fileSizeBytes: 2048,
   rowCount: 2,
-  columnCount: 1,
-  columns: [{ name: "total", dataType: "Int64" }],
-  rows: [["10"], ["20"]],
+  columnCount: 4,
+  columns: [
+    { name: "total", dataType: "Int64" },
+    { name: "limite", dataType: "Int64" },
+    { name: "estado", dataType: "String" },
+    { name: "fecha", dataType: "String" },
+  ],
+  rows: [["10", "12", "ok", "2024-01-01"], ["20", "20", "ok", "2024-06-01"]],
 };
 
 function DeliveryHarness({ onExport }: { onExport: (request: DeliveryExportRequest) => void }) {
@@ -183,6 +188,60 @@ describe("DeliveryPhase", () => {
 
     expect(screen.getByRole("textbox", { name: "Valores permitidos regla 1" })).toBeInTheDocument();
     expect(screen.getByText("Un valor por línea; se compara sin transformar.")).toBeInTheDocument();
+  });
+
+  it("expone operadores y dos columnas para comparar columnas", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "column_compare" },
+    });
+
+    expect(screen.getByRole("combobox", { name: "Columna izquierda comparar regla 1" })).toHaveValue("total");
+    expect(screen.getByRole("combobox", { name: "Operador comparar regla 1" })).toHaveValue("eq");
+    expect(screen.getByRole("combobox", { name: "Columna derecha comparar regla 1" })).toHaveValue("limite");
+    fireEvent.change(screen.getByRole("combobox", { name: "Operador comparar regla 1" }), {
+      target: { value: "lte" },
+    });
+    expect(screen.getByRole("combobox", { name: "Operador comparar regla 1" })).toHaveValue("lte");
+  });
+
+  it("expone límites de fecha para date_range", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "date_range" },
+    });
+    fireEvent.change(screen.getByLabelText("Columna regla 1"), { target: { value: "fecha" } });
+    fireEvent.change(screen.getByLabelText("Fecha mínima regla 1"), { target: { value: "2024-01-01" } });
+    fireEvent.change(screen.getByLabelText("Fecha máxima regla 1"), { target: { value: "2024-12-31" } });
+
+    expect(screen.getByLabelText("Fecha mínima regla 1")).toHaveValue("2024-01-01");
+    expect(screen.getByLabelText("Fecha máxima regla 1")).toHaveValue("2024-12-31");
+  });
+
+  it("expone la condición y la subregla then de conditional", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
+      target: { value: "conditional" },
+    });
+
+    expect(screen.getByRole("combobox", { name: "Columna condición regla 1" })).toHaveValue("total");
+    expect(screen.getByRole("combobox", { name: "Operador condición regla 1" })).toHaveValue("eq");
+    expect(screen.getByRole("textbox", { name: "Valor condición regla 1" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Columna objetivo conditional regla 1" })).toHaveValue("total");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación then regla 1" }), {
+      target: { value: "allowed_values" },
+    });
+    expect(screen.getByRole("textbox", { name: "Valores permitidos then regla 1" })).toBeInTheDocument();
   });
 
   it("importa reglas DataPrep, aplica las convertibles y muestra las omitidas", async () => {

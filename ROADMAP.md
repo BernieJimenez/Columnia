@@ -1068,15 +1068,20 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   exclusión de tipos no textuales y de `_cambios`.
 - [x] Normalizar alias booleanos textuales (`yes`/`no`, `sí`/`no`, `true`/`false`)
   de forma reversible, conservando tokens no reconocidos y mostrando el impacto.
+- [x] Detectar duplicados parecidos de forma agregada, excluyendo los exactos,
+  normalizando mayúsculas, espacios y acentos sin eliminar filas automáticamente.
+- [x] Intentar imputación conservadora y reversible de nulos: moda textual con
+  evidencia repetida y mediana numérica observada, preservando tipos y `_cambios`.
 - [x] Clasificar señales agregadas de privacidad por nombre de columna (correo,
   teléfono, dirección, identificador y nombre) sin exponer valores en el perfil.
 - [x] Activar una columna reservada `_cambios` para trazabilidad local por fila;
   las mutaciones posteriores conservan/añaden la etiqueta de operación y la
   columna queda protegida de la limpieza textual general.
-- [ ] Migrar el catálogo completo de limpieza sugerida: duplicados exactos y
-  difusos, columnas/filas vacías, constantes, identificadores y alto porcentaje
-  de nulos, centinelas, imputación, booleanos, PII, auditoría `_cambios` y
-  confirmación por impacto.
+- [ ] Completar la migración del catálogo de limpieza sugerida: identificadores,
+  eliminación difusa con confirmación explícita por impacto, PII y las reglas
+  avanzadas que aún no tengan una acción reversible; ya están cubiertos los
+  duplicados exactos/parecidos como señal, vacíos, constantes, alta nulidad,
+  centinelas, imputación conservadora, booleanos y auditoría `_cambios`.
 - [x] Añadir una visualización accesible de distribución numérica tipo boxplot
   usando mínimo, cuartiles, mediana y máximo, con tabla exacta equivalente.
 - [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
@@ -1086,9 +1091,18 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
   `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.
-- [ ] Completar los contratos de calidad versionados con comparación de columnas,
-  condicionales, integridad referencial, esquema, fechas, monotonía, agregados y
-  drift; después añadir versionado/compatibilidad explícita del documento.
+- [x] Añadir `column_compare` a los contratos de calidad: operadores `eq`, `ne`,
+  `lt`, `lte`, `gt` y `gte`, comparación local con nulos inválidos, tolerancias,
+  migración segura desde DataPrep, bridge tipado, editor accesible y pruebas.
+- [x] Añadir `date_range` a los contratos de calidad: límites `minDate`/`maxDate`,
+  parseo seguro de texto/Date/Datetime, valores nulos o ilegibles inválidos,
+  migración DataPrep, bridge tipado, editor accesible y evaluación compartida.
+- [x] Añadir `conditional` a los contratos de calidad con condiciones `eq`, `ne`,
+  `lt`, `lte`, `gt` y `gte`, subreglas fila-a-fila seguras, tolerancia exterior,
+  migración DataPrep, bridge tipado, editor accesible y evaluación compartida.
+- [ ] Completar los contratos de calidad versionados con integridad
+  referencial, esquema, fechas, monotonía, agregados y drift; después añadir
+  versionado/compatibilidad explícita del documento.
 - [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
   preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.
 - [x] Añadir consulta SQL local restringida de solo lectura sobre `dataset`, con
@@ -1248,6 +1262,9 @@ del original.
 | 2026-08-23 | Fase I8: documentación Diátaxis, índice de ADR/CHANGELOG, validadores de enlaces/UTF-8/versiones/ownership y evidencia visual reproducible desde el binario release con baseline de hashes; lector de pantalla manual sigue en I3 | Implementada |
 | 2026-08-23 | Fase I1 completa: receta Polars lazy con fallback eager seguro, monitor nativo compacto de CPU/RAM, benchmark cruzado de 100 MiB contra `dataprepv1.1` y revisión visual desktop/móvil/zoom/forced-colors | Implementada |
 | 2026-08-23 | P1: contrato de calidad v3 ampliado con `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; evaluación Rust/CLI/exportación, bridge/UI accesibles y tests end-to-end | Implementada |
+| 2026-08-24 | P1: `column_compare` completa la comparación de dos columnas con seis operadores, nulos inválidos, tolerancias, migración DataPrep, editor accesible y evaluación compartida por UI/CLI/exportación | Implementada |
+| 2026-08-24 | P1: `date_range` añade límites inclusivos de fecha, soporte texto/Date/Datetime, rechazo de nulos/fechas ilegibles, migración DataPrep, editor accesible y evaluación compartida | Implementada |
+| 2026-08-24 | P1: `conditional` añade condiciones eq/ne/lt/lte/gt/gte, subreglas then fila-a-fila seguras, tolerancia exterior, migración DataPrep, editor accesible y evaluación compartida | Implementada |
 | 2026-08-23 | I3/I4/I5: cobertura V8 y smoke CDP reales pasan; `cargo audit`/`cargo deny`, npm audit, secret scan, notices, política de red y SBOM pasan; Package produjo MSI/NSIS 0.49.0. El benchmark CLI de 256 MiB pasó el flujo durable, pero excedió el presupuesto de 512 MiB; quedan selector Win32, lector de pantalla y VM limpia | Parcial, con evidencia |
 
 ## 10. Fuentes de esta revisión

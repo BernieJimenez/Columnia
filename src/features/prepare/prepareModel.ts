@@ -4,7 +4,7 @@ export type ChangeStatus =
   | { kind: "idle" }
   | {
       kind: "working";
-      action: "safe" | "duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "sentinels" | "booleans" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+      action: "safe" | "duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "sentinels" | "booleans" | "impute" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
     }
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
@@ -62,6 +62,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     high_null_columns: "Eliminando columnas con alta nulidad…",
     sentinels: "Normalizando valores centinela…",
     booleans: "Normalizando booleanos…",
+    impute: "Imputando nulos de forma conservadora…",
     audit: "Activando trazabilidad por fila…",
     columns: "Normalizando nombres de columnas…",
     trim: "Recortando espacios exteriores…",

@@ -53,6 +53,7 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyHighNullColumnRemoval}>Alta nulidad</button>
     <button type="button" onClick={controller.applySentinelNormalization}>Centinelas</button>
     <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
+    <button type="button" onClick={controller.applyMissingValueImputation}>Imputar</button>
     <button type="button" onClick={controller.applyRowAudit}>Auditoría</button>
     <button type="button" onClick={controller.undoChange}>Deshacer controlador</button>
     <output>{controller.changeStatus.kind === "applied" ? controller.changeStatus.message : controller.changeStatus.kind}</output>
@@ -197,6 +198,28 @@ describe("usePrepareController", () => {
     fireEvent.click(screen.getByRole("button", { name: "Booleanos" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
       "Se normalizaron 2 valores booleanos en: activo.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("imputa nulos de forma conservadora y publica el impacto", async () => {
+    vi.spyOn(bridge, "imputeMissingValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 2,
+      changedCellCount: 2,
+      changedColumns: [{ name: "estado", changedCellCount: 2 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Imputar" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se imputaron 2 valores nulos en: estado.",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();

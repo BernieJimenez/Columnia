@@ -70,6 +70,7 @@ describe("App", () => {
       profile: {
         rowCount: 1,
         duplicateRowCount: 0,
+        nearDuplicateRowCount: 0,
         duplicatePercentage: 0,
         columns: [],
       },
@@ -199,7 +200,7 @@ describe("App", () => {
       project,
       dataset,
       workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null },
-      profile: { rowCount: 1, duplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
+      profile: { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
     });
     mockDatasetLoad(dataset);
 
@@ -416,6 +417,7 @@ describe("App", () => {
     resolveProfile({
       rowCount: 1,
       duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
       duplicatePercentage: 0,
       columns: [],
     });
@@ -734,6 +736,7 @@ describe("App", () => {
     const profileSpy = vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
       rowCount: 3,
       duplicateRowCount: 1,
+      nearDuplicateRowCount: 0,
       duplicatePercentage: 33.333,
       columns: [
         {
@@ -847,6 +850,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
       rowCount: 2,
       duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
       duplicatePercentage: 0,
       columns: [
         {
@@ -905,6 +909,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
       rowCount: 10,
       duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
       duplicatePercentage: 0,
       columns: [
         {
@@ -963,6 +968,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
       rowCount: 5,
       duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
       duplicatePercentage: 0,
       columns: [
         {

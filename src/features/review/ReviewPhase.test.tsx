@@ -23,6 +23,7 @@ const dataset: DatasetPreview = {
 const profile: DatasetProfile = {
   rowCount: 120,
   duplicateRowCount: 3,
+  nearDuplicateRowCount: 0,
   duplicatePercentage: 2.5,
   columns: [
     {

@@ -19,6 +19,28 @@ const SUPPORTED_QUALITY_DTYPES = new Set([
   "date",
   "datetime",
 ]);
+const QUALITY_COMPARISONS = new Set(["eq", "ne", "lt", "lte", "gt", "gte"]);
+const ORDERING_COMPARISONS = new Set(["lt", "lte", "gt", "gte"]);
+
+function parseQualityDateBound(value: string): number | null {
+  const normalized = value.trim();
+  const dayFirst = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(normalized);
+  if (dayFirst) {
+    const parsed = Date.parse(`${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}T00:00:00Z`);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function supportsQualityOrdering(dataType: string): boolean {
+  const normalized = dataType.toLowerCase();
+  return normalized === "string"
+    || normalized.includes("int")
+    || normalized.includes("float")
+    || normalized.includes("decimal")
+    || normalized.includes("number");
+}
 
 export type QualityGateState =
   | { kind: "idle" }
@@ -126,10 +148,84 @@ export function validateQualityRuleDraft(
   for (const [index, rule] of rules.entries()) {
     const label = `Regla ${index + 1}`;
     const isDatasetRule = rule.kind === "row_count";
+    const isTogetherRule = rule.kind === "unique_together";
+    const isCompareRule = rule.kind === "column_compare";
+    const isDateRangeRule = rule.kind === "date_range";
+    const isConditionalRule = rule.kind === "conditional";
     const column = columns.get(rule.column);
-    if (!isDatasetRule && !column) return `${label}: selecciona una columna existente.`;
+    if (!isDatasetRule && !isTogetherRule && !column) return `${label}: selecciona una columna existente.`;
     if (isDatasetRule && rule.column !== QUALITY_DATASET_COLUMN) {
       return `${label}: la comprobación de filas debe usar el dataset completo.`;
+    }
+
+    if (isCompareRule) {
+      const compareColumns = rule.columns ?? [];
+      if (compareColumns.length !== 2) {
+        return `${label}: selecciona exactamente dos columnas para comparar.`;
+      }
+      if (compareColumns[0] !== rule.column) {
+        return `${label}: la primera columna comparada debe coincidir con la columna principal.`;
+      }
+      if (compareColumns[0] === compareColumns[1]) {
+        return `${label}: selecciona dos columnas distintas para comparar.`;
+      }
+      const left = columns.get(compareColumns[0]);
+      const right = columns.get(compareColumns[1]);
+      if (!left || !right) return `${label}: ambas columnas comparadas deben existir.`;
+      if (left.dataType !== right.dataType) {
+        return `${label}: las columnas comparadas deben compartir tipo físico.`;
+      }
+      if (!rule.operator || !QUALITY_COMPARISONS.has(rule.operator)) {
+        return `${label}: selecciona un operador de comparación válido.`;
+      }
+      if (ORDERING_COMPARISONS.has(rule.operator) && !supportsQualityOrdering(left.dataType)) {
+        return `${label}: ese operador solo aplica a texto o columnas numéricas.`;
+      }
+    } else if (rule.operator !== undefined) {
+      return `${label}: el operador solo aplica a column_compare.`;
+    }
+
+    if (!isConditionalRule && (rule.when !== undefined || rule.then !== undefined)) {
+      return `${label}: when y then solo aplican a conditional.`;
+    }
+    if (isConditionalRule) {
+      const condition = rule.when;
+      const then = rule.then;
+      if (!condition) return `${label}: indica la condición when.`;
+      if (!columns.has(condition.column)) {
+        return `${label}: la columna de when debe existir.`;
+      }
+      const normalizedConditionType = (columns.get(condition.column)?.dataType ?? "").toLowerCase();
+      if (!new Set(["string", "int64", "float64", "boolean"]).has(normalizedConditionType)) {
+        return `${label}: when solo admite columnas String, Int64, Float64 o Boolean.`;
+      }
+      if (!condition.operator || !QUALITY_COMPARISONS.has(condition.operator)) {
+        return `${label}: selecciona un operador válido para when.`;
+      }
+      const conditionType = columns.get(condition.column)?.dataType ?? "";
+      if (!supportsQualityOrdering(conditionType) && ORDERING_COMPARISONS.has(condition.operator)) {
+        return `${label}: ese operador de when solo aplica a texto o columnas numéricas.`;
+      }
+      if (condition.value === undefined) {
+        return `${label}: indica el valor de when.`;
+      }
+      if (!then) return `${label}: indica la comprobación then.`;
+      const conditionalKinds = new Set([
+        "not_null",
+        "non_empty",
+        "numeric_range",
+        "allowed_values",
+        "regex",
+        "dtype",
+      ]);
+      if (!conditionalKinds.has(then.kind)) {
+        return `${label}: then solo admite sin nulos, texto no vacío, rango numérico, valores permitidos, regex o tipo esperado.`;
+      }
+      if (then.maxInvalid !== 0 || then.maxInvalidPct !== undefined) {
+        return `${label}: la tolerancia de then debe ser exactamente 0 inválidos.`;
+      }
+      const thenError = validateQualityRuleDraft([then], dataset);
+      if (thenError) return `${label}: la comprobación then no es válida (${thenError}).`;
     }
 
     const hasCount = rule.maxInvalid !== undefined;
@@ -170,6 +266,29 @@ export function validateQualityRuleDraft(
       return `${label}: los límites solo se permiten para rangos numéricos o conteo de filas.`;
     }
 
+    if (isDateRangeRule) {
+      if (rule.minDate === undefined && rule.maxDate === undefined) {
+        return `${label}: indica una fecha mínima, máxima o ambas.`;
+      }
+      const minimum = rule.minDate === undefined ? null : parseQualityDateBound(rule.minDate);
+      const maximum = rule.maxDate === undefined ? null : parseQualityDateBound(rule.maxDate);
+      if (rule.minDate !== undefined && minimum === null) {
+        return `${label}: la fecha mínima no es válida.`;
+      }
+      if (rule.maxDate !== undefined && maximum === null) {
+        return `${label}: la fecha máxima no es válida.`;
+      }
+      if (minimum !== null && maximum !== null && minimum > maximum) {
+        return `${label}: la fecha mínima no puede superar la máxima.`;
+      }
+      const normalizedType = column?.dataType.toLowerCase();
+      if (normalizedType !== "string" && normalizedType !== "date" && normalizedType !== "datetime") {
+        return `${label}: date_range solo aplica a texto, date o datetime.`;
+      }
+    } else if (rule.minDate !== undefined || rule.maxDate !== undefined) {
+      return `${label}: las fechas límite solo aplican a date_range.`;
+    }
+
     if (rule.kind === "allowed_values") {
       if (!rule.values || rule.values.length === 0) {
         return `${label}: indica al menos un valor permitido.`;
@@ -206,15 +325,17 @@ export function validateQualityRuleDraft(
       return `${label}: el tipo esperado solo aplica a dtype.`;
     }
 
-    if (rule.kind === "unique_together") {
+    if (isTogetherRule || isCompareRule) {
       if (!rule.columns || rule.columns.length < 2) {
-        return `${label}: selecciona al menos dos columnas.`;
+        return isCompareRule
+          ? `${label}: selecciona exactamente dos columnas para comparar.`
+          : `${label}: selecciona al menos dos columnas.`;
       }
       if (rule.columns.some((name) => !columns.has(name))) {
         return `${label}: todas las columnas compuestas deben existir.`;
       }
     } else if (rule.columns !== undefined) {
-      return `${label}: la selección múltiple solo aplica a unique_together.`;
+      return `${label}: la selección múltiple solo aplica a unique_together o column_compare.`;
     }
   }
 

@@ -269,6 +269,9 @@ function normalizeRustFieldType(type: string): string {
   const option = genericContents(withoutReference, "Option");
   if (option !== null) return `optional<${normalizeRustFieldType(option)}>`;
 
+  const boxed = genericContents(withoutReference, "Box");
+  if (boxed !== null) return normalizeRustFieldType(boxed);
+
   const vector = genericContents(withoutReference, "Vec");
   if (vector !== null) return `array<${normalizeRustFieldType(vector)}>`;
 
@@ -282,6 +285,7 @@ function normalizeRustFieldType(type: string): string {
   if (
     [
       "QualityRuleKind",
+      "QualityComparison",
       "RecipeCastTarget",
       "RecipeDateFormat",
       "RecipeDateTarget",
@@ -464,6 +468,7 @@ describe("contrato IPC", () => {
       ["ResourceUsage", "ResourceUsage"],
       ["OperationProgress", "OperationProgress"],
       ["ExportResult", "ExportResult"],
+      ["QualityCondition", "QualityCondition"],
       ["QualityRule", "QualityRule"],
       ["QualityRuleResult", "QualityRuleResult"],
       ["QualityValidationResult", "QualityValidationResult"],
@@ -536,6 +541,7 @@ describe("contrato IPC", () => {
       ["ResourceUsage", "ResourceUsage"],
       ["OperationProgress", "OperationProgress"],
       ["ExportResult", "ExportResult"],
+      ["QualityCondition", "QualityCondition"],
       ["QualityRule", "QualityRule"],
       ["QualityRuleResult", "QualityRuleResult"],
       ["QualityValidationResult", "QualityValidationResult"],

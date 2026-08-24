@@ -33,6 +33,7 @@ const emptyRecipe: TransformRecipe = {
 const cleaningSignalsProfile: DatasetProfile = {
   rowCount: 5,
   duplicateRowCount: 1,
+  nearDuplicateRowCount: 1,
   duplicatePercentage: 20,
   columns: [{
     name: "email",
@@ -125,6 +126,7 @@ describe("PreparePhase", () => {
       onRemoveHighNullColumns={() => undefined}
       onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
@@ -162,7 +164,7 @@ describe("PreparePhase", () => {
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
       historyStatus={history} onAnalyzeQuality={() => undefined} onCancelProfile={() => undefined}
       recipeDraft={null} recipeSession={0}
-      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeSentinels={() => undefined} onNormalizeBooleans={() => undefined} onEnableRowAudit={() => undefined} onNormalizeColumns={() => undefined}
+      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeSentinels={() => undefined} onNormalizeBooleans={() => undefined} onImputeMissingValues={() => undefined} onEnableRowAudit={() => undefined} onNormalizeColumns={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onApplyRecommended={() => undefined} onTrimText={() => undefined}
       onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
@@ -182,6 +184,7 @@ describe("PreparePhase", () => {
     const onRemoveHighNullColumns = vi.fn();
     const onNormalizeSentinels = vi.fn();
     const onNormalizeBooleans = vi.fn();
+    const onImputeMissingValues = vi.fn();
     const onEnableRowAudit = vi.fn();
     render(<PreparePhase
       dataset={dataset}
@@ -199,6 +202,7 @@ describe("PreparePhase", () => {
       onRemoveHighNullColumns={onRemoveHighNullColumns}
       onNormalizeSentinels={onNormalizeSentinels}
       onNormalizeBooleans={onNormalizeBooleans}
+      onImputeMissingValues={onImputeMissingValues}
       onEnableRowAudit={onEnableRowAudit}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
@@ -213,6 +217,7 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
     expect(screen.getByRole("list")).toHaveTextContent("1 filas adicionales");
     expect(screen.getByRole("list")).toHaveTextContent("Posible dato personal: revisa el tratamiento de email");
+    expect(screen.getByRole("list")).toHaveTextContent("Duplicados parecidos: 1");
     expect(screen.getByRole("list")).toHaveTextContent("Tipos sugeridos:");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
@@ -224,6 +229,8 @@ describe("PreparePhase", () => {
     expect(onNormalizeSentinels).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Normalizar booleanos" }));
     expect(onNormalizeBooleans).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Intentar imputación conservadora" }));
+    expect(onImputeMissingValues).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Activar trazabilidad" }));
     expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });

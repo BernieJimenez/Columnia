@@ -636,6 +636,7 @@ export function App() {
               onRemoveHighNullColumns={prepare.applyHighNullColumnRemoval}
               onNormalizeSentinels={prepare.applySentinelNormalization}
               onNormalizeBooleans={prepare.applyBooleanNormalization}
+              onImputeMissingValues={prepare.applyMissingValueImputation}
               onEnableRowAudit={prepare.applyRowAudit}
               onNormalizeColumns={prepare.applyColumnNormalization}
               onApplyRecommended={prepare.applyRecommendedCorrections}

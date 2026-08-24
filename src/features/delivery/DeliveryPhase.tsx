@@ -8,6 +8,7 @@ import {
   type ExportFormat,
   type PrivacyMode,
   type QualityMigrationResult,
+  type QualityComparison,
   type QualityRule,
   type QualityRuleKind,
 } from "../../bridge";
@@ -74,15 +75,22 @@ export function DeliveryPhase({
   function changeRuleKind(index: number, kind: QualityRuleKind) {
     const rule = rules[index];
     const firstColumn = dataset.columns[0]?.name ?? "";
-    const nextColumns = kind === "unique_together"
+    const usesMultipleColumns = kind === "unique_together" || kind === "column_compare";
+    const nextColumns = usesMultipleColumns
       ? rule.columns?.filter((name) => dataset.columns.some((column) => column.name === name))
         ?? dataset.columns.slice(0, 2).map((column) => column.name)
       : undefined;
     const nextColumn = kind === "row_count"
       ? QUALITY_DATASET_COLUMN
-      : kind === "unique_together"
+      : usesMultipleColumns
         ? nextColumns?.[0] ?? firstColumn
         : rule.column === QUALITY_DATASET_COLUMN ? firstColumn : rule.column;
+    const nextConditionColumn = rule.when?.column && dataset.columns.some((column) => column.name === rule.when?.column)
+      ? rule.when.column
+      : firstColumn;
+    const nextThenColumn = rule.then?.column && dataset.columns.some((column) => column.name === rule.then?.column)
+      ? rule.then.column
+      : nextColumn === QUALITY_DATASET_COLUMN ? firstColumn : nextColumn;
     updateRule(index, {
       kind,
       column: nextColumn,
@@ -91,8 +99,26 @@ export function DeliveryPhase({
       values: kind === "allowed_values" ? rule.values ?? [] : undefined,
       pattern: kind === "regex" ? rule.pattern ?? "" : undefined,
       dtype: kind === "dtype" ? rule.dtype ?? "string" : undefined,
-      columns: kind === "unique_together" ? nextColumns : undefined,
+      columns: usesMultipleColumns ? nextColumns : undefined,
+      operator: kind === "column_compare" ? rule.operator ?? "eq" : undefined,
+      minDate: kind === "date_range" ? rule.minDate : undefined,
+      maxDate: kind === "date_range" ? rule.maxDate : undefined,
+      when: kind === "conditional"
+        ? rule.when ?? { column: nextConditionColumn, operator: "eq", value: "" }
+        : undefined,
+      then: kind === "conditional"
+        ? rule.then ?? { column: nextThenColumn, kind: "not_null", maxInvalid: 0 }
+        : undefined,
     });
+  }
+
+  function updateConditionalThen(index: number, update: Partial<QualityRule>) {
+    const rule = rules[index];
+    const fallbackColumn = rule.column === QUALITY_DATASET_COLUMN
+      ? dataset.columns[0]?.name ?? ""
+      : rule.column;
+    const then = rule.then ?? { column: fallbackColumn, kind: "not_null" as const, maxInvalid: 0 };
+    updateRule(index, { then: { ...then, ...update } });
   }
 
   function updateTogetherColumns(index: number, name: string, checked: boolean) {
@@ -101,6 +127,17 @@ export function DeliveryPhase({
       ? [...current, name]
       : current.filter((column) => column !== name);
     updateRule(index, { columns: next, column: next[0] ?? dataset.columns[0]?.name ?? "" });
+  }
+
+  function updateComparisonColumn(index: number, position: 0 | 1, name: string) {
+    const rule = rules[index];
+    const current = rule.columns ?? dataset.columns.slice(0, 2).map((column) => column.name);
+    const next = [...current];
+    next[position] = name;
+    updateRule(index, {
+      columns: next,
+      column: next[0] ?? dataset.columns[0]?.name ?? "",
+    });
   }
 
   async function runQualityGate() {
@@ -183,10 +220,12 @@ export function DeliveryPhase({
                   : hasPercentageTolerance ? "percentage" : "count";
                 const isDatasetRule = rule.kind === "row_count";
                 const isTogetherRule = rule.kind === "unique_together";
+                const isCompareRule = rule.kind === "column_compare";
+                const isConditionalRule = rule.kind === "conditional";
                 return (
                   <fieldset className="quality-rule" key={index} disabled={busy}>
                     <legend>Regla {index + 1}</legend>
-                    {!isDatasetRule && !isTogetherRule && <label>Columna
+                    {!isDatasetRule && !isTogetherRule && !isCompareRule && <label>Columna
                       <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
                         onChange={(event) => updateRule(index, { column: event.target.value })}>
                         {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
@@ -203,6 +242,9 @@ export function DeliveryPhase({
                         <option value="regex">Expresión regular</option>
                         <option value="dtype">Tipo esperado</option>
                         <option value="unique_together" disabled={dataset.columns.length < 2}>Unicidad compuesta</option>
+                        <option value="column_compare" disabled={dataset.columns.length < 2}>Comparar columnas</option>
+                        <option value="date_range">Rango de fechas</option>
+                        <option value="conditional">Comprobación condicional</option>
                         <option value="row_count">Conteo de filas</option>
                       </select>
                     </label>
@@ -244,6 +286,30 @@ export function DeliveryPhase({
                           <input type="number" aria-label={`Máximo regla ${index + 1}`}
                             value={rule.max ?? ""}
                             onChange={(event) => updateRule(index, { max: event.target.value === "" ? undefined : Number(event.target.value) })} />
+                        </label>
+                      </>
+                    )}
+                    {rule.kind === "date_range" && (
+                      <>
+                        <label>Fecha mínima inclusiva
+                          <input
+                            type="date"
+                            aria-label={`Fecha mínima regla ${index + 1}`}
+                            value={rule.minDate ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              minDate: event.target.value || undefined,
+                            })}
+                          />
+                        </label>
+                        <label>Fecha máxima inclusiva
+                          <input
+                            type="date"
+                            aria-label={`Fecha máxima regla ${index + 1}`}
+                            value={rule.maxDate ?? ""}
+                            onChange={(event) => updateRule(index, {
+                              maxDate: event.target.value || undefined,
+                            })}
+                          />
                         </label>
                       </>
                     )}
@@ -301,6 +367,203 @@ export function DeliveryPhase({
                           </label>
                         ))}
                       </fieldset>
+                    )}
+                    {isCompareRule && (
+                      <fieldset className="quality-rule__wide quality-rule__columns">
+                        <legend>Comparar columnas</legend>
+                        <label>Columna izquierda
+                          <select
+                            aria-label={`Columna izquierda comparar regla ${index + 1}`}
+                            value={rule.columns?.[0] ?? ""}
+                            onChange={(event) => updateComparisonColumn(index, 0, event.target.value)}
+                          >
+                            {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
+                          </select>
+                        </label>
+                        <label>Operador
+                          <select
+                            aria-label={`Operador comparar regla ${index + 1}`}
+                            value={rule.operator ?? "eq"}
+                            onChange={(event) => updateRule(index, { operator: event.target.value as QualityComparison })}
+                          >
+                            <option value="eq">Igual a</option>
+                            <option value="ne">Distinta de</option>
+                            <option value="lt">Menor que</option>
+                            <option value="lte">Menor o igual que</option>
+                            <option value="gt">Mayor que</option>
+                            <option value="gte">Mayor o igual que</option>
+                          </select>
+                        </label>
+                        <label>Columna derecha
+                          <select
+                            aria-label={`Columna derecha comparar regla ${index + 1}`}
+                            value={rule.columns?.[1] ?? ""}
+                            onChange={(event) => updateComparisonColumn(index, 1, event.target.value)}
+                          >
+                            {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
+                          </select>
+                        </label>
+                      </fieldset>
+                    )}
+                    {isConditionalRule && (
+                      <>
+                        <fieldset className="quality-rule__wide quality-rule__columns">
+                          <legend>Cuando se cumpla</legend>
+                          <label>Columna condición
+                            <select
+                              aria-label={`Columna condición regla ${index + 1}`}
+                              value={rule.when?.column ?? rule.column}
+                              onChange={(event) => updateRule(index, {
+                                when: {
+                                  column: event.target.value,
+                                  operator: rule.when?.operator ?? "eq",
+                                  value: rule.when?.value ?? "",
+                                },
+                              })}
+                            >
+                              {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
+                            </select>
+                          </label>
+                          <label>Operador condición
+                            <select
+                              aria-label={`Operador condición regla ${index + 1}`}
+                              value={rule.when?.operator ?? "eq"}
+                              onChange={(event) => updateRule(index, {
+                                when: {
+                                  column: rule.when?.column ?? rule.column,
+                                  operator: event.target.value as QualityComparison,
+                                  value: rule.when?.value ?? "",
+                                },
+                              })}
+                            >
+                              <option value="eq">Igual a</option>
+                              <option value="ne">Distinta de</option>
+                              <option value="lt">Menor que</option>
+                              <option value="lte">Menor o igual que</option>
+                              <option value="gt">Mayor que</option>
+                              <option value="gte">Mayor o igual que</option>
+                            </select>
+                          </label>
+                          <label>Valor esperado
+                            <input
+                              type="text"
+                              aria-label={`Valor condición regla ${index + 1}`}
+                              value={rule.when?.value ?? ""}
+                              onChange={(event) => updateRule(index, {
+                                when: {
+                                  column: rule.when?.column ?? rule.column,
+                                  operator: rule.when?.operator ?? "eq",
+                                  value: event.target.value,
+                                },
+                              })}
+                            />
+                          </label>
+                        </fieldset>
+                        <fieldset className="quality-rule__wide quality-rule__columns">
+                          <legend>Comprobar entonces</legend>
+                          <label>Columna objetivo
+                            <select
+                              aria-label={`Columna objetivo conditional regla ${index + 1}`}
+                              value={rule.then?.column ?? rule.column}
+                              onChange={(event) => updateConditionalThen(index, { column: event.target.value })}
+                            >
+                              {dataset.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
+                            </select>
+                          </label>
+                          <label>Comprobación then
+                            <select
+                              aria-label={`Comprobación then regla ${index + 1}`}
+                              value={rule.then?.kind ?? "not_null"}
+                              onChange={(event) => {
+                                const kind = event.target.value as QualityRuleKind;
+                                updateConditionalThen(index, {
+                                  kind,
+                                  min: undefined,
+                                  max: undefined,
+                                  values: kind === "allowed_values" ? rule.then?.values ?? [] : undefined,
+                                  pattern: kind === "regex" ? rule.then?.pattern ?? "" : undefined,
+                                  dtype: kind === "dtype" ? rule.then?.dtype ?? "string" : undefined,
+                                  columns: undefined,
+                                  operator: undefined,
+                                  minDate: undefined,
+                                  maxDate: undefined,
+                                  when: undefined,
+                                  then: undefined,
+                                });
+                              }}
+                            >
+                              <option value="not_null">Sin nulos</option>
+                              <option value="non_empty">Texto no vacío</option>
+                              <option value="numeric_range">Rango numérico</option>
+                              <option value="allowed_values">Valores permitidos</option>
+                              <option value="regex">Expresión regular</option>
+                              <option value="dtype">Tipo esperado</option>
+                            </select>
+                          </label>
+                          {(rule.then?.kind === "numeric_range") && (
+                            <>
+                              <label>Mínimo then
+                                <input
+                                  type="number"
+                                  aria-label={`Mínimo then regla ${index + 1}`}
+                                  value={rule.then.min ?? ""}
+                                  onChange={(event) => updateConditionalThen(index, {
+                                    min: event.target.value === "" ? undefined : Number(event.target.value),
+                                  })}
+                                />
+                              </label>
+                              <label>Máximo then
+                                <input
+                                  type="number"
+                                  aria-label={`Máximo then regla ${index + 1}`}
+                                  value={rule.then.max ?? ""}
+                                  onChange={(event) => updateConditionalThen(index, {
+                                    max: event.target.value === "" ? undefined : Number(event.target.value),
+                                  })}
+                                />
+                              </label>
+                            </>
+                          )}
+                          {rule.then?.kind === "allowed_values" && (
+                            <label className="quality-rule__wide">Valores permitidos then
+                              <textarea
+                                rows={2}
+                                aria-label={`Valores permitidos then regla ${index + 1}`}
+                                value={rule.then.values?.join("\n") ?? ""}
+                                onChange={(event) => updateConditionalThen(index, {
+                                  values: event.target.value.split(/\r?\n/).filter((value) => value.length > 0),
+                                })}
+                              />
+                            </label>
+                          )}
+                          {rule.then?.kind === "regex" && (
+                            <label className="quality-rule__wide">Patrón regular then
+                              <input
+                                type="text"
+                                aria-label={`Patrón regular then regla ${index + 1}`}
+                                value={rule.then.pattern ?? ""}
+                                onChange={(event) => updateConditionalThen(index, { pattern: event.target.value })}
+                              />
+                            </label>
+                          )}
+                          {rule.then?.kind === "dtype" && (
+                            <label>Tipo esperado then
+                              <select
+                                aria-label={`Tipo esperado then regla ${index + 1}`}
+                                value={rule.then.dtype ?? "string"}
+                                onChange={(event) => updateConditionalThen(index, { dtype: event.target.value })}
+                              >
+                                <option value="string">Texto</option>
+                                <option value="integer">Entero</option>
+                                <option value="float">Decimal</option>
+                                <option value="boolean">Booleano</option>
+                                <option value="date">Fecha</option>
+                                <option value="datetime">Fecha y hora</option>
+                              </select>
+                            </label>
+                          )}
+                        </fieldset>
+                      </>
                     )}
                     <button type="button" className="quality-rule__remove" aria-label={`Eliminar regla ${index + 1}`}
                       onClick={() => changeRules(rules.filter((_, ruleIndex) => ruleIndex !== index))}>Eliminar</button>

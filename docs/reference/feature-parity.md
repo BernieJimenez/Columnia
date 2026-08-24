@@ -11,8 +11,8 @@ claro y esté cubierta por una prueba o evidencia local.
 | --- | --- | --- | --- | --- |
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
-| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
-| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir comparación, condicionales, referencias, fechas, agregados y drift |
+| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
+| Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `date_range`, `conditional` y `row_count`; límites de payload y gate Rust | Parcial | Versionar documentos y añadir referencias, agregados y drift |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución acotada por fila y joins Inner/Left/Full con historial | Parcial | Completar combinación independiente por columna y conflictos fuera del preview |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
@@ -122,13 +122,55 @@ devuelve muestras ni celdas. La UI muestra solo los controles relevantes, con
 etiquetas y ayudas aptas para teclado y lector de pantalla. La compatibilidad
 restante del contrato v3 sigue en P1/M1.
 
+## Octava entrega de paridad: comparación entre columnas
+
+Los contratos de calidad ahora admiten `column_compare` con dos columnas del
+mismo tipo físico y seis operadores (`eq`, `ne`, `lt`, `lte`, `gt`, `gte`). Los
+operadores de orden solo se habilitan para texto y tipos numéricos; nulos en
+cualquiera de las columnas cuentan como inválidos.
+
+La regla conserva las tolerancias por conteo o porcentaje y se evalúa en Rust,
+por lo que la misma semántica protege la UI, la CLI y las exportaciones. La UI
+ofrece selectores etiquetados para columna izquierda, operador y columna derecha.
+La migración reconoce `column_compare`/`column_comparison`, `other_column` y
+alias seguros de operadores; reglas sin dos columnas, operador o equivalencia
+de severidad se omiten con advertencia visible.
+
+## Novena entrega de paridad: rango de fechas
+
+El contrato admite `date_range` con límites inclusivos `minDate` y `maxDate`.
+La evaluación acepta columnas de texto con fechas ISO, RFC3339 o formatos locales
+seguros, además de columnas físicas `Date` y `Datetime`. Los valores nulos,
+vacíos, ilegibles o fuera de los límites cuentan como inválidos y respetan las
+tolerancias del contrato.
+
+Entregar muestra controles nativos de fecha con etiquetas asociadas. Rust valida
+el orden de los límites y mantiene la misma regla para UI, CLI y exportaciones.
+La migración reconoce `min_value`/`max_value`, `minDate`/`maxDate` y omite con
+advertencia límites ausentes, invertidos o no interpretables.
+
+## Décima entrega de paridad: reglas condicionales
+
+El contrato admite `conditional` con una condición `when` sobre una columna y
+los operadores `eq`, `ne`, `lt`, `lte`, `gt` y `gte`. Cuando la condición se
+cumple, la regla aplica una subregla `then` fila-a-fila: `not_null`, `non_empty`,
+`numeric_range`, `allowed_values`, `regex` o `dtype`. Los nulos de la condición
+no activan la subregla; la tolerancia se mantiene en la regla exterior y se
+evalúa en Rust para UI, CLI y exportaciones.
+
+La UI muestra controles etiquetados para columna, operador, valor, columna
+objetivo y parámetros de `then`. La migración reconoce el objeto `when` (con
+alias `op`/`val` y operador `eq` por defecto) y `then`; omite con advertencia
+subreglas globales o formas que no tengan una equivalencia segura.
+
 ## Primera vertical de migración de reglas DataPrep
 
 Entregar permite importar un contrato JSON de DataPrep mediante el selector
 nativo. Acepta una lista directa o un objeto con `rules`/`quality_rules`, y
 convierte de forma segura las reglas representables por Columnia:
 `not_null`, `non_empty`, `unique`, `numeric_range`, `allowed_values`, `regex`,
-`dtype`, `unique_together` y `row_count`. Reconoce campos snake_case y
+`dtype`, `unique_together`, `column_compare`, `date_range`, `conditional` y
+`row_count`. Reconoce campos snake_case y
 camelCase, conserva tolerancias por conteo y porcentaje, y aplica el límite de
 16 reglas y 1 MiB por archivo.
 
@@ -196,8 +238,9 @@ impacto, excluye columnas completamente nulas, conserva el orden y deja al menos
 una columna para que el dataset siga siendo utilizable. El cambio queda registrado
 en el historial, invalida el perfil y puede deshacerse.
 
-La detección de identificadores, imputación y duplicados difusos siguen formando
-parte del catálogo pendiente.
+La detección de identificadores y la eliminación automática de duplicados difusos
+siguen formando parte del catálogo pendiente; la señal agregada de duplicados
+parecidos y la imputación conservadora ya están disponibles para revisión.
 
 ## Limpieza segura de columnas completamente vacías
 
@@ -231,6 +274,23 @@ El perfil identifica columnas de texto con una coincidencia booleana de al menos
 como `true`/`false`, conserva los valores no reconocidos y registra el cambio en el
 historial. La operación no convierte identificadores numéricos ni altera columnas
 que no sean de texto.
+
+## Detección conservadora de duplicados parecidos
+
+El perfil cuenta filas adicionales que coinciden después de normalizar
+mayúsculas/minúsculas, espacios repetidos y acentos. El conteo excluye los
+duplicados exactos ya informados, no devuelve claves ni valores y solo aparece
+como una señal de revisión manual en Preparar. No se eliminan filas difusas sin
+una decisión explícita de la persona usuaria.
+
+## Imputación conservadora de nulos
+
+Preparar ofrece un intento reversible para completar únicamente valores nulos.
+En texto usa el valor no vacío más repetido cuando aparece al menos dos veces;
+en columnas numéricas usa la mediana observada inferior para conservar el tipo
+físico. No modifica blancos, centinelas, columnas sin evidencia suficiente ni
+la columna reservada `_cambios`, y reporta celdas/filas afectadas antes de
+invalidar el perfil y las compuertas de entrega.
 
 ## Señales agregadas de privacidad e identificadores
 

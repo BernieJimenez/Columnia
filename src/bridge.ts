@@ -124,6 +124,7 @@ export interface ColumnProfile {
 export interface DatasetProfile {
   rowCount: number;
   duplicateRowCount: number;
+  nearDuplicateRowCount: number;
   duplicatePercentage: number;
   columns: ColumnProfile[];
 }
@@ -379,7 +380,18 @@ export type QualityRuleKind =
   | "regex"
   | "dtype"
   | "unique_together"
+  | "column_compare"
+  | "date_range"
+  | "conditional"
   | "row_count";
+
+export type QualityComparison = "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
+
+export interface QualityCondition {
+  column: string;
+  operator?: QualityComparison;
+  value?: string;
+}
 
 export interface QualityRule {
   column: string;
@@ -392,6 +404,11 @@ export interface QualityRule {
   pattern?: string;
   dtype?: string;
   columns?: string[];
+  operator?: QualityComparison;
+  minDate?: string;
+  maxDate?: string;
+  when?: QualityCondition;
+  then?: QualityRule;
 }
 
 export interface QualityRuleResult extends QualityRule {
@@ -601,6 +618,10 @@ export function normalizeSentinelValues(): Promise<TextCleaningResult> {
 
 export function normalizeBooleanValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("normalize_boolean_values");
+}
+
+export function imputeMissingValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("impute_missing_values");
 }
 
 export function applySafeCorrections(): Promise<SafeCorrectionsResult> {

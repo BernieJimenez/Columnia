@@ -15,6 +15,7 @@ import {
   getDatasetProfile,
   getHistoryState,
   enableRowAudit,
+  imputeMissingValues,
   normalizeColumnNames,
   normalizeSentinelValues,
   normalizeBooleanValues,
@@ -191,6 +192,7 @@ describe("desktop bridge", () => {
     vi.mocked(invoke).mockResolvedValue({
       rowCount: 0,
       duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
       duplicatePercentage: 0,
       columns: [],
     });
@@ -198,6 +200,7 @@ describe("desktop bridge", () => {
     await expect(getDatasetProfile()).resolves.toEqual({
       rowCount: 0,
       duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
       duplicatePercentage: 0,
       columns: [],
     });
@@ -216,6 +219,7 @@ describe("desktop bridge", () => {
     await normalizeTextValues(["city"], true);
     await normalizeSentinelValues();
     await normalizeBooleanValues();
+    await imputeMissingValues();
     await applySafeCorrections();
     await undoLastChange();
     await redoLastChange();
@@ -229,9 +233,10 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(5, "normalize_sentinel_values");
     expect(invoke).toHaveBeenNthCalledWith(6, "normalize_boolean_values");
-    expect(invoke).toHaveBeenNthCalledWith(7, "apply_safe_corrections");
-    expect(invoke).toHaveBeenNthCalledWith(8, "undo_last_change");
-    expect(invoke).toHaveBeenNthCalledWith(9, "redo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(7, "impute_missing_values");
+    expect(invoke).toHaveBeenNthCalledWith(8, "apply_safe_corrections");
+    expect(invoke).toHaveBeenNthCalledWith(9, "undo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(10, "redo_last_change");
   });
 
   it("activa la columna reservada de trazabilidad sin enviar rutas", async () => {

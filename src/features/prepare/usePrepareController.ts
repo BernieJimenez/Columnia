@@ -5,6 +5,7 @@ import {
   applyTransformRecipe,
   enableRowAudit,
   getHistoryState,
+  imputeMissingValues,
   normalizeColumnNames,
   normalizeSentinelValues,
   normalizeBooleanValues,
@@ -192,6 +193,27 @@ export function usePrepareController({
     }
   }
 
+  async function applyMissingValueImputation() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "impute" });
+    try {
+      const result = await imputeMissingValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se encontraron nulos imputables con una señal conservadora."
+          : `Se imputaron ${result.changedCellCount.toLocaleString()} valores nulos en: ${columns}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function applyRowAudit() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "audit" });
@@ -348,6 +370,7 @@ export function usePrepareController({
     applyHighNullColumnRemoval,
     applySentinelNormalization,
     applyBooleanNormalization,
+    applyMissingValueImputation,
     applyRowAudit,
     applyColumnNormalization,
     applyRecommendedCorrections,

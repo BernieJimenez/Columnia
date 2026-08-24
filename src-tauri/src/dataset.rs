@@ -140,7 +140,29 @@ pub enum QualityRuleKind {
     Regex,
     Dtype,
     UniqueTogether,
+    ColumnCompare,
+    DateRange,
+    Conditional,
     RowCount,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityComparison {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualityCondition {
+    column: String,
+    operator: Option<QualityComparison>,
+    value: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -156,6 +178,11 @@ pub struct QualityRule {
     pattern: Option<String>,
     dtype: Option<String>,
     columns: Option<Vec<String>>,
+    operator: Option<QualityComparison>,
+    min_date: Option<String>,
+    max_date: Option<String>,
+    when: Option<QualityCondition>,
+    then: Option<Box<QualityRule>>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -171,6 +198,11 @@ pub struct QualityRuleResult {
     pattern: Option<String>,
     dtype: Option<String>,
     columns: Option<Vec<String>>,
+    operator: Option<QualityComparison>,
+    min_date: Option<String>,
+    max_date: Option<String>,
+    when: Option<QualityCondition>,
+    then: Option<Box<QualityRule>>,
     checked_count: usize,
     invalid_count: usize,
     invalid_pct: f64,
@@ -399,6 +431,8 @@ pub struct ColumnProfile {
 pub struct DatasetProfile {
     row_count: usize,
     duplicate_row_count: usize,
+    #[serde(default)]
+    near_duplicate_row_count: usize,
     duplicate_percentage: f64,
     columns: Vec<ColumnProfile>,
 }
@@ -2479,6 +2513,7 @@ where
     } else {
         (duplicate_row_count as f64 / row_count as f64) * 100.0
     };
+    let near_duplicate_row_count = count_normalized_duplicate_rows(frame, duplicate_row_count)?;
     ensure_not_cancelled(is_cancelled())?;
     let source_columns = frame.columns();
     let mut columns = Vec::with_capacity(source_columns.len());
@@ -2590,9 +2625,44 @@ where
     Ok(DatasetProfile {
         row_count,
         duplicate_row_count,
+        near_duplicate_row_count,
         duplicate_percentage,
         columns,
     })
+}
+
+fn count_normalized_duplicate_rows(
+    frame: &DataFrame,
+    exact_duplicate_row_count: usize,
+) -> Result<usize, String> {
+    let mut normalized_counts: HashMap<String, usize> = HashMap::with_capacity(frame.height());
+    for row_index in 0..frame.height() {
+        let mut key = String::new();
+        for column in frame.columns() {
+            let value = column.get(row_index).map_err(|error| {
+                format!("No se pudieron normalizar las filas para detectar duplicados: {error}")
+            })?;
+            match value {
+                AnyValue::Null => key.push_str("N|"),
+                value => {
+                    let display = preview_value(value).unwrap_or_default();
+                    let normalized = normalize_text_value(&display, true);
+                    key.push('V');
+                    key.push_str(&normalized.len().to_string());
+                    key.push(':');
+                    key.push_str(&normalized);
+                    key.push('|');
+                }
+            }
+        }
+        *normalized_counts.entry(key).or_insert(0) += 1;
+    }
+
+    let normalized_duplicate_row_count = normalized_counts
+        .values()
+        .map(|count| (*count).saturating_sub(1))
+        .sum::<usize>();
+    Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
 }
 
 #[cfg(test)]
@@ -2977,6 +3047,131 @@ fn clean_text_columns(
                 changed_cell_count: column_changes,
             });
         }
+    }
+
+    Ok((
+        cleaned,
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
+fn impute_missing_values_in_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios" || column.null_count() == 0 {
+            continue;
+        }
+
+        if column.dtype() == &DataType::String {
+            let values = column
+                .str()
+                .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+            let mut counts = HashMap::<String, usize>::new();
+            for value in values
+                .iter()
+                .flatten()
+                .filter(|value| !value.trim().is_empty())
+            {
+                *counts.entry((*value).to_owned()).or_insert(0) += 1;
+            }
+            let mut mode = None;
+            let mut mode_count = 0;
+            for value in values
+                .iter()
+                .flatten()
+                .filter(|value| !value.trim().is_empty())
+            {
+                let count = counts.get(value).copied().unwrap_or(0);
+                if count > mode_count {
+                    mode = Some((*value).to_owned());
+                    mode_count = count;
+                }
+            }
+            let Some(mode) = mode.filter(|_| mode_count >= 2) else {
+                continue;
+            };
+
+            let mut column_changes = 0;
+            let transformed = values
+                .iter()
+                .enumerate()
+                .map(|(row_index, value)| match value {
+                    Some(value) => Some((*value).to_owned()),
+                    None => {
+                        column_changes += 1;
+                        changed_cell_count += 1;
+                        changed_rows[row_index] = true;
+                        Some(mode.clone())
+                    }
+                })
+                .collect::<Vec<_>>();
+            cleaned
+                .replace(&name, Column::new(name.clone().into(), transformed))
+                .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
+            changed_columns.push(ChangedTextColumn {
+                name,
+                changed_cell_count: column_changes,
+            });
+            continue;
+        }
+
+        if !column.dtype().is_primitive_numeric() {
+            continue;
+        }
+
+        let numeric = column.cast(&DataType::Float64).map_err(|error| {
+            format!("No se pudo preparar la columna numérica '{name}': {error}")
+        })?;
+        let values = numeric
+            .f64()
+            .map_err(|error| format!("No se pudo leer la columna numérica '{name}': {error}"))?
+            .iter()
+            .collect::<Vec<_>>();
+        let mut observed = values
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|value| value.is_finite())
+            .collect::<Vec<_>>();
+        if observed.is_empty() {
+            continue;
+        }
+        observed
+            .sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+        let replacement = observed[(observed.len() - 1) / 2];
+        let mut column_changes = 0;
+        let transformed = values
+            .into_iter()
+            .enumerate()
+            .map(|(row_index, value)| match value {
+                Some(value) => Some(value),
+                None => {
+                    column_changes += 1;
+                    changed_cell_count += 1;
+                    changed_rows[row_index] = true;
+                    Some(replacement)
+                }
+            })
+            .collect::<Vec<_>>();
+        let replacement_column = Column::new(name.clone().into(), transformed)
+            .cast(column.dtype())
+            .map_err(|error| format!("No se pudo conservar el tipo de '{name}': {error}"))?;
+        cleaned
+            .replace(&name, replacement_column)
+            .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: column_changes,
+        });
     }
 
     Ok((
@@ -4023,9 +4218,163 @@ fn migration_quality_kind(value: &str) -> Option<QualityRuleKind> {
         "regex" => Some(QualityRuleKind::Regex),
         "dtype" => Some(QualityRuleKind::Dtype),
         "unique_together" => Some(QualityRuleKind::UniqueTogether),
+        "column_compare" | "column_comparison" => Some(QualityRuleKind::ColumnCompare),
+        "date_range" => Some(QualityRuleKind::DateRange),
+        "conditional" => Some(QualityRuleKind::Conditional),
         "row_count" => Some(QualityRuleKind::RowCount),
         _ => None,
     }
+}
+
+fn migration_quality_comparison(value: &str) -> Option<QualityComparison> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "eq" | "equal" | "equals" => Some(QualityComparison::Eq),
+        "ne" | "neq" | "not_equal" => Some(QualityComparison::Ne),
+        "lt" | "less_than" => Some(QualityComparison::Lt),
+        "lte" | "le" | "less_or_equal" => Some(QualityComparison::Lte),
+        "gt" | "greater_than" => Some(QualityComparison::Gt),
+        "gte" | "ge" | "greater_or_equal" => Some(QualityComparison::Gte),
+        _ => None,
+    }
+}
+
+fn migration_condition_value(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::String(value) => Some(value.clone()),
+        JsonValue::Bool(value) => Some(value.to_string()),
+        JsonValue::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn migration_quality_condition(
+    value: Option<&JsonValue>,
+) -> Result<Option<QualityCondition>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let map = value
+        .as_object()
+        .ok_or_else(|| "conditional necesita un objeto when.".to_owned())?;
+    let column = migration_string_field(map, &["column"])
+        .filter(|column| !column.trim().is_empty())
+        .ok_or_else(|| "conditional.when necesita column.".to_owned())?;
+    let operator = match migration_string_field(map, &["operator", "op"]) {
+        Some(value) => Some(migration_quality_comparison(&value).ok_or_else(|| {
+            "conditional.when necesita operator eq, ne, lt, lte, gt o gte.".to_owned()
+        })?),
+        None => Some(QualityComparison::Eq),
+    };
+    let condition_value = map
+        .get("value")
+        .or_else(|| map.get("val"))
+        .and_then(migration_condition_value);
+    if condition_value.is_none() {
+        return Err("conditional.when necesita value.".to_owned());
+    }
+    Ok(Some(QualityCondition {
+        column,
+        operator,
+        value: condition_value,
+    }))
+}
+
+fn migrate_conditional_then(
+    value: Option<&JsonValue>,
+    fallback_column: &str,
+) -> Result<QualityRule, String> {
+    let map = value
+        .and_then(JsonValue::as_object)
+        .ok_or_else(|| "conditional necesita un objeto then.".to_owned())?;
+    let source_kind =
+        migration_string_field(map, &["kind", "type"]).unwrap_or_else(|| "not_null".to_owned());
+    let kind = migration_quality_kind(&source_kind).ok_or_else(|| {
+        "La subregla then de conditional todavía no tiene representación equivalente.".to_owned()
+    })?;
+    if !matches!(
+        kind,
+        QualityRuleKind::NotNull
+            | QualityRuleKind::NonEmpty
+            | QualityRuleKind::NumericRange
+            | QualityRuleKind::AllowedValues
+            | QualityRuleKind::Regex
+            | QualityRuleKind::Dtype
+    ) {
+        return Err(
+            "conditional solo admite subreglas then fila-a-fila: not_null, non_empty, numeric_range, allowed_values, regex o dtype.".to_owned(),
+        );
+    }
+    let column = migration_string_field(map, &["column"])
+        .filter(|column| !column.trim().is_empty())
+        .unwrap_or_else(|| fallback_column.to_owned());
+    let mut rule = QualityRule {
+        column,
+        kind,
+        max_invalid: Some(0),
+        max_invalid_pct: None,
+        min: None,
+        max: None,
+        values: None,
+        pattern: None,
+        dtype: None,
+        columns: None,
+        operator: None,
+        min_date: None,
+        max_date: None,
+        when: None,
+        then: None,
+    };
+    match kind {
+        QualityRuleKind::NumericRange => {
+            rule.min = migration_number_field(map, &["min"])?;
+            rule.max = migration_number_field(map, &["max"])?;
+            if rule.min.is_none() && rule.max.is_none() {
+                return Err("La subregla numeric_range necesita min o max.".to_owned());
+            }
+        }
+        QualityRuleKind::AllowedValues => {
+            rule.values = migration_string_array(map, &["values"])?;
+            if rule.values.as_ref().is_none_or(Vec::is_empty) {
+                return Err("La subregla allowed_values necesita values[].".to_owned());
+            }
+        }
+        QualityRuleKind::Regex => {
+            rule.pattern = migration_string_field(map, &["pattern"]);
+            if rule.pattern.as_deref().is_none_or(str::is_empty) {
+                return Err("La subregla regex necesita pattern.".to_owned());
+            }
+        }
+        QualityRuleKind::Dtype => {
+            let source_dtype = migration_string_field(map, &["dtype"])
+                .ok_or_else(|| "La subregla dtype necesita dtype.".to_owned())?;
+            rule.dtype = migration_dtype(&source_dtype).map(str::to_owned);
+            if rule.dtype.is_none() {
+                return Err("La subregla dtype no contiene un tipo soportado.".to_owned());
+            }
+        }
+        QualityRuleKind::NotNull | QualityRuleKind::NonEmpty => {}
+        _ => unreachable!("conditional then fue validado arriba"),
+    }
+    Ok(rule)
+}
+
+fn parse_quality_datetime(value: &str) -> Option<NaiveDateTime> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    parse_recipe_datetime(value, RecipeDateFormat::Iso8601)
+        .ok()
+        .or_else(|| {
+            NaiveDate::parse_from_str(value, "%d/%m/%Y")
+                .ok()
+                .and_then(|date| date.and_hms_opt(0, 0, 0))
+        })
+        .or_else(|| {
+            NaiveDate::parse_from_str(value, "%Y/%m/%d")
+                .ok()
+                .and_then(|date| date.and_hms_opt(0, 0, 0))
+        })
 }
 
 fn migration_dtype(value: &str) -> Option<&'static str> {
@@ -4216,6 +4565,11 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             pattern: None,
             dtype: None,
             columns: None,
+            operator: None,
+            min_date: None,
+            max_date: None,
+            when: None,
+            then: None,
         };
 
         let conversion_result = (|| -> Result<Option<String>, String> {
@@ -4261,6 +4615,74 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                         .filter(|columns| columns.len() >= 2)
                         .is_none()
                         .then(|| "unique_together necesita al menos dos columnas.".to_owned())
+                }
+                QualityRuleKind::ColumnCompare => {
+                    rule.columns = migration_string_array(&map, &["columns"])?;
+                    if rule.columns.is_none() {
+                        if let Some(other_column) =
+                            migration_string_field(&map, &["other_column", "right_column"])
+                        {
+                            rule.columns = Some(vec![rule.column.clone(), other_column]);
+                        }
+                    }
+                    rule.operator = migration_string_field(&map, &["operator", "comparison"])
+                        .and_then(|value| migration_quality_comparison(&value));
+                    if rule
+                        .columns
+                        .as_ref()
+                        .is_none_or(|columns| columns.len() != 2)
+                    {
+                        Some("column_compare necesita exactamente dos columnas.".to_owned())
+                    } else if rule.operator.is_none() {
+                        Some(
+                            "column_compare necesita operator eq, ne, lt, lte, gt o gte."
+                                .to_owned(),
+                        )
+                    } else {
+                        None
+                    }
+                }
+                QualityRuleKind::DateRange => {
+                    rule.min_date =
+                        migration_string_field(&map, &["min_date", "minDate", "min_value", "min"]);
+                    rule.max_date =
+                        migration_string_field(&map, &["max_date", "maxDate", "max_value", "max"]);
+                    let has_invalid_bound = rule
+                        .min_date
+                        .as_deref()
+                        .is_some_and(|value| parse_quality_datetime(value).is_none())
+                        || rule
+                            .max_date
+                            .as_deref()
+                            .is_some_and(|value| parse_quality_datetime(value).is_none());
+                    if rule.min_date.is_none() && rule.max_date.is_none() {
+                        Some("date_range necesita min_value/min o max_value/max.".to_owned())
+                    } else if has_invalid_bound {
+                        Some("date_range necesita límites de fecha válidos.".to_owned())
+                    } else if rule
+                        .min_date
+                        .as_deref()
+                        .zip(rule.max_date.as_deref())
+                        .is_some_and(|(min, max)| {
+                            parse_quality_datetime(min)
+                                .zip(parse_quality_datetime(max))
+                                .is_some_and(|(min, max)| min > max)
+                        })
+                    {
+                        Some("El mínimo de date_range no puede superar el máximo.".to_owned())
+                    } else {
+                        None
+                    }
+                }
+                QualityRuleKind::Conditional => {
+                    rule.when = migration_quality_condition(map.get("when"))?;
+                    let then = migrate_conditional_then(map.get("then"), &rule.column)?;
+                    rule.then = Some(Box::new(then));
+                    if rule.when.is_none() {
+                        Some("conditional necesita when.".to_owned())
+                    } else {
+                        None
+                    }
                 }
                 QualityRuleKind::RowCount => {
                     rule.min = migration_number_field(&map, &["min_value", "min"])?;
@@ -4351,6 +4773,23 @@ fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), S
                 text_fields.push(("columns", column.as_str()));
             }
         }
+        if let Some(condition) = rule.when.as_ref() {
+            text_fields.push(("when.column", condition.column.as_str()));
+            if let Some(value) = condition.value.as_deref() {
+                text_fields.push(("when.value", value));
+            }
+        }
+        if let Some(then) = rule.then.as_deref() {
+            text_fields.push(("then.column", then.column.as_str()));
+            if let Some(pattern) = then.pattern.as_deref() {
+                text_fields.push(("then.pattern", pattern));
+            }
+            if let Some(values) = then.values.as_deref() {
+                for value in values {
+                    text_fields.push(("then.value", value.as_str()));
+                }
+            }
+        }
     }
     validate_semantic_text_budget(
         "payload de reglas de calidad",
@@ -4361,6 +4800,26 @@ fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), S
 }
 
 fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Result<(), String> {
+    if rule.kind != QualityRuleKind::ColumnCompare && rule.operator.is_some() {
+        return Err(format!(
+            "El operator de '{}' solo aplica a column_compare.",
+            rule.column
+        ));
+    }
+    if rule.kind != QualityRuleKind::DateRange
+        && (rule.min_date.is_some() || rule.max_date.is_some())
+    {
+        return Err(format!(
+            "Los límites de fecha de '{}' solo aplican a date_range.",
+            rule.column
+        ));
+    }
+    if rule.kind != QualityRuleKind::Conditional && (rule.when.is_some() || rule.then.is_some()) {
+        return Err(format!(
+            "when y then solo aplican a la regla conditional de '{}'.",
+            rule.column
+        ));
+    }
     if rule
         .values
         .as_ref()
@@ -4659,6 +5118,251 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             }
             Ok(())
         }
+        QualityRuleKind::ColumnCompare => {
+            let columns = rule
+                .columns
+                .as_ref()
+                .filter(|columns| columns.len() == 2)
+                .ok_or_else(|| {
+                    format!(
+                        "La regla column_compare de '{}' debe indicar exactamente dos columnas.",
+                        rule.column
+                    )
+                })?;
+            if columns[0] != rule.column {
+                return Err(format!(
+                    "La primera columna de column_compare debe coincidir con '{}'.",
+                    rule.column
+                ));
+            }
+            if columns[0] == columns[1] {
+                return Err(format!(
+                    "La regla column_compare de '{}' necesita dos columnas distintas.",
+                    rule.column
+                ));
+            }
+            let left = frame.column(&columns[0]).map_err(|_| {
+                format!(
+                    "La columna '{}' de la regla column_compare no existe.",
+                    columns[0]
+                )
+            })?;
+            let right = frame.column(&columns[1]).map_err(|_| {
+                format!(
+                    "La columna '{}' de la regla column_compare no existe.",
+                    columns[1]
+                )
+            })?;
+            if left.dtype() != right.dtype() {
+                return Err(format!(
+                    "Las columnas de '{}' deben compartir tipo físico; {} y {} no coinciden.",
+                    rule.column,
+                    left.dtype(),
+                    right.dtype()
+                ));
+            }
+            let operator = rule.operator.ok_or_else(|| {
+                format!(
+                    "La regla column_compare de '{}' debe indicar operator.",
+                    rule.column
+                )
+            })?;
+            if matches!(
+                operator,
+                QualityComparison::Lt
+                    | QualityComparison::Lte
+                    | QualityComparison::Gt
+                    | QualityComparison::Gte
+            ) && !matches!(
+                left.dtype(),
+                DataType::String
+                    | DataType::Int8
+                    | DataType::Int16
+                    | DataType::Int32
+                    | DataType::Int64
+                    | DataType::UInt8
+                    | DataType::UInt16
+                    | DataType::UInt32
+                    | DataType::UInt64
+                    | DataType::Float32
+                    | DataType::Float64
+            ) {
+                return Err(format!(
+                    "El operator de orden de '{}' solo admite texto o columnas numéricas.",
+                    rule.column
+                ));
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+            {
+                return Err(format!(
+                    "La regla column_compare de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::DateRange => {
+            let column = column.ok_or_else(|| "date_range requiere una columna.".to_owned())?;
+            if !matches!(
+                column.dtype(),
+                DataType::String | DataType::Date | DataType::Datetime(_, _)
+            ) {
+                return Err(format!(
+                    "La regla date_range de '{}' solo admite texto, date o datetime.",
+                    rule.column
+                ));
+            }
+            let parse_bound = |value: Option<&str>, label: &str| {
+                value
+                    .map(|value| {
+                        parse_quality_datetime(value).ok_or_else(|| {
+                            format!(
+                                "El límite {label} de date_range en '{}' no es una fecha válida.",
+                                rule.column
+                            )
+                        })
+                    })
+                    .transpose()
+            };
+            let minimum = parse_bound(rule.min_date.as_deref(), "mínimo")?;
+            let maximum = parse_bound(rule.max_date.as_deref(), "máximo")?;
+            if minimum.is_none() && maximum.is_none() {
+                return Err(format!(
+                    "La regla date_range de '{}' debe indicar minDate, maxDate o ambos.",
+                    rule.column
+                ));
+            }
+            if minimum
+                .zip(maximum)
+                .is_some_and(|(minimum, maximum)| minimum > maximum)
+            {
+                return Err(format!(
+                    "El mínimo de date_range en '{}' no puede superar el máximo.",
+                    rule.column
+                ));
+            }
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+            {
+                return Err(format!(
+                    "La regla date_range de '{}' no admite parámetros adicionales.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
+        QualityRuleKind::Conditional => {
+            let condition = rule.when.as_ref().ok_or_else(|| {
+                format!(
+                    "La regla conditional de '{}' debe indicar when.",
+                    rule.column
+                )
+            })?;
+            let condition_column = frame.column(&condition.column).map_err(|_| {
+                format!(
+                    "La columna '{}' de when no existe en conditional.",
+                    condition.column
+                )
+            })?;
+            if !matches!(
+                condition_column.dtype(),
+                DataType::String | DataType::Int64 | DataType::Float64 | DataType::Boolean
+            ) {
+                return Err(format!(
+                    "La condición de '{}' solo admite columnas String, numéricas o Boolean.",
+                    rule.column
+                ));
+            }
+            if condition.operator.is_none() {
+                return Err(format!(
+                    "La condición de '{}' debe indicar operator.",
+                    rule.column
+                ));
+            }
+            if matches!(
+                condition.operator,
+                Some(
+                    QualityComparison::Lt
+                        | QualityComparison::Lte
+                        | QualityComparison::Gt
+                        | QualityComparison::Gte
+                )
+            ) && !matches!(
+                condition_column.dtype(),
+                DataType::String
+                    | DataType::Int8
+                    | DataType::Int16
+                    | DataType::Int32
+                    | DataType::Int64
+                    | DataType::UInt8
+                    | DataType::UInt16
+                    | DataType::UInt32
+                    | DataType::UInt64
+                    | DataType::Float32
+                    | DataType::Float64
+            ) {
+                return Err(format!(
+                    "El operator de orden de la condición de '{}' solo admite texto o columnas numéricas.",
+                    rule.column
+                ));
+            }
+            if condition.value.is_none() {
+                return Err(format!(
+                    "La condición de '{}' debe indicar value.",
+                    rule.column
+                ));
+            }
+            let then = rule.then.as_deref().ok_or_else(|| {
+                format!(
+                    "La regla conditional de '{}' debe indicar then.",
+                    rule.column
+                )
+            })?;
+            if !matches!(
+                then.kind,
+                QualityRuleKind::NotNull
+                    | QualityRuleKind::NonEmpty
+                    | QualityRuleKind::NumericRange
+                    | QualityRuleKind::AllowedValues
+                    | QualityRuleKind::Regex
+                    | QualityRuleKind::Dtype
+            ) {
+                return Err(
+                    "conditional solo admite subreglas then fila-a-fila: not_null, non_empty, numeric_range, allowed_values, regex o dtype.".to_owned(),
+                );
+            }
+            if then.max_invalid != Some(0) || then.max_invalid_pct.is_some() {
+                return Err(
+                    "La tolerancia de la subregla then debe ser exactamente 0 inválidos."
+                        .to_owned(),
+                );
+            }
+            validate_quality_rule_definition(frame, then)?;
+            if rule.min.is_some()
+                || rule.max.is_some()
+                || rule.values.is_some()
+                || rule.pattern.is_some()
+                || rule.dtype.is_some()
+                || rule.columns.is_some()
+                || rule.operator.is_some()
+                || rule.min_date.is_some()
+                || rule.max_date.is_some()
+            {
+                return Err(format!(
+                    "La regla conditional de '{}' no admite parámetros de otra comprobación.",
+                    rule.column
+                ));
+            }
+            Ok(())
+        }
         QualityRuleKind::RowCount => {
             if rule.min.is_none() && rule.max.is_none() {
                 return Err("La regla row_count debe indicar min, max o ambos.".to_owned());
@@ -4738,6 +5442,204 @@ fn duplicate_combination_count(frame: &DataFrame, columns: &[String]) -> Result<
     Ok(duplicate_count)
 }
 
+fn quality_value_ordering(left: AnyValue<'_>, right: AnyValue<'_>) -> Option<std::cmp::Ordering> {
+    match (left, right) {
+        (AnyValue::Int8(left), AnyValue::Int8(right)) => Some(left.cmp(&right)),
+        (AnyValue::Int16(left), AnyValue::Int16(right)) => Some(left.cmp(&right)),
+        (AnyValue::Int32(left), AnyValue::Int32(right)) => Some(left.cmp(&right)),
+        (AnyValue::Int64(left), AnyValue::Int64(right)) => Some(left.cmp(&right)),
+        (AnyValue::UInt8(left), AnyValue::UInt8(right)) => Some(left.cmp(&right)),
+        (AnyValue::UInt16(left), AnyValue::UInt16(right)) => Some(left.cmp(&right)),
+        (AnyValue::UInt32(left), AnyValue::UInt32(right)) => Some(left.cmp(&right)),
+        (AnyValue::UInt64(left), AnyValue::UInt64(right)) => Some(left.cmp(&right)),
+        (AnyValue::Float32(left), AnyValue::Float32(right)) => left.partial_cmp(&right),
+        (AnyValue::Float64(left), AnyValue::Float64(right)) => left.partial_cmp(&right),
+        (AnyValue::Boolean(left), AnyValue::Boolean(right)) => Some(left.cmp(&right)),
+        (AnyValue::String(left), AnyValue::String(right)) => Some(left.cmp(right)),
+        (AnyValue::String(left), AnyValue::StringOwned(right)) => Some(left.cmp(right.as_str())),
+        (AnyValue::StringOwned(left), AnyValue::String(right)) => Some(left.as_str().cmp(right)),
+        (AnyValue::StringOwned(left), AnyValue::StringOwned(right)) => {
+            Some(left.as_str().cmp(right.as_str()))
+        }
+        _ => None,
+    }
+}
+
+fn quality_datetime_value(value: AnyValue<'_>) -> Option<NaiveDateTime> {
+    match value {
+        AnyValue::String(value) => parse_quality_datetime(value),
+        AnyValue::StringOwned(value) => parse_quality_datetime(value.as_str()),
+        AnyValue::Date(days) => NaiveDate::from_ymd_opt(1970, 1, 1)
+            .and_then(|epoch| epoch.checked_add_signed(chrono::Duration::days(days.into())))
+            .and_then(|date| date.and_hms_opt(0, 0, 0)),
+        AnyValue::Datetime(raw, unit, _) => {
+            let divisor = match unit {
+                TimeUnit::Nanoseconds => 1_000_000_000,
+                TimeUnit::Microseconds => 1_000_000,
+                TimeUnit::Milliseconds => 1_000,
+            };
+            DateTime::from_timestamp(
+                raw.div_euclid(divisor),
+                (raw.rem_euclid(divisor) as u64 * (1_000_000_000 / divisor as u64)) as u32,
+            )
+            .map(|date| date.naive_utc())
+        }
+        _ => None,
+    }
+}
+
+fn quality_comparison_matches(
+    left: AnyValue<'_>,
+    right: AnyValue<'_>,
+    operator: QualityComparison,
+) -> bool {
+    match operator {
+        QualityComparison::Eq => format!("{left:?}") == format!("{right:?}"),
+        QualityComparison::Ne => format!("{left:?}") != format!("{right:?}"),
+        QualityComparison::Lt => quality_value_ordering(left, right)
+            .is_some_and(|ordering| ordering == std::cmp::Ordering::Less),
+        QualityComparison::Lte => quality_value_ordering(left, right).is_some_and(|ordering| {
+            matches!(
+                ordering,
+                std::cmp::Ordering::Less | std::cmp::Ordering::Equal
+            )
+        }),
+        QualityComparison::Gt => quality_value_ordering(left, right)
+            .is_some_and(|ordering| ordering == std::cmp::Ordering::Greater),
+        QualityComparison::Gte => quality_value_ordering(left, right).is_some_and(|ordering| {
+            matches!(
+                ordering,
+                std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
+            )
+        }),
+    }
+}
+
+fn quality_comparison_ordering_matches(
+    ordering: std::cmp::Ordering,
+    operator: QualityComparison,
+) -> bool {
+    match operator {
+        QualityComparison::Eq => ordering == std::cmp::Ordering::Equal,
+        QualityComparison::Ne => ordering != std::cmp::Ordering::Equal,
+        QualityComparison::Lt => ordering == std::cmp::Ordering::Less,
+        QualityComparison::Lte => {
+            matches!(
+                ordering,
+                std::cmp::Ordering::Less | std::cmp::Ordering::Equal
+            )
+        }
+        QualityComparison::Gt => ordering == std::cmp::Ordering::Greater,
+        QualityComparison::Gte => matches!(
+            ordering,
+            std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
+        ),
+    }
+}
+
+fn quality_condition_matches(value: AnyValue<'_>, condition: &QualityCondition) -> bool {
+    let Some(operator) = condition.operator else {
+        return false;
+    };
+    let Some(expected) = condition.value.as_deref() else {
+        return false;
+    };
+    match value {
+        AnyValue::Null => false,
+        AnyValue::String(actual) => {
+            quality_comparison_ordering_matches(actual.cmp(expected), operator)
+        }
+        AnyValue::StringOwned(actual) => {
+            quality_comparison_ordering_matches(actual.as_str().cmp(expected), operator)
+        }
+        AnyValue::Int64(actual) => expected.parse::<i64>().is_ok_and(|expected| {
+            quality_comparison_ordering_matches(actual.cmp(&expected), operator)
+        }),
+        AnyValue::Float64(actual) => expected.parse::<f64>().ok().is_some_and(|expected| {
+            actual
+                .partial_cmp(&expected)
+                .is_some_and(|ordering| quality_comparison_ordering_matches(ordering, operator))
+        }),
+        AnyValue::Boolean(actual) => expected.parse::<bool>().is_ok_and(|expected| {
+            quality_comparison_ordering_matches(actual.cmp(&expected), operator)
+        }),
+        _ => false,
+    }
+}
+
+fn quality_numeric_value(value: AnyValue<'_>) -> Option<f64> {
+    match value {
+        AnyValue::Int8(value) => Some(value as f64),
+        AnyValue::Int16(value) => Some(value as f64),
+        AnyValue::Int32(value) => Some(value as f64),
+        AnyValue::Int64(value) => Some(value as f64),
+        AnyValue::UInt8(value) => Some(value as f64),
+        AnyValue::UInt16(value) => Some(value as f64),
+        AnyValue::UInt32(value) => Some(value as f64),
+        AnyValue::UInt64(value) => Some(value as f64),
+        AnyValue::Float32(value) => Some(value as f64),
+        AnyValue::Float64(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn quality_conditional_row_invalid(
+    frame: &DataFrame,
+    row_index: usize,
+    rule: &QualityRule,
+) -> Result<bool, String> {
+    let column = frame
+        .column(&rule.column)
+        .map_err(|error| format!("No se pudo evaluar conditional.then: {error}"))?;
+    let value = column
+        .get(row_index)
+        .map_err(|error| format!("No se pudo leer conditional.then: {error}"))?;
+    match rule.kind {
+        QualityRuleKind::NotNull => Ok(matches!(value, AnyValue::Null)),
+        QualityRuleKind::NonEmpty => Ok(match value {
+            AnyValue::String(text) => text.trim().is_empty(),
+            AnyValue::StringOwned(text) => text.trim().is_empty(),
+            AnyValue::Null => true,
+            _ => true,
+        }),
+        QualityRuleKind::NumericRange => {
+            let number = quality_numeric_value(value);
+            Ok(number.is_none_or(|number| {
+                !number.is_finite()
+                    || rule.min.is_some_and(|minimum| number < minimum)
+                    || rule.max.is_some_and(|maximum| number > maximum)
+            }))
+        }
+        QualityRuleKind::AllowedValues => {
+            let allowed = rule.values.as_ref().expect("values validados");
+            Ok(match value {
+                AnyValue::String(text) => !allowed.iter().any(|item| item == text),
+                AnyValue::StringOwned(text) => !allowed.iter().any(|item| item == text.as_str()),
+                AnyValue::Null => true,
+                _ => true,
+            })
+        }
+        QualityRuleKind::Regex => {
+            let regex = Regex::new(rule.pattern.as_deref().expect("pattern validado"))
+                .expect("pattern validado");
+            Ok(match value {
+                AnyValue::String(text) => !regex.is_match(text),
+                AnyValue::StringOwned(text) => !regex.is_match(text.as_str()),
+                AnyValue::Null => true,
+                _ => true,
+            })
+        }
+        QualityRuleKind::Dtype => Ok(!quality_dtype_matches(
+            column.dtype(),
+            rule.dtype.as_deref().expect("dtype validado"),
+        )),
+        _ => Err(
+            "conditional contiene una subregla then que no es fila-a-fila o no fue validada."
+                .to_owned(),
+        ),
+    }
+}
+
 fn evaluate_quality_rules(
     frame: &DataFrame,
     quality_rules: &[QualityRule],
@@ -4765,6 +5667,43 @@ where
     for rule in quality_rules {
         ensure_not_cancelled(is_cancelled())?;
         let (checked_count, invalid_count) = match rule.kind {
+            QualityRuleKind::Conditional => {
+                let condition = rule.when.as_ref().expect("when validado");
+                let then = rule.then.as_deref().expect("then validado");
+                let condition_column = frame
+                    .column(&condition.column)
+                    .map_err(|error| error.to_string())?;
+                let mut invalid_count = 0;
+                for row_index in 0..row_count {
+                    let condition_value = condition_column
+                        .get(row_index)
+                        .map_err(|error| error.to_string())?;
+                    if !matches!(condition_value, AnyValue::Null)
+                        && quality_condition_matches(condition_value, condition)
+                        && quality_conditional_row_invalid(frame, row_index, then)?
+                    {
+                        invalid_count += 1;
+                    }
+                }
+                (row_count, invalid_count)
+            }
+            QualityRuleKind::DateRange => {
+                let column = frame
+                    .column(&rule.column)
+                    .map_err(|error| error.to_string())?;
+                let minimum = rule.min_date.as_deref().and_then(parse_quality_datetime);
+                let maximum = rule.max_date.as_deref().and_then(parse_quality_datetime);
+                let invalid_count = (0..row_count)
+                    .filter(|row_index| {
+                        let value = column.get(*row_index).ok().and_then(quality_datetime_value);
+                        value.is_none_or(|value| {
+                            minimum.is_some_and(|minimum| value < minimum)
+                                || maximum.is_some_and(|maximum| value > maximum)
+                        })
+                    })
+                    .count();
+                (row_count, invalid_count)
+            }
             QualityRuleKind::RowCount => {
                 let minimum_ok = rule.min.is_none_or(|minimum| row_count as f64 >= minimum);
                 let maximum_ok = rule.max.is_none_or(|maximum| row_count as f64 <= maximum);
@@ -4787,6 +5726,28 @@ where
                     rule.columns.as_deref().expect("columns validadas"),
                 )?,
             ),
+            QualityRuleKind::ColumnCompare => {
+                let columns = rule.columns.as_deref().expect("columns validadas");
+                let left = frame
+                    .column(&columns[0])
+                    .map_err(|error| error.to_string())?;
+                let right = frame
+                    .column(&columns[1])
+                    .map_err(|error| error.to_string())?;
+                let operator = rule.operator.expect("operator validado");
+                let mut invalid_count = 0;
+                for row_index in 0..row_count {
+                    let left_value = left.get(row_index).map_err(|error| error.to_string())?;
+                    let right_value = right.get(row_index).map_err(|error| error.to_string())?;
+                    if matches!(left_value, AnyValue::Null)
+                        || matches!(right_value, AnyValue::Null)
+                        || !quality_comparison_matches(left_value, right_value, operator)
+                    {
+                        invalid_count += 1;
+                    }
+                }
+                (row_count, invalid_count)
+            }
             _ => {
                 let column = frame
                     .column(&rule.column)
@@ -4856,6 +5817,9 @@ where
                     }
                     QualityRuleKind::Dtype
                     | QualityRuleKind::UniqueTogether
+                    | QualityRuleKind::ColumnCompare
+                    | QualityRuleKind::DateRange
+                    | QualityRuleKind::Conditional
                     | QualityRuleKind::RowCount => unreachable!("la regla se evaluó arriba"),
                 };
                 (row_count, invalid_count)
@@ -4883,6 +5847,11 @@ where
             pattern: rule.pattern.clone(),
             dtype: rule.dtype.clone(),
             columns: rule.columns.clone(),
+            operator: rule.operator,
+            min_date: rule.min_date.clone(),
+            max_date: rule.max_date.clone(),
+            when: rule.when.clone(),
+            then: rule.then.clone(),
             checked_count,
             invalid_count,
             invalid_pct,
@@ -7053,6 +8022,35 @@ pub async fn normalize_boolean_values(app: AppHandle) -> Result<TextCleaningResu
     })
     .await
     .map_err(|error| format!("La normalización de booleanos se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
+            impute_missing_values_in_frame(&dataset.frame)?;
+        let preview = if changed_cell_count > 0 {
+            publish_candidate(dataset, cleaned, "Imputación conservadora")?
+        } else {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        };
+        Ok(TextCleaningResult {
+            dataset: preview,
+            affected_row_count,
+            changed_cell_count,
+            changed_columns,
+        })
+    })
+    .await
+    .map_err(|error| format!("La imputación de valores nulos se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -11282,6 +12280,20 @@ mod tests {
     }
 
     #[test]
+    fn counts_normalized_near_duplicates_without_double_counting_exact_rows() {
+        let frame = df![
+            "city" => &["Santo Domingo", " santo   domingo ", "Santo Domingo", "Santiago"],
+            "value" => &[1_i64, 1, 1, 2]
+        ]
+        .unwrap();
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+
+        assert_eq!(profile.duplicate_row_count, 1);
+        assert_eq!(profile.near_duplicate_row_count, 1);
+    }
+
+    #[test]
     fn removes_only_rows_that_are_completely_empty() {
         let frame = df![
             "name" => &[Some("Ana"), Some(""), None, Some("  ")],
@@ -11412,6 +12424,30 @@ mod tests {
             cleaned.column("amount").unwrap().i64().unwrap().get(0),
             Some(1)
         );
+    }
+
+    #[test]
+    fn imputes_repeated_text_and_lower_median_numeric_nuls_only() {
+        let frame = df![
+            "status" => &[Some("ok"), None, Some("ok"), Some("review")],
+            "amount" => &[Some(10_i64), None, Some(20), Some(30)],
+            "notes" => &[Some(""), None, Some("draft"), Some("ready")]
+        ]
+        .unwrap();
+
+        let (cleaned, affected_rows, changed_cells, changed_columns) =
+            impute_missing_values_in_frame(&frame)
+                .expect("los nulos imputables deben poder completarse");
+        let status = cleaned.column("status").unwrap().str().unwrap();
+        let amount = cleaned.column("amount").unwrap().i64().unwrap();
+        let notes = cleaned.column("notes").unwrap().str().unwrap();
+
+        assert_eq!(affected_rows, 1);
+        assert_eq!(changed_cells, 2);
+        assert_eq!(changed_columns.len(), 2);
+        assert_eq!(status.get(1), Some("ok"));
+        assert_eq!(amount.get(1), Some(20));
+        assert_eq!(notes.get(1), None);
     }
 
     #[test]
@@ -13663,6 +14699,11 @@ mod tests {
             pattern: None,
             dtype: None,
             columns: None,
+            operator: None,
+            min_date: None,
+            max_date: None,
+            when: None,
+            then: None,
         }
     }
 
@@ -13782,6 +14823,10 @@ mod tests {
         let mut bad_dtype = quality_rule("text", QualityRuleKind::Dtype);
         bad_dtype.dtype = Some("money".to_owned());
         assert!(evaluate_quality_rules(&frame, &[bad_dtype]).is_err());
+
+        let mut misplaced_operator = quality_rule("text", QualityRuleKind::NotNull);
+        misplaced_operator.operator = Some(QualityComparison::Eq);
+        assert!(evaluate_quality_rules(&frame, &[misplaced_operator]).is_err());
     }
 
     #[test]
@@ -13791,7 +14836,7 @@ mod tests {
             "rules": [
                 {"kind": "allowed_values", "column": "status", "values": ["ok"], "max_invalid": 1},
                 {"type": "regex", "column": "email", "pattern": "^.+@.+$", "maxInvalidPct": 5},
-                {"kind": "column_compare", "column": "left", "other_column": "right"},
+                {"kind": "column_compare", "column": "left", "other_column": "right", "operator": "lte"},
                 {"kind": "not_null", "column": "id", "severity": "warning", "max_invalid": 0},
                 {"kind": "unique_together", "column": "a", "columns": ["a", "b"]}
             ]
@@ -13799,17 +14844,146 @@ mod tests {
         .expect("el documento de migración debe ser válido");
 
         assert_eq!(result.source_version.as_deref(), Some("3"));
-        assert_eq!(result.converted_rules.len(), 3);
-        assert_eq!(result.omitted_rules, 2);
+        assert_eq!(result.converted_rules.len(), 4);
+        assert_eq!(result.omitted_rules, 1);
         assert_eq!(result.converted_rules[0].max_invalid, Some(1));
         assert_eq!(result.converted_rules[1].max_invalid_pct, Some(5.0));
-        assert!(result.warnings.iter().any(
-            |warning| warning.severity == "omitted" && warning.source_kind == "column_compare"
-        ));
+        assert_eq!(
+            result.converted_rules[2].kind,
+            QualityRuleKind::ColumnCompare
+        );
+        assert_eq!(
+            result.converted_rules[2].columns,
+            Some(vec!["left".to_owned(), "right".to_owned()])
+        );
+        assert_eq!(
+            result.converted_rules[2].operator,
+            Some(QualityComparison::Lte)
+        );
         assert!(result
             .warnings
             .iter()
             .any(|warning| warning.severity == "omitted" && warning.source_kind == "not_null"));
+    }
+
+    #[test]
+    fn quality_rules_compare_columns_with_nulls_and_tolerance() {
+        let frame = df![
+            "start" => &[Some(1_i64), Some(2), Some(3), None],
+            "end" => &[Some(1_i64), Some(1), Some(4), Some(4)]
+        ]
+        .unwrap();
+        let mut compare = quality_rule("start", QualityRuleKind::ColumnCompare);
+        compare.columns = Some(vec!["start".to_owned(), "end".to_owned()]);
+        compare.operator = Some(QualityComparison::Lte);
+        compare.max_invalid = Some(2);
+
+        let result = evaluate_quality_rules(&frame, &[compare]).unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.rules[0].checked_count, 4);
+        assert_eq!(result.rules[0].invalid_count, 2);
+        assert_eq!(result.rules[0].operator, Some(QualityComparison::Lte));
+    }
+
+    #[test]
+    fn quality_rules_apply_conditional_row_rules_and_skip_null_conditions() {
+        let frame = df![
+            "status" => &[Some("ok"), Some("skip"), Some("ok"), Some("ok")],
+            "amount" => &[Some(10_i64), None, Some(20), None]
+        ]
+        .unwrap();
+        let mut conditional = quality_rule("amount", QualityRuleKind::Conditional);
+        conditional.when = Some(QualityCondition {
+            column: "status".to_owned(),
+            operator: Some(QualityComparison::Eq),
+            value: Some("ok".to_owned()),
+        });
+        conditional.then = Some(Box::new(quality_rule("amount", QualityRuleKind::NotNull)));
+
+        let result = evaluate_quality_rules(&frame, &[conditional.clone()]).unwrap();
+
+        assert!(!result.passed);
+        assert_eq!(result.rules[0].checked_count, 4);
+        assert_eq!(result.rules[0].invalid_count, 1);
+        assert_eq!(result.rules[0].when, conditional.when);
+        assert_eq!(result.rules[0].then, conditional.then);
+
+        let mut allowed = conditional;
+        allowed.max_invalid = Some(1);
+        let result = evaluate_quality_rules(&frame, &[allowed]).unwrap();
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn conditional_rules_reject_missing_or_global_then_checks() {
+        let frame = df!["status" => &["ok"], "amount" => &[1_i64]].unwrap();
+        let mut missing_when = quality_rule("amount", QualityRuleKind::Conditional);
+        missing_when.then = Some(Box::new(quality_rule("amount", QualityRuleKind::NotNull)));
+        assert!(evaluate_quality_rules(&frame, &[missing_when]).is_err());
+
+        let mut global_then = quality_rule("amount", QualityRuleKind::Conditional);
+        global_then.when = Some(QualityCondition {
+            column: "status".to_owned(),
+            operator: Some(QualityComparison::Eq),
+            value: Some("ok".to_owned()),
+        });
+        global_then.then = Some(Box::new(quality_rule("amount", QualityRuleKind::Unique)));
+        assert!(evaluate_quality_rules(&frame, &[global_then]).is_err());
+    }
+
+    #[test]
+    fn migrates_conditional_rules_with_a_safe_nested_check() {
+        let result = migrate_quality_rules_document(serde_json::json!([{
+            "kind": "conditional",
+            "column": "status",
+            "when": {"column": "status", "operator": "eq", "value": "active"},
+            "then": {"kind": "allowed_values", "values": ["active"]},
+            "max_invalid": 0
+        }]))
+        .unwrap();
+
+        assert_eq!(result.converted_rules.len(), 1);
+        let rule = &result.converted_rules[0];
+        assert_eq!(rule.kind, QualityRuleKind::Conditional);
+        assert_eq!(
+            rule.when.as_ref().map(|when| when.column.as_str()),
+            Some("status")
+        );
+        assert_eq!(
+            rule.then.as_deref().map(|then| then.kind),
+            Some(QualityRuleKind::AllowedValues)
+        );
+        assert_eq!(
+            rule.then.as_deref().and_then(|then| then.values.clone()),
+            Some(vec!["active".to_owned()])
+        );
+    }
+
+    #[test]
+    fn quality_rules_validate_date_ranges_and_count_unparseable_values() {
+        let frame = df![
+            "date" => &[
+                Some("2024-01-01"),
+                Some("2024-06-15"),
+                Some("2025-01-01"),
+                Some("not-a-date"),
+                None
+            ]
+        ]
+        .unwrap();
+        let mut date_range = quality_rule("date", QualityRuleKind::DateRange);
+        date_range.min_date = Some("2024-01-01".to_owned());
+        date_range.max_date = Some("2024-12-31".to_owned());
+        date_range.max_invalid = Some(3);
+
+        let result = evaluate_quality_rules(&frame, &[date_range]).unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.rules[0].checked_count, 5);
+        assert_eq!(result.rules[0].invalid_count, 3);
+        assert_eq!(result.rules[0].min_date.as_deref(), Some("2024-01-01"));
+        assert_eq!(result.rules[0].max_date.as_deref(), Some("2024-12-31"));
     }
 
     #[test]
@@ -13834,6 +15008,41 @@ mod tests {
         assert!(result.warnings.iter().any(|warning| {
             warning.severity == "omitted" && warning.message.contains("debe ser una lista")
         }));
+    }
+
+    #[test]
+    fn migrates_date_range_bounds_and_rejects_invalid_dates() {
+        let result = migrate_quality_rules_document(serde_json::json!([
+            {
+                "kind": "date_range",
+                "column": "created_at",
+                "min_value": "2024-01-01",
+                "max_value": "2024-12-31",
+                "max_invalid": 0
+            },
+            {
+                "kind": "date_range",
+                "column": "created_at",
+                "min_value": "not-a-date",
+                "max_invalid": 0
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(result.converted_rules.len(), 1);
+        assert_eq!(result.omitted_rules, 1);
+        assert_eq!(
+            result.converted_rules[0].min_date.as_deref(),
+            Some("2024-01-01")
+        );
+        assert_eq!(
+            result.converted_rules[0].max_date.as_deref(),
+            Some("2024-12-31")
+        );
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("límites de fecha válidos")));
     }
 
     #[test]
