@@ -75,7 +75,7 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   const systemMemoryTotal = usage?.systemMemoryTotalBytes ?? 0;
   const systemMemoryUsed = usage?.systemMemoryUsedBytes ?? 0;
   const statusText = state.kind === "disabled"
-    ? "Disponible en la app de escritorio"
+    ? "Solo escritorio"
     : state.kind === "error"
       ? "No disponible ahora"
       : state.kind === "loading"
@@ -86,7 +86,12 @@ export const ResourceMonitor = memo(function ResourceMonitor({
     <div className="resource-monitor" role="group" aria-label="Consumo de recursos">
       <div className="resource-monitor__heading">
         <p className="resource-monitor__title">Tu entorno</p>
-        <span className="resource-monitor__status">{statusText}</span>
+        <span
+          className="resource-monitor__status"
+          aria-label={state.kind === "disabled" ? "Disponible en la app de escritorio" : undefined}
+        >
+          {statusText}
+        </span>
       </div>
 
       <div className="resource-monitor__metric">

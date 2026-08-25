@@ -34,8 +34,9 @@ describe("ResourceMonitor", () => {
 
     render(<ResourceMonitor enabled={false} fetchUsage={fetchUsage} />);
 
-    expect(screen.getByText("Disponible en la app de escritorio")).toBeInTheDocument();
+    expect(screen.getByText("Solo escritorio")).toHaveAccessibleName(
+      "Disponible en la app de escritorio",
+    );
     expect(fetchUsage).not.toHaveBeenCalled();
   });
 });
-
