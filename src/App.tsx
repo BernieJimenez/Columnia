@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import type { ReviewTab } from "./components/ReviewTabList";
-import { DeliveryPhase } from "./features/delivery/DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
   deliveryContractFromRules,
@@ -28,11 +27,9 @@ import {
   type LoadInspectionState,
   type SheetSelectionAction,
 } from "./features/load/loadModel";
-import { PreparePhase } from "./features/prepare/PreparePhase";
 import { usePrepareController } from "./features/prepare/usePrepareController";
 import { ProjectsPanel } from "./features/projects/ProjectsPanel";
 import { useProjectsController } from "./features/projects/useProjectsController";
-import { ReviewPhase } from "./features/review/ReviewPhase";
 import {
   beginComparison,
   clearComparison,
@@ -86,7 +83,7 @@ import {
 
 type AppStatus =
   | { kind: "loading" }
-  | { kind: "ready"; info: AppInfo }
+  | { kind: "ready"; info: AppInfo | null }
   | { kind: "browser" }
   | { kind: "error"; message: string };
 
@@ -101,8 +98,39 @@ const CONFLICT_PAGE_SIZE = 50;
 
 type ActivePhase = (typeof phases)[number]["id"];
 
+const loadDeliveryPhase = () => import("./features/delivery/DeliveryPhase");
+const loadPreparePhase = () => import("./features/prepare/PreparePhase");
+const loadReviewPhase = () => import("./features/review/ReviewPhase");
+
+const DeliveryPhase = lazy(async () => {
+  const module = await loadDeliveryPhase();
+  return { default: module.DeliveryPhase };
+});
+
+const PreparePhase = lazy(async () => {
+  const module = await loadPreparePhase();
+  return { default: module.PreparePhase };
+});
+
+const ReviewPhase = lazy(async () => {
+  const module = await loadReviewPhase();
+  return { default: module.ReviewPhase };
+});
+
+function preloadPhase(phase: ActivePhase): void {
+  if (phase === "review") void loadReviewPhase();
+  if (phase === "prepare") void loadPreparePhase();
+  if (phase === "deliver") void loadDeliveryPhase();
+}
+
+function initialAppStatus(): AppStatus {
+  return isTauriRuntime()
+    ? { kind: "ready", info: null }
+    : { kind: "browser" };
+}
+
 function isTauriRuntime(): boolean {
-  return "__TAURI_INTERNALS__" in window;
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 function isCancellationError(error: unknown): boolean {
@@ -110,7 +138,7 @@ function isCancellationError(error: unknown): boolean {
 }
 
 export function App() {
-  const [status, setStatus] = useState<AppStatus>({ kind: "loading" });
+  const [status, setStatus] = useState<AppStatus>(initialAppStatus);
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
@@ -193,10 +221,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!isTauriRuntime()) {
-      setStatus({ kind: "browser" });
-      return;
-    }
+    if (!isTauriRuntime()) return;
 
     let active = true;
     getAppInfo()
@@ -544,6 +569,8 @@ export function App() {
                 aria-label={phase.label}
                 className={activePhase === phase.id ? "side-nav__active" : undefined}
                 aria-current={activePhase === phase.id ? "step" : undefined}
+                onMouseEnter={() => preloadPhase(phase.id)}
+                onFocus={() => preloadPhase(phase.id)}
                 onClick={() => setActivePhase(phase.id)}
                 disabled={!available || operationBusy}
                 title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
@@ -584,7 +611,11 @@ export function App() {
           >
             {status.kind === "loading" && "Conectando con Rust…"}
             {status.kind === "browser" && "Vista web · motor no conectado"}
-            {status.kind === "ready" && `${status.info.version} · ${status.info.platform}`}
+            {status.kind === "ready" && status.info
+              ? `${status.info.version} · ${status.info.platform}`
+              : status.kind === "ready"
+                ? "Motor local listo"
+                : null}
             {status.kind === "error" && `Error del motor: ${status.message}`}
           </div>
         </header>
@@ -594,98 +625,100 @@ export function App() {
           aria-label={`Etapa ${activePhaseMeta.label}`}
           aria-busy={operationBusy}
         >
-          {activePhase === "load" && (
-            <LoadPhase
-              runtime={loadRuntime}
-              datasetStatus={datasetStatus}
-              inspection={loadInspection}
-              onSelect={selectDataset}
-              onSheetAction={handleSheetSelection}
-              onCancelLoad={() => cancelActiveOperation("load")}
-            >
-              <ProjectsPanel
-                catalog={projects.catalog}
-                operation={projects.operation}
-                deletion={projects.deletion}
-                activeProject={projects.activeProject}
-                datasetFileName={activeDataset?.dataset.fileName ?? null}
-                disabled={operationBusy}
-                onSave={(name) => void projects.save(name)}
-                onOpen={(projectId) => void projects.open(projectId)}
-                onDeleteRequest={projects.requestDelete}
-                onDeleteCancel={projects.cancelDelete}
-                onDeleteConfirm={() => void projects.confirmDelete()}
-                onRetry={() => void projects.refresh()}
-                onClearFeedback={projects.clearFeedback}
+          <Suspense fallback={<div className="phase-loading" role="status">Cargando etapa…</div>}>
+            {activePhase === "load" && (
+              <LoadPhase
+                runtime={loadRuntime}
+                datasetStatus={datasetStatus}
+                inspection={loadInspection}
+                onSelect={selectDataset}
+                onSheetAction={handleSheetSelection}
+                onCancelLoad={() => cancelActiveOperation("load")}
+              >
+                <ProjectsPanel
+                  catalog={projects.catalog}
+                  operation={projects.operation}
+                  deletion={projects.deletion}
+                  activeProject={projects.activeProject}
+                  datasetFileName={activeDataset?.dataset.fileName ?? null}
+                  disabled={operationBusy}
+                  onSave={(name) => void projects.save(name)}
+                  onOpen={(projectId) => void projects.open(projectId)}
+                  onDeleteRequest={projects.requestDelete}
+                  onDeleteCancel={projects.cancelDelete}
+                  onDeleteConfirm={() => void projects.confirmDelete()}
+                  onRetry={() => void projects.refresh()}
+                  onClearFeedback={projects.clearFeedback}
+                />
+              </LoadPhase>
+            )}
+
+            {activePhase === "review" && readyDataset && (
+              <ReviewPhase
+                datasetStatus={readyDataset}
+                profileStatus={profileStatus}
+                reviewTab={reviewTab}
+                onTabChange={setReviewTab}
+                onPageChange={changePage}
+                onAnalyzeQuality={analyzeQuality}
+                onCancelProfile={() => cancelActiveOperation("profile")}
+                comparisonStatus={comparisonStatus}
+                comparisonKeyColumns={comparisonKeyColumns}
+                onComparisonKeyColumnsChange={setComparisonKeyColumns}
+                datasetColumns={readyDataset.dataset.columns}
+                joinStatus={joinStatus}
+                joinType={joinType}
+                onJoinTypeChange={setJoinType}
+                onCompare={() => void compareActiveDataset()}
+                onClearComparison={() => void clearActiveComparison()}
+                onConsolidate={() => void consolidateComparedDataset()}
+                onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}
+                onConflictPageChange={(offset) => void changeConflictPage(offset)}
+                onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
               />
-            </LoadPhase>
-          )}
+            )}
 
-          {activePhase === "review" && readyDataset && (
-            <ReviewPhase
-              datasetStatus={readyDataset}
-              profileStatus={profileStatus}
-              reviewTab={reviewTab}
-              onTabChange={setReviewTab}
-              onPageChange={changePage}
-              onAnalyzeQuality={analyzeQuality}
-              onCancelProfile={() => cancelActiveOperation("profile")}
-              comparisonStatus={comparisonStatus}
-              comparisonKeyColumns={comparisonKeyColumns}
-              onComparisonKeyColumnsChange={setComparisonKeyColumns}
-              datasetColumns={readyDataset.dataset.columns}
-              joinStatus={joinStatus}
-              joinType={joinType}
-              onJoinTypeChange={setJoinType}
-              onCompare={() => void compareActiveDataset()}
-              onClearComparison={() => void clearActiveComparison()}
-              onConsolidate={() => void consolidateComparedDataset()}
-              onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}
-              onConflictPageChange={(offset) => void changeConflictPage(offset)}
-              onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
-            />
-          )}
+            {activePhase === "prepare" && readyDataset && (
+              <PreparePhase
+                dataset={readyDataset.dataset}
+                profileStatus={profileStatus}
+                changeStatus={prepare.changeStatus}
+                historyStatus={prepare.historyStatus}
+                recipeDraft={recipeDraft}
+                recipeSession={recipeSession}
+                onAnalyzeQuality={analyzeQuality}
+                onCancelProfile={() => cancelActiveOperation("profile")}
+                onRemoveDuplicates={prepare.applyDuplicateRemoval}
+                onRemoveEmptyRows={prepare.applyEmptyRowRemoval}
+                onRemoveConstantColumns={prepare.applyConstantColumnRemoval}
+                onRemoveEmptyColumns={prepare.applyEmptyColumnRemoval}
+                onRemoveHighNullColumns={prepare.applyHighNullColumnRemoval}
+                onNormalizeSentinels={prepare.applySentinelNormalization}
+                onNormalizeBooleans={prepare.applyBooleanNormalization}
+                onImputeMissingValues={prepare.applyMissingValueImputation}
+                onEnableRowAudit={prepare.applyRowAudit}
+                onNormalizeColumns={prepare.applyColumnNormalization}
+                onApplyRecommended={prepare.applyRecommendedCorrections}
+                onTrimText={prepare.trimText}
+                onNormalizeText={prepare.normalizeText}
+                onApplyTransforms={prepare.applyStructuralTransforms}
+                onRecipeDraftChange={setRecipeDraft}
+                onUndo={prepare.undoChange}
+                onRedo={prepare.redoChange}
+              />
+            )}
 
-          {activePhase === "prepare" && readyDataset && (
-            <PreparePhase
-              dataset={readyDataset.dataset}
-              profileStatus={profileStatus}
-              changeStatus={prepare.changeStatus}
-              historyStatus={prepare.historyStatus}
-              recipeDraft={recipeDraft}
-              recipeSession={recipeSession}
-              onAnalyzeQuality={analyzeQuality}
-              onCancelProfile={() => cancelActiveOperation("profile")}
-              onRemoveDuplicates={prepare.applyDuplicateRemoval}
-              onRemoveEmptyRows={prepare.applyEmptyRowRemoval}
-              onRemoveConstantColumns={prepare.applyConstantColumnRemoval}
-              onRemoveEmptyColumns={prepare.applyEmptyColumnRemoval}
-              onRemoveHighNullColumns={prepare.applyHighNullColumnRemoval}
-              onNormalizeSentinels={prepare.applySentinelNormalization}
-              onNormalizeBooleans={prepare.applyBooleanNormalization}
-              onImputeMissingValues={prepare.applyMissingValueImputation}
-              onEnableRowAudit={prepare.applyRowAudit}
-              onNormalizeColumns={prepare.applyColumnNormalization}
-              onApplyRecommended={prepare.applyRecommendedCorrections}
-              onTrimText={prepare.trimText}
-              onNormalizeText={prepare.normalizeText}
-              onApplyTransforms={prepare.applyStructuralTransforms}
-              onRecipeDraftChange={setRecipeDraft}
-              onUndo={prepare.undoChange}
-              onRedo={prepare.redoChange}
-            />
-          )}
-
-          {activePhase === "deliver" && readyDataset && (
-            <DeliveryPhase
-              dataset={readyDataset.dataset}
-              contract={deliveryContract}
-              exportState={exportStatus}
-              onContractAction={updateDeliveryContract}
-              onExport={exportActiveDataset}
-              onCancelExport={() => cancelActiveOperation("export")}
-            />
-          )}
+            {activePhase === "deliver" && readyDataset && (
+              <DeliveryPhase
+                dataset={readyDataset.dataset}
+                contract={deliveryContract}
+                exportState={exportStatus}
+                onContractAction={updateDeliveryContract}
+                onExport={exportActiveDataset}
+                onCancelExport={() => cancelActiveOperation("export")}
+              />
+            )}
+          </Suspense>
         </section>
       </main>
     </div>

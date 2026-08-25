@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "captureVersion": 1,
   "source": "tauri-release-binary",
-  "projectVersion": "0.49.0",
+  "projectVersion": "0.54.0",
   "fixturePath": "fixtures/automation/input.csv",
   "owner": "Columnia maintainers",
   "purpose": "Canonical release-shell screenshots for visual regression detection",
-  "approvedAt": "2026-08-23T19:53:28.439Z",
+  "approvedAt": "2026-08-25T01:21:06.196Z",
   "requiredCases": [
     {
       "name": "desktop",
@@ -56,9 +56,9 @@
     "requireNoHorizontalOverflow": true
   },
   "screenshots": {
-    "desktop": "ce84414fb93be6837ffbb6b5b681146b59900a00fd8411201c053d1cd4116b0c",
-    "mobile": "798892e5d5908bda58fd7e20137bb8da4526dfbfcd3272ea8651c4fa028a8121",
-    "zoom-125": "ce84414fb93be6837ffbb6b5b681146b59900a00fd8411201c053d1cd4116b0c",
-    "forced-colors": "10a060312e5b8742d2a495150ceb97e3e34760007bb8d4708db4ea86c27d56c4"
+    "desktop": "d2d9842e4d58db73c6cc4e93a6c4da171a62e28fca0ed7a9a7e6a6eeb0c2f42e",
+    "mobile": "46e7435da138c044752bf0634565c9b674d12fccba167fc3bfc4a67421fe84c9",
+    "zoom-125": "e68f3ae47fb266c84261b8ff35705178ff058a4496c2bb01cbda3e868c630087",
+    "forced-colors": "1537f451095503dd641d4ac77cac76c956bfe6ee32bed449caf43efd3fcdc3a6"
   }
 }

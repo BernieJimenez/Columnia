@@ -13,7 +13,7 @@
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, y mantiene
   pendientes pipelines, sesiones y round-trip completo hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.53.0`.
+- Versión actual del prototipo: `0.54.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -847,6 +847,10 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
   de WebView2.
 - [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
+- [x] Reducir el trabajo crítico del arranque: el bundle inicial separa las
+  etapas pesadas, la migración SQLite se difiere hasta la primera operación y
+  el monitor de recursos queda fuera del primer paint. Evidencia: build inicial
+  de 253.10 KB raw/77.31 KB gzip y smoke desktop con Vite listo en 2.31 s.
 
 **Gate:** no se puede declarar una fase terminada ni preparar un release si el
 script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
@@ -982,7 +986,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.53.0
+## 8.1. Cola de ejecución recomendada desde v0.54.0
 
 1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
    representable. El selector importa pipelines v1–v3, normaliza operaciones
@@ -1017,9 +1021,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
      de transformación/exportación dentro de WebView2 junto al presupuesto global
      del árbol. Todavía falta repetirlo con datasets grandes y con historial que
      ejerza el límite integral de memoria.
-6. **Ejecución lazy/incremental:** completada para la receta compatible de I1;
-   ampliar después a datasets mayores y a operaciones que todavía requieren el
-   camino eager.
+6. **Ejecución lazy/incremental y arranque:** la receta compatible de I1 usa
+   planes Polars lazy con fallback eager; en v0.54.0 las etapas Review,
+   Preparar y Entregar también se cargan bajo demanda, la migración SQLite se
+   difiere hasta la primera operación y el monitor de recursos espera al primer
+   paint. Ampliar después a datasets mayores y a operaciones que todavía
+   requieren el camino eager.
 7. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
    benchmark; los joins, la comparación y la consolidación local ya tienen una
    primera entrega; quedan destinos de base de datos y consultas más amplias.
@@ -1314,6 +1321,7 @@ del original.
 | 2026-08-24 | I3: selector nativo Win32 estabilizado y elevado a `verify:tier`; el smoke WebView2 verifica abrir dataset, guardar/cargar receta y exportar con variantes de editor Abrir/Guardar como, cleanup y evidencia sin rutas. Quedan lector de pantalla, High Contrast manual, datasets grandes y VM limpia | Parcial, con evidencia |
 | 2026-08-24 | Versión 0.52.0: sistema visual explícito con selector persistente `Sistema`/`Claro`/`Oscuro`, aplicación temprana en el documento, capa visual refinada y estilos compatibles con foco, movimiento reducido y `forced-colors` | Implementada |
 | 2026-08-24 | Versión 0.53.0: el selector de recetas importa el núcleo representable de pipelines DataPrep v1–v3 a receta Columnia v1 y rechaza semánticas ambiguas antes de modificar el borrador | Implementada |
+| 2026-08-24 | Versión 0.54.0: optimización de arranque con code-splitting de etapas pesadas, estado inicial local sin esperar `get_app_info`, migración SQLite diferida y monitor de recursos fuera del primer paint | Implementada |
 
 ## 10. Fuentes de esta revisión
 

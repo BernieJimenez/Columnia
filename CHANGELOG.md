@@ -62,6 +62,28 @@ los artefactos de validación locales.
   (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
+## [0.54.0] - 2026-08-24
+
+### Mejorado
+
+- El arranque frontend carga inicialmente solo el shell, Cargar y Proyectos;
+  Review, Preparar y Entregar se separan en chunks y se precargan al enfocar o
+  pasar el cursor por su etapa.
+- Tauri ya puede mostrar la ventana y el shell local sin esperar la consulta
+  secundaria de información de versión/plataforma.
+- La preparación del catálogo SQLite de proyectos se difiere hasta la primera
+  operación de proyecto; se conservan la migración segura y la inicialización
+  eager para CLI y automatizaciones.
+- El monitor de consumo se inicia después del primer paint para no competir con
+  la apertura de la interfaz.
+
+### Validación
+
+- 181 pruebas Rust, 209 frontend, build Vite, Clippy estricto, formato Rust,
+  smoke desktop, smoke CDP, resumen y baseline de rendimiento aprobados.
+- El bundle inicial bajó de 359.93 a 253.10 KB raw y de 100.26 a 77.31 KB gzip.
+  El smoke debug continúa condicionado por la compilación nativa de desarrollo.
+
 ## [0.53.0] - 2026-08-24
 
 ### Añadido

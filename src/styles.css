@@ -72,6 +72,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .runtime--error { border-color: #d58b83; color: #a33e35; }
 
 .workspace { min-height: 78vh; max-width: 1400px; margin: 0 auto; padding: 30px; border: 1px solid #b5c6c1; border-radius: 12px; background: #f8faf8; box-shadow: 8px 8px 0 #d3a258, 0 18px 38px rgba(24, 52, 58, .07); }
+.phase-loading { display: grid; min-height: 240px; place-items: center; color: #587078; font-weight: 700; }
 .phase-header { display: flex; align-items: center; justify-content: space-between; gap: 32px; padding-bottom: 24px; border-bottom: 1px solid #ced9d5; }
 .phase-header--compact { align-items: start; }
 .phase-header p:last-child { max-width: 900px; margin: 0; color: #587078; }
@@ -589,6 +590,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-theme="dark"] .runtime, :root[data-theme="dark"] .workspace { border-color: #426067; background: #18373d; }
 :root[data-theme="dark"] .runtime { color: #c6e8df; }
 :root[data-theme="dark"] .workspace { box-shadow: 8px 8px 0 #825321, 0 18px 38px rgba(0, 0, 0, .2); }
+:root[data-theme="dark"] .phase-loading { color: #b6c9c7; }
 :root[data-theme="dark"] .workspace :is(h2, h3, h4, h5, strong, legend) { color: #e4eeeb; }
 :root[data-theme="dark"] .workspace :is(p, small, li, dt, label, .phase-header p:last-child, .preview-note) { color: #b6c9c7; }
 :root[data-theme="dark"] .workspace :is(button, input, select, textarea) { border-color: #527078; }

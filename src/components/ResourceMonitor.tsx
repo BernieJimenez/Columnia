@@ -60,10 +60,11 @@ export const ResourceMonitor = memo(function ResourceMonitor({
       }
     };
 
-    void refresh();
+    const initialRefresh = window.setTimeout(() => void refresh(), 250);
     const timer = window.setInterval(() => void refresh(), pollIntervalMs);
     return () => {
       cancelled = true;
+      window.clearTimeout(initialRefresh);
       window.clearInterval(timer);
     };
   }, [enabled, fetchUsage, pollIntervalMs]);

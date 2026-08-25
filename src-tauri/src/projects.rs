@@ -1,7 +1,7 @@
 use std::{
     fs::{self},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use chrono::{SecondsFormat, Utc};
@@ -94,7 +94,7 @@ pub struct ProjectState {
 impl ProjectState {
     pub fn initialize(app_data_dir: PathBuf) -> Result<Self, String> {
         Ok(Self {
-            store: ProjectStore::initialize(app_data_dir)?,
+            store: ProjectStore::initialize_deferred(app_data_dir)?,
             operation: Mutex::new(()),
         })
     }
@@ -105,6 +105,7 @@ struct ProjectStore {
     root: PathBuf,
     snapshots: PathBuf,
     catalog: PathBuf,
+    initialized: Arc<OnceLock<Result<(), String>>>,
 }
 
 #[derive(Debug)]
@@ -148,6 +149,12 @@ struct DurableHistoryEntry {
 
 impl ProjectStore {
     fn initialize(root: PathBuf) -> Result<Self, String> {
+        let store = Self::initialize_deferred(root)?;
+        store.ensure_initialized()?;
+        Ok(store)
+    }
+
+    fn initialize_deferred(root: PathBuf) -> Result<Self, String> {
         let root = prepare_store_directory(&root)?;
         let snapshots = prepare_store_directory(&root.join("project-snapshots"))?;
         if snapshots.parent() != Some(root.as_path()) {
@@ -157,9 +164,13 @@ impl ProjectStore {
             catalog: root.join("projects.sqlite3"),
             root,
             snapshots,
+            initialized: Arc::new(OnceLock::new()),
         };
-        store.migrate()?;
         Ok(store)
+    }
+
+    fn ensure_initialized(&self) -> Result<(), String> {
+        self.initialized.get_or_init(|| self.migrate()).clone()
     }
 
     fn connection(&self) -> Result<Connection, String> {
@@ -251,6 +262,7 @@ impl ProjectStore {
     }
 
     fn list(&self) -> Result<Vec<ProjectSummary>, String> {
+        self.ensure_initialized()?;
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
@@ -266,6 +278,7 @@ impl ProjectStore {
     }
 
     fn recovery_candidate(&self) -> Result<Option<ProjectSummary>, String> {
+        self.ensure_initialized()?;
         let connection = self.connection()?;
         connection
             .query_row(
@@ -297,6 +310,7 @@ impl ProjectStore {
         workspace: ProjectWorkspace,
         fail_before_database: bool,
     ) -> Result<ProjectSummary, String> {
+        self.ensure_initialized()?;
         let name = validate_name(name)?;
         if let Some(id) = project_id.as_deref() {
             validate_id(id)?;
@@ -436,6 +450,7 @@ impl ProjectStore {
     }
 
     fn load_validated(&self, project_id: &str) -> Result<ValidatedProject, String> {
+        self.ensure_initialized()?;
         validate_id(project_id)?;
         let connection = self.connection()?;
         let stored = self
@@ -512,6 +527,7 @@ impl ProjectStore {
     }
 
     fn delete(&self, project_id: String) -> Result<(), String> {
+        self.ensure_initialized()?;
         validate_id(&project_id)?;
         let mut connection = self.connection()?;
         let stored = self
@@ -1032,6 +1048,7 @@ where
             .lock()
             .map_err(|_| "El catálogo de proyectos no está disponible.".to_owned())?;
         let dataset_state = app.state::<DatasetState>();
+        project_state.store.ensure_initialized()?;
         operation(&project_state.store, &dataset_state)
     })
     .await
@@ -1180,6 +1197,16 @@ mod tests {
 
         let second = ProjectStore::initialize(directory.path().join("data")).unwrap();
         assert!(second.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn deferred_store_prepares_paths_and_migrates_on_first_operation() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize_deferred(directory.path().join("data")).unwrap();
+
+        assert!(!store.catalog.exists());
+        assert!(store.list().unwrap().is_empty());
+        assert!(store.catalog.exists());
     }
 
     #[test]

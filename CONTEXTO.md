@@ -8,7 +8,7 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.53.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.54.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-24, rama `master`, v0.53 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada y privacidad visible en destinos locales, M1 con importación de recetas DataPrep v1–v3 |
+| Última revisión de este documento | 2026-08-24, rama `master`, v0.54 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada y privacidad visible en destinos locales, M1 con importación de recetas DataPrep v1–v3 |
 
 ## Para qué existe este documento
 
@@ -561,6 +561,8 @@ Al actualizarlo:
 | 2026-08-24 | Validación de 0.52.0: 209 pruebas frontend, sincronización de versión, build Vite y contratos de accesibilidad del selector de tema aprobados. | `src/components/ThemeSwitcher.test.tsx`, `src/features/settings/themeModel.test.ts`, `src/version-sync.test.ts` |
 | 2026-08-24 | Versión 0.53.0: el cargador nativo de recetas acepta el núcleo representable de pipelines DataPrep v1–v3, normaliza operaciones compatibles y falla cerrado ante regex/booleanos personalizados; se añadió anuncio accesible de etapa activa. | `src-tauri/src/dataset.rs`, `src/features/prepare/TransformRecipeEditor.tsx`, `src/App.tsx`, `docs/reference/migration-inventory.md` |
 | 2026-08-24 | Validación de 0.53.0: 180 pruebas Rust, 209 frontend, build Vite, formato Rust, documentación y gobernanza aprobados. | `src-tauri/src/dataset.rs`, `src/version-sync.test.ts`, `docs/reference/migration-inventory.md` |
+| 2026-08-24 | Versión 0.54.0 optimiza el arranque: Review/Preparar/Entregar se dividen en chunks y se precargan al enfocar o pasar el cursor; Tauri muestra el shell sin esperar `get_app_info`; la migración SQLite se difiere hasta la primera operación y el monitor de recursos espera 250 ms. | `src/App.tsx`, `src/components/ResourceMonitor.tsx`, `src-tauri/src/projects.rs`, `src/styles.css` |
+| 2026-08-24 | Validación de 0.54.0: 181 pruebas Rust, 209 frontend, build Vite, Clippy estricto, formato Rust, smoke desktop, smoke CDP, resumen y baseline de rendimiento aprobados. El bundle inicial pasó de 359.93 a 253.10 KB raw y de 100.26 a 77.31 KB gzip; el smoke desktop observó Vite listo en 2.31 s, aunque el arranque debug total continúa dominado por la compilación nativa. | `.local/validation/desktop-smoke/20260825T011202Z`, `.local/validation/webview2-cdp/20260825T011234Z`, `.local/validation/performance-summary/summary.json`, `.local/validation/performance-baseline/20260825T011434Z` |
 | 2026-08-24 | P1 añade destinos locales Excel/SQLite, consulta SQL restringida con filtros, `GROUP BY` y agregaciones seguras, privacidad de exportación con máscara/hash y señales agregadas de limpieza; joins/DuckDB, conectores remotos, catálogo completo de PII y sesión operativa siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/prepare/PreparePhase.tsx`, `src/features/delivery/DeliveryPhase.tsx` |
 | 2026-08-24 | P1 amplía el contrato de calidad con `column_compare`, `date_range`, `conditional`, `schema_contract`, `referential_integrity`, `monotonic`, agregados y `distribution_drift`; todos comparten migración DataPrep, tolerancias, bridge tipado, editor accesible, evaluación Rust/UI/CLI y resultados basados en conteos. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
 | 2026-08-24 | P1 cierra el versionado del documento de calidad: formato canónico `columnia-quality-rules` v1, guardado atómico, importación Columnia/DataPrep v1–v3/legado, rechazo cerrado de contratos futuros o ambiguos, CLI retrocompatible y estado accesible sin rutas en React. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `docs/reference/cli.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |

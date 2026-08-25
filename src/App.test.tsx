@@ -23,6 +23,11 @@ async function openQualityAndAnalyze() {
   fireEvent.click(await screen.findByRole("button", { name: "Analizar calidad" }));
 }
 
+async function switchPhase(label: "Cargar" | "Revisar" | "Preparar" | "Entregar") {
+  fireEvent.click(await screen.findByRole("button", { name: label }));
+  await waitFor(() => expect(screen.queryByText("Cargando etapa…")).not.toBeInTheDocument());
+}
+
 function mockDatasetLoad(dataset: DatasetPreview) {
   vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
   vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
@@ -95,24 +100,24 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    await switchPhase("Entregar");
     expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).toBeChecked();
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("total");
     expect(screen.queryByText("Contrato aprobado")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar total");
     expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("importe");
     expect(profileSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    await switchPhase("Cargar");
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    await switchPhase("Entregar");
     expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).not.toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Mi receta");
     expect(screen.getByRole("combobox", { name: "Columna para renombrar 1" })).toHaveValue("");
@@ -223,7 +228,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    await switchPhase("Entregar");
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("email");
   });
 
@@ -509,7 +514,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await screen.findByRole("heading", { name: "ventas.csv" });
     expect(screen.queryByRole("button", { name: "Exportar Parquet" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Entregar" }));
+    await switchPhase("Entregar");
     expect(screen.getByRole("button", { name: "Exportar Parquet" })).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo y deseo exportar sin contrato/ }));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Parquet" }));
@@ -537,7 +542,7 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Entregar" }));
+    await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
     fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
 
@@ -568,7 +573,7 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Entregar" }));
+    await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
     fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
     expect(await screen.findByText("Contrato fallido")).toBeInTheDocument();
@@ -611,14 +616,14 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: "Normalizar columnas" }));
 
     expect(await screen.findByText("Se normalizó 1 nombre de columna.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
     expect(normalizeSpy).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
     expect(screen.getByRole("columnheader", { name: /ano_venta/ })).toBeInTheDocument();
   });
@@ -660,7 +665,7 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: "Recortar espacios" }));
 
     expect(await screen.findByText("Se recortaron espacios en 1 celda en 1 fila.")).toBeInTheDocument();
@@ -706,7 +711,7 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: "Aplicar recomendadas" }));
 
     expect(
@@ -815,7 +820,7 @@ describe("App", () => {
     expect(screen.getByText("1 (33.3%)")).toBeInTheDocument();
     expect(profileSpy).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados" }));
     expect(
       await screen.findByText("Se eliminaron 1 filas duplicadas adicionales."),
@@ -1098,7 +1103,7 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
 
     const correctionsTab = screen.getByRole("tab", { name: "Correcciones" });
     const transformationsTab = screen.getByRole("tab", { name: "Transformaciones" });
@@ -1161,7 +1166,7 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByRole("button", { name: "Guardar receta" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "estado" } });
@@ -1207,7 +1212,7 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
 
@@ -1234,7 +1239,7 @@ describe("App", () => {
     vi.spyOn(bridge, "pickTransformRecipe").mockRejectedValue(new Error("JSON inválido"));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo completar la operación: JSON inválido");
@@ -1262,7 +1267,7 @@ describe("App", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByText(/comparaciones numéricas estrictas/)).toHaveTextContent(/extrae primero año, mes o día/);
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir filtro AND" }));
@@ -1330,7 +1335,7 @@ describe("App", () => {
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
 
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "codigo" } });
@@ -1366,7 +1371,7 @@ describe("App", () => {
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "importe" } });
     fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
@@ -1415,7 +1420,7 @@ describe("App", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir tratamiento" }));
     fireEvent.change(screen.getByLabelText("Columna de outliers 1"), { target: { value: "valor" } });
@@ -1447,7 +1452,7 @@ describe("App", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "importe" } });
     fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
@@ -1489,7 +1494,7 @@ describe("App", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "codigo" } });
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir contacto" }));
@@ -1524,7 +1529,7 @@ describe("App", () => {
     }));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Preparar" }));
+    await switchPhase("Preparar");
     expect(screen.getByText("No hay espacio disponible para snapshots.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
