@@ -509,9 +509,6 @@ function LocalQueryPanel() {
           <h4 id="local-query-title">Explorar con SQL local</h4>
           <p>Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples, GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.</p>
         </div>
-        <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
-          {state.kind === "loading" ? "Consultando…" : "Ejecutar consulta"}
-        </button>
       </div>
       <label className="local-query__field">
         Consulta SQL de solo lectura
@@ -523,6 +520,11 @@ function LocalQueryPanel() {
           spellCheck={false}
         />
       </label>
+      <div className="local-query__actions">
+        <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
+          {state.kind === "loading" ? "Consultando…" : "Ejecutar consulta"}
+        </button>
+      </div>
       {state.kind === "error" && <p className="notice notice--error" role="alert">No se pudo ejecutar la consulta: {state.message}</p>}
       {state.kind === "ready" && <LocalQueryResult result={state.result} />}
     </section>

@@ -77,27 +77,18 @@ export function LoadPhase({
       {!current && (
         <section className="load-brief" aria-labelledby="load-brief-title">
           <div className="load-brief__lead">
-            <span className="load-brief__index" aria-hidden="true">01</span>
             <div>
-              <p className="eyebrow">Primer paso</p>
               <h3 id="load-brief-title">Trae tus datos a un espacio de trabajo local.</h3>
               <p>Primero inspeccionamos la estructura; después podrás revisar señales, aplicar cambios reversibles y exportar con control.</p>
             </div>
           </div>
-          <dl className="load-brief__facts">
-            <div>
-              <dt>7</dt>
-              <dd>formatos admitidos</dd>
-            </div>
-            <div>
-              <dt>500 MB</dt>
-              <dd>límite por archivo</dd>
-            </div>
-            <div>
-              <dt>Local</dt>
-              <dd>sin subir tus datos</dd>
-            </div>
-          </dl>
+          <p className="load-brief__meta">
+            <span>7 formatos</span>
+            <span aria-hidden="true">·</span>
+            <span>Hasta <strong>500 MB</strong></span>
+            <span aria-hidden="true">·</span>
+            <span>Procesamiento local</span>
+          </p>
         </section>
       )}
 

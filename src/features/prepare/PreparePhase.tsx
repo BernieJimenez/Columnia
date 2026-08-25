@@ -220,6 +220,12 @@ export function PreparePhase({
           Recortar espacios
         </button>
       </section>
+      <details className="advanced-corrections">
+        <summary>
+          <span>Correcciones avanzadas</span>
+          <small>Selección manual, eliminación de filas y duplicados</small>
+        </summary>
+        <div className="advanced-corrections__content">
       <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title">
         <div>
           <p className="step">Requiere selección</p>
@@ -320,6 +326,8 @@ export function PreparePhase({
           No se pudo analizar la calidad: {profileStatus.message}
         </p>
       )}
+        </div>
+      </details>
       </div>
       )}
     </>

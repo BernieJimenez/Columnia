@@ -45,6 +45,7 @@ export function DeliveryPhase({
   onCancelExport,
 }: DeliveryPhaseProps) {
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
   const [migrationState, setMigrationState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
@@ -67,6 +68,17 @@ export function DeliveryPhase({
     || contract.gate.kind === "loading"
     || migrationState.kind === "working"
     || qualityFileState.kind === "working";
+  const exportFormatLabel = {
+    csv: "CSV",
+    json: "JSON",
+    parquet: "Parquet",
+    sql: "SQL",
+    excel: "Excel",
+    sqlite: "SQLite",
+  }[exportFormat];
+  const exportRequirement = contract.kind === "with_contract"
+    ? "Valida y aprueba el contrato para habilitar la exportación."
+    : "Confirma la entrega sin contrato para habilitar la exportación.";
 
   function changeRules(nextRules: QualityRule[]) {
     setQualityFileState({ kind: "idle" });
@@ -963,39 +975,46 @@ export function DeliveryPhase({
           <h3 id="export-title">Exportar dataset activo</h3>
           <p>El destino solo aparece cuando el archivo está completo.</p>
         </div>
-        <label className="privacy-mode">
-          Protección de datos personales
-          <select
-            aria-label="Protección de datos personales"
-            value={privacyMode}
-            onChange={(event) => setPrivacyMode(event.target.value as PrivacyMode)}
+        <div className="export-controls">
+          <label className="export-format">
+            Formato
+            <select
+              aria-label="Formato de exportación"
+              value={exportFormat}
+              onChange={(event) => setExportFormat(event.target.value as ExportFormat)}
+              disabled={busy}
+            >
+              <option value="csv">CSV</option>
+              <option value="json">JSON</option>
+              <option value="parquet">Parquet</option>
+              <option value="sql">SQL</option>
+              <option value="excel">Excel</option>
+              <option value="sqlite">SQLite</option>
+            </select>
+          </label>
+          <label className="privacy-mode">
+            Protección de datos personales
+            <select
+              aria-label="Protección de datos personales"
+              value={privacyMode}
+              onChange={(event) => setPrivacyMode(event.target.value as PrivacyMode)}
+              disabled={busy}
+            >
+              <option value="none">Sin protección adicional</option>
+              <option value="mask">Enmascarar columnas detectadas</option>
+              <option value="hash">Aplicar hash SHA-256 a columnas detectadas</option>
+            </select>
+          </label>
+          <button
+            className="primary-action export-action"
+            type="button"
+            onClick={() => requestExport(exportFormat)}
             disabled={busy || !exportAllowed}
           >
-            <option value="none">Sin protección adicional</option>
-            <option value="mask">Enmascarar columnas detectadas</option>
-            <option value="hash">Aplicar hash SHA-256 a columnas detectadas</option>
-          </select>
-        </label>
-        <div className="export-actions">
-          <button type="button" onClick={() => requestExport("csv")} disabled={busy || !exportAllowed}>
-            Exportar CSV
-          </button>
-          <button type="button" onClick={() => requestExport("json")} disabled={busy || !exportAllowed}>
-            Exportar JSON
-          </button>
-          <button type="button" onClick={() => requestExport("parquet")} disabled={busy || !exportAllowed}>
-            Exportar Parquet
-          </button>
-          <button type="button" onClick={() => requestExport("sql")} disabled={busy || !exportAllowed}>
-            Exportar SQL
-          </button>
-          <button type="button" onClick={() => requestExport("excel")} disabled={busy || !exportAllowed}>
-            Exportar Excel
-          </button>
-          <button type="button" onClick={() => requestExport("sqlite")} disabled={busy || !exportAllowed}>
-            Exportar SQLite
+            Exportar {exportFormatLabel}
           </button>
         </div>
+        {!exportAllowed && <p className="export-requirement">{exportRequirement}</p>}
       </section>
       {exportState.kind === "loading" && (
         <OperationProgressView

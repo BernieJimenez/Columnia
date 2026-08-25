@@ -50,6 +50,9 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "parquet" },
+    });
     const exportButton = screen.getByRole("button", { name: "Exportar Parquet" });
     expect(exportButton).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", {
@@ -111,6 +114,9 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Entiendo y deseo exportar sin contrato de calidad",
     }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "json" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Exportar JSON" }));
 
     expect(onExport).toHaveBeenCalledWith({
@@ -127,6 +133,9 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Entiendo y deseo exportar sin contrato de calidad",
     }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "sql" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Exportar SQL" }));
 
     expect(onExport).toHaveBeenCalledWith({
@@ -143,7 +152,10 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Entiendo y deseo exportar sin contrato de calidad",
     }));
+    const format = screen.getByRole("combobox", { name: "Formato de exportación" });
+    fireEvent.change(format, { target: { value: "excel" } });
     fireEvent.click(screen.getByRole("button", { name: "Exportar Excel" }));
+    fireEvent.change(format, { target: { value: "sqlite" } });
     fireEvent.click(screen.getByRole("button", { name: "Exportar SQLite" }));
 
     expect(onExport).toHaveBeenNthCalledWith(1, {
@@ -167,6 +179,9 @@ describe("DeliveryPhase", () => {
     }));
     fireEvent.change(screen.getByRole("combobox", { name: "Protección de datos personales" }), {
       target: { value: "hash" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "excel" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Exportar Excel" }));
 

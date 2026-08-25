@@ -386,6 +386,11 @@ export function TransformRecipeEditor({
         )}
       </div>
 
+      <details className="transform-recipe__operations" open={operationCount > 0 ? true : undefined}>
+        <summary>
+          <span>Configurar operaciones</span>
+          <small>Renombres, tipos, filtros y transformaciones estructurales</small>
+        </summary>
       <div className="transform-recipe__grid">
         <fieldset>
           <legend>Renombrar columnas</legend>
@@ -422,7 +427,7 @@ export function TransformRecipeEditor({
                   }
                 />
               </label>
-              <button type="button" aria-label={`Quitar renombre ${index + 1}`} onClick={() => setRenames((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              <button type="button" aria-label={`Quitar renombre ${index + 1}`} title="Quitar renombre" onClick={() => setRenames((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
             </div>
           ))}
           <button type="button" className="recipe-add" onClick={() => setRenames((current) => [...current, { from: "", to: "" }])}>+ Añadir renombre</button>
@@ -448,7 +453,7 @@ export function TransformRecipeEditor({
                   <option value="boolean">Booleano</option>
                 </select>
               </label>
-              <button type="button" aria-label={`Quitar conversión ${index + 1}`} onClick={() => setCasts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              <button type="button" aria-label={`Quitar conversión ${index + 1}`} title="Quitar conversión" onClick={() => setCasts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
             </div>
           ))}
           <button type="button" className="recipe-add" onClick={() => setCasts((current) => [...current, { column: "", target: "string" }])}>+ Añadir conversión</button>
@@ -481,7 +486,7 @@ export function TransformRecipeEditor({
                   <option value="datetime">Fecha y hora</option>
                 </select>
               </label>
-              <button type="button" aria-label={`Quitar fecha ${index + 1}`} onClick={() => setDateParses((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              <button type="button" aria-label={`Quitar fecha ${index + 1}`} title="Quitar fecha" onClick={() => setDateParses((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
             </div>
           ))}
           <button type="button" className="recipe-add" onClick={() => setDateParses((current) => [...current, { column: "", format: "iso8601", target: "date" }])}>+ Añadir fecha</button>
@@ -504,7 +509,7 @@ export function TransformRecipeEditor({
                   <option value="eq">Igual a</option><option value="neq">Distinto de</option><option value="gt">Mayor que</option><option value="lt">Menor que</option><option value="gte">Mayor o igual</option><option value="lte">Menor o igual</option><option value="contains">Contiene</option><option value="not_contains">No contiene</option><option value="is_null">Es nulo</option><option value="not_null">No es nulo</option>
                 </select></label>
                 <label><span>Valor</span><input aria-label={`Valor del filtro ${index + 1}`} value={filter.value ?? ""} disabled={unary} placeholder={unary ? "No requerido" : "Valor estricto"} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} /></label>
-                <button type="button" aria-label={`Quitar filtro ${index + 1}`} onClick={() => setFilters((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+                <button type="button" aria-label={`Quitar filtro ${index + 1}`} title="Quitar filtro" onClick={() => setFilters((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
               </div>
             );
           })}
@@ -576,7 +581,7 @@ export function TransformRecipeEditor({
           {outlierTreatments.map((treatment, index) => <div className="recipe-row" key={`outlier-${index}`}>
             <label><span>Columna numérica</span><select aria-label={`Columna de outliers ${index + 1}`} value={treatment.column} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}><option value="">Selecciona…</option>{numericColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
             <label><span>Acción</span><select aria-label={`Acción de outliers ${index + 1}`} value={treatment.action} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, action: event.target.value as OutlierDraft["action"] } : item))}><option value="cap">Limitar a los umbrales</option><option value="drop">Eliminar filas</option></select></label>
-            <button type="button" aria-label={`Quitar tratamiento ${index + 1}`} onClick={() => setOutlierTreatments((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+            <button type="button" aria-label={`Quitar tratamiento ${index + 1}`} title="Quitar tratamiento" onClick={() => setOutlierTreatments((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
           </div>)}
           {outlierTreatments.length < 16 && <button type="button" className="recipe-add" onClick={() => setOutlierTreatments((current) => [...current, { column: "", action: "cap" }])}>+ Añadir tratamiento</button>}
         </fieldset>
@@ -612,6 +617,7 @@ export function TransformRecipeEditor({
           {groupEnabled && <p className="recipe-error">Las extracciones no son compatibles con un resumen agrupado en la misma receta; las normalizaciones de contacto sí.</p>}
         </fieldset>
       </div>
+      </details>
 
       {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
       {filterInvalid && <p className="recipe-error" role="alert">Filtros: las comparaciones numéricas y de contenido requieren un valor.</p>}

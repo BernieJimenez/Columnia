@@ -515,6 +515,9 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "ventas.csv" });
     expect(screen.queryByRole("button", { name: "Exportar Parquet" })).not.toBeInTheDocument();
     await switchPhase("Entregar");
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "parquet" },
+    });
     expect(screen.getByRole("button", { name: "Exportar Parquet" })).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo y deseo exportar sin contrato/ }));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Parquet" }));

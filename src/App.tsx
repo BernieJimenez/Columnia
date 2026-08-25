@@ -152,6 +152,11 @@ export function App() {
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [recipeSession, setRecipeSession] = useState(0);
+  const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(() =>
+    typeof window === "undefined"
+      || typeof window.matchMedia !== "function"
+      || !window.matchMedia("(max-width: 900px)").matches,
+  );
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) => {
@@ -218,6 +223,15 @@ export function App() {
     if (typeof performance !== "undefined") {
       performance.mark("columnia:app-render");
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mobileLayout = window.matchMedia("(max-width: 900px)");
+    const syncUtilities = () => setSidebarUtilitiesOpen(!mobileLayout.matches);
+    syncUtilities();
+    mobileLayout.addEventListener("change", syncUtilities);
+    return () => mobileLayout.removeEventListener("change", syncUtilities);
   }, []);
 
   useEffect(() => {
@@ -585,16 +599,24 @@ export function App() {
           })}
         </nav>
 
-        <ResourceMonitor enabled={status.kind === "ready"} />
-
-        <ThemeSwitcher />
-
         <div className="sidebar__dataset">
           <span>Dataset activo</span>
           <strong>
             {activeDataset ? activeDataset.dataset.fileName : "Sin dataset"}
           </strong>
         </div>
+
+        <details
+          className="sidebar__utilities"
+          open={sidebarUtilitiesOpen}
+          onToggle={(event) => setSidebarUtilitiesOpen(event.currentTarget.open)}
+        >
+          <summary>Preferencias y recursos</summary>
+          <div className="sidebar__utilities-content">
+            <ResourceMonitor enabled={status.kind === "ready"} />
+            <ThemeSwitcher />
+          </div>
+        </details>
       </aside>
 
       <main id="main-content" className="main-content" tabIndex={-1}>
