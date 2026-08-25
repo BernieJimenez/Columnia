@@ -22,6 +22,8 @@ comportamiento implementado.
   códigos de salida.
 - [Paridad funcional](reference/feature-parity.md): capacidades migradas desde
   `dataprepv1.1`, compatibilidad de contratos de calidad y brechas pendientes.
+- [Inventario de migración DataPrep](reference/migration-inventory.md): formato
+  de recetas reconocido, conversiones seguras y límites explícitos.
 - [Evidencia visual del release](reference/release-evidence.md): sumario,
   baseline, ownership y procedimiento para aceptar cambios.
 - [Gobierno del repositorio](reference/repository-governance.md) y

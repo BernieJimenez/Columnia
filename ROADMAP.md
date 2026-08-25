@@ -13,7 +13,7 @@
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, y mantiene
   pendientes pipelines, sesiones y round-trip completo hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.52.0`.
+- Versión actual del prototipo: `0.53.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -982,20 +982,25 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.52.0
+## 8.1. Cola de ejecución recomendada desde v0.53.0
 
-1. **Sistema visual y temas:** completado en v0.52.0. La barra lateral ofrece
+1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
+   representable. El selector importa pipelines v1–v3, normaliza operaciones
+   compatibles a receta Columnia v1 y rechaza semánticas ambiguas como regex o
+   booleanos personalizados. La migración de sesiones, reglas incrustadas,
+   artefactos y round-trip completo permanece en M1.
+2. **Sistema visual y temas:** completado en v0.52.0. La barra lateral ofrece
    un selector persistente de tema `Sistema`, `Claro` y `Oscuro`; la preferencia
    se aplica antes de montar React, se conserva en almacenamiento local y mantiene
    `forced-colors`, foco visible y movimiento reducido. La dirección visual ahora
    usa una jerarquía más clara de estación de trabajo, paneles con profundidad y
    estados de selección distinguibles.
-2. **Selector nativo Win32:** completado. `npm run smoke:native-selectors`
+3. **Selector nativo Win32:** completado. `npm run smoke:native-selectors`
    verifica abrir dataset, guardar/cargar receta y exportar en una sesión Windows
    interactiva; `verify:tier` lo ejecuta junto a los demás smokes cuando no se
    usa `-SkipNative`. La evidencia final está en
    `.local/validation/webview2-cdp/20260824T233922Z`.
-3. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
+4. **Accesibilidad y evidencia visual:** Playwright cubre landmarks, foco,
    targets mínimos, reduced-motion, viewport móvil/desktop, escala 125%,
    `forced-colors` y el ciclo de foco del `alertdialog`; `npm run
    accessibility:visual` genera capturas canónicas reproducibles y
@@ -1003,7 +1008,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    desde el binario release mediante `accessibility:release` y
    `accessibility:release:check`. Falta ejecutar lector de pantalla y validar
    en hardware real de Windows High Contrast.
-4. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, mantener
+5. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, mantener
    cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
    ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
    registra duraciones IPC por operación, mientras `npm run perf:benchmark` cubre
@@ -1012,16 +1017,16 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
      de transformación/exportación dentro de WebView2 junto al presupuesto global
      del árbol. Todavía falta repetirlo con datasets grandes y con historial que
      ejerza el límite integral de memoria.
-5. **Ejecución lazy/incremental:** completada para la receta compatible de I1;
+6. **Ejecución lazy/incremental:** completada para la receta compatible de I1;
    ampliar después a datasets mayores y a operaciones que todavía requieren el
    camino eager.
-6. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
+7. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
    benchmark; los joins, la comparación y la consolidación local ya tienen una
    primera entrega; quedan destinos de base de datos y consultas más amplias.
-7. **Migración M1 desde `dataprepv1.1`:** inventario y fixtures sintéticas,
+8. **Migración M1 desde `dataprepv1.1`:** inventario y fixtures sintéticas,
    importación de pipelines/sesiones/reglas, informe de operaciones no
    convertidas y round-trip completo hacia proyectos Columnia.
-8. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
+9. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
    licencias/avisos, smoke de instalador limpio, updater autenticado y validación
    real en macOS/Linux.
 
@@ -1175,9 +1180,13 @@ del original.
 - [ ] Definir un inventario de formatos de migración y fixtures sintéticas para
   pipelines, sesiones, reglas de calidad y recetas antiguas, sin incluir rutas
   reales ni celdas de usuario.
-- [ ] Importar pipelines JSON de DataPrep, incluyendo operaciones de limpieza,
-  configuración de transformaciones, columnas, filtros, outliers, grupos,
-  contactos y opciones de exportación; producir una receta Columnia versionada.
+- [x] Importar el núcleo representable de pipelines JSON DataPrep v1–v3:
+  renombres, casts, fechas, filtros, reemplazos literales, columnas conservadas,
+  cálculos, split/merge, outliers, grupos, contactos y extracciones; producir
+  una receta Columnia v1. Regex, booleanos personalizados y operaciones sin
+  equivalente se rechazan explícitamente.
+- [ ] Completar la importación de opciones de exportación y semánticas que aún
+  no tienen equivalente; generar warnings estructurados por operación omitida.
 - [x] Implementar la primera vertical de migración de reglas de calidad: selector
   nativo JSON, conversión de reglas representables, tolerancias por conteo y
   porcentaje, warnings/omitidas para severidad o políticas no equivalentes,
@@ -1304,6 +1313,7 @@ del original.
 | 2026-08-24 | P1: documento de calidad `columnia-quality-rules` v1 con guardado atómico, compatibilidad explícita Columnia/DataPrep v1–v3/legado, rechazo de versiones futuras, CLI retrocompatible y UI sin exposición de rutas | Implementada |
 | 2026-08-24 | I3: selector nativo Win32 estabilizado y elevado a `verify:tier`; el smoke WebView2 verifica abrir dataset, guardar/cargar receta y exportar con variantes de editor Abrir/Guardar como, cleanup y evidencia sin rutas. Quedan lector de pantalla, High Contrast manual, datasets grandes y VM limpia | Parcial, con evidencia |
 | 2026-08-24 | Versión 0.52.0: sistema visual explícito con selector persistente `Sistema`/`Claro`/`Oscuro`, aplicación temprana en el documento, capa visual refinada y estilos compatibles con foco, movimiento reducido y `forced-colors` | Implementada |
+| 2026-08-24 | Versión 0.53.0: el selector de recetas importa el núcleo representable de pipelines DataPrep v1–v3 a receta Columnia v1 y rechaza semánticas ambiguas antes de modificar el borrador | Implementada |
 
 ## 10. Fuentes de esta revisión
 

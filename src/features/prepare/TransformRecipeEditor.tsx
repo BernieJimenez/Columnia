@@ -277,7 +277,7 @@ export function TransformRecipeEditor({
         setRecipeFileStatus({ kind: "idle" });
         return;
       }
-      if (!isLoadedRecipe(loaded)) throw new Error("El archivo no contiene una receta compatible con Columnia.");
+      if (!isLoadedRecipe(loaded)) throw new Error("El archivo no contiene una receta compatible con Columnia o DataPrep v1–v3.");
       if (operationCount > 0 && !window.confirm("La receta cargada reemplazará el borrador actual. ¿Deseas continuar?")) {
         setRecipeFileStatus({ kind: "idle" });
         return;
@@ -318,6 +318,9 @@ export function TransformRecipeEditor({
         <button type="button" onClick={loadRecipeDraft} disabled={recipeBusy}>
           {recipeFileStatus.kind === "working" && recipeFileStatus.action === "load" ? "Cargando…" : "Cargar receta"}
         </button>
+        <p className="recipe-file-status recipe-file-status--hint">
+          Acepta recetas Columnia y pipelines DataPrep v1–v3; las operaciones no equivalentes se rechazan para no perder semántica.
+        </p>
         {recipeFileStatus.kind === "success" && <p className="recipe-file-status" role="status">{recipeFileStatus.message}</p>}
         {recipeFileStatus.kind === "error" && <p className="recipe-error recipe-file-status" role="alert">No se pudo completar la operación: {recipeFileStatus.message}</p>}
       </div>

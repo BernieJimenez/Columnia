@@ -525,6 +525,9 @@ export function App() {
   return (
     <div className="shell">
       <a className="skip-link" href="#main-content">Saltar al contenido principal</a>
+      <p className="visually-hidden" aria-live="polite" aria-atomic="true">
+        Etapa activa: {activePhaseMeta.label}.
+      </p>
       <aside className="sidebar" aria-label="Navegación principal">
         <div className="brand">
           <p className="eyebrow">Estación local de datos</p>

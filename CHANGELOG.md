@@ -62,6 +62,24 @@ los artefactos de validación locales.
   (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
+## [0.53.0] - 2026-08-24
+
+### Añadido
+
+- Importación segura de recetas JSON DataPrep v1–v3 desde el selector nativo de
+  Preparar: renombres, casts, fechas, filtros, reemplazos literales, columnas
+  conservadas, cálculos, split/merge, outliers, grupos, contactos y extracciones
+  se normalizan a una receta Columnia v1.
+- Rechazo explícito de expresiones regulares, booleanos personalizados y
+  operaciones sin equivalente para evitar perder semántica durante la
+  migración.
+- Inventario de migración documentado y anuncio accesible de la etapa activa.
+
+### Validación
+
+- 180 pruebas Rust, 209 frontend, build Vite, formato Rust, documentación y
+  gobernanza aprobados.
+
 ## [0.52.0] - 2026-08-24
 
 ### Añadido

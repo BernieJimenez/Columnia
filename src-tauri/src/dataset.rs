@@ -4206,8 +4206,581 @@ fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
     }
     let json = std::str::from_utf8(&bytes)
         .map_err(|_| "La receta no contiene texto UTF-8 válido.".to_owned())?;
-    let document: StoredTransformRecipe = serde_json::from_str(json)
+    let raw: JsonValue = serde_json::from_str(json)
         .map_err(|error| format!("La receta JSON no es válida: {error}"))?;
+
+    if raw.get("recipe").is_some() {
+        let document: StoredTransformRecipe = serde_json::from_value(raw)
+            .map_err(|error| format!("La receta Columnia no es válida: {error}"))?;
+        validate_stored_recipe(&document)?;
+        return Ok(document);
+    }
+
+    if let Ok(document) = serde_json::from_value::<StoredTransformRecipe>(raw.clone()) {
+        validate_stored_recipe(&document)?;
+        return Ok(document);
+    }
+
+    migration_dataprep_recipe(&raw)
+}
+
+fn migration_recipe_transform(
+    root: &JsonMap<String, JsonValue>,
+) -> Result<&JsonMap<String, JsonValue>, String> {
+    if let Some(value) = root
+        .get("transform")
+        .or_else(|| root.get("transformConfig"))
+        .or_else(|| root.get("transform_config"))
+    {
+        return value.as_object().ok_or_else(|| {
+            "La configuración de transformación de DataPrep debe ser un objeto.".to_owned()
+        });
+    }
+
+    let known_field = [
+        "rename_text",
+        "dtype_col",
+        "parse_date_cols",
+        "filters",
+        "find_replace",
+        "keep_columns",
+        "calc",
+        "outliers",
+        "split_column",
+        "merge_columns",
+        "group_summary",
+        "normalize_contacts",
+        "extract_text",
+    ]
+    .iter()
+    .any(|key| root.contains_key(*key));
+
+    if known_field {
+        Ok(root)
+    } else {
+        Err("El JSON no es una receta Columnia ni contiene una transformación DataPrep reconocible.".to_owned())
+    }
+}
+
+fn migration_scalar_text(value: &JsonValue, key: &str) -> Result<String, String> {
+    match value {
+        JsonValue::String(value) => Ok(value.clone()),
+        JsonValue::Bool(value) => Ok(value.to_string()),
+        JsonValue::Number(value) => Ok(value.to_string()),
+        JsonValue::Null => Err(format!("El campo '{key}' no puede ser nulo.")),
+        JsonValue::Array(_) | JsonValue::Object(_) => {
+            Err(format!("El campo '{key}' debe ser un valor escalar."))
+        }
+    }
+}
+
+fn migration_text_field(
+    map: &JsonMap<String, JsonValue>,
+    keys: &[&str],
+    label: &str,
+) -> Result<Option<String>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| map.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(migration_scalar_text(
+        value,
+        &format!("{label}/{key}"),
+    )?))
+}
+
+fn migration_required_text(
+    map: &JsonMap<String, JsonValue>,
+    keys: &[&str],
+    label: &str,
+) -> Result<String, String> {
+    migration_text_field(map, keys, label)?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("La operación DataPrep '{label}' necesita un valor de texto."))
+}
+
+fn migration_filter_operator(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "eq" | "equal" | "equals" | "=" => Some("eq"),
+        "ne" | "neq" | "not_equal" | "!=" => Some("neq"),
+        "gt" | ">" => Some("gt"),
+        "lt" | "<" => Some("lt"),
+        "gte" | "ge" | ">=" => Some("gte"),
+        "lte" | "le" | "<=" => Some("lte"),
+        "contains" => Some("contains"),
+        "not_contains" | "not contains" => Some("not_contains"),
+        "is_null" | "null" => Some("is_null"),
+        "not_null" | "not null" => Some("not_null"),
+        _ => None,
+    }
+}
+
+fn migration_cast_target(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "string" | "str" | "text" | "object" => Some("string"),
+        "integer" | "int" | "int64" => Some("integer"),
+        "decimal" | "float" | "float64" | "number" => Some("decimal"),
+        "boolean" | "bool" => Some("boolean"),
+        _ => None,
+    }
+}
+
+fn migration_date_format(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "iso8601" | "iso" | "auto" => Some("iso8601"),
+        "ymd" | "%y-%m-%d" => Some("ymd"),
+        "dmy" | "%d/%m/%y" => Some("dmy"),
+        "mdy" | "%m/%d/%y" => Some("mdy"),
+        _ => None,
+    }
+}
+
+fn migration_calculated_operation(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "add" | "+" => Some("add"),
+        "subtract" | "sub" | "-" => Some("subtract"),
+        "multiply" | "mul" | "*" => Some("multiply"),
+        "divide" | "div" | "/" => Some("divide"),
+        "concat" => Some("concat"),
+        "year" => Some("year"),
+        "month" => Some("month"),
+        "day" => Some("day"),
+        _ => None,
+    }
+}
+
+fn migration_summary_operation(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "sum" | "total" => Some("sum"),
+        "mean" | "avg" | "average" => Some("mean"),
+        "min" | "minimum" => Some("min"),
+        "max" | "maximum" => Some("max"),
+        "count" | "counts" => Some("count"),
+        "count_unique" | "nunique" | "unique" => Some("count_unique"),
+        _ => None,
+    }
+}
+
+fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, String> {
+    let root = raw
+        .as_object()
+        .ok_or_else(|| "La receta DataPrep debe ser un objeto JSON.".to_owned())?;
+    if let Some(version) = root.get("version").and_then(JsonValue::as_u64) {
+        if version > 3 {
+            return Err(format!(
+                "La receta DataPrep usa la versión {version}; solo se admiten versiones 1 a 3."
+            ));
+        }
+    }
+    let transform = migration_recipe_transform(root)?;
+    let mut canonical = JsonMap::new();
+
+    if let Some(rename_text) =
+        migration_text_field(transform, &["rename_text", "renameText"], "rename_text")?
+    {
+        let mut renames = Vec::new();
+        for line in rename_text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        {
+            let (from, to) = line.split_once("->").ok_or_else(|| {
+                format!("No se pudo migrar el renombrado DataPrep '{line}': falta '->'.")
+            })?;
+            if from.trim().is_empty() || to.trim().is_empty() {
+                return Err("Los renombrados DataPrep no pueden tener nombres vacíos.".to_owned());
+            }
+            renames.push(serde_json::json!({ "from": from.trim(), "to": to.trim() }));
+        }
+        canonical.insert("renames".to_owned(), JsonValue::Array(renames));
+    }
+
+    if let Some(column) = migration_text_field(transform, &["dtype_col", "dtypeCol"], "dtype_col")?
+    {
+        let raw_type = migration_text_field(transform, &["dtype_type", "dtypeType"], "dtype_type")?
+            .unwrap_or_else(|| "auto".to_owned());
+        if !raw_type.eq_ignore_ascii_case("auto") {
+            let target = migration_cast_target(&raw_type).ok_or_else(|| {
+                format!("El tipo DataPrep '{raw_type}' no se puede migrar de forma segura.")
+            })?;
+            canonical.insert(
+                "casts".to_owned(),
+                serde_json::json!([{ "column": column, "target": target }]),
+            );
+        }
+    }
+
+    if let Some(date_columns) =
+        migration_string_array(transform, &["parse_date_cols", "parseDateCols"])?
+    {
+        let format =
+            migration_text_field(transform, &["date_format", "dateFormat"], "date_format")?
+                .unwrap_or_else(|| "iso8601".to_owned());
+        let format = migration_date_format(&format).ok_or_else(|| {
+            format!("El formato de fecha DataPrep '{format}' no se puede migrar.")
+        })?;
+        canonical.insert(
+            "dateParses".to_owned(),
+            JsonValue::Array(date_columns.into_iter().map(|column| {
+                serde_json::json!({ "column": column, "format": format, "target": "date" })
+            }).collect()),
+        );
+    }
+
+    if let Some(filters) = transform.get("filters") {
+        let filters = filters
+            .as_array()
+            .ok_or_else(|| "La lista de filtros DataPrep debe ser un arreglo.".to_owned())?
+            .iter()
+            .map(|value| {
+                let filter = value
+                    .as_object()
+                    .ok_or_else(|| "Cada filtro DataPrep debe ser un objeto.".to_owned())?;
+                let column = migration_required_text(filter, &["col", "column"], "filter.col")?;
+                let raw_operator =
+                    migration_required_text(filter, &["op", "operator"], "filter.op")?;
+                let operator = migration_filter_operator(&raw_operator).ok_or_else(|| {
+                    format!("El operador de filtro DataPrep '{raw_operator}' no se puede migrar.")
+                })?;
+                let value = if matches!(operator, "is_null" | "not_null") {
+                    JsonValue::Null
+                } else {
+                    let raw_value = filter
+                        .get("val")
+                        .or_else(|| filter.get("value"))
+                        .ok_or_else(|| {
+                            format!("El filtro DataPrep sobre '{column}' necesita val.")
+                        })?;
+                    JsonValue::String(migration_scalar_text(raw_value, "filter.val")?)
+                };
+                Ok(serde_json::json!({ "column": column, "operator": operator, "value": value }))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        canonical.insert("filters".to_owned(), JsonValue::Array(filters));
+    }
+
+    if let Some(find_replace) = transform
+        .get("find_replace")
+        .or_else(|| transform.get("findReplace"))
+    {
+        let config = find_replace
+            .as_object()
+            .ok_or_else(|| "find_replace de DataPrep debe ser un objeto.".to_owned())?;
+        let find =
+            migration_text_field(config, &["find"], "find_replace.find")?.unwrap_or_default();
+        let replace =
+            migration_text_field(config, &["replace"], "find_replace.replace")?.unwrap_or_default();
+        let regex = config
+            .get("regex")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false);
+        if regex {
+            return Err("find_replace con expresiones regulares requiere revisión manual y no se importa automáticamente.".to_owned());
+        }
+        if !find.is_empty() {
+            let column = migration_text_field(config, &["col", "column"], "find_replace.col")?;
+            let scope = if column.is_some() {
+                "column"
+            } else {
+                "all_text_columns"
+            };
+            canonical.insert(
+                "findReplace".to_owned(),
+                serde_json::json!({
+                    "scope": scope, "column": column, "find": find, "replace": replace
+                }),
+            );
+        }
+    }
+
+    if let Some(columns) = migration_string_array(transform, &["keep_columns", "keepColumns"])? {
+        if !columns.is_empty() {
+            canonical.insert(
+                "keepColumns".to_owned(),
+                JsonValue::Array(columns.into_iter().map(JsonValue::String).collect()),
+            );
+        }
+    }
+
+    if let Some(calc) = transform
+        .get("calc")
+        .or_else(|| transform.get("calculatedColumn"))
+    {
+        let config = calc
+            .as_object()
+            .ok_or_else(|| "calc de DataPrep debe ser un objeto.".to_owned())?;
+        let name = migration_text_field(config, &["name"], "calc.name")?.unwrap_or_default();
+        let source = migration_text_field(config, &["col_a", "source", "column"], "calc.col_a")?
+            .unwrap_or_default();
+        let operation = migration_text_field(config, &["operation", "op"], "calc.operation")?
+            .unwrap_or_else(|| "add".to_owned());
+        if !name.is_empty() || !source.is_empty() {
+            if name.is_empty() || source.is_empty() {
+                return Err(
+                    "La columna calculada DataPrep necesita nombre y columna de origen.".to_owned(),
+                );
+            }
+            let operation = migration_calculated_operation(&operation).ok_or_else(|| {
+                format!("La operación calculada DataPrep '{operation}' no se puede migrar.")
+            })?;
+            let operand = migration_text_field(
+                config,
+                &["col_b_or_val", "operand", "value"],
+                "calc.col_b_or_val",
+            )?
+            .filter(|value| !value.is_empty())
+            .map(|value| serde_json::json!({ "kind": "literal", "value": value }));
+            canonical.insert(
+                "calculatedColumn".to_owned(),
+                serde_json::json!({
+                    "name": name, "source": source, "operation": operation, "operand": operand
+                }),
+            );
+        }
+    }
+
+    if let Some(split) = transform
+        .get("split_column")
+        .or_else(|| transform.get("splitColumn"))
+    {
+        let config = split
+            .as_object()
+            .ok_or_else(|| "split_column de DataPrep debe ser un objeto.".to_owned())?;
+        let source = if config
+            .get("column")
+            .or_else(|| config.get("source"))
+            .is_some_and(|value| !value.is_null())
+        {
+            migration_text_field(config, &["column", "source"], "split_column.column")?
+        } else {
+            None
+        };
+        let delimiter = if config
+            .get("delimiter")
+            .is_some_and(|value| !value.is_null())
+        {
+            migration_text_field(config, &["delimiter"], "split_column.delimiter")?
+        } else {
+            None
+        };
+        let names = config.get("new_names").or_else(|| config.get("names"));
+        let drop_source = config
+            .get("drop_source")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false);
+        let is_configured = source.is_some()
+            || delimiter.as_deref().is_some_and(|value| !value.is_empty())
+            || names.is_some_and(|value| value.as_array().is_some_and(|values| !values.is_empty()))
+            || drop_source;
+        if is_configured {
+            let source = source.ok_or_else(|| "split_column.column es obligatorio.".to_owned())?;
+            let delimiter =
+                delimiter.ok_or_else(|| "split_column.delimiter es obligatorio.".to_owned())?;
+            let names =
+                migration_string_array(config, &["new_names", "names"])?.unwrap_or_default();
+            if names.len() < 2 {
+                return Err(
+                    "split_column de DataPrep necesita al menos dos nombres de salida.".to_owned(),
+                );
+            }
+            canonical.insert("splitColumn".to_owned(), serde_json::json!({
+                "source": source, "delimiter": delimiter, "names": names, "dropSource": drop_source
+            }));
+        }
+    }
+
+    if let Some(merge) = transform
+        .get("merge_columns")
+        .or_else(|| transform.get("mergeColumns"))
+    {
+        let config = merge
+            .as_object()
+            .ok_or_else(|| "merge_columns de DataPrep debe ser un objeto.".to_owned())?;
+        let sources = migration_string_array(config, &["columns", "sources"])?.unwrap_or_default();
+        let name =
+            migration_text_field(config, &["name"], "merge_columns.name")?.unwrap_or_default();
+        if !sources.is_empty() || !name.is_empty() {
+            if sources.len() < 2 || name.is_empty() {
+                return Err(
+                    "merge_columns de DataPrep necesita dos columnas y un nombre.".to_owned(),
+                );
+            }
+            let separator =
+                migration_text_field(config, &["separator"], "merge_columns.separator")?
+                    .unwrap_or_else(|| " ".to_owned());
+            let drop_sources = config
+                .get("drop_sources")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false);
+            canonical.insert("mergeColumns".to_owned(), serde_json::json!({
+                "sources": sources, "name": name, "separator": separator, "dropSources": drop_sources
+            }));
+        }
+    }
+
+    if let Some(outliers) = transform.get("outliers") {
+        let config = outliers
+            .as_object()
+            .ok_or_else(|| "outliers de DataPrep debe ser un objeto.".to_owned())?;
+        let mut treatments = Vec::new();
+        for (key, action) in [("cap_cols", "cap"), ("drop_cols", "drop")] {
+            if let Some(columns) = migration_string_array(config, &[key])? {
+                treatments.extend(
+                    columns
+                        .into_iter()
+                        .map(|column| serde_json::json!({ "column": column, "action": action })),
+                );
+            }
+        }
+        if !treatments.is_empty() {
+            canonical.insert("outlierTreatments".to_owned(), JsonValue::Array(treatments));
+        }
+    }
+
+    if let Some(group) = transform
+        .get("group_summary")
+        .or_else(|| transform.get("groupSummary"))
+    {
+        let config = group
+            .as_object()
+            .ok_or_else(|| "group_summary de DataPrep debe ser un objeto.".to_owned())?;
+        let group_by =
+            migration_string_array(config, &["group_by", "groupBy"])?.unwrap_or_default();
+        let aggregations = config
+            .get("aggregations")
+            .and_then(JsonValue::as_object)
+            .map(|values| {
+                values
+                    .iter()
+                    .map(|(column, operation)| {
+                        let operation = operation
+                            .as_str()
+                            .and_then(migration_summary_operation)
+                            .ok_or_else(|| {
+                                format!("La agregación DataPrep '{column}' no se puede migrar.")
+                            })?;
+                        Ok(serde_json::json!({ "column": column, "operation": operation }))
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        if !group_by.is_empty() || !aggregations.is_empty() {
+            if group_by.is_empty() || aggregations.is_empty() {
+                return Err("group_summary de DataPrep necesita claves y agregaciones.".to_owned());
+            }
+            canonical.insert(
+                "groupSummary".to_owned(),
+                serde_json::json!({ "groupBy": group_by, "aggregations": aggregations }),
+            );
+        }
+    }
+
+    if let Some(contacts) = transform
+        .get("normalize_contacts")
+        .or_else(|| transform.get("normalizeContacts"))
+    {
+        let config = contacts
+            .as_object()
+            .ok_or_else(|| "normalize_contacts de DataPrep debe ser un objeto.".to_owned())?;
+        let mut normalized = Vec::new();
+        for (key, kind) in [
+            ("email_cols", "email"),
+            ("phone_cols", "phone"),
+            ("address_cols", "address"),
+        ] {
+            if let Some(columns) = migration_string_array(config, &[key])? {
+                normalized.extend(
+                    columns
+                        .into_iter()
+                        .map(|column| serde_json::json!({ "column": column, "kind": kind })),
+                );
+            }
+        }
+        if !normalized.is_empty() {
+            canonical.insert(
+                "contactNormalizations".to_owned(),
+                JsonValue::Array(normalized),
+            );
+        }
+    }
+
+    if let Some(extraction) = transform
+        .get("extract_text")
+        .or_else(|| transform.get("extractText"))
+    {
+        let config = extraction
+            .as_object()
+            .ok_or_else(|| "extract_text de DataPrep debe ser un objeto.".to_owned())?;
+        let source =
+            migration_text_field(config, &["source_col", "source"], "extract_text.source_col")?
+                .unwrap_or_default();
+        let name = migration_text_field(config, &["new_name", "name"], "extract_text.new_name")?
+            .unwrap_or_default();
+        let kind =
+            migration_text_field(config, &["extraction", "kind"], "extract_text.extraction")?
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+        if !source.is_empty() || !name.is_empty() || !kind.is_empty() {
+            let kind = match kind.as_str() {
+                "first_token" | "first" => "first_token",
+                "last_token" | "last" => "last_token",
+                "digits" => "digits",
+                "letters" => "letters",
+                "before" => "before",
+                "after" => "after",
+                _ => {
+                    return Err(format!(
+                        "La extracción DataPrep '{kind}' no se puede migrar."
+                    ))
+                }
+            };
+            if source.is_empty() || name.is_empty() {
+                return Err(
+                    "extract_text de DataPrep necesita origen y nombre de salida.".to_owned(),
+                );
+            }
+            let delimiter = migration_text_field(
+                config,
+                &["pattern_or_delimiter", "delimiter"],
+                "extract_text.pattern_or_delimiter",
+            )?;
+            canonical.insert(
+                "textExtractions".to_owned(),
+                serde_json::json!([{
+                    "source": source, "kind": kind, "name": name, "delimiter": delimiter
+                }]),
+            );
+        }
+    }
+
+    for key in ["true_values", "false_values", "trueValues", "falseValues"] {
+        if let Some(values) = transform.get(key).and_then(JsonValue::as_array) {
+            if !values.is_empty() {
+                return Err(format!(
+                    "La normalización de booleanos DataPrep ('{key}') requiere revisión manual."
+                ));
+            }
+        }
+    }
+
+    let recipe: TransformRecipe = serde_json::from_value(JsonValue::Object(canonical))
+        .map_err(|error| format!("La transformación DataPrep convertida no es válida: {error}"))?;
+    let name = migration_string_field(root, &["name"])
+        .unwrap_or_else(|| "Receta DataPrep importada".to_owned());
+    let saved_at = migration_string_field(root, &["savedAt", "saved_at"])
+        .unwrap_or_else(current_recipe_timestamp);
+    let document = StoredTransformRecipe {
+        version: RECIPE_FILE_VERSION,
+        name,
+        saved_at,
+        recipe,
+    };
     validate_stored_recipe(&document)?;
     Ok(document)
 }
@@ -9300,7 +9873,7 @@ pub async fn save_transform_recipe(
     let selection = app
         .dialog()
         .file()
-        .add_filter("Receta Columnia", &["json"])
+        .add_filter("Receta Columnia o DataPrep", &["json"])
         .set_file_name(suggested_name)
         .blocking_save_file();
     let Some(selection) = selection else {
@@ -9325,7 +9898,7 @@ pub async fn pick_transform_recipe(
     let selection = app
         .dialog()
         .file()
-        .add_filter("Receta Columnia", &["json"])
+        .add_filter("Receta Columnia o DataPrep", &["json"])
         .blocking_pick_file();
     let Some(selection) = selection else {
         return Ok(None);
@@ -12755,6 +13328,131 @@ mod tests {
         assert!(load_recipe_file(&path)
             .unwrap_err()
             .contains("supera el límite"));
+    }
+
+    #[test]
+    fn imports_representable_dataprep_pipeline_recipe_without_paths() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("pipeline.json");
+        let source = serde_json::json!({
+            "version": 3,
+            "name": "Pipeline DataPrep",
+            "saved_at": "2026-08-24T00:00:00Z",
+            "transform": {
+                "rename_text": "old_name -> new_name",
+                "dtype_col": "age",
+                "dtype_type": "integer",
+                "parse_date_cols": ["created_at"],
+                "filters": [{"col": "age", "op": ">=", "val": 18}],
+                "find_replace": {"col": "new_name", "find": "old", "replace": "new"},
+                "keep_columns": ["new_name", "age", "created_at"]
+            }
+        });
+        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
+
+        let loaded =
+            load_recipe_file(&path).expect("la receta DataPrep representable debe importarse");
+        let json = serde_json::to_value(&loaded).expect("la receta importada debe serializarse");
+
+        assert_eq!(json["version"], RECIPE_FILE_VERSION);
+        assert_eq!(json["name"], "Pipeline DataPrep");
+        assert_eq!(json["recipe"]["renames"][0]["from"], "old_name");
+        assert_eq!(json["recipe"]["casts"][0]["target"], "integer");
+        assert_eq!(json["recipe"]["dateParses"][0]["format"], "iso8601");
+        assert_eq!(json["recipe"]["filters"][0]["operator"], "gte");
+        assert_eq!(json["recipe"]["findReplace"]["scope"], "column");
+        assert_eq!(json["recipe"]["keepColumns"][2], "created_at");
+        assert!(!json
+            .to_string()
+            .contains(&directory.path().display().to_string()));
+    }
+
+    #[test]
+    fn rejects_ambiguous_dataprep_recipe_semantics_instead_of_dropping_them() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("pipeline.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 3,
+                "name": "Regex",
+                "transform": {"find_replace": {"find": "^A", "replace": "B", "regex": true}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = load_recipe_file(&path).expect_err("la semántica regex no debe perderse");
+        assert!(error.contains("expresiones regulares"));
+    }
+
+    #[test]
+    fn ignores_empty_dataprep_operation_defaults_during_recipe_import() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("pipeline.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 3,
+                "name": "Pipeline sin operaciones",
+                "transform": {
+                    "rename_text": "",
+                    "dtype_col": null,
+                    "dtype_type": "auto",
+                    "parse_date_cols": [],
+                    "filters": [],
+                    "find_replace": {
+                        "col": null,
+                        "find": "",
+                        "replace": "",
+                        "regex": false
+                    },
+                    "keep_columns": [],
+                    "calc": {
+                        "name": "",
+                        "col_a": null,
+                        "operation": "add",
+                        "col_b_or_val": ""
+                    },
+                    "outliers": {"cap_cols": [], "drop_cols": []},
+                    "split_column": {
+                        "column": null,
+                        "delimiter": "",
+                        "new_names": [],
+                        "drop_source": false
+                    },
+                    "merge_columns": {
+                        "columns": [],
+                        "name": "",
+                        "separator": " ",
+                        "drop_sources": false
+                    },
+                    "group_summary": {"group_by": [], "aggregations": {}},
+                    "normalize_contacts": {
+                        "enabled": false,
+                        "auto_detect": true,
+                        "phone_cols": [],
+                        "email_cols": [],
+                        "address_cols": []
+                    },
+                    "extract_text": {
+                        "source_col": null,
+                        "extraction": "",
+                        "new_name": "",
+                        "pattern_or_delimiter": ""
+                    },
+                    "true_values": [],
+                    "false_values": []
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_recipe_file(&path)
+            .expect("las configuraciones vacías de DataPrep deben ser no-op");
+        let json = serde_json::to_value(&loaded).expect("la receta debe serializarse");
+        assert!(json["recipe"]["splitColumn"].is_null());
     }
 
     #[test]
