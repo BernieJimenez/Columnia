@@ -13,7 +13,7 @@
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, y mantiene
   pendientes pipelines, sesiones y round-trip completo hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.54.0`.
+- Versión actual del prototipo: `0.55.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -986,7 +986,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.54.0
+## 8.1. Cola de ejecución recomendada desde v0.55.0
 
 1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
    representable. El selector importa pipelines v1–v3, normaliza operaciones
@@ -1030,9 +1030,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 7. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
    benchmark; los joins, la comparación y la consolidación local ya tienen una
    primera entrega; quedan destinos de base de datos y consultas más amplias.
-8. **Migración M1 desde `dataprepv1.1`:** inventario y fixtures sintéticas,
-   importación de pipelines/sesiones/reglas, informe de operaciones no
-   convertidas y round-trip completo hacia proyectos Columnia.
+8. **Migración M1 desde `dataprepv1.1`:** la vertical de contratos de calidad
+   ya produce en v0.55.0 un informe con conteos, advertencias, acciones manuales
+   y hash del artefacto; quedan inventario/fixtures completos, pipelines,
+   sesiones, opciones de entrega y round-trip hacia proyectos Columnia.
 9. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
    licencias/avisos, smoke de instalador limpio, updater autenticado y validación
    real en macOS/Linux.
@@ -1198,6 +1199,9 @@ del original.
   nativo JSON, conversión de reglas representables, tolerancias por conteo y
   porcentaje, warnings/omitidas para severidad o políticas no equivalentes,
   límites de archivo y sin exponer rutas al frontend.
+- [x] Completar el informe estructurado de esta vertical: conteos de entradas,
+  conversiones, omisiones y advertencias, acciones manuales, y SHA-256 del
+  artefacto leído sin publicar rutas ni valores del dataset.
 - [x] Versionar el artefacto de reglas con el formato canónico
   `columnia-quality-rules` v1, guardarlo atómicamente e importar de forma
   explícita Columnia v1, DataPrep v1–v3 y documentos legados compatibles; las
@@ -1322,6 +1326,7 @@ del original.
 | 2026-08-24 | Versión 0.52.0: sistema visual explícito con selector persistente `Sistema`/`Claro`/`Oscuro`, aplicación temprana en el documento, capa visual refinada y estilos compatibles con foco, movimiento reducido y `forced-colors` | Implementada |
 | 2026-08-24 | Versión 0.53.0: el selector de recetas importa el núcleo representable de pipelines DataPrep v1–v3 a receta Columnia v1 y rechaza semánticas ambiguas antes de modificar el borrador | Implementada |
 | 2026-08-24 | Versión 0.54.0: optimización de arranque con code-splitting de etapas pesadas, estado inicial local sin esperar `get_app_info`, migración SQLite diferida y monitor de recursos fuera del primer paint | Implementada |
+| 2026-08-24 | Versión 0.55.0: la migración de contratos de calidad genera un informe auditable con conteos, omisiones, advertencias, acciones manuales y SHA-256 del artefacto sin exponer rutas ni valores | Implementada |
 
 ## 10. Fuentes de esta revisión
 

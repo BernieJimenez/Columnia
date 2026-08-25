@@ -355,6 +355,17 @@ describe("DeliveryPhase", () => {
         severity: "omitted",
         message: "La regla no tiene una representación equivalente.",
       }],
+      report: {
+        artifactSha256: "b".repeat(64),
+        totalItems: 2,
+        convertedItems: 1,
+        omittedItems: 1,
+        warningCount: 1,
+        manualActions: [
+          "Validar el contrato convertido antes de exportar.",
+          "Revisar las reglas omitidas y recrearlas manualmente si siguen siendo necesarias.",
+        ],
+      },
     });
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
@@ -367,6 +378,8 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("status")).toHaveTextContent("1 omitidas");
     expect(screen.getByRole("status")).toHaveTextContent("origen DataPrep v3");
     expect(screen.getByRole("status")).toHaveTextContent("column_compare");
+    expect(screen.getByRole("status")).toHaveTextContent("SHA-256 del artefacto");
+    expect(screen.getByRole("status")).toHaveTextContent("Acciones manuales");
     expect(screen.getByRole("combobox", { name: "Comprobación regla 1" })).toHaveValue("not_null");
   });
 

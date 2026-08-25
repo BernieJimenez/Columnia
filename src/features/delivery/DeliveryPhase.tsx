@@ -886,11 +886,22 @@ export function DeliveryPhase({
               <div className="notice quality-migration-result" role="status" aria-live="polite">
                 <strong>Importación revisada</strong>
                 <span>
-                  {migrationState.result.convertedRules.length} reglas importadas · {migrationState.result.omittedRules} omitidas · origen {migrationState.result.sourceFormat === "columnia"
+                  {migrationState.result.report.convertedItems} reglas importadas · {migrationState.result.report.omittedItems} omitidas de {migrationState.result.report.totalItems} · origen {migrationState.result.sourceFormat === "columnia"
                     ? "Columnia"
                     : migrationState.result.sourceFormat === "dataprep" ? "DataPrep" : "legado"}
                   {migrationState.result.sourceVersion ? ` v${migrationState.result.sourceVersion}` : " sin versión"}
                 </span>
+                {migrationState.result.report.artifactSha256 && (
+                  <small>SHA-256 del artefacto: {migrationState.result.report.artifactSha256}</small>
+                )}
+                {migrationState.result.report.manualActions.length > 0 && (
+                  <div>
+                    <strong>Acciones manuales</strong>
+                    <ul>
+                      {migrationState.result.report.manualActions.map((action) => <li key={action}>{action}</li>)}
+                    </ul>
+                  </div>
+                )}
                 {migrationState.result.warnings.length > 0 && (
                   <ul>
                     {migrationState.result.warnings.map((warning, index) => (

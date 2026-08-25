@@ -62,6 +62,21 @@ los artefactos de validación locales.
   (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
+## [0.55.0] - 2026-08-24
+
+### Añadido
+
+- La importación de contratos de calidad DataPrep ahora entrega un informe
+  estructurado con total de entradas, reglas convertidas, omisiones,
+  advertencias, acciones manuales y SHA-256 del artefacto original.
+- Entregar muestra el resumen del informe y las acciones recomendadas sin
+  publicar rutas, filas ni valores del dataset.
+
+### Validación
+
+- 181 pruebas Rust, 209 frontend, build Vite, formato Rust, Clippy estricto,
+  documentación y gobernanza aprobados para la vertical de migración.
+
 ## [0.54.0] - 2026-08-24
 
 ### Mejorado

@@ -39,6 +39,20 @@ resultado siempre se normaliza a una receta Columnia v1 antes de mostrarla.
 - El archivo permanece bajo control del diálogo nativo. React recibe solo la
   receta normalizada y nunca recibe la ruta seleccionada.
 
+## Informe estructurado de contratos de calidad
+
+La importación de contratos JSON de calidad produce un informe junto con las
+reglas convertidas. El informe incluye el total de entradas, convertidas,
+omitidas, advertencias y acciones manuales recomendadas. Cuando la importación
+proviene de un archivo, también incluye el SHA-256 de sus bytes originales para
+que el resultado pueda auditarse sin conservar la ruta ni valores del dataset.
+
+El informe diferencia una advertencia de una omisión y siempre recomienda
+validar el contrato convertido antes de exportar. Si hay reglas omitidas,
+indica que deben revisarse y recrearse manualmente; las tolerancias ajustadas o
+asumidas también quedan señaladas. La UI muestra el resumen, el hash y las
+acciones sin publicar rutas administradas, filas ni celdas.
+
 ## Límites pendientes
 
 La importación de sesiones, reglas de calidad incrustadas, opciones de entrega,

@@ -277,12 +277,24 @@ pub struct QualityMigrationWarning {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct QualityMigrationReport {
+    artifact_sha256: Option<String>,
+    total_items: usize,
+    converted_items: usize,
+    omitted_items: usize,
+    warning_count: usize,
+    manual_actions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct QualityMigrationResult {
     source_format: &'static str,
     source_version: Option<String>,
     converted_rules: Vec<QualityRule>,
     warnings: Vec<QualityMigrationWarning>,
     omitted_rules: usize,
+    report: QualityMigrationReport,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -5141,6 +5153,35 @@ fn migration_warning(
     }
 }
 
+fn quality_migration_report(
+    artifact_sha256: Option<String>,
+    total_items: usize,
+    converted_items: usize,
+    omitted_items: usize,
+    warnings: &[QualityMigrationWarning],
+) -> QualityMigrationReport {
+    let mut manual_actions = vec!["Validar el contrato convertido antes de exportar.".to_owned()];
+    if omitted_items > 0 {
+        manual_actions.push(
+            "Revisar las reglas omitidas y recrearlas manualmente si siguen siendo necesarias."
+                .to_owned(),
+        );
+    }
+    if warnings.iter().any(|warning| warning.severity == "warning") {
+        manual_actions.push(
+            "Revisar las tolerancias ajustadas o asumidas frente al documento original.".to_owned(),
+        );
+    }
+    QualityMigrationReport {
+        artifact_sha256,
+        total_items,
+        converted_items,
+        omitted_items,
+        warning_count: warnings.len(),
+        manual_actions,
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LegacyQualityRulesDocument {
@@ -5239,11 +5280,14 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
         .is_some_and(|map| map.contains_key("format"))
     {
         let document = parse_quality_rules_document(document, false)?;
+        let total_items = document.rules.len();
+        let warnings = Vec::new();
         return Ok(QualityMigrationResult {
             source_format: "columnia",
             source_version: Some(document.version.to_string()),
             converted_rules: document.rules,
-            warnings: Vec::new(),
+            report: quality_migration_report(None, total_items, total_items, 0, &warnings),
+            warnings,
             omitted_rules: 0,
         });
     }
@@ -5287,6 +5331,7 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
         ));
     }
 
+    let total_items = raw_rules.len();
     let mut converted_rules = Vec::new();
     let mut warnings = Vec::new();
     let mut omitted_rules = 0;
@@ -5776,16 +5821,24 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
         converted_rules.push(rule);
     }
 
+    let report = quality_migration_report(
+        None,
+        total_items,
+        converted_rules.len(),
+        omitted_rules,
+        &warnings,
+    );
     Ok(QualityMigrationResult {
         source_format,
         source_version,
         converted_rules,
         warnings,
         omitted_rules,
+        report,
     })
 }
 
-fn read_quality_rules_json(path: &Path) -> Result<JsonValue, String> {
+fn read_quality_rules_bytes(path: &Path) -> Result<Vec<u8>, String> {
     let path = canonicalize_existing_file(path, "el contrato de calidad seleccionado")?;
     if !path
         .extension()
@@ -5816,6 +5869,11 @@ fn read_quality_rules_json(path: &Path) -> Result<JsonValue, String> {
             QUALITY_MIGRATION_FILE_LIMIT_BYTES
         ));
     }
+    Ok(bytes)
+}
+
+fn read_quality_rules_json(path: &Path) -> Result<JsonValue, String> {
+    let bytes = read_quality_rules_bytes(path)?;
     serde_json::from_slice::<JsonValue>(&bytes)
         .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))
 }
@@ -5847,7 +5905,12 @@ fn save_quality_rules_atomic(
 }
 
 fn load_quality_migration_file(path: &Path) -> Result<QualityMigrationResult, String> {
-    migrate_quality_rules_document(read_quality_rules_json(path)?)
+    let bytes = read_quality_rules_bytes(path)?;
+    let document = serde_json::from_slice::<JsonValue>(&bytes)
+        .map_err(|error| format!("El contrato de calidad no es JSON válido: {error}"))?;
+    let mut result = migrate_quality_rules_document(document)?;
+    result.report.artifact_sha256 = Some(format!("{:x}", Sha256::digest(&bytes)));
+    Ok(result)
 }
 
 fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), String> {
@@ -17489,6 +17552,17 @@ mod tests {
         assert_eq!(imported.source_format, "columnia");
         assert_eq!(imported.source_version.as_deref(), Some("1"));
         assert_eq!(imported.omitted_rules, 0);
+        assert_eq!(imported.report.total_items, 1);
+        assert_eq!(imported.report.converted_items, 1);
+        assert_eq!(imported.report.omitted_items, 0);
+        assert_eq!(imported.report.warning_count, 0);
+        assert_eq!(imported.report.manual_actions.len(), 1);
+        assert!(imported
+            .report
+            .artifact_sha256
+            .as_deref()
+            .is_some_and(|hash| hash.len() == 64
+                && hash.chars().all(|character| character.is_ascii_hexdigit())));
 
         let mut replacement = quality_rule("amount", QualityRuleKind::NumericRange);
         replacement.min = Some(0.0);

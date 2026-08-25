@@ -460,12 +460,22 @@ export interface QualityMigrationWarning {
   message: string;
 }
 
+export interface QualityMigrationReport {
+  artifactSha256: string | null;
+  totalItems: number;
+  convertedItems: number;
+  omittedItems: number;
+  warningCount: number;
+  manualActions: string[];
+}
+
 export interface QualityMigrationResult {
   sourceFormat: "columnia" | "dataprep" | "legacy";
   sourceVersion: string | null;
   convertedRules: QualityRule[];
   warnings: QualityMigrationWarning[];
   omittedRules: number;
+  report: QualityMigrationReport;
 }
 
 export interface QualityRulesDocument {

@@ -521,11 +521,24 @@ describe("desktop bridge", () => {
       convertedRules: [{ column: "status", kind: "not_null", maxInvalid: 0 }],
       warnings: [],
       omittedRules: 0,
+      report: {
+        artifactSha256: "a".repeat(64),
+        totalItems: 1,
+        convertedItems: 1,
+        omittedItems: 0,
+        warningCount: 0,
+        manualActions: ["Validar el contrato convertido antes de exportar."],
+      },
     });
 
     await expect(pickQualityRulesMigration()).resolves.toMatchObject({
       sourceVersion: "3",
       omittedRules: 0,
+      report: {
+        artifactSha256: "a".repeat(64),
+        totalItems: 1,
+        convertedItems: 1,
+      },
     });
 
     expect(invoke).toHaveBeenCalledWith("pick_quality_rules_migration");
