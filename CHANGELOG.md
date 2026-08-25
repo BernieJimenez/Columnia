@@ -62,6 +62,24 @@ los artefactos de validación locales.
   (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
+## [0.52.0] - 2026-08-24
+
+### Añadido
+
+- Selector visible de apariencia en la barra lateral con los modos `Sistema`,
+  `Claro` y `Oscuro`, botones con estado accesible y persistencia local segura.
+- Aplicación temprana del tema antes de montar React para evitar saltos visuales,
+  con overrides explícitos para que `Claro` y `Oscuro` funcionen aunque el modo
+  del sistema sea el contrario.
+- Refinamiento visual del shell: panel de apariencia, jerarquía de navegación,
+  fondos con profundidad, tarjetas redondeadas y estados de interacción más
+  distinguibles.
+
+### Validación
+
+- 209 pruebas frontend, build Vite y prueba de sincronización entre npm, Cargo,
+  Cargo.lock, package-lock y Tauri.
+
 ## [0.51.0] - 2026-08-24
 
 ### Añadido

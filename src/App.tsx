@@ -57,6 +57,7 @@ import {
   type ProfileStatus,
 } from "./features/review/reviewModel";
 import { ResourceMonitor } from "./components/ResourceMonitor";
+import { ThemeSwitcher } from "./components/ThemeSwitcher";
 
 import {
   cancelOperation,
@@ -555,6 +556,8 @@ export function App() {
         </nav>
 
         <ResourceMonitor enabled={status.kind === "ready"} />
+
+        <ThemeSwitcher />
 
         <div className="sidebar__dataset">
           <span>Dataset activo</span>

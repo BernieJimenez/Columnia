@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        const storedTheme = localStorage.getItem("columnia.theme");
+        const theme = ["system", "light", "dark"].includes(storedTheme) ? storedTheme : "system";
+        document.documentElement.dataset.theme = theme;
+      } catch {
+        document.documentElement.dataset.theme = "system";
+      }
+    </script>
     <title>Columnia</title>
   </head>
   <body>
@@ -11,4 +20,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
