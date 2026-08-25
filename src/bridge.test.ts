@@ -11,6 +11,7 @@ import {
   applyTransformRecipe,
   exportDataset,
   getAppInfo,
+  getDatasetConflictPage,
   getDatasetPage,
   getDatasetProfile,
   getHistoryState,
@@ -132,6 +133,7 @@ describe("desktop bridge", () => {
       conflictingKeyCount: 0,
       duplicateKeyCount: 0,
       conflicts: [],
+      conflictOffset: 0,
       conflictsTruncated: false,
       canConsolidate: true,
     });
@@ -148,6 +150,18 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(3, "use_consolidated_dataset");
     expect(invoke).toHaveBeenNthCalledWith(4, "clear_dataset_comparison");
+  });
+
+  it("solicita páginas de conflictos por offset y límite acotados", async () => {
+    vi.mocked(invoke).mockResolvedValue({ offset: 50, conflicts: [], hasNext: true });
+
+    await expect(getDatasetConflictPage(50, 50)).resolves.toEqual({
+      offset: 50,
+      conflicts: [],
+      hasNext: true,
+    });
+
+    expect(invoke).toHaveBeenCalledWith("get_dataset_conflict_page", { offset: 50, limit: 50 });
   });
 
   it("resuelve conflictos por clave con decisiones serializables", async () => {

@@ -361,6 +361,7 @@ pub struct DatasetComparison {
     pub(crate) conflicting_key_count: usize,
     pub(crate) duplicate_key_count: usize,
     pub(crate) conflicts: Vec<DatasetConflict>,
+    pub(crate) conflict_offset: usize,
     pub(crate) conflicts_truncated: bool,
     pub(crate) can_consolidate: bool,
 }
@@ -378,6 +379,14 @@ pub struct DatasetConflictCell {
     pub(crate) column: String,
     pub(crate) current: Option<String>,
     pub(crate) compared: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetConflictPage {
+    pub(crate) offset: usize,
+    pub(crate) conflicts: Vec<DatasetConflict>,
+    pub(crate) has_next: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -8101,11 +8110,13 @@ struct KeyConflictRows {
     conflict: DatasetConflict,
 }
 
-fn collect_key_conflicts(
+fn collect_key_conflicts_page(
     current: &DataFrame,
     compared: &DataFrame,
     key_columns: &[String],
     shared_columns: &[String],
+    offset: usize,
+    limit: usize,
 ) -> Result<(Vec<KeyConflictRows>, bool), String> {
     validate_key_columns(current, compared, key_columns)?;
     let current_rows = key_rows(current, key_columns)?;
@@ -8117,7 +8128,7 @@ fn collect_key_conflicts(
         .collect::<Vec<_>>();
     let mut seen = HashSet::new();
     let mut conflicts = Vec::new();
-    let mut truncated = false;
+    let mut total = 0usize;
 
     for current_row_index in 0..current.height() {
         let signature = row_signature(current, key_columns, current_row_index)?;
@@ -8182,17 +8193,51 @@ fn collect_key_conflicts(
         if cells.is_empty() {
             continue;
         }
-        if conflicts.len() >= MAX_CONFLICT_PREVIEW {
-            truncated = true;
-            break;
+        let conflict_index = total;
+        total = total.saturating_add(1);
+        if conflict_index >= offset && conflicts.len() < limit {
+            conflicts.push(KeyConflictRows {
+                current_row_index,
+                compared_row_index,
+                conflict: DatasetConflict { key, cells },
+            });
         }
-        conflicts.push(KeyConflictRows {
-            current_row_index,
-            compared_row_index,
-            conflict: DatasetConflict { key, cells },
-        });
     }
-    Ok((conflicts, truncated))
+    let page_end = offset.saturating_add(conflicts.len());
+    Ok((conflicts, total > page_end))
+}
+
+fn collect_key_conflicts(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    collect_key_conflicts_page(
+        current,
+        compared,
+        key_columns,
+        shared_columns,
+        0,
+        MAX_CONFLICT_PREVIEW,
+    )
+}
+
+fn collect_all_key_conflicts(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+) -> Result<Vec<KeyConflictRows>, String> {
+    let (conflicts, _) = collect_key_conflicts_page(
+        current,
+        compared,
+        key_columns,
+        shared_columns,
+        0,
+        usize::MAX,
+    )?;
+    Ok(conflicts)
 }
 
 fn normalize_key_columns(key_columns: Option<Vec<String>>) -> Result<Vec<String>, String> {
@@ -8333,6 +8378,7 @@ fn compare_frames(
         conflicting_key_count: key_summary.conflicting_key_count,
         duplicate_key_count: key_summary.duplicate_key_count,
         conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
+        conflict_offset: 0,
         conflicts_truncated,
         can_consolidate,
     })
@@ -8402,6 +8448,75 @@ pub async fn compare_dataset(
     })
     .await
     .map_err(|error| format!("La comparación se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_dataset_conflict_page(
+    app: AppHandle,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<DatasetConflictPage>, String> {
+    if limit == 0 || limit > MAX_CONFLICT_PREVIEW {
+        return Err(format!(
+            "El tamaño de página de conflictos debe estar entre 1 y {MAX_CONFLICT_PREVIEW}."
+        ));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let current_frame = {
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            current
+                .as_ref()
+                .ok_or_else(|| {
+                    "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+                })?
+                .frame
+                .clone()
+        };
+        let (compared_frame, key_columns) = {
+            let comparison = state
+                .comparison
+                .lock()
+                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let pending = comparison
+                .as_ref()
+                .ok_or_else(|| "No hay una comparación activa para paginar.".to_owned())?;
+            (pending.frame.clone(), pending.key_columns.clone())
+        };
+        let current_columns = current_frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        let compared_columns = compared_frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        let shared_columns = current_columns
+            .iter()
+            .filter(|name| compared_columns.contains(name))
+            .cloned()
+            .collect::<Vec<_>>();
+        let (conflicts, has_next) = collect_key_conflicts_page(
+            &current_frame,
+            &compared_frame,
+            &key_columns,
+            &shared_columns,
+            offset,
+            limit,
+        )?;
+        Ok(Some(DatasetConflictPage {
+            offset,
+            conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
+            has_next,
+        }))
+    })
+    .await
+    .map_err(|error| format!("La página de conflictos se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -8512,13 +8627,7 @@ fn resolved_conflict_frame(
         .iter()
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
-    let (conflicts, truncated) =
-        collect_key_conflicts(current, compared, key_columns, &shared_columns)?;
-    if truncated {
-        return Err(format!(
-            "Hay más de {MAX_CONFLICT_PREVIEW} conflictos; reduce el dataset antes de resolverlos."
-        ));
-    }
+    let conflicts = collect_all_key_conflicts(current, compared, key_columns, &shared_columns)?;
     let mut choices = HashMap::new();
     for decision in decisions {
         let Some(conflict) = conflicts.get(decision.conflict_index) else {
@@ -13640,7 +13749,7 @@ mod tests {
     }
 
     #[test]
-    fn blocks_resolution_when_conflicts_exceed_the_visible_preview_limit() {
+    fn paginates_and_resolves_conflicts_beyond_visible_preview_limit() {
         let ids = (0_i64..51).collect::<Vec<_>>();
         let current_values = ids
             .iter()
@@ -13678,8 +13787,38 @@ mod tests {
 
         assert_eq!(result.conflicting_key_count, 51);
         assert_eq!(result.conflicts.len(), 50);
+        assert_eq!(result.conflict_offset, 0);
         assert!(result.conflicts_truncated);
-        assert!(resolved_conflict_frame(&current, &compared, &key_columns, &[]).is_err());
+        let (last_page, has_next) = collect_key_conflicts_page(
+            &current,
+            &compared,
+            &key_columns,
+            &["id".to_owned(), "value".to_owned()],
+            50,
+            MAX_CONFLICT_PREVIEW,
+        )
+        .expect("la segunda página debe poder calcularse");
+        assert_eq!(last_page.len(), 1);
+        assert!(!has_next);
+        assert_eq!(last_page[0].conflict.key, vec![Some("50".to_owned())]);
+
+        let decisions = (0..51)
+            .map(|conflict_index| ConflictResolution {
+                conflict_index,
+                column: Some("value".to_owned()),
+                source: ConflictSource::Compared,
+            })
+            .collect::<Vec<_>>();
+        let resolved = resolved_conflict_frame(&current, &compared, &key_columns, &decisions)
+            .expect("la resolución completa debe aceptar todas las páginas");
+        assert_eq!(
+            resolved.column("value").unwrap().str().unwrap().get(0),
+            Some("comparado-0")
+        );
+        assert_eq!(
+            resolved.column("value").unwrap().str().unwrap().get(50),
+            Some("comparado-50")
+        );
     }
 
     #[test]

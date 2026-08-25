@@ -62,6 +62,26 @@ los artefactos de validación locales.
   (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
+## [0.51.0] - 2026-08-24
+
+### Añadido
+
+- Paginación de conflictos por clave en bloques de 50, con índices globales,
+  navegación accesible y bloqueo de la resolución hasta completar todas las
+  páginas.
+- Resolución completa de conflictos fuera del primer preview mediante una
+  validación backend del conjunto total, manteniendo historial reversible y
+  rechazo de decisiones repetidas o incompletas.
+- Versionado sincronizado `0.51.0` en npm, Cargo, Cargo.lock, package-lock y
+  configuración Tauri.
+
+### Validación
+
+- 177 pruebas Rust y 204 Vitest, build Vite, Clippy estricto, formato,
+  documentación, gobernanza, diff limpio, smoke CLI y smoke WebView2 con
+  selectores nativos Win32 aprobados. Evidencia: `.local/validation/cli-smoke/20260825T002214Z`
+  y `.local/validation/webview2-cdp/20260825T002400Z`.
+
 ## [0.50.0] - 2026-08-24
 
 ### Añadido

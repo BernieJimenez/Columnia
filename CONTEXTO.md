@@ -8,7 +8,7 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.50.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.51.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-24, rama `master`, v0.50 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor y privacidad visible en destinos locales, M1 auditada para migración desde `dataprepv1.1` |
+| Última revisión de este documento | 2026-08-24, rama `master`, v0.51 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada y privacidad visible en destinos locales, M1 auditada para migración desde `dataprepv1.1` |
 
 ## Para qué existe este documento
 
@@ -436,10 +436,10 @@ fotografía orientativa, no un umbral.
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
 - Fase P1 activa: matriz de paridad con `dataprepv1.1`, exportación local atómica,
   comparación/joins, resolución visible por columna/valor, consulta restringida,
-  privacidad visible, visualizaciones accesibles y reglas de calidad versionadas;
+  paginación de conflictos, privacidad visible, visualizaciones accesibles y reglas de calidad versionadas;
   siguen pendientes el análisis exploratorio amplio, políticas sin equivalencia
   segura, conectores remotos, bundles auditables, escala fuera de memoria y
-  resolución paginada fuera del preview.
+  privacidad de artefactos operativos.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
 - Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.40.0 verificado en 314,827 bytes raw/90,154 gzip.
@@ -555,6 +555,8 @@ Al actualizarlo:
 | 2026-08-24 | I3 estabiliza los selectores nativos Win32 y los incorpora a `verify:tier`: el driver usa UI Automation para el modelo del diálogo, soporta editores Abrir `1148` y Guardar como `1001`, conserva fallback Win32/Unicode y valida los cuatro recorridos sin exponer rutas. | `.local/validation/webview2-cdp/20260824T233922Z`, `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-native-selectors.mjs`, `tools/verify-tier.ps1` |
 | 2026-08-24 | Versión 0.50.0: Review resuelve conflictos por columna/valor dentro del preview y conserva decisiones legacy por fila; Entregar protege texto e identificadores numéricos detectados en CSV, JSON, Parquet, SQL, Excel y SQLite, e informa solo el conteo/nombre de columnas protegidas. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `src/bridge.test.ts`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-24 | Validación final del corte 0.50.0: 177 pruebas Rust y 202 frontend, build Vite, Clippy estricto, formato, documentación, gobernanza, diff limpio, smoke CLI y smoke WebView2 con selectores nativos Win32 aprobados. | `.local/validation/cli-smoke/20260825T000531Z`, `.local/validation/webview2-cdp/20260825T000531Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx` |
+| 2026-08-24 | Versión 0.51.0: Review pagina conflictos en bloques de 50, conserva decisiones con índices globales y permite resolver todos los conflictos visibles y no visibles sin reducir el dataset; la operación conserva historial reversible. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/styles.css` |
+| 2026-08-24 | Validación final de 0.51.0: 177 pruebas Rust, 204 frontend, build Vite, Clippy estricto, formato, documentación, gobernanza, diff limpio, smoke CLI y smoke WebView2 con los cuatro selectores nativos aprobados. | `.local/validation/cli-smoke/20260825T002214Z`, `.local/validation/webview2-cdp/20260825T002400Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.test.tsx` |
 | 2026-08-24 | P1 añade destinos locales Excel/SQLite, consulta SQL restringida con filtros, `GROUP BY` y agregaciones seguras, privacidad de exportación con máscara/hash y señales agregadas de limpieza; joins/DuckDB, conectores remotos, catálogo completo de PII y sesión operativa siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/prepare/PreparePhase.tsx`, `src/features/delivery/DeliveryPhase.tsx` |
 | 2026-08-24 | P1 amplía el contrato de calidad con `column_compare`, `date_range`, `conditional`, `schema_contract`, `referential_integrity`, `monotonic`, agregados y `distribution_drift`; todos comparten migración DataPrep, tolerancias, bridge tipado, editor accesible, evaluación Rust/UI/CLI y resultados basados en conteos. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
 | 2026-08-24 | P1 cierra el versionado del documento de calidad: formato canónico `columnia-quality-rules` v1, guardado atómico, importación Columnia/DataPrep v1–v3/legado, rechazo cerrado de contratos futuros o ambiguos, CLI retrocompatible y estado accesible sin rutas en React. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `docs/reference/cli.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |

@@ -65,6 +65,7 @@ import {
   discardDatasetSelection,
   exportDataset,
   getAppInfo,
+  getDatasetConflictPage,
   getDatasetPage,
   getDatasetProfile,
   joinDataset,
@@ -94,6 +95,8 @@ const phases = [
   { id: "prepare", number: "03", label: "Preparar", description: "Corregir y transformar" },
   { id: "deliver", number: "04", label: "Entregar", description: "Validar y exportar" },
 ] as const;
+
+const CONFLICT_PAGE_SIZE = 50;
 
 type ActivePhase = (typeof phases)[number]["id"];
 
@@ -343,6 +346,23 @@ export function App() {
     try {
       await clearDatasetComparison();
       setComparisonStatus(clearComparison());
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setComparisonStatus(failComparison(message));
+    }
+  }
+
+  async function changeConflictPage(offset: number) {
+    if (comparisonStatus.kind !== "ready") return;
+    try {
+      const page = await getDatasetConflictPage(offset, CONFLICT_PAGE_SIZE);
+      if (!page) return;
+      setComparisonStatus(completeComparison({
+        ...comparisonStatus.comparison,
+        conflicts: page.conflicts,
+        conflictOffset: page.offset,
+        conflictsTruncated: page.hasNext,
+      }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
@@ -615,6 +635,7 @@ export function App() {
               onClearComparison={() => void clearActiveComparison()}
               onConsolidate={() => void consolidateComparedDataset()}
               onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}
+              onConflictPageChange={(offset) => void changeConflictPage(offset)}
               onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
             />
           )}

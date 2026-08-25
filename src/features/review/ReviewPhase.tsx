@@ -23,6 +23,8 @@ import {
 import type { ComparisonStatus } from "./compareModel";
 import type { JoinStatus } from "./joinModel";
 
+const CONFLICT_PAGE_SIZE = 50;
+
 interface ReviewPhaseProps {
   datasetStatus: ReadyDatasetStatus;
   profileStatus: ProfileStatus;
@@ -39,6 +41,7 @@ interface ReviewPhaseProps {
   onClearComparison: () => void;
   onConsolidate: () => void;
   onResolveConflicts: (decisions: ConflictResolution[]) => void;
+  onConflictPageChange: (offset: number) => void | Promise<void>;
   joinStatus: JoinStatus;
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
@@ -61,6 +64,7 @@ export function ReviewPhase({
   onClearComparison,
   onConsolidate,
   onResolveConflicts,
+  onConflictPageChange,
   joinStatus,
   joinType,
   onJoinTypeChange,
@@ -85,6 +89,7 @@ export function ReviewPhase({
         onClear={onClearComparison}
         onConsolidate={onConsolidate}
         onResolveConflicts={onResolveConflicts}
+        onConflictPageChange={onConflictPageChange}
         joinStatus={joinStatus}
         joinType={joinType}
         onJoinTypeChange={onJoinTypeChange}
@@ -124,6 +129,7 @@ function DatasetComparisonSection({
   onClear,
   onConsolidate,
   onResolveConflicts,
+  onConflictPageChange,
   joinStatus,
   joinType,
   onJoinTypeChange,
@@ -137,12 +143,14 @@ function DatasetComparisonSection({
   onClear: () => void;
   onConsolidate: () => void;
   onResolveConflicts: (decisions: ConflictResolution[]) => void;
+  onConflictPageChange: (offset: number) => void | Promise<void>;
   joinStatus: JoinStatus;
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
 }) {
   const [conflictChoices, setConflictChoices] = useState<Record<string, ConflictSource>>({});
+  const [conflictPageLoading, setConflictPageLoading] = useState(false);
   useEffect(() => {
     setConflictChoices({});
   }, [status.kind, status.kind === "ready" ? status.comparison.comparedFileName : null]);
@@ -154,6 +162,23 @@ function DatasetComparisonSection({
   const visibleConflictCellCount = status.kind === "ready"
     ? status.comparison.conflicts.reduce((total, conflict) => total + conflict.cells.length, 0)
     : 0;
+  const visibleConflictChoiceKeys = status.kind === "ready"
+    ? new Set(status.comparison.conflicts.flatMap((conflict, conflictIndex) =>
+        conflict.cells.map((cell) => conflictChoiceKey(status.comparison.conflictOffset + conflictIndex, cell.column))))
+    : new Set<string>();
+  const selectedVisibleConflictCellCount = Object.keys(conflictChoices)
+    .filter((key) => visibleConflictChoiceKeys.has(key)).length;
+  const visibleConflictPageComplete = visibleConflictCellCount > 0 &&
+    selectedVisibleConflictCellCount === visibleConflictCellCount;
+
+  async function requestConflictPage(offset: number) {
+    setConflictPageLoading(true);
+    try {
+      await onConflictPageChange(offset);
+    } finally {
+      setConflictPageLoading(false);
+    }
+  }
 
   return (
     <section className="phase-section comparison-section" aria-labelledby="comparison-title">
@@ -314,19 +339,21 @@ function DatasetComparisonSection({
                     const column = choiceKey.slice(separator + 1);
                     return { conflictIndex, column, source };
                   }))}
-                  disabled={status.comparison.conflictsTruncated || Object.keys(conflictChoices).length !== visibleConflictCellCount}
+                  disabled={conflictPageLoading || status.comparison.conflictsTruncated || !visibleConflictPageComplete}
                 >
                   Resolver conflictos
                 </button>
               </div>
-              {status.comparison.conflicts.map((conflict, conflictIndex) => (
-                <fieldset className="conflict-resolution__item" key={conflictIndex}>
+              {status.comparison.conflicts.map((conflict, conflictIndex) => {
+                const globalConflictIndex = status.comparison.conflictOffset + conflictIndex;
+                return (
+                <fieldset className="conflict-resolution__item" key={globalConflictIndex}>
                   <legend>
-                    Conflicto {conflictIndex + 1} · clave {conflict.key.map((value) => value ?? "null").join(" · ")}
+                    Conflicto {globalConflictIndex + 1} · clave {conflict.key.map((value) => value ?? "null").join(" · ")}
                   </legend>
                   <ul>
                     {conflict.cells.map((cell) => {
-                      const choiceKey = conflictChoiceKey(conflictIndex, cell.column);
+                      const choiceKey = conflictChoiceKey(globalConflictIndex, cell.column);
                       return (
                         <li key={cell.column}>
                           <strong>{cell.column}</strong>
@@ -357,9 +384,34 @@ function DatasetComparisonSection({
                     })}
                   </ul>
                 </fieldset>
-              ))}
+                );
+              })}
               {status.comparison.conflictsTruncated && (
-                <p className="notice notice--error" role="alert">Hay más conflictos que el límite visible; la resolución está bloqueada hasta reducir la comparación.</p>
+                <p className="notice" role="status">
+                  Esta página está completa. Avanza para revisar los siguientes conflictos antes de resolverlos.
+                </p>
+              )}
+              {status.comparison.conflicts.length > 0 && (
+                <nav className="conflict-resolution__pager" aria-label="Paginación de conflictos">
+                  <button
+                    type="button"
+                    onClick={() => void requestConflictPage(Math.max(0, status.comparison.conflictOffset - CONFLICT_PAGE_SIZE))}
+                    disabled={conflictPageLoading || status.comparison.conflictOffset === 0}
+                  >
+                    Conflictos anteriores
+                  </button>
+                  <span>
+                    Conflictos {status.comparison.conflictOffset + 1}–{status.comparison.conflictOffset + status.comparison.conflicts.length}
+                    {" de "}{status.comparison.conflictingKeyCount.toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void requestConflictPage(status.comparison.conflictOffset + status.comparison.conflicts.length)}
+                    disabled={conflictPageLoading || !status.comparison.conflictsTruncated || !visibleConflictPageComplete}
+                  >
+                    {conflictPageLoading ? "Cargando conflictos…" : "Siguientes conflictos"}
+                  </button>
+                </nav>
               )}
             </section>
           )}

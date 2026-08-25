@@ -97,6 +97,7 @@ describe("ReviewPhase", () => {
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
         onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={() => undefined}
@@ -149,6 +150,7 @@ describe("ReviewPhase", () => {
             conflictingKeyCount: 0,
             duplicateKeyCount: 0,
             conflicts: [],
+            conflictOffset: 0,
             conflictsTruncated: false,
             canConsolidate: true,
           },
@@ -160,6 +162,7 @@ describe("ReviewPhase", () => {
         onClearComparison={onClearComparison}
         onConsolidate={onConsolidate}
         onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={onJoinTypeChange}
@@ -207,6 +210,7 @@ describe("ReviewPhase", () => {
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
         onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={() => undefined}
@@ -242,6 +246,7 @@ describe("ReviewPhase", () => {
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
         onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={() => undefined}
@@ -300,6 +305,7 @@ describe("ReviewPhase", () => {
               key: ["51"],
               cells: [{ column: "nota", current: null, compared: "ok" }],
             }],
+            conflictOffset: 0,
             conflictsTruncated: false,
             canConsolidate: false,
           },
@@ -311,6 +317,7 @@ describe("ReviewPhase", () => {
         onClearComparison={() => undefined}
         onConsolidate={() => undefined}
         onResolveConflicts={onResolveConflicts}
+        onConflictPageChange={() => undefined}
         joinStatus={{ kind: "idle" }}
         joinType="inner"
         onJoinTypeChange={() => undefined}
@@ -326,6 +333,69 @@ describe("ReviewPhase", () => {
     expect(onResolveConflicts).toHaveBeenCalledWith([
       { conflictIndex: 0, column: "nota", source: "compared" },
     ]);
+  });
+
+  it("pagina conflictos sin permitir saltar decisiones pendientes", () => {
+    const onConflictPageChange = vi.fn();
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{
+          kind: "ready",
+          comparison: {
+            currentFileName: "datos.csv",
+            comparedFileName: "actualizacion.csv",
+            currentRowCount: 2,
+            comparedRowCount: 2,
+            commonRowCount: 2,
+            currentOnlyRowCount: 0,
+            comparedOnlyRowCount: 0,
+            sharedColumns: ["id", "nota"],
+            currentOnlyColumns: [],
+            comparedOnlyColumns: [],
+            schemaCompatible: true,
+            keyColumns: ["id"],
+            matchedKeyCount: 1,
+            currentOnlyKeyCount: 0,
+            comparedOnlyKeyCount: 0,
+            conflictingKeyCount: 2,
+            duplicateKeyCount: 0,
+            conflicts: [{
+              key: ["51"],
+              cells: [{ column: "nota", current: null, compared: "ok" }],
+            }],
+            conflictOffset: 0,
+            conflictsTruncated: true,
+            canConsolidate: false,
+          },
+        }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={["id"]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={onConflictPageChange}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    const nextButton = screen.getByRole("button", { name: "Siguientes conflictos" });
+    expect(nextButton).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en nota" }));
+    expect(nextButton).toBeEnabled();
+    fireEvent.click(nextButton);
+    expect(onConflictPageChange).toHaveBeenCalledWith(1);
   });
 
   it("anuncia el rango, representa null y solicita saltos exactos de 50", () => {

@@ -58,8 +58,15 @@ export interface DatasetComparison {
   conflictingKeyCount: number;
   duplicateKeyCount: number;
   conflicts: DatasetConflict[];
+  conflictOffset: number;
   conflictsTruncated: boolean;
   canConsolidate: boolean;
+}
+
+export interface DatasetConflictPage {
+  offset: number;
+  conflicts: DatasetConflict[];
+  hasNext: boolean;
 }
 
 export type DatasetJoinType = "inner" | "left" | "full";
@@ -535,6 +542,13 @@ export function discardDatasetSelection(selectionId: string): Promise<void> {
 
 export function compareDataset(keyColumns: string[] = []): Promise<DatasetComparison | null> {
   return invoke<DatasetComparison | null>("compare_dataset", { keyColumns });
+}
+
+export function getDatasetConflictPage(
+  offset: number,
+  limit: number,
+): Promise<DatasetConflictPage | null> {
+  return invoke<DatasetConflictPage | null>("get_dataset_conflict_page", { offset, limit });
 }
 
 export function joinDataset(

@@ -14,7 +14,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación | Parcial | Migrar catálogo de limpieza sugerida y optimización no destructiva |
-| Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor dentro del preview y joins Inner/Left/Full con historial | Parcial | Resolver conflictos fuera del preview con paginación segura |
+| Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx` y SQLite locales, con publicación atómica | Parcial | PostgreSQL/MySQL/SQL Server y bundles auditables |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas y CLI | Parcial | Importar sesiones/pipelines y completar caché/actividad |
@@ -101,9 +101,9 @@ claves seleccionadas explícitamente:
 
 La unión reemplaza el dataset activo únicamente después de calcular el frame,
 registra `Unir datasets (...)` en el historial, invalida el perfil y las
-compuertas de entrega, y no expone rutas del sistema al frontend. La brecha
-restante es resolver previews que superen el límite visible mediante paginación
-segura.
+compuertas de entrega, y no expone rutas del sistema al frontend. Los conflictos
+que superan la primera página se consultan mediante el contrato paginado
+descrito abajo, sin exponer rutas ni celdas fuera de la decisión visible.
 
 ## Séptima entrega de paridad: primera slice de calidad v3
 
@@ -336,14 +336,17 @@ preparado y la protección se aplica solo al snapshot de salida en CSV, JSON,
 Parquet, SQL, Excel y SQLite. El catálogo completo de PII para recetas,
 manifests, reports y conectores remotos sigue pendiente.
 
-## Decimoséptima entrega de paridad: conflictos por columna y privacidad visible
+## Decimoctava entrega de paridad: conflictos paginados y privacidad visible
 
 Review ya puede resolver cada celda divergente de una clave con una decisión
 independiente de la misma celda activa o comparada. La operación exige cubrir
 todas las celdas visibles, conserva el esquema, registra una sola revisión
 reversible y mantiene compatibilidad con decisiones legacy que elegían una fila
-completa. Si el preview está truncado, el backend sigue bloqueando la operación;
-la resolución paginada de conflictos fuera del preview queda pendiente.
+completa. Cuando hay más conflictos que la primera página, Review los solicita en
+bloques de 50, conserva el índice global de cada conflicto y solo habilita la
+resolución después de completar todas las páginas. Rust vuelve a calcular el
+conjunto completo antes de publicar, de modo que una página omitida o una
+decisión repetida falla sin mutar el dataset.
 
 La exportación reutiliza un único snapshot protegido para todos los destinos
 locales existentes. La detección usa el mismo catálogo agregado de señales de
