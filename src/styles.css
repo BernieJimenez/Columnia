@@ -625,6 +625,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-theme="dark"] .workspace :is(input, select, textarea) { background: #214249; color: #edf5f2; }
 :root[data-theme="dark"] .workspace :is(.prepare-card, .transform-recipe, .export-panel, .projects, .quality-contract, .quality-visuals, .local-query, .profile-region, .table-region, .operation-progress) { border-color: #426067; background: #1d3b41; }
 :root[data-theme="dark"] .workspace :is(.metrics div, .comparison-columns > div, .quality-chart, .project-list li) { border-color: #426067; background: #214249; }
+:root[data-theme="dark"] .workspace :is(.metrics dd, .quality-summary dd) { color: #e4eeeb; }
 :root[data-theme="dark"] .workspace :is(th) { background: #23474e; color: #edf5f2; }
 :root[data-theme="dark"] .workspace :is(th, td) { border-color: #38575d; }
 :root[data-theme="dark"] .workspace :is(tbody tr:nth-child(even)) { background: #1d3b41; }
@@ -632,6 +633,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-theme="dark"] .workspace :is(.section-heading button, .prepare-card button, .export-actions button, .quality__header button, .quality-contract__actions button, .quality-rule__remove, .local-query__heading button, .project-list__actions button, .secondary-action) { border-color: #7bd2c8; color: #7bd2c8; }
 :root[data-theme="dark"] .workspace :is(.notice, .notice--success, .change-feedback, .project-recovery, .quality-migration-result, .quality-gate--passed) { background: #21463f; color: #c6e8df; }
 :root[data-theme="dark"] .workspace :is(.notice--error, .change-feedback--error, .quality-gate) { background: #492c2b; color: #ffd7d2; }
+:root[data-theme="dark"] .quality-contract__unvalidated { background: #3c321f; }
+:root[data-theme="dark"] .quality-contract__unvalidated :is(strong, p, label) { color: #f3dfb5; }
 
 /* Light is explicit even when the operating system is in dark mode. */
 :root[data-theme="light"] {
