@@ -346,6 +346,25 @@ export function TransformRecipeEditor({
                 Entrega importada: {exportOptions.formats.join(", ")} · {exportOptions.selectedColumns.length > 0 ? `${exportOptions.selectedColumns.length} columnas seleccionadas` : "todas las columnas"} · privacidad {exportOptions.privacyMode}.
               </p>
             )}
+            {migrationReport.session && (
+              <div className="recipe-session-summary" aria-label="Resumen de sesión DataPrep">
+                <strong>Sesión DataPrep detectada</strong>
+                <p>
+                  {migrationReport.session.stageLabel ?? "Etapa no indicada"}
+                  {migrationReport.session.sheetName ? ` · hoja ${migrationReport.session.sheetName}` : ""}.
+                </p>
+                <ul>
+                  <li>{migrationReport.session.appliedOperationCount} operaciones aplicadas</li>
+                  <li>{migrationReport.session.qualityRuleCount} reglas de calidad</li>
+                  <li>{migrationReport.session.analysisCheckCount} comprobaciones de análisis</li>
+                </ul>
+                <small>
+                  {migrationReport.session.hasSourceReference || migrationReport.session.hasSnapshotReference
+                    ? "Las referencias del archivo y snapshot requieren revisión manual; no se activaron automáticamente."
+                    : "No se encontró una referencia de archivo o snapshot activable."}
+                </small>
+              </div>
+            )}
             {migrationReport.warnings.length > 0 && (
               <details>
                 <summary>Ver advertencias de compatibilidad</summary>

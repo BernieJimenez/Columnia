@@ -65,6 +65,16 @@ artefactos guardados. El historial conserva el máximo de doce revisiones y el
 presupuesto de 1 GiB. Eliminar un proyecto no descarta el dataset que ya está
 abierto en memoria.
 
+### Migración de sesiones DataPrep
+
+En **Preparar**, **Cargar receta** acepta pipelines DataPrep v1–v3 y manifiestos
+de sesión que contengan una transformación reconocible. Columnia convierte solo
+las operaciones seguras a una receta local y muestra un resumen estructural de
+la sesión detectada: hoja, etapa, operaciones aplicadas, reglas y comprobaciones
+de análisis. Las referencias al archivo original y a snapshots se conservan
+únicamente como señales de revisión; no se activan ni se copian automáticamente,
+por lo que una importación parcial nunca reemplaza un proyecto válido.
+
 ## Desarrollo local
 
 ```powershell

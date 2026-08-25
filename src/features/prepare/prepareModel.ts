@@ -56,7 +56,17 @@ function isRecipeMigrationReport(value: unknown): value is RecipeMigrationReport
     Array.isArray(candidate.warnings) && candidate.warnings.every((warning) =>
       !!warning && typeof warning === "object" && typeof warning.path === "string" &&
       ["warning", "omitted"].includes(warning.severity) && typeof warning.message === "string",
-    ) && Array.isArray(candidate.manualActions) && candidate.manualActions.every((action) => typeof action === "string");
+    ) && Array.isArray(candidate.manualActions) && candidate.manualActions.every((action) => typeof action === "string") &&
+    (!candidate.session || (
+      typeof candidate.session === "object" &&
+      typeof candidate.session.hasSourceReference === "boolean" &&
+      typeof candidate.session.hasSnapshotReference === "boolean" &&
+      (typeof candidate.session.sheetName === "string" || candidate.session.sheetName === null) &&
+      (typeof candidate.session.stageLabel === "string" || candidate.session.stageLabel === null) &&
+      typeof candidate.session.appliedOperationCount === "number" &&
+      typeof candidate.session.qualityRuleCount === "number" &&
+      typeof candidate.session.analysisCheckCount === "number"
+    ));
 }
 
 export function isLoadedRecipe(value: unknown): value is LoadedRecipe {

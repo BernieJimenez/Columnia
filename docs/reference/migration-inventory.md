@@ -87,13 +87,16 @@ El inventario mínimo se prueba con fixtures sintéticas versionadas en
 | `legacy-recipe-v1.json` | Receta antigua | Campos legacy sin versión explícita |
 
 Los manifiestos de sesión no restauran todavía un dataset ni escriben un
-proyecto: sus rutas, snapshots y metadatos de etapa se convierten en omisiones
-sanitizadas para revisión manual. Esto evita confundir una receta parcial con
-una sesión reanudable.
+proyecto: sus rutas y snapshots se convierten en señales booleanas sanitizadas,
+y la hoja, etapa y conteos de operaciones, reglas y análisis se conservan en el
+informe estructurado. Esto permite revisar el alcance de la sesión sin publicar
+rutas ni datos, y evita confundir una receta parcial con una sesión reanudable.
 
 ## Límites pendientes
 
 La restauración completa de sesiones, reglas de calidad incrustadas, artefactos
 de análisis y round-trip hacia proyectos requiere contratos separados. La
-primera slice de sesión ya reconoce esos campos y los informa; todavía no los
-activa ni crea snapshots automáticamente.
+primera slice de sesión reconoce esos campos y los informa; todavía no los
+activa ni crea snapshots automáticamente. El siguiente paso sigue siendo
+validar el esquema y mapear una sesión importada al catálogo de proyectos antes
+de escribir cualquier artefacto durable.

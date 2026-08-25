@@ -289,8 +289,9 @@ bloqueantes, políticas `on_missing`/`null_policy` incompatibles y parámetros
 malformados se omiten con un informe visible por regla. Una regla sin tolerancia
 se importa como bloqueante con máximo de inválidos igual a cero; nunca se
 convierte silenciosamente una política no equivalente en una aprobación.
-Pipelines JSON, sesiones guardadas y el round-trip hacia proyectos siguen
-pendientes en M1.
+Los pipelines JSON todavía no se convierten automáticamente. Las sesiones
+guardadas ya se reconocen y dejan un resumen estructural sanitizado, pero la
+restauración y el round-trip hacia proyectos siguen pendientes en M1.
 
 ## Tercera entrega de paridad: script SQL
 
@@ -466,9 +467,10 @@ La migración tiene dos capas distintas:
    vertical de entrega.
 2. **Compatibilidad de artefactos:** Columnia ya importa parcialmente contratos
    JSON de reglas de calidad de DataPrep v1–v3, guarda el documento canónico
-   Columnia v1 y produce una conversión segura con informe de omitidas. Todavía
-   no importa pipelines JSON ni sesiones guardadas, y la
-   verificación de round-trip sigue pendiente en la Fase M1 del roadmap.
+   Columnia v1 y produce una conversión segura con informe de omitidas. Los
+   manifiestos de sesión dejan un resumen estructural sin rutas ni snapshots
+   activables; la restauración y la verificación de round-trip siguen pendientes
+   en la Fase M1 del roadmap.
 
 Columnia ya tiene una representación nativa distinta —Tauri/Rust/Polars,
 proyectos SQLite/Parquet y comandos estrechos—, por lo que la migración no

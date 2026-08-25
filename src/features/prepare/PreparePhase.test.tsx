@@ -370,6 +370,15 @@ describe("TransformRecipeEditor", () => {
         omittedOperations: ["export.report_format"],
         warnings: [{ path: "export.report_format", severity: "omitted", message: "Revisión manual." }],
         manualActions: ["Validar el pipeline importado."],
+        session: {
+          hasSourceReference: true,
+          hasSnapshotReference: true,
+          sheetName: "Datos",
+          stageLabel: "Transformación",
+          appliedOperationCount: 1,
+          qualityRuleCount: 2,
+          analysisCheckCount: 3,
+        },
       },
     };
     vi.spyOn(bridge, "pickTransformRecipe").mockResolvedValue(loaded);
@@ -381,5 +390,11 @@ describe("TransformRecipeEditor", () => {
     expect(report).toHaveTextContent("Entrega importada: csv, excel");
     expect(report).toHaveTextContent("SHA-256 del artefacto");
     expect(report).toHaveTextContent("Acciones manuales");
+    expect(report).toHaveTextContent("Sesión DataPrep detectada");
+    expect(report).toHaveTextContent("Transformación · hoja Datos");
+    expect(report).toHaveTextContent("1 operaciones aplicadas");
+    expect(report).toHaveTextContent("2 reglas de calidad");
+    expect(report).toHaveTextContent("3 comprobaciones de análisis");
+    expect(report).toHaveTextContent("no se activaron automáticamente");
   });
 });

@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Los manifiestos de sesión DataPrep importados conservan un resumen estructural
+  sanitizado en el informe de migración: hoja, etapa, conteos de operaciones,
+  reglas y análisis, además de señales booleanas para referencias de origen y
+  snapshot. No se restauran sesiones ni se escriben proyectos automáticamente.
 - Contrato de calidad versionado `columnia-quality-rules` v1, con guardado
   atómico, importación de Columnia/DataPrep v1–v3 y compatibilidad con el
   documento legado v1; versiones futuras y formatos ambiguos fallan cerrados.

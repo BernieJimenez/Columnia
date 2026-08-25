@@ -140,6 +140,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .recipe-migration-report details { margin-top: 2px; }
 .recipe-migration-report summary { cursor: pointer; font-weight: 750; }
 .recipe-migration-report small { overflow-wrap: anywhere; }
+.recipe-session-summary { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid #d3b16b; background: #fffdf5; color: #5d4a2e; }
+.recipe-session-summary p, .recipe-session-summary ul { margin: 0; }
+.recipe-session-summary ul { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-left: 18px; }
+.recipe-session-summary small { color: #765f2f; }
 .transform-recipe__grid { display: grid; gap: 12px; max-height: 45vh; margin-top: 16px; overflow: auto; }
 .transform-recipe fieldset { display: grid; gap: 9px; margin: 0; padding: 12px; border: 1px solid #ced9d5; background: #f8faf8; }
 .transform-recipe legend { padding: 0 6px; color: #31535a; font-size: .8rem; font-weight: 800; }
@@ -500,6 +504,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .recipe-files { border-color: #426067; background: #17343a; }
   .recipe-files label span, .recipe-file-status { color: #afc2bd; }
   .recipe-migration-report { border-color: #d7a34c; background: #2f3436; color: #f3dfb5; }
+  .recipe-session-summary { border-color: #7c6331; background: #3c321f; color: #f3dfb5; }
+  .recipe-session-summary small { color: #f1c77a; }
   .recipe-files input { border-color: #527078; background: #214249; color: #edf5f2; }
   .recipe-files button { border-color: #6bb8b0; color: #7bd2c8; }
   .transform-recipe__intro p:last-child, .transform-recipe__footer p { color: #b6c9c7; }
@@ -647,6 +653,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-theme="dark"] .workspace :is(.notice--error, .change-feedback--error, .quality-gate) { background: #492c2b; color: #ffd7d2; }
 :root[data-theme="dark"] .quality-contract__unvalidated { background: #3c321f; }
 :root[data-theme="dark"] .quality-contract__unvalidated :is(strong, p, label) { color: #f3dfb5; }
+:root[data-theme="dark"] .recipe-session-summary { border-color: #7c6331; background: #3c321f; color: #f3dfb5; }
+:root[data-theme="dark"] .recipe-session-summary small { color: #f1c77a; }
 
 /* Light is explicit even when the operating system is in dark mode. */
 :root[data-theme="light"] {
@@ -732,6 +740,8 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .change-feedback,
   .change-feedback--error { border-color: ButtonText; background: Canvas; color: CanvasText; }
   .project-list .project-list__active { border-left-color: Highlight; background: Canvas; }
+  .recipe-migration-report,
+  .recipe-session-summary { border-color: ButtonText; background: Canvas; color: CanvasText; }
   .comparison-key-selector,
   .comparison-key-summary,
   .comparison-key-options label,

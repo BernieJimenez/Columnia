@@ -1206,6 +1206,10 @@ del original.
   registrar origen, snapshot, hoja, etapa, operaciones aplicadas, análisis y
   calidad como omisiones explícitas, sin copiar rutas ni afirmar una restauración
   de dataset que todavía no existe.
+- [x] Conservar un resumen estructural sanitizado de la sesión importada en el
+  informe de migración: referencias de origen/snapshot como booleanos, hoja y
+  etapa visibles, y conteos de operaciones, reglas y comprobaciones de análisis;
+  no activa snapshots ni escribe proyectos automáticamente.
 - [x] Implementar la primera vertical de migración de reglas de calidad: selector
   nativo JSON, conversión de reglas representables, tolerancias por conteo y
   porcentaje, warnings/omitidas para severidad o políticas no equivalentes,

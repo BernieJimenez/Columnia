@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-24, rama `master`, v0.57 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada y privacidad visible en destinos locales, M1 con importación de recetas DataPrep v1–v3, opciones de entrega, fixtures y warnings de metadatos de sesión |
+| Última revisión de este documento | 2026-08-25, rama `master`, v0.57 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada y privacidad visible en destinos locales, M1 con importación de recetas DataPrep v1–v3, opciones de entrega, fixtures y resumen estructural sanitizado de sesiones |
 
 ## Para qué existe este documento
 
@@ -440,6 +440,10 @@ fotografía orientativa, no un umbral.
   siguen pendientes el análisis exploratorio amplio, políticas sin equivalencia
   segura, conectores remotos, bundles auditables, escala fuera de memoria y
   privacidad de artefactos operativos.
+- M1 conserva en el informe de migración un resumen estructural de los manifiestos
+  de sesión DataPrep: hoja, etapa, conteos de operaciones/reglas/análisis y
+  presencia de referencias de origen/snapshot sin copiar rutas. La restauración
+  de snapshots y el mapeo a proyectos siguen siendo explícitamente manuales.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
 - Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.40.0 verificado en 314,827 bytes raw/90,154 gzip.
@@ -490,8 +494,9 @@ fotografía orientativa, no un umbral.
 
 - ampliar la ejecución lazy/incremental a datasets mayores que la memoria y a
   operaciones que todavía requieren el camino eager;
-- DuckDB embebido;
-- joins, comparación de datasets y destinos de bases de datos;
+- DuckDB embebido para ampliar consultas sobre datasets grandes;
+- conectores remotos y destinos de bases de datos adicionales; los joins,
+  comparación de datasets y destinos locales Excel/SQLite ya están cubiertos;
 - auditoría manual con lector de pantalla y validación en hardware de Windows High Contrast; `npm run accessibility:visual` ya cubre capturas reproducibles de desktop, móvil, escala 125% y `forced-colors` sin reemplazar una sesión manual de asistencia;
 - ampliar la comparación contra `dataprepv1.1` a datasets grandes y a RAM
   integral de dataset+historial; I1 ya cubre la inspección cruzada reproducible
@@ -502,6 +507,9 @@ fotografía orientativa, no un umbral.
 - presupuesto integral global de dataset+historial para entradas grandes y comparación contra `dataprepv1.1`; v0.49 mide tres ciclos nativos sobre el dataset de probe y aplica el presupuesto global del árbol, pero todavía no prueba datasets grandes desde WebView2;
 - escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
 - verificación real en macOS y Linux.
+- restauración segura de sesiones DataPrep y mapeo al catálogo de proyectos;
+  el informe estructural ya está disponible, pero no activa snapshots ni escribe
+  artefactos durables.
 
 Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el código antes de afirmar que una fase está completa.
 
@@ -552,6 +560,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-25 | M1 conserva un resumen estructural sanitizado de sesiones DataPrep dentro del informe de migración: hoja, etapa, conteos y presencia de referencias de origen/snapshot; las rutas no cruzan el bridge y la sesión no se restaura automáticamente. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/prepare/prepareModel.ts`, `src/features/prepare/TransformRecipeEditor.tsx`, `docs/reference/migration-inventory.md` |
 | 2026-08-24 | I3 estabiliza los selectores nativos Win32 y los incorpora a `verify:tier`: el driver usa UI Automation para el modelo del diálogo, soporta editores Abrir `1148` y Guardar como `1001`, conserva fallback Win32/Unicode y valida los cuatro recorridos sin exponer rutas. | `.local/validation/webview2-cdp/20260824T233922Z`, `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-native-selectors.mjs`, `tools/verify-tier.ps1` |
 | 2026-08-24 | Versión 0.50.0: Review resuelve conflictos por columna/valor dentro del preview y conserva decisiones legacy por fila; Entregar protege texto e identificadores numéricos detectados en CSV, JSON, Parquet, SQL, Excel y SQLite, e informa solo el conteo/nombre de columnas protegidas. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `src/bridge.test.ts`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-24 | Validación final del corte 0.50.0: 177 pruebas Rust y 202 frontend, build Vite, Clippy estricto, formato, documentación, gobernanza, diff limpio, smoke CLI y smoke WebView2 con selectores nativos Win32 aprobados. | `.local/validation/cli-smoke/20260825T000531Z`, `.local/validation/webview2-cdp/20260825T000531Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx` |

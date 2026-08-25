@@ -881,6 +881,18 @@ pub struct RecipeMigrationWarning {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionMigrationMetadata {
+    has_source_reference: bool,
+    has_snapshot_reference: bool,
+    sheet_name: Option<String>,
+    stage_label: Option<String>,
+    applied_operation_count: usize,
+    quality_rule_count: usize,
+    analysis_check_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecipeMigrationReport {
     artifact_sha256: Option<String>,
     source_format: String,
@@ -892,6 +904,8 @@ pub struct RecipeMigrationReport {
     omitted_operations: Vec<String>,
     warnings: Vec<RecipeMigrationWarning>,
     manual_actions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    session: Option<SessionMigrationMetadata>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -4465,6 +4479,7 @@ fn build_recipe_migration_report(
     mut converted_operations: Vec<String>,
     mut omitted_operations: Vec<String>,
     warnings: Vec<RecipeMigrationWarning>,
+    session: Option<SessionMigrationMetadata>,
 ) -> RecipeMigrationReport {
     converted_operations.sort();
     omitted_operations.sort();
@@ -4494,7 +4509,73 @@ fn build_recipe_migration_report(
         omitted_operations,
         warnings,
         manual_actions,
+        session,
     }
+}
+
+fn migration_session_metadata(
+    root: &JsonMap<String, JsonValue>,
+) -> Result<Option<SessionMigrationMetadata>, String> {
+    let has_session_fields = [
+        "source_path",
+        "snapshot_path",
+        "sheet_name",
+        "stage_label",
+        "applied_ops",
+        "quality_rules",
+        "analysis_checks",
+    ]
+    .iter()
+    .any(|key| root.get(*key).is_some_and(|value| !value.is_null()));
+    if !has_session_fields {
+        return Ok(None);
+    }
+
+    let optional_text = |key: &str| -> Result<Option<String>, String> {
+        let Some(value) = root.get(key) else {
+            return Ok(None);
+        };
+        if value.is_null() {
+            return Ok(None);
+        }
+        value
+            .as_str()
+            .map(str::to_owned)
+            .map(Some)
+            .ok_or_else(|| format!("El metadato de sesión '{key}' debe ser texto."))
+    };
+    let count_array = |key: &str| -> Result<usize, String> {
+        let Some(value) = root.get(key) else {
+            return Ok(0);
+        };
+        if value.is_null() {
+            return Ok(0);
+        }
+        value
+            .as_array()
+            .map(Vec::len)
+            .ok_or_else(|| format!("El metadato de sesión '{key}' debe ser un arreglo."))
+    };
+    let analysis_check_count = match root.get("analysis_checks") {
+        None | Some(JsonValue::Null) => 0,
+        Some(value) => value.as_object().map(JsonMap::len).ok_or_else(|| {
+            "El metadato de sesión 'analysis_checks' debe ser un objeto.".to_owned()
+        })?,
+    };
+
+    Ok(Some(SessionMigrationMetadata {
+        has_source_reference: root
+            .get("source_path")
+            .is_some_and(|value| !value.is_null()),
+        has_snapshot_reference: root
+            .get("snapshot_path")
+            .is_some_and(|value| !value.is_null()),
+        sheet_name: optional_text("sheet_name")?,
+        stage_label: optional_text("stage_label")?,
+        applied_operation_count: count_array("applied_ops")?,
+        quality_rule_count: count_array("quality_rules")?,
+        analysis_check_count,
+    }))
 }
 
 fn migration_export_format(value: &str) -> Option<ExportFormat> {
@@ -4706,6 +4787,7 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
     let mut converted_operations = Vec::new();
     let mut omitted_operations = Vec::new();
     let mut warnings = Vec::new();
+    let session = migration_session_metadata(root)?;
 
     if let Some(selected_cleaning_operations) = root.get("selected_cleaning_operations") {
         let operations = selected_cleaning_operations.as_array().ok_or_else(|| {
@@ -5223,6 +5305,7 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
             converted_operations,
             omitted_operations,
             warnings,
+            session,
         )),
     };
     validate_stored_recipe(&document)?;
@@ -13916,6 +13999,16 @@ mod tests {
         assert!(omitted
             .iter()
             .any(|value| value == "session.analysis_checks"));
+        assert_eq!(json["migrationReport"]["session"]["sheetName"], "Datos");
+        assert_eq!(json["migrationReport"]["session"]["stageLabel"], "Transformación");
+        assert_eq!(
+            json["migrationReport"]["session"]["appliedOperationCount"],
+            1
+        );
+        assert_eq!(json["migrationReport"]["session"]["qualityRuleCount"], 1);
+        assert_eq!(json["migrationReport"]["session"]["analysisCheckCount"], 1);
+        assert_eq!(json["migrationReport"]["session"]["hasSourceReference"], true);
+        assert_eq!(json["migrationReport"]["session"]["hasSnapshotReference"], true);
         assert!(!json.to_string().contains("fixture://"));
         assert!(!json.to_string().contains("ventas-sinteticas.csv"));
         assert_eq!(json["recipe"]["renames"][0]["to"], "new_name");

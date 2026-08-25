@@ -350,6 +350,16 @@ export interface RecipeMigrationWarning {
   message: string;
 }
 
+export interface SessionMigrationMetadata {
+  hasSourceReference: boolean;
+  hasSnapshotReference: boolean;
+  sheetName: string | null;
+  stageLabel: string | null;
+  appliedOperationCount: number;
+  qualityRuleCount: number;
+  analysisCheckCount: number;
+}
+
 export interface RecipeMigrationReport {
   artifactSha256: string | null;
   sourceFormat: "dataprep" | "legacy";
@@ -361,6 +371,7 @@ export interface RecipeMigrationReport {
   omittedOperations: string[];
   warnings: RecipeMigrationWarning[];
   manualActions: string[];
+  session?: SessionMigrationMetadata;
 }
 
 export interface TransformRecipeResult {
