@@ -396,6 +396,8 @@ describe("desktop bridge", () => {
       fileName: "datos-columnia.parquet",
       fileSizeBytes: 512,
       format: "Parquet",
+      protectedColumnCount: 0,
+      protectedColumns: [],
     });
 
     const qualityRules: QualityRule[] = [{ column: "total", kind: "not_null", maxInvalid: 0 }];
@@ -403,6 +405,8 @@ describe("desktop bridge", () => {
       fileName: "datos-columnia.parquet",
       fileSizeBytes: 512,
       format: "Parquet",
+      protectedColumnCount: 0,
+      protectedColumns: [],
     });
     expect(invoke).toHaveBeenCalledWith("export_dataset", {
       format: "parquet",
@@ -418,12 +422,16 @@ describe("desktop bridge", () => {
       fileName: "datos-columnia.json",
       fileSizeBytes: 128,
       format: "JSON",
+      protectedColumnCount: 0,
+      protectedColumns: [],
     });
 
     await expect(exportDataset("json", [], true)).resolves.toEqual({
       fileName: "datos-columnia.json",
       fileSizeBytes: 128,
       format: "JSON",
+      protectedColumnCount: 0,
+      protectedColumns: [],
     });
     expect(invoke).toHaveBeenCalledWith("export_dataset", {
       format: "json",
@@ -439,12 +447,16 @@ describe("desktop bridge", () => {
       fileName: "datos-columnia.sql",
       fileSizeBytes: 256,
       format: "SQL",
+      protectedColumnCount: 0,
+      protectedColumns: [],
     });
 
     await expect(exportDataset("sql", [], true)).resolves.toEqual({
       fileName: "datos-columnia.sql",
       fileSizeBytes: 256,
       format: "SQL",
+      protectedColumnCount: 0,
+      protectedColumns: [],
     });
     expect(invoke).toHaveBeenCalledWith("export_dataset", {
       format: "sql",
@@ -457,8 +469,8 @@ describe("desktop bridge", () => {
 
   it("conserva Excel y SQLite como destinos de exportación tipados", async () => {
     vi.mocked(invoke)
-      .mockResolvedValueOnce({ fileName: "datos.xlsx", fileSizeBytes: 512, format: "Excel" })
-      .mockResolvedValueOnce({ fileName: "datos.sqlite", fileSizeBytes: 1024, format: "SQLite" });
+      .mockResolvedValueOnce({ fileName: "datos.xlsx", fileSizeBytes: 512, format: "Excel", protectedColumnCount: 0, protectedColumns: [] })
+      .mockResolvedValueOnce({ fileName: "datos.sqlite", fileSizeBytes: 1024, format: "SQLite", protectedColumnCount: 0, protectedColumns: [] });
 
     await expect(exportDataset("excel", [], true)).resolves.toMatchObject({
       fileName: "datos.xlsx",

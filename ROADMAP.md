@@ -8,11 +8,12 @@
 - Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
   Fases I0, I4 e I8 cerradas, I3/I5 avanzadas y la Fase P1 de paridad funcional
   con JSON, SQL, comparación/consolidación por clave, joins multidataset y
-  visualizaciones accesibles y contratos de calidad v3 con documento canónico
+  visualizaciones accesibles, resolución por columna/valor, privacidad visible
+  en los destinos locales y contratos de calidad v3 con documento canónico
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, y mantiene
   pendientes pipelines, sesiones y round-trip completo hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.49.0`.
+- Versión actual del prototipo: `0.50.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -981,7 +982,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.49.0
+## 8.1. Cola de ejecución recomendada desde v0.50.0
 
 1. **Selector nativo Win32:** completado. `npm run smoke:native-selectors`
    verifica abrir dataset, guardar/cargar receta y exportar en una sesión Windows
@@ -1040,8 +1041,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir resolución interactiva acotada de conflictos por clave: mostrar las
   celdas divergentes, exigir una decisión por conflicto y conservar la fila del
   dataset activo o la comparada con historial reversible.
-- [ ] Ampliar la resolución a una combinación independiente por columna/valor y
-  a conflictos fuera del límite visible sin ocultar decisiones pendientes.
+- [x] Ampliar la resolución visible a una combinación independiente por
+  columna/valor, manteniendo compatibilidad con decisiones legacy por fila,
+  historial reversible y bloqueo cuando faltan celdas por decidir.
+- [ ] Resolver conflictos fuera del límite visible sin ocultar decisiones
+  pendientes; requiere paginación/streaming de conflictos antes de publicarse.
 - [x] Añadir visualizaciones de análisis con tabla accesible equivalente para
   completitud y posibles outliers.
 - [x] Añadir la primera lectura agregada del catálogo de limpieza: duplicados,
@@ -1131,8 +1135,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   ampliar los límites de forma explícita.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
   para columnas personales detectadas durante la exportación.
-- [ ] Completar detección, enmascarado/hash y modos de privacidad visibles para
-  datos personales, recetas, reports, manifests y destinos SQL.
+- [x] Extender detección, enmascarado/hash y modos de privacidad visibles a los
+  seis destinos locales actuales (CSV, JSON, Parquet, SQL, Excel y SQLite),
+  incluidos identificadores numéricos, devolviendo al usuario las columnas
+  protegidas sin exponer sus valores.
+- [ ] Extender privacidad a recetas, reports, manifests y futuros conectores
+  remotos sin filtrar metadatos sensibles.
 - [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
   Parquet cacheado, chunks, comparación/joins grandes, historial degradado y
   presupuestos explícitos sin materialización silenciosa.
@@ -1281,6 +1289,7 @@ del original.
 | 2026-08-23 | Fase I1 completa: receta Polars lazy con fallback eager seguro, monitor nativo compacto de CPU/RAM, benchmark cruzado de 100 MiB contra `dataprepv1.1` y revisión visual desktop/móvil/zoom/forced-colors | Implementada |
 | 2026-08-23 | P1: contrato de calidad v3 ampliado con `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; evaluación Rust/CLI/exportación, bridge/UI accesibles y tests end-to-end | Implementada |
 | 2026-08-24 | P1: `column_compare` completa la comparación de dos columnas con seis operadores, nulos inválidos, tolerancias, migración DataPrep, editor accesible y evaluación compartida por UI/CLI/exportación | Implementada |
+| 2026-08-24 | Versión 0.50.0: resolución de conflictos por columna/valor dentro del preview visible, compatibilidad legacy por fila, privacidad aplicada a los seis destinos locales y resultado visible de columnas protegidas; conflictos fuera del preview y privacidad de artefactos siguen pendientes | Implementada |
 | 2026-08-24 | P1: `date_range` añade límites inclusivos de fecha, soporte texto/Date/Datetime, rechazo de nulos/fechas ilegibles, migración DataPrep, editor accesible y evaluación compartida | Implementada |
 | 2026-08-24 | P1: `conditional` añade condiciones eq/ne/lt/lte/gt/gte, subreglas then fila-a-fila seguras, tolerancia exterior, migración DataPrep, editor accesible y evaluación compartida | Implementada |
 | 2026-08-24 | P1: `schema_contract` añade columnas requeridas, control de adicionales y orden opcional, migración DataPrep, editor accesible y evaluación estructural compartida | Implementada |

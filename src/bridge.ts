@@ -366,6 +366,8 @@ export type ConflictSource = "current" | "compared";
 
 export interface ConflictResolution {
   conflictIndex: number;
+  /** Omit only for compatibility with the legacy whole-row decision. */
+  column?: string;
   source: ConflictSource;
 }
 
@@ -469,6 +471,8 @@ export interface ExportResult {
   fileName: string;
   fileSizeBytes: number;
   format: "CSV" | "JSON" | "Parquet" | "SQL" | "Excel" | "SQLite";
+  protectedColumnCount: number;
+  protectedColumns: string[];
 }
 
 export interface ProjectSummary {

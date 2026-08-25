@@ -320,11 +320,11 @@ describe("ReviewPhase", () => {
 
     const resolveButton = screen.getByRole("button", { name: "Resolver conflictos" });
     expect(resolveButton).toBeDisabled();
-    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Usar comparado en nota" }));
     expect(resolveButton).toBeEnabled();
     fireEvent.click(resolveButton);
     expect(onResolveConflicts).toHaveBeenCalledWith([
-      { conflictIndex: 0, source: "compared" },
+      { conflictIndex: 0, column: "nota", source: "compared" },
     ]);
   });
 

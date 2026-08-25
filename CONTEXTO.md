@@ -8,7 +8,7 @@
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.49.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.50.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-24, rama `master`, v0.49 validado; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con contratos de calidad versionados y M1 auditada para migración desde `dataprepv1.1` |
+| Última revisión de este documento | 2026-08-24, rama `master`, v0.50 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor y privacidad visible en destinos locales, M1 auditada para migración desde `dataprepv1.1` |
 
 ## Para qué existe este documento
 
@@ -73,7 +73,7 @@ La automatización sin interfaz entra por `columnia-cli`, que llama directamente
 
 `batch` admite de 1 a 64 transformaciones en un manifiesto JSON v1 estricto. Resuelve rutas relativas desde la carpeta canonicalizada del manifiesto, aplica presupuestos de texto, comprueba todos los inputs, recetas, formatos, hojas, destinos y colisiones antes de escribir, y publica cada salida de forma atómica. No es una transacción global: un fallo dependiente de los datos detiene el lote con código 2 y conserva las salidas anteriores; el JSON informa solo conteos y el ordinal 1-based del trabajo fallido. Un manifiesto o preflight inválido termina con código 1, sin stdout ni outputs.
 
-Los cinco comandos CLI de proyectos exigen siempre `--store <directorio>`: no infieren ni reutilizan el `app_data_dir` del escritorio. Rust canonicaliza ese almacén explícito y mantiene allí el catálogo y los artefactos administrados. `project-save` crea o actualiza por ID un snapshot materializado desde una entrada y puede adjuntar receta, reglas y perfil; `project-list` devuelve resúmenes; `project-inspect` devuelve metadatos, presencia de perfil/receta, cantidad de reglas y estado agregado del historial; `project-export` valida el proyecto completo sin activarlo ni alterar su candidato de recuperación; y `project-delete` exige que `--confirm` coincida exactamente con `--id`. Las reglas guardadas deben aprobar siempre: `--allow-unvalidated` habilita únicamente proyectos sin reglas y nunca omite una validación reprobada. La exportación publica CSV o Parquet atómicamente y el contrato informa solo nombre de archivo, tamaño, formato y conteos de calidad, no la ruta ni datos del dataset.
+Los cinco comandos CLI de proyectos exigen siempre `--store <directorio>`: no infieren ni reutilizan el `app_data_dir` del escritorio. Rust canonicaliza ese almacén explícito y mantiene allí el catálogo y los artefactos administrados. `project-save` crea o actualiza por ID un snapshot materializado desde una entrada y puede adjuntar receta, reglas y perfil; `project-list` devuelve resúmenes; `project-inspect` devuelve metadatos, presencia de perfil/receta, cantidad de reglas y estado agregado del historial; `project-export` valida el proyecto completo sin activarlo ni alterar su candidato de recuperación; y `project-delete` exige que `--confirm` coincida exactamente con `--id`. Las reglas guardadas deben aprobar siempre: `--allow-unvalidated` habilita únicamente proyectos sin reglas y nunca omite una validación reprobada. La exportación publica los destinos soportados de forma atómica y los contratos informan solo nombre de archivo, tamaño, formato, calidad y metadatos agregados de privacidad, nunca la ruta ni datos del dataset.
 
 ## Flujo de producto
 
@@ -82,7 +82,7 @@ La interfaz sigue cuatro fases declaradas en `src/App.tsx`:
 1. **Cargar**: inspecciona una fuente local, permite seleccionar una hoja cuando corresponde y materializa el dataset activo.
 2. **Revisar**: pagina la vista previa y calcula el perfil de calidad bajo demanda.
 3. **Preparar**: aplica correcciones simples o una receta estructural atómica; ofrece Deshacer/Rehacer.
-4. **Entregar**: valida un contrato de calidad y exporta CSV, JSON, Parquet o SQL.
+4. **Entregar**: valida un contrato de calidad y exporta CSV, JSON, Parquet, SQL, Excel o SQLite.
 
 Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una operación activa bloquea la navegación que pueda competir con ella. Si el dataset cambia, cualquier validación de entrega previa queda obsoleta y debe ejecutarse de nuevo.
 
@@ -118,7 +118,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/check-network-policy.mjs` / `docs/reference/network-privacy.md` | Inventario local de red, CSP productivo y política de telemetría desactivada por defecto. |
 | `tools/check-installer-contract.ps1` / `THIRD_PARTY_NOTICES.md` | Contrato de NSIS currentUser, WebView2 bootstrapper y recursos legales reproducibles. |
 | `tools/generate-sbom.ps1` / `tools/extract-package-lock-packages.mjs` | Generan offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles, compatible con Windows PowerShell 5.1. |
-| `docs/reference/feature-parity.md` | Matriz de paridad verificable con `dataprepv1.1`, con entregas JSON/SQL, comparación y visualizaciones accesibles documentadas. |
+| `docs/reference/feature-parity.md` | Matriz de paridad verificable con `dataprepv1.1`, con entregas CSV/JSON/Parquet/SQL/Excel/SQLite, comparación por columna y visualizaciones accesibles documentadas. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
 | `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, perfila el árbol de procesos y aplica presupuestos observables de 512 MiB de working set, 256 MiB de memoria privada y transformaciones nativas sostenidas; restaura el entorno y limpia su Job Object. |
@@ -278,7 +278,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 
 ### Entrega
 
-- exportación atómica a CSV o Parquet, con neutralización de fórmulas de texto en CSV;
+- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV;
 - contratos de hasta 16 reglas base y avanzadas: `allowed_values`, `regex`, `dtype`,
   unicidad compuesta, comparación, referencias, monotonía, agregados, drift,
   fechas, condiciones, esquema y conteo de filas;
@@ -435,10 +435,11 @@ fotografía orientativa, no un umbral.
 - Proyectos locales con catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, reglas de calidad, borrador opcional, perfil cacheado, historial/cursor y recuperación explícita aunque desaparezca la fuente original.
 - CLI de proyectos con almacén `--store` explícito, guardado/listado/inspección/exportación/borrado, contratos JSON v1 privados, compuerta de calidad y confirmación destructiva exacta.
 - Fase P1 activa: matriz de paridad con `dataprepv1.1`, exportación local atómica,
-  comparación/joins, consulta restringida, visualizaciones accesibles y reglas
-  de calidad versionadas; siguen pendientes el análisis exploratorio amplio,
-  políticas sin equivalencia segura, conectores remotos, bundles auditables,
-  escala fuera de memoria y combinación independiente por columna.
+  comparación/joins, resolución visible por columna/valor, consulta restringida,
+  privacidad visible, visualizaciones accesibles y reglas de calidad versionadas;
+  siguen pendientes el análisis exploratorio amplio, políticas sin equivalencia
+  segura, conectores remotos, bundles auditables, escala fuera de memoria y
+  resolución paginada fuera del preview.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
 - Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.40.0 verificado en 314,827 bytes raw/90,154 gzip.
@@ -552,6 +553,8 @@ Al actualizarlo:
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
 | 2026-08-24 | I3 estabiliza los selectores nativos Win32 y los incorpora a `verify:tier`: el driver usa UI Automation para el modelo del diálogo, soporta editores Abrir `1148` y Guardar como `1001`, conserva fallback Win32/Unicode y valida los cuatro recorridos sin exponer rutas. | `.local/validation/webview2-cdp/20260824T233922Z`, `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-native-selectors.mjs`, `tools/verify-tier.ps1` |
+| 2026-08-24 | Versión 0.50.0: Review resuelve conflictos por columna/valor dentro del preview y conserva decisiones legacy por fila; Entregar protege texto e identificadores numéricos detectados en CSV, JSON, Parquet, SQL, Excel y SQLite, e informa solo el conteo/nombre de columnas protegidas. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `src/bridge.test.ts`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-08-24 | Validación final del corte 0.50.0: 177 pruebas Rust y 202 frontend, build Vite, Clippy estricto, formato, documentación, gobernanza, diff limpio, smoke CLI y smoke WebView2 con selectores nativos Win32 aprobados. | `.local/validation/cli-smoke/20260825T000531Z`, `.local/validation/webview2-cdp/20260825T000531Z`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx` |
 | 2026-08-24 | P1 añade destinos locales Excel/SQLite, consulta SQL restringida con filtros, `GROUP BY` y agregaciones seguras, privacidad de exportación con máscara/hash y señales agregadas de limpieza; joins/DuckDB, conectores remotos, catálogo completo de PII y sesión operativa siguen pendientes. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/prepare/PreparePhase.tsx`, `src/features/delivery/DeliveryPhase.tsx` |
 | 2026-08-24 | P1 amplía el contrato de calidad con `column_compare`, `date_range`, `conditional`, `schema_contract`, `referential_integrity`, `monotonic`, agregados y `distribution_drift`; todos comparten migración DataPrep, tolerancias, bridge tipado, editor accesible, evaluación Rust/UI/CLI y resultados basados en conteos. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/ipc-contract.test.ts`, `src/features/delivery/deliveryModel.ts`, `src/features/delivery/DeliveryPhase.tsx`, `../dataprepv1.1/src/dataprep/core/quality.py` |
 | 2026-08-24 | P1 cierra el versionado del documento de calidad: formato canónico `columnia-quality-rules` v1, guardado atómico, importación Columnia/DataPrep v1–v3/legado, rechazo cerrado de contratos futuros o ambiguos, CLI retrocompatible y estado accesible sin rutas en React. | `ROADMAP.md`, `docs/reference/feature-parity.md`, `docs/reference/cli.md`, `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |

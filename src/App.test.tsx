@@ -499,6 +499,8 @@ describe("App", () => {
           fileName: "ventas-columnia.parquet",
           fileSizeBytes: 2048,
           format: "Parquet",
+          protectedColumnCount: 0,
+          protectedColumns: [],
         };
       },
     );

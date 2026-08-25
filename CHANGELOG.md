@@ -62,6 +62,27 @@ los artefactos de validación locales.
   (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
+## [0.50.0] - 2026-08-24
+
+### Añadido
+
+- Resolución independiente por columna/valor para conflictos visibles por clave,
+  con cobertura obligatoria de cada celda, historial reversible y compatibilidad
+  con decisiones legacy por fila.
+- Privacidad visible en los seis destinos locales actuales: máscara/hash para
+  señales de correo, teléfono, dirección, nombre e identificadores, incluidos
+  identificadores numéricos, con conteo/nombres protegidos en el resultado sin
+  exponer valores.
+- Versionado sincronizado `0.50.0` en npm, Cargo, Cargo.lock, package-lock y
+  configuración Tauri.
+
+### Validación
+
+- 177 pruebas Rust y 202 pruebas Vitest pasan, junto con build Vite, formato,
+  Clippy estricto, documentación, gobernanza, diff limpio, smoke CLI y smoke
+  WebView2 con selectores nativos Win32. Evidencia: `.local/validation/cli-smoke/20260825T000531Z`
+  y `.local/validation/webview2-cdp/20260825T000531Z`.
+
 ## [0.49.0] - 2026-08-23
 
 ### Añadido

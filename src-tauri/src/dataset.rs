@@ -118,6 +118,8 @@ pub struct ExportResult {
     pub(crate) file_name: String,
     pub(crate) file_size_bytes: u64,
     pub(crate) format: &'static str,
+    pub(crate) protected_column_count: usize,
+    pub(crate) protected_columns: Vec<String>,
 }
 
 const MAX_QUALITY_RULES: usize = 16;
@@ -389,6 +391,8 @@ pub enum ConflictSource {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConflictResolution {
     conflict_index: usize,
+    #[serde(default)]
+    column: Option<String>,
     source: ConflictSource,
 }
 
@@ -7792,54 +7796,54 @@ where
     Ok(())
 }
 
-fn is_likely_personal_column(name: &str) -> bool {
-    let normalized = name.to_ascii_lowercase();
-    [
-        "email",
-        "correo",
-        "mail",
-        "phone",
-        "telefono",
-        "tel",
-        "address",
-        "direccion",
-        "dni",
-        "cedula",
-        "ssn",
-    ]
-    .iter()
-    .any(|token| normalized.contains(token))
-}
-
-fn privacy_safe_frame(frame: &DataFrame, mode: PrivacyMode) -> Result<DataFrame, String> {
+fn privacy_safe_frame(
+    frame: &DataFrame,
+    mode: PrivacyMode,
+) -> Result<(DataFrame, Vec<String>), String> {
     if mode == PrivacyMode::None {
-        return Ok(frame.clone());
+        return Ok((frame.clone(), Vec::new()));
     }
     let mut safe = frame.clone();
-    for column in frame.columns().iter().filter(|column| {
-        column.dtype() == &DataType::String && is_likely_personal_column(column.name().as_str())
-    }) {
-        let values = column
-            .str()
-            .map_err(|_| {
-                "No se pudo preparar una columna para protección de privacidad.".to_owned()
-            })?
-            .iter()
-            .map(|value| {
-                value.map(|value| match mode {
-                    PrivacyMode::None => value.to_owned(),
-                    PrivacyMode::Mask => "[REDACTED]".to_owned(),
-                    PrivacyMode::Hash => format!("{:x}", Sha256::digest(value.as_bytes())),
-                })
+    let protected_columns = frame
+        .columns()
+        .iter()
+        .filter(|column| privacy_signal(column.name()).is_some())
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    for column in frame
+        .columns()
+        .iter()
+        .filter(|column| privacy_signal(column.name()).is_some())
+    {
+        let values = (0..column.len())
+            .map(|row_index| {
+                column
+                    .get(row_index)
+                    .map_err(|_| {
+                        "No se pudo preparar una columna para protección de privacidad.".to_owned()
+                    })
+                    .map(|value| match value {
+                        AnyValue::Null => None,
+                        value => {
+                            let value = value.to_string();
+                            Some(match mode {
+                                PrivacyMode::None => value,
+                                PrivacyMode::Mask => "[REDACTED]".to_owned(),
+                                PrivacyMode::Hash => {
+                                    format!("{:x}", Sha256::digest(value.as_bytes()))
+                                }
+                            })
+                        }
+                    })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, String>>()?;
         safe.replace(
             column.name().as_str(),
             Column::new(column.name().clone(), values),
         )
         .map_err(|_| "No se pudo proteger una columna de datos personales.".to_owned())?;
     }
-    Ok(safe)
+    Ok((safe, protected_columns))
 }
 
 fn export_frame_atomic<F, C>(
@@ -7883,7 +7887,7 @@ where
     report("Preparando archivo temporal", 10);
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("No se pudo crear el archivo temporal: {error}"))?;
-    let protected_frame = privacy_safe_frame(frame, privacy_mode)?;
+    let (protected_frame, protected_columns) = privacy_safe_frame(frame, privacy_mode)?;
     let mut output_frame = frame_for_export(&protected_frame, format)?;
 
     report("Escribiendo dataset", 25);
@@ -7941,6 +7945,8 @@ where
             .to_owned(),
         file_size_bytes,
         format: format.label(),
+        protected_column_count: protected_columns.len(),
+        protected_columns,
     })
 }
 
@@ -8513,64 +8519,127 @@ fn resolved_conflict_frame(
             "Hay más de {MAX_CONFLICT_PREVIEW} conflictos; reduce el dataset antes de resolverlos."
         ));
     }
-    if conflicts.len() != decisions.len() {
-        return Err("Debes elegir un origen para cada conflicto visible.".to_owned());
-    }
     let mut choices = HashMap::new();
     for decision in decisions {
-        if decision.conflict_index >= conflicts.len()
-            || choices
-                .insert(decision.conflict_index, decision.source)
-                .is_some()
+        let Some(conflict) = conflicts.get(decision.conflict_index) else {
+            return Err(
+                "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
+            );
+        };
+        if let Some(column) = decision.column.as_ref() {
+            if !conflict
+                .conflict
+                .cells
+                .iter()
+                .any(|cell| &cell.column == column)
+            {
+                return Err(format!(
+                    "La columna '{column}' no pertenece al conflicto seleccionado."
+                ));
+            }
+        }
+        if choices
+            .insert(
+                (decision.conflict_index, decision.column.clone()),
+                decision.source,
+            )
+            .is_some()
         {
             return Err(
                 "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
             );
         }
     }
-    if choices.len() != conflicts.len() {
-        return Err("Faltan decisiones de resolución para algunos conflictos.".to_owned());
+
+    for (conflict_index, conflict) in conflicts.iter().enumerate() {
+        let conflict_choices = choices
+            .iter()
+            .filter(|((index, _), _)| *index == conflict_index)
+            .collect::<Vec<_>>();
+        let uses_columns = conflict_choices
+            .iter()
+            .any(|((_, column), _)| column.is_some());
+        if conflict_choices
+            .iter()
+            .any(|((_, column), _)| column.is_some() != uses_columns)
+        {
+            return Err(
+                "Cada conflicto debe resolverse por fila completa o por todas sus columnas."
+                    .to_owned(),
+            );
+        }
+        if uses_columns {
+            let selected_columns = conflict_choices
+                .iter()
+                .filter_map(|((_, column), _)| column.as_deref())
+                .collect::<HashSet<_>>();
+            let expected_columns = conflict
+                .conflict
+                .cells
+                .iter()
+                .map(|cell| cell.column.as_str())
+                .collect::<HashSet<_>>();
+            if selected_columns != expected_columns {
+                return Err(
+                    "Faltan decisiones de columna para alguno de los conflictos visibles."
+                        .to_owned(),
+                );
+            }
+        } else if conflict_choices.len() != 1 {
+            return Err("Debes elegir un origen para cada conflicto visible.".to_owned());
+        }
     }
 
-    let mut combined = current.clone();
-    combined
-        .vstack_mut(compared)
-        .map_err(|error| format!("No se pudieron preparar las filas en conflicto: {error}"))?;
     let conflict_rows = conflicts
         .iter()
         .enumerate()
         .map(|(index, conflict)| (conflict.current_row_index, index))
         .collect::<HashMap<_, _>>();
-    let selected_rows = (0..current.height())
-        .map(|row_index| {
-            let source = conflict_rows
-                .get(&row_index)
-                .and_then(|index| choices.get(index).copied());
-            match source {
-                Some(ConflictSource::Compared) => {
-                    let conflict_index = conflict_rows
-                        .get(&row_index)
+    let mut resolved_columns = Vec::with_capacity(current.width());
+    for current_column in current.columns() {
+        let name = current_column.name().to_string();
+        let compared_column = compared
+            .column(&name)
+            .map_err(|error| format!("No se pudo leer la columna comparada '{name}': {error}"))?;
+        let values = (0..current.height())
+            .map(|row_index| {
+                let source = conflict_rows.get(&row_index).and_then(|conflict_index| {
+                    choices
+                        .get(&(*conflict_index, Some(name.clone())))
+                        .or_else(|| choices.get(&(*conflict_index, None)))
                         .copied()
-                        .ok_or_else(|| "No se encontró la fila en conflicto.".to_owned())?;
-                    let compared_row = conflicts
-                        .get(conflict_index)
+                });
+                let source_row = match source {
+                    Some(ConflictSource::Compared) => conflicts
+                        .get(*conflict_rows.get(&row_index).expect("conflict row exists"))
                         .map(|conflict| conflict.compared_row_index)
                         .ok_or_else(|| {
                             "No se encontró la fila comparada en conflicto.".to_owned()
-                        })?;
-                    u32::try_from(current.height().saturating_add(compared_row))
-                        .map_err(|_| "El dataset excede el límite de filas resoluble.".to_owned())
-                }
-                _ => u32::try_from(row_index)
-                    .map_err(|_| "El dataset excede el límite de filas resoluble.".to_owned()),
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    combined
-        .take(&UInt32Chunked::from_vec(
-            "resolved_rows".into(),
-            selected_rows,
-        ))
+                        })?,
+                    _ => row_index,
+                };
+                let column = if matches!(source, Some(ConflictSource::Compared)) {
+                    compared_column
+                } else {
+                    current_column
+                };
+                let value = column
+                    .get(source_row)
+                    .map_err(|error| format!("No se pudo leer la fila resuelta: {error}"))?;
+                Ok(value.clone())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let resolved = Series::from_any_values_and_dtype(
+            name.clone().into(),
+            &values,
+            current_column.dtype(),
+            true,
+        )
+        .map_err(|error| format!("No se pudo conservar el tipo de '{name}': {error}"))?
+        .into_column();
+        resolved_columns.push(resolved);
+    }
+    DataFrame::new(current.height(), resolved_columns)
         .map_err(|error| format!("No se pudo construir el dataset resuelto: {error}"))
 }
 
@@ -13324,14 +13393,16 @@ mod tests {
     }
 
     #[test]
-    fn privacy_modes_mask_or_hash_detected_text_columns_only() {
+    fn privacy_modes_mask_or_hash_detect_all_detected_columns_without_values() {
         let frame = df![
             "email" => &["ana@example.com"],
-            "city" => &["Santo Domingo"]
+            "city" => &["Santo Domingo"],
+            "identifier" => &[42_i64]
         ]
         .unwrap();
 
-        let masked = privacy_safe_frame(&frame, PrivacyMode::Mask).unwrap();
+        let (masked, protected_columns) = privacy_safe_frame(&frame, PrivacyMode::Mask).unwrap();
+        assert_eq!(protected_columns, vec!["email", "identifier"]);
         assert_eq!(
             masked.column("email").unwrap().str().unwrap().get(0),
             Some("[REDACTED]")
@@ -13340,8 +13411,12 @@ mod tests {
             masked.column("city").unwrap().str().unwrap().get(0),
             Some("Santo Domingo")
         );
+        assert_eq!(
+            masked.column("identifier").unwrap().str().unwrap().get(0),
+            Some("[REDACTED]")
+        );
 
-        let hashed = privacy_safe_frame(&frame, PrivacyMode::Hash).unwrap();
+        let (hashed, _) = privacy_safe_frame(&frame, PrivacyMode::Hash).unwrap();
         let hashed_value = hashed
             .column("email")
             .unwrap()
@@ -13351,10 +13426,10 @@ mod tests {
             .unwrap();
         assert_eq!(hashed_value.len(), 64);
         assert_ne!(hashed_value, "ana@example.com");
-        assert_eq!(
-            privacy_safe_frame(&frame, PrivacyMode::None).unwrap(),
-            frame
-        );
+        let (unprotected, protected_columns) =
+            privacy_safe_frame(&frame, PrivacyMode::None).unwrap();
+        assert_eq!(unprotected, frame);
+        assert!(protected_columns.is_empty());
     }
 
     #[test]
@@ -13460,12 +13535,13 @@ mod tests {
     }
 
     #[test]
-    fn resolves_each_key_conflict_from_the_selected_row_source() {
+    fn resolves_key_conflicts_by_column_and_keeps_legacy_row_decisions() {
         let current = DataFrame::new(
             2,
             vec![
                 Series::new("id".into(), &[1_i64, 2]).into_column(),
                 Series::new("city".into(), &["Santo Domingo", "Santiago"]).into_column(),
+                Series::new("total".into(), &[10_i64, 20]).into_column(),
             ],
         )
         .expect("el frame activo debe ser válido");
@@ -13474,27 +13550,36 @@ mod tests {
             vec![
                 Series::new("id".into(), &[1_i64, 2]).into_column(),
                 Series::new("city".into(), &["La Vega", "Santiago"]).into_column(),
+                Series::new("total".into(), &[15_i64, 20]).into_column(),
             ],
         )
         .expect("el frame comparado debe ser válido");
         let key_columns = vec!["id".to_owned()];
-        let shared_columns = vec!["id".to_owned(), "city".to_owned()];
+        let shared_columns = vec!["id".to_owned(), "city".to_owned(), "total".to_owned()];
         let (conflicts, truncated) =
             collect_key_conflicts(&current, &compared, &key_columns, &shared_columns)
                 .expect("los conflictos deben poder inspeccionarse");
         assert!(!truncated);
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].conflict.key, vec![Some("1".to_owned())]);
-        assert_eq!(conflicts[0].conflict.cells[0].column, "city");
+        assert_eq!(conflicts[0].conflict.cells.len(), 2);
 
         let resolved = resolved_conflict_frame(
             &current,
             &compared,
             &key_columns,
-            &[ConflictResolution {
-                conflict_index: 0,
-                source: ConflictSource::Compared,
-            }],
+            &[
+                ConflictResolution {
+                    conflict_index: 0,
+                    column: Some("city".to_owned()),
+                    source: ConflictSource::Compared,
+                },
+                ConflictResolution {
+                    conflict_index: 0,
+                    column: Some("total".to_owned()),
+                    source: ConflictSource::Current,
+                },
+            ],
         )
         .expect("la resolución debe construir un frame válido");
         assert_eq!(
@@ -13506,8 +13591,32 @@ mod tests {
             Some("La Vega")
         );
         assert_eq!(
+            resolved.column("total").unwrap().i64().unwrap().get(0),
+            Some(10)
+        );
+        assert_eq!(
             resolved.column("city").unwrap().str().unwrap().get(1),
             Some("Santiago")
+        );
+        let legacy_resolved = resolved_conflict_frame(
+            &current,
+            &compared,
+            &key_columns,
+            &[ConflictResolution {
+                conflict_index: 0,
+                column: None,
+                source: ConflictSource::Compared,
+            }],
+        )
+        .expect("la resolución legacy por fila debe seguir funcionando");
+        assert_eq!(
+            legacy_resolved
+                .column("total")
+                .unwrap()
+                .i64()
+                .unwrap()
+                .get(0),
+            Some(15)
         );
         assert!(resolved_conflict_frame(&current, &compared, &key_columns, &[]).is_err());
         assert!(resolved_conflict_frame(
@@ -13517,10 +13626,12 @@ mod tests {
             &[
                 ConflictResolution {
                     conflict_index: 0,
+                    column: None,
                     source: ConflictSource::Current,
                 },
                 ConflictResolution {
                     conflict_index: 0,
+                    column: None,
                     source: ConflictSource::Compared,
                 },
             ],

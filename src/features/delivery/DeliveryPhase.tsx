@@ -997,6 +997,9 @@ export function DeliveryPhase({
       {exportState.kind === "success" && (
         <p className="notice notice--success" role="status">
           {exportState.result.format} exportado como {exportState.result.fileName} ({formatFileSize(exportState.result.fileSizeBytes)}).
+          {exportState.result.protectedColumnCount > 0 && (
+            <> Privacidad aplicada a {exportState.result.protectedColumnCount} columnas: {exportState.result.protectedColumns?.join(", ")}.</>
+          )}
         </p>
       )}
       {exportState.kind === "error" && (

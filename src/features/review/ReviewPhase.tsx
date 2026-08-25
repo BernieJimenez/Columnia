@@ -142,10 +142,18 @@ function DatasetComparisonSection({
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
 }) {
-  const [conflictChoices, setConflictChoices] = useState<Record<number, ConflictSource>>({});
+  const [conflictChoices, setConflictChoices] = useState<Record<string, ConflictSource>>({});
   useEffect(() => {
     setConflictChoices({});
   }, [status.kind, status.kind === "ready" ? status.comparison.comparedFileName : null]);
+
+  function conflictChoiceKey(conflictIndex: number, column: string): string {
+    return `${conflictIndex}:${column}`;
+  }
+
+  const visibleConflictCellCount = status.kind === "ready"
+    ? status.comparison.conflicts.reduce((total, conflict) => total + conflict.cells.length, 0)
+    : 0;
 
   return (
     <section className="phase-section comparison-section" aria-labelledby="comparison-title">
@@ -295,16 +303,18 @@ function DatasetComparisonSection({
                 <div>
                   <p className="step">Decisión explícita</p>
                   <h4 id="conflict-resolution-title">Resolver conflictos por clave</h4>
-                  <p>Elige qué fila conservar para cada clave. No se modifica nada hasta confirmar todas las decisiones.</p>
+                  <p>Elige el origen de cada celda divergente. No se modifica nada hasta confirmar todas las decisiones.</p>
                 </div>
                 <button
                   type="button"
                   className="primary-action"
-                  onClick={() => onResolveConflicts(Object.entries(conflictChoices).map(([conflictIndex, source]) => ({
-                    conflictIndex: Number(conflictIndex),
-                    source,
-                  })))}
-                  disabled={status.comparison.conflictsTruncated || Object.keys(conflictChoices).length !== status.comparison.conflicts.length}
+                  onClick={() => onResolveConflicts(Object.entries(conflictChoices).map(([choiceKey, source]) => {
+                    const separator = choiceKey.indexOf(":");
+                    const conflictIndex = Number(choiceKey.slice(0, separator));
+                    const column = choiceKey.slice(separator + 1);
+                    return { conflictIndex, column, source };
+                  }))}
+                  disabled={status.comparison.conflictsTruncated || Object.keys(conflictChoices).length !== visibleConflictCellCount}
                 >
                   Resolver conflictos
                 </button>
@@ -315,34 +325,37 @@ function DatasetComparisonSection({
                     Conflicto {conflictIndex + 1} · clave {conflict.key.map((value) => value ?? "null").join(" · ")}
                   </legend>
                   <ul>
-                    {conflict.cells.map((cell) => (
-                      <li key={cell.column}>
-                        <strong>{cell.column}</strong>
-                        <span>Activo: <code>{cell.current ?? "null"}</code></span>
-                        <span>Comparado: <code>{cell.compared ?? "null"}</code></span>
-                      </li>
-                    ))}
+                    {conflict.cells.map((cell) => {
+                      const choiceKey = conflictChoiceKey(conflictIndex, cell.column);
+                      return (
+                        <li key={cell.column}>
+                          <strong>{cell.column}</strong>
+                          <span>Activo: <code>{cell.current ?? "null"}</code></span>
+                          <span>Comparado: <code>{cell.compared ?? "null"}</code></span>
+                          <div className="conflict-resolution__choices">
+                            <label>
+                              <input
+                                type="radio"
+                                name={`conflict-${conflictIndex}-${cell.column}`}
+                                checked={conflictChoices[choiceKey] === "current"}
+                                onChange={() => setConflictChoices((current) => ({ ...current, [choiceKey]: "current" }))}
+                              />
+                              Conservar activo en {cell.column}
+                            </label>
+                            <label>
+                              <input
+                                type="radio"
+                                name={`conflict-${conflictIndex}-${cell.column}`}
+                                checked={conflictChoices[choiceKey] === "compared"}
+                                onChange={() => setConflictChoices((current) => ({ ...current, [choiceKey]: "compared" }))}
+                              />
+                              Usar comparado en {cell.column}
+                            </label>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
-                  <div className="conflict-resolution__choices">
-                    <label>
-                      <input
-                        type="radio"
-                        name={`conflict-${conflictIndex}`}
-                        checked={conflictChoices[conflictIndex] === "current"}
-                        onChange={() => setConflictChoices((current) => ({ ...current, [conflictIndex]: "current" }))}
-                      />
-                      Conservar activo
-                    </label>
-                    <label>
-                      <input
-                        type="radio"
-                        name={`conflict-${conflictIndex}`}
-                        checked={conflictChoices[conflictIndex] === "compared"}
-                        onChange={() => setConflictChoices((current) => ({ ...current, [conflictIndex]: "compared" }))}
-                      />
-                      Usar comparado
-                    </label>
-                  </div>
                 </fieldset>
               ))}
               {status.comparison.conflictsTruncated && (

@@ -162,7 +162,8 @@ cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- p
 XLSB y ODS. Para libros son obligatorios `--sheet <nombre exacto>` y `--header
 first-row|generated`; esas opciones se rechazan para otros formatos. Las rutas y
 los valores del dataset no aparecen en el JSON ni en los errores. La salida se
-publica de forma atómica y CSV conserva la protección contra fórmulas. `validate`
+publica de forma atómica en CSV, JSON, Parquet, SQL, Excel o SQLite; CSV conserva
+la protección contra fórmulas. `validate`
 lee el documento `columnia-quality-rules` v1; también acepta el documento legado
 `{"version":1,"rules":[...]}`. Formatos o versiones futuras se rechazan.
 Devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
@@ -182,7 +183,7 @@ la aplicación de escritorio:
 - `project-save --store DIR --name NAME --input FILE [--id ID] [--sheet NAME --header first-row|generated] [--recipe FILE] [--rules FILE] [--profile]` crea un proyecto o actualiza el ID indicado. La receta, las reglas y el cálculo de perfil son opcionales.
 - `project-list --store DIR` lista resúmenes ordenados del catálogo.
 - `project-inspect --store DIR --id ID` inspecciona metadatos y estado durable sin activar el proyecto ni abrir una sesión de escritorio.
-- `project-export --store DIR --id ID --output FILE --format csv|parquet [--allow-unvalidated]` valida y exporta el snapshot completo de forma atómica, sin activarlo ni cambiar la recuperación del escritorio. Las reglas guardadas siempre deben aprobar; `--allow-unvalidated` solo autoriza un proyecto que no tenga reglas.
+- `project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite [--allow-unvalidated]` valida y exporta el snapshot completo de forma atómica, sin activarlo ni cambiar la recuperación del escritorio. Las reglas guardadas siempre deben aprobar; `--allow-unvalidated` solo autoriza un proyecto que no tenga reglas.
 - `project-delete --store DIR --id ID --confirm ID` borra únicamente cuando la confirmación coincide exactamente con el ID.
 
 Todos emiten JSON v1 por stdout sin rutas, filas ni muestras. Sus contratos son:
@@ -259,7 +260,8 @@ JSON admite un arreglo de objetos o un objeto por línea (`.jsonl`/`.ndjson`).
 Los campos ausentes quedan como nulos y los objetos o arreglos anidados se conservan
 como texto JSON, sin aplanarlos ni descartar su contenido silenciosamente.
 
-Desde **Entregar**, el dataset activo puede exportarse a CSV o Parquet. Rust abre
+Desde **Entregar**, el dataset activo puede exportarse a CSV, JSON, Parquet, SQL,
+Excel o SQLite. Rust abre
 el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
 El destino se reemplaza únicamente después de completar y sincronizar la
 escritura; cancelar o fallar conserva cualquier archivo anterior.
@@ -272,7 +274,10 @@ o porcentaje; Rust vuelve a evaluar el contrato sobre el snapshot que escribirá
 y el resultado solo expone conteos. Los contratos se pueden importar desde
 DataPrep y guardar como `columnia-quality-rules` v1 mediante diálogos nativos,
 sin exponer rutas a React. Si no existen reglas, la entrega no validada requiere
-una confirmación explícita.
+una confirmación explícita. El modo de privacidad puede dejar los datos intactos,
+enmascarar o aplicar SHA-256 a columnas detectadas por nombre, incluidos
+identificadores numéricos; el resultado informa las columnas protegidas sin
+mostrar valores.
 En **Revisar**, la vista previa permite recorrer el dataset en páginas de 50 filas sin volver a abrir
 el archivo ni enviar su ruta al frontend.
 El botón **Analizar calidad** calcula en Rust los nulos, la completitud y los
