@@ -11,11 +11,10 @@ const THEME_OPTIONS: readonly {
   value: ThemePreference;
   label: string;
   description: string;
-  icon: string;
 }[] = [
-  { value: "system", label: "Sistema", description: "Usa la preferencia del equipo", icon: "◐" },
-  { value: "light", label: "Claro", description: "Lienzo luminoso", icon: "☼" },
-  { value: "dark", label: "Oscuro", description: "Panel de baja luz", icon: "◒" },
+  { value: "system", label: "Sistema", description: "Usa la preferencia del equipo" },
+  { value: "light", label: "Claro", description: "Lienzo luminoso" },
+  { value: "dark", label: "Oscuro", description: "Panel de baja luz" },
 ];
 
 export function ThemeSwitcher() {
@@ -51,7 +50,6 @@ export function ThemeSwitcher() {
             title={option.description}
             onClick={() => chooseTheme(option.value)}
           >
-            <span className="theme-switcher__icon" aria-hidden="true">{option.icon}</span>
             <span>{option.label}</span>
           </button>
         ))}
