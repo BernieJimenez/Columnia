@@ -1,6 +1,6 @@
 # Red, privacidad y telemetría
 
-Columnia es local-first. En la versión `0.55.0` el código de la aplicación no
+Columnia es local-first. En la versión `0.57.0` el código de la aplicación no
 inicia conexiones de red, no envía datasets y no incorpora telemetría,
 analytics, crash reporting ni servicios remotos obligatorios.
 

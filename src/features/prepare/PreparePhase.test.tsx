@@ -351,4 +351,35 @@ describe("TransformRecipeEditor", () => {
     expect(screen.getByLabelText("Nuevo nombre 1")).toHaveValue("borrador");
     expect(screen.queryByText(/Receta cargada:/)).not.toBeInTheDocument();
   });
+
+  it("muestra el informe de compatibilidad y las opciones de entrega migradas", async () => {
+    const loaded: LoadedRecipe = {
+      version: 1,
+      name: "Pipeline DataPrep",
+      savedAt: "2026-08-24T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
+      exportOptions: { formats: ["csv", "excel"], selectedColumns: ["cliente"], privacyMode: "mask" },
+      migrationReport: {
+        artifactSha256: "a".repeat(64),
+        sourceFormat: "dataprep",
+        sourceVersion: 3,
+        convertedItems: 4,
+        omittedItems: 2,
+        warningCount: 2,
+        convertedOperations: ["renames", "export.formats"],
+        omittedOperations: ["export.report_format"],
+        warnings: [{ path: "export.report_format", severity: "omitted", message: "Revisión manual." }],
+        manualActions: ["Validar el pipeline importado."],
+      },
+    };
+    vi.spyOn(bridge, "pickTransformRecipe").mockResolvedValue(loaded);
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={() => undefined} onDraftChange={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+
+    const report = await waitFor(() => screen.getByLabelText("Informe de migración de receta"));
+    expect(report).toHaveTextContent("4 elementos convertidos");
+    expect(report).toHaveTextContent("Entrega importada: csv, excel");
+    expect(report).toHaveTextContent("SHA-256 del artefacto");
+    expect(report).toHaveTextContent("Acciones manuales");
+  });
 });

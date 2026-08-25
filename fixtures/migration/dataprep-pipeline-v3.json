@@ -1,0 +1,18 @@
+{
+  "version": 3,
+  "name": "Pipeline sintético v3",
+  "saved_at": "2026-08-24T00:00:00Z",
+  "transform": {
+    "rename_text": "old_name -> new_name",
+    "dtype_col": "age",
+    "dtype_type": "integer",
+    "parse_date_cols": ["created_at"],
+    "filters": [{"col": "age", "op": ">=", "val": 18}],
+    "keep_columns": ["new_name", "age", "created_at"]
+  },
+  "export": {
+    "formats": ["csv", "xlsx"],
+    "selected_columns": ["new_name", "age"],
+    "privacy_mode": "mask"
+  }
+}

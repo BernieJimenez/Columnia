@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "name": "Calidad sintética v3",
+  "rules": [
+    {"column": "age", "kind": "range", "min": 0, "max": 120},
+    {"column": "email", "kind": "regex", "pattern": "^[^@]+@[^@]+$", "severity": "warning"}
+  ]
+}

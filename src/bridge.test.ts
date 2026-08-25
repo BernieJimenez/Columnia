@@ -42,6 +42,8 @@ import {
   validateQualityRules,
   type QualityRule,
   type ProjectWorkspace,
+  type RecipeExportOptions,
+  type RecipeMigrationReport,
   type TransformRecipe,
 } from "./bridge";
 
@@ -357,10 +359,56 @@ describe("desktop bridge", () => {
     vi.mocked(invoke).mockResolvedValueOnce(stored).mockResolvedValueOnce(stored);
 
     await expect(saveTransformRecipe(recipe, "Ventas")).resolves.toEqual(stored);
-    expect(invoke).toHaveBeenNthCalledWith(1, "save_transform_recipe", { recipe, name: "Ventas" });
+    expect(invoke).toHaveBeenNthCalledWith(1, "save_transform_recipe", {
+      recipe,
+      name: "Ventas",
+      migrationReport: null,
+      exportOptions: null,
+    });
     await expect(pickTransformRecipe()).resolves.toEqual(stored);
     expect(invoke).toHaveBeenNthCalledWith(2, "pick_transform_recipe");
     expect(vi.mocked(invoke).mock.calls.flatMap((call) => Object.keys((call[1] ?? {}) as object))).not.toContain("path");
+  });
+
+  it("conserva metadatos de migración al guardar una receta importada", async () => {
+    const recipe: TransformRecipe = {
+      renames: [{ from: "nombre", to: "cliente" }],
+      casts: [],
+      dateParses: [],
+      filters: [],
+      calculatedColumn: null,
+      findReplace: null,
+      keepColumns: null,
+      splitColumn: null,
+      mergeColumns: null,
+      outlierTreatments: [],
+      groupSummary: null,
+      contactNormalizations: [],
+      textExtractions: [],
+    };
+    const migrationReport: RecipeMigrationReport = {
+      artifactSha256: "a".repeat(64),
+      sourceFormat: "dataprep",
+      sourceVersion: 3,
+      convertedItems: 2,
+      omittedItems: 1,
+      warningCount: 1,
+      convertedOperations: ["renames"],
+      omittedOperations: ["export.report_format"],
+      warnings: [{ path: "export.report_format", severity: "omitted", message: "Revisión manual." }],
+      manualActions: ["Validar antes de exportar."],
+    };
+    const exportOptions: RecipeExportOptions = { formats: ["csv", "excel"], selectedColumns: ["cliente"], privacyMode: "mask" };
+    vi.mocked(invoke).mockResolvedValue(null);
+
+    await saveTransformRecipe(recipe, "Pipeline", migrationReport, exportOptions);
+
+    expect(invoke).toHaveBeenCalledWith("save_transform_recipe", {
+      recipe,
+      name: "Pipeline",
+      migrationReport,
+      exportOptions,
+    });
   });
 
   it("cancela únicamente la operación indicada", async () => {

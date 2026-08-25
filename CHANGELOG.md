@@ -62,6 +62,45 @@ los artefactos de validación locales.
   (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
   MSI/NSIS.
 
+## [0.57.0] - 2026-08-24
+
+### Añadido
+
+- Inventario y fixtures sintéticas para pipelines, sesiones, reglas de calidad
+  y recetas legacy DataPrep, declaradas en `fixtures/manifest.json`.
+- La importación de manifiestos de sesión reconoce origen, snapshot, hoja,
+  etapa, operaciones aplicadas, calidad y análisis, y los publica como warnings
+  sanitizados sin afirmar una restauración automática.
+
+### Validación
+
+- 183 pruebas Rust, 211 pruebas frontend, build Vite, contrato IPC, formato
+  Rust y Clippy estricto aprobados.
+- Documentación, gobernanza y baseline de rendimiento aprobados; evidencia
+  release desktop/móvil/zoom 125%/`forced-colors` en
+  `.local/validation/release-evidence/20260825T023814Z` y puerta visual
+  confirmada en `.local/validation/release-evidence-check/20260825T023954Z`.
+
+## [0.56.0] - 2026-08-24
+
+### Añadido
+
+- La migración de pipelines DataPrep v1–v3 conserva las opciones de entrega
+  compatibles: formatos locales, columnas seleccionadas y privacidad.
+- `xlsx` se normaliza a `excel`; reportes, CSV/ZIP y parámetros SQL sin
+  equivalente generan warnings estructurados en el informe de migración.
+- Preparar muestra el informe con conversiones, omisiones, acciones manuales y
+  SHA-256 del artefacto, y conserva sus metadatos al guardar la receta.
+
+### Validación
+
+- 181 pruebas Rust, 211 pruebas frontend, build Vite, contrato IPC, formato
+  Rust y Clippy estricto aprobados.
+- Documentación, gobernanza y baseline de rendimiento aprobados; evidencia
+  release desktop/móvil/zoom 125%/`forced-colors` en
+  `.local/validation/release-evidence/20260825T022756Z` y puerta visual
+  confirmada en `.local/validation/release-evidence-check/20260825T023005Z`.
+
 ## [0.55.0] - 2026-08-24
 
 ### Añadido

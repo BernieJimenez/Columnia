@@ -10,10 +10,11 @@
   con JSON, SQL, comparación/consolidación por clave, joins multidataset y
   visualizaciones accesibles, resolución por columna/valor, privacidad visible
   en los destinos locales y contratos de calidad v3 con documento canónico
-  Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, y mantiene
-  pendientes pipelines, sesiones y round-trip completo hacia proyectos;
+  Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, conserva
+  opciones de entrega y reconoce metadatos de sesiones con fixtures sintéticas;
+  mantiene pendientes la restauración completa de sesiones y el round-trip hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.55.0`.
+- Versión actual del prototipo: `0.57.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -986,7 +987,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.55.0
+## 8.1. Cola de ejecución recomendada desde v0.57.0
 
 1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
    representable. El selector importa pipelines v1–v3, normaliza operaciones
@@ -1032,8 +1033,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    primera entrega; quedan destinos de base de datos y consultas más amplias.
 8. **Migración M1 desde `dataprepv1.1`:** la vertical de contratos de calidad
    ya produce en v0.55.0 un informe con conteos, advertencias, acciones manuales
-   y hash del artefacto; quedan inventario/fixtures completos, pipelines,
-   sesiones, opciones de entrega y round-trip hacia proyectos Columnia.
+   y hash del artefacto; v0.56.0 conserva las opciones de entrega compatibles de
+   pipelines y reporta sus omisiones; v0.57.0 añade fixtures sintéticas para
+   pipelines, sesiones, calidad y legacy, y reporta metadatos de sesión que no
+   se pueden aplicar automáticamente; quedan restauración de sesiones,
+   mapeo a proyectos y round-trip hacia proyectos Columnia.
 9. **Cierre de distribución:** auditorías de vulnerabilidades, secretos,
    licencias/avisos, smoke de instalador limpio, updater autenticado y validación
    real en macOS/Linux.
@@ -1185,16 +1189,23 @@ del original.
   perfil básico, recetas nativas, proyectos, JSON/SQL, comparación por clave,
   joins y visualizaciones accesibles básicas; no cubre todavía el catálogo
   completo de análisis/limpieza/calidad/entrega ni los artefactos legacy.
-- [ ] Definir un inventario de formatos de migración y fixtures sintéticas para
+- [x] Definir un inventario de formatos de migración y fixtures sintéticas para
   pipelines, sesiones, reglas de calidad y recetas antiguas, sin incluir rutas
-  reales ni celdas de usuario.
+  reales ni celdas de usuario; el contrato vive en `docs/reference/migration-inventory.md`
+  y `fixtures/manifest.json`.
 - [x] Importar el núcleo representable de pipelines JSON DataPrep v1–v3:
   renombres, casts, fechas, filtros, reemplazos literales, columnas conservadas,
   cálculos, split/merge, outliers, grupos, contactos y extracciones; producir
   una receta Columnia v1. Regex, booleanos personalizados y operaciones sin
   equivalente se rechazan explícitamente.
-- [ ] Completar la importación de opciones de exportación y semánticas que aún
-  no tienen equivalente; generar warnings estructurados por operación omitida.
+- [x] Completar la importación de opciones de exportación representables de
+  DataPrep: formatos CSV/JSON/Parquet/SQL/XLSX→Excel, columnas seleccionadas y
+  privacidad; conservarlas en la receta y generar warnings estructurados para
+  reportes, CSV/ZIP y parámetros SQL sin equivalente.
+- [x] Reconocer manifiestos de sesión DataPrep durante la importación de recetas:
+  registrar origen, snapshot, hoja, etapa, operaciones aplicadas, análisis y
+  calidad como omisiones explícitas, sin copiar rutas ni afirmar una restauración
+  de dataset que todavía no existe.
 - [x] Implementar la primera vertical de migración de reglas de calidad: selector
   nativo JSON, conversión de reglas representables, tolerancias por conteo y
   porcentaje, warnings/omitidas para severidad o políticas no equivalentes,
@@ -1327,6 +1338,8 @@ del original.
 | 2026-08-24 | Versión 0.53.0: el selector de recetas importa el núcleo representable de pipelines DataPrep v1–v3 a receta Columnia v1 y rechaza semánticas ambiguas antes de modificar el borrador | Implementada |
 | 2026-08-24 | Versión 0.54.0: optimización de arranque con code-splitting de etapas pesadas, estado inicial local sin esperar `get_app_info`, migración SQLite diferida y monitor de recursos fuera del primer paint | Implementada |
 | 2026-08-24 | Versión 0.55.0: la migración de contratos de calidad genera un informe auditable con conteos, omisiones, advertencias, acciones manuales y SHA-256 del artefacto sin exponer rutas ni valores | Implementada |
+| 2026-08-24 | Versión 0.56.0: los pipelines DataPrep conservan opciones de entrega compatibles, normalizan XLSX a Excel y publican informe con warnings para semánticas de exportación omitidas, sin exponer rutas | Implementada |
+| 2026-08-24 | Versión 0.57.0: inventario y fixtures sintéticas de migración para pipelines, sesiones, calidad y legacy; los metadatos de sesión se reconocen y se omiten con warnings sanitizados | Implementada |
 
 ## 10. Fuentes de esta revisión
 

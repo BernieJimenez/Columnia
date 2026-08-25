@@ -130,6 +130,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .recipe-files button { min-height: 35px; padding: 7px 11px; border: 1px solid #27837d; border-radius: 3px; background: transparent; color: #126d68; font-weight: 800; cursor: pointer; }
 .recipe-files button:disabled { cursor: not-allowed; opacity: .5; }
 .recipe-file-status { grid-column: 1 / -1; margin: 2px 0 0; color: #47625f; font-size: .76rem; }
+.recipe-migration-report { grid-column: 1 / -1; display: grid; gap: 6px; margin-top: 4px; padding: 9px 10px; border-left: 3px solid #d18a24; background: #fff8e9; color: #5d4a2e; font-size: .76rem; }
+.recipe-migration-report p, .recipe-migration-report ul { margin: 0; }
+.recipe-migration-report ul { padding-left: 20px; }
+.recipe-migration-report details { margin-top: 2px; }
+.recipe-migration-report summary { cursor: pointer; font-weight: 750; }
+.recipe-migration-report small { overflow-wrap: anywhere; }
 .transform-recipe__grid { display: grid; gap: 12px; max-height: 45vh; margin-top: 16px; overflow: auto; }
 .transform-recipe fieldset { display: grid; gap: 9px; margin: 0; padding: 12px; border: 1px solid #ced9d5; background: #f8faf8; }
 .transform-recipe legend { padding: 0 6px; color: #31535a; font-size: .8rem; font-weight: 800; }
@@ -459,6 +465,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .transform-recipe { border-color: #426067; background: #1d3b41; }
   .recipe-files { border-color: #426067; background: #17343a; }
   .recipe-files label span, .recipe-file-status { color: #afc2bd; }
+  .recipe-migration-report { border-color: #d7a34c; background: #2f3436; color: #f3dfb5; }
   .recipe-files input { border-color: #527078; background: #214249; color: #edf5f2; }
   .recipe-files button { border-color: #6bb8b0; color: #7bd2c8; }
   .transform-recipe__intro p:last-child, .transform-recipe__footer p { color: #b6c9c7; }

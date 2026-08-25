@@ -6,6 +6,7 @@ import {
   saveTransformRecipe,
   type DatasetPreview,
   type LoadedRecipe,
+  type RecipeMigrationReport,
   type SavedRecipe,
   type TransformRecipe,
 } from "../../bridge";
@@ -76,6 +77,8 @@ export function TransformRecipeEditor({
   const [contacts, setContacts] = useState<ContactDraft[]>(initialRecipe?.contactNormalizations ?? []);
   const [extractions, setExtractions] = useState<ExtractionDraft[]>(initialRecipe?.textExtractions ?? []);
   const [recipeName, setRecipeName] = useState(initialDraft?.name ?? "Mi receta");
+  const [migrationReport, setMigrationReport] = useState<RecipeMigrationReport | null>(initialDraft?.migrationReport ?? null);
+  const [exportOptions, setExportOptions] = useState(initialDraft?.exportOptions ?? null);
   const [recipeFileStatus, setRecipeFileStatus] = useState<RecipeFileStatus>({ kind: "idle" });
   const draftSavedAt = useRef(initialDraft?.savedAt ?? new Date().toISOString());
   const acknowledgedRecipeFingerprint = useRef<string | null>(null);
@@ -197,12 +200,15 @@ export function TransformRecipeEditor({
     if (invalid) return;
     if (lastWorkspaceDraftFingerprint.current === workspaceDraftFingerprint) return;
     lastWorkspaceDraftFingerprint.current = workspaceDraftFingerprint;
-    onDraftChange({
+    const nextDraft: SavedRecipe = {
       version: 1,
       name: recipeName.trim() || "Mi receta",
       savedAt: draftSavedAt.current,
       recipe: buildRecipe(),
-    });
+    };
+    if (migrationReport) nextDraft.migrationReport = migrationReport;
+    if (exportOptions) nextDraft.exportOptions = exportOptions;
+    onDraftChange(nextDraft);
   }, [invalid, workspaceDraftFingerprint, onDraftChange]);
 
   useEffect(() => {
@@ -227,12 +233,17 @@ export function TransformRecipeEditor({
     if (recipeBusy || operationCount === 0 || invalid || !recipeName.trim()) return;
     setRecipeFileStatus({ kind: "working", action: "save" });
     try {
-      const saved = await saveTransformRecipe(buildRecipe(), recipeName.trim());
+      const saved = migrationReport || exportOptions
+        ? await saveTransformRecipe(buildRecipe(), recipeName.trim(), migrationReport, exportOptions)
+        : await saveTransformRecipe(buildRecipe(), recipeName.trim());
       if (saved) {
         acknowledgedRecipeFingerprint.current = draftFingerprint;
         draftSavedAt.current = saved.savedAt;
         lastWorkspaceDraftFingerprint.current = `${saved.name}\u0000${JSON.stringify(saved.recipe)}`;
-        onDraftChange(saved);
+        const persisted: SavedRecipe = { ...saved };
+        if (!persisted.migrationReport && migrationReport) persisted.migrationReport = migrationReport;
+        if (!persisted.exportOptions && exportOptions) persisted.exportOptions = exportOptions;
+        onDraftChange(persisted);
       }
       setRecipeFileStatus(saved
         ? { kind: "success", message: `Receta guardada: ${saved.name}. Los cambios posteriores no se guardan automáticamente.` }
@@ -265,6 +276,8 @@ export function TransformRecipeEditor({
     setExtractions(recipe.textExtractions);
     setPendingConfirmation(null);
     setRecipeName(loaded.name);
+    setMigrationReport(loaded.migrationReport ?? null);
+    setExportOptions(loaded.exportOptions ?? null);
     draftSavedAt.current = loaded.savedAt;
   }
 
@@ -323,6 +336,35 @@ export function TransformRecipeEditor({
         </p>
         {recipeFileStatus.kind === "success" && <p className="recipe-file-status" role="status">{recipeFileStatus.message}</p>}
         {recipeFileStatus.kind === "error" && <p className="recipe-error recipe-file-status" role="alert">No se pudo completar la operación: {recipeFileStatus.message}</p>}
+        {migrationReport && (
+          <div className="recipe-migration-report" role="status" aria-label="Informe de migración de receta">
+            <p>
+              Informe de migración: {migrationReport.convertedItems} elementos convertidos, {migrationReport.omittedItems} omitidos y {migrationReport.warningCount} advertencias.
+            </p>
+            {exportOptions && (
+              <p>
+                Entrega importada: {exportOptions.formats.join(", ")} · {exportOptions.selectedColumns.length > 0 ? `${exportOptions.selectedColumns.length} columnas seleccionadas` : "todas las columnas"} · privacidad {exportOptions.privacyMode}.
+              </p>
+            )}
+            {migrationReport.warnings.length > 0 && (
+              <details>
+                <summary>Ver advertencias de compatibilidad</summary>
+                <ul>
+                  {migrationReport.warnings.map((warning, index) => (
+                    <li key={`${warning.path}-${index}`}><strong>{warning.path}:</strong> {warning.message}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            <details>
+              <summary>Acciones manuales</summary>
+              <ul>
+                {migrationReport.manualActions.map((action) => <li key={action}>{action}</li>)}
+              </ul>
+            </details>
+            {migrationReport.artifactSha256 && <small>SHA-256 del artefacto: {migrationReport.artifactSha256}</small>}
+          </div>
+        )}
       </div>
 
       <div className="transform-recipe__grid">

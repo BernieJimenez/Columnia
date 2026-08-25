@@ -69,7 +69,7 @@ pub struct OperationProgress {
     percent: u8,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ExportFormat {
     Csv,
@@ -104,7 +104,7 @@ impl ExportFormat {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PrivacyMode {
     None,
@@ -865,11 +865,46 @@ pub struct TransformRecipe {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeExportOptions {
+    formats: Vec<ExportFormat>,
+    selected_columns: Vec<String>,
+    privacy_mode: PrivacyMode,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeMigrationWarning {
+    path: String,
+    severity: String,
+    message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeMigrationReport {
+    artifact_sha256: Option<String>,
+    source_format: String,
+    source_version: Option<u64>,
+    converted_items: usize,
+    omitted_items: usize,
+    warning_count: usize,
+    converted_operations: Vec<String>,
+    omitted_operations: Vec<String>,
+    warnings: Vec<RecipeMigrationWarning>,
+    manual_actions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredTransformRecipe {
     pub version: u32,
     pub name: String,
     pub saved_at: String,
     pub recipe: TransformRecipe,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_options: Option<RecipeExportOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration_report: Option<RecipeMigrationReport>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -3948,9 +3983,29 @@ fn build_stored_recipe(
         name,
         saved_at: current_recipe_timestamp(),
         recipe,
+        export_options: None,
+        migration_report: None,
     };
     validate_stored_recipe(&document)?;
     Ok(document)
+}
+
+fn validate_recipe_export_options(options: &RecipeExportOptions) -> Result<(), String> {
+    if options.formats.is_empty() || options.formats.len() > 6 {
+        return Err("Las opciones de entrega deben incluir entre 1 y 6 formatos.".to_owned());
+    }
+    if options.selected_columns.len() > 512 {
+        return Err("La entrega puede seleccionar como máximo 512 columnas.".to_owned());
+    }
+    validate_semantic_text_budget(
+        "opciones de entrega",
+        options
+            .selected_columns
+            .iter()
+            .map(|column| ("columna seleccionada", column.as_str())),
+        MAX_RECIPE_TEXT_FIELD_CHARS,
+        MAX_RECIPE_TOTAL_TEXT_CHARS,
+    )
 }
 
 fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result<(), String> {
@@ -3964,6 +4019,9 @@ fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result<(), String
     DateTime::parse_from_rfc3339(&document.saved_at)
         .map_err(|_| "La receta no incluye una fecha de guardado RFC 3339 válida.".to_owned())?;
     validate_recipe_structure(&document.recipe)?;
+    if let Some(export_options) = &document.export_options {
+        validate_recipe_export_options(export_options)?;
+    }
     let encoded = serde_json::to_vec(document)
         .map_err(|error| format!("No se pudo validar la receta: {error}"))?;
     if encoded.len() as u64 > RECIPE_FILE_LIMIT_BYTES {
@@ -4233,7 +4291,11 @@ fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
         return Ok(document);
     }
 
-    migration_dataprep_recipe(&raw)
+    let mut document = migration_dataprep_recipe(&raw)?;
+    if let Some(report) = &mut document.migration_report {
+        report.artifact_sha256 = Some(format!("{:x}", Sha256::digest(&bytes)));
+    }
+    Ok(document)
 }
 
 fn migration_recipe_transform(
@@ -4378,6 +4440,256 @@ fn migration_summary_operation(value: &str) -> Option<&'static str> {
     }
 }
 
+fn push_migration_operation(operations: &mut Vec<String>, operation: impl Into<String>) {
+    let operation = operation.into();
+    if !operations.contains(&operation) {
+        operations.push(operation);
+    }
+}
+
+fn recipe_migration_warning(
+    path: impl Into<String>,
+    severity: &str,
+    message: impl Into<String>,
+) -> RecipeMigrationWarning {
+    RecipeMigrationWarning {
+        path: path.into(),
+        severity: severity.to_owned(),
+        message: message.into(),
+    }
+}
+
+fn build_recipe_migration_report(
+    source_format: &str,
+    source_version: Option<u64>,
+    mut converted_operations: Vec<String>,
+    mut omitted_operations: Vec<String>,
+    warnings: Vec<RecipeMigrationWarning>,
+) -> RecipeMigrationReport {
+    converted_operations.sort();
+    omitted_operations.sort();
+    let mut manual_actions = vec![
+        "Revisar la receta y sus opciones de entrega antes de aplicarla o exportarla.".to_owned(),
+    ];
+    if !omitted_operations.is_empty() {
+        manual_actions.push(
+            "Revisar las operaciones y opciones omitidas; deben recrearse manualmente si siguen siendo necesarias."
+                .to_owned(),
+        );
+    }
+    if !warnings.is_empty() {
+        manual_actions.push(
+            "Confirmar las advertencias de compatibilidad frente al pipeline original de DataPrep."
+                .to_owned(),
+        );
+    }
+    RecipeMigrationReport {
+        artifact_sha256: None,
+        source_format: source_format.to_owned(),
+        source_version,
+        converted_items: converted_operations.len(),
+        omitted_items: omitted_operations.len(),
+        warning_count: warnings.len(),
+        converted_operations,
+        omitted_operations,
+        warnings,
+        manual_actions,
+    }
+}
+
+fn migration_export_format(value: &str) -> Option<ExportFormat> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "csv" => Some(ExportFormat::Csv),
+        "json" => Some(ExportFormat::Json),
+        "parquet" => Some(ExportFormat::Parquet),
+        "sql" => Some(ExportFormat::Sql),
+        "xlsx" | "excel" => Some(ExportFormat::Excel),
+        "sqlite" => Some(ExportFormat::Sqlite),
+        _ => None,
+    }
+}
+
+fn migration_export_options(
+    root: &JsonMap<String, JsonValue>,
+    converted_operations: &mut Vec<String>,
+    omitted_operations: &mut Vec<String>,
+    warnings: &mut Vec<RecipeMigrationWarning>,
+) -> Result<Option<RecipeExportOptions>, String> {
+    let Some(value) = root
+        .get("export")
+        .or_else(|| root.get("exportOptions"))
+        .or_else(|| root.get("export_options"))
+    else {
+        return Ok(None);
+    };
+    let export = value
+        .as_object()
+        .ok_or_else(|| "La configuración de exportación DataPrep debe ser un objeto.".to_owned())?;
+
+    let mut formats = Vec::new();
+    if let Some(raw_formats) = export.get("formats") {
+        let raw_formats = raw_formats
+            .as_array()
+            .ok_or_else(|| "export.formats de DataPrep debe ser un arreglo.".to_owned())?;
+        for raw_format in raw_formats {
+            let raw_format = raw_format
+                .as_str()
+                .ok_or_else(|| "Cada formato de exportación DataPrep debe ser texto.".to_owned())?;
+            if let Some(format) = migration_export_format(raw_format) {
+                if !formats.contains(&format) {
+                    formats.push(format);
+                }
+            } else {
+                push_migration_operation(omitted_operations, "export.formats");
+                warnings.push(recipe_migration_warning(
+                    "export.formats",
+                    "omitted",
+                    "Se omitió un formato de entrega DataPrep sin equivalente local seguro.",
+                ));
+            }
+        }
+    } else {
+        formats.push(ExportFormat::Csv);
+        push_migration_operation(converted_operations, "export.formats.default");
+    }
+    if formats.is_empty() {
+        formats.push(ExportFormat::Csv);
+    }
+    if export.get("formats").is_some() && !formats.is_empty() {
+        push_migration_operation(converted_operations, "export.formats");
+    }
+
+    let selected_columns = if let Some(raw_columns) = export.get("selected_columns") {
+        let raw_columns = raw_columns
+            .as_array()
+            .ok_or_else(|| "export.selected_columns de DataPrep debe ser un arreglo.".to_owned())?;
+        let mut columns = Vec::with_capacity(raw_columns.len());
+        for raw_column in raw_columns {
+            let column = raw_column.as_str().ok_or_else(|| {
+                "Cada columna seleccionada de exportación debe ser texto.".to_owned()
+            })?;
+            if !column.trim().is_empty() {
+                columns.push(column.to_owned());
+            }
+        }
+        push_migration_operation(converted_operations, "export.selected_columns");
+        columns
+    } else {
+        Vec::new()
+    };
+
+    let privacy_mode = if let Some(raw_privacy) = export.get("privacy_mode") {
+        let raw_privacy = raw_privacy
+            .as_str()
+            .ok_or_else(|| "export.privacy_mode de DataPrep debe ser texto.".to_owned())?;
+        match raw_privacy.trim().to_ascii_lowercase().as_str() {
+            "none" => {
+                push_migration_operation(converted_operations, "export.privacy_mode");
+                PrivacyMode::None
+            }
+            "mask" => {
+                push_migration_operation(converted_operations, "export.privacy_mode");
+                PrivacyMode::Mask
+            }
+            "hash" => {
+                push_migration_operation(converted_operations, "export.privacy_mode");
+                PrivacyMode::Hash
+            }
+            _ => {
+                push_migration_operation(omitted_operations, "export.privacy_mode");
+                warnings.push(recipe_migration_warning(
+                    "export.privacy_mode",
+                    "omitted",
+                    "La política de privacidad DataPrep no se reconoce; se usará revisión manual.",
+                ));
+                PrivacyMode::None
+            }
+        }
+    } else {
+        PrivacyMode::None
+    };
+
+    let unsupported_fields = [
+        (
+            "report_format",
+            "Los reportes de entrega DataPrep requieren una exportación manual.",
+        ),
+        (
+            "csv_separator",
+            "El separador CSV DataPrep no forma parte del contrato de receta local.",
+        ),
+        (
+            "csv_encoding",
+            "La codificación CSV DataPrep no forma parte del contrato de receta local.",
+        ),
+        (
+            "date_format",
+            "El formato de fecha de entrega DataPrep requiere revisión manual.",
+        ),
+        (
+            "package_zip",
+            "El empaquetado ZIP DataPrep no tiene equivalente local.",
+        ),
+        (
+            "sql_table_name",
+            "El nombre de tabla SQL DataPrep requiere configuración en el destino.",
+        ),
+        (
+            "sql_dialect",
+            "El dialecto SQL DataPrep requiere configuración en el destino.",
+        ),
+        (
+            "sql_if_exists",
+            "La política SQL DataPrep requiere configuración en el destino.",
+        ),
+    ];
+    for (field, message) in unsupported_fields {
+        let Some(raw_value) = export.get(field) else {
+            continue;
+        };
+        if field == "package_zip" && raw_value.as_bool() == Some(false) {
+            continue;
+        }
+        if raw_value.is_null() {
+            continue;
+        }
+        let path = format!("export.{field}");
+        push_migration_operation(omitted_operations, &path);
+        warnings.push(recipe_migration_warning(path, "omitted", message));
+    }
+
+    let known_fields = [
+        "formats",
+        "selected_columns",
+        "privacy_mode",
+        "report_format",
+        "csv_separator",
+        "csv_encoding",
+        "date_format",
+        "package_zip",
+        "sql_table_name",
+        "sql_dialect",
+        "sql_if_exists",
+    ];
+    if export
+        .keys()
+        .any(|key| !known_fields.contains(&key.as_str()))
+    {
+        push_migration_operation(omitted_operations, "export.additional");
+        warnings.push(recipe_migration_warning(
+            "export.additional",
+            "omitted",
+            "Se omitieron opciones de entrega DataPrep no reconocidas por el contrato local.",
+        ));
+    }
+
+    Ok(Some(RecipeExportOptions {
+        formats,
+        selected_columns,
+        privacy_mode,
+    }))
+}
+
 fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, String> {
     let root = raw
         .as_object()
@@ -4391,6 +4703,75 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
     }
     let transform = migration_recipe_transform(root)?;
     let mut canonical = JsonMap::new();
+    let mut converted_operations = Vec::new();
+    let mut omitted_operations = Vec::new();
+    let mut warnings = Vec::new();
+
+    if let Some(selected_cleaning_operations) = root.get("selected_cleaning_operations") {
+        let operations = selected_cleaning_operations.as_array().ok_or_else(|| {
+            "selected_cleaning_operations de DataPrep debe ser un arreglo.".to_owned()
+        })?;
+        if !operations.is_empty() {
+            push_migration_operation(&mut omitted_operations, "selected_cleaning_operations");
+            warnings.push(recipe_migration_warning(
+                "selected_cleaning_operations",
+                "omitted",
+                format!(
+                    "Se omitieron {} operaciones de limpieza que deben revisarse en Columnia.",
+                    operations.len()
+                ),
+            ));
+        }
+    }
+    for key in ["analysis", "quality_rules", "quality"] {
+        if root.get(key).is_some_and(|value| !value.is_null()) {
+            push_migration_operation(&mut omitted_operations, key);
+            warnings.push(recipe_migration_warning(
+                key,
+                "omitted",
+                "El artefacto contiene un bloque que requiere una migración separada.",
+            ));
+        }
+    }
+    for key in [
+        "analysis_checks",
+        "source_path",
+        "snapshot_path",
+        "sheet_name",
+        "stage_label",
+    ] {
+        if root.get(key).is_some_and(|value| !value.is_null()) {
+            let path = format!("session.{key}");
+            push_migration_operation(&mut omitted_operations, &path);
+            warnings.push(recipe_migration_warning(
+                &path,
+                "omitted",
+                "El metadato de sesión requiere revisión manual y no se aplica automáticamente a la receta Columnia.",
+            ));
+        }
+    }
+    if let Some(applied_ops) = root.get("applied_ops") {
+        let count = applied_ops
+            .as_array()
+            .ok_or_else(|| "applied_ops de la sesión DataPrep debe ser un arreglo.".to_owned())?
+            .len();
+        if count > 0 {
+            push_migration_operation(&mut omitted_operations, "session.applied_ops");
+            warnings.push(recipe_migration_warning(
+                "session.applied_ops",
+                "omitted",
+                format!(
+                    "Se omitieron {count} operaciones aplicadas de la sesión; deben revisarse contra el dataset importado."
+                ),
+            ));
+        }
+    }
+    let export_options = migration_export_options(
+        root,
+        &mut converted_operations,
+        &mut omitted_operations,
+        &mut warnings,
+    )?;
 
     if let Some(rename_text) =
         migration_text_field(transform, &["rename_text", "renameText"], "rename_text")?
@@ -4783,6 +5164,49 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
 
     let recipe: TransformRecipe = serde_json::from_value(JsonValue::Object(canonical))
         .map_err(|error| format!("La transformación DataPrep convertida no es válida: {error}"))?;
+    let mut canonical_operations = Vec::new();
+    for key in [
+        "renames",
+        "casts",
+        "dateParses",
+        "filters",
+        "calculatedColumn",
+        "findReplace",
+        "keepColumns",
+        "splitColumn",
+        "mergeColumns",
+        "outlierTreatments",
+        "groupSummary",
+        "contactNormalizations",
+        "textExtractions",
+    ] {
+        let field_is_present = match key {
+            "renames" => !recipe.renames.is_empty(),
+            "casts" => !recipe.casts.is_empty(),
+            "dateParses" => !recipe.date_parses.is_empty(),
+            "filters" => !recipe.filters.is_empty(),
+            "calculatedColumn" => recipe.calculated_column.is_some(),
+            "findReplace" => recipe.find_replace.is_some(),
+            "keepColumns" => recipe.keep_columns.is_some(),
+            "splitColumn" => recipe.split_column.is_some(),
+            "mergeColumns" => recipe.merge_columns.is_some(),
+            "outlierTreatments" => !recipe.outlier_treatments.is_empty(),
+            "groupSummary" => recipe.group_summary.is_some(),
+            "contactNormalizations" => !recipe.contact_normalizations.is_empty(),
+            "textExtractions" => !recipe.text_extractions.is_empty(),
+            _ => false,
+        };
+        if field_is_present {
+            canonical_operations.push(key.to_owned());
+        }
+    }
+    converted_operations.extend(canonical_operations);
+    let source_version = root.get("version").and_then(JsonValue::as_u64);
+    let source_format = if source_version.is_some() {
+        "dataprep"
+    } else {
+        "legacy"
+    };
     let name = migration_string_field(root, &["name"])
         .unwrap_or_else(|| "Receta DataPrep importada".to_owned());
     let saved_at = migration_string_field(root, &["savedAt", "saved_at"])
@@ -4792,6 +5216,14 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
         name,
         saved_at,
         recipe,
+        export_options,
+        migration_report: Some(build_recipe_migration_report(
+            source_format,
+            source_version,
+            converted_operations,
+            omitted_operations,
+            warnings,
+        )),
     };
     validate_stored_recipe(&document)?;
     Ok(document)
@@ -9930,8 +10362,13 @@ pub async fn save_transform_recipe(
     app: AppHandle,
     recipe: TransformRecipe,
     name: String,
+    migration_report: Option<RecipeMigrationReport>,
+    export_options: Option<RecipeExportOptions>,
 ) -> Result<Option<StoredTransformRecipe>, String> {
-    let document = build_stored_recipe(recipe, name)?;
+    let mut document = build_stored_recipe(recipe, name)?;
+    document.migration_report = migration_report;
+    document.export_options = export_options;
+    validate_stored_recipe(&document)?;
     let suggested_name = recipe_suggested_file_name(&document.name);
     let selection = app
         .dialog()
@@ -13401,6 +13838,7 @@ mod tests {
             "version": 3,
             "name": "Pipeline DataPrep",
             "saved_at": "2026-08-24T00:00:00Z",
+            "selected_cleaning_operations": ["normalize_text", "mask_pii"],
             "transform": {
                 "rename_text": "old_name -> new_name",
                 "dtype_col": "age",
@@ -13409,6 +13847,15 @@ mod tests {
                 "filters": [{"col": "age", "op": ">=", "val": 18}],
                 "find_replace": {"col": "new_name", "find": "old", "replace": "new"},
                 "keep_columns": ["new_name", "age", "created_at"]
+            },
+            "export": {
+                "formats": ["csv", "xlsx", "database"],
+                "selected_columns": ["new_name", "age"],
+                "privacy_mode": "mask",
+                "report_format": "html",
+                "csv_separator": ";",
+                "package_zip": true,
+                "sql_dialect": "postgresql"
             }
         });
         fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
@@ -13425,9 +13872,69 @@ mod tests {
         assert_eq!(json["recipe"]["filters"][0]["operator"], "gte");
         assert_eq!(json["recipe"]["findReplace"]["scope"], "column");
         assert_eq!(json["recipe"]["keepColumns"][2], "created_at");
+        assert_eq!(json["exportOptions"]["formats"][0], "csv");
+        assert_eq!(json["exportOptions"]["formats"][1], "excel");
+        assert_eq!(json["exportOptions"]["selectedColumns"][1], "age");
+        assert_eq!(json["exportOptions"]["privacyMode"], "mask");
+        assert_eq!(json["migrationReport"]["sourceFormat"], "dataprep");
+        assert_eq!(json["migrationReport"]["sourceVersion"], 3);
+        assert!(json["migrationReport"]["convertedItems"].as_u64().unwrap() > 0);
+        assert!(json["migrationReport"]["omittedOperations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "export.report_format"));
+        assert_eq!(
+            json["migrationReport"]["artifactSha256"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
         assert!(!json
             .to_string()
             .contains(&directory.path().display().to_string()));
+    }
+
+    #[test]
+    fn imports_synthetic_session_fixture_without_restoring_session_paths() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio")
+            .join("fixtures/migration/dataprep-session-v1.json");
+        let loaded = load_recipe_file(&fixture)
+            .expect("la fixture de sesión DataPrep debe reducirse a receta revisable");
+        let json = serde_json::to_value(&loaded).expect("la sesión convertida debe serializarse");
+        let omitted = json["migrationReport"]["omittedOperations"]
+            .as_array()
+            .expect("el informe debe listar omisiones");
+
+        assert!(omitted.iter().any(|value| value == "session.source_path"));
+        assert!(omitted.iter().any(|value| value == "session.snapshot_path"));
+        assert!(omitted.iter().any(|value| value == "session.applied_ops"));
+        assert!(omitted.iter().any(|value| value == "quality_rules"));
+        assert!(omitted
+            .iter()
+            .any(|value| value == "session.analysis_checks"));
+        assert!(!json.to_string().contains("fixture://"));
+        assert!(!json.to_string().contains("ventas-sinteticas.csv"));
+        assert_eq!(json["recipe"]["renames"][0]["to"], "new_name");
+    }
+
+    #[test]
+    fn imports_synthetic_legacy_fixture_as_columnia_recipe() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio")
+            .join("fixtures/migration/legacy-recipe-v1.json");
+        let loaded = load_recipe_file(&fixture).expect("la fixture legacy debe ser compatible");
+        assert_eq!(loaded.name, "Receta legacy sintética");
+        assert_eq!(loaded.recipe.renames[0].from, "old_name");
+        assert_eq!(loaded.recipe.casts[0].target, RecipeCastTarget::Integer);
+        assert_eq!(
+            loaded.migration_report.as_ref().unwrap().source_format,
+            "legacy"
+        );
     }
 
     #[test]

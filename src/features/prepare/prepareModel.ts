@@ -1,4 +1,10 @@
-import type { HistoryState, LoadedRecipe, TransformRecipe } from "../../bridge";
+import type {
+  HistoryState,
+  LoadedRecipe,
+  RecipeExportOptions,
+  RecipeMigrationReport,
+  TransformRecipe,
+} from "../../bridge";
 
 export type ChangeStatus =
   | { kind: "idle" }
@@ -28,6 +34,31 @@ export const EMPTY_HISTORY: HistoryState = {
   diskBudgetBytes: 0,
 };
 
+function isRecipeExportOptions(value: unknown): value is RecipeExportOptions {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RecipeExportOptions>;
+  return Array.isArray(candidate.formats) && candidate.formats.every((format) =>
+    ["csv", "json", "parquet", "sql", "excel", "sqlite"].includes(format),
+  ) && Array.isArray(candidate.selectedColumns) && candidate.selectedColumns.every((column) => typeof column === "string") &&
+    ["none", "mask", "hash"].includes(candidate.privacyMode ?? "");
+}
+
+function isRecipeMigrationReport(value: unknown): value is RecipeMigrationReport {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RecipeMigrationReport>;
+  return (typeof candidate.artifactSha256 === "string" || candidate.artifactSha256 === null) &&
+    ["dataprep", "legacy"].includes(candidate.sourceFormat ?? "") &&
+    (typeof candidate.sourceVersion === "number" || candidate.sourceVersion === null) &&
+    typeof candidate.convertedItems === "number" && typeof candidate.omittedItems === "number" &&
+    typeof candidate.warningCount === "number" && Array.isArray(candidate.convertedOperations) &&
+    candidate.convertedOperations.every((operation) => typeof operation === "string") &&
+    Array.isArray(candidate.omittedOperations) && candidate.omittedOperations.every((operation) => typeof operation === "string") &&
+    Array.isArray(candidate.warnings) && candidate.warnings.every((warning) =>
+      !!warning && typeof warning === "object" && typeof warning.path === "string" &&
+      ["warning", "omitted"].includes(warning.severity) && typeof warning.message === "string",
+    ) && Array.isArray(candidate.manualActions) && candidate.manualActions.every((action) => typeof action === "string");
+}
+
 export function isLoadedRecipe(value: unknown): value is LoadedRecipe {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LoadedRecipe>;
@@ -39,7 +70,9 @@ export function isLoadedRecipe(value: unknown): value is LoadedRecipe {
     Array.isArray(recipe.outlierTreatments) && Array.isArray(recipe.contactNormalizations) &&
     Array.isArray(recipe.textExtractions) && "calculatedColumn" in recipe &&
     "findReplace" in recipe && "keepColumns" in recipe && "splitColumn" in recipe &&
-    "mergeColumns" in recipe && "groupSummary" in recipe;
+    "mergeColumns" in recipe && "groupSummary" in recipe &&
+    (!candidate.exportOptions || isRecipeExportOptions(candidate.exportOptions)) &&
+    (!candidate.migrationReport || isRecipeMigrationReport(candidate.migrationReport));
 }
 
 export function requiresImpactConfirmation(recipe: TransformRecipe): boolean {

@@ -7,9 +7,10 @@ o valores del dataset.
 ## Artefactos reconocidos
 
 Columnia acepta recetas nativas con la forma `StoredTransformRecipe` y también
-los documentos DataPrep v1–v3 que contienen `transform` o `transform_config`.
-La importación ocurre al seleccionar un archivo JSON desde Preparar; el
-resultado siempre se normaliza a una receta Columnia v1 antes de mostrarla.
+los documentos DataPrep v1–v3 que contienen `transform` o `transform_config`,
+además de manifiestos de sesión que incluyan una de esas transformaciones. La
+importación ocurre al seleccionar un archivo JSON desde Preparar; el resultado
+siempre se normaliza a una receta Columnia v1 antes de mostrarla.
 
 | Semántica DataPrep | Receta Columnia | Estado |
 | --- | --- | --- |
@@ -53,9 +54,46 @@ indica que deben revisarse y recrearse manualmente; las tolerancias ajustadas o
 asumidas también quedan señaladas. La UI muestra el resumen, el hash y las
 acciones sin publicar rutas administradas, filas ni celdas.
 
+## Opciones de entrega de pipelines
+
+Los pipelines DataPrep v1–v3 conservan un bloque `export`. Columnia migra al
+artefacto de receta las opciones que ya tienen representación local segura:
+
+- `csv`, `json`, `parquet`, `sql` y `xlsx` (`xlsx` se normaliza a `excel`);
+- columnas seleccionadas, cuando vienen como nombres de columna válidos;
+- políticas de privacidad `none`, `mask` y `hash`.
+
+La receta incluye `exportOptions` y un `migrationReport` con las operaciones
+convertidas, omitidas, advertencias, acciones manuales y SHA-256 del archivo
+original. Reportes `md`/`html`, separador o codificación CSV, formato de fecha,
+ZIP y parámetros específicos de tabla/dialecto SQL no se aplican
+automáticamente porque todavía no tienen un equivalente completo en el
+selector de Entregar; quedan señalados para revisión antes de exportar.
+
+También se informa cuando el pipeline trae operaciones de limpieza,
+análisis o calidad incrustadas: esas superficies se migran por contratos
+separados y no se descartan silenciosamente.
+
+## Fixtures y formatos auditados
+
+El inventario mínimo se prueba con fixtures sintéticas versionadas en
+`fixtures/migration/` y declaradas en `fixtures/manifest.json`:
+
+| Fixture | Artefacto | Cobertura |
+| --- | --- | --- |
+| `dataprep-pipeline-v3.json` | Pipeline DataPrep v3 | Transformación y entrega compatibles |
+| `dataprep-session-v1.json` | Manifiesto de sesión | Origen, snapshot, hoja, etapa, operaciones, calidad y análisis como warnings |
+| `dataprep-quality-v3.json` | Reglas DataPrep v3 | Forma de contrato de calidad sin datos de usuario |
+| `legacy-recipe-v1.json` | Receta antigua | Campos legacy sin versión explícita |
+
+Los manifiestos de sesión no restauran todavía un dataset ni escriben un
+proyecto: sus rutas, snapshots y metadatos de etapa se convierten en omisiones
+sanitizadas para revisión manual. Esto evita confundir una receta parcial con
+una sesión reanudable.
+
 ## Límites pendientes
 
-La importación de sesiones, reglas de calidad incrustadas, opciones de entrega,
-artefactos de análisis y round-trip hacia proyectos requiere un contrato
-separado. No se simula esa paridad durante la importación de una receta: esos
-campos quedan para la siguiente entrega M1.
+La restauración completa de sesiones, reglas de calidad incrustadas, artefactos
+de análisis y round-trip hacia proyectos requiere contratos separados. La
+primera slice de sesión ya reconoce esos campos y los informa; todavía no los
+activa ni crea snapshots automáticamente.

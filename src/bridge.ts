@@ -332,9 +332,36 @@ export interface SavedRecipe {
   name: string;
   savedAt: string;
   recipe: TransformRecipe;
+  exportOptions?: RecipeExportOptions;
+  migrationReport?: RecipeMigrationReport;
 }
 
 export type LoadedRecipe = SavedRecipe;
+
+export interface RecipeExportOptions {
+  formats: ExportFormat[];
+  selectedColumns: string[];
+  privacyMode: PrivacyMode;
+}
+
+export interface RecipeMigrationWarning {
+  path: string;
+  severity: "warning" | "omitted";
+  message: string;
+}
+
+export interface RecipeMigrationReport {
+  artifactSha256: string | null;
+  sourceFormat: "dataprep" | "legacy";
+  sourceVersion: number | null;
+  convertedItems: number;
+  omittedItems: number;
+  warningCount: number;
+  convertedOperations: string[];
+  omittedOperations: string[];
+  warnings: RecipeMigrationWarning[];
+  manualActions: string[];
+}
 
 export interface TransformRecipeResult {
   dataset: DatasetPreview;
@@ -694,8 +721,15 @@ export function applyTransformRecipe(recipe: TransformRecipe): Promise<Transform
 export function saveTransformRecipe(
   recipe: TransformRecipe,
   name: string,
+  migrationReport: RecipeMigrationReport | null = null,
+  exportOptions: RecipeExportOptions | null = null,
 ): Promise<SavedRecipe | null> {
-  return invoke<SavedRecipe | null>("save_transform_recipe", { recipe, name });
+  return invoke<SavedRecipe | null>("save_transform_recipe", {
+    recipe,
+    name,
+    migrationReport,
+    exportOptions,
+  });
 }
 
 export function pickTransformRecipe(): Promise<LoadedRecipe | null> {

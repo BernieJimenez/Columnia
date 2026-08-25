@@ -25,6 +25,10 @@
     "automation/quality-pass-v1.json",
     "automation/recipe-incompatible-v1.json",
     "automation/recipe-v1.json",
+    "migration/dataprep-pipeline-v3.json",
+    "migration/dataprep-quality-v3.json",
+    "migration/dataprep-session-v1.json",
+    "migration/legacy-recipe-v1.json",
     "performance/i1-benchmark-baseline-v1.json",
     "performance/performance-baseline-v1.json"
   ]
