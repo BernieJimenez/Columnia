@@ -370,8 +370,10 @@ el lateral de la aplicación, y `perf:i1` compara la inspección de 100 MiB con
 500 MiB a los datasets. La capacidad efectiva queda determinada por la RAM, el
 espacio en disco y los demás recursos disponibles; la materialización y las
 operaciones eager todavía pueden requerir varias veces el tamaño del archivo.
-El conteo de duplicados normalizados usa bloques paralelos y huellas compactas
-XXH3-128 para aprovechar los hilos de CPU disponibles; el runtime Tauri no usa GPU.
+El conteo de duplicados normalizados usa bloques paralelos, un vector compacto de
+huellas XXH3-128 ordenado con Rayon y cancelación cooperativa entre fases para
+aprovechar los hilos de CPU sin la sobrecarga de un `HashMap` por fila; el runtime
+Tauri no usa GPU.
 
 **Avance 2026-08-12:** `npm run build`, veinticuatro pruebas Vitest y dieciocho pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
@@ -1277,6 +1279,8 @@ del original.
 
 | Fecha | Decisión | Estado |
 | --- | --- | --- |
+| 2026-08-26 | Contar duplicados exactos con `unique` lazy en motor streaming y proyectar solo el total, con fallback eager exacto si el backend no soporta el plan | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame` activo y el perfil incremental completo siguen en cola |
+| 2026-08-26 | Reutilizar una única conversión `Float64` durante el perfil numérico para compartirla entre histograma y atípicos y reducir picos de memoria | Implementada en `src-tauri/src/dataset.rs` |
 | 2026-08-26 | Paralelizar la construcción de firmas para comparación y claves con reducciones Rayon, ordenando los índices por clave al final para conservar resultados deterministas | Implementada en `src-tauri/src/dataset.rs`; joins/comparación incremental de datasets que exceden memoria sigue en cola |
 | 2026-08-26 | Publicar histogramas numéricos como dato derivado del perfil, con límites estables y tabla equivalente accesible; los análisis exploratorios amplios permanecen como siguiente expansión | Implementada como primera slice de visualización |
 | 2026-08-26 | Mostrar antes de ejecutar una receta su impacto estimado, riesgo, confianza y alternativas de recuperación; las estimaciones basadas en la muestra se etiquetan explícitamente | Implementada como primera slice del asesor de transformaciones |

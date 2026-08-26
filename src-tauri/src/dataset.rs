@@ -2348,33 +2348,18 @@ fn stable_histogram_boundary(value: f64) -> f64 {
     format!("{value:.15e}").parse().unwrap_or(value)
 }
 
-fn numeric_histogram(
-    source: &Column,
-    minimum: f64,
-    maximum: f64,
-) -> Result<Vec<HistogramBucket>, String> {
-    let floating_source = if source.dtype() == &DataType::Float64 {
-        source.clone()
-    } else {
-        source
-            .cast(&DataType::Float64)
-            .map_err(|error| format!("No se pudo preparar el histograma numérico: {error}"))?
-    };
-    let values = floating_source
-        .f64()
-        .map_err(|error| format!("No se pudo leer el histograma numérico: {error}"))?;
-
+fn numeric_histogram(values: &Float64Chunked, minimum: f64, maximum: f64) -> Vec<HistogramBucket> {
     if minimum == maximum {
         let count = values
             .iter()
             .flatten()
             .filter(|value| value.is_finite())
             .count();
-        return Ok(vec![HistogramBucket {
+        return vec![HistogramBucket {
             lower: minimum,
             upper: maximum,
             count,
-        }]);
+        }];
     }
 
     // Normalize before calculating positions so ranges such as -1e308..1e308 do not
@@ -2392,7 +2377,7 @@ fn numeric_histogram(
         counts[index] += 1;
     }
 
-    Ok(counts
+    counts
         .into_iter()
         .enumerate()
         .map(|(index, count)| {
@@ -2416,7 +2401,7 @@ fn numeric_histogram(
                 count,
             }
         })
-        .collect())
+        .collect()
 }
 
 fn numeric_statistics(
@@ -2509,8 +2494,22 @@ fn numeric_statistics(
     let first_quartile = quartiles[0];
     let median = quartiles[1];
     let third_quartile = quartiles[2];
+    // Reuse one Float64 view for the histogram and outlier pass. Integer
+    // columns used to be cast twice, which increased peak memory on wide files.
+    let floating_source = if source.dtype() == &DataType::Float64 {
+        source.clone()
+    } else {
+        source
+            .cast(&DataType::Float64)
+            .map_err(|error| format!("No se pudo preparar las estadísticas numéricas: {error}"))?
+    };
+    let floating_values = floating_source
+        .f64()
+        .map_err(|error| format!("No se pudieron leer las estadísticas numéricas: {error}"))?;
     let histogram = match (minimum, maximum) {
-        (Some(minimum), Some(maximum)) => Some(numeric_histogram(&source, minimum, maximum)?),
+        (Some(minimum), Some(maximum)) => {
+            Some(numeric_histogram(floating_values, minimum, maximum))
+        }
         _ => None,
     };
     let outlier_count = if value_count < 4 {
@@ -2521,16 +2520,7 @@ fn numeric_statistics(
         let interquartile_range = q3 - q1;
         let lower_bound = q1 - 1.5 * interquartile_range;
         let upper_bound = q3 + 1.5 * interquartile_range;
-        let floating_source = if source.dtype() == &DataType::Float64 {
-            source.clone()
-        } else {
-            source
-                .cast(&DataType::Float64)
-                .map_err(|error| format!("No se pudo preparar el conteo de atípicos: {error}"))?
-        };
-        floating_source
-            .f64()
-            .map_err(|error| format!("No se pudo leer el conteo de atípicos: {error}"))?
+        floating_values
             .iter()
             .flatten()
             .filter(|value| *value < lower_bound || *value > upper_bound)
@@ -2863,6 +2853,49 @@ where
     })
 }
 
+fn count_distinct_rows(frame: &DataFrame) -> Result<usize, String> {
+    let streaming_result = frame
+        .clone()
+        .lazy()
+        .unique(None, UniqueKeepStrategy::First)
+        .select([len().alias("__distinct_rows")])
+        .collect_with_engine(Engine::Streaming);
+
+    match streaming_result {
+        Ok(result) => {
+            let result = result.unwrap_single();
+            let value = result
+                .column("__distinct_rows")
+                .map_err(|error| format!("No se pudo leer el conteo de filas distintas: {error}"))?
+                .get(0)
+                .map_err(|error| format!("No se pudo leer el conteo de filas distintas: {error}"))?;
+            match value {
+                AnyValue::UInt8(value) => Ok(value.into()),
+                AnyValue::UInt16(value) => Ok(value.into()),
+                AnyValue::UInt32(value) => Ok(value as usize),
+                AnyValue::UInt64(value) => usize::try_from(value).map_err(|_| {
+                    "El conteo de filas distintas excede la capacidad local.".to_owned()
+                }),
+                AnyValue::UInt128(value) => usize::try_from(value).map_err(|_| {
+                    "El conteo de filas distintas excede la capacidad local.".to_owned()
+                }),
+                _ => Err(
+                    "El motor devolvió un tipo inesperado para el conteo de filas distintas."
+                        .to_owned(),
+                ),
+            }
+        }
+        Err(streaming_error) => frame
+            .unique::<Vec<String>, String>(None, UniqueKeepStrategy::First, None)
+            .map(|distinct| distinct.height())
+            .map_err(|fallback_error| {
+                format!(
+                    "No se pudieron detectar las filas duplicadas: {fallback_error} (streaming: {streaming_error})"
+                )
+            }),
+    }
+}
+
 fn profile_dataset_with_progress<F, C>(
     frame: &DataFrame,
     mut report: F,
@@ -2875,10 +2908,7 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let row_count = frame.height();
     report("Detectando filas duplicadas", 10);
-    let distinct_row_count = frame
-        .unique::<Vec<String>, String>(None, UniqueKeepStrategy::First, None)
-        .map_err(|error| format!("No se pudieron detectar las filas duplicadas: {error}"))?
-        .height();
+    let distinct_row_count = count_distinct_rows(frame)?;
     let duplicate_row_count = row_count.saturating_sub(distinct_row_count);
     let duplicate_percentage = if row_count == 0 {
         0.0
@@ -3045,8 +3075,9 @@ where
 
     let columns = frame.columns();
     let chunk_count = frame.height().div_ceil(NORMALIZED_DUPLICATE_CHUNK_ROWS);
-    let mut normalized_counts: HashMap<NormalizedRowFingerprint, usize> =
-        HashMap::with_capacity(frame.height());
+    // A sorted vector keeps one compact 128-bit fingerprint per row. The old
+    // HashMap added a large control/count overhead for mostly-unique datasets.
+    let mut normalized_fingerprints = Vec::with_capacity(frame.height());
     let (progress_sender, progress_receiver) = mpsc::sync_channel(2);
     let producer_result = std::thread::scope(|scope| {
         let producer = scope.spawn(move || {
@@ -3059,26 +3090,23 @@ where
 
                     let start = chunk_index * NORMALIZED_DUPLICATE_CHUNK_ROWS;
                     let end = (start + NORMALIZED_DUPLICATE_CHUNK_ROWS).min(frame.height());
-                    let mut counts: HashMap<NormalizedRowFingerprint, usize> =
-                        HashMap::with_capacity(end - start);
+                    let mut fingerprints = Vec::with_capacity(end - start);
                     for row_index in start..end {
                         if row_index % 4096 == 0 && is_cancelled() {
                             return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
                         }
                         let key = normalized_row_fingerprint(columns, row_index)?;
-                        *counts.entry(key).or_insert(0) += 1;
+                        fingerprints.push(key);
                     }
                     progress_sender
-                        .send((chunk_index, counts))
+                        .send((chunk_index, fingerprints))
                         .map_err(|_| OPERATION_CANCELLED_MESSAGE.to_owned())
                 })
         });
 
         let mut completed_chunks = 0_usize;
-        while let Ok((_, partial)) = progress_receiver.recv() {
-            for (key, count) in partial {
-                *normalized_counts.entry(key).or_insert(0) += count;
-            }
+        while let Ok((_, mut partial)) = progress_receiver.recv() {
+            normalized_fingerprints.append(&mut partial);
             completed_chunks += 1;
             let percent = 15 + ((completed_chunks.saturating_mul(25) / chunk_count).min(25)) as u8;
             report("Normalizando filas parecidas", percent);
@@ -3090,10 +3118,14 @@ where
     });
     producer_result?;
 
-    let normalized_duplicate_row_count = normalized_counts
-        .values()
-        .map(|count| (*count).saturating_sub(1))
-        .sum::<usize>();
+    ensure_not_cancelled(is_cancelled())?;
+    report("Ordenando filas parecidas", 40);
+    normalized_fingerprints.par_sort_unstable();
+    ensure_not_cancelled(is_cancelled())?;
+    let normalized_duplicate_row_count = normalized_fingerprints
+        .windows(2)
+        .filter(|pair| pair[0] == pair[1])
+        .count();
     Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
 }
 
