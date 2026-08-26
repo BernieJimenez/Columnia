@@ -4,6 +4,7 @@ use tauri::Manager;
 
 pub mod automation;
 mod dataset;
+pub mod privacy;
 mod projects;
 mod resource;
 

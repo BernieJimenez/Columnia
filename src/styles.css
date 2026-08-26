@@ -428,6 +428,18 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .quality-boxplot__whisker { position: absolute; top: 8px; right: 0; left: 0; height: 2px; background: #9cb9b2; }
 .quality-boxplot__box { position: absolute; top: 2px; height: 14px; min-width: 3px; border: 1px solid #126d68; background: #79c4b6; }
 .quality-boxplot__median { position: absolute; top: -1px; bottom: -1px; width: 2px; background: #153f45; }
+.quality-histograms { display: grid; gap: 18px; margin-top: 14px; }
+.quality-histogram { min-width: 0; padding-top: 14px; border-top: 1px solid #ced9d5; }
+.quality-histogram:first-child { padding-top: 0; border-top: 0; }
+.quality-histogram h6 { margin: 0; color: #31535a; font-size: .8rem; }
+.quality-histogram__bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: end; gap: 4px; height: 120px; margin-top: 12px; padding: 0 4px; border-bottom: 1px solid #b8c9c4; }
+.quality-histogram__bar { display: flex; align-items: flex-end; min-width: 0; height: 0; min-height: 2px; }
+.quality-histogram__bar span { display: block; width: 100%; height: 100%; min-height: 2px; background: #16847d; }
+.quality-histogram__axis { display: flex; justify-content: space-between; gap: 12px; margin-top: 5px; color: #627770; font-size: .7rem; }
+.quality-histogram__table { max-height: 220px; margin-top: 10px; overflow: auto; border: 1px solid #b8c9c4; background: #fff; }
+.quality-histogram__table table { width: 100%; margin: 0; }
+.quality-histogram__table th,
+.quality-histogram__table td { padding: 7px 9px; }
 .quality-chart__range { display: block; margin-top: 4px; color: #627770; font-size: .7rem; }
 .inline-action { min-height: 44px; margin-top: 10px; padding: 7px 10px; border: 1px solid #126d68; border-radius: 4px; background: transparent; color: #126d68; font-size: .78rem; font-weight: 750; cursor: pointer; }
 .inline-action:disabled { cursor: not-allowed; opacity: .42; }
@@ -710,13 +722,18 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .quality-visuals { border-color: #426067; background: #1d3b41; }
   .quality-visuals__heading p:last-child, .quality-chart__note { color: #b6c9c7; }
   .quality-chart { border-color: #426067; background: #17343a; }
-  .quality-chart h5, .quality-chart__label { color: #c6d8d4; }
+  .quality-chart h5, .quality-chart__label, .quality-histogram h6 { color: #c6d8d4; }
   .quality-chart__label strong { color: #7bd2c8; }
   .quality-chart__track { border-color: #527078; background: #214249; }
   .quality-chart__track span { background: #6bb8b0; }
   .quality-boxplot__whisker { background: #6b8d91; }
   .quality-boxplot__box { border-color: #7bd2c8; background: #347d78; }
   .quality-boxplot__median { background: #eff9f6; }
+  .quality-histogram { border-color: #426067; }
+  .quality-histogram__bars { border-color: #527078; }
+  .quality-histogram__bar span { background: #6bb8b0; }
+  .quality-histogram__axis { color: #afc2bd; }
+  .quality-histogram__table { border-color: #426067; background: #17343a; }
   .quality-chart__range { color: #afc2bd; }
   .inline-action { border-color: #7bd2c8; color: #7bd2c8; }
   .change-feedback { background: #21463f; color: #c6e8df; }
@@ -1586,4 +1603,9 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
   .join-options label:has(input:checked) { border-color: Highlight; background: HighlightText; }
   .quality-chart__track { border-color: ButtonText; background: Canvas; }
   .quality-chart__track span { background: Highlight; }
+  .quality-histogram { border-color: ButtonText; }
+  .quality-histogram__bars { border-color: ButtonText; }
+  .quality-histogram__bar span { background: Highlight; }
+  .quality-histogram__axis { color: CanvasText; }
+  .quality-histogram__table { border-color: ButtonText; background: Canvas; }
 }

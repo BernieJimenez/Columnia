@@ -1120,6 +1120,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   centinelas, imputación conservadora, booleanos y auditoría `_cambios`.
 - [x] Añadir una visualización accesible de distribución numérica tipo boxplot
   usando mínimo, cuartiles, mediana y máximo, con tabla exacta equivalente.
+- [x] Añadir una primera visualización de histogramas numéricos por intervalos,
+  con límites estables al persistir perfiles y tabla de frecuencias equivalente
+  para teclado y lector de pantalla.
 - [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
   distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
@@ -1157,8 +1160,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   calidad: formato canónico Columnia v1, guardado atómico, selector nativo,
   compatibilidad con DataPrep v1–v3 y legado v1/sin versión, rechazo seguro de
   formatos/campos/versiones futuras y contrato IPC sin rutas.
-- [ ] Migrar el optimizador de transformaciones: recomendaciones no destructivas,
-  preview antes/después, calidad, riesgo/confianza y alternativas de recuperación.
+- [x] Migrar la primera slice del optimizador de transformaciones: recomendaciones
+  no destructivas, preview antes/después, riesgo/confianza y alternativas de
+  recuperación visibles antes de aplicar una receta. Quedan automatización de
+  calidad y optimización global del plan para una siguiente iteración.
 - [x] Añadir consulta SQL local restringida de solo lectura sobre `dataset`, con
   proyección, `LIMIT`/`OFFSET`, presupuesto de caracteres, resultado paginado y
   tabla accesible; no permite escritura ni rutas desde React.
@@ -1175,6 +1180,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   seis destinos locales actuales (CSV, JSON, Parquet, SQL, Excel y SQLite),
   incluidos identificadores numéricos, devolviendo al usuario las columnas
   protegidas sin exponer sus valores.
+- [x] Añadir una frontera común de sanitización para los JSON de la CLI que
+  contienen reportes, recetas o manifiestos: redacta rutas y referencias de
+  filesystem incrustadas y conserva únicamente identificadores visibles y
+  conteos agregados.
 - [ ] Extender privacidad a recetas, reports, manifests y futuros conectores
   remotos sin filtrar metadatos sensibles.
 - [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
@@ -1268,6 +1277,10 @@ del original.
 
 | Fecha | Decisión | Estado |
 | --- | --- | --- |
+| 2026-08-26 | Paralelizar la construcción de firmas para comparación y claves con reducciones Rayon, ordenando los índices por clave al final para conservar resultados deterministas | Implementada en `src-tauri/src/dataset.rs`; joins/comparación incremental de datasets que exceden memoria sigue en cola |
+| 2026-08-26 | Publicar histogramas numéricos como dato derivado del perfil, con límites estables y tabla equivalente accesible; los análisis exploratorios amplios permanecen como siguiente expansión | Implementada como primera slice de visualización |
+| 2026-08-26 | Mostrar antes de ejecutar una receta su impacto estimado, riesgo, confianza y alternativas de recuperación; las estimaciones basadas en la muestra se etiquetan explícitamente | Implementada como primera slice del asesor de transformaciones |
+| 2026-08-26 | Sanitizar en una frontera común los JSON públicos de la CLI para eliminar rutas y referencias privadas en reportes, recetas y manifiestos, conservando nombres visibles y conteos | Implementada; futuros conectores remotos y artefactos adicionales requieren ampliar el contrato |
 | 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
 | 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |

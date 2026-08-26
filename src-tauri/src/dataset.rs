@@ -65,6 +65,7 @@ const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
+const NUMERIC_HISTOGRAM_BUCKETS: usize = 12;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -483,6 +484,14 @@ pub struct DatasetPage {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistogramBucket {
+    lower: f64,
+    upper: f64,
+    count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ColumnProfile {
     name: String,
     data_type: String,
@@ -508,6 +517,8 @@ pub struct ColumnProfile {
     median: Option<f64>,
     third_quartile: Option<f64>,
     outlier_count: Option<usize>,
+    #[serde(default)]
+    histogram: Option<Vec<HistogramBucket>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -2299,6 +2310,7 @@ struct NumericStatistics {
     median: Option<f64>,
     third_quartile: Option<f64>,
     outlier_count: usize,
+    histogram: Option<Vec<HistogramBucket>>,
 }
 
 fn has_identifier_leading_zero(value: &str) -> bool {
@@ -2325,6 +2337,86 @@ fn semantic_numeric_value(value: &str) -> Option<f64> {
         .parse::<f64>()
         .ok()
         .filter(|number| number.is_finite())
+}
+
+fn stable_histogram_boundary(value: f64) -> f64 {
+    if value == 0.0 || !value.is_finite() {
+        return value;
+    }
+    // Reparse a fixed-precision scientific representation so the value is
+    // identical before and after serde_json serialization.
+    format!("{value:.15e}").parse().unwrap_or(value)
+}
+
+fn numeric_histogram(
+    source: &Column,
+    minimum: f64,
+    maximum: f64,
+) -> Result<Vec<HistogramBucket>, String> {
+    let floating_source = if source.dtype() == &DataType::Float64 {
+        source.clone()
+    } else {
+        source
+            .cast(&DataType::Float64)
+            .map_err(|error| format!("No se pudo preparar el histograma numérico: {error}"))?
+    };
+    let values = floating_source
+        .f64()
+        .map_err(|error| format!("No se pudo leer el histograma numérico: {error}"))?;
+
+    if minimum == maximum {
+        let count = values
+            .iter()
+            .flatten()
+            .filter(|value| value.is_finite())
+            .count();
+        return Ok(vec![HistogramBucket {
+            lower: minimum,
+            upper: maximum,
+            count,
+        }]);
+    }
+
+    // Normalize before calculating positions so ranges such as -1e308..1e308 do not
+    // overflow when the difference between the endpoints is computed.
+    let scale = minimum.abs().max(maximum.abs());
+    let normalized_minimum = minimum / scale;
+    let normalized_maximum = maximum / scale;
+    let normalized_span = normalized_maximum - normalized_minimum;
+    let mut counts = vec![0usize; NUMERIC_HISTOGRAM_BUCKETS];
+
+    for value in values.iter().flatten().filter(|value| value.is_finite()) {
+        let position = ((value / scale - normalized_minimum) / normalized_span).clamp(0.0, 1.0);
+        let index = ((position * NUMERIC_HISTOGRAM_BUCKETS as f64).floor() as usize)
+            .min(NUMERIC_HISTOGRAM_BUCKETS - 1);
+        counts[index] += 1;
+    }
+
+    Ok(counts
+        .into_iter()
+        .enumerate()
+        .map(|(index, count)| {
+            let lower_fraction = index as f64 / NUMERIC_HISTOGRAM_BUCKETS as f64;
+            let upper_fraction = (index + 1) as f64 / NUMERIC_HISTOGRAM_BUCKETS as f64;
+            HistogramBucket {
+                lower: if index == 0 {
+                    minimum
+                } else {
+                    stable_histogram_boundary(
+                        minimum * (1.0 - lower_fraction) + maximum * lower_fraction,
+                    )
+                },
+                upper: if index + 1 == NUMERIC_HISTOGRAM_BUCKETS {
+                    maximum
+                } else {
+                    stable_histogram_boundary(
+                        minimum * (1.0 - upper_fraction) + maximum * upper_fraction,
+                    )
+                },
+                count,
+            }
+        })
+        .collect())
 }
 
 fn numeric_statistics(
@@ -2417,6 +2509,10 @@ fn numeric_statistics(
     let first_quartile = quartiles[0];
     let median = quartiles[1];
     let third_quartile = quartiles[2];
+    let histogram = match (minimum, maximum) {
+        (Some(minimum), Some(maximum)) => Some(numeric_histogram(&source, minimum, maximum)?),
+        _ => None,
+    };
     let outlier_count = if value_count < 4 {
         0
     } else {
@@ -2450,6 +2546,7 @@ fn numeric_statistics(
         median,
         third_quartile,
         outlier_count,
+        histogram,
     }))
 }
 
@@ -2651,7 +2748,7 @@ enum ProfileColumnEvent {
     },
     Completed {
         index: usize,
-        result: Result<ColumnProfile, String>,
+        result: Box<Result<ColumnProfile, String>>,
     },
 }
 
@@ -2760,6 +2857,9 @@ where
         outlier_count: numeric_statistics
             .as_ref()
             .map(|statistics| statistics.outlier_count),
+        histogram: numeric_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.histogram.clone()),
     })
 }
 
@@ -2817,24 +2917,27 @@ where
                 let work_queue = std::sync::Arc::clone(&work_queue);
                 let sender = sender.clone();
                 let cancellation = &is_cancelled;
-                scope.spawn(move || loop {
-                    let Some(index) = work_queue
+                scope.spawn(move || {
+                    while let Some(index) = work_queue
                         .lock()
                         .ok()
                         .and_then(|mut queue| queue.pop_front())
-                    else {
-                        break;
-                    };
-                    let column = &source_columns[index];
-                    let progress_sender = sender.clone();
-                    let result = profile_column(column, row_count, cancellation, |stage, phase| {
-                        let _ = progress_sender.send(ProfileColumnEvent::Progress {
+                    {
+                        let column = &source_columns[index];
+                        let progress_sender = sender.clone();
+                        let result =
+                            profile_column(column, row_count, cancellation, |stage, phase| {
+                                let _ = progress_sender.send(ProfileColumnEvent::Progress {
+                                    index,
+                                    stage,
+                                    phase,
+                                });
+                            });
+                        let _ = sender.send(ProfileColumnEvent::Completed {
                             index,
-                            stage,
-                            phase,
+                            result: Box::new(result),
                         });
-                    });
-                    let _ = sender.send(ProfileColumnEvent::Completed { index, result });
+                    }
                 });
             }
             drop(sender);
@@ -2858,7 +2961,7 @@ where
                     ProfileColumnEvent::Completed { index, result } => {
                         progress[index] = 100;
                         completed_columns += 1;
-                        match result {
+                        match *result {
                             Ok(profile) => profiles[index] = Some(profile),
                             Err(error) => {
                                 first_error.get_or_insert(error);
@@ -9361,25 +9464,48 @@ fn row_signature(
 }
 
 fn row_signatures(frame: &DataFrame, columns: &[String]) -> Result<HashMap<String, usize>, String> {
-    let mut counts = HashMap::new();
-    for row_index in 0..frame.height() {
-        let signature = row_signature(frame, columns, row_index)?;
-        *counts.entry(signature).or_insert(0) += 1;
-    }
-    Ok(counts)
+    (0..frame.height())
+        .into_par_iter()
+        .try_fold(HashMap::new, |mut counts, row_index| {
+            let signature = row_signature(frame, columns, row_index)?;
+            *counts.entry(signature).or_insert(0) += 1;
+            Ok(counts)
+        })
+        .try_reduce(HashMap::new, |mut left, right| {
+            for (signature, count) in right {
+                *left.entry(signature).or_insert(0) += count;
+            }
+            Ok(left)
+        })
 }
 
 fn key_rows(
     frame: &DataFrame,
     key_columns: &[String],
 ) -> Result<HashMap<String, Vec<usize>>, String> {
-    let mut rows_by_key = HashMap::new();
-    for row_index in 0..frame.height() {
-        let signature = row_signature(frame, key_columns, row_index)?;
-        rows_by_key
-            .entry(signature)
-            .or_insert_with(Vec::new)
-            .push(row_index);
+    let mut rows_by_key = (0..frame.height())
+        .into_par_iter()
+        .try_fold(
+            HashMap::new,
+            |mut rows_by_key, row_index| -> Result<_, String> {
+                let signature = row_signature(frame, key_columns, row_index)?;
+                rows_by_key
+                    .entry(signature)
+                    .or_insert_with(Vec::new)
+                    .push(row_index);
+                Ok(rows_by_key)
+            },
+        )
+        .try_reduce(HashMap::new, |mut left, right| -> Result<_, String> {
+            for (signature, mut rows) in right {
+                left.entry(signature)
+                    .or_insert_with(Vec::new)
+                    .append(&mut rows);
+            }
+            Ok(left)
+        })?;
+    for rows in rows_by_key.values_mut() {
+        rows.sort_unstable();
     }
     Ok(rows_by_key)
 }
@@ -13402,12 +13528,46 @@ pub(crate) fn validate_project_profile(
     {
         return Err("El perfil guardado contiene métricas no válidas.".to_owned());
     }
-    let expected = profile_dataset_with_progress(frame, |_, _| {}, || false)
+    let mut expected = profile_dataset_with_progress(frame, |_, _| {}, || false)
         .map_err(|_| "No se pudo validar el perfil guardado.".to_owned())?;
-    if &expected != profile {
+    // Los perfiles persistidos antes de introducir histogramas siguen siendo
+    // válidos: el histograma es una ayuda visual derivada y opcional.
+    for (expected_column, stored_column) in expected.columns.iter_mut().zip(&profile.columns) {
+        match (&expected_column.histogram, &stored_column.histogram) {
+            (Some(expected_histogram), Some(stored_histogram)) => {
+                if !histograms_match(expected_histogram, stored_histogram) {
+                    return Err("El perfil guardado no coincide con el dataset.".to_owned());
+                }
+            }
+            (Some(_), None) => {}
+            (None, Some(_)) => {
+                return Err("El perfil guardado no coincide con el dataset.".to_owned());
+            }
+            (None, None) => {}
+        }
+        expected_column.histogram = None;
+    }
+    let mut stored_without_histograms = profile.clone();
+    for column in &mut stored_without_histograms.columns {
+        column.histogram = None;
+    }
+    if expected != stored_without_histograms {
         return Err("El perfil guardado no coincide con el dataset.".to_owned());
     }
     Ok(())
+}
+
+fn histograms_match(expected: &[HistogramBucket], stored: &[HistogramBucket]) -> bool {
+    expected.len() == stored.len()
+        && expected.iter().zip(stored).all(|(expected, stored)| {
+            expected.count == stored.count
+                && approximately_equal(expected.lower, stored.lower)
+                && approximately_equal(expected.upper, stored.upper)
+        })
+}
+
+fn approximately_equal(left: f64, right: f64) -> bool {
+    (left - right).abs() <= 1e-9 * left.abs().max(right.abs()).max(1.0)
 }
 
 pub(crate) fn load_recipe_for_automation(input: &Path) -> Result<TransformRecipe, String> {
@@ -14763,6 +14923,17 @@ mod tests {
         assert_eq!(temperature.third_quartile, Some(28.5));
         assert!((temperature.standard_deviation.unwrap() - 2.061_552).abs() < 0.001);
         assert_eq!(temperature.outlier_count, Some(1));
+        let histogram = temperature
+            .histogram
+            .as_ref()
+            .expect("la columna numérica debe incluir histograma");
+        assert_eq!(histogram.len(), NUMERIC_HISTOGRAM_BUCKETS);
+        assert_eq!(
+            histogram.iter().map(|bucket| bucket.count).sum::<usize>(),
+            4
+        );
+        assert_eq!(histogram.first().map(|bucket| bucket.lower), Some(25.0));
+        assert_eq!(histogram.last().map(|bucket| bucket.upper), Some(30.0));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }

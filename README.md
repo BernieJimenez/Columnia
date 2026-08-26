@@ -177,8 +177,10 @@ cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- p
 `inspect`, `transform` y `validate` aceptan CSV, TSV, JSON, Parquet, XLSX, XLS,
 XLSB y ODS. Para libros son obligatorios `--sheet <nombre exacto>` y `--header
 first-row|generated`; esas opciones se rechazan para otros formatos. Las rutas y
-los valores del dataset no aparecen en el JSON ni en los errores. La salida se
-publica de forma atómica en CSV, JSON, Parquet, SQL, Excel o SQLite; CSV conserva
+los valores del dataset no aparecen en el JSON ni en los errores. La CLI aplica
+además una frontera común de sanitización a reportes, recetas y manifiestos para
+redactar rutas incrustadas sin ocultar nombres visibles ni conteos agregados. La
+salida se publica de forma atómica en CSV, JSON, Parquet, SQL, Excel o SQLite; CSV conserva
 la protección contra fórmulas. `validate`
 lee el documento `columnia-quality-rules` v1; también acepta el documento legado
 `{"version":1,"rules":[...]}`. Formatos o versiones futuras se rechazan.
@@ -308,11 +310,21 @@ es informativa: en este hito no transforma el dataset.
 Para columnas numéricas, el perfil añade desviación estándar muestral, Q1,
 mediana, Q3 y posibles outliers mediante la regla IQR de 1.5. Los nulos y
 valores no finitos se excluyen; no se señalan outliers con menos de cuatro datos.
+Diagnóstico también muestra un histograma por intervalos para cada columna
+numérica. Cada gráfico conserva una tabla de frecuencias equivalente para
+teclado y lector de pantalla, y sus límites se mantienen estables al guardar y
+abrir un proyecto.
 
 En **Preparar**, cuando el perfil encuentra duplicados exactos, **Eliminar duplicados** conserva
 la primera aparición y elimina las repeticiones posteriores de la sesión activa.
 El archivo original no se modifica. La operación queda registrada en el historial
 de **Deshacer/Rehacer** y el perfil debe recalcularse sobre el resultado.
+
+El editor de recetas incluye un **asesor de impacto** antes de aplicar cambios:
+resume filas y columnas antes/después, señala riesgo y confianza de la
+estimación y propone alternativas reversibles. Los filtros y operaciones cuyo
+resultado depende de todo el dataset se identifican como estimaciones para no
+confundir una muestra visible con el resultado final.
 
 La corrección **Normalizar nombres de columnas** sigue las reglas del proyecto
 de referencia: minúsculas, eliminación de acentos, `_` para espacios y guiones,

@@ -814,6 +814,7 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
     [column.minimum, column.maximum, column.firstQuartile, column.median, column.thirdQuartile]
       .every((value) => value !== null && Number.isFinite(Number(value))),
   );
+  const histogramColumns = numericColumns.filter((column) => (column.histogram?.length ?? 0) > 0);
   const maxOutlierCount = Math.max(
     1,
     ...numericColumns.map((column) => Math.max(0, column.outlierCount ?? 0)),
@@ -914,6 +915,69 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
             </div>
           </div>
         )}
+        {histogramColumns.length > 0 && (
+          <div className="quality-chart" role="group" aria-labelledby="quality-histogram-title">
+            <h5 id="quality-histogram-title">Histograma numérico</h5>
+            <p className="quality-chart__note">
+              Frecuencia de valores por intervalo. El último intervalo incluye su límite máximo.
+            </p>
+            <div className="quality-histograms">
+              {histogramColumns.map((column, columnIndex) => {
+                const buckets = column.histogram ?? [];
+                const maximumCount = Math.max(1, ...buckets.map((bucket) => bucket.count));
+                const titleId = `quality-histogram-column-${columnIndex}`;
+
+                return (
+                  <div className="quality-histogram" role="group" aria-labelledby={titleId} key={column.name}>
+                    <h6 id={titleId}>{column.name}</h6>
+                    <div className="quality-histogram__bars" aria-hidden="true">
+                      {buckets.map((bucket, bucketIndex) => {
+                        const percentage = (bucket.count / maximumCount) * 100;
+                        const interval = histogramIntervalLabel(bucket.lower, bucket.upper, bucketIndex === buckets.length - 1);
+
+                        return (
+                          <div
+                            className="quality-histogram__bar"
+                            key={`${bucket.lower}-${bucket.upper}-${bucketIndex}`}
+                            style={{ height: `${percentage}%` }}
+                            title={`${interval}: ${bucket.count.toLocaleString()} filas`}
+                          >
+                            <span />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="quality-histogram__axis" aria-hidden="true">
+                      <span>{formatStatistic(buckets[0]?.lower ?? null)}</span>
+                      <span>{formatStatistic(buckets[buckets.length - 1]?.upper ?? null)}</span>
+                    </div>
+                    <div className="quality-histogram__table">
+                      <table aria-label={`Tabla de frecuencias para ${column.name}`}>
+                        <caption className="visually-hidden">Tabla de frecuencias para {column.name}</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Intervalo</th>
+                            <th scope="col">Filas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {buckets.map((bucket, bucketIndex) => (
+                            <tr key={`${bucket.lower}-${bucket.upper}-${bucketIndex}`}>
+                              <th scope="row">
+                                {histogramIntervalLabel(bucket.lower, bucket.upper, bucketIndex === buckets.length - 1)}
+                              </th>
+                              <td>{bucket.count.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -941,4 +1005,8 @@ function suggestedTypeLabel(type: string | null): string {
 
 function formatStatistic(value: number | null): string {
   return value?.toLocaleString(undefined, { maximumFractionDigits: 3 }) ?? "—";
+}
+
+function histogramIntervalLabel(lower: number, upper: number, includesMaximum: boolean): string {
+  return `${formatStatistic(lower)} – ${formatStatistic(upper)}${includesMaximum ? " (incluye máximo)" : ""}`;
 }

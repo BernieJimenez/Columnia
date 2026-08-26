@@ -49,6 +49,12 @@ const profile: DatasetProfile = {
       median: 60,
       thirdQuartile: 90,
       outlierCount: 2,
+      histogram: [
+        { lower: 1, upper: 30.75, count: 20 },
+        { lower: 30.75, upper: 60.5, count: 35 },
+        { lower: 60.5, upper: 90.25, count: 40 },
+        { lower: 90.25, upper: 120, count: 25 },
+      ],
     },
     {
       name: "nombre",
@@ -264,6 +270,10 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("heading", { name: "Distribución numérica" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Distribución numérica por columna" })).toHaveTextContent(
       "Q1 30 · Mediana 60 · Q3 90",
+    );
+    expect(screen.getByRole("heading", { name: "Histograma numérico" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Tabla de frecuencias para id" })).toHaveTextContent(
+      "20",
     );
     expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
       "95.0%",

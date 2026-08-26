@@ -1,6 +1,9 @@
 use std::{env, io, process::ExitCode};
 
-use columnia_lib::automation::{self, CliCommand};
+use columnia_lib::{
+    automation::{self, CliCommand},
+    privacy,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -22,7 +25,7 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             sheet,
             header,
         } => {
-            serde_json::to_writer(
+            privacy::write_sanitized_json(
                 io::stdout().lock(),
                 &automation::inspect(&input, sheet.as_deref(), header)?,
             )?;
@@ -36,7 +39,7 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             output,
             format,
         } => {
-            serde_json::to_writer(
+            privacy::write_sanitized_json(
                 io::stdout().lock(),
                 &automation::transform(&input, sheet.as_deref(), header, &recipe, &output, format)?,
             )?;
@@ -50,7 +53,7 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
         } => {
             let output = automation::validate(&input, sheet.as_deref(), header, &rules)?;
             let passed = output.passed();
-            serde_json::to_writer(io::stdout().lock(), &output)?;
+            privacy::write_sanitized_json(io::stdout().lock(), &output)?;
             println!();
             if passed {
                 return Ok(ExitCode::SUCCESS);
@@ -60,14 +63,14 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
         CliCommand::Batch { manifest } => {
             let output = automation::batch(&manifest)?;
             let failed = output.failed();
-            serde_json::to_writer(io::stdout().lock(), &output)?;
+            privacy::write_sanitized_json(io::stdout().lock(), &output)?;
             println!();
             if failed {
                 return Ok(ExitCode::from(2));
             }
         }
         CliCommand::ProjectList { store } => {
-            serde_json::to_writer(io::stdout().lock(), &automation::project_list(&store)?)?;
+            privacy::write_sanitized_json(io::stdout().lock(), &automation::project_list(&store)?)?;
             println!();
         }
         CliCommand::ProjectSave {
@@ -81,7 +84,7 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             rules,
             profile,
         } => {
-            serde_json::to_writer(
+            privacy::write_sanitized_json(
                 io::stdout().lock(),
                 &automation::project_save(
                     &store,
@@ -98,7 +101,7 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             println!();
         }
         CliCommand::ProjectInspect { store, id } => {
-            serde_json::to_writer(
+            privacy::write_sanitized_json(
                 io::stdout().lock(),
                 &automation::project_inspect(&store, &id)?,
             )?;
@@ -114,14 +117,14 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             let result =
                 automation::project_export(&store, &id, &output, format, allow_unvalidated)?;
             let blocked = result.blocked();
-            serde_json::to_writer(io::stdout().lock(), &result)?;
+            privacy::write_sanitized_json(io::stdout().lock(), &result)?;
             println!();
             if blocked {
                 return Ok(ExitCode::from(2));
             }
         }
         CliCommand::ProjectDelete { store, id, confirm } => {
-            serde_json::to_writer(
+            privacy::write_sanitized_json(
                 io::stdout().lock(),
                 &automation::project_delete(&store, id, &confirm)?,
             )?;

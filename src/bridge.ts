@@ -104,6 +104,12 @@ export interface DatasetQueryResult {
   truncated: boolean;
 }
 
+export interface HistogramBucket {
+  lower: number;
+  upper: number;
+  count: number;
+}
+
 export interface ColumnProfile {
   name: string;
   dataType: string;
@@ -127,6 +133,7 @@ export interface ColumnProfile {
   median: number | null;
   thirdQuartile: number | null;
   outlierCount: number | null;
+  histogram: HistogramBucket[] | null;
 }
 
 export interface DatasetProfile {

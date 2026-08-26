@@ -43,8 +43,10 @@ Diagnóstico incorpora una lectura visual compacta del perfil por columna:
 - barras de completitud para todas las columnas;
 - barras de posibles outliers para las columnas numéricas, normalizadas contra
   el máximo observado;
+- histogramas numéricos de 12 intervalos con límites estables al persistir un
+  perfil;
 - valores exactos visibles y regiones ARIA con nombres descriptivos;
-- tablas de perfil existentes como equivalente completo para lector de pantalla,
+- tablas de perfil y frecuencias como equivalente completo para lector de pantalla,
   alto contraste y navegación sin depender del color.
 
 La entrega cubre la visualización rápida del diagnóstico. Los gráficos
@@ -458,7 +460,7 @@ La migración tiene dos capas distintas:
 
 1. **Paridad funcional:** ya existe una primera slice de calidad v3, pero todavía
    faltan el catálogo completo de limpieza
-   sugerida, el optimizador de transformaciones, el análisis exploratorio
+   sugerida, la optimización global del plan y el análisis exploratorio
    (distribuciones, correlaciones, grupos, nulos, centinelas, casi duplicados,
    calendario y series temporales), la severidad y las políticas de calidad que
    aún no tienen equivalencia segura, los conectores PostgreSQL/MySQL/SQL Server,
