@@ -15,10 +15,73 @@ import {
   requiresImpactConfirmation,
   type RecipeFileStatus,
 } from "./prepareModel";
+import { buildTransformPreview, visibleColumnNames, type TransformPreview } from "./transformAdvisor";
 
 function operationGroupStatus(count: number, singular: string, plural: string) {
   if (count === 0) return "Sin cambios";
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function TransformAdvisor({ preview }: { preview: TransformPreview }) {
+  const riskLabel = preview.risk === "high" ? "Alto impacto" : preview.risk === "medium" ? "Impacto medio" : "Bajo riesgo";
+  const riskDescription = preview.risk === "high"
+    ? "Puede reducir filas, columnas o granularidad. Revisa la estimación antes de aplicar."
+    : preview.risk === "medium"
+      ? "Puede cambiar valores o retirar fuentes. Conserva una alternativa hasta validar."
+      : "No se detectan eliminaciones de filas ni columnas en esta receta.";
+  const rowDelta = preview.rowsDelta === null
+    ? "Por determinar"
+    : preview.rowsDelta === 0
+      ? "Sin cambio esperado"
+      : `${preview.rowsDelta > 0 ? "+" : ""}${preview.rowsDelta.toLocaleString()} filas`;
+  const columnDelta = preview.columnsDelta === 0
+    ? "Sin cambio"
+    : `${preview.columnsDelta > 0 ? "+" : ""}${preview.columnsDelta.toLocaleString()} columnas`;
+
+  return (
+    <section className={`transform-advisor transform-advisor--${preview.risk}`} aria-labelledby="transform-advisor-title">
+      <div className="transform-advisor__header">
+        <div>
+          <p className="step">Revisión antes de ejecutar</p>
+          <h4 id="transform-advisor-title">Impacto estimado de la receta</h4>
+          <p>{riskDescription}</p>
+        </div>
+        <strong className="transform-advisor__risk" aria-label={`Riesgo: ${riskLabel}`}>{riskLabel}</strong>
+      </div>
+      <div className="transform-advisor__metrics" aria-label="Comparación antes y después">
+        <div>
+          <span>Antes</span>
+          <strong>{preview.beforeRows.toLocaleString()} filas · {preview.beforeColumns} columnas</strong>
+          <small>{visibleColumnNames(preview.beforeColumnNames)}</small>
+        </div>
+        <div>
+          <span>Después</span>
+          <strong>{preview.afterRows === null ? "Filas no estimables" : `${preview.afterRows.toLocaleString()} filas`} · {preview.afterColumns} columnas</strong>
+          <small>{visibleColumnNames(preview.afterColumnNames)}</small>
+        </div>
+      </div>
+      <div className="transform-advisor__signals">
+        <span>Variación de filas: <strong>{rowDelta}</strong></span>
+        <span>Variación de columnas: <strong>{columnDelta}</strong></span>
+        <span>Confianza: <strong>{preview.confidence}% ({preview.confidenceLabel})</strong></span>
+      </div>
+      <p className="transform-advisor__basis">{preview.basis}</p>
+      <div className="transform-advisor__columns">
+        <div>
+          <strong>Operaciones detectadas</strong>
+          <p>{preview.operationLabels.join(" · ")}</p>
+        </div>
+        <div>
+          <strong>Recomendaciones</strong>
+          <ul>{preview.recommendations.map((recommendation) => <li key={recommendation}>{recommendation}</li>)}</ul>
+        </div>
+      </div>
+      <details className="transform-advisor__recovery">
+        <summary>Alternativas de recuperación</summary>
+        <ul>{preview.recoveryOptions.map((option) => <li key={option}>{option}</li>)}</ul>
+      </details>
+    </section>
+  );
 }
 
 function RecipeOperationGroup({
@@ -186,6 +249,9 @@ export function TransformRecipeEditor({
   );
   const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped || splitInvalid || mergeInvalid || sourceConflict || sourceNotKept || outlierInvalid || groupInvalid || contactInvalid || extractionInvalid ||
     !calculationValid;
+  const transformPreview = operationCount > 0 && !invalid
+    ? buildTransformPreview(dataset, buildRecipe())
+    : null;
 
   function columnOptions() {
     return dataset.columns.map((column) => (
@@ -707,6 +773,8 @@ export function TransformRecipeEditor({
         </RecipeOperationGroup>
       </div>
       </details>
+
+      {transformPreview && <TransformAdvisor preview={transformPreview} />}
 
       {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
       {filterInvalid && <p className="recipe-error" role="alert">Filtros: las comparaciones numéricas y de contenido requieren un valor.</p>}
