@@ -1279,6 +1279,7 @@ del original.
 
 | Fecha | Decisión | Estado |
 | --- | --- | --- |
+| 2026-08-26 | Las consultas SQL locales no agregadas cuentan coincidencias en una pasada y conservan solo la ventana `LIMIT/OFFSET`; las agregaciones mantienen todas sus filas para calcular resultados exactos | Implementada en `src-tauri/src/dataset.rs`; joins grandes y ejecución DuckDB siguen en cola |
 | 2026-08-26 | Contar duplicados exactos con `unique` lazy en motor streaming y proyectar solo el total, con fallback eager exacto si el backend no soporta el plan | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame` activo y el perfil incremental completo siguen en cola |
 | 2026-08-26 | Reutilizar una única conversión `Float64` durante el perfil numérico para compartirla entre histograma y atípicos y reducir picos de memoria | Implementada en `src-tauri/src/dataset.rs` |
 | 2026-08-26 | Paralelizar la construcción de firmas para comparación y claves con reducciones Rayon, ordenando los índices por clave al final para conservar resultados deterministas | Implementada en `src-tauri/src/dataset.rs`; joins/comparación incremental de datasets que exceden memoria sigue en cola |

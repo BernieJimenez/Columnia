@@ -561,6 +561,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-26 | El explorador SQL local limita la memoria de consultas proyectadas: recorre el filtro, cuenta coincidencias y conserva solo la página solicitada; los `GROUP BY` y agregados siguen reteniendo el conjunto necesario para preservar exactitud. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | El conteo de duplicados exactos del perfil usa `unique` lazy con motor streaming y proyecta solo el total; si el backend no puede ejecutar el plan, conserva un fallback eager exacto. El perfil numérico comparte una única vista `Float64` entre histograma y atípicos para evitar conversiones duplicadas. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | La comparación por filas y la agrupación de claves usan reducciones Rayon y ordenan los índices resultantes para conservar determinismo; la mejora aprovecha CPU sin cambiar el contrato ni materializar firmas globales adicionales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | Diagnóstico incorpora histogramas numéricos de 12 intervalos con límites estables y tabla de frecuencias equivalente; el campo es opcional para abrir perfiles antiguos sin invalidarlos. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/styles.css`, `ROADMAP.md` |

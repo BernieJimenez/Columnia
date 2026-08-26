@@ -2166,7 +2166,12 @@ fn local_query_row(
 
 fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryResult, String> {
     let plan = parse_local_query(query, frame)?;
-    let mut matching_rows = Vec::new();
+    let mut matching_rows = Vec::with_capacity(if plan.aggregate {
+        frame.height()
+    } else {
+        plan.limit
+    });
+    let mut matching_count = 0usize;
     for row_index in 0..frame.height() {
         let mut matches = true;
         for predicate in &plan.predicates {
@@ -2176,7 +2181,14 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
             }
         }
         if matches {
-            matching_rows.push(row_index);
+            let match_position = matching_count;
+            matching_count += 1;
+            // Aggregations need every matching row. A paged projection only
+            // retains the requested window instead of indexing the whole frame.
+            if plan.aggregate || (match_position >= plan.offset && matching_rows.len() < plan.limit)
+            {
+                matching_rows.push(row_index);
+            }
         }
     }
     let columns = plan
@@ -2236,14 +2248,10 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
             plan.offset.saturating_add(plan.limit) < row_count,
         )
     } else {
-        if plan.offset > matching_rows.len() {
+        if plan.offset > matching_count {
             return Err("La página solicitada está fuera del resultado filtrado.".to_owned());
         }
-        let end = plan
-            .offset
-            .saturating_add(plan.limit)
-            .min(matching_rows.len());
-        let rows = matching_rows[plan.offset..end]
+        let rows = matching_rows
             .iter()
             .map(|row_index| {
                 plan.projections
@@ -2267,10 +2275,10 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
             })
             .collect::<Result<Vec<_>, _>>()?;
         (
-            matching_rows.len(),
+            matching_count,
             rows,
             plan.offset,
-            plan.offset.saturating_add(plan.limit) < matching_rows.len(),
+            plan.offset.saturating_add(plan.limit) < matching_count,
         )
     };
     Ok(DatasetQueryResult {
