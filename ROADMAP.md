@@ -1036,8 +1036,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    planes Polars lazy con fallback eager; en v0.54.0 las etapas Review,
    Preparar y Entregar también se cargan bajo demanda, la migración SQLite se
    difiere hasta la primera operación y el monitor de recursos espera al primer
-   paint. Ampliar después a datasets mayores y a operaciones que todavía
-   requieren el camino eager.
+   paint. CSV, TSV y TXT delimitado ya se leen con `LazyCsvReader` y el motor
+   streaming de Polars, con baja memoria y sin `rechunk` paralelo. Ampliar
+   después a datasets mayores y a operaciones que todavía requieren el camino
+   eager.
 7. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
    benchmark; los joins, la comparación y la consolidación local ya tienen una
    primera entrega; quedan destinos de base de datos y consultas más amplias.
@@ -1268,6 +1270,7 @@ del original.
 | --- | --- | --- |
 | 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
+| 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
 | 2026-08-12 | Usar `../dataprepv1.1/` como referencia funcional, no como plantilla técnica automática | Aprobada |
 | 2026-08-12 | Nombre del producto y del proyecto: `Columnia` | Aprobada |
