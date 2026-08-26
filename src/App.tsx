@@ -152,11 +152,7 @@ export function App() {
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [recipeSession, setRecipeSession] = useState(0);
-  const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(() =>
-    typeof window === "undefined"
-      || typeof window.matchMedia !== "function"
-      || !window.matchMedia("(max-width: 900px)").matches,
-  );
+  const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) => {
@@ -223,15 +219,6 @@ export function App() {
     if (typeof performance !== "undefined") {
       performance.mark("columnia:app-render");
     }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const mobileLayout = window.matchMedia("(max-width: 900px)");
-    const syncUtilities = () => setSidebarUtilitiesOpen(!mobileLayout.matches);
-    syncUtilities();
-    mobileLayout.addEventListener("change", syncUtilities);
-    return () => mobileLayout.removeEventListener("change", syncUtilities);
   }, []);
 
   useEffect(() => {
@@ -554,7 +541,11 @@ export function App() {
     datasetStatus.kind === "loading" ? datasetStatus.previous : undefined;
   const activeDataset = readyDataset ?? retainedDataset;
   const operationBusy = coreOperationBusy || projects.isBusy;
-  const activePhaseMeta = phases.find((phase) => phase.id === activePhase) ?? phases[0];
+  const activePhaseIndex = Math.max(0, phases.findIndex((phase) => phase.id === activePhase));
+  const activePhaseMeta = phases[activePhaseIndex];
+  const previousPhase = phases[activePhaseIndex - 1];
+  const nextPhase = phases[activePhaseIndex + 1];
+  const progressValue = activePhaseIndex + 1;
   const loadRuntime: LoadRuntimeState = status.kind === "ready"
     ? { kind: "connected" }
     : status.kind === "browser"
@@ -567,6 +558,9 @@ export function App() {
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">
         Etapa activa: {activePhaseMeta.label}.
       </p>
+      <p id="dataset-required-hint" className="visually-hidden">
+        Carga un dataset para habilitar las etapas Revisar, Preparar y Entregar.
+      </p>
       <aside className="sidebar" aria-label="Navegación principal">
         <div className="brand">
           <p className="eyebrow">Estación local de datos</p>
@@ -574,24 +568,36 @@ export function App() {
         </div>
 
         <nav className="side-nav" aria-label="Flujo de preparación de datos">
-          {phases.map((phase) => {
+          {phases.map((phase, phaseIndex) => {
             const available = phase.id === "load" || Boolean(activeDataset);
+            const phaseState = phaseIndex < activePhaseIndex
+              ? "complete"
+              : phaseIndex === activePhaseIndex ? "current" : "upcoming";
             return (
               <button
                 key={phase.id}
                 type="button"
                 aria-label={phase.label}
-                className={activePhase === phase.id ? "side-nav__active" : undefined}
+                className={`side-nav__item side-nav__item--${phaseState}${activePhase === phase.id ? " side-nav__active" : ""}`}
                 aria-current={activePhase === phase.id ? "step" : undefined}
+                aria-disabled={!available || undefined}
+                aria-describedby={!available ? "dataset-required-hint" : undefined}
                 onMouseEnter={() => preloadPhase(phase.id)}
                 onFocus={() => preloadPhase(phase.id)}
-                onClick={() => setActivePhase(phase.id)}
-                disabled={!available || operationBusy}
+                onClick={() => available && setActivePhase(phase.id)}
+                disabled={operationBusy}
                 title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
               >
-                <span aria-hidden="true">{phase.number}</span>
+                <span className="side-nav__marker" aria-hidden="true">
+                  {phaseState === "complete" ? "✓" : phase.number}
+                </span>
                 <span className="side-nav__copy">
-                  <strong>{phase.label}</strong>
+                  <span className="side-nav__label-row">
+                    <strong>{phase.label}</strong>
+                    <small className="side-nav__state" aria-hidden="true">
+                      {phaseState === "complete" ? "Hecho" : phaseState === "current" ? "Ahora" : "Después"}
+                    </small>
+                  </span>
                   <small aria-hidden="true">{phase.description}</small>
                 </span>
               </button>
@@ -621,9 +627,25 @@ export function App() {
 
       <main id="main-content" className="main-content" tabIndex={-1}>
         <header className="topbar">
-          <div>
-            <p className="step">Vista actual</p>
-            <p className="page-title">{activePhaseMeta.label}</p>
+          <div className="flow-overview">
+            <div className="flow-overview__copy">
+              <p className="flow-overview__step">Paso {progressValue} de {phases.length}</p>
+              <p className="page-title">{activePhaseMeta.label}</p>
+              <p className="flow-overview__next">
+                {nextPhase ? `Después: ${nextPhase.label}` : "Última etapa del flujo"}
+              </p>
+            </div>
+            <div
+              className="flow-progress"
+              role="progressbar"
+              aria-label="Progreso del flujo"
+              aria-valuemin={1}
+              aria-valuemax={phases.length}
+              aria-valuenow={progressValue}
+              aria-valuetext={`Paso ${progressValue} de ${phases.length}: ${activePhaseMeta.label}`}
+            >
+              <span style={{ width: `${(progressValue / phases.length) * 100}%` }} />
+            </div>
           </div>
           <div
             className={`runtime runtime--${status.kind}`}
@@ -741,6 +763,43 @@ export function App() {
               />
             )}
           </Suspense>
+          <footer className="flow-footer" aria-label="Navegación entre etapas">
+            <div className="flow-footer__copy">
+              <p className="step">{nextPhase ? "Siguiente paso" : "Última etapa"}</p>
+              <strong>{nextPhase ? nextPhase.label : "Completa la entrega"}</strong>
+              <p>
+                {nextPhase
+                  ? activeDataset
+                    ? nextPhase.description
+                    : "Carga un dataset para continuar con la revisión."
+                  : "Elige una ruta de validación y exporta cuando todo esté listo."}
+              </p>
+            </div>
+            <div className="flow-footer__actions">
+              {previousPhase && (
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => setActivePhase(previousPhase.id)}
+                  disabled={operationBusy}
+                >
+                  Volver a {previousPhase.label}
+                </button>
+              )}
+              {nextPhase && (
+                <button
+                  type="button"
+                  className="primary-action"
+                  onMouseEnter={() => preloadPhase(nextPhase.id)}
+                  onFocus={() => preloadPhase(nextPhase.id)}
+                  onClick={() => setActivePhase(nextPhase.id)}
+                  disabled={!activeDataset || operationBusy}
+                >
+                  Continuar a {nextPhase.label}
+                </button>
+              )}
+            </div>
+          </footer>
         </section>
       </main>
     </div>

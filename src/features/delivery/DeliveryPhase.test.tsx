@@ -56,7 +56,7 @@ describe("DeliveryPhase", () => {
     const exportButton = screen.getByRole("button", { name: "Exportar Parquet" });
     expect(exportButton).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", {
-      name: "Entiendo y deseo exportar sin contrato de calidad",
+      name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     expect(exportButton).toBeEnabled();
     fireEvent.click(exportButton);
@@ -87,7 +87,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
     expect(exportButton).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
@@ -112,7 +112,7 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={onExport} />);
 
     fireEvent.click(screen.getByRole("checkbox", {
-      name: "Entiendo y deseo exportar sin contrato de calidad",
+      name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
       target: { value: "json" },
@@ -131,7 +131,7 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={onExport} />);
 
     fireEvent.click(screen.getByRole("checkbox", {
-      name: "Entiendo y deseo exportar sin contrato de calidad",
+      name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
       target: { value: "sql" },
@@ -150,7 +150,7 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={onExport} />);
 
     fireEvent.click(screen.getByRole("checkbox", {
-      name: "Entiendo y deseo exportar sin contrato de calidad",
+      name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     const format = screen.getByRole("combobox", { name: "Formato de exportación" });
     fireEvent.change(format, { target: { value: "excel" } });
@@ -175,7 +175,7 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={onExport} />);
 
     fireEvent.click(screen.getByRole("checkbox", {
-      name: "Entiendo y deseo exportar sin contrato de calidad",
+      name: "Confirmo que quiero exportar sin validar la calidad",
     }));
     fireEvent.change(screen.getByRole("combobox", { name: "Protección de datos personales" }), {
       target: { value: "hash" },
@@ -196,7 +196,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "allowed_values" },
     });
@@ -209,7 +209,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "column_compare" },
     });
@@ -227,7 +227,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "referential_integrity" },
     });
@@ -247,7 +247,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "monotonic" },
     });
@@ -262,7 +262,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
     fireEvent.change(kind, { target: { value: "aggregate_check" } });
 
@@ -285,7 +285,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "distribution_drift" },
     });
@@ -303,7 +303,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "date_range" },
     });
@@ -319,7 +319,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "conditional" },
     });
@@ -339,7 +339,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), {
       target: { value: "schema_contract" },
     });
@@ -385,7 +385,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Importar contrato" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Importación revisada"));
@@ -407,7 +407,7 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Guardar contrato" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato guardado"));

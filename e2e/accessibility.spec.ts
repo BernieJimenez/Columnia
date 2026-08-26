@@ -132,7 +132,10 @@ test.describe("contratos de accesibilidad del shell", () => {
     await page.goto("/", { waitUntil: "commit" });
 
     await page.getByRole("button", { name: "Seleccionar dataset" }).click();
-    await page.getByRole("button", { name: "Cargar" }).click();
+    await page
+      .getByRole("navigation", { name: "Flujo de preparación de datos" })
+      .getByRole("button", { name: "Cargar", exact: true })
+      .click();
     await page.getByLabel("Nombre del proyecto").fill("Ventas accesible");
     await page.getByRole("button", { name: "Guardar proyecto nuevo" }).click();
     await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas accesible");

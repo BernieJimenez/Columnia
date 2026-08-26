@@ -101,7 +101,7 @@ describe("App", () => {
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
     await switchPhase("Entregar");
-    expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^Validar calidad/ })).toBeChecked();
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("total");
     expect(screen.queryByText("Contrato aprobado")).not.toBeInTheDocument();
 
@@ -116,7 +116,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
     await switchPhase("Entregar");
-    expect(screen.getByRole("checkbox", { name: "Validar antes de exportar" })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: /^Validar calidad/ })).not.toBeChecked();
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Mi receta");
@@ -264,6 +264,13 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "Columnia" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Flujo de preparación de datos" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuenow", "1");
+    expect(screen.getByRole("button", { name: "Continuar a Revisar" })).toBeDisabled();
+    const lockedReview = screen.getByRole("button", { name: "Revisar" });
+    expect(lockedReview).toHaveAttribute("aria-disabled", "true");
+    expect(lockedReview).toHaveAttribute("aria-describedby", "dataset-required-hint");
+    fireEvent.click(lockedReview);
+    expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuenow", "1");
     expect(screen.getByRole("link", { name: "Saltar al contenido principal" })).toHaveAttribute(
       "href",
       "#main-content",
@@ -304,6 +311,8 @@ describe("App", () => {
     fireEvent.click(button);
 
     expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuetext", "Paso 2 de 4: Revisar");
+    expect(screen.getByRole("button", { name: "Continuar a Preparar" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
@@ -519,7 +528,7 @@ describe("App", () => {
       target: { value: "parquet" },
     });
     expect(screen.getByRole("button", { name: "Exportar Parquet" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: /Entiendo y deseo exportar sin contrato/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Confirmo que quiero exportar sin validar/ }));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Parquet" }));
 
     expect(
@@ -546,7 +555,7 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
 
     expect(await screen.findByText("Contrato aprobado")).toBeInTheDocument();
@@ -577,7 +586,7 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
-    fireEvent.click(screen.getByRole("checkbox", { name: "Validar antes de exportar" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
     fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
     expect(await screen.findByText("Contrato fallido")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
@@ -1536,6 +1545,6 @@ describe("App", () => {
     expect(screen.getByText("No hay espacio disponible para snapshots.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
-    expect(screen.getByText("Ver etapas (1)")).toBeInTheDocument();
+    expect(screen.queryByText("Ver versiones (1)")).not.toBeInTheDocument();
   });
 });

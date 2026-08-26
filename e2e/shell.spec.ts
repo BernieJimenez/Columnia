@@ -10,11 +10,12 @@ test.describe("shell web de Columnia", () => {
       .toHaveAttribute("href", "#main-content");
     await expect(page.locator("#main-content")).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Navegación principal" })).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Flujo de preparación de datos" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Cargar" })).toHaveAttribute("aria-current", "step");
-    await expect(page.getByRole("button", { name: "Revisar" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Preparar" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Entregar" })).toBeDisabled();
+    const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
+    await expect(workflow).toBeVisible();
+    await expect(workflow.getByRole("button", { name: "Cargar", exact: true })).toHaveAttribute("aria-current", "step");
+    await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-disabled", "true");
+    await expect(workflow.getByRole("button", { name: "Preparar", exact: true })).toHaveAttribute("aria-disabled", "true");
+    await expect(workflow.getByRole("button", { name: "Entregar", exact: true })).toHaveAttribute("aria-disabled", "true");
     await expect(page.getByText("Vista web · motor no conectado")).toBeVisible();
     await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
   });

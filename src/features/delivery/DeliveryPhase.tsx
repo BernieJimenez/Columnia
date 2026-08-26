@@ -77,8 +77,8 @@ export function DeliveryPhase({
     sqlite: "SQLite",
   }[exportFormat];
   const exportRequirement = contract.kind === "with_contract"
-    ? "Valida y aprueba el contrato para habilitar la exportación."
-    : "Confirma la entrega sin contrato para habilitar la exportación.";
+    ? "Valida y aprueba las reglas para habilitar la exportación."
+    : "Confirma abajo que quieres exportar sin validar la calidad.";
 
   function changeRules(nextRules: QualityRule[]) {
     setQualityFileState({ kind: "idle" });
@@ -268,7 +268,8 @@ export function DeliveryPhase({
       <header className="phase-header phase-header--compact">
         <div>
           <p className="eyebrow">Entregar · Exportación local</p>
-          <h2>{dataset.fileName}</h2>
+          <h2>Valida y crea una copia</h2>
+          <h3 className="phase-file">{dataset.fileName}</h3>
           <p>Genera una copia del dataset preparado. El archivo original nunca se modifica.</p>
         </div>
       </header>
@@ -277,19 +278,40 @@ export function DeliveryPhase({
         <div className="quality-contract__header">
           <div>
             <p className="step">Control de entrega</p>
-            <h3 id="quality-contract-title">Contrato de calidad</h3>
-            <p>Define hasta {MAX_QUALITY_RULES} comprobaciones locales. Los resultados solo muestran conteos.</p>
+            <h3 id="quality-contract-title">Elige cómo validar la entrega</h3>
+            <p>Usa reglas locales para comprobar el resultado o continúa sin validación de calidad.</p>
           </div>
-          <label className="quality-contract__toggle">
+        </div>
+
+        <fieldset className="delivery-route">
+          <legend>Ruta de entrega</legend>
+          <label>
             <input
-              type="checkbox"
+              type="radio"
+              name="delivery-validation-route"
               checked={contract.kind === "with_contract"}
               disabled={busy || dataset.columns.length === 0}
-              onChange={(event) => event.target.checked ? addRule() : changeRules([])}
+              onChange={() => contract.kind !== "with_contract" && addRule()}
             />
-            Validar antes de exportar
+            <span>
+              <strong>Validar calidad</strong>
+              <small>Recomendado · define hasta {MAX_QUALITY_RULES} comprobaciones locales</small>
+            </span>
           </label>
-        </div>
+          <label>
+            <input
+              type="radio"
+              name="delivery-validation-route"
+              checked={contract.kind === "without_contract"}
+              disabled={busy}
+              onChange={() => contract.kind !== "without_contract" && changeRules([])}
+            />
+            <span>
+              <strong>Exportar sin validar</strong>
+              <small>Requiere una confirmación explícita durante esta sesión</small>
+            </span>
+          </label>
+        </fieldset>
 
         {contract.kind === "with_contract" ? (
           <>
@@ -937,7 +959,7 @@ export function DeliveryPhase({
         ) : (
           <div className="quality-contract__unvalidated">
             <strong>Entrega no validada</strong>
-            <p>No hay reglas activas. Confirma explícitamente esta decisión para habilitar la exportación durante esta sesión.</p>
+            <p>No hay reglas activas. Confirma abajo para exportar sin validación durante esta sesión.</p>
             <label>
               <input
                 type="checkbox"
@@ -948,7 +970,7 @@ export function DeliveryPhase({
                   confirmation: event.target.checked ? "confirmed" : "required",
                 })}
               />
-              Entiendo y deseo exportar sin contrato de calidad
+              Confirmo que quiero exportar sin validar la calidad
             </label>
           </div>
         )}
@@ -973,7 +995,7 @@ export function DeliveryPhase({
         <div>
           <p className="step">Formato de entrega</p>
           <h3 id="export-title">Exportar dataset activo</h3>
-          <p>El destino solo aparece cuando el archivo está completo.</p>
+          <p>Elige el formato y la protección antes de crear la copia.</p>
         </div>
         <div className="export-controls">
           <label className="export-format">

@@ -70,31 +70,24 @@ export function ReviewPhase({
   onJoinTypeChange,
   onJoin,
 }: ReviewPhaseProps) {
+  const comparisonActive = comparisonStatus.kind !== "idle" || joinStatus.kind !== "idle";
+  const [comparisonOpen, setComparisonOpen] = useState(comparisonActive);
+
+  useEffect(() => {
+    if (comparisonActive) setComparisonOpen(true);
+  }, [comparisonActive]);
+
   return (
     <>
       <header className="phase-header phase-header--compact">
         <div>
           <p className="eyebrow">Revisar · Dataset activo</p>
-          <h2>{datasetStatus.dataset.fileName}</h2>
+          <h2>Revisa antes de modificar</h2>
+          <h3 className="phase-file">{datasetStatus.dataset.fileName}</h3>
           <p>Comprueba la estructura, la calidad y una muestra de los datos antes de modificarlos.</p>
         </div>
       </header>
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
-      <DatasetComparisonSection
-        status={comparisonStatus}
-        datasetColumns={datasetColumns}
-        keyColumns={comparisonKeyColumns}
-        onKeyColumnsChange={onComparisonKeyColumnsChange}
-        onCompare={onCompare}
-        onClear={onClearComparison}
-        onConsolidate={onConsolidate}
-        onResolveConflicts={onResolveConflicts}
-        onConflictPageChange={onConflictPageChange}
-        joinStatus={joinStatus}
-        joinType={joinType}
-        onJoinTypeChange={onJoinTypeChange}
-        onJoin={onJoin}
-      />
 
       {reviewTab === "diagnosis" ? (
         <div id="review-diagnosis-panel" role="tabpanel" aria-labelledby="review-diagnosis-tab">
@@ -116,6 +109,31 @@ export function ReviewPhase({
           />
         </div>
       )}
+      <details
+        className="review-tool"
+        open={comparisonOpen}
+        onToggle={(event) => setComparisonOpen(event.currentTarget.open)}
+      >
+        <summary>
+          <span>Comparar con otro dataset</span>
+          <small>Opcional · detecta diferencias, conflictos y claves nuevas</small>
+        </summary>
+        <DatasetComparisonSection
+          status={comparisonStatus}
+          datasetColumns={datasetColumns}
+          keyColumns={comparisonKeyColumns}
+          onKeyColumnsChange={onComparisonKeyColumnsChange}
+          onCompare={onCompare}
+          onClear={onClearComparison}
+          onConsolidate={onConsolidate}
+          onResolveConflicts={onResolveConflicts}
+          onConflictPageChange={onConflictPageChange}
+          joinStatus={joinStatus}
+          joinType={joinType}
+          onJoinTypeChange={onJoinTypeChange}
+          onJoin={onJoin}
+        />
+      </details>
     </>
   );
 }
@@ -184,7 +202,7 @@ function DatasetComparisonSection({
     <section className="phase-section comparison-section" aria-labelledby="comparison-title">
       <div className="section-heading">
         <div>
-          <p className="step">Paridad de fuentes</p>
+          <p className="step">Comparar archivos</p>
           <h3 id="comparison-title">Comparar datasets</h3>
         </div>
         <button
@@ -455,13 +473,12 @@ function QualitySection({
           <h3 id="quality-title">Perfil por columna</h3>
         </div>
         {status.kind !== "loading" && (
-          <button type="button" onClick={onAnalyze}>
+          <button className="primary-action" type="button" onClick={onAnalyze}>
             {status.kind === "ready" ? "Analizar de nuevo" : "Analizar calidad"}
           </button>
         )}
       </div>
       <DatasetMetrics dataset={dataset} />
-      <LocalQueryPanel />
       {status.kind === "loading" && (
         <OperationProgressView
           progress={status.progress}
@@ -476,6 +493,7 @@ function QualitySection({
         </p>
       )}
       {status.kind === "ready" && <QualityProfile profile={status.profile} />}
+      <LocalQueryPanel />
     </section>
   );
 }
@@ -488,6 +506,11 @@ function LocalQueryPanel() {
     | { kind: "ready"; result: DatasetQueryResult }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const [queryOpen, setQueryOpen] = useState(false);
+
+  useEffect(() => {
+    if (state.kind !== "idle") setQueryOpen(true);
+  }, [state.kind]);
 
   async function runQuery() {
     setState({ kind: "loading" });
@@ -502,32 +525,42 @@ function LocalQueryPanel() {
   }
 
   return (
-    <section className="local-query" aria-labelledby="local-query-title">
-      <div className="local-query__heading">
-        <div>
-          <p className="step">Consulta segura</p>
-          <h4 id="local-query-title">Explorar con SQL local</h4>
-          <p>Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples, GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.</p>
+    <details
+      className="review-tool review-tool--nested"
+      open={queryOpen}
+      onToggle={(event) => setQueryOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span>Explorar con SQL local</span>
+        <small>Opcional · consulta segura y de solo lectura</small>
+      </summary>
+      <section className="local-query" aria-labelledby="local-query-title">
+        <div className="local-query__heading">
+          <div>
+            <p className="step">Consulta segura</p>
+            <h4 id="local-query-title">Consulta SQL de solo lectura</h4>
+            <p>Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples, GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.</p>
+          </div>
         </div>
-      </div>
-      <label className="local-query__field">
-        Consulta SQL de solo lectura
-        <textarea
-          aria-label="Consulta SQL de solo lectura"
-          rows={2}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          spellCheck={false}
-        />
-      </label>
-      <div className="local-query__actions">
-        <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
-          {state.kind === "loading" ? "Consultando…" : "Ejecutar consulta"}
-        </button>
-      </div>
-      {state.kind === "error" && <p className="notice notice--error" role="alert">No se pudo ejecutar la consulta: {state.message}</p>}
-      {state.kind === "ready" && <LocalQueryResult result={state.result} />}
-    </section>
+        <label className="local-query__field">
+          Consulta SQL de solo lectura
+          <textarea
+            aria-label="Consulta SQL de solo lectura"
+            rows={2}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            spellCheck={false}
+          />
+        </label>
+        <div className="local-query__actions">
+          <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
+            {state.kind === "loading" ? "Consultando…" : "Ejecutar consulta"}
+          </button>
+        </div>
+        {state.kind === "error" && <p className="notice notice--error" role="alert">No se pudo ejecutar la consulta: {state.message}</p>}
+        {state.kind === "ready" && <LocalQueryResult result={state.result} />}
+      </section>
+    </details>
   );
 }
 

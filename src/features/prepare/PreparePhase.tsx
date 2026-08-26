@@ -79,7 +79,8 @@ export function PreparePhase({
       <header className="phase-header phase-header--compact">
         <div>
           <p className="eyebrow">Preparar · {activeTab === "corrections" ? "Correcciones" : "Transformaciones"}</p>
-          <h2>{dataset.fileName}</h2>
+          <h2>Prepara datos consistentes</h2>
+          <h3 className="phase-file">{dataset.fileName}</h3>
           <p>Aplica cambios controlados al dataset activo. Cada corrección indica su impacto.</p>
         </div>
       </header>

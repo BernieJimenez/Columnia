@@ -175,7 +175,7 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
     expect(onUndo).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
-    expect(screen.getByText(/Etapa actual: Normalizar texto/)).toBeInTheDocument();
+    expect(screen.getByText(/Versión actual: Normalizar texto/)).toBeInTheDocument();
   });
 
   it("expone señales agregadas de limpieza y privacidad sin mostrar celdas", () => {

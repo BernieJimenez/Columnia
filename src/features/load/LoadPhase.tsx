@@ -49,7 +49,8 @@ export function LoadPhase({
       <header className="phase-header">
         <div>
           <p className="eyebrow">Cargar · Fuente local</p>
-          <h2>{current ? current.fileName : "Selecciona un dataset"}</h2>
+          <h2>{current ? "Dataset listo para continuar" : "Selecciona un dataset"}</h2>
+          {current && <h3 className="phase-file">{current.fileName}</h3>}
           <p>
             Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta 500 MB. El procesamiento se realiza
             localmente y tus datos no salen del equipo.

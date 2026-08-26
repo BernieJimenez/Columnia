@@ -82,9 +82,13 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
 
   await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
   await page.getByRole("button", { name: "Seleccionar dataset" }).click();
-  await expect(page.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
+  const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
+  await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");
 
-  await page.getByRole("button", { name: "Cargar" }).click();
+  await page
+    .getByRole("navigation", { name: "Flujo de preparación de datos" })
+    .getByRole("button", { name: "Cargar", exact: true })
+    .click();
   await expect(page.getByRole("heading", { name: "Proyectos" })).toBeVisible();
   await page.getByLabel("Nombre del proyecto").fill("Ventas E2E");
   await page.getByRole("button", { name: "Guardar proyecto nuevo" }).click();
@@ -92,10 +96,10 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
   await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas E2E");
 
   await page.getByRole("button", { name: "Abrir" }).click();
-  await expect(page.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
+  await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "ventas.csv" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Cargar" }).click();
+  await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
   await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas E2E · activo");
   await page.getByRole("button", { name: "Eliminar" }).click();
   await expect(page.getByRole("alertdialog", { name: "Eliminar “Ventas E2E”" })).toBeVisible();

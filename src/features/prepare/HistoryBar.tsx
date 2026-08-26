@@ -12,20 +12,22 @@ export function HistoryBar({
   onUndo: () => void;
   onRedo: () => void;
 }) {
+  const quiet = status.snapshotsEnabled && status.entryCount <= 1 && !status.canUndo && !status.canRedo;
+
   return (
-    <section className="history-bar" aria-label="Continuidad de trabajo">
+    <section className={`history-bar${quiet ? " history-bar--quiet" : ""}`} aria-label="Historial de cambios">
       <div>
-        <strong>Continuidad de trabajo</strong>
+        <strong>Historial de cambios</strong>
         <small>
           {status.snapshotsEnabled
             ? status.entryCount > 0
-              ? `Etapa actual: ${status.entries.find((entry) => entry.isCurrent)?.label ?? "Dataset cargado"} · ${status.currentIndex + 1} de ${status.entryCount}`
-              : "Todavía no hay etapas guardadas."
+              ? `Versión actual: ${status.entries.find((entry) => entry.isCurrent)?.label ?? "Dataset cargado"} · ${status.currentIndex + 1} de ${status.entryCount}`
+              : "Todavía no hay versiones guardadas."
             : status.degradedReason ?? "El historial reversible no está disponible."}
         </small>
-        {status.entries.length > 0 && (
+        {status.entries.length > 1 && (
           <details className="history-details">
-            <summary>Ver etapas ({status.entryCount})</summary>
+            <summary>Ver versiones ({status.entryCount})</summary>
             <ol>
               {status.entries.slice(-12).map((entry) => (
                 <li key={entry.index} aria-current={entry.isCurrent ? "step" : undefined}>
