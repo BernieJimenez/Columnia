@@ -50,7 +50,6 @@ const SENTINEL_VALUES: &[&str] = &[
     "desconocido",
     "desconocida",
 ];
-const PROTOTYPE_FILE_LIMIT_BYTES: u64 = 500 * 1024 * 1024;
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 const HISTORY_MAX_ENTRIES: usize = 12;
@@ -1529,20 +1528,7 @@ fn validate_dataset_file(path: &Path) -> Result<(PathBuf, u64, String), String> 
         .map_err(|error| format!("No se pudieron leer los metadatos del archivo: {error}"))?
         .len();
 
-    validate_file_size(size)?;
-
     Ok((canonical, size, extension))
-}
-
-fn validate_file_size(size: u64) -> Result<(), String> {
-    if size > PROTOTYPE_FILE_LIMIT_BYTES {
-        return Err(format!(
-            "El archivo supera el límite temporal de {} MB. La carga por streaming se incorporará en un próximo hito.",
-            PROTOTYPE_FILE_LIMIT_BYTES / 1024 / 1024
-        ));
-    }
-
-    Ok(())
 }
 
 fn preview_value(value: AnyValue<'_>) -> Option<String> {
@@ -14356,13 +14342,22 @@ mod tests {
     }
 
     #[test]
-    fn accepts_500_megabytes_and_rejects_the_next_byte() {
-        assert_eq!(validate_file_size(PROTOTYPE_FILE_LIMIT_BYTES), Ok(()));
+    fn accepts_a_dataset_above_the_previous_500_mebibyte_threshold() {
+        let path = temporary_csv("value\n");
+        let previous_limit = 500_u64 * 1024 * 1024;
+        File::options()
+            .write(true)
+            .open(&path)
+            .expect("se debe poder abrir el CSV temporal")
+            .set_len(previous_limit + 1)
+            .expect("se debe poder crear un archivo disperso grande");
 
-        let error = validate_file_size(PROTOTYPE_FILE_LIMIT_BYTES + 1)
-            .expect_err("un byte sobre el límite debe rechazarse");
+        let (_, size, extension) = validate_dataset_file(&path)
+            .expect("el tamaño no debe impedir seleccionar un dataset compatible");
 
-        assert!(error.contains("500 MB"));
+        assert_eq!(size, previous_limit + 1);
+        assert_eq!(extension, "csv");
+        fs::remove_file(path).expect("se debe eliminar el CSV temporal");
     }
 
     #[test]

@@ -334,7 +334,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     expect(screen.getByRole("button", { name: "Seleccionar otro dataset" })).toBeInTheDocument();
-    expect(screen.getByText(/Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta 500 MB/)).toBeInTheDocument();
+    expect(screen.getByText(/Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS sin un límite fijo de tamaño/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
   });
 

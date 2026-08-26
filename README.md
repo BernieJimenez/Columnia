@@ -13,11 +13,13 @@ Las reglas de contribución, la licencia y las decisiones duraderas están en
 
 El proyecto es un prototipo local verificable. Actualmente contiene el shell
 Tauri 2, una interfaz React/TypeScript y un corte vertical del motor Polars:
-selección nativa, carga local y vista previa de CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta
-500 MB. Los libros con varias hojas muestran un selector antes de cargar y React
-solo recibe un identificador opaco, nunca la ruta local. Este límite es provisional:
-el dataset aún se materializa en memoria y un archivo
-grande puede requerir bastante más RAM durante perfiles y transformaciones.
+selección nativa, carga local y vista previa de CSV, TSV, TXT delimitado, JSON,
+Parquet, Excel y ODS sin un límite fijo de tamaño impuesto por Columnia. Los
+libros con varias hojas muestran un selector antes de cargar y React solo recibe
+un identificador opaco, nunca la ruta local. La capacidad efectiva depende de
+la RAM, el espacio en disco y los demás recursos disponibles en el equipo: el
+dataset aún se materializa en memoria y un archivo grande puede requerir
+bastante más RAM durante la lectura, el perfilado y las transformaciones.
 Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,
 nulos y texto Unicode, y se lee con una configuración conservadora de memoria.
 

@@ -52,8 +52,8 @@ export function LoadPhase({
           <h2>{current ? "Dataset listo para continuar" : "Selecciona un dataset"}</h2>
           {current && <h3 className="phase-file">{current.fileName}</h3>}
           <p>
-            Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS de hasta 500 MB. El procesamiento se realiza
-            localmente y tus datos no salen del equipo.
+            Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS sin un límite fijo de tamaño. El procesamiento
+            se realiza localmente y la capacidad depende de los recursos disponibles del equipo.
           </p>
         </div>
         <button
@@ -86,7 +86,7 @@ export function LoadPhase({
           <p className="load-brief__meta">
             <span>7 formatos</span>
             <span aria-hidden="true">·</span>
-            <span>Hasta <strong>500 MB</strong></span>
+            <span><strong>Sin límite fijo</strong></span>
             <span aria-hidden="true">·</span>
             <span>Procesamiento local</span>
           </p>

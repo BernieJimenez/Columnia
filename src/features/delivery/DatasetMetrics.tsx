@@ -1,9 +1,18 @@
 import type { DatasetPreview } from "../../bridge";
 
 export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return unitIndex === 0
+    ? `${value} ${units[unitIndex]}`
+    : `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
 export function DatasetMetrics({ dataset }: { dataset: DatasetPreview }) {

@@ -366,6 +366,11 @@ para mantener el contrato estricto. El monitor nativo de CPU/RAM se muestra en
 el lateral de la aplicación, y `perf:i1` compara la inspección de 100 MiB con
 `dataprepv1.1` sin conservar datos de la fixture.
 
+**Estado actual 2026-08-26:** Columnia ya no impone el límite provisional de
+500 MiB a los datasets. La capacidad efectiva queda determinada por la RAM, el
+espacio en disco y los demás recursos disponibles; la materialización y las
+operaciones eager todavía pueden requerir varias veces el tamaño del archivo.
+
 **Avance 2026-08-12:** `npm run build`, veinticuatro pruebas Vitest y dieciocho pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
 rutas desde React, valida un límite provisional de 500 MB, carga el CSV con
@@ -956,7 +961,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 | --- | --- |
 | Arranque en caliente hasta UI utilizable | ≤ 2 segundos en equipo de referencia |
 | Primera vista previa | ≤ 3 segundos para CSV de 100 MB |
-| Memoria durante preview | Prototipo: límite de 500 MB con advertencia; objetivo final: no materializar el dataset completo |
+| Memoria durante preview | Sin tope fijo de archivo; la capacidad depende de RAM, disco y recursos disponibles. Objetivo final: no materializar el dataset completo |
 | Cancelación visible | Confirmación de cancelación ≤ 1 segundo |
 | Operación larga | Progreso real o estado indeterminado honesto; nunca UI congelada |
 | Cobertura | Umbral por decidir después de clasificar código crítico |
@@ -1256,6 +1261,7 @@ del original.
 
 | Fecha | Decisión | Estado |
 | --- | --- | --- |
+| 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
 | 2026-08-12 | Usar `../dataprepv1.1/` como referencia funcional, no como plantilla técnica automática | Aprobada |
 | 2026-08-12 | Nombre del producto y del proyecto: `Columnia` | Aprobada |

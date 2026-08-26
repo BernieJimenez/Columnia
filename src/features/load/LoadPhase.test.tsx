@@ -35,7 +35,7 @@ describe("LoadPhase", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Trae tus datos a un espacio de trabajo local." })).toBeInTheDocument();
-    expect(screen.getByText("500 MB")).toBeInTheDocument();
+    expect(screen.getByText("Sin límite fijo")).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Elegir hoja de libro.xlsx" })).toHaveAttribute(
       "aria-describedby",
       "sheet-description",

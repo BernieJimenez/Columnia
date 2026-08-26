@@ -172,7 +172,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 - `pending_selection`: selección pendiente con ID opaco, ruta privada y hojas detectadas;
 - contadores atómicos de generación para cancelar carga, perfil y exportación sin mezclar operaciones.
 
-`LoadedDataset` conserva una ruta fuente privada opcional, el nombre/tamaño visibles, el `DataFrame`, un perfil opcional en caché y el historial. Separar la identidad visible de la ruta permite restaurar un snapshot aunque el archivo original ya no exista. El dataset activo se materializa en memoria, pero las recetas compatibles de I1 construyen y ejecutan un plan Polars lazy antes de publicar el candidato; las operaciones no compatibles conservan el camino eager para mantener sus validaciones estrictas. El límite provisional de archivo es 500 MiB, pero el consumo real puede ser mayor durante lectura, perfilado y transformaciones.
+`LoadedDataset` conserva una ruta fuente privada opcional, el nombre/tamaño visibles, el `DataFrame`, un perfil opcional en caché y el historial. Separar la identidad visible de la ruta permite restaurar un snapshot aunque el archivo original ya no exista. El dataset activo se materializa en memoria, pero las recetas compatibles de I1 construyen y ejecutan un plan Polars lazy antes de publicar el candidato; las operaciones no compatibles conservan el camino eager para mantener sus validaciones estrictas. Columnia no impone un límite fijo al tamaño del dataset. La capacidad efectiva depende de la RAM, el espacio temporal en disco, la CPU y la expansión propia del formato durante la lectura, el perfilado y las transformaciones.
 
 ### Historial y atomicidad
 
@@ -518,7 +518,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
 3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 43 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
-4. **Memoria**: el límite de 500 MiB no equivale a un presupuesto de RAM. Polars materializa el dataset y algunas operaciones crean candidatos completos.
+4. **Memoria**: los datasets no tienen un tope fijo de tamaño. Polars materializa el dataset y algunas operaciones crean candidatos completos, por lo que la capacidad efectiva depende de la RAM, el espacio disponible y los demás recursos del equipo.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
 7. **Roadmap acumulativo**: contiene decisiones propuestas, aprobadas e implementadas; no todas reflejan dependencias presentes.
