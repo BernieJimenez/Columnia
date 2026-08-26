@@ -370,6 +370,8 @@ el lateral de la aplicación, y `perf:i1` compara la inspección de 100 MiB con
 500 MiB a los datasets. La capacidad efectiva queda determinada por la RAM, el
 espacio en disco y los demás recursos disponibles; la materialización y las
 operaciones eager todavía pueden requerir varias veces el tamaño del archivo.
+El conteo de duplicados normalizados usa bloques paralelos y huellas compactas
+para aprovechar los hilos de CPU disponibles; el runtime Tauri no usa GPU.
 
 **Avance 2026-08-12:** `npm run build`, veinticuatro pruebas Vitest y dieciocho pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar

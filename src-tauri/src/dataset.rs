@@ -1,7 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::RandomState, HashMap, HashSet},
     ffi::OsStr,
     fs::{self, File},
+    hash::{BuildHasher, Hash, Hasher},
     io::{BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::{
@@ -16,6 +17,7 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use polars::io::json::{JsonFormat, JsonWriter};
 use polars::lazy::dsl::{col, lit};
 use polars::prelude::*;
+use rayon::prelude::*;
 use regex::Regex;
 use rusqlite::{params_from_iter, types::Value as SqlValue, Connection};
 use serde::{Deserialize, Serialize};
@@ -59,6 +61,7 @@ const RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
+const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -2612,7 +2615,7 @@ fn profile_dataset_with_progress<F, C>(
 ) -> Result<DatasetProfile, String>
 where
     F: FnMut(&'static str, u8),
-    C: Fn() -> bool,
+    C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
     let row_count = frame.height();
@@ -2627,7 +2630,9 @@ where
     } else {
         (duplicate_row_count as f64 / row_count as f64) * 100.0
     };
-    let near_duplicate_row_count = count_normalized_duplicate_rows(frame, duplicate_row_count)?;
+    report("Normalizando filas parecidas", 15);
+    let near_duplicate_row_count =
+        count_normalized_duplicate_rows(frame, duplicate_row_count, &is_cancelled)?;
     ensure_not_cancelled(is_cancelled())?;
     let source_columns = frame.columns();
     let mut columns = Vec::with_capacity(source_columns.len());
@@ -2745,31 +2750,88 @@ where
     })
 }
 
-fn count_normalized_duplicate_rows(
-    frame: &DataFrame,
-    exact_duplicate_row_count: usize,
-) -> Result<usize, String> {
-    let mut normalized_counts: HashMap<String, usize> = HashMap::with_capacity(frame.height());
-    for row_index in 0..frame.height() {
-        let mut key = String::new();
-        for column in frame.columns() {
-            let value = column.get(row_index).map_err(|error| {
-                format!("No se pudieron normalizar las filas para detectar duplicados: {error}")
-            })?;
-            match value {
-                AnyValue::Null => key.push_str("N|"),
-                value => {
-                    let display = preview_value(value).unwrap_or_default();
-                    let normalized = normalize_text_value(&display, true);
-                    key.push('V');
-                    key.push_str(&normalized.len().to_string());
-                    key.push(':');
-                    key.push_str(&normalized);
-                    key.push('|');
-                }
+type NormalizedRowFingerprint = [u64; 2];
+
+fn normalized_row_fingerprint(
+    columns: &[Column],
+    row_index: usize,
+    first_state: &RandomState,
+    second_state: &RandomState,
+) -> Result<NormalizedRowFingerprint, String> {
+    let mut first = first_state.build_hasher();
+    let mut second = second_state.build_hasher();
+
+    for column in columns {
+        let value = column.get(row_index).map_err(|error| {
+            format!("No se pudieron normalizar las filas para detectar duplicados: {error}")
+        })?;
+        match value {
+            AnyValue::Null => {
+                0_u8.hash(&mut first);
+                0_u8.hash(&mut second);
+            }
+            value => {
+                let display = preview_value(value).unwrap_or_default();
+                let normalized = normalize_text_value(&display, true);
+                1_u8.hash(&mut first);
+                1_u8.hash(&mut second);
+                normalized.len().hash(&mut first);
+                normalized.len().hash(&mut second);
+                normalized.hash(&mut first);
+                normalized.hash(&mut second);
             }
         }
-        *normalized_counts.entry(key).or_insert(0) += 1;
+    }
+
+    Ok([first.finish(), second.finish()])
+}
+
+fn count_normalized_duplicate_rows<C>(
+    frame: &DataFrame,
+    exact_duplicate_row_count: usize,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    if frame.height() == 0 {
+        return Ok(0);
+    }
+
+    let columns = frame.columns();
+    let first_state = RandomState::new();
+    let second_state = RandomState::new();
+    let chunk_count = frame.height().div_ceil(NORMALIZED_DUPLICATE_CHUNK_ROWS);
+    let partial_counts = (0..chunk_count)
+        .into_par_iter()
+        .map(|chunk_index| {
+            if is_cancelled() {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+
+            let start = chunk_index * NORMALIZED_DUPLICATE_CHUNK_ROWS;
+            let end = (start + NORMALIZED_DUPLICATE_CHUNK_ROWS).min(frame.height());
+            let mut counts = HashMap::with_capacity(end - start);
+            for row_index in start..end {
+                if row_index % 4096 == 0 && is_cancelled() {
+                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                }
+                let key =
+                    normalized_row_fingerprint(columns, row_index, &first_state, &second_state)?;
+                *counts.entry(key).or_insert(0) += 1;
+            }
+            Ok(counts)
+        })
+        .collect::<Result<Vec<HashMap<NormalizedRowFingerprint, usize>>, String>>()?;
+
+    let mut normalized_counts = HashMap::with_capacity(frame.height());
+    for partial in partial_counts {
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        for (key, count) in partial {
+            *normalized_counts.entry(key).or_insert(0) += count;
+        }
     }
 
     let normalized_duplicate_row_count = normalized_counts
@@ -14581,24 +14643,24 @@ mod tests {
 
     #[test]
     fn stops_profile_at_a_cooperative_cancellation_point() {
-        use std::cell::Cell;
+        use std::sync::atomic::AtomicUsize;
 
         let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
         let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
-        let checks = Cell::new(0);
+        let checks = AtomicUsize::new(0);
 
         let error = profile_dataset_with_progress(
             &frame,
             |_, _| {},
             || {
-                checks.set(checks.get() + 1);
-                checks.get() >= 2
+                let count = checks.fetch_add(1, Ordering::SeqCst) + 1;
+                count >= 2
             },
         )
         .expect_err("el perfil debe detenerse al cancelar");
 
         assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
-        assert_eq!(checks.get(), 2);
+        assert_eq!(checks.load(Ordering::SeqCst), 2);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 

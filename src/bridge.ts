@@ -9,6 +9,7 @@ export interface AppInfo {
 export interface ResourceUsage {
   processCpuPercentage: number;
   systemCpuPercentage: number;
+  logicalCpuCount: number;
   processMemoryBytes: number;
   systemMemoryUsedBytes: number;
   systemMemoryTotalBytes: number;

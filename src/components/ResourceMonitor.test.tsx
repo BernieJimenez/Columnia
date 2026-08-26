@@ -13,6 +13,7 @@ describe("ResourceMonitor", () => {
     const fetchUsage = vi.fn().mockResolvedValue({
       processCpuPercentage: 12.5,
       systemCpuPercentage: 1.2,
+      logicalCpuCount: 12,
       processMemoryBytes: 120 * 1024 * 1024,
       systemMemoryUsedBytes: 8.9 * 1024 * 1024 * 1024,
       systemMemoryTotalBytes: 31.9 * 1024 * 1024 * 1024,
@@ -21,10 +22,10 @@ describe("ResourceMonitor", () => {
     render(<ResourceMonitor enabled fetchUsage={fetchUsage} />);
 
     await waitFor(() => expect(screen.getByText("120 MB")).toBeInTheDocument());
-    expect(screen.getByText("12.5%")).toBeInTheDocument();
+    expect(screen.getByText("0.1 / 12 hilos")).toBeInTheDocument();
     expect(screen.getByText("1.2%")).toBeInTheDocument();
     expect(screen.getByText("8.9 / 31.9 GB")).toBeInTheDocument();
-    expect(screen.getByRole("meter", { name: "CPU de Columnia: 12.5%" })).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "CPU de Columnia: 0.1 / 12 hilos" })).toBeInTheDocument();
     expect(screen.getByRole("meter", { name: "RAM del equipo: 8.9 / 31.9 GB" })).toBeInTheDocument();
     expect(fetchUsage).toHaveBeenCalledTimes(1);
   });

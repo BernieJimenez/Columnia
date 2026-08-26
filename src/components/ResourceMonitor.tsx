@@ -19,8 +19,14 @@ function clampMeter(value: number, maximum: number): number {
   return Math.min(Math.max(value, 0), maximum);
 }
 
-function formatCpu(value: number): string {
+function formatSystemCpu(value: number): string {
   return `${Math.max(value, 0).toFixed(1)}%`;
+}
+
+function formatProcessCpu(value: number, logicalCpuCount: number): string {
+  const logicalCpus = Math.max(Math.round(logicalCpuCount), 1);
+  const usedCpus = Math.max(value, 0) / 100;
+  return `${usedCpus.toFixed(1)} / ${logicalCpus} hilos`;
 }
 
 function formatProcessMemory(bytes: number): string {
@@ -72,6 +78,7 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   const usage = state.kind === "ready" ? state.usage : null;
   const processCpu = usage?.processCpuPercentage ?? 0;
   const systemCpu = usage?.systemCpuPercentage ?? 0;
+  const logicalCpuCount = usage?.logicalCpuCount ?? 1;
   const systemMemoryTotal = usage?.systemMemoryTotalBytes ?? 0;
   const systemMemoryUsed = usage?.systemMemoryUsedBytes ?? 0;
   const statusText = state.kind === "disabled"
@@ -97,18 +104,18 @@ export const ResourceMonitor = memo(function ResourceMonitor({
       <div className="resource-monitor__metric">
         <div className="resource-monitor__label">
           <span>CPU</span>
-          <strong>{usage ? formatCpu(processCpu) : "—"}</strong>
+          <strong>{usage ? formatProcessCpu(processCpu, logicalCpuCount) : "—"}</strong>
         </div>
         <meter
           className="resource-monitor__meter"
           min={0}
-          max={100}
-          value={clampMeter(processCpu, 100)}
-          aria-label={`CPU de Columnia: ${usage ? formatCpu(processCpu) : "no disponible"}`}
+          max={Math.max(logicalCpuCount, 1)}
+          value={clampMeter(processCpu / 100, Math.max(logicalCpuCount, 1))}
+          aria-label={`CPU de Columnia: ${usage ? formatProcessCpu(processCpu, logicalCpuCount) : "no disponible"}`}
         />
         <div className="resource-monitor__system">
           <span>Equipo</span>
-          <strong>{usage ? formatCpu(systemCpu) : "—"}</strong>
+          <strong>{usage ? formatSystemCpu(systemCpu) : "—"}</strong>
         </div>
       </div>
 

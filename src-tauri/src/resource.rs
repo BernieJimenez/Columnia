@@ -32,6 +32,7 @@ pub fn get_resource_usage() -> Result<ResourceUsage, String> {
     Ok(ResourceUsage {
         process_cpu_percentage: process.cpu_usage(),
         system_cpu_percentage: system.global_cpu_usage(),
+        logical_cpu_count: system.cpus().len().max(1),
         process_memory_bytes: process.memory(),
         system_memory_used_bytes: system.used_memory(),
         system_memory_total_bytes: system.total_memory(),

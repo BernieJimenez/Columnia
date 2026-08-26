@@ -20,6 +20,7 @@ struct AppInfo {
 pub struct ResourceUsage {
     pub process_cpu_percentage: f32,
     pub system_cpu_percentage: f32,
+    pub logical_cpu_count: usize,
     pub process_memory_bytes: u64,
     pub system_memory_used_bytes: u64,
     pub system_memory_total_bytes: u64,
