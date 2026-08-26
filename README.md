@@ -21,7 +21,7 @@ la RAM, el espacio en disco y los demás recursos disponibles en el equipo: el
 dataset aún se materializa en memoria y un archivo grande puede requerir
 bastante más RAM durante la lectura, el perfilado y las transformaciones.
 El perfilado de duplicados normalizados procesa bloques en paralelo con CPU y
-huellas compactas para aprovechar los hilos disponibles sin construir una
+huellas compactas XXH3-128 para aprovechar los hilos disponibles sin construir una
 cadena completa por cada fila. La aceleración GPU no forma parte del runtime
 actual.
 Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,

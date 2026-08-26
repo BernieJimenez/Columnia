@@ -1,13 +1,14 @@
 use std::{
-    collections::{hash_map::RandomState, HashMap, HashSet},
+    collections::HashMap,
+    collections::HashSet,
     ffi::OsStr,
     fs::{self, File},
-    hash::{BuildHasher, Hash, Hasher},
+    hash::Hasher,
     io::{BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex,
+        mpsc, Mutex,
     },
 };
 
@@ -26,6 +27,7 @@ use sha2::{Digest, Sha256};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
+use xxhash_rust::xxh3::Xxh3;
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
@@ -2632,7 +2634,7 @@ where
     };
     report("Normalizando filas parecidas", 15);
     let near_duplicate_row_count =
-        count_normalized_duplicate_rows(frame, duplicate_row_count, &is_cancelled)?;
+        count_normalized_duplicate_rows(frame, duplicate_row_count, &is_cancelled, &mut report)?;
     ensure_not_cancelled(is_cancelled())?;
     let source_columns = frame.columns();
     let mut columns = Vec::with_capacity(source_columns.len());
@@ -2733,7 +2735,7 @@ where
         });
 
         let completed_columns = column_index + 1;
-        let percent = 20 + ((completed_columns * 80) / source_columns.len()) as u8;
+        let percent = 40 + ((completed_columns * 60) / source_columns.len()) as u8;
         report("Analizando columnas", percent);
     }
 
@@ -2750,16 +2752,13 @@ where
     })
 }
 
-type NormalizedRowFingerprint = [u64; 2];
+type NormalizedRowFingerprint = u128;
 
 fn normalized_row_fingerprint(
     columns: &[Column],
     row_index: usize,
-    first_state: &RandomState,
-    second_state: &RandomState,
 ) -> Result<NormalizedRowFingerprint, String> {
-    let mut first = first_state.build_hasher();
-    let mut second = second_state.build_hasher();
+    let mut hasher = Xxh3::with_seed(0);
 
     for column in columns {
         let value = column.get(row_index).map_err(|error| {
@@ -2767,72 +2766,82 @@ fn normalized_row_fingerprint(
         })?;
         match value {
             AnyValue::Null => {
-                0_u8.hash(&mut first);
-                0_u8.hash(&mut second);
+                hasher.write_u8(0);
             }
             value => {
                 let display = preview_value(value).unwrap_or_default();
                 let normalized = normalize_text_value(&display, true);
-                1_u8.hash(&mut first);
-                1_u8.hash(&mut second);
-                normalized.len().hash(&mut first);
-                normalized.len().hash(&mut second);
-                normalized.hash(&mut first);
-                normalized.hash(&mut second);
+                hasher.write_u8(1);
+                hasher.write_u64(normalized.len() as u64);
+                hasher.write(normalized.as_bytes());
             }
         }
     }
 
-    Ok([first.finish(), second.finish()])
+    Ok(hasher.digest128())
 }
 
-fn count_normalized_duplicate_rows<C>(
+fn count_normalized_duplicate_rows<C, F>(
     frame: &DataFrame,
     exact_duplicate_row_count: usize,
     is_cancelled: &C,
+    report: &mut F,
 ) -> Result<usize, String>
 where
     C: Fn() -> bool + Sync,
+    F: FnMut(&'static str, u8),
 {
     if frame.height() == 0 {
         return Ok(0);
     }
 
     let columns = frame.columns();
-    let first_state = RandomState::new();
-    let second_state = RandomState::new();
     let chunk_count = frame.height().div_ceil(NORMALIZED_DUPLICATE_CHUNK_ROWS);
-    let partial_counts = (0..chunk_count)
-        .into_par_iter()
-        .map(|chunk_index| {
-            if is_cancelled() {
-                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-            }
+    let mut normalized_counts: HashMap<NormalizedRowFingerprint, usize> =
+        HashMap::with_capacity(frame.height());
+    let (progress_sender, progress_receiver) = mpsc::sync_channel(2);
+    let producer_result = std::thread::scope(|scope| {
+        let producer = scope.spawn(move || {
+            (0..chunk_count)
+                .into_par_iter()
+                .try_for_each(|chunk_index| {
+                    if is_cancelled() {
+                        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                    }
 
-            let start = chunk_index * NORMALIZED_DUPLICATE_CHUNK_ROWS;
-            let end = (start + NORMALIZED_DUPLICATE_CHUNK_ROWS).min(frame.height());
-            let mut counts = HashMap::with_capacity(end - start);
-            for row_index in start..end {
-                if row_index % 4096 == 0 && is_cancelled() {
-                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-                }
-                let key =
-                    normalized_row_fingerprint(columns, row_index, &first_state, &second_state)?;
-                *counts.entry(key).or_insert(0) += 1;
-            }
-            Ok(counts)
-        })
-        .collect::<Result<Vec<HashMap<NormalizedRowFingerprint, usize>>, String>>()?;
+                    let start = chunk_index * NORMALIZED_DUPLICATE_CHUNK_ROWS;
+                    let end = (start + NORMALIZED_DUPLICATE_CHUNK_ROWS).min(frame.height());
+                    let mut counts: HashMap<NormalizedRowFingerprint, usize> =
+                        HashMap::with_capacity(end - start);
+                    for row_index in start..end {
+                        if row_index % 4096 == 0 && is_cancelled() {
+                            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                        }
+                        let key = normalized_row_fingerprint(columns, row_index)?;
+                        *counts.entry(key).or_insert(0) += 1;
+                    }
+                    progress_sender
+                        .send((chunk_index, counts))
+                        .map_err(|_| OPERATION_CANCELLED_MESSAGE.to_owned())
+                })
+        });
 
-    let mut normalized_counts = HashMap::with_capacity(frame.height());
-    for partial in partial_counts {
-        if is_cancelled() {
-            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        let mut completed_chunks = 0_usize;
+        while let Ok((_, partial)) = progress_receiver.recv() {
+            for (key, count) in partial {
+                *normalized_counts.entry(key).or_insert(0) += count;
+            }
+            completed_chunks += 1;
+            let percent =
+                15 + ((completed_chunks.saturating_mul(25) / chunk_count).min(25)) as u8;
+            report("Normalizando filas parecidas", percent);
         }
-        for (key, count) in partial {
-            *normalized_counts.entry(key).or_insert(0) += count;
-        }
-    }
+
+        producer
+            .join()
+            .map_err(|_| "El perfilado paralelo se interrumpió inesperadamente.".to_owned())?
+    });
+    producer_result?;
 
     let normalized_duplicate_row_count = normalized_counts
         .values()
