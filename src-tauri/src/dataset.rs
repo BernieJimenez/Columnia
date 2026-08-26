@@ -2700,7 +2700,23 @@ where
             column_start.saturating_add((column_end - column_start) * 3 / 4),
         );
         let numeric_statistics = numeric_statistics(column, text_statistics.as_ref())?;
-        let (minimum, maximum, mean) = if let Some(statistics) = numeric_statistics.as_ref() {
+        let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
+            let minimum = column
+                .min_reduce()
+                .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
+                .into_value();
+            let maximum = column
+                .max_reduce()
+                .map_err(|error| format!("No se pudo calcular el máximo: {error}"))?
+                .into_value();
+            (
+                preview_value(minimum),
+                preview_value(maximum),
+                numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.mean),
+            )
+        } else if let Some(statistics) = numeric_statistics.as_ref() {
             (
                 statistics.minimum.map(|value| value.to_string()),
                 statistics.maximum.map(|value| value.to_string()),
