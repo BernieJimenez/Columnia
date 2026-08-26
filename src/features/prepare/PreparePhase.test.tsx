@@ -58,6 +58,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     median: null,
     thirdQuartile: null,
     outlierCount: null,
+    histogram: null,
   }, {
     name: "empty_column",
     dataType: "String",
@@ -81,6 +82,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     median: null,
     thirdQuartile: null,
     outlierCount: null,
+    histogram: null,
   }, {
     name: "high_null",
     dataType: "String",
@@ -104,6 +106,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     median: null,
     thirdQuartile: null,
     outlierCount: null,
+    histogram: null,
   }],
 };
 

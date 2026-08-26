@@ -781,6 +781,7 @@ describe("App", () => {
           median: 29,
           thirdQuartile: 29.5,
           outlierCount: 0,
+          histogram: null,
         },
       ],
     });
@@ -895,6 +896,7 @@ describe("App", () => {
           median: null,
           thirdQuartile: null,
           outlierCount: null,
+          histogram: null,
         },
       ],
     });
@@ -954,6 +956,7 @@ describe("App", () => {
           median: null,
           thirdQuartile: null,
           outlierCount: null,
+          histogram: null,
         },
       ],
     });
@@ -1013,6 +1016,7 @@ describe("App", () => {
           median: 12,
           thirdQuartile: 13,
           outlierCount: 1,
+          histogram: null,
         },
       ],
     });

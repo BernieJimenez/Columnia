@@ -79,6 +79,7 @@ const profile: DatasetProfile = {
       median: null,
       thirdQuartile: null,
       outlierCount: null,
+      histogram: null,
     },
   ],
 };
