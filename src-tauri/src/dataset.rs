@@ -4069,6 +4069,22 @@ fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, Strin
         })
 }
 
+fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
+    let source = PlRefPath::try_from_path(path)
+        .map_err(|error| format!("No se pudo preparar el lector Parquet: {error}"))?;
+    let options = ScanArgsParquet {
+        parallel: ParallelStrategy::None,
+        low_memory: true,
+        rechunk: false,
+        ..Default::default()
+    };
+    LazyFrame::scan_parquet(source, options)
+        .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?
+        .collect_with_engine(Engine::Streaming)
+        .map(|result| result.unwrap_single())
+        .map_err(|error| format!("No se pudo interpretar el Parquet: {error}"))
+}
+
 #[cfg(test)]
 fn load_csv_with_progress<F, C>(
     path: &Path,
@@ -4114,15 +4130,7 @@ where
 
     let frame = match extension.as_str() {
         "csv" | "tsv" | "txt" => read_delimited_frame(path, &extension)?,
-        "parquet" => {
-            let file = fs::File::open(path)
-                .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
-            ParquetReader::new(file)
-                .set_low_memory(true)
-                .read_parallel(ParallelStrategy::None)
-                .finish()
-                .map_err(|error| format!("No se pudo interpretar el Parquet: {error}"))?
-        }
+        "parquet" => read_parquet_frame(path)?,
         "json" | "jsonl" | "ndjson" => load_json_records(path)?,
         extension if spreadsheet_extensions(extension) => {
             return Err("Selecciona primero una hoja del libro.".to_owned())
