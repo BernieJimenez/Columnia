@@ -1028,7 +1028,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
      añadió límites de duración y stress durable, y v0.49 mide tres ciclos nativos
      de transformación/exportación dentro de WebView2 junto al presupuesto global
      del árbol. Todavía falta repetirlo con datasets grandes y con historial que
-     ejerza el límite integral de memoria.
+     ejerza el límite integral de memoria. El perfilado de columnas ya distribuye
+     el trabajo entre hasta cuatro trabajadores con progreso ponderado y evita
+     materializar vectores numéricos gigantes; queda ampliar la lectura
+     lazy/incremental y medirla dentro de WebView2 con datasets grandes.
 6. **Ejecución lazy/incremental y arranque:** la receta compatible de I1 usa
    planes Polars lazy con fallback eager; en v0.54.0 las etapas Review,
    Preparar y Entregar también se cargan bajo demanda, la migración SQLite se
@@ -1264,6 +1267,7 @@ del original.
 | Fecha | Decisión | Estado |
 | --- | --- | --- |
 | 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
+| 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
 | 2026-08-12 | Usar `../dataprepv1.1/` como referencia funcional, no como plantilla técnica automática | Aprobada |
 | 2026-08-12 | Nombre del producto y del proyecto: `Columnia` | Aprobada |

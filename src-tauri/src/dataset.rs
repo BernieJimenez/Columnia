@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     collections::HashSet,
+    collections::VecDeque,
     ffi::OsStr,
     fs::{self, File},
     hash::Hasher,
@@ -2642,6 +2643,126 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
     }))
 }
 
+enum ProfileColumnEvent {
+    Progress {
+        index: usize,
+        stage: &'static str,
+        phase: u8,
+    },
+    Completed {
+        index: usize,
+        result: Result<ColumnProfile, String>,
+    },
+}
+
+fn profile_column<C, F>(
+    column: &Column,
+    row_count: usize,
+    is_cancelled: &C,
+    mut report: F,
+) -> Result<ColumnProfile, String>
+where
+    C: Fn() -> bool,
+    F: FnMut(&'static str, u8),
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let null_count = column.null_count();
+    report("Contando valores únicos", 25);
+    let unique_count = column
+        .n_unique()
+        .map_err(|error| format!("No se pudieron contar los valores únicos: {error}"))?
+        .saturating_sub(usize::from(null_count > 0));
+    let completeness_percentage = if row_count == 0 {
+        100.0
+    } else {
+        ((row_count - null_count) as f64 / row_count as f64) * 100.0
+    };
+
+    ensure_not_cancelled(is_cancelled())?;
+    report("Analizando texto", 50);
+    let text_statistics = text_statistics(column)?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Calculando estadísticas numéricas", 75);
+    let numeric_statistics = numeric_statistics(column, text_statistics.as_ref())?;
+    let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
+        let minimum = column
+            .min_reduce()
+            .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
+            .into_value();
+        let maximum = column
+            .max_reduce()
+            .map_err(|error| format!("No se pudo calcular el máximo: {error}"))?
+            .into_value();
+        (
+            preview_value(minimum),
+            preview_value(maximum),
+            numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.mean),
+        )
+    } else if let Some(statistics) = numeric_statistics.as_ref() {
+        (
+            statistics.minimum.map(|value| value.to_string()),
+            statistics.maximum.map(|value| value.to_string()),
+            statistics.mean,
+        )
+    } else {
+        (None, None, None)
+    };
+
+    Ok(ColumnProfile {
+        name: column.name().to_string(),
+        data_type: column.dtype().to_string(),
+        null_count,
+        completeness_percentage,
+        unique_count,
+        minimum,
+        maximum,
+        mean,
+        empty_count: text_statistics
+            .as_ref()
+            .map(|statistics| statistics.empty_count),
+        minimum_length: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.minimum_length),
+        maximum_length: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.maximum_length),
+        average_length: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.average_length),
+        suggested_type: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.suggested_type)
+            .map(str::to_owned),
+        type_match_percentage: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.type_match_percentage),
+        invalid_type_count: text_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.invalid_type_count),
+        sentinel_count: text_statistics
+            .as_ref()
+            .map(|statistics| statistics.sentinel_count),
+        privacy_signal: privacy_signal(column.name()).map(str::to_owned),
+        standard_deviation: numeric_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.standard_deviation),
+        first_quartile: numeric_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.first_quartile),
+        median: numeric_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.median),
+        third_quartile: numeric_statistics
+            .as_ref()
+            .and_then(|statistics| statistics.third_quartile),
+        outlier_count: numeric_statistics
+            .as_ref()
+            .map(|statistics| statistics.outlier_count),
+    })
+}
+
 fn profile_dataset_with_progress<F, C>(
     frame: &DataFrame,
     mut report: F,
@@ -2670,119 +2791,101 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let source_columns = frame.columns();
     let mut columns = Vec::with_capacity(source_columns.len());
-    for (column_index, column) in source_columns.iter().enumerate() {
-        ensure_not_cancelled(is_cancelled())?;
-        let column_start = 40 + ((column_index * 60) / source_columns.len().max(1)) as u8;
-        let column_end = 40 + (((column_index + 1) * 60) / source_columns.len().max(1)) as u8;
-        report("Analizando columnas", column_start);
-        let null_count = column.null_count();
-        report(
-            "Contando valores únicos",
-            column_start.saturating_add((column_end - column_start) / 4),
-        );
-        let unique_count = column
-            .n_unique()
-            .map_err(|error| format!("No se pudieron contar los valores únicos: {error}"))?
-            .saturating_sub(usize::from(null_count > 0));
-        let completeness_percentage = if row_count == 0 {
-            100.0
-        } else {
-            ((row_count - null_count) as f64 / row_count as f64) * 100.0
-        };
-
-        report(
-            "Analizando texto",
-            column_start.saturating_add((column_end - column_start) / 2),
-        );
-        let text_statistics = text_statistics(column)?;
-        report(
-            "Calculando estadísticas numéricas",
-            column_start.saturating_add((column_end - column_start) * 3 / 4),
-        );
-        let numeric_statistics = numeric_statistics(column, text_statistics.as_ref())?;
-        let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
-            let minimum = column
-                .min_reduce()
-                .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
-                .into_value();
-            let maximum = column
-                .max_reduce()
-                .map_err(|error| format!("No se pudo calcular el máximo: {error}"))?
-                .into_value();
-            (
-                preview_value(minimum),
-                preview_value(maximum),
-                numeric_statistics
-                    .as_ref()
-                    .and_then(|statistics| statistics.mean),
-            )
-        } else if let Some(statistics) = numeric_statistics.as_ref() {
-            (
-                statistics.minimum.map(|value| value.to_string()),
-                statistics.maximum.map(|value| value.to_string()),
-                statistics.mean,
-            )
-        } else {
-            (None, None, None)
-        };
-
-        columns.push(ColumnProfile {
-            name: column.name().to_string(),
-            data_type: column.dtype().to_string(),
-            null_count,
-            completeness_percentage,
-            unique_count,
-            minimum,
-            maximum,
-            mean,
-            empty_count: text_statistics
-                .as_ref()
-                .map(|statistics| statistics.empty_count),
-            minimum_length: text_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.minimum_length),
-            maximum_length: text_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.maximum_length),
-            average_length: text_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.average_length),
-            suggested_type: text_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.suggested_type)
-                .map(str::to_owned),
-            type_match_percentage: text_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.type_match_percentage),
-            invalid_type_count: text_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.invalid_type_count),
-            sentinel_count: text_statistics
-                .as_ref()
-                .map(|statistics| statistics.sentinel_count),
-            privacy_signal: privacy_signal(column.name()).map(str::to_owned),
-            standard_deviation: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.standard_deviation),
-            first_quartile: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.first_quartile),
-            median: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.median),
-            third_quartile: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.third_quartile),
-            outlier_count: numeric_statistics
-                .as_ref()
-                .map(|statistics| statistics.outlier_count),
-        });
-
-        report("Analizando columnas", column_end);
-    }
-
     if source_columns.is_empty() {
         report("Perfil completado", 100);
+    } else {
+        report("Analizando columnas", 40);
+        let column_count = source_columns.len();
+        let worker_count = std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get().min(4))
+            .unwrap_or(2)
+            .min(column_count)
+            .max(1);
+        let work_queue =
+            std::sync::Arc::new(Mutex::new((0..column_count).collect::<VecDeque<_>>()));
+        let (sender, receiver) = mpsc::channel();
+        let mut profiles = (0..column_count)
+            .map(|_| None)
+            .collect::<Vec<Option<ColumnProfile>>>();
+        let mut progress = vec![0_u16; column_count];
+        let mut completed_columns = 0usize;
+        let mut first_error = None;
+        let mut last_percent = 40_u8;
+
+        std::thread::scope(|scope| {
+            for _ in 0..worker_count {
+                let work_queue = std::sync::Arc::clone(&work_queue);
+                let sender = sender.clone();
+                let cancellation = &is_cancelled;
+                scope.spawn(move || loop {
+                    let Some(index) = work_queue
+                        .lock()
+                        .ok()
+                        .and_then(|mut queue| queue.pop_front())
+                    else {
+                        break;
+                    };
+                    let column = &source_columns[index];
+                    let progress_sender = sender.clone();
+                    let result = profile_column(column, row_count, cancellation, |stage, phase| {
+                        let _ = progress_sender.send(ProfileColumnEvent::Progress {
+                            index,
+                            stage,
+                            phase,
+                        });
+                    });
+                    let _ = sender.send(ProfileColumnEvent::Completed { index, result });
+                });
+            }
+            drop(sender);
+
+            while let Ok(event) = receiver.recv() {
+                match event {
+                    ProfileColumnEvent::Progress {
+                        index,
+                        stage,
+                        phase,
+                    } => {
+                        progress[index] = progress[index].max(u16::from(phase));
+                        let weighted_progress = progress
+                            .iter()
+                            .map(|value| usize::from(*value))
+                            .sum::<usize>();
+                        let percent = 40 + ((weighted_progress * 60) / (column_count * 100)) as u8;
+                        last_percent = last_percent.max(percent);
+                        report(stage, last_percent);
+                    }
+                    ProfileColumnEvent::Completed { index, result } => {
+                        progress[index] = 100;
+                        completed_columns += 1;
+                        match result {
+                            Ok(profile) => profiles[index] = Some(profile),
+                            Err(error) => {
+                                first_error.get_or_insert(error);
+                            }
+                        }
+                        let weighted_progress = progress
+                            .iter()
+                            .map(|value| usize::from(*value))
+                            .sum::<usize>();
+                        let percent = 40 + ((weighted_progress * 60) / (column_count * 100)) as u8;
+                        last_percent = last_percent.max(percent);
+                        report("Analizando columnas", last_percent);
+                        if completed_columns == column_count && last_percent < 100 {
+                            report("Analizando columnas", 100);
+                        }
+                    }
+                }
+            }
+        });
+
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+        columns = profiles
+            .into_iter()
+            .map(|profile| profile.expect("cada columna debe producir un perfil"))
+            .collect();
     }
 
     Ok(DatasetProfile {
@@ -14696,6 +14799,12 @@ mod tests {
 
         assert_eq!(updates.first(), Some(&("Detectando filas duplicadas", 10)));
         assert_eq!(updates.last(), Some(&("Analizando columnas", 100)));
+        assert!(updates
+            .iter()
+            .any(|(stage, _)| *stage == "Contando valores únicos"));
+        assert!(updates
+            .iter()
+            .any(|(stage, _)| *stage == "Calculando estadísticas numéricas"));
         assert!(updates.windows(2).all(|pair| pair[0].1 <= pair[1].1));
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
