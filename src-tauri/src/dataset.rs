@@ -2326,78 +2326,97 @@ fn semantic_numeric_value(value: &str) -> Option<f64> {
         .filter(|number| number.is_finite())
 }
 
-fn linear_quantile(sorted_values: &[f64], quantile: f64) -> Option<f64> {
-    if sorted_values.is_empty() {
-        return None;
-    }
-
-    let position = (sorted_values.len() - 1) as f64 * quantile;
-    let lower_index = position.floor() as usize;
-    let upper_index = position.ceil() as usize;
-    let weight = position - lower_index as f64;
-    Some(
-        sorted_values[lower_index]
-            + (sorted_values[upper_index] - sorted_values[lower_index]) * weight,
-    )
-}
-
-fn numeric_statistics(column: &Column) -> Result<Option<NumericStatistics>, String> {
-    let mut values = if column.dtype().is_primitive_numeric() {
-        (0..column.len())
-            .map(|index| {
-                column
-                    .get(index)
-                    .map_err(|error| format!("No se pudo analizar la columna numérica: {error}"))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter_map(numeric_value)
-            .collect::<Vec<_>>()
+fn numeric_statistics(
+    column: &Column,
+    text_profile: Option<&TextStatistics>,
+) -> Result<Option<NumericStatistics>, String> {
+    let source = if column.dtype().is_primitive_numeric() {
+        column.clone()
     } else if column.dtype() == &DataType::String {
-        let text = column
-            .str()
-            .map_err(|error| format!("No se pudo analizar texto numérico: {error}"))?;
-        let non_empty = text
-            .iter()
-            .flatten()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-        if non_empty.is_empty() {
-            return Ok(None);
+        // The text pass already validates semantic numeric candidates for normal-sized
+        // columns. Reuse that result so a 5 GB CSV is not parsed twice.
+        let validated_numeric_profile = text_profile.is_some_and(|profile| {
+            matches!(profile.suggested_type, Some("integer") | Some("decimal"))
+                && profile.invalid_type_count == Some(0)
+        });
+        let needs_validation = !validated_numeric_profile;
+        if needs_validation {
+            if text_profile.is_some_and(|profile| profile.suggested_type.is_some()) {
+                return Ok(None);
+            }
+            let text = column
+                .str()
+                .map_err(|error| format!("No se pudo analizar texto numérico: {error}"))?;
+            let mut has_value = false;
+            for value in text.iter().flatten() {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                has_value = true;
+                if semantic_numeric_value(trimmed).is_none() {
+                    return Ok(None);
+                }
+            }
+            if !has_value {
+                return Ok(None);
+            }
         }
-        let parsed = non_empty
-            .iter()
-            .map(|value| semantic_numeric_value(value))
-            .collect::<Option<Vec<_>>>();
-        let Some(parsed) = parsed else {
-            return Ok(None);
-        };
-        parsed
+        column
+            .cast(&DataType::Float64)
+            .map_err(|error| format!("No se pudo convertir texto numérico: {error}"))?
     } else {
         return Ok(None);
     };
-    values.sort_by(f64::total_cmp);
 
-    let minimum = values.first().copied();
-    let maximum = values.last().copied();
-    let mean = (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64);
+    let value_count = source.len().saturating_sub(source.null_count());
+    if value_count == 0 {
+        return Ok(None);
+    }
 
-    let first_quartile = linear_quantile(&values, 0.25);
-    let median = linear_quantile(&values, 0.5);
-    let third_quartile = linear_quantile(&values, 0.75);
-    let standard_deviation = if values.len() < 2 {
+    let minimum = numeric_value(
+        source
+            .min_reduce()
+            .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
+            .into_value(),
+    );
+    let maximum = numeric_value(
+        source
+            .max_reduce()
+            .map_err(|error| format!("No se pudo calcular el máximo: {error}"))?
+            .into_value(),
+    );
+    let mean = numeric_value(
+        source
+            .mean_reduce()
+            .map_err(|error| format!("No se pudo calcular el promedio: {error}"))?
+            .into_value(),
+    );
+    let standard_deviation = if value_count < 2 {
         None
     } else {
-        let mean = values.iter().sum::<f64>() / values.len() as f64;
-        let variance = values
-            .iter()
-            .map(|value| (value - mean).powi(2))
-            .sum::<f64>()
-            / (values.len() - 1) as f64;
-        Some(variance.sqrt())
+        numeric_value(
+            source
+                .std_reduce(1)
+                .map_err(|error| format!("No se pudo calcular la desviación estándar: {error}"))?
+                .into_value(),
+        )
     };
-    let outlier_count = if values.len() < 4 {
+    let quartile_values = source
+        .quantiles_reduce(&[0.25, 0.5, 0.75], QuantileMethod::Linear)
+        .map_err(|error| format!("No se pudieron calcular los cuantiles: {error}"))?
+        .into_value();
+    let mut quartiles = [None; 3];
+    if let AnyValue::List(values) = quartile_values {
+        let mut values = values.iter();
+        for quartile in &mut quartiles {
+            *quartile = values.next().and_then(numeric_value);
+        }
+    }
+    let first_quartile = quartiles[0];
+    let median = quartiles[1];
+    let third_quartile = quartiles[2];
+    let outlier_count = if value_count < 4 {
         0
     } else {
         let q1 = first_quartile.expect("cuatro valores siempre producen Q1");
@@ -2405,9 +2424,19 @@ fn numeric_statistics(column: &Column) -> Result<Option<NumericStatistics>, Stri
         let interquartile_range = q3 - q1;
         let lower_bound = q1 - 1.5 * interquartile_range;
         let upper_bound = q3 + 1.5 * interquartile_range;
-        values
+        let floating_source = if source.dtype() == &DataType::Float64 {
+            source.clone()
+        } else {
+            source
+                .cast(&DataType::Float64)
+                .map_err(|error| format!("No se pudo preparar el conteo de atípicos: {error}"))?
+        };
+        floating_source
+            .f64()
+            .map_err(|error| format!("No se pudo leer el conteo de atípicos: {error}"))?
             .iter()
-            .filter(|value| **value < lower_bound || **value > upper_bound)
+            .flatten()
+            .filter(|value| *value < lower_bound || *value > upper_bound)
             .count()
     };
 
@@ -2520,27 +2549,16 @@ fn privacy_signal(column_name: &str) -> Option<&'static str> {
     }
 }
 
-fn suggest_text_type(values: &[&str]) -> (Option<&'static str>, Option<f64>, Option<usize>) {
-    if values.len() < 3 {
+fn suggest_text_type(
+    value_count: usize,
+    boolean_count: usize,
+    integer_count: usize,
+    decimal_count: usize,
+    date_count: usize,
+) -> (Option<&'static str>, Option<f64>, Option<usize>) {
+    if value_count < 3 {
         return (None, None, None);
     }
-
-    let boolean_count = values
-        .iter()
-        .filter(|value| boolean_token(value).is_some())
-        .count();
-    let integer_count = values
-        .iter()
-        .filter(|value| !has_identifier_leading_zero(value) && value.parse::<i64>().is_ok())
-        .count();
-    let decimal_count = values
-        .iter()
-        .filter(|value| semantic_numeric_value(value).is_some())
-        .count();
-    let date_count = values
-        .iter()
-        .filter(|value| is_supported_date(value))
-        .count();
 
     let mut best = ("boolean", boolean_count);
     for candidate in [
@@ -2553,7 +2571,7 @@ fn suggest_text_type(values: &[&str]) -> (Option<&'static str>, Option<f64>, Opt
         }
     }
 
-    let match_percentage = (best.1 as f64 / values.len() as f64) * 100.0;
+    let match_percentage = (best.1 as f64 / value_count as f64) * 100.0;
     if match_percentage < 90.0 {
         return (None, None, None);
     }
@@ -2561,7 +2579,7 @@ fn suggest_text_type(values: &[&str]) -> (Option<&'static str>, Option<f64>, Opt
     (
         Some(best.0),
         Some(match_percentage),
-        Some(values.len() - best.1),
+        Some(value_count - best.1),
     )
 }
 
@@ -2575,11 +2593,14 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         .map_err(|error| format!("No se pudo analizar la columna de texto: {error}"))?;
     let mut empty_count = 0;
     let mut sentinel_count = 0;
-    let mut value_count = 0;
-    let mut total_length = 0;
+    let mut value_count: usize = 0;
+    let mut boolean_count: usize = 0;
+    let mut integer_count: usize = 0;
+    let mut decimal_count: usize = 0;
+    let mut date_count: usize = 0;
+    let mut total_length: usize = 0;
     let mut minimum_length: Option<usize> = None;
     let mut maximum_length: Option<usize> = None;
-    let mut non_empty_values = Vec::new();
 
     for value in values.iter().flatten() {
         let length = value.chars().count();
@@ -2587,7 +2608,12 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         empty_count += usize::from(trimmed.is_empty());
         sentinel_count += usize::from(is_missing_sentinel(trimmed));
         if !trimmed.is_empty() {
-            non_empty_values.push(trimmed);
+            boolean_count += usize::from(boolean_token(trimmed).is_some());
+            integer_count += usize::from(
+                trimmed.parse::<i64>().is_ok() && semantic_numeric_value(trimmed).is_some(),
+            );
+            decimal_count += usize::from(semantic_numeric_value(trimmed).is_some());
+            date_count += usize::from(is_supported_date(trimmed));
         }
         value_count += 1;
         total_length += length;
@@ -2596,8 +2622,14 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
     }
 
     let average_length = (value_count > 0).then(|| total_length as f64 / value_count as f64);
-    let (suggested_type, type_match_percentage, invalid_type_count) =
-        suggest_text_type(&non_empty_values);
+    let non_empty_count = value_count.saturating_sub(empty_count);
+    let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
+        non_empty_count,
+        boolean_count,
+        integer_count,
+        decimal_count,
+        date_count,
+    );
     Ok(Some(TextStatistics {
         empty_count,
         sentinel_count,
@@ -2640,7 +2672,14 @@ where
     let mut columns = Vec::with_capacity(source_columns.len());
     for (column_index, column) in source_columns.iter().enumerate() {
         ensure_not_cancelled(is_cancelled())?;
+        let column_start = 40 + ((column_index * 60) / source_columns.len().max(1)) as u8;
+        let column_end = 40 + (((column_index + 1) * 60) / source_columns.len().max(1)) as u8;
+        report("Analizando columnas", column_start);
         let null_count = column.null_count();
+        report(
+            "Contando valores únicos",
+            column_start.saturating_add((column_end - column_start) / 4),
+        );
         let unique_count = column
             .n_unique()
             .map_err(|error| format!("No se pudieron contar los valores únicos: {error}"))?
@@ -2651,28 +2690,17 @@ where
             ((row_count - null_count) as f64 / row_count as f64) * 100.0
         };
 
+        report(
+            "Analizando texto",
+            column_start.saturating_add((column_end - column_start) / 2),
+        );
         let text_statistics = text_statistics(column)?;
-        let numeric_statistics = numeric_statistics(column)?;
-        let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
-            let minimum = column
-                .min_reduce()
-                .map_err(|error| format!("No se pudo calcular el mínimo: {error}"))?
-                .into_value();
-            let maximum = column
-                .max_reduce()
-                .map_err(|error| format!("No se pudo calcular el máximo: {error}"))?
-                .into_value();
-            let mean = column
-                .mean_reduce()
-                .map_err(|error| format!("No se pudo calcular el promedio: {error}"))?
-                .into_value();
-
-            (
-                preview_value(minimum),
-                preview_value(maximum),
-                numeric_value(mean),
-            )
-        } else if let Some(statistics) = numeric_statistics.as_ref() {
+        report(
+            "Calculando estadísticas numéricas",
+            column_start.saturating_add((column_end - column_start) * 3 / 4),
+        );
+        let numeric_statistics = numeric_statistics(column, text_statistics.as_ref())?;
+        let (minimum, maximum, mean) = if let Some(statistics) = numeric_statistics.as_ref() {
             (
                 statistics.minimum.map(|value| value.to_string()),
                 statistics.maximum.map(|value| value.to_string()),
@@ -2734,9 +2762,7 @@ where
                 .map(|statistics| statistics.outlier_count),
         });
 
-        let completed_columns = column_index + 1;
-        let percent = 40 + ((completed_columns * 60) / source_columns.len()) as u8;
-        report("Analizando columnas", percent);
+        report("Analizando columnas", column_end);
     }
 
     if source_columns.is_empty() {
@@ -2832,8 +2858,7 @@ where
                 *normalized_counts.entry(key).or_insert(0) += count;
             }
             completed_chunks += 1;
-            let percent =
-                15 + ((completed_chunks.saturating_mul(25) / chunk_count).min(25)) as u8;
+            let percent = 15 + ((completed_chunks.saturating_mul(25) / chunk_count).min(25)) as u8;
             report("Normalizando filas parecidas", percent);
         }
 
@@ -14057,15 +14082,24 @@ mod tests {
             .iter()
             .any(|value| value == "session.analysis_checks"));
         assert_eq!(json["migrationReport"]["session"]["sheetName"], "Datos");
-        assert_eq!(json["migrationReport"]["session"]["stageLabel"], "Transformación");
+        assert_eq!(
+            json["migrationReport"]["session"]["stageLabel"],
+            "Transformación"
+        );
         assert_eq!(
             json["migrationReport"]["session"]["appliedOperationCount"],
             1
         );
         assert_eq!(json["migrationReport"]["session"]["qualityRuleCount"], 1);
         assert_eq!(json["migrationReport"]["session"]["analysisCheckCount"], 1);
-        assert_eq!(json["migrationReport"]["session"]["hasSourceReference"], true);
-        assert_eq!(json["migrationReport"]["session"]["hasSnapshotReference"], true);
+        assert_eq!(
+            json["migrationReport"]["session"]["hasSourceReference"],
+            true
+        );
+        assert_eq!(
+            json["migrationReport"]["session"]["hasSnapshotReference"],
+            true
+        );
         assert!(!json.to_string().contains("fixture://"));
         assert!(!json.to_string().contains("ventas-sinteticas.csv"));
         assert_eq!(json["recipe"]["renames"][0]["to"], "new_name");
