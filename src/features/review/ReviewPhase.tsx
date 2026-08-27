@@ -14,6 +14,7 @@ import type {
   ColumnProfile,
   NumericCorrelationMatrix,
   CategoricalGroupSummary,
+  TemporalSeriesSummary,
 } from "../../bridge";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
@@ -1003,6 +1004,13 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
             rowCount={profile.rowCount}
           />
         )}
+        {profile.temporalSeries?.map((summary, summaryIndex) => (
+          <TemporalTrendChart
+            key={summary.column}
+            summary={summary}
+            summaryIndex={summaryIndex}
+          />
+        ))}
         {distributionColumns.length > 0 && (
           <div className="quality-chart" role="group" aria-labelledby="quality-distribution-title">
             <h5 id="quality-distribution-title">Distribución numérica</h5>
@@ -1173,6 +1181,73 @@ function TemporalCoverageChart({
       <p className="profile-note">
         La cobertura representa valores no nulos; un rango ausente significa que el perfil no pudo
         calcular uno de sus límites.
+      </p>
+    </div>
+  );
+}
+
+function TemporalTrendChart({
+  summary,
+  summaryIndex,
+}: {
+  summary: TemporalSeriesSummary;
+  summaryIndex: number;
+}) {
+  const titleId = `quality-temporal-trend-title-${summaryIndex}`;
+  const tableLabel = `Tendencia temporal para ${summary.column}`;
+  const maximumCount = Math.max(1, ...summary.periods.map((period) => period.rowCount));
+
+  return (
+    <div
+      className="quality-chart quality-chart--wide quality-temporal-trend"
+      role="group"
+      aria-labelledby={titleId}
+    >
+      <h5 id={titleId}>Tendencia temporal · {summary.column}</h5>
+      <p className="quality-chart__note">
+        Conteo de filas por {summary.granularity === "month" ? "mes" : "año"}; solo se muestran
+        agregados del perfil, nunca valores de celdas. Se incluyen {summary.parsedRowCount.toLocaleString()}
+        de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString()} filas interpretables.
+      </p>
+      <div className="quality-temporal-trend__bars" role="list" aria-label={tableLabel}>
+        {summary.periods.map((period) => (
+          <div className="quality-temporal-trend__item" role="listitem" key={period.period}>
+            <div className="quality-temporal-trend__bar-wrap">
+              <span
+                className="quality-temporal-trend__bar"
+                aria-hidden="true"
+                style={{ height: `${(period.rowCount / maximumCount) * 100}%` }}
+              />
+            </div>
+            <strong title={period.period}>{period.period}</strong>
+            <small>{period.rowCount.toLocaleString()} filas</small>
+          </div>
+        ))}
+      </div>
+      <div className="quality-temporal-trend__table">
+        <table aria-label={tableLabel}>
+          <caption className="visually-hidden">{tableLabel}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Periodo</th>
+              <th scope="col">Filas</th>
+              <th scope="col">Porcentaje de valores interpretables</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.periods.map((period) => (
+              <tr key={`table-${period.period}`}>
+                <th scope="row">{period.period}</th>
+                <td>{period.rowCount.toLocaleString()}</td>
+                <td>{clampPercentage(period.percentage).toFixed(1)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="profile-note">
+        {summary.unparsedRowCount.toLocaleString()} filas sin periodo interpretable.
+        {summary.truncated ? " Los periodos más antiguos se agruparon para mantener la lectura rápida." : ""}
       </p>
     </div>
   );

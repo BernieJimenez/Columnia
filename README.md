@@ -325,7 +325,9 @@ abrir un proyecto.
 Cuando el perfil detecta columnas `Date`, `Datetime`, `Timestamp` o fechas
 textuales, Diagnóstico añade una tabla de **Cobertura temporal** con rango mínimo
 y máximo, filas con valor y porcentaje de cobertura. Esta señal usa únicamente
-el perfil agregado y no envía celdas a la interfaz.
+el perfil agregado y no envía celdas a la interfaz. También muestra una tendencia
+acotada por mes o año, con periodos vacíos visibles y una tabla de conteos
+equivalente para teclado y lector de pantalla.
 
 En **Preparar**, cuando el perfil encuentra duplicados exactos, **Eliminar duplicados** conserva
 la primera aparición y elimina las repeticiones posteriores de la sesión activa.

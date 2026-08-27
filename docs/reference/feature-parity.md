@@ -15,7 +15,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación; importación del núcleo representable de pipelines DataPrep v1–v3 | Parcial | Migrar catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
-| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura temporal y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, calendario, tendencias, filtros e interacciones |
+| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura y tendencia temporal acotadas y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, calendario diario, series temporales, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas, CLI y primera importación segura de sesiones DataPrep con validación previa | Parcial | Completar restauración de sesiones, round-trip, caché y actividad |
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales y confirmación visible de columnas protegidas | Parcial | Privacidad de recetas/reports/manifests y conectores remotos |
@@ -296,9 +296,11 @@ bloqueantes, políticas `on_missing`/`null_policy` incompatibles y parámetros
 malformados se omiten con un informe visible por regla. Una regla sin tolerancia
 se importa como bloqueante con máximo de inválidos igual a cero; nunca se
 convierte silenciosamente una política no equivalente en una aprobación.
-Los pipelines JSON todavía no se convierten automáticamente. Las sesiones
-guardadas ya se reconocen y dejan un resumen estructural sanitizado, pero la
-restauración y el round-trip hacia proyectos siguen pendientes en M1.
+Los pipelines JSON todavía no se convierten automáticamente en proyectos. Las
+sesiones guardadas ya se reconocen y dejan un resumen estructural sanitizado; la
+primera vertical también importa una sesión sintética, la reabre, la valida y la
+exporta sin publicar rutas. La restauración completa y el round-trip con fixtures
+representativas siguen pendientes en M1.
 
 ## Tercera entrega de paridad: script SQL
 
@@ -470,7 +472,7 @@ La migración tiene dos capas distintas:
    faltan el catálogo completo de limpieza
    sugerida, la optimización global del plan y el análisis exploratorio
    (distribuciones, correlaciones, grupos, nulos, centinelas, casi duplicados,
-   calendario y series temporales), la severidad y las políticas de calidad que
+   calendario diario y series temporales completas), la severidad y las políticas de calidad que
    aún no tienen equivalencia segura, los conectores PostgreSQL/MySQL/SQL Server,
    los bundles auditables y el procesamiento
    fuera de memoria; Excel y SQLite locales ya están cubiertos en la primera
@@ -479,8 +481,8 @@ La migración tiene dos capas distintas:
    JSON de reglas de calidad de DataPrep v1–v3, guarda el documento canónico
    Columnia v1 y produce una conversión segura con informe de omitidas. Los
    manifiestos de sesión dejan un resumen estructural sin rutas ni snapshots
-   activables; la restauración y la verificación de round-trip siguen pendientes
-   en la Fase M1 del roadmap.
+   activables; la restauración completa de sesiones y la verificación de round-trip
+   con hojas/historiales representativos siguen pendientes en la Fase M1 del roadmap.
 
 Columnia ya tiene una representación nativa distinta —Tauri/Rust/Polars,
 proyectos SQLite/Parquet y comandos estrechos—, por lo que la migración no

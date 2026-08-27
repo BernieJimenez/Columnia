@@ -138,6 +138,21 @@ export interface CategoricalGroupSummary {
   truncated: boolean;
 }
 
+export interface TemporalPeriod {
+  period: string;
+  rowCount: number;
+  percentage: number;
+}
+
+export interface TemporalSeriesSummary {
+  column: string;
+  granularity: "month" | "year";
+  periods: TemporalPeriod[];
+  parsedRowCount: number;
+  unparsedRowCount: number;
+  truncated: boolean;
+}
+
 export interface ColumnProfile {
   name: string;
   dataType: string;
@@ -172,6 +187,7 @@ export interface DatasetProfile {
   columns: ColumnProfile[];
   numericCorrelations?: NumericCorrelationMatrix;
   categoricalGroupSummaries?: CategoricalGroupSummary[];
+  temporalSeries?: TemporalSeriesSummary[];
 }
 
 export interface DatasetMutation {

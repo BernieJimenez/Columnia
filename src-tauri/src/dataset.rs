@@ -5,7 +5,7 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     hash::Hasher,
-    io::{BufReader, Read, Seek, SeekFrom, Write},
+    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -65,6 +65,11 @@ const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
+// Fingerprints are spilled into fixed buckets before sorting. Equal values
+// always land in the same bucket, while the in-memory sort only holds one
+// bucket instead of one entry per dataset row.
+const NORMALIZED_DUPLICATE_BUCKETS: usize = 256;
+const NORMALIZED_FINGERPRINT_BYTES: usize = std::mem::size_of::<NormalizedRowFingerprint>();
 const NUMERIC_HISTOGRAM_BUCKETS: usize = 12;
 const MAX_NUMERIC_CORRELATION_COLUMNS: usize = 12;
 const MAX_NUMERIC_CORRELATION_SAMPLE_ROWS: usize = 100_000;
@@ -73,6 +78,9 @@ const MAX_CATEGORICAL_GROUPS: usize = 8;
 const MAX_GROUP_CANDIDATES: usize = 2_048;
 const MAX_GROUP_LABEL_CHARS: usize = 120;
 const MIN_GROUP_COUNT: usize = 3;
+const MAX_TEMPORAL_COLUMNS: usize = 4;
+const MAX_TEMPORAL_PERIODS: usize = 48;
+const MAX_TEMPORAL_MONTH_SPAN: i64 = 36;
 const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -602,6 +610,25 @@ pub struct CategoricalGroupSummary {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TemporalPeriod {
+    period: String,
+    row_count: usize,
+    percentage: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TemporalSeriesSummary {
+    column: String,
+    granularity: String,
+    periods: Vec<TemporalPeriod>,
+    parsed_row_count: usize,
+    unparsed_row_count: usize,
+    truncated: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ColumnProfile {
     name: String,
     data_type: String,
@@ -644,6 +671,8 @@ pub struct DatasetProfile {
     numeric_correlations: Option<NumericCorrelationMatrix>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     categorical_group_summaries: Option<Vec<CategoricalGroupSummary>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    temporal_series: Option<Vec<TemporalSeriesSummary>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -3316,6 +3345,189 @@ where
     Ok((!summaries.is_empty()).then_some(summaries))
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Ord, PartialOrd)]
+struct TemporalPeriodKey {
+    year: i32,
+    month: u32,
+}
+
+fn temporal_period_key(value: NaiveDateTime) -> TemporalPeriodKey {
+    TemporalPeriodKey {
+        year: value.year(),
+        month: value.month(),
+    }
+}
+
+fn temporal_period_label(key: TemporalPeriodKey, granularity: &str) -> String {
+    if granularity == "year" {
+        format!("{:04}", key.year)
+    } else {
+        format!("{:04}-{:02}", key.year, key.month)
+    }
+}
+
+fn temporal_periods_between(
+    first: TemporalPeriodKey,
+    last: TemporalPeriodKey,
+    granularity: &str,
+    counts: &HashMap<TemporalPeriodKey, usize>,
+) -> Vec<(String, usize)> {
+    if granularity == "month" {
+        let span = (i64::from(last.year) - i64::from(first.year)) * 12 + i64::from(last.month)
+            - i64::from(first.month);
+        return (0..=span.max(0))
+            .map(|offset| {
+                let absolute_month =
+                    i64::from(first.year) * 12 + i64::from(first.month.saturating_sub(1)) + offset;
+                let year = absolute_month.div_euclid(12) as i32;
+                let month = absolute_month.rem_euclid(12) as u32 + 1;
+                let key = TemporalPeriodKey { year, month };
+                (
+                    temporal_period_label(key, granularity),
+                    counts.get(&key).copied().unwrap_or(0),
+                )
+            })
+            .collect();
+    }
+
+    let year_span = i64::from(last.year) - i64::from(first.year);
+    if (0..=MAX_TEMPORAL_PERIODS as i64).contains(&year_span) {
+        return (0..=year_span)
+            .map(|offset| {
+                let key = TemporalPeriodKey {
+                    year: first.year.saturating_add(offset as i32),
+                    month: 1,
+                };
+                let count = counts
+                    .iter()
+                    .filter(|(period, _)| period.year == key.year)
+                    .map(|(_, count)| *count)
+                    .sum();
+                (temporal_period_label(key, granularity), count)
+            })
+            .collect();
+    }
+
+    let mut years = counts.keys().map(|key| key.year).collect::<Vec<_>>();
+    years.sort_unstable();
+    years.dedup();
+    years
+        .into_iter()
+        .map(|year| {
+            let key = TemporalPeriodKey { year, month: 1 };
+            let count = counts
+                .iter()
+                .filter(|(period, _)| period.year == year)
+                .map(|(_, count)| *count)
+                .sum();
+            (temporal_period_label(key, granularity), count)
+        })
+        .collect()
+}
+
+fn temporal_series_summary<C>(
+    frame: &DataFrame,
+    column: &Column,
+    profile: &ColumnProfile,
+    is_cancelled: &C,
+) -> Result<Option<TemporalSeriesSummary>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut counts = HashMap::<TemporalPeriodKey, usize>::new();
+    let mut first = None;
+    let mut last = None;
+    let mut parsed_row_count = 0usize;
+
+    for row_index in 0..frame.height() {
+        if row_index % 4096 == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let value = column.get(row_index).map_err(|error| {
+            format!(
+                "No se pudo resumir la tendencia temporal de {}: {error}",
+                profile.name
+            )
+        })?;
+        let Some(datetime) = quality_datetime_value(value) else {
+            continue;
+        };
+        let key = temporal_period_key(datetime);
+        first = Some(first.map_or(key, |current: TemporalPeriodKey| current.min(key)));
+        last = Some(last.map_or(key, |current: TemporalPeriodKey| current.max(key)));
+        *counts.entry(key).or_insert(0) += 1;
+        parsed_row_count = parsed_row_count.saturating_add(1);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+
+    let (Some(first), Some(last)) = (first, last) else {
+        return Ok(None);
+    };
+    let month_span = (i64::from(last.year) - i64::from(first.year)) * 12 + i64::from(last.month)
+        - i64::from(first.month);
+    let granularity = if month_span <= MAX_TEMPORAL_MONTH_SPAN {
+        "month"
+    } else {
+        "year"
+    };
+    let mut raw_periods = temporal_periods_between(first, last, granularity, &counts);
+    raw_periods.retain(|(_, count)| *count > 0 || granularity == "month");
+
+    let truncated = raw_periods.len() > MAX_TEMPORAL_PERIODS;
+    if truncated {
+        let split = raw_periods.len() - (MAX_TEMPORAL_PERIODS - 1);
+        let previous_count = raw_periods[..split]
+            .iter()
+            .map(|(_, count)| *count)
+            .sum::<usize>();
+        let mut retained = vec![("Periodos anteriores".to_owned(), previous_count)];
+        retained.extend(raw_periods.into_iter().skip(split));
+        raw_periods = retained;
+    }
+    let denominator = parsed_row_count.max(1) as f64;
+    let periods = raw_periods
+        .into_iter()
+        .map(|(period, row_count)| TemporalPeriod {
+            period,
+            row_count,
+            percentage: (row_count as f64 / denominator) * 100.0,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Some(TemporalSeriesSummary {
+        column: profile.name.clone(),
+        granularity: granularity.to_owned(),
+        periods,
+        parsed_row_count,
+        unparsed_row_count: frame.height().saturating_sub(parsed_row_count),
+        truncated,
+    }))
+}
+
+fn temporal_series_summaries<C>(
+    frame: &DataFrame,
+    profiles: &[ColumnProfile],
+    is_cancelled: &C,
+) -> Result<Option<Vec<TemporalSeriesSummary>>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut summaries = Vec::new();
+    for (column, profile) in frame.columns().iter().zip(profiles) {
+        if summaries.len() >= MAX_TEMPORAL_COLUMNS
+            || profile.privacy_signal.is_some()
+            || (!matches!(column.dtype(), DataType::Date | DataType::Datetime(_, _))
+                && profile.suggested_type.as_deref() != Some("date"))
+        {
+            continue;
+        }
+        if let Some(summary) = temporal_series_summary(frame, column, profile, is_cancelled)? {
+            summaries.push(summary);
+        }
+    }
+    Ok((!summaries.is_empty()).then_some(summaries))
+}
+
 fn numeric_correlation_matrix<C>(
     frame: &DataFrame,
     profiles: &[ColumnProfile],
@@ -3557,10 +3769,17 @@ where
         categorical_group_summaries(frame, &columns, &is_cancelled)?
     };
 
+    let temporal_series = if columns.is_empty() {
+        None
+    } else {
+        report("Resumiendo tendencia temporal", 95);
+        temporal_series_summaries(frame, &columns, &is_cancelled)?
+    };
+
     let numeric_correlations = if columns.is_empty() {
         None
     } else {
-        report("Calculando correlaciones", 95);
+        report("Calculando correlaciones", 97);
         let correlations = numeric_correlation_matrix(frame, &columns, &is_cancelled)?;
         report("Analizando columnas", 100);
         correlations
@@ -3574,6 +3793,7 @@ where
         columns,
         numeric_correlations,
         categorical_group_summaries,
+        temporal_series,
     })
 }
 
@@ -3622,9 +3842,19 @@ where
 
     let columns = frame.columns();
     let chunk_count = frame.height().div_ceil(NORMALIZED_DUPLICATE_CHUNK_ROWS);
-    // A sorted vector keeps one compact 128-bit fingerprint per row. The old
-    // HashMap added a large control/count overhead for mostly-unique datasets.
-    let mut normalized_fingerprints = Vec::with_capacity(frame.height());
+    let spill_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
+    })?;
+    let bucket_paths = (0..NORMALIZED_DUPLICATE_BUCKETS)
+        .map(|bucket| {
+            spill_directory
+                .path()
+                .join(format!("fingerprints-{bucket:03}.bin"))
+        })
+        .collect::<Vec<_>>();
+    let mut bucket_writers = (0..NORMALIZED_DUPLICATE_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
     let (progress_sender, progress_receiver) = mpsc::sync_channel(2);
     let producer_result = std::thread::scope(|scope| {
         let producer = scope.spawn(move || {
@@ -3652,27 +3882,106 @@ where
         });
 
         let mut completed_chunks = 0_usize;
+        let mut spill_error = None;
         while let Ok((_, mut partial)) = progress_receiver.recv() {
-            normalized_fingerprints.append(&mut partial);
+            if spill_error.is_none() && !is_cancelled() {
+                for (fingerprint_index, fingerprint) in partial.drain(..).enumerate() {
+                    if fingerprint_index % 4096 == 0 && is_cancelled() {
+                        break;
+                    }
+                    let bucket = (fingerprint >> 120) as usize;
+                    let writer = if let Some(writer) = bucket_writers[bucket].as_mut() {
+                        writer
+                    } else {
+                        let file = match File::create(&bucket_paths[bucket]) {
+                            Ok(file) => file,
+                            Err(error) => {
+                                spill_error = Some(format!(
+                                    "No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}"
+                                ));
+                                break;
+                            }
+                        };
+                        bucket_writers[bucket]
+                            .get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+                    };
+                    if let Err(error) = writer.write_all(&fingerprint.to_le_bytes()) {
+                        spill_error = Some(format!(
+                            "No se pudieron guardar las huellas temporales de duplicados parecidos: {error}"
+                        ));
+                        break;
+                    }
+                }
+            }
             completed_chunks += 1;
             let percent = 15 + ((completed_chunks.saturating_mul(25) / chunk_count).min(25)) as u8;
             report("Normalizando filas parecidas", percent);
         }
 
-        producer
+        let producer_result = producer
             .join()
-            .map_err(|_| "El perfilado paralelo se interrumpió inesperadamente.".to_owned())?
+            .map_err(|_| "El perfilado paralelo se interrumpió inesperadamente.".to_owned())?;
+        producer_result?;
+        ensure_not_cancelled(is_cancelled())?;
+        if let Some(error) = spill_error {
+            return Err(error);
+        }
+
+        for writer in bucket_writers.iter_mut().flatten() {
+            writer.flush().map_err(|error| {
+                format!(
+                    "No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}"
+                )
+            })?;
+        }
+        drop(bucket_writers);
+        Ok(())
     });
     producer_result?;
 
-    ensure_not_cancelled(is_cancelled())?;
     report("Ordenando filas parecidas", 40);
-    normalized_fingerprints.par_sort_unstable();
+    let mut normalized_duplicate_row_count = 0usize;
+    for bucket_path in &bucket_paths {
+        ensure_not_cancelled(is_cancelled())?;
+        if !bucket_path.exists() {
+            continue;
+        }
+        let bytes = fs::metadata(bucket_path)
+            .map_err(|error| {
+                format!("No se pudo inspeccionar el almacenamiento temporal: {error}")
+            })?
+            .len();
+        if bytes % NORMALIZED_FINGERPRINT_BYTES as u64 != 0 {
+            return Err(
+                "El almacenamiento temporal de duplicados parecidos quedó incompleto.".to_owned(),
+            );
+        }
+        let fingerprint_count = usize::try_from(bytes / NORMALIZED_FINGERPRINT_BYTES as u64)
+            .map_err(|_| "El conteo de huellas temporales excede la capacidad local.".to_owned())?;
+        let file = File::open(bucket_path).map_err(|error| {
+            format!("No se pudo leer el almacenamiento temporal de duplicados parecidos: {error}")
+        })?;
+        let mut reader = BufReader::new(file);
+        let mut fingerprints = Vec::with_capacity(fingerprint_count);
+        let mut encoded = [0_u8; NORMALIZED_FINGERPRINT_BYTES];
+        for index in 0..fingerprint_count {
+            if index % 4096 == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            reader.read_exact(&mut encoded).map_err(|error| {
+                format!("No se pudo leer una huella temporal de duplicados parecidos: {error}")
+            })?;
+            fingerprints.push(u128::from_le_bytes(encoded));
+        }
+        fingerprints.sort_unstable();
+        normalized_duplicate_row_count = normalized_duplicate_row_count.saturating_add(
+            fingerprints
+                .windows(2)
+                .filter(|pair| pair[0] == pair[1])
+                .count(),
+        );
+    }
     ensure_not_cancelled(is_cancelled())?;
-    let normalized_duplicate_row_count = normalized_fingerprints
-        .windows(2)
-        .filter(|pair| pair[0] == pair[1])
-        .count();
     Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
 }
 
@@ -11963,8 +12272,13 @@ pub async fn get_dataset_profile(
                     && column.privacy_signal.is_none()
                     && column.unique_count >= 2
             });
+            let has_temporal_candidate = profile.columns.iter().any(|column| {
+                (column.data_type == "Date" || column.data_type.starts_with("Datetime"))
+                    || column.suggested_type.as_deref() == Some("date")
+            });
             if (profile.numeric_correlations.is_some() || !has_enough_numeric_columns)
                 && (profile.categorical_group_summaries.is_some() || !has_group_candidate)
+                && (profile.temporal_series.is_some() || !has_temporal_candidate)
             {
                 send_progress(&on_progress, "profile", "Perfil disponible", 100);
                 return Ok(profile.clone());
@@ -14953,6 +15267,34 @@ pub(crate) fn validate_project_profile(
             );
         }
     }
+    if let Some(summaries) = &profile.temporal_series {
+        if summaries.len() > MAX_TEMPORAL_COLUMNS
+            || summaries.iter().any(|summary| {
+                !matches!(summary.granularity.as_str(), "month" | "year")
+                    || summary.periods.is_empty()
+                    || summary.periods.len() > MAX_TEMPORAL_PERIODS
+                    || summary.parsed_row_count == 0
+                    || summary.parsed_row_count > profile.row_count
+                    || summary.unparsed_row_count
+                        != profile.row_count.saturating_sub(summary.parsed_row_count)
+                    || summary.periods.iter().any(|period| {
+                        period.period.is_empty()
+                            || period.period.chars().count() > 64
+                            || period.row_count > summary.parsed_row_count
+                            || !period.percentage.is_finite()
+                            || !(0.0..=100.0).contains(&period.percentage)
+                    })
+                    || summary
+                        .periods
+                        .iter()
+                        .map(|period| period.row_count)
+                        .sum::<usize>()
+                        != summary.parsed_row_count
+            })
+        {
+            return Err("El perfil guardado contiene tendencias temporales no válidas.".to_owned());
+        }
+    }
     let mut expected = profile_dataset_with_progress(frame, |_, _| {}, || false)
         .map_err(|_| "No se pudo validar el perfil guardado.".to_owned())?;
     // Los perfiles persistidos antes de introducir histogramas siguen siendo
@@ -15004,12 +15346,26 @@ pub(crate) fn validate_project_profile(
         (None, None) => {}
     }
     expected.categorical_group_summaries = None;
+    match (&expected.temporal_series, &profile.temporal_series) {
+        (Some(expected_series), Some(stored_series)) => {
+            if expected_series != stored_series {
+                return Err("El perfil guardado no coincide con el dataset.".to_owned());
+            }
+        }
+        (Some(_), None) => {}
+        (None, Some(_)) => {
+            return Err("El perfil guardado no coincide con el dataset.".to_owned());
+        }
+        (None, None) => {}
+    }
+    expected.temporal_series = None;
     let mut stored_without_histograms = profile.clone();
     for column in &mut stored_without_histograms.columns {
         column.histogram = None;
     }
     stored_without_histograms.numeric_correlations = None;
     stored_without_histograms.categorical_group_summaries = None;
+    stored_without_histograms.temporal_series = None;
     if expected != stored_without_histograms {
         return Err("El perfil guardado no coincide con el dataset.".to_owned());
     }
@@ -16591,6 +16947,98 @@ mod tests {
         assert!(!serialized.contains("francisco@example.com"));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn profiles_temporal_month_trend_with_empty_periods_and_bounded_payload() {
+        let frame = DataFrame::new(
+            5,
+            vec![Series::new(
+                "created_at".into(),
+                [
+                    "2024-01-15",
+                    "2024-02-15",
+                    "2024-02-20",
+                    "2024-04-01",
+                    "2025-01-01",
+                ],
+            )
+            .into_column()],
+        )
+        .expect("el frame temporal debe ser válido");
+
+        let profile = profile_dataset(&frame).expect("el perfil temporal debe calcularse");
+        let summary = profile
+            .temporal_series
+            .as_ref()
+            .and_then(|summaries| summaries.first())
+            .expect("debe calcular una tendencia para una fecha sugerida");
+
+        assert_eq!(summary.column, "created_at");
+        assert_eq!(summary.granularity, "month");
+        assert_eq!(summary.parsed_row_count, 5);
+        assert_eq!(summary.unparsed_row_count, 0);
+        assert!(!summary.truncated);
+        assert_eq!(summary.periods.len(), 13);
+        assert_eq!(summary.periods[0].period, "2024-01");
+        assert_eq!(summary.periods[0].row_count, 1);
+        assert_eq!(summary.periods[1].period, "2024-02");
+        assert_eq!(summary.periods[1].row_count, 2);
+        assert_eq!(summary.periods[2].period, "2024-03");
+        assert_eq!(summary.periods[2].row_count, 0);
+        assert_eq!(
+            summary.periods.last().map(|period| period.period.as_str()),
+            Some("2025-01")
+        );
+        assert_eq!(
+            summary
+                .periods
+                .iter()
+                .map(|period| period.row_count)
+                .sum::<usize>(),
+            5
+        );
+        assert!(serde_json::to_string(&profile)
+            .expect("el perfil debe serializar")
+            .contains("2024-02"));
+    }
+
+    #[test]
+    fn profiles_temporal_year_trend_keeps_recent_periods_with_fixed_limit() {
+        let dates = (1970..=2029)
+            .map(|year| format!("{year}-01-01"))
+            .collect::<Vec<_>>();
+        let frame = DataFrame::new(
+            dates.len(),
+            vec![Series::new("created_at".into(), dates).into_column()],
+        )
+        .expect("el frame temporal debe ser válido");
+
+        let profile = profile_dataset(&frame).expect("el perfil temporal debe calcularse");
+        let summary = profile
+            .temporal_series
+            .as_ref()
+            .and_then(|summaries| summaries.first())
+            .expect("debe calcular una tendencia anual");
+
+        assert_eq!(summary.granularity, "year");
+        assert_eq!(summary.parsed_row_count, 60);
+        assert!(summary.truncated);
+        assert_eq!(summary.periods.len(), MAX_TEMPORAL_PERIODS);
+        assert_eq!(summary.periods[0].period, "Periodos anteriores");
+        assert_eq!(summary.periods[0].row_count, 13);
+        assert_eq!(
+            summary.periods.last().map(|period| period.period.as_str()),
+            Some("2029")
+        );
+        assert_eq!(
+            summary
+                .periods
+                .iter()
+                .map(|period| period.row_count)
+                .sum::<usize>(),
+            60
+        );
     }
 
     #[test]

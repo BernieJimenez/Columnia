@@ -13,7 +13,8 @@
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, conserva
   opciones de entrega, reconoce metadatos de sesiones con fixtures sintéticas y
   ofrece una primera cobertura temporal y un mapeo seguro de sesiones al catálogo;
-  mantiene pendientes la restauración completa de sesiones y el round-trip hacia proyectos;
+  mantiene pendientes la restauración completa de sesiones y la cobertura integral del
+  round-trip hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.57.0`.
 - Implementación: iniciada el 2026-08-12.
@@ -371,10 +372,11 @@ el lateral de la aplicación, y `perf:i1` compara la inspección de 100 MiB con
 500 MiB a los datasets. La capacidad efectiva queda determinada por la RAM, el
 espacio en disco y los demás recursos disponibles; la materialización y las
 operaciones eager todavía pueden requerir varias veces el tamaño del archivo.
-El conteo de duplicados normalizados usa bloques paralelos, un vector compacto de
-huellas XXH3-128 ordenado con Rayon y cancelación cooperativa entre fases para
-aprovechar los hilos de CPU sin la sobrecarga de un `HashMap` por fila; el runtime
-Tauri no usa GPU.
+El conteo de duplicados normalizados usa bloques paralelos y derrame temporal de
+huellas XXH3-128 en 256 cubetas: solo una cubeta se ordena en RAM y la cancelación
+cooperativa limpia el directorio temporal. Esto reduce el pico adicional de memoria
+sin guardar valores del dataset, aunque la materialización del `DataFrame` y otras
+operaciones eager siguen siendo el límite principal; el runtime Tauri no usa GPU.
 
 **Avance 2026-08-12:** `npm run build`, veinticuatro pruebas Vitest y dieciocho pruebas Rust
 pasan. El comando Rust `pick_and_load_csv` abre el selector nativo sin aceptar
@@ -1149,9 +1151,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
   calendario, tendencias y series temporales, siempre con tabla accesible equivalente. Las
   primeras ampliaciones ya incluyen ranking de patrones de nulos, validación
-  visual de formatos, grupos categóricos, cobertura temporal y una matriz de
-  correlaciones de Pearson acotada, todas con tabla equivalente; calendario,
-  tendencias y series temporales siguen pendientes.
+  visual de formatos, grupos categóricos, cobertura temporal, tendencias por
+  mes/año y una matriz de correlaciones de Pearson acotada, todas con tabla
+  equivalente; calendario diario y series temporales completas siguen pendientes.
 - [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
   `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.
@@ -1292,9 +1294,12 @@ del original.
 - [ ] Añadir compatibilidad de bridge solo donde sea necesaria para la migración:
   contrato versionado, operación larga/cancelable, errores sanitizados y
   compatibilidad de recetas; no exponer la allowlist Python completa.
-- [ ] Verificar round-trip y regresión con fixtures: cargar/importar → revisar →
-  preparar → validar → exportar, comparar conteos/columnas/tipos y comprobar que
-  una importación parcial no reemplaza un proyecto válido.
+- [x] Verificar una primera vertical de round-trip con una sesión sintética:
+  importar → reabrir → validar → exportar, comparando conteos, columnas y tipos;
+  los casos de importación parcial conservan la regresión que impide reemplazar un
+  proyecto válido.
+- [ ] Completar el round-trip con fixtures representativas de sesiones, hojas,
+  historial y artefactos que todavía requieran restauración manual.
 
 #### Límites de alcance de M1
 
@@ -1324,6 +1329,7 @@ del original.
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
 | 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |
 | 2026-08-26 | Extender la lectura streaming a Parquet mediante `scan_parquet`, conservando `parallel: None`, baja memoria y `rechunk` desactivado para evitar picos innecesarios | Implementada en la carga inicial; cacheado, joins, comparación e historial incremental siguen en cola |
+| 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
 | 2026-08-12 | Usar `../dataprepv1.1/` como referencia funcional, no como plantilla técnica automática | Aprobada |
 | 2026-08-12 | Nombre del producto y del proyecto: `Columnia` | Aprobada |
@@ -1412,8 +1418,8 @@ del original.
 | 2026-08-24 | Versión 0.55.0: la migración de contratos de calidad genera un informe auditable con conteos, omisiones, advertencias, acciones manuales y SHA-256 del artefacto sin exponer rutas ni valores | Implementada |
 | 2026-08-24 | Versión 0.56.0: los pipelines DataPrep conservan opciones de entrega compatibles, normalizan XLSX a Excel y publican informe con warnings para semánticas de exportación omitidas, sin exponer rutas | Implementada |
 | 2026-08-24 | Versión 0.57.0: inventario y fixtures sintéticas de migración para pipelines, sesiones, calidad y legacy; los metadatos de sesión se reconocen y se omiten con warnings sanitizados | Implementada |
-| 2026-08-26 | P1 añade cobertura temporal agregada en Review: rangos Date/Datetime/Timestamp, filas con valor y porcentaje de cobertura con tabla equivalente; el calendario y las series temporales completas siguen pendientes | Implementada |
-| 2026-08-26 | M1 añade una slice segura para mapear sesiones DataPrep al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta y publicación transaccional sin tocar el dataset activo; la restauración completa y el round-trip siguen pendientes | Implementada |
+| 2026-08-26 | P1 añade cobertura y tendencia temporal agregadas en Review: rangos Date/Datetime/Timestamp, conteos por mes/año, filas interpretables y porcentaje con tabla equivalente; el calendario diario y las series temporales completas siguen pendientes | Implementada |
+| 2026-08-26 | M1 añade una slice segura para mapear sesiones DataPrep al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta y publicación transaccional sin tocar el dataset activo; una prueba nativa cubre importar → reabrir → validar → exportar, mientras la restauración completa sigue pendiente | Implementada |
 
 ## 10. Fuentes de esta revisión
 

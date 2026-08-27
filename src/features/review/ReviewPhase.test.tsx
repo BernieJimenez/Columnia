@@ -105,6 +105,20 @@ const profile: DatasetProfile = {
 
 const temporalProfile: DatasetProfile = {
   ...profile,
+  temporalSeries: [
+    {
+      column: "fecha",
+      granularity: "month",
+      parsedRowCount: 108,
+      unparsedRowCount: 12,
+      truncated: false,
+      periods: [
+        { period: "2024-01", rowCount: 24, percentage: 22.2 },
+        { period: "2024-02", rowCount: 36, percentage: 33.3 },
+        { period: "2024-03", rowCount: 48, percentage: 44.4 },
+      ],
+    },
+  ],
   columns: [
     ...profile.columns,
     {
@@ -419,6 +433,11 @@ describe("ReviewPhase", () => {
     expect(table).toHaveTextContent("actualizado_en");
     expect(table).toHaveTextContent("Fecha y hora");
     expect(table).toHaveTextContent("2024-12-31 18:30:00 UTC");
+    expect(screen.getByRole("heading", { name: "Tendencia temporal · fecha" })).toBeInTheDocument();
+    const trendTable = screen.getByRole("table", { name: "Tendencia temporal para fecha" });
+    expect(trendTable).toHaveTextContent("2024-02");
+    expect(trendTable).toHaveTextContent("36");
+    expect(trendTable).toHaveTextContent("33.3%");
   });
 
   it("exige y emite una decisión explícita por conflicto", () => {

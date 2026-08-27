@@ -2153,6 +2153,99 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_roundtrips_through_review_validation_and_export() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        let output = directory.path().join("validated.csv");
+        fs::write(&source, "value,label\n1,uno\n2,dos\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Pipeline ventas",
+                "source_path": "source.csv",
+                "stage_label": "Preparar",
+                "transform_config": {"rename_text": "value -> amount"},
+                "quality_rules": [{
+                    "column": "amount",
+                    "kind": "not_null",
+                    "maxInvalid": 0
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let plan = dataset::load_dataprep_session_migration_plan(&session)
+            .expect("la sesión válida debe producir un plan importable");
+        assert!(plan.can_create_project);
+        assert_eq!(
+            plan.source_status,
+            dataset::SessionReferenceStatus::Available
+        );
+        assert_eq!(plan.source_file_name.as_deref(), Some("source.csv"));
+        assert_eq!(plan.stage_label.as_deref(), Some("Preparar"));
+        assert_eq!(plan.quality_rules.len(), 1);
+
+        let imported = import_dataprep_session_project_from_path(
+            &store,
+            &session,
+            Some("Ventas importadas".to_owned()),
+            None,
+            None,
+        )
+        .expect("la sesión debe convertirse en un proyecto");
+
+        let reopened_state = DatasetState::default();
+        let opened = store
+            .open(&reopened_state, imported.id.clone())
+            .expect("el proyecto importado debe poder reabrirse");
+        assert_eq!(opened.project.name, "Ventas importadas");
+        assert_eq!(
+            (opened.dataset.row_count, opened.dataset.column_count),
+            (2, 2)
+        );
+        assert_eq!(opened.dataset.columns[0].name, "amount");
+        assert_eq!(opened.dataset.columns[0].data_type, "str");
+        assert_eq!(opened.workspace.quality_rules.len(), 1);
+        assert!(opened.workspace.recipe_draft.is_some());
+        let active = reopened_state
+            .active_project_snapshot()
+            .expect("el estado reabierto debe conservar el frame activo");
+
+        let validation = dataset::evaluate_quality_rules_for_automation(
+            &active.frame,
+            &opened.workspace.quality_rules,
+        )
+        .expect("las reglas migradas deben validarse contra el dataset reabierto");
+        assert!(validation.passed);
+        assert_eq!(validation.row_count, 2);
+        assert_eq!(validation.total_rules, 1);
+
+        let exported = dataset::export_frame_for_automation_with_recipe(
+            &active.frame,
+            &output,
+            dataset::ExportFormat::Csv,
+            opened.workspace.recipe_draft.as_ref(),
+        )
+        .expect("el dataset validado debe poder exportarse");
+        assert_eq!(exported.file_name, "validated.csv");
+        let exported_csv = fs::read_to_string(&output).unwrap();
+        assert!(exported_csv.starts_with("amount,label"));
+        assert!(exported_csv.contains("1,uno"));
+        assert!(!exported_csv.contains("source.csv"));
+
+        let inspect = store
+            .stored_project(&store.connection().unwrap(), &imported.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(inspect.summary.row_count, 2);
+        assert_eq!(inspect.summary.column_count, 2);
+    }
+
+    #[test]
     fn automation_inspect_is_read_only_and_reports_recipe_history_and_profile() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("projects");
