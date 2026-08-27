@@ -810,6 +810,12 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
 
 function QualityVisuals({ profile }: { profile: DatasetProfile }) {
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
+  const nullPatternColumns = profile.columns
+    .filter((column) => column.nullCount > 0)
+    .sort((left, right) => {
+      const byNullCount = right.nullCount - left.nullCount;
+      return byNullCount || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+    });
   const distributionColumns = numericColumns.filter((column) =>
     [column.minimum, column.maximum, column.firstQuartile, column.median, column.thirdQuartile]
       .every((value) => value !== null && Number.isFinite(Number(value))),
@@ -877,6 +883,52 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+        {nullPatternColumns.length > 0 && (
+          <div className="quality-chart quality-chart--wide" role="group" aria-labelledby="quality-null-patterns-title">
+            <h5 id="quality-null-patterns-title">Patrones de nulos</h5>
+            <p className="quality-chart__note">
+              Prioriza columnas con más valores ausentes antes de transformar o exportar.
+            </p>
+            <div className="quality-chart__bars" role="list" aria-label="Patrones de nulos por columna">
+              {nullPatternColumns.map((column) => {
+                const percentage = clampPercentage(100 - column.completenessPercentage);
+
+                return (
+                  <div className="quality-chart__item" role="listitem" key={column.name}>
+                    <div className="quality-chart__label">
+                      <span title={column.name}>{column.name}</span>
+                      <strong>{column.nullCount.toLocaleString()} nulos · {percentage.toFixed(1)}%</strong>
+                    </div>
+                    <div className="quality-chart__track" aria-hidden="true">
+                      <span className="quality-chart__track-fill--warning" style={{ width: `${percentage}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="quality-chart__table">
+              <table aria-label="Tabla de patrones de nulos">
+                <caption className="visually-hidden">Tabla de patrones de nulos por columna</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Columna</th>
+                    <th scope="col">Nulos</th>
+                    <th scope="col">Porcentaje nulo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nullPatternColumns.map((column) => (
+                    <tr key={column.name}>
+                      <th scope="row">{column.name}</th>
+                      <td>{column.nullCount.toLocaleString()}</td>
+                      <td>{clampPercentage(100 - column.completenessPercentage).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

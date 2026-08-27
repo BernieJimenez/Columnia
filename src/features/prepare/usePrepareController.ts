@@ -15,6 +15,7 @@ import {
   removeEmptyColumns,
   removeHighNullColumns,
   removeDuplicates,
+  removeNearDuplicates,
   redoLastChange,
   trimTextValues,
   undoLastChange,
@@ -63,6 +64,26 @@ export function usePrepareController({
       setChangeStatus({
         kind: "applied",
         message: `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas adicionales.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyNearDuplicateRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "near_duplicates" });
+    try {
+      const result = await removeNearDuplicates();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: result.affectedRowCount === 0
+          ? "No se detectaron duplicados parecidos adicionales."
+          : `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas duplicadas parecidas. La primera fila de cada grupo y las copias exactas se conservaron.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -364,6 +385,7 @@ export function usePrepareController({
     resetChangeStatus,
     refreshHistory,
     applyDuplicateRemoval,
+    applyNearDuplicateRemoval,
     applyEmptyRowRemoval,
     applyConstantColumnRemoval,
     applyEmptyColumnRemoval,

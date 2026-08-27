@@ -682,6 +682,10 @@ export function removeDuplicates(): Promise<DatasetMutation> {
   return invoke<DatasetMutation>("remove_duplicates");
 }
 
+export function removeNearDuplicates(): Promise<DatasetMutation> {
+  return invoke<DatasetMutation>("remove_near_duplicates");
+}
+
 export function removeEmptyRows(): Promise<DatasetMutation> {
   return invoke<DatasetMutation>("remove_empty_rows");
 }

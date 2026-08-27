@@ -733,6 +733,7 @@ export function App() {
                 onAnalyzeQuality={analyzeQuality}
                 onCancelProfile={() => cancelActiveOperation("profile")}
                 onRemoveDuplicates={prepare.applyDuplicateRemoval}
+                onRemoveNearDuplicates={prepare.applyNearDuplicateRemoval}
                 onRemoveEmptyRows={prepare.applyEmptyRowRemoval}
                 onRemoveConstantColumns={prepare.applyConstantColumnRemoval}
                 onRemoveEmptyColumns={prepare.applyEmptyColumnRemoval}

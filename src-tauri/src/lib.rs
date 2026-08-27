@@ -103,6 +103,7 @@ pub fn run() {
             dataset::save_quality_rules_document,
             dataset::pick_quality_rules_migration,
             dataset::remove_duplicates,
+            dataset::remove_near_duplicates,
             dataset::remove_empty_rows,
             dataset::enable_row_audit,
             dataset::remove_constant_columns,

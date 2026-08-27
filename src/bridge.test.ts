@@ -29,6 +29,7 @@ import {
   pickTransformRecipe,
   queryDataset,
   removeDuplicates,
+  removeNearDuplicates,
   removeConstantColumns,
   removeEmptyColumns,
   removeHighNullColumns,
@@ -254,6 +255,14 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(8, "apply_safe_corrections");
     expect(invoke).toHaveBeenNthCalledWith(9, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(10, "redo_last_change");
+  });
+
+  it("invoca la eliminación de duplicados parecidos sin enviar valores", async () => {
+    vi.mocked(invoke).mockResolvedValue({ dataset: {}, affectedRowCount: 2 });
+
+    await expect(removeNearDuplicates()).resolves.toEqual({ dataset: {}, affectedRowCount: 2 });
+
+    expect(invoke).toHaveBeenCalledWith("remove_near_duplicates");
   });
 
   it("activa la columna reservada de trazabilidad sin enviar rutas", async () => {

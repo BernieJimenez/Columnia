@@ -237,6 +237,49 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activar trazabilidad" }));
     expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });
+
+  it("confirma el impacto de duplicados parecidos sin exponer valores y permite cancelar", () => {
+    const onRemoveNearDuplicates = vi.fn();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onAnalyzeQuality={() => undefined}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveNearDuplicates={onRemoveNearDuplicates}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeSentinels={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" });
+    expect(dialog).toHaveTextContent("1 filas");
+    expect(dialog).not.toHaveTextContent("Ana");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onRemoveNearDuplicates).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados parecidos" }));
+    expect(onRemoveNearDuplicates).toHaveBeenCalledOnce();
+  });
 });
 
 describe("TransformRecipeEditor", () => {

@@ -3285,6 +3285,106 @@ fn remove_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String
     Ok((cleaned, affected_row_count))
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct NearDuplicateFingerprint {
+    normalized: NormalizedRowFingerprint,
+    exact: u128,
+    row_index: usize,
+}
+
+fn row_fingerprint(
+    columns: &[Column],
+    row_index: usize,
+    normalize_values: bool,
+) -> Result<u128, String> {
+    let mut hasher = Xxh3::with_seed(0);
+
+    for column in columns {
+        let value = column.get(row_index).map_err(|error| {
+            format!("No se pudieron comparar las filas para detectar duplicados: {error}")
+        })?;
+        match value {
+            AnyValue::Null => hasher.write_u8(0),
+            value => {
+                let display = preview_value(value).unwrap_or_default();
+                let value = if normalize_values {
+                    normalize_text_value(&display, true)
+                } else {
+                    display
+                };
+                hasher.write_u8(1);
+                hasher.write_u64(value.len() as u64);
+                hasher.write(value.as_bytes());
+            }
+        }
+    }
+
+    Ok(hasher.digest128())
+}
+
+fn remove_near_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
+    if frame.height() < 2 {
+        return Ok((frame.clone(), 0));
+    }
+
+    let columns = frame.columns();
+    let mut fingerprints = (0..frame.height())
+        .into_par_iter()
+        .map(|row_index| {
+            Ok(NearDuplicateFingerprint {
+                normalized: normalized_row_fingerprint(columns, row_index)?,
+                exact: row_fingerprint(columns, row_index, false)?,
+                row_index,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    fingerprints
+        .par_sort_unstable_by_key(|fingerprint| (fingerprint.normalized, fingerprint.row_index));
+
+    let mut keep = vec![true; frame.height()];
+    let mut removed_count = 0;
+    let mut group_start = 0;
+    while group_start < fingerprints.len() {
+        let normalized = fingerprints[group_start].normalized;
+        let mut group_end = group_start + 1;
+        while group_end < fingerprints.len() && fingerprints[group_end].normalized == normalized {
+            group_end += 1;
+        }
+
+        // Keep the earliest normalized row. Exact repeats in the same normalized
+        // group stay untouched so this operation only handles the near-duplicate delta.
+        let mut seen_exact = HashSet::with_capacity(group_end - group_start);
+        for (position, fingerprint) in fingerprints[group_start..group_end].iter().enumerate() {
+            if position == 0 {
+                seen_exact.insert(fingerprint.exact);
+                continue;
+            }
+            if !seen_exact.insert(fingerprint.exact) {
+                continue;
+            }
+            keep[fingerprint.row_index] = false;
+            removed_count += 1;
+        }
+
+        group_start = group_end;
+    }
+
+    if removed_count == 0 {
+        return Ok((frame.clone(), 0));
+    }
+
+    let cleaned = frame
+        .filter(&BooleanChunked::from_slice(
+            "near_duplicate_row".into(),
+            &keep,
+        ))
+        .map_err(|error| {
+            format!("No se pudieron eliminar las filas duplicadas parecidas: {error}")
+        })?;
+    Ok((cleaned, removed_count))
+}
+
 fn remove_empty_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
     let keep = (0..frame.height())
         .map(|row_index| {
@@ -4951,6 +5051,25 @@ fn build_recipe_migration_report(
     }
 }
 
+fn migration_session_field<'a>(
+    root: &'a JsonMap<String, JsonValue>,
+    key: &str,
+) -> Option<&'a JsonValue> {
+    let camel_case = match key {
+        "source_path" => "sourcePath",
+        "snapshot_path" => "snapshotPath",
+        "sheet_name" => "sheetName",
+        "stage_label" => "stageLabel",
+        "applied_ops" => "appliedOps",
+        "quality_rules" => "qualityRules",
+        "analysis_checks" => "analysisChecks",
+        _ => return root.get(key),
+    };
+    root.get(key)
+        .filter(|value| !value.is_null())
+        .or_else(|| root.get(camel_case))
+}
+
 fn migration_session_metadata(
     root: &JsonMap<String, JsonValue>,
 ) -> Result<Option<SessionMigrationMetadata>, String> {
@@ -4964,13 +5083,13 @@ fn migration_session_metadata(
         "analysis_checks",
     ]
     .iter()
-    .any(|key| root.get(*key).is_some_and(|value| !value.is_null()));
+    .any(|key| migration_session_field(root, key).is_some_and(|value| !value.is_null()));
     if !has_session_fields {
         return Ok(None);
     }
 
     let optional_text = |key: &str| -> Result<Option<String>, String> {
-        let Some(value) = root.get(key) else {
+        let Some(value) = migration_session_field(root, key) else {
             return Ok(None);
         };
         if value.is_null() {
@@ -4983,7 +5102,7 @@ fn migration_session_metadata(
             .ok_or_else(|| format!("El metadato de sesión '{key}' debe ser texto."))
     };
     let count_array = |key: &str| -> Result<usize, String> {
-        let Some(value) = root.get(key) else {
+        let Some(value) = migration_session_field(root, key) else {
             return Ok(0);
         };
         if value.is_null() {
@@ -4994,19 +5113,21 @@ fn migration_session_metadata(
             .map(Vec::len)
             .ok_or_else(|| format!("El metadato de sesión '{key}' debe ser un arreglo."))
     };
-    let analysis_check_count = match root.get("analysis_checks") {
+    let analysis_check_count = match migration_session_field(root, "analysis_checks") {
         None | Some(JsonValue::Null) => 0,
-        Some(value) => value.as_object().map(JsonMap::len).ok_or_else(|| {
-            "El metadato de sesión 'analysis_checks' debe ser un objeto.".to_owned()
-        })?,
+        Some(value) => value
+            .as_object()
+            .map(JsonMap::len)
+            .or_else(|| value.as_array().map(Vec::len))
+            .ok_or_else(|| {
+                "El metadato de sesión 'analysis_checks' debe ser un objeto o arreglo.".to_owned()
+            })?,
     };
 
     Ok(Some(SessionMigrationMetadata {
-        has_source_reference: root
-            .get("source_path")
+        has_source_reference: migration_session_field(root, "source_path")
             .is_some_and(|value| !value.is_null()),
-        has_snapshot_reference: root
-            .get("snapshot_path")
+        has_snapshot_reference: migration_session_field(root, "snapshot_path")
             .is_some_and(|value| !value.is_null()),
         sheet_name: optional_text("sheet_name")?,
         stage_label: optional_text("stage_label")?,
@@ -5243,11 +5364,23 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
             ));
         }
     }
-    for key in ["analysis", "quality_rules", "quality"] {
+    for (key, canonical_key) in [
+        ("analysis", "analysis"),
+        ("quality_rules", "quality_rules"),
+        ("qualityRules", "quality_rules"),
+        ("quality", "quality"),
+    ] {
         if root.get(key).is_some_and(|value| !value.is_null()) {
-            push_migration_operation(&mut omitted_operations, key);
+            if key != canonical_key
+                && root
+                    .get(canonical_key)
+                    .is_some_and(|value| !value.is_null())
+            {
+                continue;
+            }
+            push_migration_operation(&mut omitted_operations, canonical_key);
             warnings.push(recipe_migration_warning(
-                key,
+                canonical_key,
                 "omitted",
                 "El artefacto contiene un bloque que requiere una migración separada.",
             ));
@@ -5260,7 +5393,7 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
         "sheet_name",
         "stage_label",
     ] {
-        if root.get(key).is_some_and(|value| !value.is_null()) {
+        if migration_session_field(root, key).is_some_and(|value| !value.is_null()) {
             let path = format!("session.{key}");
             push_migration_operation(&mut omitted_operations, &path);
             warnings.push(recipe_migration_warning(
@@ -5270,7 +5403,7 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
             ));
         }
     }
-    if let Some(applied_ops) = root.get("applied_ops") {
+    if let Some(applied_ops) = migration_session_field(root, "applied_ops") {
         let count = applied_ops
             .as_array()
             .ok_or_else(|| "applied_ops de la sesión DataPrep debe ser un arreglo.".to_owned())?
@@ -11035,6 +11168,34 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
 }
 
 #[tauri::command]
+pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, affected_row_count) = remove_near_duplicate_rows(&dataset.frame)?;
+
+        let preview = if affected_row_count > 0 {
+            publish_candidate(dataset, cleaned, "Eliminar filas duplicadas parecidas")?
+        } else {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        };
+
+        Ok(DatasetMutation {
+            dataset: preview,
+            affected_row_count,
+        })
+    })
+    .await
+    .map_err(|error| format!("La eliminación de duplicados parecidos se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -14519,6 +14680,38 @@ mod tests {
     }
 
     #[test]
+    fn imports_camel_case_session_fixture_without_exposing_paths() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio")
+            .join("fixtures/migration/dataprep-session-v1-camel.json");
+        let loaded = load_recipe_file(&fixture)
+            .expect("la sesión camelCase DataPrep debe reducirse a receta revisable");
+        let json = serde_json::to_value(&loaded).expect("la sesión convertida debe serializarse");
+        let report = &json["migrationReport"];
+
+        assert_eq!(report["session"]["sheetName"], "Datos");
+        assert_eq!(report["session"]["stageLabel"], "Revisión");
+        assert_eq!(report["session"]["appliedOperationCount"], 2);
+        assert_eq!(report["session"]["qualityRuleCount"], 2);
+        assert_eq!(report["session"]["analysisCheckCount"], 3);
+        assert_eq!(report["session"]["hasSourceReference"], true);
+        assert_eq!(report["session"]["hasSnapshotReference"], true);
+        assert!(report["omittedOperations"]
+            .as_array()
+            .expect("el informe debe listar omisiones")
+            .iter()
+            .any(|value| value == "session.applied_ops"));
+        assert!(report["omittedOperations"]
+            .as_array()
+            .expect("el informe debe listar omisiones")
+            .iter()
+            .any(|value| value == "quality_rules"));
+        assert!(!json.to_string().contains("fixture://"));
+        assert!(!json.to_string().contains("ventas-camel.csv"));
+    }
+
+    #[test]
     fn imports_synthetic_legacy_fixture_as_columnia_recipe() {
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -15918,6 +16111,49 @@ mod tests {
 
         assert_eq!(profile.duplicate_row_count, 1);
         assert_eq!(profile.near_duplicate_row_count, 1);
+    }
+
+    #[test]
+    fn removes_near_duplicates_stably_without_removing_exact_repeats() {
+        let frame = df![
+            "city" => &[" Ana ", "Ana", " Ana ", "Luis", " luis "],
+            "value" => &[1_i64, 1, 1, 2, 2]
+        ]
+        .unwrap();
+
+        let (cleaned, affected_row_count) =
+            remove_near_duplicate_rows(&frame).expect("los duplicados parecidos deben eliminarse");
+        let cities = cleaned.column("city").unwrap().str().unwrap();
+
+        assert_eq!(affected_row_count, 2);
+        assert_eq!(cleaned.height(), 3);
+        assert_eq!(cities.get(0), Some(" Ana "));
+        assert_eq!(cities.get(1), Some(" Ana "));
+        assert_eq!(cities.get(2), Some("Luis"));
+    }
+
+    #[test]
+    fn near_duplicate_removal_publishes_a_reversible_history_entry() {
+        let path = temporary_csv("city,value\n Ana ,1\nAna,1\n Ana ,1\nLuis,2\n luis ,2\n");
+        let (original, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (cleaned, affected_row_count) = remove_near_duplicate_rows(&original)
+            .expect("los duplicados parecidos deben poder eliminarse");
+        assert_eq!(affected_row_count, 2);
+
+        let mut dataset = loaded_dataset(path.clone(), original);
+        let preview =
+            publish_candidate(&mut dataset, cleaned, "Eliminar filas duplicadas parecidas")
+                .expect("la mutación debe publicarse");
+
+        assert_eq!(preview.row_count, 3);
+        assert_eq!(
+            dataset.history.entries[1].label,
+            "Eliminar filas duplicadas parecidas"
+        );
+        let undone = undo_dataset(&mut dataset).expect("la mutación debe poder deshacerse");
+        assert_eq!(undone.dataset.row_count, 5);
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]

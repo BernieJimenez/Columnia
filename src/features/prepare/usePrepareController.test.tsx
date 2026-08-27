@@ -48,6 +48,7 @@ function ControllerHarness({
   });
   return <>
     <button type="button" onClick={controller.applyDuplicateRemoval}>Duplicar</button>
+    <button type="button" onClick={controller.applyNearDuplicateRemoval}>Parecidos</button>
     <button type="button" onClick={controller.applyConstantColumnRemoval}>Constantes</button>
     <button type="button" onClick={controller.applyEmptyColumnRemoval}>Vacías</button>
     <button type="button" onClick={controller.applyHighNullColumnRemoval}>Alta nulidad</button>
@@ -76,6 +77,24 @@ describe("usePrepareController", () => {
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
     expect(screen.getByTestId("history-index")).toHaveTextContent("1");
+  });
+
+  it("publica la eliminación de parecidos y refresca el historial", async () => {
+    vi.spyOn(bridge, "removeNearDuplicates").mockResolvedValue({ dataset, affectedRowCount: 1 });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Parecidos" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se eliminaron 1 filas duplicadas parecidas.",
+    ));
+    expect(bridge.removeNearDuplicates).toHaveBeenCalledOnce();
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
   });
 
   it("restaura dataset e historial al deshacer e invalida resultados derivados", async () => {

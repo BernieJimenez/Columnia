@@ -28,6 +28,7 @@
     "migration/dataprep-pipeline-v3.json",
     "migration/dataprep-quality-v3.json",
     "migration/dataprep-session-v1.json",
+    "migration/dataprep-session-v1-camel.json",
     "migration/legacy-recipe-v1.json",
     "performance/i1-benchmark-baseline-v1.json",
     "performance/performance-baseline-v1.json"

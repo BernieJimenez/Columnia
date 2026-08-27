@@ -1116,10 +1116,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   las mutaciones posteriores conservan/añaden la etiqueta de operación y la
   columna queda protegida de la limpieza textual general.
 - [ ] Completar la migración del catálogo de limpieza sugerida: identificadores,
-  eliminación difusa con confirmación explícita por impacto, PII y las reglas
-  avanzadas que aún no tengan una acción reversible; ya están cubiertos los
-  duplicados exactos/parecidos como señal, vacíos, constantes, alta nulidad,
-  centinelas, imputación conservadora, booleanos y auditoría `_cambios`.
+  PII y las reglas avanzadas que aún no tengan una acción reversible. La
+  eliminación difusa ya tiene una primera acción implementada: confirma el
+  impacto agregado, conserva la primera fila/orden y las copias exactas, y
+  permite deshacer; siguen pendientes identificadores, PII accionable y las
+  reglas restantes. También están cubiertos como señal vacíos, constantes,
+  alta nulidad, centinelas, imputación conservadora, booleanos y auditoría
+  `_cambios`.
 - [x] Añadir una visualización accesible de distribución numérica tipo boxplot
   usando mínimo, cuartiles, mediana y máximo, con tabla exacta equivalente.
 - [x] Añadir una primera visualización de histogramas numéricos por intervalos,
@@ -1128,7 +1131,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
   distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
-  calendario y series temporales, siempre con tabla accesible equivalente.
+  calendario y series temporales, siempre con tabla accesible equivalente. La
+  primera ampliación añade un ranking visual y tabla de patrones de nulos para
+  priorizar columnas incompletas; correlaciones, grupos y series temporales
+  siguen pendientes.
 - [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
   `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.
@@ -1232,7 +1238,8 @@ del original.
 - [x] Conservar un resumen estructural sanitizado de la sesión importada en el
   informe de migración: referencias de origen/snapshot como booleanos, hoja y
   etapa visibles, y conteos de operaciones, reglas y comprobaciones de análisis;
-  no activa snapshots ni escribe proyectos automáticamente.
+  admite claves DataPrep `snake_case` y `camelCase`, acepta comprobaciones como
+  objeto o arreglo, y no activa snapshots ni escribe proyectos automáticamente.
 - [x] Implementar la primera vertical de migración de reglas de calidad: selector
   nativo JSON, conversión de reglas representables, tolerancias por conteo y
   porcentaje, warnings/omitidas para severidad o políticas no equivalentes,

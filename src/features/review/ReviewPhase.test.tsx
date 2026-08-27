@@ -268,6 +268,12 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("list", { name: "Posibles outliers por columna" })).toHaveTextContent(
       "id2",
     );
+    expect(screen.getByRole("list", { name: "Patrones de nulos por columna" })).toHaveTextContent(
+      "nombre6 nulos",
+    );
+    expect(screen.getByRole("table", { name: "Tabla de patrones de nulos" })).toHaveTextContent(
+      "5.0%",
+    );
     expect(screen.getByRole("heading", { name: "Distribución numérica" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Distribución numérica por columna" })).toHaveTextContent(
       "Q1 30 · Mediana 60 · Q3 90",

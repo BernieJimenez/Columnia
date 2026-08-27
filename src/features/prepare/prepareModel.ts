@@ -10,7 +10,7 @@ export type ChangeStatus =
   | { kind: "idle" }
   | {
       kind: "working";
-      action: "safe" | "duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "sentinels" | "booleans" | "impute" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+      action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "sentinels" | "booleans" | "impute" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
     }
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
@@ -99,6 +99,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
   const messages: Record<typeof action, string> = {
     safe: "Aplicando correcciones recomendadas…",
     duplicates: "Eliminando duplicados…",
+    near_duplicates: "Eliminando duplicados parecidos…",
     empty_rows: "Eliminando filas vacías…",
     constant_columns: "Eliminando columnas constantes…",
     empty_columns: "Eliminando columnas vacías…",

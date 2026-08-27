@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
+import { ModalDialog } from "../../components/ModalDialog";
 import type { DatasetPreview, DatasetProfile, HistoryState, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, HistoryBar } from "./HistoryBar";
@@ -17,6 +18,7 @@ interface PreparePhaseProps {
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
   onRemoveDuplicates: () => void;
+  onRemoveNearDuplicates?: () => void;
   onRemoveEmptyRows: () => void;
   onRemoveConstantColumns: () => void;
   onRemoveEmptyColumns: () => void;
@@ -45,6 +47,7 @@ export function PreparePhase({
   onAnalyzeQuality,
   onCancelProfile,
   onRemoveDuplicates,
+  onRemoveNearDuplicates = () => undefined,
   onRemoveEmptyRows,
   onRemoveConstantColumns,
   onRemoveEmptyColumns,
@@ -63,11 +66,13 @@ export function PreparePhase({
   onRedo,
 }: PreparePhaseProps) {
   const duplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.duplicateRowCount : null;
+  const nearDuplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.nearDuplicateRowCount : null;
   const changing = changeStatus.kind === "working";
   const textColumns = dataset.columns.filter((column) => column.dataType === "String" && column.name !== "_cambios");
   const [selectedTextColumns, setSelectedTextColumns] = useState<string[]>([]);
   const [removeAccents, setRemoveAccents] = useState(true);
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
+  const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
 
   useEffect(() => {
     const available = new Set(textColumns.map((column) => column.name));
@@ -322,6 +327,26 @@ export function PreparePhase({
           )}
         </section>
       )}
+      {profileStatus.kind === "ready" && (
+        <section className="prepare-card" aria-labelledby="near-duplicates-title">
+          <div>
+            <p className="step">Revisión con confirmación</p>
+            <h3 id="near-duplicates-title">Duplicados parecidos</h3>
+            <p>
+              {nearDuplicateCount === null || nearDuplicateCount === 0
+                ? "No se detectaron filas parecidas adicionales después de excluir los duplicados exactos."
+                : `Se identificaron ${nearDuplicateCount.toLocaleString()} filas parecidas por normalización de texto. La primera fila y las copias exactas se conservarán.`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNearDuplicateConfirmation(true)}
+            disabled={nearDuplicateCount === null || nearDuplicateCount === 0 || changing}
+          >
+            Revisar y eliminar parecidos
+          </button>
+        </section>
+      )}
       {profileStatus.kind === "error" && (
         <p className="notice notice--error" role="alert">
           No se pudo analizar la calidad: {profileStatus.message}
@@ -330,6 +355,39 @@ export function PreparePhase({
         </div>
       </details>
       </div>
+      )}
+      {nearDuplicateConfirmation && nearDuplicateCount !== null && nearDuplicateCount > 0 && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="near-duplicates-confirm-title"
+          describedBy="near-duplicates-confirm-description"
+          onDismiss={() => setNearDuplicateConfirmation(false)}
+        >
+          <p className="step">Confirmación requerida</p>
+          <h3 id="near-duplicates-confirm-title">Eliminar duplicados parecidos</h3>
+          <p id="near-duplicates-confirm-description">
+            Se eliminarán hasta {nearDuplicateCount.toLocaleString()} filas que coinciden después
+            de normalizar espacios, mayúsculas y acentos. No se mostrarán valores del dataset.
+            Se conservará la primera fila de cada grupo, el orden actual y las copias exactas.
+            La operación podrá revertirse desde el historial.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setNearDuplicateConfirmation(false)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                setNearDuplicateConfirmation(false);
+                onRemoveNearDuplicates();
+              }}
+              disabled={changing}
+            >
+              Eliminar duplicados parecidos
+            </button>
+          </div>
+        </ModalDialog>
       )}
     </>
   );
