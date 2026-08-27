@@ -83,8 +83,10 @@ const MAX_TEMPORAL_PERIODS: usize = 48;
 const MAX_TEMPORAL_DAY_SPAN: i64 = 90;
 const MAX_TEMPORAL_MONTH_SPAN: i64 = 36;
 const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
+const LOCAL_QUERY_CANCEL_CHECK_ROWS: usize = 4096;
 const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
+const LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS: usize = 2_000_000;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1419,6 +1421,7 @@ pub struct DatasetState {
     load_generation: AtomicU64,
     profile_generation: AtomicU64,
     export_generation: AtomicU64,
+    query_generation: AtomicU64,
 }
 
 impl DatasetState {
@@ -1440,6 +1443,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_query(&self) -> u64 {
+        self.query_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn load_was_cancelled(&self, generation: u64) -> bool {
         self.load_generation.load(Ordering::SeqCst) != generation
     }
@@ -1452,11 +1461,16 @@ impl DatasetState {
         self.export_generation.load(Ordering::SeqCst) != generation
     }
 
+    fn query_was_cancelled(&self, generation: u64) -> bool {
+        self.query_generation.load(Ordering::SeqCst) != generation
+    }
+
     fn cancel(&self, operation: &str) -> Result<(), String> {
         let generation = match operation {
             "load" => &self.load_generation,
             "profile" => &self.profile_generation,
             "export" => &self.export_generation,
+            "query" => &self.query_generation,
             _ => return Err("La operación indicada no admite cancelación.".to_owned()),
         };
         generation.fetch_add(1, Ordering::SeqCst);
@@ -2075,11 +2089,16 @@ fn parse_local_join_operand(value: &str) -> Result<LocalJoinOperand, String> {
     }
 }
 
-fn parse_local_join_query(
+fn parse_local_join_query_with_cancel<C>(
     query: &str,
     current: &DataFrame,
     compared: Option<&DataFrame>,
-) -> Result<Option<(DataFrame, String)>, String> {
+    is_cancelled: &C,
+) -> Result<Option<(DataFrame, String)>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let pattern = Regex::new(
         r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*=\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))(.*)$"#,
     )
@@ -2135,18 +2154,15 @@ fn parse_local_join_query(
         Some(value) if value == "full" => DatasetJoinType::Full,
         _ => DatasetJoinType::Inner,
     };
-    let joined = join_frames_on_keys(
+    let joined = join_frames_on_keys_with_cancel(
         current,
         compared,
         &[current_key],
         &[compared_key],
         join_type,
+        is_cancelled,
     )?;
-    if joined.height() > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
-        return Err(format!(
-            "El resultado del JOIN supera el límite local de {LOCAL_QUERY_JOIN_MAX_RESULT_ROWS} filas."
-        ));
-    }
+    ensure_not_cancelled(is_cancelled())?;
     let normalized_query = format!(
         "SELECT {} FROM dataset{}",
         captures
@@ -2346,48 +2362,73 @@ fn local_row_matches(
     Ok(true)
 }
 
-fn local_query_block_flags(
+fn local_query_block_flags_with_cancel<C>(
     frame: &DataFrame,
     predicates: &[LocalPredicate],
     start: usize,
     end: usize,
-) -> Result<Vec<bool>, String> {
+    is_cancelled: &C,
+) -> Result<Vec<bool>, String>
+where
+    C: Fn() -> bool + Sync,
+{
     (start..end)
         .into_par_iter()
-        .map(|row_index| local_row_matches(frame, row_index, predicates))
+        .map(|row_index| {
+            if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            local_row_matches(frame, row_index, predicates)
+        })
         .collect::<Result<Vec<_>, _>>()
 }
 
-fn local_query_block_match_count(
+fn local_query_block_match_count_with_cancel<C>(
     frame: &DataFrame,
     predicates: &[LocalPredicate],
     start: usize,
     end: usize,
-) -> Result<usize, String> {
-    Ok(local_query_block_flags(frame, predicates, start, end)?
-        .into_iter()
-        .filter(|matches| *matches)
-        .count())
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    Ok(
+        local_query_block_flags_with_cancel(frame, predicates, start, end, is_cancelled)?
+            .into_iter()
+            .filter(|matches| *matches)
+            .count(),
+    )
 }
 
-fn local_query_block_rows(
+fn local_query_block_rows_with_cancel<C>(
     frame: &DataFrame,
     predicates: &[LocalPredicate],
     start: usize,
     end: usize,
-) -> Result<Vec<usize>, String> {
-    Ok(local_query_block_flags(frame, predicates, start, end)?
-        .into_iter()
-        .enumerate()
-        .filter_map(|(offset, matches)| matches.then_some(start + offset))
-        .collect())
+    is_cancelled: &C,
+) -> Result<Vec<usize>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    Ok(
+        local_query_block_flags_with_cancel(frame, predicates, start, end, is_cancelled)?
+            .into_iter()
+            .enumerate()
+            .filter_map(|(offset, matches)| matches.then_some(start + offset))
+            .collect(),
+    )
 }
 
-fn aggregate_result(
+fn aggregate_result_with_cancel<C>(
     frame: &DataFrame,
     projection: &LocalProjection,
     rows: &[usize],
-) -> Result<Option<String>, String> {
+    is_cancelled: &C,
+) -> Result<Option<String>, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let LocalProjection::Aggregate {
         function, column, ..
     } = projection
@@ -2395,6 +2436,7 @@ fn aggregate_result(
         return Ok(None);
     };
     if matches!(function, LocalAggregate::Count) && column.is_none() {
+        ensure_not_cancelled(is_cancelled())?;
         return Ok(Some(rows.len().to_string()));
     }
     let column_name = column
@@ -2404,19 +2446,36 @@ fn aggregate_result(
         .column(column_name)
         .map_err(|_| format!("La columna '{column_name}' no existe en el dataset activo."))?;
     if matches!(function, LocalAggregate::Count) {
-        return Ok(Some(
-            rows.iter()
-                .filter_map(|row| series.get(*row).ok())
-                .filter(|value| !matches!(value, AnyValue::Null))
-                .count()
-                .to_string(),
-        ));
+        let mut count = 0usize;
+        for (position, row) in rows.iter().enumerate() {
+            if position % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            if series
+                .get(*row)
+                .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?
+                != AnyValue::Null
+            {
+                count += 1;
+            }
+        }
+        ensure_not_cancelled(is_cancelled())?;
+        return Ok(Some(count.to_string()));
     }
-    let values = rows
-        .iter()
-        .filter_map(|row| series.get(*row).ok())
-        .filter_map(|value| preview_value(value))
-        .collect::<Vec<_>>();
+    let mut values = Vec::with_capacity(rows.len());
+    for (position, row) in rows.iter().enumerate() {
+        if position % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        if let Some(value) = preview_value(
+            series
+                .get(*row)
+                .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?,
+        ) {
+            values.push(value);
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
     if values.is_empty() {
         return Ok(None);
     }
@@ -2463,17 +2522,24 @@ fn aggregate_result(
     }
 }
 
-fn grouped_local_rows(
+fn grouped_local_rows_with_cancel<C>(
     frame: &DataFrame,
     rows: &[usize],
     group_by: &str,
-) -> Result<LocalGroupRows, String> {
+    is_cancelled: &C,
+) -> Result<LocalGroupRows, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let group_column = frame
         .column(group_by)
         .map_err(|_| format!("La columna '{group_by}' no existe en el dataset activo."))?;
     let mut groups = Vec::<(Option<String>, Vec<usize>)>::new();
     let mut positions = HashMap::<Option<String>, usize>::new();
-    for row_index in rows {
+    for (position, row_index) in rows.iter().enumerate() {
+        if position % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let key = preview_value(
             group_column
                 .get(*row_index)
@@ -2486,40 +2552,86 @@ fn grouped_local_rows(
             groups.push((key, vec![*row_index]));
         }
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(groups)
 }
 
-fn local_query_row(
+fn local_query_row_with_cancel<C>(
     frame: &DataFrame,
     projections: &[LocalProjection],
     rows: &[usize],
     group_value: Option<&Option<String>>,
-) -> Result<Vec<Option<String>>, String> {
+    is_cancelled: &C,
+) -> Result<Vec<Option<String>>, String>
+where
+    C: Fn() -> bool + Sync,
+{
     projections
         .iter()
         .map(|projection| match projection {
             LocalProjection::Column { .. } => Ok(group_value.cloned().flatten()),
-            LocalProjection::Aggregate { .. } => aggregate_result(frame, projection, rows),
+            LocalProjection::Aggregate { .. } => {
+                aggregate_result_with_cancel(frame, projection, rows, is_cancelled)
+            }
         })
         .collect()
 }
 
+#[cfg(test)]
 fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryResult, String> {
+    let never_cancelled = || false;
+    execute_local_query_with_cancel(frame, query, &never_cancelled)
+}
+
+fn execute_local_query_with_cancel<C>(
+    frame: &DataFrame,
+    query: &str,
+    is_cancelled: &C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let plan = parse_local_query(query, frame)?;
+    ensure_not_cancelled(is_cancelled())?;
     let block_count = frame.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
     let (matching_count, matching_rows) = if plan.aggregate {
-        // Aggregate queries need every matching row, but each block can be
-        // evaluated independently. Rayon keeps the block order deterministic
-        // when the vectors are flattened below.
+        // Count first so aggregate queries never collect matching row indexes
+        // beyond the local materialization budget.
+        let block_counts = (0..block_count)
+            .into_par_iter()
+            .map(|block_index| {
+                let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+                let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+                local_query_block_match_count_with_cancel(
+                    frame,
+                    &plan.predicates,
+                    start,
+                    end,
+                    is_cancelled,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let matching_count = block_counts.iter().sum::<usize>();
+        if matching_count > LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS {
+            return Err(format!(
+                "La agregación local limita las filas coincidentes a {LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS} para proteger la memoria."
+            ));
+        }
+        ensure_not_cancelled(is_cancelled())?;
         let block_rows = (0..block_count)
             .into_par_iter()
             .map(|block_index| {
                 let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
                 let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
-                local_query_block_rows(frame, &plan.predicates, start, end)
+                local_query_block_rows_with_cancel(
+                    frame,
+                    &plan.predicates,
+                    start,
+                    end,
+                    is_cancelled,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let matching_count = block_rows.iter().map(Vec::len).sum();
         let matching_rows = block_rows.into_iter().flatten().collect();
         (matching_count, matching_rows)
     } else {
@@ -2531,10 +2643,17 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
             .map(|block_index| {
                 let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
                 let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
-                local_query_block_match_count(frame, &plan.predicates, start, end)
+                local_query_block_match_count_with_cancel(
+                    frame,
+                    &plan.predicates,
+                    start,
+                    end,
+                    is_cancelled,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
         let matching_count = block_counts.iter().sum();
+        ensure_not_cancelled(is_cancelled())?;
         if plan.offset > matching_count {
             return Err("La página solicitada está fuera del resultado filtrado.".to_owned());
         }
@@ -2553,7 +2672,13 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
 
             let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
             let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
-            let block_rows = local_query_block_rows(frame, &plan.predicates, start, end)?;
+            let block_rows = local_query_block_rows_with_cancel(
+                frame,
+                &plan.predicates,
+                start,
+                end,
+                is_cancelled,
+            )?;
             let take = remaining.min(block_match_count - offset_in_matches);
             matching_rows.extend(block_rows.into_iter().skip(offset_in_matches).take(take));
             remaining -= take;
@@ -2561,6 +2686,7 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
         }
         (matching_count, matching_rows)
     };
+    ensure_not_cancelled(is_cancelled())?;
     let columns = plan
         .projections
         .iter()
@@ -2592,20 +2718,28 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
         .collect::<Result<Vec<_>, _>>()?;
     let (row_count, rows, offset, truncated) = if plan.aggregate {
         let aggregate_rows = if let Some(group_by) = &plan.group_by {
-            grouped_local_rows(frame, &matching_rows, group_by)?
+            grouped_local_rows_with_cancel(frame, &matching_rows, group_by, is_cancelled)?
                 .iter()
                 .map(|(group_value, group_rows)| {
-                    local_query_row(frame, &plan.projections, group_rows, Some(group_value))
+                    local_query_row_with_cancel(
+                        frame,
+                        &plan.projections,
+                        group_rows,
+                        Some(group_value),
+                        is_cancelled,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            vec![local_query_row(
+            vec![local_query_row_with_cancel(
                 frame,
                 &plan.projections,
                 &matching_rows,
                 None,
+                is_cancelled,
             )?]
         };
+        ensure_not_cancelled(is_cancelled())?;
         let row_count = aggregate_rows.len();
         if plan.offset > row_count {
             return Err("La página solicitada está fuera del resultado agregado.".to_owned());
@@ -2644,6 +2778,7 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
                     .collect::<Result<Vec<_>, String>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
+        ensure_not_cancelled(is_cancelled())?;
         (
             matching_count,
             rows,
@@ -2660,15 +2795,31 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
     })
 }
 
+#[cfg(test)]
 fn execute_local_query_with_comparison(
     current: &DataFrame,
     compared: Option<&DataFrame>,
     query: &str,
 ) -> Result<DatasetQueryResult, String> {
-    if let Some((joined, normalized_query)) = parse_local_join_query(query, current, compared)? {
-        execute_local_query(&joined, &normalized_query)
+    let never_cancelled = || false;
+    execute_local_query_with_comparison_and_cancel(current, compared, query, &never_cancelled)
+}
+
+fn execute_local_query_with_comparison_and_cancel<C>(
+    current: &DataFrame,
+    compared: Option<&DataFrame>,
+    query: &str,
+    is_cancelled: &C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    if let Some((joined, normalized_query)) =
+        parse_local_join_query_with_cancel(query, current, compared, is_cancelled)?
+    {
+        execute_local_query_with_cancel(&joined, &normalized_query, is_cancelled)
     } else {
-        execute_local_query(current, query)
+        execute_local_query_with_cancel(current, query, is_cancelled)
     }
 }
 
@@ -11805,10 +11956,114 @@ fn join_frames_on_keys(
     compared_keys: &[String],
     join_type: DatasetJoinType,
 ) -> Result<DataFrame, String> {
+    join_frames_on_keys_with_cancel(
+        current,
+        compared,
+        current_keys,
+        compared_keys,
+        join_type,
+        &|| false,
+    )
+}
+
+fn local_join_key(
+    frame: &DataFrame,
+    row_index: usize,
+    key_columns: &[String],
+) -> Result<String, String> {
+    use std::fmt::Write as _;
+
+    let mut key = String::new();
+    for column_name in key_columns {
+        let value = frame
+            .column(column_name)
+            .map_err(|_| format!("La columna clave '{column_name}' no existe en el dataset."))?
+            .get(row_index)
+            .map_err(|error| format!("No se pudo leer la clave '{column_name}': {error}"))?;
+        match preview_value(value) {
+            Some(value) => {
+                write!(&mut key, "1{}:", value.len())
+                    .expect("escribir en un String no debe fallar");
+                key.push_str(&value);
+            }
+            None => key.push_str("0;"),
+        }
+    }
+    Ok(key)
+}
+
+fn join_cardinality_upper_bound<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
+    join_type: DatasetJoinType,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut compared_counts = HashMap::<String, usize>::new();
+    for row_index in 0..compared.height() {
+        if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let key = local_join_key(compared, row_index, compared_keys)?;
+        let count = compared_counts.entry(key).or_default();
+        *count = count
+            .checked_add(1)
+            .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?;
+    }
+
+    let mut inner_rows = 0usize;
+    for row_index in 0..current.height() {
+        if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let key = local_join_key(current, row_index, current_keys)?;
+        let compared_count = compared_counts.get(&key).copied().unwrap_or(0);
+        inner_rows = inner_rows
+            .checked_add(compared_count)
+            .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?;
+        if inner_rows > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
+            return Ok(inner_rows);
+        }
+    }
+
+    let bound = match join_type {
+        DatasetJoinType::Inner => inner_rows,
+        DatasetJoinType::Left => inner_rows
+            .checked_add(current.height())
+            .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?,
+        DatasetJoinType::Full => inner_rows
+            .checked_add(current.height())
+            .and_then(|value| value.checked_add(compared.height()))
+            .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?,
+    };
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(bound)
+}
+
+fn join_frames_on_keys_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
+    join_type: DatasetJoinType,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
     if current_keys.is_empty() || current_keys.len() != compared_keys.len() {
         return Err(
             "El JOIN necesita el mismo número de columnas clave en ambos datasets.".to_owned(),
         );
+    }
+    if current.height().saturating_add(compared.height()) > LOCAL_QUERY_JOIN_MAX_INPUT_ROWS {
+        return Err(format!(
+            "El JOIN local limita las entradas a {LOCAL_QUERY_JOIN_MAX_INPUT_ROWS} filas para proteger la memoria."
+        ));
     }
     for (current_key, compared_key) in current_keys.iter().zip(compared_keys) {
         let current_column = current.column(current_key).map_err(|_| {
@@ -11823,7 +12078,22 @@ fn join_frames_on_keys(
             ));
         }
     }
-    current
+    ensure_not_cancelled(is_cancelled())?;
+    let cardinality = join_cardinality_upper_bound(
+        current,
+        compared,
+        current_keys,
+        compared_keys,
+        join_type,
+        is_cancelled,
+    )?;
+    if cardinality > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
+        return Err(format!(
+            "El resultado estimado del JOIN supera el límite local de {LOCAL_QUERY_JOIN_MAX_RESULT_ROWS} filas; reduce los duplicados de las claves."
+        ));
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    let joined = current
         .join(
             compared,
             current_keys.iter(),
@@ -11831,7 +12101,14 @@ fn join_frames_on_keys(
             JoinArgs::new(join_type.polars_type()).with_coalesce(JoinCoalesce::CoalesceColumns),
             None,
         )
-        .map_err(|error| format!("No se pudieron unir los datasets por clave: {error}"))
+        .map_err(|error| format!("No se pudieron unir los datasets por clave: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    if joined.height() > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
+        return Err(format!(
+            "El resultado del JOIN supera el límite local de {LOCAL_QUERY_JOIN_MAX_RESULT_ROWS} filas."
+        ));
+    }
+    Ok(joined)
 }
 
 fn compare_frames(
@@ -12667,6 +12944,7 @@ pub fn get_dataset_page(
 
 #[tauri::command]
 pub async fn query_dataset(app: AppHandle, query: String) -> Result<DatasetQueryResult, String> {
+    let generation = app.state::<DatasetState>().begin_query();
     let (frame, compared) = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -12687,7 +12965,9 @@ pub async fn query_dataset(app: AppHandle, query: String) -> Result<DatasetQuery
         (frame, compared)
     };
     tauri::async_runtime::spawn_blocking(move || {
-        execute_local_query_with_comparison(&frame, compared.as_ref(), &query)
+        execute_local_query_with_comparison_and_cancel(&frame, compared.as_ref(), &query, &|| {
+            app.state::<DatasetState>().query_was_cancelled(generation)
+        })
     })
     .await
     .map_err(|error| format!("La consulta local se interrumpió: {error}"))?
@@ -17259,6 +17539,56 @@ mod tests {
     }
 
     #[test]
+    fn local_query_join_rejects_many_to_many_cardinality_before_materializing() {
+        let current = DataFrame::new(
+            1_501,
+            vec![Series::new("id".into(), vec![1_i64; 1_501]).into_column()],
+        )
+        .expect("el dataset activo debe construirse");
+        let compared = DataFrame::new(
+            1_501,
+            vec![Series::new("id".into(), vec![1_i64; 1_501]).into_column()],
+        )
+        .expect("el dataset comparado debe construirse");
+
+        let error = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT id FROM dataset JOIN compared ON id = id LIMIT 1",
+        )
+        .expect_err("el fan-out del JOIN debe rechazarse antes de materializarse");
+
+        assert!(error.contains("resultado estimado del JOIN"));
+        assert!(error.contains(&LOCAL_QUERY_JOIN_MAX_RESULT_ROWS.to_string()));
+    }
+
+    #[test]
+    fn local_query_aggregate_rejects_matching_rows_over_materialization_budget() {
+        let row_count = LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS + 1;
+        let frame = DataFrame::new(
+            row_count,
+            vec![Series::new("id".into(), vec![1_i64; row_count]).into_column()],
+        )
+        .expect("el dataset grande debe construirse");
+
+        let error = execute_local_query(&frame, "SELECT COUNT(*) AS total FROM dataset")
+            .expect_err("una agregación que excede el presupuesto debe rechazarse");
+
+        assert!(error.contains("limita las filas coincidentes"));
+        assert!(error.contains(&LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS.to_string()));
+    }
+
+    #[test]
+    fn local_query_stops_at_cooperative_cancellation_point() {
+        let frame = df!["id" => &[1_i64, 2, 3]].unwrap();
+        let error =
+            execute_local_query_with_cancel(&frame, "SELECT id FROM dataset LIMIT 1", &|| true)
+                .expect_err("la consulta debe detenerse si se cancela antes de escanear");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    }
+
+    #[test]
     fn local_query_filters_nulls_and_calculates_bounded_aggregates() {
         let frame = df![
             "city" => &[Some("Santo Domingo"), None, Some("Santiago"), Some("Santiago")],
@@ -17735,14 +18065,19 @@ mod tests {
         let load_generation = state.begin_load();
         let profile_generation = state.begin_profile();
         let export_generation = state.begin_export();
+        let query_generation = state.begin_query();
 
         state
             .cancel("profile")
             .expect("el perfil debe poder cancelarse");
+        state
+            .cancel("query")
+            .expect("la consulta debe poder cancelarse");
 
         assert!(!state.load_was_cancelled(load_generation));
         assert!(state.profile_was_cancelled(profile_generation));
         assert!(!state.export_was_cancelled(export_generation));
+        assert!(state.query_was_cancelled(query_generation));
         assert!(state.cancel("unknown").is_err());
     }
 

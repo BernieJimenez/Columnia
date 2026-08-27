@@ -1206,6 +1206,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   `AVG`, `MIN`, `MAX`), con presupuesto y resultados tabulares seguros.
 - [x] Añadir `GROUP BY` de una columna con orden estable, grupos nulos y
   paginación segura sobre agregaciones.
+- [x] Endurecer la consulta SQL local con cancelación cooperativa, límite de
+  filas coincidentes para agregaciones y preflight de cardinalidad para evitar
+  materializar joins many-to-many fuera de presupuesto.
 - [ ] Completar consulta con joins y DuckDB después de validar el benchmark y
   ampliar los límites de forma explícita.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
@@ -1218,18 +1221,22 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   contienen reportes, recetas o manifiestos: redacta rutas y referencias de
   filesystem incrustadas y conserva únicamente identificadores visibles y
   conteos agregados.
-- [ ] Extender privacidad a recetas, reports, manifests y futuros conectores
-  remotos sin filtrar metadatos sensibles.
+- [x] Extender la sanitización común a recetas, reports y manifests locales,
+  incluyendo valores, emails, referencias incrustadas y errores largos sin
+  filtrar metadatos sensibles.
+- [ ] Extender esa frontera a futuros conectores remotos con contratos de
+  privacidad equivalentes.
 - [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
   Parquet cacheado, chunks, comparación/joins grandes, historial degradado y
   presupuestos explícitos sin materialización silenciosa.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
-- [ ] Completar la paridad de sesión operativa: archivos recientes, muestras,
-  arrastrar/soltar, preferencias, caché derivada, historial de ejecuciones y
-  apertura segura de outputs; el modelo durable de proyectos de Columnia se
-  conserva como reemplazo de la sesión persistente original.
+- [ ] Completar la paridad de sesión operativa: muestras, arrastrar/soltar,
+  preferencias, caché derivada, historial de ejecuciones y apertura segura de
+  outputs; la primera slice de archivos recientes ya conserva solo nombre,
+  formato, fecha e ID opaco, sin rutas. El modelo durable de proyectos de
+  Columnia se conserva como reemplazo de la sesión persistente original.
 
 **Gate:** cada capacidad marcada como implementada debe tener contrato, prueba
 automatizada y una fila de paridad con evidencia del original.
@@ -1349,7 +1356,9 @@ del original.
 | 2026-08-26 | Paralelizar la construcción de firmas para comparación y claves con reducciones Rayon, ordenando los índices por clave al final para conservar resultados deterministas | Implementada en `src-tauri/src/dataset.rs`; joins/comparación incremental de datasets que exceden memoria sigue en cola |
 | 2026-08-26 | Publicar histogramas numéricos como dato derivado del perfil, con límites estables y tabla equivalente accesible; los análisis exploratorios amplios permanecen como siguiente expansión | Implementada como primera slice de visualización |
 | 2026-08-26 | Mostrar antes de ejecutar una receta su impacto estimado, riesgo, confianza y alternativas de recuperación; las estimaciones basadas en la muestra se etiquetan explícitamente | Implementada como primera slice del asesor de transformaciones |
-| 2026-08-26 | Sanitizar en una frontera común los JSON públicos de la CLI para eliminar rutas y referencias privadas en reportes, recetas y manifiestos, conservando nombres visibles y conteos | Implementada; futuros conectores remotos y artefactos adicionales requieren ampliar el contrato |
+| 2026-08-27 | Sanitizar en una frontera común los JSON públicos de la CLI para eliminar rutas, nombres de archivo, valores, emails, secretos y referencias privadas en reportes, recetas y manifiestos, conservando identificadores, estados y conteos | Implementada; futuros conectores remotos y artefactos adicionales requieren ampliar el contrato |
+| 2026-08-27 | Añadir cancelación cooperativa a SQL local, presupuesto de agregaciones y preflight de cardinalidad para rechazar joins many-to-many antes de materializar resultados fuera de límite | Implementada en `src-tauri/src/dataset.rs`; DuckDB y ejecución incremental completa siguen en cola |
+| 2026-08-27 | Conservar hasta cinco archivos recientes sin rutas y reabrir siempre el selector nativo al elegir uno | Implementada en `src/features/load/recentFilesModel.ts` y `src/features/load/LoadPhase.tsx` |
 | 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
 | 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |

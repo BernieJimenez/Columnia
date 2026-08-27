@@ -8,6 +8,11 @@ import type {
   LoadInspectionState,
   SheetSelectionAction,
 } from "./loadModel";
+import {
+  formatRecentDatasetDate,
+  formatRecentDatasetFormat,
+  type RecentDataset,
+} from "./recentFilesModel";
 
 export type LoadRuntimeState =
   | { kind: "connected" }
@@ -19,7 +24,11 @@ interface LoadPhaseProps {
   runtime: LoadRuntimeState;
   datasetStatus: DatasetStatus;
   inspection: LoadInspectionState;
+  recentDatasets: readonly RecentDataset[];
   onSelect: () => void;
+  onSelectRecent: (item: RecentDataset) => void;
+  onClearRecent: () => void;
+  onRemoveRecent: (id: string) => void;
   onSheetAction: (action: SheetSelectionAction) => void;
   onCancelLoad: () => void;
 }
@@ -29,7 +38,11 @@ export function LoadPhase({
   runtime,
   datasetStatus,
   inspection,
+  recentDatasets,
   onSelect,
+  onSelectRecent,
+  onClearRecent,
+  onRemoveRecent,
   onSheetAction,
   onCancelLoad,
 }: LoadPhaseProps) {
@@ -43,6 +56,10 @@ export function LoadPhase({
   const importError = inspection.kind === "error"
     ? inspection.message
     : sheetSelection?.error;
+  const selectionDisabled = runtime.kind !== "connected" ||
+    inspection.kind === "inspecting" ||
+    datasetStatus.kind === "loading" ||
+    inspection.kind === "sheet";
 
   return (
     <>
@@ -60,12 +77,7 @@ export function LoadPhase({
           className="primary-action"
           type="button"
           onClick={onSelect}
-          disabled={
-            runtime.kind !== "connected" ||
-            inspection.kind === "inspecting" ||
-            datasetStatus.kind === "loading" ||
-            inspection.kind === "sheet"
-          }
+          disabled={selectionDisabled}
         >
           {inspection.kind === "inspecting"
             ? "Inspeccionando…"
@@ -90,6 +102,52 @@ export function LoadPhase({
             <span aria-hidden="true">·</span>
             <span>Procesamiento local</span>
           </p>
+        </section>
+      )}
+
+      {recentDatasets.length > 0 && (
+        <section className="recent-datasets" aria-labelledby="recent-datasets-title">
+          <div className="recent-datasets__heading">
+            <div>
+              <p className="eyebrow">Historial local</p>
+              <h3 id="recent-datasets-title">Archivos recientes</h3>
+              <p>Solo guardamos el nombre y el formato. Al elegir uno se abrirá el selector nativo de archivos.</p>
+            </div>
+            <button type="button" className="secondary-action" onClick={onClearRecent}>
+              Limpiar historial
+            </button>
+          </div>
+          <ul className="recent-datasets__list">
+            {recentDatasets.map((item) => (
+              <li key={item.id} className="recent-datasets__item">
+                <div className="recent-datasets__copy">
+                  <strong title={item.fileName}>{item.fileName}</strong>
+                  <span>{formatRecentDatasetFormat(item.format)} · {formatRecentDatasetDate(item.lastOpenedAt)}</span>
+                </div>
+                <div className="recent-datasets__actions">
+                  <button
+                    type="button"
+                    className="inline-action"
+                    onClick={() => onSelectRecent(item)}
+                    disabled={selectionDisabled}
+                    title={selectionDisabled && runtime.kind !== "connected"
+                      ? "Disponible al ejecutar Columnia con Tauri"
+                      : undefined}
+                  >
+                    Elegir de nuevo
+                  </button>
+                  <button
+                    type="button"
+                    className="recent-datasets__remove"
+                    onClick={() => onRemoveRecent(item.id)}
+                    aria-label={`Quitar ${item.fileName} del historial`}
+                  >
+                    Quitar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

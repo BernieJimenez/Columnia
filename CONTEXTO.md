@@ -79,7 +79,7 @@ Los cinco comandos CLI de proyectos exigen siempre `--store <directorio>`: no in
 
 La interfaz sigue cuatro fases declaradas en `src/App.tsx`:
 
-1. **Cargar**: inspecciona una fuente local, permite seleccionar una hoja cuando corresponde y materializa el dataset activo.
+1. **Cargar**: inspecciona una fuente local, permite seleccionar una hoja cuando corresponde, muestra hasta cinco archivos recientes sin persistir rutas y materializa el dataset activo.
 2. **Revisar**: pagina la vista previa y calcula el perfil de calidad bajo demanda.
 3. **Preparar**: aplica correcciones simples o una receta estructural atómica; ofrece Deshacer/Rehacer.
 4. **Entregar**: valida un contrato de calidad y exporta CSV, JSON, Parquet, SQL, Excel o SQLite.
@@ -94,7 +94,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz en unas 504 líneas. |
 | `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
 | `src/components/ResourceMonitor.tsx` | Monitor compacto de consumo de CPU/RAM del proceso y del equipo, con polling nativo, selector persistente de concurrencia Rayon y estado degradado para el shell web. |
-| `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, progreso, cancelación y recuperación. |
+| `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, archivos recientes sin rutas, progreso, cancelación y recuperación. |
 | `src/features/review/` | Fase Revisar: diagnóstico, perfil de calidad, tabs y vista previa paginada. |
 | `src/features/prepare/` | Fase Preparar: vistas, editor de recetas, historial, modelo puro y controlador de IPC/invalidationes. |
 | `src/features/projects/` | Catálogo, guardado, apertura, recuperación y eliminación accesible de proyectos locales. |
@@ -116,7 +116,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `vitest.config.ts` | Cobertura V8 por capa para `src`, con umbrales 80% statements/lines, 75% branches/functions. |
 | `tools/check-supply-chain.ps1` / `src-tauri/deny.toml` | npm audit, cargo audit, cargo-deny, secretos, avisos de terceros y política de red con excepciones upstream justificadas. |
 | `tools/check-network-policy.mjs` / `docs/reference/network-privacy.md` | Inventario local de red, CSP productivo y política de telemetría desactivada por defecto. |
-| `src-tauri/src/privacy.rs` | Serialización pública sanitizada para reportes, recetas y manifiestos: elimina rutas y referencias de filesystem sin ocultar nombres visibles o conteos agregados. |
+| `src-tauri/src/privacy.rs` | Serialización pública sanitizada para reportes, recetas y manifiestos: elimina rutas, valores, emails, secretos y referencias de filesystem, conservando identificadores, estados y conteos agregados. |
 | `tools/check-installer-contract.ps1` / `THIRD_PARTY_NOTICES.md` | Contrato de NSIS currentUser, WebView2 bootstrapper y recursos legales reproducibles. |
 | `tools/generate-sbom.ps1` / `tools/extract-package-lock-packages.mjs` | Generan offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles, compatible con Windows PowerShell 5.1. |
 | `docs/reference/feature-parity.md` | Matriz de paridad verificable con `dataprepv1.1`, con entregas CSV/JSON/Parquet/SQL/Excel/SQLite, comparación por columna y visualizaciones accesibles documentadas. |
@@ -583,7 +583,9 @@ Al actualizarlo:
 | 2026-08-26 | Diagnóstico incorpora histogramas numéricos de 12 intervalos con límites estables y tabla de frecuencias equivalente; el campo es opcional para abrir perfiles antiguos sin invalidarlos. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | Preparar muestra un informe de migración accesible para recetas DataPrep: métricas de conversión, advertencias y acciones manuales plegables, opciones de entrega y contexto de sesión reducido a estados/conteos; no publica rutas, hashes ni valores originales. | `src/features/prepare/TransformRecipeEditor.tsx`, `src/features/prepare/PreparePhase.test.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | Preparar incorpora un asesor previo de recetas que explica filas/columnas antes-después, riesgo, confianza y recuperación; las operaciones dependientes de la muestra se presentan como estimaciones. | `src/features/prepare/transformAdvisor.ts`, `src/features/prepare/TransformRecipeEditor.tsx`, `ROADMAP.md` |
-| 2026-08-26 | La CLI serializa reportes, recetas y manifiestos a través de una frontera de privacidad que elimina rutas y referencias incrustadas sin ocultar nombres visibles ni conteos agregados; los conectores remotos siguen desactivados. | `src-tauri/src/privacy.rs`, `src-tauri/src/bin/columnia-cli.rs`, `docs/reference/network-privacy.md`, `ROADMAP.md` |
+| 2026-08-27 | La frontera de privacidad de la CLI ahora sanitiza reportes, recetas y manifiestos completos: elimina rutas, nombres de archivo, valores, emails, secretos y errores largos, pero conserva identificadores, estados y conteos agregados; los conectores remotos siguen desactivados. | `src-tauri/src/privacy.rs`, `src-tauri/src/bin/columnia-cli.rs`, `ROADMAP.md` |
+| 2026-08-27 | Cargar conserva hasta cinco entradas recientes como historial local de nombre, formato, fecha e ID opaco; elegir una entrada vuelve a abrir el selector nativo y nunca reutiliza ni persiste rutas. | `src/features/load/recentFilesModel.ts`, `src/features/load/LoadPhase.tsx`, `src/App.tsx` |
+| 2026-08-27 | SQL local añade cancelación cooperativa por bloques, presupuesto de filas coincidentes para agregaciones y preflight de cardinalidad para rechazar joins many-to-many peligrosos antes de materializar Polars; DuckDB y lazy/incremental completo siguen pendientes. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-26 | Parquet se incorpora al mismo camino de lectura streaming mediante `scan_parquet`, con `parallel: None`, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | CSV, TSV y TXT delimitado usan `LazyCsvReader` con el motor streaming de Polars, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener compatibilidad con el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | El perfilado de datasets grandes distribuye las columnas entre hasta cuatro trabajadores, conserva el orden de resultados y emite progreso ponderado para que la interfaz no parezca detenida entre el 40 % y el 100 %. La optimización reduce presión temporal de memoria, pero no sustituye todavía la materialización inicial del `DataFrame`. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |

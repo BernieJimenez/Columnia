@@ -17,9 +17,9 @@ claro y esté cubierta por una prueba o evidencia local.
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura, calendario diario y tendencia temporal diaria/mensual/anual acotada y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, series temporales completas, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
-| Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas, CLI y primera importación segura de sesiones DataPrep con validación previa | Parcial | Completar restauración de sesiones, round-trip, caché y actividad |
-| Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales y confirmación visible de columnas protegidas | Parcial | Privacidad de recetas/reports/manifests y conectores remotos |
-| Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles; benchmark CLI validado hasta 256 MiB; perfiles Rayon persistentes para elegir 1, mitad o todos los hilos, con RAM fuera del presupuesto | Parcial | Ejecución incremental real y presupuesto integral |
+| Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes locales sin rutas y primera importación segura de sesiones DataPrep con validación previa | Parcial | Completar restauración de sesiones, round-trip, caché y actividad |
+| Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales, sanitización de recetas/reports/manifests y confirmación visible de columnas protegidas | Parcial | Extender contratos equivalentes a conectores remotos |
+| Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles; benchmark CLI validado hasta 256 MiB; perfiles Rayon persistentes; SQL local con cancelación cooperativa, presupuesto de agregación y preflight de cardinalidad JOIN | Parcial | Ejecución incremental real, DuckDB y presupuesto integral |
 
 ## Primera entrega de paridad
 
@@ -486,10 +486,13 @@ representadas, y devuelve una tabla accesible con tipos y valores nulos
 explícitos. Cuando Review ya tiene una comparación cargada, también permite
 `INNER`, `LEFT` o `FULL JOIN` contra la tabla lógica `compared`, usando una
 condición `ON` de igualdad entre una columna de cada tabla. Las claves deben
-existir y compartir tipo; la entrada y el resultado del JOIN tienen un límite
-de filas para evitar materializaciones accidentales. No se aceptan rutas,
-tablas externas, escrituras ni consultas contra una comparación no cargada.
-DuckDB sigue fuera de esta vertical.
+existir y compartir tipo; un preflight estima la cardinalidad antes de
+materializar y la entrada y el resultado del JOIN tienen un límite de filas
+para evitar materializaciones accidentales. Las agregaciones cuentan las filas
+coincidentes antes de retenerlas y rechazan consultas fuera de presupuesto.
+Toda la ejecución comprueba cancelación por bloques, incluida la ordenación y
+la unión. No se aceptan rutas, tablas externas, escrituras ni consultas contra
+una comparación no cargada. DuckDB sigue fuera de esta vertical.
 
 ## Brecha de migración desde `dataprepv1.1`
 

@@ -27,6 +27,13 @@ import {
   type LoadInspectionState,
   type SheetSelectionAction,
 } from "./features/load/loadModel";
+import {
+  readRecentDatasets,
+  rememberRecentDataset,
+  removeRecentDataset,
+  writeRecentDatasets,
+  type RecentDataset,
+} from "./features/load/recentFilesModel";
 import { usePrepareController } from "./features/prepare/usePrepareController";
 import { ProjectsPanel } from "./features/projects/ProjectsPanel";
 import { useProjectsController } from "./features/projects/useProjectsController";
@@ -151,6 +158,7 @@ export function App() {
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
+  const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [recipeSession, setRecipeSession] = useState(0);
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
@@ -240,6 +248,10 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    writeRecentDatasets(recentDatasets);
+  }, [recentDatasets]);
+
   function invalidateDeliveryGate() {
     setDeliveryContract(invalidateDeliveryContract);
     setExportStatus({ kind: "idle" });
@@ -261,6 +273,10 @@ export function App() {
       const dataset = await loadDatasetSelection(source.selectionId, sheetId, headerMode, (progress) => {
         setDatasetStatus((current) => updateDatasetLoadProgress(current, progress));
       });
+      setRecentDatasets((current) => rememberRecentDataset(current, {
+        fileName: source.fileName,
+        format: source.format,
+      }));
       setDatasetStatus(createReadyDatasetStatus(dataset));
       projects.unlinkActiveProject();
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
@@ -307,6 +323,11 @@ export function App() {
     } finally {
       setLoadInspection((current) => current.kind === "inspecting" ? { kind: "idle" } : current);
     }
+  }
+
+  function selectRecentDataset(_item: RecentDataset) {
+    // Recent entries never contain a path or reusable native selection. Reopen the picker.
+    void selectDataset();
   }
 
   async function cancelSheetSelection() {
@@ -679,7 +700,11 @@ export function App() {
                 runtime={loadRuntime}
                 datasetStatus={datasetStatus}
                 inspection={loadInspection}
+                recentDatasets={recentDatasets}
                 onSelect={selectDataset}
+                onSelectRecent={selectRecentDataset}
+                onClearRecent={() => setRecentDatasets([])}
+                onRemoveRecent={(id) => setRecentDatasets((current) => removeRecentDataset(current, id))}
                 onSheetAction={handleSheetSelection}
                 onCancelLoad={() => cancelActiveOperation("load")}
               >

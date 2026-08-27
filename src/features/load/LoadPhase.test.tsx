@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatasetSourceInspection } from "../../bridge";
 import { LoadPhase } from "./LoadPhase";
 import { workbookInspection } from "./loadModel";
+import type { RecentDataset } from "./recentFilesModel";
 
 afterEach(cleanup);
 
@@ -20,17 +21,36 @@ const workbook: DatasetSourceInspection = {
   ],
 };
 
+const recentDataset: RecentDataset = {
+  id: "recent-ventas",
+  fileName: "ventas.csv",
+  format: "csv",
+  lastOpenedAt: 1_724_640_000_000,
+};
+
+function loadPhaseProps(overrides: Partial<React.ComponentProps<typeof LoadPhase>> = {}) {
+  return {
+    runtime: { kind: "connected" as const },
+    datasetStatus: { kind: "empty" as const },
+    inspection: { kind: "idle" as const },
+    recentDatasets: [],
+    onSelect: () => undefined,
+    onSelectRecent: () => undefined,
+    onClearRecent: () => undefined,
+    onRemoveRecent: () => undefined,
+    onSheetAction: () => undefined,
+    onCancelLoad: () => undefined,
+    ...overrides,
+  };
+}
+
 describe("LoadPhase", () => {
   it("expone el diálogo accesible y emite acciones nominales para la hoja", () => {
     const onSheetAction = vi.fn();
     render(
       <LoadPhase
-        runtime={{ kind: "connected" }}
-        datasetStatus={{ kind: "empty" }}
+        {...loadPhaseProps({ onSheetAction })}
         inspection={workbookInspection(workbook)}
-        onSelect={() => undefined}
-        onSheetAction={onSheetAction}
-        onCancelLoad={() => undefined}
       />,
     );
 
@@ -59,7 +79,7 @@ describe("LoadPhase", () => {
     const onCancelLoad = vi.fn();
     render(
       <LoadPhase
-        runtime={{ kind: "connected" }}
+        {...loadPhaseProps({ onCancelLoad })}
         datasetStatus={{
           kind: "loading",
           progress: { operation: "load", stage: "Leyendo filas", percent: 25 },
@@ -79,9 +99,6 @@ describe("LoadPhase", () => {
           },
         }}
         inspection={{ kind: "inspecting" }}
-        onSelect={() => undefined}
-        onSheetAction={() => undefined}
-        onCancelLoad={onCancelLoad}
       />,
     );
 
@@ -89,5 +106,44 @@ describe("LoadPhase", () => {
     expect(screen.getByLabelText("Progreso: Leyendo filas")).toHaveValue(25);
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onCancelLoad).toHaveBeenCalledOnce();
+  });
+
+  it("ofrece volver a elegir desde el historial y permite limpiarlo", () => {
+    const onSelectRecent = vi.fn();
+    const onClearRecent = vi.fn();
+    const onRemoveRecent = vi.fn();
+    render(
+      <LoadPhase
+        {...loadPhaseProps({
+          recentDatasets: [recentDataset],
+          onSelectRecent,
+          onClearRecent,
+          onRemoveRecent,
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Archivos recientes" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Elegir de nuevo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Quitar ventas.csv del historial" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar historial" }));
+
+    expect(onSelectRecent).toHaveBeenCalledWith(recentDataset);
+    expect(onRemoveRecent).toHaveBeenCalledWith("recent-ventas");
+    expect(onClearRecent).toHaveBeenCalledOnce();
+  });
+
+  it("deshabilita volver a elegir fuera de Tauri, pero conserva el historial visible", () => {
+    render(
+      <LoadPhase
+        {...loadPhaseProps({
+          runtime: { kind: "browser" },
+          recentDatasets: [recentDataset],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Elegir de nuevo" })).toBeDisabled();
+    expect(screen.getByText("ventas.csv")).toBeInTheDocument();
   });
 });

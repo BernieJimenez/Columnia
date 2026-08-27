@@ -40,9 +40,10 @@ Los documentos ejecutables mantienen sus referencias locales únicamente en el
 archivo que necesita la operación. Cuando una receta, un manifiesto o un
 reporte se serializa para stdout, evidencia o un conector futuro, la CLI usa la
 política común de `src-tauri/src/privacy.rs`: elimina rutas absolutas,
-referencias `file://`/`fixture://` y los campos de entrada, receta, salida y
-almacén. Los nombres visibles de archivo y los conteos agregados se conservan
-para que el resultado siga siendo identificable sin revelar su carpeta.
+referencias `file://`/`fixture://`, nombres de archivo, valores, emails,
+secretos y los campos de entrada, receta, salida y almacén. Los identificadores,
+estados y conteos agregados se conservan para que el resultado siga siendo útil
+sin revelar datos del usuario ni su carpeta.
 
 Esta sanitización es una frontera adicional y no sustituye la validación de
 recetas o manifiestos. Un conector remoto futuro debe consumir el JSON

@@ -24,6 +24,13 @@ El perfilado de duplicados normalizados procesa bloques en paralelo con CPU y
 huellas compactas XXH3-128 para aprovechar los hilos disponibles sin construir una
 cadena completa por cada fila. La aceleración GPU no forma parte del runtime
 actual.
+
+La vista **Cargar** mantiene hasta cinco archivos recientes en almacenamiento
+local del navegador. Solo conserva nombre visible, formato, fecha e ID opaco;
+**Elegir de nuevo** vuelve a abrir el selector nativo y nunca reutiliza una ruta
+guardada. Los reportes, recetas y manifiestos que salen por CLI también pasan por
+una frontera de sanitización que elimina rutas, valores de datos, emails y
+secretos antes de serializarse.
 Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,
 nulos y texto Unicode, y se lee con una configuración conservadora de memoria.
 
@@ -141,6 +148,12 @@ evidencias; el comando no inicia Tauri ni conserva datasets.
 El gate de rendimiento también limita la duración máxima de transformaciones,
 guardado, inspección y exportación dentro del benchmark sostenido.
 
+El explorador SQL local es de solo lectura y trabaja por bloques cancelables. Las
+agregaciones rechazan conjuntos coincidentes que exceden su presupuesto y los
+joins aplican un preflight de cardinalidad antes de materializar resultados
+many-to-many. DuckDB y la ejecución incremental completa siguen siendo trabajo
+pendiente.
+
 Para repetir el tier completo en Windows usa `npm run verify:tier`. Ejecuta tests,
 build, evidencia visual, benchmark sostenido, Package, smokes CLI/WebView2 y los
 gates finales de experiencia en orden; admite `-SkipPackage` o `-SkipNative` si se
@@ -187,7 +200,8 @@ XLSB y ODS. Para libros son obligatorios `--sheet <nombre exacto>` y `--header
 first-row|generated`; esas opciones se rechazan para otros formatos. Las rutas y
 los valores del dataset no aparecen en el JSON ni en los errores. La CLI aplica
 además una frontera común de sanitización a reportes, recetas y manifiestos para
-redactar rutas incrustadas sin ocultar nombres visibles ni conteos agregados. La
+redactar rutas, nombres de archivo, valores, emails y secretos sin ocultar
+identificadores, estados ni conteos agregados. La
 salida se publica de forma atómica en CSV, JSON, Parquet, SQL, Excel, SQLite o
 `bundle`; el paquete ZIP contiene dataset CSV, diccionario, calidad opcional y
 manifest con hashes, además de `recipe.json` cuando existe una receta validada.
