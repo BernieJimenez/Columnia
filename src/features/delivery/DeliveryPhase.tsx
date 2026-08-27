@@ -15,6 +15,7 @@ import {
   type QualityMonotonicDirection,
   type QualityRule,
   type QualityRuleKind,
+  type SavedRecipe,
 } from "../../bridge";
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { DatasetMetrics, formatFileSize } from "./DatasetMetrics";
@@ -29,6 +30,7 @@ import {
 
 interface DeliveryPhaseProps {
   dataset: DatasetPreview;
+  recipeDraft?: SavedRecipe | null;
   contract: DeliveryContractState;
   exportState: DeliveryExportState;
   onContractAction: (action: DeliveryContractAction) => void;
@@ -38,6 +40,7 @@ interface DeliveryPhaseProps {
 
 export function DeliveryPhase({
   dataset,
+  recipeDraft = null,
   contract,
   exportState,
   onContractAction,
@@ -1013,7 +1016,7 @@ export function DeliveryPhase({
               <option value="sql">SQL</option>
               <option value="excel">Excel</option>
               <option value="sqlite">SQLite</option>
-              <option value="bundle">Paquete ZIP (dataset + diccionario + calidad)</option>
+              <option value="bundle">Paquete ZIP (dataset + diccionario + receta + calidad)</option>
             </select>
           </label>
           <label className="privacy-mode">
@@ -1038,6 +1041,13 @@ export function DeliveryPhase({
             Exportar {exportFormatLabel}
           </button>
         </div>
+        {exportFormat === "bundle" && (
+          <p className="export-requirement" role="note">
+            {recipeDraft
+              ? "Este paquete incluirá recipe.json con la receta actual validada y su referencia en manifest.json."
+              : "No hay una receta activa para incluir; el paquete contendrá dataset.csv, dictionary.json y manifest.json."}
+          </p>
+        )}
         {!exportAllowed && <p className="export-requirement">{exportRequirement}</p>}
       </section>
       {exportState.kind === "loading" && (
@@ -1053,6 +1063,9 @@ export function DeliveryPhase({
           {exportState.result.format} exportado como {exportState.result.fileName} ({formatFileSize(exportState.result.fileSizeBytes)}).
           {exportState.result.protectedColumnCount > 0 && (
             <> Privacidad aplicada a {exportState.result.protectedColumnCount} columnas: {exportState.result.protectedColumns?.join(", ")}.</>
+          )}
+          {exportState.result.format === "Paquete Columnia" && (
+            <> Incluye dataset.csv, dictionary.json, manifest.json{recipeDraft ? " y recipe.json validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.</>
           )}
         </p>
       )}

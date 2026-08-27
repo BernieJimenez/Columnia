@@ -11,6 +11,8 @@ import type {
   DatasetQueryResult,
   ConflictResolution,
   ConflictSource,
+  NumericCorrelationMatrix,
+  CategoricalGroupSummary,
 } from "../../bridge";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
@@ -1092,9 +1094,165 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
             </div>
           </div>
         )}
+        {profile.categoricalGroupSummaries?.map((summary, summaryIndex) => (
+          <CategoricalGroupChart
+            key={summary.column}
+            summary={summary}
+            summaryIndex={summaryIndex}
+          />
+        ))}
+        {profile.numericCorrelations && profile.numericCorrelations.columns.length > 1 && (
+          <NumericCorrelationChart matrix={profile.numericCorrelations} />
+        )}
       </div>
     </section>
   );
+}
+
+function CategoricalGroupChart({
+  summary,
+  summaryIndex,
+}: {
+  summary: CategoricalGroupSummary;
+  summaryIndex: number;
+}) {
+  const titleId = `quality-groups-title-${summaryIndex}`;
+  const tableLabel = `Resumen de grupos para ${summary.column}`;
+
+  return (
+    <div className="quality-chart quality-chart--wide quality-groups" role="group" aria-labelledby={titleId}>
+      <h5 id={titleId}>Distribución por categoría</h5>
+      <p className="quality-chart__note">
+        Principales categorías de <strong>{summary.column}</strong>. Se muestran como máximo ocho
+        grupos; los valores restantes se reúnen en “Resto” para mantener la lectura rápida y
+        reducir la exposición de valores poco frecuentes.
+      </p>
+      <div className="quality-chart__bars" role="list" aria-label={`Distribución de grupos para ${summary.column}`}>
+        {summary.groups.map((group) => {
+          const percentage = clampPercentage(group.percentage);
+
+          return (
+            <div className="quality-chart__item" role="listitem" key={`${group.label}-${group.isOther}`}>
+              <div className="quality-chart__label">
+                <span title={group.label}>{group.label}</span>
+                <strong>{group.rowCount.toLocaleString()} filas · {percentage.toFixed(1)}%</strong>
+              </div>
+              <div className="quality-chart__track" aria-hidden="true">
+                <span
+                  className={group.isOther ? "quality-chart__track-fill--other" : undefined}
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="quality-chart__table">
+        <table aria-label={tableLabel}>
+          <caption className="visually-hidden">{tableLabel}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Grupo</th>
+              <th scope="col">Filas</th>
+              <th scope="col">Porcentaje</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.groups.map((group) => (
+              <tr key={`table-${group.label}-${group.isOther}`}>
+                <th scope="row">
+                  {group.label}
+                  {group.isOther && <span className="visually-hidden">, categorías restantes</span>}
+                </th>
+                <td>{group.rowCount.toLocaleString()}</td>
+                <td>{clampPercentage(group.percentage).toFixed(1)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="profile-note">
+        {summary.distinctCount.toLocaleString()} valores distintos detectados
+        {summary.truncated ? "; el resto está agrupado para evitar ruido y preservar privacidad." : "."}
+      </p>
+    </div>
+  );
+}
+
+function NumericCorrelationChart({ matrix }: { matrix: NumericCorrelationMatrix }) {
+  return (
+    <div className="quality-chart quality-chart--wide quality-correlation" role="group" aria-labelledby="quality-correlation-title">
+      <h5 id="quality-correlation-title">Correlaciones numéricas</h5>
+      <p className="quality-chart__note">
+        Pearson entre pares disponibles. La lectura usa {matrix.sampledRowCount.toLocaleString()} filas
+        {matrix.truncated ? " y muestra las primeras 12 columnas numéricas" : ""}.
+      </p>
+      <div className="quality-correlation__table" role="region" tabIndex={0} aria-label="Matriz de correlaciones numéricas">
+        <table>
+          <caption className="visually-hidden">Matriz de correlaciones numéricas de Pearson</caption>
+          <thead>
+            <tr>
+              <th scope="col">Columna</th>
+              {matrix.columns.map((column) => (
+                <th scope="col" key={column} title={column}>{column}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.columns.map((rowColumn, rowIndex) => (
+              <tr key={rowColumn}>
+                <th scope="row" title={rowColumn}>{rowColumn}</th>
+                {matrix.columns.map((column, columnIndex) => {
+                  const coefficient = correlationAt(matrix, rowIndex, columnIndex);
+                  const label = correlationLabel(coefficient);
+                  const isDiagonal = rowIndex === columnIndex;
+
+                  return (
+                    <td
+                      className={correlationClass(coefficient, isDiagonal)}
+                      key={column}
+                      aria-label={`${rowColumn} con ${column}: ${label}`}
+                    >
+                      {label}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="profile-note">
+        Un valor cercano a 1 o -1 indica una relación lineal fuerte; “—” significa que no hubo
+        suficientes valores o variación para calcularla.
+      </p>
+    </div>
+  );
+}
+
+function correlationAt(matrix: NumericCorrelationMatrix, rowIndex: number, columnIndex: number): number | null {
+  if (rowIndex === columnIndex) return 1;
+  const firstIndex = Math.min(rowIndex, columnIndex);
+  const secondIndex = Math.max(rowIndex, columnIndex);
+  const firstColumn = matrix.columns[firstIndex];
+  const secondColumn = matrix.columns[secondIndex];
+  return (
+    matrix.pairs.find(
+      (pair) => pair.firstColumn === firstColumn && pair.secondColumn === secondColumn,
+    )?.coefficient ?? null
+  );
+}
+
+function correlationLabel(coefficient: number | null): string {
+  return coefficient === null || !Number.isFinite(coefficient) ? "—" : coefficient.toFixed(2);
+}
+
+function correlationClass(coefficient: number | null, isDiagonal: boolean): string {
+  if (isDiagonal) return "quality-correlation__cell quality-correlation__cell--diagonal";
+  if (coefficient === null || !Number.isFinite(coefficient)) return "quality-correlation__cell";
+  if (coefficient >= 0.7 || coefficient <= -0.7) return "quality-correlation__cell quality-correlation__cell--strong";
+  if (coefficient >= 0.3 || coefficient <= -0.3) return "quality-correlation__cell quality-correlation__cell--moderate";
+  return "quality-correlation__cell quality-correlation__cell--weak";
 }
 
 function clampPercentage(value: number): number {

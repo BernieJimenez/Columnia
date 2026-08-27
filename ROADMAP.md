@@ -9,7 +9,7 @@
   Fases I0, I4 e I8 cerradas, I3/I5 avanzadas y la Fase P1 de paridad funcional
   con JSON, SQL, comparación/consolidación por clave, joins multidataset y
   visualizaciones accesibles, resolución por columna/valor, privacidad visible
-  en los destinos locales y contratos de calidad v3 con documento canónico
+  en los destinos locales, correlaciones numéricas acotadas y contratos de calidad v3 con documento canónico
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, conserva
   opciones de entrega y reconoce metadatos de sesiones con fixtures sintéticas;
   mantiene pendientes la restauración completa de sesiones y el round-trip hacia proyectos;
@@ -392,6 +392,11 @@ cuántos valores no cumplen; todavía no transforma los datos.
 Para columnas numéricas calcula desviación estándar muestral, cuartiles,
 mediana y posibles outliers con la regla IQR de 1.5; exige al menos cuatro
 valores antes de reportar outliers.
+Para columnas categóricas de texto no sensibles, el perfil calcula un resumen
+acotado de los grupos más frecuentes: hasta cuatro columnas y ocho categorías
+por columna, con categorías raras o excedentes reunidas en “Resto”. Los grupos
+con menos de tres filas y las columnas marcadas como contacto, nombre o
+identificador no se publican; la tabla visual tiene un equivalente accesible.
 La primera transformación elimina duplicados exactos de la sesión, conserva el
 orden y la primera aparición, actualiza la vista previa e invalida el perfil. El
 archivo original permanece intacto y existe un único punto de deshacer; este
@@ -1069,10 +1074,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   atómica, esquema/datos tipados, CLI, batch, proyectos, cancelación y pruebas
   de reapertura.
 - [ ] Completar la entrega compatible con DataPrep: PostgreSQL/MySQL/SQL Server,
-  prueba de conexión, políticas de tabla, receta dentro del bundle y apertura
-  segura de la carpeta. La primera slice ya publica un bundle ZIP atómico con
+  prueba de conexión, políticas de tabla y apertura segura de la carpeta. La
+  primera slice ya publica un bundle ZIP atómico con
   dataset CSV protegido, diccionario tipado, reporte de calidad opcional y
-  manifest con hashes; Excel y SQLite permanecen cubiertos por separado.
+  manifest con hashes; cuando existe una receta validada también incluye
+  `recipe.json` y su hash. Excel y SQLite permanecen cubiertos por separado.
 - [x] Incorporar claves explícitas, conflictos por clave y consolidación segura de
   claves nuevas.
 - [x] Incorporar joins multidataset `Inner`, `Left` y `Full` por claves, con
@@ -1130,13 +1136,17 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir una primera visualización de histogramas numéricos por intervalos,
   con límites estables al persistir perfiles y tabla de frecuencias equivalente
   para teclado y lector de pantalla.
+- [x] Añadir una primera matriz de correlaciones numéricas de Pearson, acotada a
+  doce columnas y una muestra de hasta 100.000 filas, con tabla accesible y
+  cancelación cooperativa; las columnas sin variación muestran un valor no
+  disponible en vez de inventar una relación.
 - [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
   distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
   calendario y series temporales, siempre con tabla accesible equivalente. Las
-  primeras ampliaciones ya incluyen ranking de patrones de nulos y validación
-  visual de formatos, ambas con tabla equivalente; correlaciones, grupos y
-  series temporales siguen pendientes.
+  primeras ampliaciones ya incluyen ranking de patrones de nulos, validación
+  visual de formatos y una matriz de correlaciones de Pearson acotada, todas
+  con tabla equivalente; grupos, calendario y series temporales siguen pendientes.
 - [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
   `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.

@@ -77,6 +77,7 @@ import {
   type DatasetPreview,
   type ConflictResolution,
   type DatasetSourceInspection,
+  type OperationProgress,
   type SavedRecipe,
   type SpreadsheetHeaderMode,
 } from "./bridge";
@@ -505,11 +506,14 @@ export function App() {
       cancellation: "available",
     });
     try {
-      const result = await exportDataset(request.format, rules, allowUnvalidated, (progress) => {
+      const onProgress = (progress: OperationProgress) => {
         setExportStatus((current) =>
           current.kind === "loading" ? { ...current, progress } : current,
         );
-      }, request.privacyMode);
+      };
+      const result = recipeDraft && request.format === "bundle"
+        ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, recipeDraft)
+        : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
       setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
     } catch (error: unknown) {
       if (isCancellationError(error)) {
@@ -756,6 +760,7 @@ export function App() {
             {activePhase === "deliver" && readyDataset && (
               <DeliveryPhase
                 dataset={readyDataset.dataset}
+                recipeDraft={recipeDraft}
                 contract={deliveryContract}
                 exportState={exportStatus}
                 onContractAction={updateDeliveryContract}

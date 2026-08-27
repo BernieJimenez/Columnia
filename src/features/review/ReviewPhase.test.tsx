@@ -25,6 +25,25 @@ const profile: DatasetProfile = {
   duplicateRowCount: 3,
   nearDuplicateRowCount: 0,
   duplicatePercentage: 2.5,
+  numericCorrelations: {
+    columns: ["id", "nombre"],
+    pairs: [
+      { firstColumn: "id", secondColumn: "nombre", coefficient: -0.42, sampleCount: 114 },
+    ],
+    sampledRowCount: 120,
+    truncated: false,
+  },
+  categoricalGroupSummaries: [
+    {
+      column: "estado",
+      distinctCount: 3,
+      truncated: true,
+      groups: [
+        { label: "Activo", rowCount: 72, percentage: 60, isOther: false },
+        { label: "Resto", rowCount: 48, percentage: 40, isOther: true },
+      ],
+    },
+  ],
   columns: [
     {
       name: "id",
@@ -288,6 +307,17 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("table", { name: "Tabla de frecuencias para id" })).toHaveTextContent(
       "20",
     );
+    expect(screen.getByRole("heading", { name: "Distribución por categoría" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Distribución de grupos para estado" })).toHaveTextContent(
+      "Activo72 filas",
+    );
+    expect(screen.getByRole("table", { name: "Resumen de grupos para estado" })).toHaveTextContent(
+      "Resto",
+    );
+    expect(screen.getByRole("heading", { name: "Correlaciones numéricas" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Matriz de correlaciones numéricas" }),
+    ).toHaveTextContent("-0.42");
     expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
       "95.0%",
     );

@@ -16,7 +16,7 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-26, rama `master`, v0.57 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada, histogramas, validación visual de formatos, bundle ZIP auditable, asesor de impacto de recetas y privacidad de artefactos CLI, M1 con importación de recetas DataPrep v1–v3, opciones de entrega, fixtures y resumen estructural sanitizado de sesiones |
+| Última revisión de este documento | 2026-08-26, rama `master`, v0.57 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada, histogramas, correlaciones numéricas acotadas, validación visual de formatos, bundle ZIP auditable, asesor de impacto de recetas y privacidad de artefactos CLI, M1 con importación de recetas DataPrep v1–v3, opciones de entrega, fixtures, resumen estructural sanitizado de sesiones e informe visible de migración |
 
 ## Para qué existe este documento
 
@@ -254,6 +254,7 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - duplicados adicionales;
 - métricas de texto y sugerencias conservadoras de tipos;
 - mínimo, máximo, media, desviación muestral, cuartiles, mediana y outliers IQR para números compatibles;
+- resumen acotado de grupos por columnas categóricas no sensibles, con top 8 y “Resto”, sin categorías raras;
 - caché del perfil durante la sesión hasta que el dataset cambia.
 
 ### Preparación
@@ -279,7 +280,7 @@ Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, 
 
 ### Entrega
 
-- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV;
+- exportación atómica a CSV, JSON, Parquet, SQL, Excel y SQLite, con neutralización de fórmulas de texto en CSV; el bundle ZIP auditable añade `recipe.json` validada cuando existe un borrador y la referencia/hash correspondiente en `manifest.json`;
 - contratos de hasta 16 reglas base y avanzadas: `allowed_values`, `regex`, `dtype`,
   unicidad compuesta, comparación, referencias, monotonía, agregados, drift,
   fechas, condiciones, esquema y conteo de filas;
@@ -566,8 +567,10 @@ Al actualizarlo:
 | 2026-08-26 | P1 añade eliminación difusa explícita y reversible: agrupa por fingerprint XXH3 normalizado, confirma el impacto agregado, conserva primera fila/orden y copias exactas. M1 acepta aliases de sesión DataPrep `snake_case`/`camelCase` y comprobaciones como objeto o arreglo sin publicar rutas. Review añade ranking y tabla accesible de patrones de nulos. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/review/ReviewPhase.tsx`, `ROADMAP.md` |
 | 2026-08-26 | El explorador SQL local limita la memoria de consultas proyectadas: recorre el filtro, cuenta coincidencias y conserva solo la página solicitada; los `GROUP BY` y agregados siguen reteniendo el conjunto necesario para preservar exactitud. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | El conteo de duplicados exactos del perfil usa `unique` lazy con motor streaming y proyecta solo el total; si el backend no puede ejecutar el plan, conserva un fallback eager exacto. El perfil numérico comparte una única vista `Float64` entre histograma y atípicos para evitar conversiones duplicadas. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
+| 2026-08-26 | Diagnóstico incorpora una matriz de correlaciones de Pearson acotada a doce columnas numéricas y hasta 100.000 filas muestreadas; conserva solo nombres, coeficientes y conteos de pares, omite columnas constantes y permite cancelar durante el muestreo. Los perfiles antiguos sin esta señal se recalculan al abrirse cuando corresponde. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | La comparación por filas y la agrupación de claves usan reducciones Rayon y ordenan los índices resultantes para conservar determinismo; la mejora aprovecha CPU sin cambiar el contrato ni materializar firmas globales adicionales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | Diagnóstico incorpora histogramas numéricos de 12 intervalos con límites estables y tabla de frecuencias equivalente; el campo es opcional para abrir perfiles antiguos sin invalidarlos. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `src/styles.css`, `ROADMAP.md` |
+| 2026-08-26 | Preparar muestra un informe de migración accesible para recetas DataPrep: métricas de conversión, advertencias y acciones manuales plegables, opciones de entrega y contexto de sesión reducido a estados/conteos; no publica rutas, hashes ni valores originales. | `src/features/prepare/TransformRecipeEditor.tsx`, `src/features/prepare/PreparePhase.test.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | Preparar incorpora un asesor previo de recetas que explica filas/columnas antes-después, riesgo, confianza y recuperación; las operaciones dependientes de la muestra se presentan como estimaciones. | `src/features/prepare/transformAdvisor.ts`, `src/features/prepare/TransformRecipeEditor.tsx`, `ROADMAP.md` |
 | 2026-08-26 | La CLI serializa reportes, recetas y manifiestos a través de una frontera de privacidad que elimina rutas y referencias incrustadas sin ocultar nombres visibles ni conteos agregados; los conectores remotos siguen desactivados. | `src-tauri/src/privacy.rs`, `src-tauri/src/bin/columnia-cli.rs`, `docs/reference/network-privacy.md`, `ROADMAP.md` |
 | 2026-08-26 | Parquet se incorpora al mismo camino de lectura streaming mediante `scan_parquet`, con `parallel: None`, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |

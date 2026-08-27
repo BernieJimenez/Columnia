@@ -415,7 +415,7 @@ describe("TransformRecipeEditor", () => {
         convertedOperations: ["renames", "export.formats"],
         omittedOperations: ["export.report_format"],
         warnings: [{ path: "export.report_format", severity: "omitted", message: "Revisión manual." }],
-        manualActions: ["Validar el pipeline importado."],
+        manualActions: ["Abrir C:\\Users\\Ana\\pipeline.json y revisar valor 'secreto'."],
         session: {
           hasSourceReference: true,
           hasSnapshotReference: true,
@@ -432,15 +432,22 @@ describe("TransformRecipeEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
 
     const report = await waitFor(() => screen.getByLabelText("Informe de migración de receta"));
-    expect(report).toHaveTextContent("4 elementos convertidos");
-    expect(report).toHaveTextContent("Entrega importada: csv, excel");
-    expect(report).toHaveTextContent("SHA-256 del artefacto");
+    expect(report).toHaveTextContent("Convertidos");
+    expect(report).toHaveTextContent("4");
+    expect(report).toHaveTextContent("Entrega importada: CSV, Excel");
     expect(report).toHaveTextContent("Acciones manuales");
-    expect(report).toHaveTextContent("Sesión DataPrep detectada");
-    expect(report).toHaveTextContent("Transformación · hoja Datos");
-    expect(report).toHaveTextContent("1 operaciones aplicadas");
-    expect(report).toHaveTextContent("2 reglas de calidad");
-    expect(report).toHaveTextContent("3 comprobaciones de análisis");
-    expect(report).toHaveTextContent("no se activaron automáticamente");
+    expect(report).toHaveTextContent("Contexto de sesión");
+    expect(report).toHaveTextContent("Etapa de trabajo");
+    expect(report).toHaveTextContent("Hoja de origen");
+    expect(report).toHaveTextContent("Operaciones aplicadas");
+    expect(report).toHaveTextContent("Reglas de calidad");
+    expect(report).toHaveTextContent("Comprobaciones");
+    expect(report).toHaveTextContent("Se detectaron referencias de origen o snapshot");
+    expect(report).not.toHaveTextContent("Transformación");
+    expect(report).not.toHaveTextContent("Datos");
+    expect(report).not.toHaveTextContent("a".repeat(64));
+    expect(report).not.toHaveTextContent("export.report_format");
+    expect(report).not.toHaveTextContent("C:\\Users\\Ana\\pipeline.json");
+    expect(report).not.toHaveTextContent("secreto");
   });
 });

@@ -182,7 +182,8 @@ además una frontera común de sanitización a reportes, recetas y manifiestos p
 redactar rutas incrustadas sin ocultar nombres visibles ni conteos agregados. La
 salida se publica de forma atómica en CSV, JSON, Parquet, SQL, Excel, SQLite o
 `bundle`; el paquete ZIP contiene dataset CSV, diccionario, calidad opcional y
-manifest con hashes. CSV conserva la protección contra fórmulas. `validate`
+manifest con hashes, además de `recipe.json` cuando existe una receta validada.
+CSV conserva la protección contra fórmulas. `validate`
 lee el documento `columnia-quality-rules` v1; también acepta el documento legado
 `{"version":1,"rules":[...]}`. Formatos o versiones futuras se rechazan.
 Devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.

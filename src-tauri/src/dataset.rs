@@ -66,6 +66,13 @@ const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
 const NUMERIC_HISTOGRAM_BUCKETS: usize = 12;
+const MAX_NUMERIC_CORRELATION_COLUMNS: usize = 12;
+const MAX_NUMERIC_CORRELATION_SAMPLE_ROWS: usize = 100_000;
+const MAX_CATEGORICAL_GROUP_COLUMNS: usize = 4;
+const MAX_CATEGORICAL_GROUPS: usize = 8;
+const MAX_GROUP_CANDIDATES: usize = 2_048;
+const MAX_GROUP_LABEL_CHARS: usize = 120;
+const MIN_GROUP_COUNT: usize = 3;
 const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -151,6 +158,8 @@ struct BundleManifest {
     column_count: usize,
     dictionary_file: String,
     quality_report_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recipe_file: Option<String>,
     files: Vec<BundleFileManifest>,
 }
 
@@ -557,6 +566,42 @@ pub struct HistogramBucket {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NumericCorrelation {
+    first_column: String,
+    second_column: String,
+    coefficient: Option<f64>,
+    sample_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NumericCorrelationMatrix {
+    columns: Vec<String>,
+    pairs: Vec<NumericCorrelation>,
+    sampled_row_count: usize,
+    truncated: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CategoricalGroup {
+    label: String,
+    row_count: usize,
+    percentage: f64,
+    is_other: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CategoricalGroupSummary {
+    column: String,
+    groups: Vec<CategoricalGroup>,
+    distinct_count: usize,
+    truncated: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ColumnProfile {
     name: String,
     data_type: String,
@@ -595,6 +640,10 @@ pub struct DatasetProfile {
     near_duplicate_row_count: usize,
     duplicate_percentage: f64,
     columns: Vec<ColumnProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    numeric_correlations: Option<NumericCorrelationMatrix>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    categorical_group_summaries: Option<Vec<CategoricalGroupSummary>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -970,6 +1019,34 @@ pub struct SessionMigrationMetadata {
     applied_operation_count: usize,
     quality_rule_count: usize,
     analysis_check_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SessionReferenceStatus {
+    NotProvided,
+    Available,
+    Missing,
+    Unsupported,
+}
+
+/// A read-only migration decision. It deliberately contains no resolved paths so it can
+/// cross the IPC boundary without leaking the user's filesystem layout.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DataprepSessionMigrationPlan {
+    pub(crate) name: String,
+    pub(crate) source_file_name: Option<String>,
+    pub(crate) source_status: SessionReferenceStatus,
+    pub(crate) snapshot_status: SessionReferenceStatus,
+    pub(crate) sheet_name: Option<String>,
+    pub(crate) stage_label: Option<String>,
+    pub(crate) recipe: StoredTransformRecipe,
+    pub(crate) quality_rules: Vec<QualityRule>,
+    pub(crate) quality_report: Option<QualityMigrationReport>,
+    pub(crate) missing_references: Vec<String>,
+    pub(crate) collisions: Vec<String>,
+    pub(crate) can_create_project: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -3049,6 +3126,305 @@ fn count_distinct_rows(frame: &DataFrame) -> Result<usize, String> {
     }
 }
 
+fn correlation_numeric_value(value: AnyValue<'_>) -> Option<f64> {
+    if let Some(value) = numeric_value(value.clone()) {
+        return Some(value);
+    }
+    match value {
+        AnyValue::String(value) => semantic_numeric_value(value),
+        AnyValue::StringOwned(value) => semantic_numeric_value(value.as_str()),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum GroupKey {
+    Missing,
+    Value(String),
+}
+
+fn categorical_group_key(value: AnyValue<'_>) -> Option<GroupKey> {
+    match value {
+        AnyValue::Null => Some(GroupKey::Missing),
+        AnyValue::String(value) => {
+            let value = value.trim();
+            if value.is_empty() {
+                Some(GroupKey::Missing)
+            } else if value.chars().count() <= MAX_GROUP_LABEL_CHARS {
+                Some(GroupKey::Value(value.to_owned()))
+            } else {
+                None
+            }
+        }
+        AnyValue::StringOwned(value) => {
+            let value = value.as_str().trim();
+            if value.is_empty() {
+                Some(GroupKey::Missing)
+            } else if value.chars().count() <= MAX_GROUP_LABEL_CHARS {
+                Some(GroupKey::Value(value.to_owned()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn categorical_group_label(key: &GroupKey) -> String {
+    match key {
+        GroupKey::Missing => "Sin valor".to_owned(),
+        GroupKey::Value(value) => value.clone(),
+    }
+}
+
+fn retain_group_candidate(counts: &mut HashMap<GroupKey, usize>, key: GroupKey) {
+    if let Some(count) = counts.get_mut(&key) {
+        *count = (*count).saturating_add(1);
+        return;
+    }
+    if counts.len() < MAX_GROUP_CANDIDATES {
+        counts.insert(key, 1);
+        return;
+    }
+
+    let Some((least_key, least_count)) = counts
+        .iter()
+        .min_by_key(|(_, count)| **count)
+        .map(|(key, count)| (key.clone(), *count))
+    else {
+        return;
+    };
+    counts.remove(&least_key);
+    counts.insert(key, least_count.saturating_add(1));
+}
+
+fn categorical_group_summary<C>(
+    frame: &DataFrame,
+    column: &Column,
+    profile: &ColumnProfile,
+    is_cancelled: &C,
+) -> Result<Option<CategoricalGroupSummary>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut candidates = HashMap::with_capacity(MAX_GROUP_CANDIDATES);
+    for row_index in 0..frame.height() {
+        if row_index % 4096 == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let value = column
+            .get(row_index)
+            .map_err(|error| format!("No se pudo resumir la columna {}: {error}", profile.name))?;
+        if let Some(key) = categorical_group_key(value) {
+            retain_group_candidate(&mut candidates, key);
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
+
+    let mut selected_counts = HashMap::with_capacity(candidates.len());
+    for row_index in 0..frame.height() {
+        if row_index % 4096 == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let value = column
+            .get(row_index)
+            .map_err(|error| format!("No se pudo resumir la columna {}: {error}", profile.name))?;
+        let Some(key) = categorical_group_key(value) else {
+            continue;
+        };
+        if candidates.contains_key(&key) {
+            let count = selected_counts.entry(key).or_insert(0usize);
+            *count = (*count).saturating_add(1);
+        }
+    }
+
+    let mut groups = selected_counts
+        .into_iter()
+        .filter(|(_, count)| *count >= MIN_GROUP_COUNT)
+        .map(|(key, row_count)| CategoricalGroup {
+            label: categorical_group_label(&key),
+            row_count,
+            percentage: if frame.height() == 0 {
+                0.0
+            } else {
+                (row_count as f64 / frame.height() as f64) * 100.0
+            },
+            is_other: false,
+        })
+        .collect::<Vec<_>>();
+    groups.sort_by(|left, right| {
+        right
+            .row_count
+            .cmp(&left.row_count)
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    groups.truncate(MAX_CATEGORICAL_GROUPS);
+
+    let displayed_count = groups.iter().map(|group| group.row_count).sum::<usize>();
+    let other_count = frame.height().saturating_sub(displayed_count);
+    if other_count > 0 {
+        groups.push(CategoricalGroup {
+            label: "Resto".to_owned(),
+            row_count: other_count,
+            percentage: if frame.height() == 0 {
+                0.0
+            } else {
+                (other_count as f64 / frame.height() as f64) * 100.0
+            },
+            is_other: true,
+        });
+    }
+
+    if groups.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(CategoricalGroupSummary {
+        column: profile.name.clone(),
+        groups,
+        distinct_count: profile.unique_count,
+        truncated: other_count > 0,
+    }))
+}
+
+fn categorical_group_summaries<C>(
+    frame: &DataFrame,
+    profiles: &[ColumnProfile],
+    is_cancelled: &C,
+) -> Result<Option<Vec<CategoricalGroupSummary>>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut summaries = Vec::new();
+    for (column, profile) in frame.columns().iter().zip(profiles) {
+        if summaries.len() >= MAX_CATEGORICAL_GROUP_COLUMNS {
+            break;
+        }
+        // A category summary is useful for text dimensions, but raw identifiers,
+        // contact fields and semantic numbers belong to other profile views.
+        if column.dtype() != &DataType::String
+            || profile.empty_count.is_none()
+            || profile.suggested_type.is_some()
+            || profile.privacy_signal.is_some()
+            || profile.unique_count < 2
+        {
+            continue;
+        }
+        if let Some(summary) = categorical_group_summary(frame, column, profile, is_cancelled)? {
+            summaries.push(summary);
+        }
+    }
+    Ok((!summaries.is_empty()).then_some(summaries))
+}
+
+fn numeric_correlation_matrix<C>(
+    frame: &DataFrame,
+    profiles: &[ColumnProfile],
+    is_cancelled: &C,
+) -> Result<Option<NumericCorrelationMatrix>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let numeric_columns = frame
+        .columns()
+        .iter()
+        .zip(profiles)
+        .filter(|(_, profile)| profile.outlier_count.is_some())
+        .take(MAX_NUMERIC_CORRELATION_COLUMNS)
+        .map(|(column, profile)| (column, profile.name.as_str()))
+        .collect::<Vec<_>>();
+
+    if numeric_columns.len() < 2 {
+        return Ok(None);
+    }
+
+    let row_count = frame.height();
+    if row_count == 0 {
+        return Ok(None);
+    }
+    let sampled_row_count = row_count.min(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS);
+    let mut values = Vec::with_capacity(numeric_columns.len());
+    for (column_index, (column, _)) in numeric_columns.iter().enumerate() {
+        let mut column_values = Vec::with_capacity(sampled_row_count);
+        for sample_index in 0..sampled_row_count {
+            if sample_index % 4096 == 0 {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            // Evenly sample the frame so a large file is not represented only by its header.
+            let row_index = sample_index.saturating_mul(row_count) / sampled_row_count;
+            let value = column.get(row_index).map_err(|error| {
+                format!(
+                    "No se pudieron calcular correlaciones para la columna {}: {error}",
+                    numeric_columns[column_index].1
+                )
+            })?;
+            column_values.push(correlation_numeric_value(value));
+        }
+        values.push(column_values);
+    }
+
+    let mut pairs =
+        Vec::with_capacity(numeric_columns.len().saturating_mul(numeric_columns.len()) / 2);
+    for first_index in 0..numeric_columns.len() {
+        for second_index in (first_index + 1)..numeric_columns.len() {
+            let (coefficient, sample_count) =
+                pearson_correlation(&values[first_index], &values[second_index]);
+            pairs.push(NumericCorrelation {
+                first_column: numeric_columns[first_index].1.to_owned(),
+                second_column: numeric_columns[second_index].1.to_owned(),
+                coefficient,
+                sample_count,
+            });
+        }
+    }
+
+    Ok(Some(NumericCorrelationMatrix {
+        columns: numeric_columns
+            .into_iter()
+            .map(|(_, name)| name.to_owned())
+            .collect(),
+        pairs,
+        sampled_row_count,
+        truncated: profiles
+            .iter()
+            .filter(|profile| profile.outlier_count.is_some())
+            .count()
+            > MAX_NUMERIC_CORRELATION_COLUMNS,
+    }))
+}
+
+fn pearson_correlation(first: &[Option<f64>], second: &[Option<f64>]) -> (Option<f64>, usize) {
+    let mut paired = Vec::new();
+    for (first, second) in first.iter().zip(second) {
+        if let (Some(first), Some(second)) = (first, second) {
+            paired.push((*first, *second));
+        }
+    }
+
+    let sample_count = paired.len();
+    if sample_count < 2 {
+        return (None, sample_count);
+    }
+    let first_mean = paired.iter().map(|(first, _)| first).sum::<f64>() / sample_count as f64;
+    let second_mean = paired.iter().map(|(_, second)| second).sum::<f64>() / sample_count as f64;
+    let mut covariance = 0.0;
+    let mut first_variance = 0.0;
+    let mut second_variance = 0.0;
+    for (first, second) in paired {
+        let first_delta = first - first_mean;
+        let second_delta = second - second_mean;
+        covariance += first_delta * second_delta;
+        first_variance += first_delta * first_delta;
+        second_variance += second_delta * second_delta;
+    }
+    let denominator = (first_variance * second_variance).sqrt();
+    let coefficient = if denominator > 0.0 && denominator.is_finite() {
+        Some((covariance / denominator).clamp(-1.0, 1.0))
+    } else {
+        None
+    };
+    (coefficient, sample_count)
+}
+
 fn profile_dataset_with_progress<F, C>(
     frame: &DataFrame,
     mut report: F,
@@ -3137,7 +3513,7 @@ where
                             .iter()
                             .map(|value| usize::from(*value))
                             .sum::<usize>();
-                        let percent = 40 + ((weighted_progress * 60) / (column_count * 100)) as u8;
+                        let percent = 40 + ((weighted_progress * 50) / (column_count * 100)) as u8;
                         last_percent = last_percent.max(percent);
                         report(stage, last_percent);
                     }
@@ -3154,11 +3530,11 @@ where
                             .iter()
                             .map(|value| usize::from(*value))
                             .sum::<usize>();
-                        let percent = 40 + ((weighted_progress * 60) / (column_count * 100)) as u8;
+                        let percent = 40 + ((weighted_progress * 50) / (column_count * 100)) as u8;
                         last_percent = last_percent.max(percent);
                         report("Analizando columnas", last_percent);
-                        if completed_columns == column_count && last_percent < 100 {
-                            report("Analizando columnas", 100);
+                        if completed_columns == column_count && last_percent < 90 {
+                            report("Analizando columnas", 90);
                         }
                     }
                 }
@@ -3174,12 +3550,30 @@ where
             .collect();
     }
 
+    let categorical_group_summaries = if columns.is_empty() {
+        None
+    } else {
+        report("Resumiendo categorías", 93);
+        categorical_group_summaries(frame, &columns, &is_cancelled)?
+    };
+
+    let numeric_correlations = if columns.is_empty() {
+        None
+    } else {
+        report("Calculando correlaciones", 95);
+        let correlations = numeric_correlation_matrix(frame, &columns, &is_cancelled)?;
+        report("Analizando columnas", 100);
+        correlations
+    };
+
     Ok(DatasetProfile {
         row_count,
         duplicate_row_count,
         near_duplicate_row_count,
         duplicate_percentage,
         columns,
+        numeric_correlations,
+        categorical_group_summaries,
     })
 }
 
@@ -5127,11 +5521,23 @@ fn migration_session_field<'a>(
         "applied_ops" => "appliedOps",
         "quality_rules" => "qualityRules",
         "analysis_checks" => "analysisChecks",
+        "file_name" => "fileName",
         _ => return root.get(key),
     };
+    let session = root.get("session").and_then(JsonValue::as_object);
     root.get(key)
         .filter(|value| !value.is_null())
-        .or_else(|| root.get(camel_case))
+        .or_else(|| root.get(camel_case).filter(|value| !value.is_null()))
+        .or_else(|| {
+            session
+                .and_then(|map| map.get(key))
+                .filter(|value| !value.is_null())
+        })
+        .or_else(|| {
+            session
+                .and_then(|map| map.get(camel_case))
+                .filter(|value| !value.is_null())
+        })
 }
 
 fn migration_session_metadata(
@@ -5199,6 +5605,226 @@ fn migration_session_metadata(
         quality_rule_count: count_array("quality_rules")?,
         analysis_check_count,
     }))
+}
+
+fn session_source_reference(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
+    migration_session_field(root, "source_path")
+        .or_else(|| migration_session_field(root, "file_name"))
+}
+
+fn session_quality_rules(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
+    root.get("quality_rules")
+        .filter(|value| !value.is_null())
+        .or_else(|| root.get("qualityRules").filter(|value| !value.is_null()))
+        .or_else(|| root.get("quality").filter(|value| !value.is_null()))
+        .or_else(|| {
+            root.get("session")
+                .and_then(JsonValue::as_object)
+                .and_then(|session| {
+                    session
+                        .get("quality_rules")
+                        .filter(|value| !value.is_null())
+                        .or_else(|| session.get("qualityRules").filter(|value| !value.is_null()))
+                })
+        })
+}
+
+fn session_reference_status(
+    session_path: &Path,
+    value: Option<&JsonValue>,
+    require_dataset_extension: bool,
+) -> (SessionReferenceStatus, Option<PathBuf>) {
+    let Some(JsonValue::String(reference)) = value else {
+        return (
+            if value.is_some() {
+                SessionReferenceStatus::Unsupported
+            } else {
+                SessionReferenceStatus::NotProvided
+            },
+            None,
+        );
+    };
+    let reference = reference.trim();
+    if reference.is_empty() || reference.contains("://") {
+        return (SessionReferenceStatus::Unsupported, None);
+    }
+    let path = Path::new(reference);
+    let candidate = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        session_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(path)
+    };
+    let Ok(metadata) = fs::symlink_metadata(&candidate) else {
+        return (SessionReferenceStatus::Missing, None);
+    };
+    if is_symbolic_link_or_reparse_point(&metadata) {
+        return (SessionReferenceStatus::Unsupported, None);
+    }
+    if !metadata.is_file() {
+        return (SessionReferenceStatus::Missing, None);
+    }
+    let Ok(canonical) = canonicalize_existing_file(&candidate, "la referencia de sesión") else {
+        return (SessionReferenceStatus::Unsupported, None);
+    };
+    if require_dataset_extension && dataset_extension(&canonical).is_err() {
+        return (SessionReferenceStatus::Unsupported, Some(canonical));
+    }
+    (SessionReferenceStatus::Available, Some(canonical))
+}
+
+fn session_display_file_name(
+    root: &JsonMap<String, JsonValue>,
+    source_path: Option<&Path>,
+) -> Option<String> {
+    let raw = migration_session_field(root, "file_name")
+        .or_else(|| migration_session_field(root, "source_path"))
+        .and_then(JsonValue::as_str)
+        .or_else(|| source_path.and_then(|path| path.file_name().and_then(OsStr::to_str)))?;
+    let file_name = raw.rsplit(['/', '\\']).next()?.trim();
+    if file_name.is_empty() || file_name.chars().any(char::is_control) {
+        return None;
+    }
+    Some(file_name.to_owned())
+}
+
+fn session_recipe_collisions(recipe: &TransformRecipe) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut collisions = Vec::new();
+    let mut record = |name: &str| {
+        let name = name.trim();
+        if !name.is_empty() && !seen.insert(name.to_owned()) {
+            collisions.push("recipe.output_names".to_owned());
+        }
+    };
+    for rename in &recipe.renames {
+        record(&rename.to);
+    }
+    if let Some(calculated) = &recipe.calculated_column {
+        record(&calculated.name);
+    }
+    if let Some(split) = &recipe.split_column {
+        for name in &split.names {
+            record(name);
+        }
+    }
+    if let Some(merge) = &recipe.merge_columns {
+        record(&merge.name);
+    }
+    for extraction in &recipe.text_extractions {
+        record(&extraction.name);
+    }
+    collisions.sort();
+    collisions.dedup();
+    collisions
+}
+
+/// Reads a DataPrep session and produces a sanitized, read-only import decision.
+/// No project catalog or snapshot is touched by this operation.
+pub(crate) fn load_dataprep_session_migration_plan(
+    path: &Path,
+) -> Result<DataprepSessionMigrationPlan, String> {
+    let path = canonicalize_existing_file(path, "la sesión DataPrep seleccionada")?;
+    if !path
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    {
+        return Err("La sesión DataPrep debe ser un archivo JSON.".to_owned());
+    }
+    let file = File::open(&path)
+        .map_err(|error| format!("No se pudo abrir la sesión DataPrep: {error}"))?;
+    let size = file
+        .metadata()
+        .map_err(|error| format!("No se pudo verificar la sesión DataPrep: {error}"))?
+        .len();
+    if size > RECIPE_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "La sesión DataPrep supera el límite local de {} bytes.",
+            RECIPE_FILE_LIMIT_BYTES
+        ));
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(RECIPE_FILE_LIMIT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("No se pudo leer la sesión DataPrep: {error}"))?;
+    if bytes.len() as u64 > RECIPE_FILE_LIMIT_BYTES {
+        return Err(format!(
+            "La sesión DataPrep supera el límite local de {} bytes.",
+            RECIPE_FILE_LIMIT_BYTES
+        ));
+    }
+    let raw = serde_json::from_slice::<JsonValue>(&bytes)
+        .map_err(|error| format!("La sesión DataPrep no es JSON válido: {error}"))?;
+    let root = raw
+        .as_object()
+        .ok_or_else(|| "La sesión DataPrep debe ser un objeto JSON.".to_owned())?;
+    let mut recipe = migration_dataprep_recipe(&raw)?;
+    if let Some(report) = &mut recipe.migration_report {
+        report.artifact_sha256 = Some(format!("{:x}", Sha256::digest(&bytes)));
+    }
+
+    let (source_status, source_path) =
+        session_reference_status(&path, session_source_reference(root), true);
+    let (snapshot_status, snapshot_path) =
+        session_reference_status(&path, migration_session_field(root, "snapshot_path"), false);
+    let source_file_name = session_display_file_name(root, source_path.as_deref());
+    let mut missing_references = Vec::new();
+    if matches!(source_status, SessionReferenceStatus::Missing) {
+        missing_references.push("source".to_owned());
+    } else if matches!(source_status, SessionReferenceStatus::Unsupported) {
+        missing_references.push("source.unsupported".to_owned());
+    }
+    if matches!(snapshot_status, SessionReferenceStatus::Missing) {
+        missing_references.push("snapshot".to_owned());
+    } else if matches!(snapshot_status, SessionReferenceStatus::Unsupported) {
+        missing_references.push("snapshot.unsupported".to_owned());
+    }
+
+    let mut collisions = session_recipe_collisions(&recipe.recipe);
+    if let (Some(source_path), Some(snapshot_path)) = (&source_path, &snapshot_path) {
+        if source_path == snapshot_path {
+            collisions.push("source_snapshot".to_owned());
+        }
+    }
+    collisions.sort();
+    collisions.dedup();
+
+    let (quality_rules, quality_report) = if let Some(raw_rules) = session_quality_rules(root) {
+        let migrated = migrate_quality_rules_document(raw_rules.clone())?;
+        (migrated.converted_rules, Some(migrated.report))
+    } else {
+        (Vec::new(), None)
+    };
+    let name = recipe.name.clone();
+    // The source is the reproducible input needed to create a project. A missing
+    // historical snapshot is reported, but does not block importing that source.
+    let can_create_project =
+        matches!(source_status, SessionReferenceStatus::Available) && collisions.is_empty();
+    Ok(DataprepSessionMigrationPlan {
+        name,
+        source_file_name,
+        source_status,
+        snapshot_status,
+        sheet_name: recipe
+            .migration_report
+            .as_ref()
+            .and_then(|report| report.session.as_ref())
+            .and_then(|session| session.sheet_name.clone()),
+        stage_label: recipe
+            .migration_report
+            .as_ref()
+            .and_then(|report| report.session.as_ref())
+            .and_then(|session| session.stage_label.clone()),
+        recipe,
+        quality_rules,
+        quality_report,
+        missing_references,
+        collisions,
+        can_create_project,
+    })
 }
 
 fn migration_export_format(value: &str) -> Option<ExportFormat> {
@@ -9693,6 +10319,33 @@ fn export_frame_atomic_with_privacy_and_quality<F, C>(
     format: ExportFormat,
     privacy_mode: PrivacyMode,
     quality_validation: Option<&QualityValidationResult>,
+    report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    export_frame_atomic_with_privacy_and_quality_and_recipe(
+        frame,
+        destination,
+        format,
+        privacy_mode,
+        quality_validation,
+        None,
+        report,
+        is_cancelled,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn export_frame_atomic_with_privacy_and_quality_and_recipe<F, C>(
+    frame: &DataFrame,
+    destination: &Path,
+    format: ExportFormat,
+    privacy_mode: PrivacyMode,
+    quality_validation: Option<&QualityValidationResult>,
+    recipe: Option<&StoredTransformRecipe>,
     mut report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
@@ -9745,6 +10398,7 @@ where
         ExportFormat::Bundle => write_bundle(
             &protected_frame,
             quality_validation,
+            recipe,
             temporary.as_file_mut(),
             &mut report,
             &is_cancelled,
@@ -9807,6 +10461,7 @@ fn hash_and_rewind(file: &mut File) -> Result<(u64, String), String> {
 fn write_bundle<F, C>(
     frame: &DataFrame,
     quality_validation: Option<&QualityValidationResult>,
+    recipe: Option<&StoredTransformRecipe>,
     output: &mut File,
     mut report: F,
     is_cancelled: C,
@@ -9816,6 +10471,9 @@ where
     C: Fn() -> bool,
 {
     ensure_not_cancelled(is_cancelled())?;
+    if let Some(recipe) = recipe {
+        validate_stored_recipe(recipe)?;
+    }
     report("Preparando paquete", 10);
 
     // El dataset se materializa en disco antes de abrir el ZIP para poder
@@ -9878,6 +10536,14 @@ where
         bytes: bytes.len() as u64,
         sha256: format!("{:x}", Sha256::digest(bytes)),
     });
+    let recipe_bytes = recipe
+        .map(|recipe| bundle_json_bytes(recipe, "la receta"))
+        .transpose()?;
+    let recipe_manifest = recipe_bytes.as_ref().map(|bytes| BundleFileManifest {
+        path: "recipe.json".to_owned(),
+        bytes: bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(bytes)),
+    });
     let manifest = BundleManifest {
         format: "columnia-bundle".to_owned(),
         version: 1,
@@ -9889,6 +10555,7 @@ where
         quality_report_file: quality_bytes
             .as_ref()
             .map(|_| "quality-report.json".to_owned()),
+        recipe_file: recipe_bytes.as_ref().map(|_| "recipe.json".to_owned()),
         files: [
             BundleFileManifest {
                 path: "dataset.csv".to_owned(),
@@ -9903,6 +10570,7 @@ where
         ]
         .into_iter()
         .chain(quality_manifest)
+        .chain(recipe_manifest)
         .collect(),
     };
     let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
@@ -9954,6 +10622,15 @@ where
         archive
             .write_all(&quality_bytes)
             .map_err(|error| format!("No se pudo empaquetar el reporte de calidad: {error}"))?;
+    }
+    if let Some(recipe_bytes) = recipe_bytes {
+        ensure_not_cancelled(is_cancelled())?;
+        archive
+            .start_file("recipe.json", options)
+            .map_err(|error| format!("No se pudo preparar la receta del paquete: {error}"))?;
+        archive
+            .write_all(&recipe_bytes)
+            .map_err(|error| format!("No se pudo empaquetar la receta: {error}"))?;
     }
     ensure_not_cancelled(is_cancelled())?;
     archive
@@ -11191,8 +11868,24 @@ pub async fn get_dataset_profile(
         })?;
 
         if let Some(profile) = &dataset.profile {
-            send_progress(&on_progress, "profile", "Perfil disponible", 100);
-            return Ok(profile.clone());
+            let has_enough_numeric_columns = profile
+                .columns
+                .iter()
+                .filter(|column| column.outlier_count.is_some())
+                .nth(1)
+                .is_some();
+            let has_group_candidate = profile.columns.iter().any(|column| {
+                column.empty_count.is_some()
+                    && column.suggested_type.is_none()
+                    && column.privacy_signal.is_none()
+                    && column.unique_count >= 2
+            });
+            if (profile.numeric_correlations.is_some() || !has_enough_numeric_columns)
+                && (profile.categorical_group_summaries.is_some() || !has_group_candidate)
+            {
+                send_progress(&on_progress, "profile", "Perfil disponible", 100);
+                return Ok(profile.clone());
+            }
         }
 
         let profile = profile_dataset_with_progress(
@@ -11247,9 +11940,13 @@ pub async fn export_dataset(
     quality_rules: Vec<QualityRule>,
     allow_unvalidated: bool,
     privacy_mode: PrivacyMode,
+    recipe: Option<StoredTransformRecipe>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<Option<ExportResult>, String> {
     validate_quality_rules_payload(&quality_rules)?;
+    if let Some(recipe) = recipe.as_ref() {
+        validate_stored_recipe(recipe)?;
+    }
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -11316,12 +12013,13 @@ pub async fn export_dataset(
     );
 
     tauri::async_runtime::spawn_blocking(move || {
-        export_frame_atomic_with_privacy_and_quality(
+        export_frame_atomic_with_privacy_and_quality_and_recipe(
             &frame,
             &destination,
             format,
             privacy_mode,
             quality_validation.as_ref(),
+            recipe.as_ref(),
             |stage, percent| send_progress(&on_progress, "export", stage, percent),
             || app.state::<DatasetState>().export_was_cancelled(generation),
         )
@@ -11433,6 +12131,28 @@ pub async fn pick_quality_rules_migration(
     let loaded = tauri::async_runtime::spawn_blocking(move || load_quality_migration_file(&path))
         .await
         .map_err(|error| format!("La migración del contrato se interrumpió: {error}"))??;
+    Ok(Some(loaded))
+}
+
+#[tauri::command]
+pub async fn pick_dataprep_session_migration(
+    app: AppHandle,
+) -> Result<Option<DataprepSessionMigrationPlan>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Sesión DataPrep", &["json"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo resolver la sesión seleccionada: {error}"))?;
+    let loaded =
+        tauri::async_runtime::spawn_blocking(move || load_dataprep_session_migration_plan(&path))
+            .await
+            .map_err(|error| format!("La inspección de la sesión se interrumpió: {error}"))??;
     Ok(Some(loaded))
 }
 
@@ -14107,6 +14827,49 @@ pub(crate) fn validate_project_profile(
     {
         return Err("El perfil guardado contiene métricas no válidas.".to_owned());
     }
+    if let Some(correlations) = &profile.numeric_correlations {
+        if correlations.columns.len() < 2
+            || correlations.columns.len() > MAX_NUMERIC_CORRELATION_COLUMNS
+            || correlations.sampled_row_count > MAX_NUMERIC_CORRELATION_SAMPLE_ROWS
+            || correlations.pairs.iter().any(|pair| {
+                pair.first_column == pair.second_column
+                    || !correlations.columns.contains(&pair.first_column)
+                    || !correlations.columns.contains(&pair.second_column)
+                    || pair.coefficient.is_some_and(|coefficient| {
+                        !coefficient.is_finite() || !(-1.0..=1.0).contains(&coefficient)
+                    })
+            })
+        {
+            return Err("El perfil guardado contiene correlaciones no válidas.".to_owned());
+        }
+    }
+    if let Some(summaries) = &profile.categorical_group_summaries {
+        if summaries.len() > MAX_CATEGORICAL_GROUP_COLUMNS
+            || summaries.iter().any(|summary| {
+                summary.groups.is_empty()
+                    || summary.groups.len() > MAX_CATEGORICAL_GROUPS + 1
+                    || summary.distinct_count < 2
+                    || summary.groups.iter().filter(|group| group.is_other).count() > 1
+                    || summary.groups.iter().any(|group| {
+                        group.label.is_empty()
+                            || group.row_count == 0
+                            || !group.percentage.is_finite()
+                            || !(0.0..=100.0).contains(&group.percentage)
+                            || group.label.chars().count() > MAX_GROUP_LABEL_CHARS
+                    })
+                    || summary
+                        .groups
+                        .iter()
+                        .map(|group| group.row_count)
+                        .sum::<usize>()
+                        != profile.row_count
+            })
+        {
+            return Err(
+                "El perfil guardado contiene resúmenes de categorías no válidos.".to_owned(),
+            );
+        }
+    }
     let mut expected = profile_dataset_with_progress(frame, |_, _| {}, || false)
         .map_err(|_| "No se pudo validar el perfil guardado.".to_owned())?;
     // Los perfiles persistidos antes de introducir histogramas siguen siendo
@@ -14126,10 +14889,44 @@ pub(crate) fn validate_project_profile(
         }
         expected_column.histogram = None;
     }
+    match (
+        &expected.numeric_correlations,
+        &profile.numeric_correlations,
+    ) {
+        (Some(expected_correlations), Some(stored_correlations)) => {
+            if expected_correlations != stored_correlations {
+                return Err("El perfil guardado no coincide con el dataset.".to_owned());
+            }
+        }
+        (Some(_), None) => {}
+        (None, Some(_)) => {
+            return Err("El perfil guardado no coincide con el dataset.".to_owned());
+        }
+        (None, None) => {}
+    }
+    expected.numeric_correlations = None;
+    match (
+        &expected.categorical_group_summaries,
+        &profile.categorical_group_summaries,
+    ) {
+        (Some(expected_summaries), Some(stored_summaries)) => {
+            if expected_summaries != stored_summaries {
+                return Err("El perfil guardado no coincide con el dataset.".to_owned());
+            }
+        }
+        (Some(_), None) => {}
+        (None, Some(_)) => {
+            return Err("El perfil guardado no coincide con el dataset.".to_owned());
+        }
+        (None, None) => {}
+    }
+    expected.categorical_group_summaries = None;
     let mut stored_without_histograms = profile.clone();
     for column in &mut stored_without_histograms.columns {
         column.histogram = None;
     }
+    stored_without_histograms.numeric_correlations = None;
+    stored_without_histograms.categorical_group_summaries = None;
     if expected != stored_without_histograms {
         return Err("El perfil guardado no coincide con el dataset.".to_owned());
     }
@@ -14176,6 +14973,27 @@ pub(crate) fn export_frame_for_automation(
     format: ExportFormat,
 ) -> Result<ExportResult, String> {
     export_frame_atomic(frame, output, format, |_, _| {}, || false)
+}
+
+pub(crate) fn export_frame_for_automation_with_recipe(
+    frame: &DataFrame,
+    output: &Path,
+    format: ExportFormat,
+    recipe: Option<&StoredTransformRecipe>,
+) -> Result<ExportResult, String> {
+    if recipe.is_none() {
+        return export_frame_for_automation(frame, output, format);
+    }
+    export_frame_atomic_with_privacy_and_quality_and_recipe(
+        frame,
+        output,
+        format,
+        PrivacyMode::None,
+        None,
+        recipe,
+        |_, _| {},
+        || false,
+    )
 }
 
 pub(crate) struct ActiveDatasetSnapshot {
@@ -15628,6 +16446,88 @@ mod tests {
     }
 
     #[test]
+    fn profiles_bounded_numeric_correlations_without_exposing_cells() {
+        let path = temporary_csv(
+            "first,second,constant,identifier\n1,2,9,001\n2,4,9,002\n,8,9,003\n4,8,9,004\n",
+        );
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        let correlations = profile
+            .numeric_correlations
+            .as_ref()
+            .expect("debe calcular correlaciones para dos columnas numéricas");
+        assert_eq!(correlations.columns, vec!["first", "second", "constant"]);
+        assert_eq!(correlations.sampled_row_count, 4);
+        assert!(!correlations.truncated);
+        let first_second = correlations
+            .pairs
+            .iter()
+            .find(|pair| pair.first_column == "first" && pair.second_column == "second")
+            .expect("debe incluir el par first-second");
+        assert_eq!(first_second.sample_count, 3);
+        assert!((first_second.coefficient.expect("debe ser definido") - 1.0).abs() < 1e-9);
+        let first_constant = correlations
+            .pairs
+            .iter()
+            .find(|pair| pair.first_column == "first" && pair.second_column == "constant")
+            .expect("debe incluir el par first-constant");
+        assert_eq!(first_constant.coefficient, None);
+        assert!(profile
+            .columns
+            .iter()
+            .all(|column| { column.name != "identifier" || column.mean.is_none() }));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn profiles_bounded_categorical_groups_and_keeps_private_columns_out() {
+        let path = temporary_csv(
+            "segment,email,status\nA,ana@example.com,ok\nA,beatriz@example.com,ok\nA,carlos@example.com,ok\nB,diana@example.com,ok\nB,elena@example.com,ok\nC,francisco@example.com,ok\n",
+        );
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        let summaries = profile
+            .categorical_group_summaries
+            .as_ref()
+            .expect("debe resumir una columna categórica no sensible");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].column, "segment");
+        assert_eq!(summaries[0].distinct_count, 3);
+        assert_eq!(summaries[0].groups.len(), 2);
+        assert_eq!(summaries[0].groups[0].label, "A");
+        assert_eq!(summaries[0].groups[0].row_count, 3);
+        assert!(!summaries[0].groups[0].is_other);
+        assert_eq!(summaries[0].groups[1].label, "Resto");
+        assert_eq!(summaries[0].groups[1].row_count, 3);
+        assert!(summaries[0].groups[1].is_other);
+        let serialized = serde_json::to_string(&profile).expect("el perfil debe serializar");
+        assert!(!serialized.contains("ana@example.com"));
+        assert!(!serialized.contains("francisco@example.com"));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn empty_numeric_dataset_does_not_attempt_to_sample_correlations() {
+        let frame = DataFrame::new(
+            0,
+            vec![
+                Series::new("first".into(), Vec::<i64>::new()).into_column(),
+                Series::new("second".into(), Vec::<i64>::new()).into_column(),
+            ],
+        )
+        .expect("el frame vacío debe ser válido");
+
+        let profile = profile_dataset(&frame).expect("el perfil vacío debe calcularse");
+
+        assert_eq!(profile.row_count, 0);
+        assert_eq!(profile.numeric_correlations, None);
+    }
+
+    #[test]
     fn reports_profile_progress_per_column() {
         let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
         let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
@@ -15994,6 +16894,53 @@ mod tests {
             .unwrap();
         assert!(dataset.contains("[REDACTED]"));
         assert!(!dataset.contains("ana@example.com"));
+    }
+
+    #[test]
+    fn exports_validated_recipe_with_manifest_reference_and_hash() {
+        let frame = df!["amount" => &[Some(2_i64), Some(3_i64)]].unwrap();
+        let recipe = complete_stored_recipe();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("resultado-con-receta.zip");
+
+        export_frame_atomic_with_privacy_and_quality_and_recipe(
+            &frame,
+            &destination,
+            ExportFormat::Bundle,
+            PrivacyMode::None,
+            None,
+            Some(&recipe),
+            |_, _| {},
+            || false,
+        )
+        .expect("el bundle debe incluir la receta válida");
+
+        let bytes = fs::read(&destination).unwrap();
+        let mut archive = ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut recipe_json = String::new();
+        archive
+            .by_name("recipe.json")
+            .expect("falta recipe.json en el bundle")
+            .read_to_string(&mut recipe_json)
+            .unwrap();
+        let recipe_value: JsonValue = serde_json::from_str(&recipe_json).unwrap();
+        assert_eq!(recipe_value["name"], "Limpieza completa");
+        assert_eq!(recipe_value["version"], RECIPE_FILE_VERSION);
+
+        let mut manifest_json = String::new();
+        archive
+            .by_name("manifest.json")
+            .unwrap()
+            .read_to_string(&mut manifest_json)
+            .unwrap();
+        let manifest: JsonValue = serde_json::from_str(&manifest_json).unwrap();
+        assert_eq!(manifest["recipeFile"], "recipe.json");
+        let expected_hash = format!("{:x}", Sha256::digest(recipe_json.as_bytes()));
+        assert!(manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["path"] == "recipe.json" && file["sha256"] == expected_hash));
     }
 
     #[test]

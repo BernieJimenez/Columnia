@@ -484,6 +484,7 @@ describe("desktop bridge", () => {
       qualityRules,
       allowUnvalidated: false,
       privacyMode: "none",
+      recipe: null,
       onProgress: expect.any(Channel),
     });
   });
@@ -509,6 +510,7 @@ describe("desktop bridge", () => {
       qualityRules: [],
       allowUnvalidated: true,
       privacyMode: "none",
+      recipe: null,
       onProgress: expect.any(Channel),
     });
   });
@@ -534,6 +536,7 @@ describe("desktop bridge", () => {
       qualityRules: [],
       allowUnvalidated: true,
       privacyMode: "none",
+      recipe: null,
       onProgress: expect.any(Channel),
     });
   });

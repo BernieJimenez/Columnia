@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatasetPreview } from "../../bridge";
+import type { DatasetPreview, SavedRecipe } from "../../bridge";
 import { DeliveryPhase } from "./DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
@@ -31,11 +31,18 @@ const dataset: DatasetPreview = {
   rows: [["10", "12", "ok", "2024-01-01"], ["20", "20", "ok", "2024-06-01"]],
 };
 
-function DeliveryHarness({ onExport }: { onExport: (request: DeliveryExportRequest) => void }) {
+function DeliveryHarness({
+  onExport,
+  recipeDraft = null,
+}: {
+  onExport: (request: DeliveryExportRequest) => void;
+  recipeDraft?: SavedRecipe | null;
+}) {
   const [contract, setContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   return (
     <DeliveryPhase
       dataset={dataset}
+      recipeDraft={recipeDraft}
       contract={contract}
       exportState={{ kind: "idle" }}
       onContractAction={(action) => setContract((current) => reduceDeliveryContract(current, action))}
@@ -44,6 +51,27 @@ function DeliveryHarness({ onExport }: { onExport: (request: DeliveryExportReque
     />
   );
 }
+
+const recipeDraft: SavedRecipe = {
+  version: 1,
+  name: "Receta de prueba",
+  savedAt: "2026-08-26T00:00:00Z",
+  recipe: {
+    renames: [],
+    casts: [],
+    dateParses: [],
+    filters: [],
+    calculatedColumn: null,
+    findReplace: null,
+    keepColumns: null,
+    splitColumn: null,
+    mergeColumns: null,
+    outlierTreatments: [],
+    groupSummary: null,
+    contactNormalizations: [],
+    textExtractions: [],
+  },
+};
 
 describe("DeliveryPhase", () => {
   it("exige confirmación explícita antes de exportar sin contrato", () => {
@@ -168,6 +196,18 @@ describe("DeliveryPhase", () => {
       privacyMode: "none",
       validation: { kind: "explicitly_unvalidated" },
     });
+  });
+
+  it("explica que el bundle incluirá la receta validada de la sesión", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} recipeDraft={recipeDraft} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "bundle" },
+    });
+
+    expect(screen.getByRole("note")).toHaveTextContent("recipe.json");
+    expect(screen.getByRole("note")).toHaveTextContent("manifest.json");
   });
 
   it("permite seleccionar una política de privacidad antes de exportar", () => {

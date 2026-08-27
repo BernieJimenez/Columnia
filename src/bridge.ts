@@ -110,6 +110,34 @@ export interface HistogramBucket {
   count: number;
 }
 
+export interface NumericCorrelation {
+  firstColumn: string;
+  secondColumn: string;
+  coefficient: number | null;
+  sampleCount: number;
+}
+
+export interface NumericCorrelationMatrix {
+  columns: string[];
+  pairs: NumericCorrelation[];
+  sampledRowCount: number;
+  truncated: boolean;
+}
+
+export interface CategoricalGroup {
+  label: string;
+  rowCount: number;
+  percentage: number;
+  isOther: boolean;
+}
+
+export interface CategoricalGroupSummary {
+  column: string;
+  groups: CategoricalGroup[];
+  distinctCount: number;
+  truncated: boolean;
+}
+
 export interface ColumnProfile {
   name: string;
   dataType: string;
@@ -142,6 +170,8 @@ export interface DatasetProfile {
   nearDuplicateRowCount: number;
   duplicatePercentage: number;
   columns: ColumnProfile[];
+  numericCorrelations?: NumericCorrelationMatrix;
+  categoricalGroupSummaries?: CategoricalGroupSummary[];
 }
 
 export interface DatasetMutation {
@@ -366,6 +396,23 @@ export interface SessionMigrationMetadata {
   appliedOperationCount: number;
   qualityRuleCount: number;
   analysisCheckCount: number;
+}
+
+export type SessionReferenceStatus = "not_provided" | "available" | "missing" | "unsupported";
+
+export interface DataprepSessionMigrationPlan {
+  name: string;
+  sourceFileName: string | null;
+  sourceStatus: SessionReferenceStatus;
+  snapshotStatus: SessionReferenceStatus;
+  sheetName: string | null;
+  stageLabel: string | null;
+  recipe: SavedRecipe;
+  qualityRules: QualityRule[];
+  qualityReport: QualityMigrationReport | null;
+  missingReferences: string[];
+  collisions: string[];
+  canCreateProject: boolean;
 }
 
 export interface RecipeMigrationReport {
@@ -652,6 +699,7 @@ export function exportDataset(
   allowUnvalidated: boolean,
   onProgress?: ProgressHandler,
   privacyMode: PrivacyMode = "none",
+  recipe?: SavedRecipe | null,
 ): Promise<ExportResult | null> {
   return invoke<ExportResult | null>("export_dataset", {
     format,
@@ -659,6 +707,7 @@ export function exportDataset(
     allowUnvalidated,
     privacyMode,
     onProgress: progressChannel(onProgress),
+    recipe: recipe ?? null,
   });
 }
 
@@ -670,6 +719,10 @@ export function validateQualityRules(
 
 export function pickQualityRulesMigration(): Promise<QualityMigrationResult | null> {
   return invoke<QualityMigrationResult | null>("pick_quality_rules_migration");
+}
+
+export function pickDataprepSessionMigration(): Promise<DataprepSessionMigrationPlan | null> {
+  return invoke<DataprepSessionMigrationPlan | null>("pick_dataprep_session_migration");
 }
 
 export function saveQualityRulesDocument(

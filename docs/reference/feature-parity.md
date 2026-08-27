@@ -11,12 +11,12 @@ claro y esté cubierta por una prueba o evidencia local.
 | --- | --- | --- | --- | --- |
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
-| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
+| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos acotados y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario y series temporales |
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación; importación del núcleo representable de pipelines DataPrep v1–v3 | Parcial | Migrar catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
-| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos y validación de formatos, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
-| Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla y receta dentro del bundle |
+| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
+| Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas y CLI | Parcial | Importar sesiones/pipelines y completar caché/actividad |
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales y confirmación visible de columnas protegidas | Parcial | Privacidad de recetas/reports/manifests y conectores remotos |
 | Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles; benchmark CLI validado hasta 256 MiB, con RAM fuera del presupuesto | Parcial | Ejecución incremental real y presupuesto integral |
@@ -45,6 +45,11 @@ Diagnóstico incorpora una lectura visual compacta del perfil por columna:
   el máximo observado;
 - histogramas numéricos de 12 intervalos con límites estables al persistir un
   perfil;
+- matriz de correlaciones de Pearson para hasta 12 columnas numéricas y 100.000
+  filas muestreadas, con coeficientes y conteos de pares en una tabla accesible;
+- resúmenes de frecuencia para hasta cuatro columnas categóricas no sensibles,
+  con ocho grupos principales, umbral de tres filas y “Resto” para categorías
+  omitidas; cada gráfico conserva una tabla equivalente;
 - valores exactos visibles y regiones ARIA con nombres descriptivos;
 - tablas de perfil y frecuencias como equivalente completo para lector de pantalla,
   alto contraste y navegación sin depender del color.
@@ -328,8 +333,9 @@ Entregar conserva la misma compuerta de calidad para CSV, JSON, Parquet, SQL,
 Excel, SQLite y bundle. Excel se publica como un libro `.xlsx` real con una hoja
 `dataset`; SQLite se publica con una transacción atómica, columnas tipadas y la
 misma tabla lógica `dataset`. El bundle publica `dataset.csv`,
-`dictionary.json`, un `quality-report.json` opcional y `manifest.json` con hashes
-SHA-256 por archivo. Estos destinos también están disponibles en CLI, batch y
+`dictionary.json`, un `quality-report.json` opcional, `recipe.json` cuando hay
+una receta validada y `manifest.json` con hashes SHA-256 por archivo. Estos
+destinos también están disponibles en CLI, batch y
 exportación de proyectos, sin entregar rutas al frontend.
 
 Antes de publicar se puede elegir no proteger, enmascarar o aplicar SHA-256 a

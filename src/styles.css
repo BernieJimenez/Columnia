@@ -189,16 +189,34 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .recipe-files button { min-height: 44px; padding: 7px 11px; border: 1px solid #27837d; border-radius: 3px; background: transparent; color: #126d68; font-weight: 800; cursor: pointer; }
 .recipe-files button:disabled { cursor: not-allowed; opacity: .5; }
 .recipe-file-status { grid-column: 1 / -1; margin: 2px 0 0; color: #47625f; font-size: .76rem; }
-.recipe-migration-report { grid-column: 1 / -1; display: grid; gap: 6px; margin-top: 4px; padding: 9px 10px; border-left: 3px solid #d18a24; background: #fff8e9; color: #5d4a2e; font-size: .76rem; }
+.recipe-migration-report { grid-column: 1 / -1; display: grid; gap: 12px; margin-top: 8px; padding: 14px; border: 1px solid #d8c393; border-left: 4px solid #d18a24; background: #fffbf2; color: #5d4a2e; font-size: .8rem; }
 .recipe-migration-report p, .recipe-migration-report ul { margin: 0; }
-.recipe-migration-report ul { padding-left: 20px; }
-.recipe-migration-report details { margin-top: 2px; }
-.recipe-migration-report summary { cursor: pointer; font-weight: 750; }
-.recipe-migration-report small { overflow-wrap: anywhere; }
-.recipe-session-summary { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid #d3b16b; background: #fffdf5; color: #5d4a2e; }
-.recipe-session-summary p, .recipe-session-summary ul { margin: 0; }
-.recipe-session-summary ul { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-left: 18px; }
-.recipe-session-summary small { color: #765f2f; }
+.recipe-migration-report__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.recipe-migration-report__header h4 { margin: 4px 0 0; font-size: 1rem; }
+.recipe-migration-report__header p:last-child { margin-top: 5px; color: #765f2f; line-height: 1.4; }
+.recipe-migration-report__status { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #d3b16b; border-radius: 999px; color: #765f2f; font-size: .72rem; white-space: nowrap; }
+.recipe-migration-report__status--ready { border-color: #4e9b83; color: #236b58; }
+.recipe-migration-report__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.recipe-migration-report__metrics > div { display: grid; gap: 3px; min-width: 0; padding: 9px 10px; border: 1px solid #e2d4b5; background: #fffdf8; }
+.recipe-migration-report__metrics span { color: #765f2f; font-size: .72rem; }
+.recipe-migration-report__metrics strong { color: #5d4a2e; font-size: 1.08rem; }
+.recipe-migration-report__progress-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; color: #765f2f; font-size: .72rem; }
+.recipe-migration-report__progress { height: 7px; overflow: hidden; border-radius: 999px; background: #eadfca; }
+.recipe-migration-report__progress span { display: block; height: 100%; border-radius: inherit; background: #27837d; transition: width .2s ease; }
+.recipe-migration-report__delivery { color: #5d4a2e; line-height: 1.45; }
+.recipe-session-summary { display: grid; gap: 8px; padding: 10px; border: 1px solid #d3b16b; background: #fffdf5; color: #5d4a2e; }
+.recipe-session-summary__header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.recipe-session-summary__header small { color: #765f2f; font-size: .7rem; }
+.recipe-session-summary__facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; padding: 0; list-style: none; }
+.recipe-session-summary__facts li { display: grid; gap: 3px; min-width: 0; }
+.recipe-session-summary__facts span { color: #765f2f; font-size: .7rem; }
+.recipe-session-summary__facts strong { font-size: .78rem; }
+.recipe-session-summary p { color: #765f2f; font-size: .75rem; line-height: 1.4; }
+.recipe-migration-report__details { display: grid; gap: 7px; }
+.recipe-migration-report__details details { border-top: 1px solid #e2d4b5; padding-top: 7px; }
+.recipe-migration-report__details summary { cursor: pointer; font-weight: 750; }
+.recipe-migration-report__details ul { display: grid; gap: 4px; margin-top: 6px; padding-left: 18px; line-height: 1.4; }
+.recipe-migration-report__privacy { color: #765f2f; font-size: .7rem; line-height: 1.4; }
 .transform-recipe__grid { display: grid; gap: 12px; max-height: 45vh; margin-top: 16px; overflow: auto; }
 .transform-recipe fieldset { display: grid; gap: 9px; margin: 0; padding: 12px; border: 1px solid #ced9d5; background: #f8faf8; }
 .transform-recipe legend { padding: 0 6px; color: #31535a; font-size: .8rem; font-weight: 800; }
@@ -470,6 +488,23 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .quality-histogram__table th,
 .quality-histogram__table td { padding: 7px 9px; }
 .quality-chart__range { display: block; margin-top: 4px; color: #627770; font-size: .7rem; }
+.quality-correlation__table { max-width: 100%; margin-top: 12px; overflow: auto; border: 1px solid #b8c9c4; background: #fff; }
+.quality-correlation__table table { width: max-content; min-width: 100%; margin: 0; }
+.quality-correlation__table th,
+.quality-correlation__table td { min-width: 92px; padding: 8px 10px; text-align: center; }
+.quality-correlation__table th:first-child { position: sticky; left: 0; z-index: 2; text-align: left; }
+.quality-correlation__table thead th { top: 0; z-index: 3; }
+.quality-correlation__cell { color: #627770; font-variant-numeric: tabular-nums; font-weight: 750; }
+.quality-correlation__cell--diagonal { background: #e3efeb; color: #126d68; }
+.quality-correlation__cell--strong { background: #b8ddd3; color: #124e4c; }
+.quality-correlation__cell--moderate { background: #d9ebe5; color: #285b58; }
+.quality-correlation__cell--weak { background: #f0f5f2; color: #4d6b66; }
+.quality-groups .quality-chart__note strong { color: #153f45; }
+.quality-chart__track-fill--other { background: #7b8d88 !important; }
+.quality-groups .quality-chart__table { max-height: 220px; margin-top: 12px; overflow: auto; border: 1px solid #b8c9c4; background: #fff; }
+.quality-groups .quality-chart__table table { width: 100%; margin: 0; }
+.quality-groups .quality-chart__table th,
+.quality-groups .quality-chart__table td { padding: 7px 9px; }
 .inline-action { min-height: 44px; margin-top: 10px; padding: 7px 10px; border: 1px solid #126d68; border-radius: 4px; background: transparent; color: #126d68; font-size: .78rem; font-weight: 750; cursor: pointer; }
 .inline-action:disabled { cursor: not-allowed; opacity: .42; }
 .change-feedback { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 22px; padding: 12px 14px; border-left: 3px solid #16847d; background: #e8f4f0; color: #28524f; }
@@ -671,6 +706,21 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .recipe-files { border-color: #426067; background: #17343a; }
   .recipe-files label span, .recipe-file-status { color: #afc2bd; }
   .recipe-migration-report { border-color: #d7a34c; background: #2f3436; color: #f3dfb5; }
+  .recipe-migration-report__header p:last-child,
+  .recipe-migration-report__metrics span,
+  .recipe-migration-report__progress-row,
+  .recipe-migration-report__privacy,
+  .recipe-session-summary__header small,
+  .recipe-session-summary__facts span,
+  .recipe-session-summary p { color: #f1c77a; }
+  .recipe-migration-report__status { border-color: #7c6331; color: #f1c77a; }
+  .recipe-migration-report__status--ready { border-color: #6bb8a4; color: #9ce2d1; }
+  .recipe-migration-report__metrics > div { border-color: #665333; background: #3c321f; }
+  .recipe-migration-report__metrics strong,
+  .recipe-migration-report__delivery { color: #f3dfb5; }
+  .recipe-migration-report__progress { background: #594a2e; }
+  .recipe-migration-report__progress span { background: #7bd2c8; }
+  .recipe-migration-report__details details { border-top-color: #665333; }
   .recipe-session-summary { border-color: #7c6331; background: #3c321f; color: #f3dfb5; }
   .recipe-session-summary small { color: #f1c77a; }
   .recipe-files input { border-color: #527078; background: #214249; color: #edf5f2; }
@@ -765,6 +815,15 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .quality-histogram__axis { color: #afc2bd; }
   .quality-histogram__table { border-color: #426067; background: #17343a; }
   .quality-chart__range { color: #afc2bd; }
+  .quality-correlation__table { border-color: #426067; background: #17343a; }
+  .quality-correlation__cell { color: #afc2bd; }
+  .quality-correlation__cell--diagonal { background: #285d5c; color: #b6eee3; }
+  .quality-correlation__cell--strong { background: #347d78; color: #eff9f6; }
+  .quality-correlation__cell--moderate { background: #285d5c; color: #d8f0ea; }
+  .quality-correlation__cell--weak { background: #214249; color: #b6c9c7; }
+  .quality-groups .quality-chart__note strong { color: #e4eeeb; }
+  .quality-chart__track-fill--other { background: #7f9691 !important; }
+  .quality-groups .quality-chart__table { border-color: #426067; background: #17343a; }
   .inline-action { border-color: #7bd2c8; color: #7bd2c8; }
   .change-feedback { background: #21463f; color: #c6e8df; }
   .change-feedback--error { background: #492c2b; color: #ffd7d2; }
@@ -839,6 +898,21 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 :root[data-theme="dark"] .quality-contract__unvalidated :is(strong, p, label) { color: #f3dfb5; }
 :root[data-theme="dark"] .recipe-session-summary { border-color: #7c6331; background: #3c321f; color: #f3dfb5; }
 :root[data-theme="dark"] .recipe-session-summary small { color: #f1c77a; }
+:root[data-theme="dark"] .recipe-migration-report__header p:last-child,
+:root[data-theme="dark"] .recipe-migration-report__metrics span,
+:root[data-theme="dark"] .recipe-migration-report__progress-row,
+:root[data-theme="dark"] .recipe-migration-report__privacy,
+:root[data-theme="dark"] .recipe-session-summary__header small,
+:root[data-theme="dark"] .recipe-session-summary__facts span,
+:root[data-theme="dark"] .recipe-session-summary p { color: #f1c77a; }
+:root[data-theme="dark"] .recipe-migration-report__status { border-color: #7c6331; color: #f1c77a; }
+:root[data-theme="dark"] .recipe-migration-report__status--ready { border-color: #6bb8a4; color: #9ce2d1; }
+:root[data-theme="dark"] .recipe-migration-report__metrics > div { border-color: #665333; background: #3c321f; }
+:root[data-theme="dark"] .recipe-migration-report__metrics strong,
+:root[data-theme="dark"] .recipe-migration-report__delivery { color: #f3dfb5; }
+:root[data-theme="dark"] .recipe-migration-report__progress { background: #594a2e; }
+:root[data-theme="dark"] .recipe-migration-report__progress span { background: #7bd2c8; }
+:root[data-theme="dark"] .recipe-migration-report__details details { border-top-color: #665333; }
 :root[data-theme="dark"] .load-brief { border-color: #426067; }
 :root[data-theme="dark"] .load-brief__index { border-color: #7bd2c8; color: #7bd2c8; }
 :root[data-theme="dark"] .load-brief h3 { color: #e4eeeb; }
@@ -1228,6 +1302,10 @@ body { color: var(--text-primary); background: var(--canvas); }
   .export-controls { grid-template-columns: 1fr; }
   .export-action { width: 100%; }
   .local-query__actions button { width: 100%; }
+  .recipe-migration-report__header,
+  .recipe-session-summary__header { align-items: flex-start; flex-direction: column; }
+  .recipe-migration-report__status { white-space: normal; }
+  .recipe-session-summary__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 420px) {
@@ -1686,4 +1764,13 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
   .quality-histogram__bar span { background: Highlight; }
   .quality-histogram__axis { color: CanvasText; }
   .quality-histogram__table { border-color: ButtonText; background: Canvas; }
+  .quality-correlation__table { border-color: ButtonText; background: Canvas; }
+  .quality-correlation__cell,
+  .quality-correlation__cell--diagonal,
+  .quality-correlation__cell--strong,
+  .quality-correlation__cell--moderate,
+  .quality-correlation__cell--weak { background: Canvas; color: CanvasText; }
+  .quality-groups .quality-chart__note strong,
+  .quality-chart__track-fill--other { color: CanvasText; background: Highlight !important; }
+  .quality-groups .quality-chart__table { border-color: ButtonText; background: Canvas; }
 }
