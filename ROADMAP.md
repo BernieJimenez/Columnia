@@ -1152,8 +1152,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   calendario, tendencias y series temporales, siempre con tabla accesible equivalente. Las
   primeras ampliaciones ya incluyen ranking de patrones de nulos, validación
   visual de formatos, grupos categóricos, cobertura temporal, tendencias por
-  mes/año y una matriz de correlaciones de Pearson acotada, todas con tabla
-  equivalente; calendario diario y series temporales completas siguen pendientes.
+  día/mes/año y una matriz de correlaciones de Pearson acotada, todas con tabla
+  equivalente; calendario diario dedicado y series temporales completas siguen pendientes.
+- [x] Añadir tendencia temporal diaria para rangos de hasta 90 días, con días
+  sin filas visibles, payload acotado, cancelación cooperativa y tabla accesible
+  equivalente; los rangos mayores conservan la agregación mensual o anual.
 - [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
   `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.
@@ -1286,8 +1289,9 @@ del original.
   colisiones de nombres antes de escribir cualquier snapshot.
 - [x] Implementar la primera slice de mapeo de sesiones DataPrep al catálogo:
   selector nativo, validación de referencias, esquema, formato, hoja y receta
-  en un estado temporal, publicación únicamente después de validar y errores sin
-  rutas administradas en el bridge.
+  en un estado temporal, publicación únicamente después de validar, fallback a
+  `snapshot_path` compatible cuando falta la fuente y errores sin rutas
+  administradas en el bridge.
 - [ ] Crear un informe de migración con operaciones convertidas, omitidas,
   advertencias, acciones manuales y hash de los artefactos; no publicar secretos,
   rutas administradas ni valores de datasets en el resultado.
@@ -1330,6 +1334,7 @@ del original.
 | 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |
 | 2026-08-26 | Extender la lectura streaming a Parquet mediante `scan_parquet`, conservando `parallel: None`, baja memoria y `rechunk` desactivado para evitar picos innecesarios | Implementada en la carga inicial; cacheado, joins, comparación e historial incremental siguen en cola |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
+| 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
 | 2026-08-12 | Usar `../dataprepv1.1/` como referencia funcional, no como plantilla técnica automática | Aprobada |
 | 2026-08-12 | Nombre del producto y del proyecto: `Columnia` | Aprobada |
@@ -1419,7 +1424,7 @@ del original.
 | 2026-08-24 | Versión 0.56.0: los pipelines DataPrep conservan opciones de entrega compatibles, normalizan XLSX a Excel y publican informe con warnings para semánticas de exportación omitidas, sin exponer rutas | Implementada |
 | 2026-08-24 | Versión 0.57.0: inventario y fixtures sintéticas de migración para pipelines, sesiones, calidad y legacy; los metadatos de sesión se reconocen y se omiten con warnings sanitizados | Implementada |
 | 2026-08-26 | P1 añade cobertura y tendencia temporal agregadas en Review: rangos Date/Datetime/Timestamp, conteos por mes/año, filas interpretables y porcentaje con tabla equivalente; el calendario diario y las series temporales completas siguen pendientes | Implementada |
-| 2026-08-26 | M1 añade una slice segura para mapear sesiones DataPrep al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta y publicación transaccional sin tocar el dataset activo; una prueba nativa cubre importar → reabrir → validar → exportar, mientras la restauración completa sigue pendiente | Implementada |
+| 2026-08-26 | M1 añade una slice segura para mapear sesiones DataPrep al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta, restauración de `snapshot_path` compatible cuando falta la fuente y publicación transaccional sin tocar el dataset activo; una prueba nativa cubre importar → reabrir → validar → exportar, mientras la restauración histórica completa sigue pendiente | Implementada |
 
 ## 10. Fuentes de esta revisión
 

@@ -94,8 +94,11 @@ etapa y conteos de operaciones, reglas y análisis se conservan en el informe
 estructurado. Desde Proyectos, **Importar sesión DataPrep** ofrece una slice de
 mapeo segura: el selector nativo mantiene la ruta fuera del bridge, la fuente,
 hoja, esquema y receta se validan en un estado temporal, y solo después se
-publica un snapshot y se abre el proyecto resultante. Una cancelación o error no
-modifica el dataset activo ni reemplaza proyectos existentes.
+publica un snapshot y se abre el proyecto resultante. Si la fuente original ya
+no existe, un `snapshot_path` local y compatible puede restaurarse como dataset
+temporal sin volver a ejecutar la receta sobre datos ya materializados. Una
+cancelación o error no modifica el dataset activo ni reemplaza proyectos
+existentes.
 
 ## Límites pendientes
 

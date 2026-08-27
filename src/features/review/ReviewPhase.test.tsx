@@ -176,6 +176,26 @@ const temporalProfile: DatasetProfile = {
   ],
 };
 
+const dailyTemporalProfile: DatasetProfile = {
+  ...temporalProfile,
+  temporalSeries: [
+    {
+      column: "fecha",
+      granularity: "day",
+      parsedRowCount: 4,
+      unparsedRowCount: 0,
+      truncated: false,
+      periods: [
+        { period: "2024-04-01", rowCount: 1, percentage: 25 },
+        { period: "2024-04-02", rowCount: 0, percentage: 0 },
+        { period: "2024-04-03", rowCount: 2, percentage: 50 },
+        { period: "2024-04-04", rowCount: 0, percentage: 0 },
+        { period: "2024-04-05", rowCount: 1, percentage: 25 },
+      ],
+    },
+  ],
+};
+
 describe("ReviewPhase", () => {
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
     const onAnalyzeQuality = vi.fn();
@@ -438,6 +458,39 @@ describe("ReviewPhase", () => {
     expect(trendTable).toHaveTextContent("2024-02");
     expect(trendTable).toHaveTextContent("36");
     expect(trendTable).toHaveTextContent("33.3%");
+  });
+
+  it("muestra una tendencia diaria acotada con tabla equivalente", () => {
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile: dailyTemporalProfile }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/Conteo de filas por día/)).toBeInTheDocument();
+    const trendTable = screen.getByRole("table", { name: "Tendencia temporal para fecha" });
+    expect(trendTable).toHaveTextContent("2024-04-02");
+    expect(trendTable).toHaveTextContent("2024-04-03");
+    expect(trendTable).toHaveTextContent("50.0%");
   });
 
   it("exige y emite una decisión explícita por conflicto", () => {

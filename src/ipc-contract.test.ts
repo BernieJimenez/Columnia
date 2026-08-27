@@ -319,7 +319,10 @@ function typescriptInterfaceFields(
   if (!declaration) throw new Error(`No se encontró la interfaz TypeScript ${interfaceName}.`);
 
   const openingIndex = declaration.index + declaration[0].lastIndexOf("{");
-  const ownFields = splitTopLevel(balancedBraces(source, openingIndex), ";")
+  const body = balancedBraces(source, openingIndex)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "");
+  const ownFields = splitTopLevel(body, ";")
     .map((field) => field.trim().match(/^([A-Za-z][A-Za-z0-9_]*)\??\s*:/)?.[1])
     .filter((field): field is string => Boolean(field));
   const inheritedFields = (declaration[1] ?? "")
@@ -395,7 +398,12 @@ function typescriptInterfaceFieldTypes(
 
   const openingIndex = declaration.index + declaration[0].lastIndexOf("{");
   const ownFields = Object.fromEntries(
-    splitTopLevel(balancedBraces(source, openingIndex), ";").flatMap((field) => {
+    splitTopLevel(
+      balancedBraces(source, openingIndex)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, ""),
+      ";",
+    ).flatMap((field) => {
       const match = field.trim().match(/^([A-Za-z][A-Za-z0-9_]*)(\?)?\s*:\s*([\s\S]+)$/);
       if (!match || match[3].includes("{")) return [];
       const normalized = normalizeTypescriptFieldType(match[3], aliases);

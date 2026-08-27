@@ -945,31 +945,37 @@ fn storage_error() -> String {
     "No se pudo acceder al almacenamiento privado de proyectos.".to_owned()
 }
 
-fn session_reference_value(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
+fn session_reference_value<'a>(
+    root: &'a JsonMap<String, JsonValue>,
+    keys: &[&str],
+) -> Option<&'a JsonValue> {
     let session = root.get("session").and_then(JsonValue::as_object);
-    ["source_path", "sourcePath", "file_name", "fileName"]
-        .into_iter()
-        .find_map(|key| {
-            root.get(key).filter(|value| !value.is_null()).or_else(|| {
-                session
-                    .and_then(|map| map.get(key))
-                    .filter(|value| !value.is_null())
-            })
+    keys.iter().find_map(|key| {
+        root.get(*key).filter(|value| !value.is_null()).or_else(|| {
+            session
+                .and_then(|map| map.get(*key))
+                .filter(|value| !value.is_null())
         })
+    })
 }
 
-fn resolve_dataprep_source(session_path: &Path) -> Result<PathBuf, String> {
-    let bytes = fs::read(session_path)
-        .map_err(|_| "No se pudo leer la sesión DataPrep para localizar su fuente.".to_owned())?;
+fn resolve_dataprep_reference(
+    session_path: &Path,
+    keys: &[&str],
+    missing_message: &str,
+) -> Result<PathBuf, String> {
+    let bytes = fs::read(session_path).map_err(|_| {
+        "No se pudo leer la sesión DataPrep para localizar su referencia.".to_owned()
+    })?;
     let root = serde_json::from_slice::<JsonValue>(&bytes)
         .ok()
         .and_then(|value| value.as_object().cloned())
         .ok_or_else(|| "La sesión DataPrep no contiene una fuente utilizable.".to_owned())?;
-    let reference = session_reference_value(&root)
+    let reference = session_reference_value(&root, keys)
         .and_then(JsonValue::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty() && !value.contains("://"))
-        .ok_or_else(|| "La fuente de la sesión DataPrep no está disponible.".to_owned())?;
+        .ok_or_else(|| missing_message.to_owned())?;
     let candidate = Path::new(reference);
     let candidate = if candidate.is_absolute() {
         candidate.to_owned()
@@ -979,8 +985,23 @@ fn resolve_dataprep_source(session_path: &Path) -> Result<PathBuf, String> {
             .unwrap_or_else(|| Path::new("."))
             .join(candidate)
     };
-    dataset::canonicalize_file_for_automation(&candidate)
-        .map_err(|_| "La fuente de la sesión DataPrep no está disponible.".to_owned())
+    dataset::canonicalize_file_for_automation(&candidate).map_err(|_| missing_message.to_owned())
+}
+
+fn resolve_dataprep_source(session_path: &Path) -> Result<PathBuf, String> {
+    resolve_dataprep_reference(
+        session_path,
+        &["source_path", "sourcePath", "file_name", "fileName"],
+        "La fuente de la sesión DataPrep no está disponible.",
+    )
+}
+
+fn resolve_dataprep_snapshot(session_path: &Path) -> Result<PathBuf, String> {
+    resolve_dataprep_reference(
+        session_path,
+        &["snapshot_path", "snapshotPath"],
+        "El snapshot de la sesión DataPrep no está disponible.",
+    )
 }
 
 fn import_dataprep_session_project_from_path(
@@ -1006,8 +1027,34 @@ fn import_dataprep_session_project_from_path(
             reasons.join(" y ")
         ));
     }
-    let source_path = resolve_dataprep_source(&session_path)?;
-    let extension = source_path
+    // Prefer the reproducible source and fall back to a compatible snapshot when
+    // the original input has been moved or deleted. The resolved path remains
+    // private to this native operation and never crosses the bridge.
+    let (input_path, apply_recipe) = if matches!(
+        plan.source_status,
+        dataset::SessionReferenceStatus::Available
+    ) {
+        match resolve_dataprep_source(&session_path) {
+            Ok(path) => (path, true),
+            Err(_error)
+                if matches!(
+                    plan.snapshot_status,
+                    dataset::SessionReferenceStatus::Available
+                ) =>
+            {
+                (resolve_dataprep_snapshot(&session_path)?, false)
+            }
+            Err(error) => return Err(error),
+        }
+    } else if matches!(
+        plan.snapshot_status,
+        dataset::SessionReferenceStatus::Available
+    ) {
+        (resolve_dataprep_snapshot(&session_path)?, false)
+    } else {
+        return Err("La sesión no contiene una fuente o snapshot disponible.".to_owned());
+    };
+    let extension = input_path
         .extension()
         .and_then(|value| value.to_str())
         .map(str::to_ascii_lowercase)
@@ -1039,17 +1086,19 @@ fn import_dataprep_session_project_from_path(
         (None, None)
     };
     let (frame, preview) = dataset::load_dataset_for_automation(
-        &source_path,
+        &input_path,
         requested_sheet.as_deref(),
         requested_header,
     )
     .map_err(|_| "La fuente de la sesión no se puede leer con el esquema registrado.".to_owned())?;
     let imported = DatasetState::for_project_import(frame, preview.file_name.clone())?;
-    imported
-        .apply_project_import_recipe(&plan.recipe.recipe)
-        .map_err(|_| {
-            "La receta de la sesión no coincide con el esquema de la fuente.".to_owned()
-        })?;
+    if apply_recipe {
+        imported
+            .apply_project_import_recipe(&plan.recipe.recipe)
+            .map_err(|_| {
+                "La receta de la sesión no coincide con el esquema de la fuente.".to_owned()
+            })?;
+    }
     store.save(
         &imported,
         None,
@@ -2131,6 +2180,51 @@ mod tests {
                 .project,
             existing
         );
+    }
+
+    #[test]
+    fn dataprep_session_mapping_restores_available_snapshot_when_source_is_missing() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let snapshot = directory.path().join("snapshot.parquet");
+        write_snapshot(&frame(&[11, 12]), &snapshot).unwrap();
+        let session = directory.path().join("session.json");
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Restauración desde snapshot",
+                "source_path": "missing.csv",
+                "snapshot_path": "snapshot.parquet",
+                // This operation references a column absent from the snapshot. A
+                // restored snapshot is already materialized and must not replay it.
+                "transform": {"rename_text": "missing -> renamed"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let plan = dataset::load_dataprep_session_migration_plan(&session).unwrap();
+        assert_eq!(plan.source_status, dataset::SessionReferenceStatus::Missing);
+        assert_eq!(
+            plan.snapshot_status,
+            dataset::SessionReferenceStatus::Available
+        );
+        assert!(plan.missing_references.iter().any(|item| item == "source"));
+        assert!(plan.can_create_project);
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("un snapshot disponible debe poder restaurarse");
+        assert_eq!(imported.dataset_file_name, "snapshot.parquet");
+        assert_eq!((imported.row_count, imported.column_count), (2, 2));
+
+        let opened = store
+            .open(&DatasetState::default(), imported.id)
+            .expect("el proyecto restaurado debe reabrirse");
+        assert_eq!(opened.dataset.columns[0].name, "value");
+        assert_eq!(opened.dataset.columns[1].name, "label");
+        assert_eq!(snapshot_count(&store), 1);
     }
 
     #[test]

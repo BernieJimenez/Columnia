@@ -13,6 +13,18 @@ export interface ResourceUsage {
   processMemoryBytes: number;
   systemMemoryUsedBytes: number;
   systemMemoryTotalBytes: number;
+  /** Available RAM is optional for compatibility with older desktop builds. */
+  systemMemoryAvailableBytes?: number;
+  /** GPU values are null when the runtime has no GPU probe. */
+  gpu?: GpuUsage;
+}
+
+export interface GpuUsage {
+  status: "available" | "unavailable";
+  usagePercentage: number | null;
+  memoryUsedBytes: number | null;
+  memoryTotalBytes: number | null;
+  reason: string | null;
 }
 
 export interface DatasetColumn {
@@ -146,7 +158,7 @@ export interface TemporalPeriod {
 
 export interface TemporalSeriesSummary {
   column: string;
-  granularity: "month" | "year";
+  granularity: "day" | "month" | "year";
   periods: TemporalPeriod[];
   parsedRowCount: number;
   unparsedRowCount: number;

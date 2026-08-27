@@ -25,6 +25,27 @@ pub struct ResourceUsage {
     pub process_memory_bytes: u64,
     pub system_memory_used_bytes: u64,
     pub system_memory_total_bytes: u64,
+    /// Optional so the frontend can remain compatible with older desktop builds.
+    pub system_memory_available_bytes: Option<u64>,
+    /// Optional capability block; absent means an older runtime did not expose GPU measurements.
+    pub gpu: Option<GpuUsage>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuUsage {
+    pub status: GpuStatus,
+    pub usage_percentage: Option<f32>,
+    pub memory_used_bytes: Option<u64>,
+    pub memory_total_bytes: Option<u64>,
+    pub reason: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum GpuStatus {
+    Available,
+    Unavailable,
 }
 
 fn current_app_info() -> AppInfo {

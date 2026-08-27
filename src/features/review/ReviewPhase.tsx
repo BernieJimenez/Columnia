@@ -1205,7 +1205,7 @@ function TemporalTrendChart({
     >
       <h5 id={titleId}>Tendencia temporal · {summary.column}</h5>
       <p className="quality-chart__note">
-        Conteo de filas por {summary.granularity === "month" ? "mes" : "año"}; solo se muestran
+        Conteo de filas por {summary.granularity === "day" ? "día" : summary.granularity === "month" ? "mes" : "año"}; solo se muestran
         agregados del perfil, nunca valores de celdas. Se incluyen {summary.parsedRowCount.toLocaleString()}
         de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString()} filas interpretables.
       </p>

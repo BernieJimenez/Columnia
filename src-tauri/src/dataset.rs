@@ -80,6 +80,7 @@ const MAX_GROUP_LABEL_CHARS: usize = 120;
 const MIN_GROUP_COUNT: usize = 3;
 const MAX_TEMPORAL_COLUMNS: usize = 4;
 const MAX_TEMPORAL_PERIODS: usize = 48;
+const MAX_TEMPORAL_DAY_SPAN: i64 = 90;
 const MAX_TEMPORAL_MONTH_SPAN: i64 = 36;
 const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
 
@@ -3349,20 +3350,22 @@ where
 struct TemporalPeriodKey {
     year: i32,
     month: u32,
+    day: u32,
 }
 
 fn temporal_period_key(value: NaiveDateTime) -> TemporalPeriodKey {
     TemporalPeriodKey {
         year: value.year(),
         month: value.month(),
+        day: value.day(),
     }
 }
 
 fn temporal_period_label(key: TemporalPeriodKey, granularity: &str) -> String {
-    if granularity == "year" {
-        format!("{:04}", key.year)
-    } else {
-        format!("{:04}-{:02}", key.year, key.month)
+    match granularity {
+        "year" => format!("{:04}", key.year),
+        "day" => format!("{:04}-{:02}-{:02}", key.year, key.month, key.day),
+        _ => format!("{:04}-{:02}", key.year, key.month),
     }
 }
 
@@ -3372,6 +3375,30 @@ fn temporal_periods_between(
     granularity: &str,
     counts: &HashMap<TemporalPeriodKey, usize>,
 ) -> Vec<(String, usize)> {
+    if granularity == "day" {
+        let Some(first_date) = NaiveDate::from_ymd_opt(first.year, first.month, first.day) else {
+            return Vec::new();
+        };
+        let Some(last_date) = NaiveDate::from_ymd_opt(last.year, last.month, last.day) else {
+            return Vec::new();
+        };
+        let span = (last_date - first_date).num_days();
+        return (0..=span.max(0))
+            .map(|offset| {
+                let date = first_date + chrono::Duration::days(offset);
+                let key = TemporalPeriodKey {
+                    year: date.year(),
+                    month: date.month(),
+                    day: date.day(),
+                };
+                (
+                    temporal_period_label(key, granularity),
+                    counts.get(&key).copied().unwrap_or(0),
+                )
+            })
+            .collect();
+    }
+
     if granularity == "month" {
         let span = (i64::from(last.year) - i64::from(first.year)) * 12 + i64::from(last.month)
             - i64::from(first.month);
@@ -3381,11 +3408,17 @@ fn temporal_periods_between(
                     i64::from(first.year) * 12 + i64::from(first.month.saturating_sub(1)) + offset;
                 let year = absolute_month.div_euclid(12) as i32;
                 let month = absolute_month.rem_euclid(12) as u32 + 1;
-                let key = TemporalPeriodKey { year, month };
-                (
-                    temporal_period_label(key, granularity),
-                    counts.get(&key).copied().unwrap_or(0),
-                )
+                let key = TemporalPeriodKey {
+                    year,
+                    month,
+                    day: 1,
+                };
+                let count = counts
+                    .iter()
+                    .filter(|(period, _)| period.year == year && period.month == month)
+                    .map(|(_, count)| *count)
+                    .sum();
+                (temporal_period_label(key, granularity), count)
             })
             .collect();
     }
@@ -3397,6 +3430,7 @@ fn temporal_periods_between(
                 let key = TemporalPeriodKey {
                     year: first.year.saturating_add(offset as i32),
                     month: 1,
+                    day: 1,
                 };
                 let count = counts
                     .iter()
@@ -3414,7 +3448,11 @@ fn temporal_periods_between(
     years
         .into_iter()
         .map(|year| {
-            let key = TemporalPeriodKey { year, month: 1 };
+            let key = TemporalPeriodKey {
+                year,
+                month: 1,
+                day: 1,
+            };
             let count = counts
                 .iter()
                 .filter(|(period, _)| period.year == year)
@@ -3463,15 +3501,22 @@ where
     let (Some(first), Some(last)) = (first, last) else {
         return Ok(None);
     };
+    let first_date = NaiveDate::from_ymd_opt(first.year, first.month, first.day)
+        .ok_or_else(|| "No se pudo interpretar el inicio de la tendencia temporal.".to_owned())?;
+    let last_date = NaiveDate::from_ymd_opt(last.year, last.month, last.day)
+        .ok_or_else(|| "No se pudo interpretar el fin de la tendencia temporal.".to_owned())?;
+    let day_span = (last_date - first_date).num_days();
     let month_span = (i64::from(last.year) - i64::from(first.year)) * 12 + i64::from(last.month)
         - i64::from(first.month);
-    let granularity = if month_span <= MAX_TEMPORAL_MONTH_SPAN {
+    let granularity = if day_span <= MAX_TEMPORAL_DAY_SPAN {
+        "day"
+    } else if month_span <= MAX_TEMPORAL_MONTH_SPAN {
         "month"
     } else {
         "year"
     };
     let mut raw_periods = temporal_periods_between(first, last, granularity, &counts);
-    raw_periods.retain(|(_, count)| *count > 0 || granularity == "month");
+    raw_periods.retain(|(_, count)| *count > 0 || matches!(granularity, "month" | "day"));
 
     let truncated = raw_periods.len() > MAX_TEMPORAL_PERIODS;
     if truncated {
@@ -6078,8 +6123,9 @@ pub(crate) fn load_dataprep_session_migration_plan(
     let (source_status, source_path) =
         session_reference_status(&path, session_source_reference(root), true);
     let (snapshot_status, snapshot_path) =
-        session_reference_status(&path, migration_session_field(root, "snapshot_path"), false);
-    let source_file_name = session_display_file_name(root, source_path.as_deref());
+        session_reference_status(&path, migration_session_field(root, "snapshot_path"), true);
+    let source_file_name =
+        session_display_file_name(root, source_path.as_deref().or(snapshot_path.as_deref()));
     let mut missing_references = Vec::new();
     if matches!(source_status, SessionReferenceStatus::Missing) {
         missing_references.push("source".to_owned());
@@ -6108,10 +6154,11 @@ pub(crate) fn load_dataprep_session_migration_plan(
         (Vec::new(), None)
     };
     let name = recipe.name.clone();
-    // The source is the reproducible input needed to create a project. A missing
-    // historical snapshot is reported, but does not block importing that source.
-    let can_create_project =
-        matches!(source_status, SessionReferenceStatus::Available) && collisions.is_empty();
+    // A source is preferred because its recipe can be replayed. If it disappeared,
+    // an available compatible snapshot is still a valid temporal dataset to import.
+    let has_usable_input = matches!(source_status, SessionReferenceStatus::Available)
+        || matches!(snapshot_status, SessionReferenceStatus::Available);
+    let can_create_project = has_usable_input && collisions.is_empty();
     Ok(DataprepSessionMigrationPlan {
         name,
         source_file_name,
@@ -15270,7 +15317,7 @@ pub(crate) fn validate_project_profile(
     if let Some(summaries) = &profile.temporal_series {
         if summaries.len() > MAX_TEMPORAL_COLUMNS
             || summaries.iter().any(|summary| {
-                !matches!(summary.granularity.as_str(), "month" | "year")
+                !matches!(summary.granularity.as_str(), "day" | "month" | "year")
                     || summary.periods.is_empty()
                     || summary.periods.len() > MAX_TEMPORAL_PERIODS
                     || summary.parsed_row_count == 0
@@ -17001,6 +17048,48 @@ mod tests {
         assert!(serde_json::to_string(&profile)
             .expect("el perfil debe serializar")
             .contains("2024-02"));
+    }
+
+    #[test]
+    fn profiles_temporal_day_trend_keeps_empty_days_for_short_spans() {
+        let frame = DataFrame::new(
+            4,
+            vec![Series::new(
+                "created_at".into(),
+                ["2024-04-01", "2024-04-03", "2024-04-03", "2024-04-05"],
+            )
+            .into_column()],
+        )
+        .expect("el frame temporal debe ser válido");
+
+        let profile = profile_dataset(&frame).expect("el perfil temporal debe calcularse");
+        let summary = profile
+            .temporal_series
+            .as_ref()
+            .and_then(|summaries| summaries.first())
+            .expect("debe calcular una tendencia diaria para un rango corto");
+
+        assert_eq!(summary.granularity, "day");
+        assert_eq!(summary.periods.len(), 5);
+        assert_eq!(summary.periods[0].period, "2024-04-01");
+        assert_eq!(summary.periods[0].row_count, 1);
+        assert_eq!(summary.periods[1].period, "2024-04-02");
+        assert_eq!(summary.periods[1].row_count, 0);
+        assert_eq!(summary.periods[2].period, "2024-04-03");
+        assert_eq!(summary.periods[2].row_count, 2);
+        assert_eq!(summary.periods[4].period, "2024-04-05");
+        assert_eq!(
+            summary
+                .periods
+                .iter()
+                .map(|period| period.row_count)
+                .sum::<usize>(),
+            4
+        );
+        assert!(summary
+            .periods
+            .iter()
+            .all(|period| period.period.chars().count() == 10));
     }
 
     #[test]

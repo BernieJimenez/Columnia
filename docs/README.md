@@ -24,6 +24,8 @@ comportamiento implementado.
   `dataprepv1.1`, compatibilidad de contratos de calidad y brechas pendientes.
 - [Inventario de migración DataPrep](reference/migration-inventory.md): formato
   de recetas reconocido, conversiones seguras y límites explícitos.
+- [Monitor de recursos](reference/resource-monitor.md): contrato de CPU,
+  memoria disponible y estado explícito de la capacidad GPU.
 - [Evidencia visual del release](reference/release-evidence.md): sumario,
   baseline, ownership y procedimiento para aceptar cambios.
 - [Gobierno del repositorio](reference/repository-governance.md) y

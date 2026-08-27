@@ -83,7 +83,9 @@ por lo que una importación parcial nunca reemplaza un proyecto válido.
 
 Desde el panel **Proyectos** también puedes elegir **Importar sesión DataPrep**.
 Columnia valida la fuente, la hoja, el esquema y la receta en un estado temporal;
-solo publica el proyecto después de superar esas comprobaciones y abre el proyecto
+si la fuente original ya no existe, también puede restaurar un `snapshot_path`
+local y compatible como dataset temporal sin volver a ejecutar la receta. Solo
+publica el proyecto después de superar esas comprobaciones y abre el proyecto
 importado automáticamente. Cancelar el selector no cambia el dataset activo.
 
 ## Desarrollo local

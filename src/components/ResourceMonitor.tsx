@@ -39,6 +39,11 @@ function formatSystemMemory(usedBytes: number, totalBytes: number): string {
   return `${used.toFixed(1)} / ${total.toFixed(1)} GB`;
 }
 
+function formatAvailableMemory(bytes: number | undefined): string {
+  if (bytes === undefined || !Number.isFinite(bytes)) return "no disponible";
+  return `${(Math.max(bytes, 0) / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
 export const ResourceMonitor = memo(function ResourceMonitor({
   enabled,
   fetchUsage = getResourceUsage,
@@ -81,6 +86,8 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   const logicalCpuCount = usage?.logicalCpuCount ?? 1;
   const systemMemoryTotal = usage?.systemMemoryTotalBytes ?? 0;
   const systemMemoryUsed = usage?.systemMemoryUsedBytes ?? 0;
+  const systemMemoryAvailable = usage?.systemMemoryAvailableBytes;
+  const gpu = usage?.gpu;
   const statusText = state.kind === "disabled"
     ? "Solo escritorio"
     : state.kind === "error"
@@ -128,12 +135,27 @@ export const ResourceMonitor = memo(function ResourceMonitor({
           className="resource-monitor__meter"
           min={0}
           max={Math.max(systemMemoryTotal, 1)}
-          value={clampMeter(systemMemoryUsed, Math.max(systemMemoryTotal, 1))}
-          aria-label={`RAM del equipo: ${usage ? formatSystemMemory(systemMemoryUsed, systemMemoryTotal) : "no disponible"}`}
+          value={clampMeter(usage?.processMemoryBytes ?? 0, Math.max(systemMemoryTotal, 1))}
+          aria-label={`RAM de Columnia: ${usage ? formatProcessMemory(usage.processMemoryBytes) : "no disponible"}`}
         />
         <div className="resource-monitor__system">
           <span>Equipo</span>
           <strong>{usage ? formatSystemMemory(systemMemoryUsed, systemMemoryTotal) : "—"}</strong>
+        </div>
+        <div className="resource-monitor__system">
+          <span>Disponible</span>
+          <strong>{usage ? formatAvailableMemory(systemMemoryAvailable) : "—"}</strong>
+        </div>
+      </div>
+
+      <div className="resource-monitor__metric resource-monitor__metric--gpu">
+        <div className="resource-monitor__label">
+          <span>GPU</span>
+          <strong>{gpu?.status === "available" ? `${Math.max(gpu.usagePercentage ?? 0, 0).toFixed(1)}%` : "No disponible"}</strong>
+        </div>
+        <div className="resource-monitor__system">
+          <span>{gpu?.status === "available" ? "Aceleración" : "Motor local"}</span>
+          <strong>{gpu?.status === "available" ? "Activa" : "CPU"}</strong>
         </div>
       </div>
     </div>
