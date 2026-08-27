@@ -5,7 +5,7 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     hash::Hasher,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -85,6 +85,7 @@ pub enum ExportFormat {
     Sql,
     Excel,
     Sqlite,
+    Bundle,
 }
 
 impl ExportFormat {
@@ -96,6 +97,7 @@ impl ExportFormat {
             Self::Sql => "sql",
             Self::Excel => "xlsx",
             Self::Sqlite => "sqlite",
+            Self::Bundle => "zip",
         }
     }
 
@@ -107,6 +109,7 @@ impl ExportFormat {
             Self::Sql => "SQL",
             Self::Excel => "Excel",
             Self::Sqlite => "SQLite",
+            Self::Bundle => "Paquete Columnia",
         }
     }
 }
@@ -127,6 +130,67 @@ pub struct ExportResult {
     pub(crate) format: &'static str,
     pub(crate) protected_column_count: usize,
     pub(crate) protected_columns: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct BundleFileManifest {
+    path: String,
+    bytes: u64,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct BundleManifest {
+    format: String,
+    version: u8,
+    dataset_file: String,
+    dataset_format: String,
+    row_count: usize,
+    column_count: usize,
+    dictionary_file: String,
+    quality_report_file: Option<String>,
+    files: Vec<BundleFileManifest>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct BundleDictionary {
+    format: String,
+    version: u8,
+    columns: Vec<BundleDictionaryColumn>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct BundleDictionaryColumn {
+    name: String,
+    data_type: String,
+    null_count: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct BundleQualityReport {
+    format: String,
+    version: u8,
+    passed: bool,
+    row_count: usize,
+    total_rules: usize,
+    failed_rules: usize,
+    rules: Vec<BundleQualityRuleReport>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct BundleQualityRuleReport {
+    column: String,
+    kind: QualityRuleKind,
+    checked_count: usize,
+    invalid_count: usize,
+    invalid_pct: f64,
+    passed: bool,
 }
 
 const MAX_QUALITY_RULES: usize = 16;
@@ -5145,6 +5209,7 @@ fn migration_export_format(value: &str) -> Option<ExportFormat> {
         "sql" => Some(ExportFormat::Sql),
         "xlsx" | "excel" => Some(ExportFormat::Excel),
         "sqlite" => Some(ExportFormat::Sqlite),
+        "bundle" | "zip" => Some(ExportFormat::Bundle),
         _ => None,
     }
 }
@@ -9113,6 +9178,7 @@ fn frame_for_export(frame: &DataFrame, format: ExportFormat) -> Result<DataFrame
         ExportFormat::Sql => Ok(frame.clone()),
         ExportFormat::Excel => Ok(frame.clone()),
         ExportFormat::Sqlite => Ok(frame.clone()),
+        ExportFormat::Bundle => csv_formula_safe_frame(frame),
     }
 }
 
@@ -9603,6 +9669,30 @@ fn export_frame_atomic_with_privacy<F, C>(
     destination: &Path,
     format: ExportFormat,
     privacy_mode: PrivacyMode,
+    report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    export_frame_atomic_with_privacy_and_quality(
+        frame,
+        destination,
+        format,
+        privacy_mode,
+        None,
+        report,
+        is_cancelled,
+    )
+}
+
+fn export_frame_atomic_with_privacy_and_quality<F, C>(
+    frame: &DataFrame,
+    destination: &Path,
+    format: ExportFormat,
+    privacy_mode: PrivacyMode,
+    quality_validation: Option<&QualityValidationResult>,
     mut report: F,
     is_cancelled: C,
 ) -> Result<ExportResult, String>
@@ -9652,6 +9742,13 @@ where
             |percent| report("Escribiendo SQLite", percent),
             &is_cancelled,
         )?,
+        ExportFormat::Bundle => write_bundle(
+            &protected_frame,
+            quality_validation,
+            temporary.as_file_mut(),
+            &mut report,
+            &is_cancelled,
+        )?,
     }
 
     temporary
@@ -9679,6 +9776,197 @@ where
         protected_column_count: protected_columns.len(),
         protected_columns,
     })
+}
+
+fn bundle_json_bytes<T: Serialize>(value: &T, label: &str) -> Result<Vec<u8>, String> {
+    serde_json::to_vec_pretty(value)
+        .map_err(|error| format!("No se pudo preparar {label} del paquete: {error}"))
+}
+
+fn hash_and_rewind(file: &mut File) -> Result<(u64, String), String> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
+    let mut hasher = Sha256::new();
+    let mut bytes = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo calcular el hash del paquete: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        bytes += read as u64;
+    }
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| format!("No se pudo rebobinar el dataset temporal: {error}"))?;
+    Ok((bytes, format!("{:x}", hasher.finalize())))
+}
+
+fn write_bundle<F, C>(
+    frame: &DataFrame,
+    quality_validation: Option<&QualityValidationResult>,
+    output: &mut File,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    report("Preparando paquete", 10);
+
+    // El dataset se materializa en disco antes de abrir el ZIP para poder
+    // calcular su hash sin duplicar datasets grandes en memoria.
+    let mut dataset_file = tempfile::tempfile()
+        .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
+    let mut csv_frame = frame_for_export(frame, ExportFormat::Csv)?;
+    CsvWriter::new(&mut dataset_file)
+        .finish(&mut csv_frame)
+        .map_err(|error| format!("No se pudo escribir el dataset del paquete: {error}"))?;
+    dataset_file
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el dataset del paquete: {error}"))?;
+    let (dataset_bytes, dataset_sha256) = hash_and_rewind(&mut dataset_file)?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Preparando diccionario", 35);
+
+    let dictionary = BundleDictionary {
+        format: "columnia-dictionary".to_owned(),
+        version: 1,
+        columns: frame
+            .columns()
+            .iter()
+            .map(|column| BundleDictionaryColumn {
+                name: column.name().to_string(),
+                data_type: column.dtype().to_string(),
+                null_count: column.null_count(),
+            })
+            .collect(),
+    };
+    let dictionary_bytes = bundle_json_bytes(&dictionary, "el diccionario")?;
+    let dictionary_sha256 = format!("{:x}", Sha256::digest(&dictionary_bytes));
+    let quality_bytes = quality_validation
+        .map(|validation| {
+            let report = BundleQualityReport {
+                format: "columnia-quality-report".to_owned(),
+                version: 1,
+                passed: validation.passed,
+                row_count: validation.row_count,
+                total_rules: validation.total_rules,
+                failed_rules: validation.failed_rules,
+                rules: validation
+                    .rules
+                    .iter()
+                    .map(|rule| BundleQualityRuleReport {
+                        column: rule.column.clone(),
+                        kind: rule.kind,
+                        checked_count: rule.checked_count,
+                        invalid_count: rule.invalid_count,
+                        invalid_pct: rule.invalid_pct,
+                        passed: rule.passed,
+                    })
+                    .collect(),
+            };
+            bundle_json_bytes(&report, "el reporte de calidad")
+        })
+        .transpose()?;
+    let quality_manifest = quality_bytes.as_ref().map(|bytes| BundleFileManifest {
+        path: "quality-report.json".to_owned(),
+        bytes: bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(bytes)),
+    });
+    let manifest = BundleManifest {
+        format: "columnia-bundle".to_owned(),
+        version: 1,
+        dataset_file: "dataset.csv".to_owned(),
+        dataset_format: "csv".to_owned(),
+        row_count: frame.height(),
+        column_count: frame.width(),
+        dictionary_file: "dictionary.json".to_owned(),
+        quality_report_file: quality_bytes
+            .as_ref()
+            .map(|_| "quality-report.json".to_owned()),
+        files: [
+            BundleFileManifest {
+                path: "dataset.csv".to_owned(),
+                bytes: dataset_bytes,
+                sha256: dataset_sha256,
+            },
+            BundleFileManifest {
+                path: "dictionary.json".to_owned(),
+                bytes: dictionary_bytes.len() as u64,
+                sha256: dictionary_sha256,
+            },
+        ]
+        .into_iter()
+        .chain(quality_manifest)
+        .collect(),
+    };
+    let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Empaquetando archivos", 50);
+
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut archive = ZipWriter::new(output);
+    archive
+        .start_file("dataset.csv", options)
+        .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
+    let mut copied = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let read = dataset_file
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo leer el dataset del paquete: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        archive
+            .write_all(&buffer[..read])
+            .map_err(|error| format!("No se pudo empaquetar el dataset: {error}"))?;
+        copied += read as u64;
+        let percent = if dataset_bytes == 0 {
+            65
+        } else {
+            50 + (copied
+                .saturating_mul(15)
+                .checked_div(dataset_bytes)
+                .unwrap_or(0) as u8)
+                .min(15)
+        };
+        report("Empaquetando dataset", percent);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    archive
+        .start_file("dictionary.json", options)
+        .map_err(|error| format!("No se pudo preparar el diccionario del paquete: {error}"))?;
+    archive
+        .write_all(&dictionary_bytes)
+        .map_err(|error| format!("No se pudo empaquetar el diccionario: {error}"))?;
+    if let Some(quality_bytes) = quality_bytes {
+        ensure_not_cancelled(is_cancelled())?;
+        archive
+            .start_file("quality-report.json", options)
+            .map_err(|error| format!("No se pudo preparar el reporte de calidad: {error}"))?;
+        archive
+            .write_all(&quality_bytes)
+            .map_err(|error| format!("No se pudo empaquetar el reporte de calidad: {error}"))?;
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    archive
+        .start_file("manifest.json", options)
+        .map_err(|error| format!("No se pudo preparar el manifest del paquete: {error}"))?;
+    archive
+        .write_all(&manifest_bytes)
+        .map_err(|error| format!("No se pudo empaquetar el manifest: {error}"))?;
+    archive
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar el paquete: {error}"))?;
+    report("Paquete listo", 88);
+    Ok(())
 }
 
 fn load_compare_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
@@ -10985,21 +11273,29 @@ pub async fn export_dataset(
     // antes de abrir el selector, para que una exportación bloqueada no solicite destino.
     let generation = app.state::<DatasetState>().begin_export();
     let validation_app = app.clone();
-    let (frame, suggested_name) = tauri::async_runtime::spawn_blocking(move || {
-        enforce_export_quality_with_cancel(&frame, &quality_rules, allow_unvalidated, || {
-            validation_app
-                .state::<DatasetState>()
-                .export_was_cancelled(generation)
-        })?;
-        ensure_not_cancelled(
-            validation_app
-                .state::<DatasetState>()
-                .export_was_cancelled(generation),
-        )?;
-        Ok::<_, String>((frame, suggested_name))
-    })
-    .await
-    .map_err(|error| format!("La validación previa a la exportación se interrumpió: {error}"))??;
+    let (frame, suggested_name, quality_validation) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let quality_validation = enforce_export_quality_with_cancel(
+                &frame,
+                &quality_rules,
+                allow_unvalidated,
+                || {
+                    validation_app
+                        .state::<DatasetState>()
+                        .export_was_cancelled(generation)
+                },
+            )?;
+            ensure_not_cancelled(
+                validation_app
+                    .state::<DatasetState>()
+                    .export_was_cancelled(generation),
+            )?;
+            Ok::<_, String>((frame, suggested_name, quality_validation))
+        })
+        .await
+        .map_err(|error| {
+            format!("La validación previa a la exportación se interrumpió: {error}")
+        })??;
     ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
 
     send_progress(&on_progress, "export", "Esperando destino", 0);
@@ -11020,11 +11316,12 @@ pub async fn export_dataset(
     );
 
     tauri::async_runtime::spawn_blocking(move || {
-        export_frame_atomic_with_privacy(
+        export_frame_atomic_with_privacy_and_quality(
             &frame,
             &destination,
             format,
             privacy_mode,
+            quality_validation.as_ref(),
             |stage, percent| send_progress(&on_progress, "export", stage, percent),
             || app.state::<DatasetState>().export_was_cancelled(generation),
         )
@@ -15633,6 +15930,70 @@ mod tests {
             .unwrap();
         assert_eq!(count, 2);
         assert_eq!(nullable, None);
+    }
+
+    #[test]
+    fn exports_bundle_with_dataset_dictionary_quality_and_manifest_hashes() {
+        let frame = df![
+            "email" => &[Some("ana@example.com"), None],
+            "count" => &[Some(2_i64), Some(3_i64)]
+        ]
+        .unwrap();
+        let validation = QualityValidationResult {
+            passed: true,
+            row_count: 2,
+            total_rules: 0,
+            failed_rules: 0,
+            rules: Vec::new(),
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("resultado.zip");
+
+        export_frame_atomic_with_privacy_and_quality(
+            &frame,
+            &destination,
+            ExportFormat::Bundle,
+            PrivacyMode::Mask,
+            Some(&validation),
+            |_, _| {},
+            || false,
+        )
+        .expect("el bundle debe publicarse");
+
+        let bytes = fs::read(&destination).unwrap();
+        let mut archive = ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        for name in [
+            "dataset.csv",
+            "dictionary.json",
+            "quality-report.json",
+            "manifest.json",
+        ] {
+            assert!(archive.by_name(name).is_ok(), "falta {name} en el bundle");
+        }
+        let mut manifest = String::new();
+        archive
+            .by_name("manifest.json")
+            .unwrap()
+            .read_to_string(&mut manifest)
+            .unwrap();
+        let manifest: JsonValue = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest["format"], "columnia-bundle");
+        assert_eq!(manifest["datasetFile"], "dataset.csv");
+        assert_eq!(manifest["rowCount"], 2);
+        assert_eq!(manifest["columnCount"], 2);
+        assert!(manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["path"] == "quality-report.json"));
+        let mut dataset = String::new();
+        archive
+            .by_name("dataset.csv")
+            .unwrap()
+            .read_to_string(&mut dataset)
+            .unwrap();
+        assert!(dataset.contains("[REDACTED]"));
+        assert!(!dataset.contains("ana@example.com"));
     }
 
     #[test]

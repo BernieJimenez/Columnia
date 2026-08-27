@@ -1068,9 +1068,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Incorporar exportación Excel `.xlsx` y destino local SQLite con publicación
   atómica, esquema/datos tipados, CLI, batch, proyectos, cancelación y pruebas
   de reapertura.
-- [ ] Completar la entrega compatible con DataPrep: Excel, SQLite/PostgreSQL/
-  MySQL/SQL Server, prueba de conexión, políticas de tabla y bundle con reporte,
-  diccionario, calidad, receta, manifest/hash y apertura segura de la carpeta.
+- [ ] Completar la entrega compatible con DataPrep: PostgreSQL/MySQL/SQL Server,
+  prueba de conexión, políticas de tabla, receta dentro del bundle y apertura
+  segura de la carpeta. La primera slice ya publica un bundle ZIP atómico con
+  dataset CSV protegido, diccionario tipado, reporte de calidad opcional y
+  manifest con hashes; Excel y SQLite permanecen cubiertos por separado.
 - [x] Incorporar claves explícitas, conflictos por clave y consolidación segura de
   claves nuevas.
 - [x] Incorporar joins multidataset `Inner`, `Left` y `Full` por claves, con
@@ -1131,10 +1133,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
   distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
-  calendario y series temporales, siempre con tabla accesible equivalente. La
-  primera ampliación añade un ranking visual y tabla de patrones de nulos para
-  priorizar columnas incompletas; correlaciones, grupos y series temporales
-  siguen pendientes.
+  calendario y series temporales, siempre con tabla accesible equivalente. Las
+  primeras ampliaciones ya incluyen ranking de patrones de nulos y validación
+  visual de formatos, ambas con tabla equivalente; correlaciones, grupos y
+  series temporales siguen pendientes.
 - [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
   `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.

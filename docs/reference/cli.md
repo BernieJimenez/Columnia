@@ -27,12 +27,13 @@ visible, dimensiones y columnas con nombre y tipo.
 ### `transform`
 
 ```text
-transform --input FILE [--sheet NAME --header first-row|generated] --recipe RECIPE --output FILE --format csv|json|parquet|sql|excel|sqlite
+transform --input FILE [--sheet NAME --header first-row|generated] --recipe RECIPE --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle
 ```
 
 Aplica una receta JSON v1 de forma atómica y publica CSV, JSON, Parquet, SQL,
-Excel o SQLite. Los destinos no pueden ser el input ni la receta; los fallos no
-dejan outputs parciales.
+Excel o SQLite. `bundle`/`zip` publica un paquete con dataset CSV, diccionario,
+reporte de calidad y manifest con hashes. Los destinos no pueden ser el input ni
+la receta; los fallos no dejan outputs parciales.
 
 ### `validate`
 
@@ -93,7 +94,7 @@ historial sin abrir el proyecto en una sesión.
 ### `project-export`
 
 ```text
-project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite [--allow-unvalidated]
+project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]
 ```
 
 Valida reglas guardadas y exporta atómicamente. `--allow-unvalidated` solo

@@ -180,8 +180,9 @@ first-row|generated`; esas opciones se rechazan para otros formatos. Las rutas y
 los valores del dataset no aparecen en el JSON ni en los errores. La CLI aplica
 además una frontera común de sanitización a reportes, recetas y manifiestos para
 redactar rutas incrustadas sin ocultar nombres visibles ni conteos agregados. La
-salida se publica de forma atómica en CSV, JSON, Parquet, SQL, Excel o SQLite; CSV conserva
-la protección contra fórmulas. `validate`
+salida se publica de forma atómica en CSV, JSON, Parquet, SQL, Excel, SQLite o
+`bundle`; el paquete ZIP contiene dataset CSV, diccionario, calidad opcional y
+manifest con hashes. CSV conserva la protección contra fórmulas. `validate`
 lee el documento `columnia-quality-rules` v1; también acepta el documento legado
 `{"version":1,"rules":[...]}`. Formatos o versiones futuras se rechazan.
 Devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
@@ -201,7 +202,7 @@ la aplicación de escritorio:
 - `project-save --store DIR --name NAME --input FILE [--id ID] [--sheet NAME --header first-row|generated] [--recipe FILE] [--rules FILE] [--profile]` crea un proyecto o actualiza el ID indicado. La receta, las reglas y el cálculo de perfil son opcionales.
 - `project-list --store DIR` lista resúmenes ordenados del catálogo.
 - `project-inspect --store DIR --id ID` inspecciona metadatos y estado durable sin activar el proyecto ni abrir una sesión de escritorio.
-- `project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite [--allow-unvalidated]` valida y exporta el snapshot completo de forma atómica, sin activarlo ni cambiar la recuperación del escritorio. Las reglas guardadas siempre deben aprobar; `--allow-unvalidated` solo autoriza un proyecto que no tenga reglas.
+- `project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]` valida y exporta el snapshot completo de forma atómica, sin activarlo ni cambiar la recuperación del escritorio. Las reglas guardadas siempre deben aprobar; `--allow-unvalidated` solo autoriza un proyecto que no tenga reglas.
 - `project-delete --store DIR --id ID --confirm ID` borra únicamente cuando la confirmación coincide exactamente con el ID.
 
 Todos emiten JSON v1 por stdout sin rutas, filas ni muestras. Sus contratos son:

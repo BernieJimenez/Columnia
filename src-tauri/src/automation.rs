@@ -13,15 +13,15 @@ use crate::{
 };
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
-const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite\n\nAplica una receta Columnia y publica la salida atómicamente. CSV y Excel escriben valores como texto seguro; SQL produce un script portable y SQLite una base local con tabla dataset.\n";
+const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n\nAplica una receta Columnia y publica la salida atómicamente. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, calidad y manifest.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
 const PROJECT_INSPECT_HELP: &str = "USO:\n  columnia-cli project-inspect --store <directorio> --id <id>\n\nEmite metadatos, flags y conteos del proyecto sin abrir una sesión de escritorio.\n";
-const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica.\n";
+const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica.\n";
 const PROJECT_DELETE_HELP: &str = "USO:\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nElimina el proyecto solo cuando --confirm coincide exactamente con --id.\n";
 const BATCH_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const BATCH_MAX_JOBS: usize = 64;
@@ -36,6 +36,7 @@ pub enum AutomationFormat {
     Sql,
     Excel,
     Sqlite,
+    Bundle,
 }
 
 impl AutomationFormat {
@@ -47,6 +48,7 @@ impl AutomationFormat {
             Self::Sql => "sql",
             Self::Excel => "xlsx",
             Self::Sqlite => "sqlite",
+            Self::Bundle => "zip",
         }
     }
 
@@ -58,6 +60,7 @@ impl AutomationFormat {
             Self::Sql => ExportFormat::Sql,
             Self::Excel => ExportFormat::Excel,
             Self::Sqlite => ExportFormat::Sqlite,
+            Self::Bundle => ExportFormat::Bundle,
         }
     }
 
@@ -69,6 +72,7 @@ impl AutomationFormat {
             Self::Sql => "SQL",
             Self::Excel => "Excel",
             Self::Sqlite => "SQLite",
+            Self::Bundle => "Paquete Columnia",
         }
     }
 }
@@ -236,6 +240,7 @@ enum BatchFormat {
     Sql,
     Excel,
     Sqlite,
+    Bundle,
 }
 
 impl From<BatchFormat> for AutomationFormat {
@@ -247,6 +252,7 @@ impl From<BatchFormat> for AutomationFormat {
             BatchFormat::Sql => Self::Sql,
             BatchFormat::Excel => Self::Excel,
             BatchFormat::Sqlite => Self::Sqlite,
+            BatchFormat::Bundle => Self::Bundle,
         }
     }
 }
@@ -449,8 +455,9 @@ fn parse_format(value: OsString) -> Result<AutomationFormat, AutomationError> {
         Some("sql") => Ok(AutomationFormat::Sql),
         Some("excel" | "xlsx") => Ok(AutomationFormat::Excel),
         Some("sqlite") => Ok(AutomationFormat::Sqlite),
+        Some("bundle" | "zip") => Ok(AutomationFormat::Bundle),
         _ => Err(AutomationError::new(
-            "La opción --format debe ser csv, json, parquet, sql, excel o sqlite.",
+            "La opción --format debe ser csv, json, parquet, sql, excel, sqlite o bundle.",
         )),
     }
 }
@@ -1367,6 +1374,26 @@ mod tests {
             sqlite,
             CliCommand::Transform {
                 format: AutomationFormat::Sqlite,
+                ..
+            }
+        ));
+
+        let bundle = parse_cli_args([
+            "transform",
+            "--input",
+            "dataset.csv",
+            "--recipe",
+            "recipe.json",
+            "--output",
+            "result.zip",
+            "--format",
+            "bundle",
+        ])
+        .unwrap();
+        assert!(matches!(
+            bundle,
+            CliCommand::Transform {
+                format: AutomationFormat::Bundle,
                 ..
             }
         ));

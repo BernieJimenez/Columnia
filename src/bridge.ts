@@ -413,7 +413,7 @@ export interface OperationProgress {
 }
 
 export type CancellableOperation = OperationProgress["operation"];
-export type ExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite";
+export type ExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type PrivacyMode = "none" | "mask" | "hash";
 export type ConflictSource = "current" | "compared";
 
@@ -533,7 +533,7 @@ export interface QualityRulesDocument {
 export interface ExportResult {
   fileName: string;
   fileSizeBytes: number;
-  format: "CSV" | "JSON" | "Parquet" | "SQL" | "Excel" | "SQLite";
+  format: "CSV" | "JSON" | "Parquet" | "SQL" | "Excel" | "SQLite" | "Paquete Columnia";
   protectedColumnCount: number;
   protectedColumns: string[];
 }

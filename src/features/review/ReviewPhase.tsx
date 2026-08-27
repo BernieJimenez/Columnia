@@ -810,6 +810,7 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
 
 function QualityVisuals({ profile }: { profile: DatasetProfile }) {
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
+  const formatColumns = profile.columns.filter((column) => column.typeMatchPercentage !== null);
   const nullPatternColumns = profile.columns
     .filter((column) => column.nullCount > 0)
     .sort((left, right) => {
@@ -925,6 +926,67 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                       <th scope="row">{column.name}</th>
                       <td>{column.nullCount.toLocaleString()}</td>
                       <td>{clampPercentage(100 - column.completenessPercentage).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {formatColumns.length > 0 && (
+          <div className="quality-chart" role="group" aria-labelledby="quality-format-title">
+            <h5 id="quality-format-title">Validación de formato</h5>
+            <p className="quality-chart__note">
+              Comprueba qué proporción coincide con el tipo sugerido antes de convertir columnas.
+            </p>
+            <div className="quality-chart__bars" role="list" aria-label="Validación de formato por columna">
+              {formatColumns.map((column) => {
+                const percentage = clampPercentage(column.typeMatchPercentage ?? 0);
+                const invalidCount = Math.max(0, column.invalidTypeCount ?? 0);
+
+                return (
+                  <div className="quality-chart__item" role="listitem" key={column.name}>
+                    <div className="quality-chart__label">
+                      <span title={column.name}>{column.name}</span>
+                      <strong>{percentage.toFixed(1)}% · {invalidCount.toLocaleString()} inválidos</strong>
+                    </div>
+                    <div className="quality-chart__track" aria-hidden="true">
+                      <span style={{ width: `${percentage}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="quality-chart__table">
+              <table aria-label="Tabla de validación de formato">
+                <caption className="visually-hidden">Tabla de validación de formato por columna</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Columna</th>
+                    <th scope="col">Tipo sugerido</th>
+                    <th scope="col">Coincidencia</th>
+                    <th scope="col">Inválidos</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {formatColumns.map((column) => (
+                    <tr key={column.name}>
+                      <th scope="row">{column.name}</th>
+                      <td>
+                        <span aria-hidden="true">{suggestedTypeLabel(column.suggestedType)}</span>
+                        <span className="visually-hidden">
+                          Tipo sugerido: {suggestedTypeLabel(column.suggestedType)}
+                        </span>
+                      </td>
+                      <td>
+                        <span aria-hidden="true">
+                          {clampPercentage(column.typeMatchPercentage ?? 0).toFixed(1)}%
+                        </span>
+                        <span className="visually-hidden">
+                          Coincidencia: {clampPercentage(column.typeMatchPercentage ?? 0).toFixed(1)}%
+                        </span>
+                      </td>
+                      <td>{Math.max(0, column.invalidTypeCount ?? 0).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>

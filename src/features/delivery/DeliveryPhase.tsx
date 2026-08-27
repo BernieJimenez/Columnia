@@ -75,6 +75,7 @@ export function DeliveryPhase({
     sql: "SQL",
     excel: "Excel",
     sqlite: "SQLite",
+    bundle: "Paquete ZIP",
   }[exportFormat];
   const exportRequirement = contract.kind === "with_contract"
     ? "Valida y aprueba las reglas para habilitar la exportación."
@@ -1012,6 +1013,7 @@ export function DeliveryPhase({
               <option value="sql">SQL</option>
               <option value="excel">Excel</option>
               <option value="sqlite">SQLite</option>
+              <option value="bundle">Paquete ZIP (dataset + diccionario + calidad)</option>
             </select>
           </label>
           <label className="privacy-mode">

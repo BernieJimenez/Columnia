@@ -15,8 +15,8 @@ claro y esté cubierta por una prueba o evidencia local.
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación; importación del núcleo representable de pipelines DataPrep v1–v3 | Parcial | Migrar catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
-| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud y outliers, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
-| Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx` y SQLite locales, con publicación atómica | Parcial | PostgreSQL/MySQL/SQL Server y bundles auditables |
+| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos y validación de formatos, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, filtros e interacciones |
+| Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla y receta dentro del bundle |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas y CLI | Parcial | Importar sesiones/pipelines y completar caché/actividad |
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales y confirmación visible de columnas protegidas | Parcial | Privacidad de recetas/reports/manifests y conectores remotos |
 | Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles; benchmark CLI validado hasta 256 MiB, con RAM fuera del presupuesto | Parcial | Ejecución incremental real y presupuesto integral |
@@ -325,10 +325,12 @@ de contratos, privacidad, accesibilidad y rendimiento.
 ## Destinos locales y privacidad de entrega
 
 Entregar conserva la misma compuerta de calidad para CSV, JSON, Parquet, SQL,
-Excel y SQLite. Excel se publica como un libro `.xlsx` real con una hoja
+Excel, SQLite y bundle. Excel se publica como un libro `.xlsx` real con una hoja
 `dataset`; SQLite se publica con una transacción atómica, columnas tipadas y la
-misma tabla lógica `dataset`. Ambos destinos también están disponibles en CLI,
-batch y exportación de proyectos, sin entregar rutas al frontend.
+misma tabla lógica `dataset`. El bundle publica `dataset.csv`,
+`dictionary.json`, un `quality-report.json` opcional y `manifest.json` con hashes
+SHA-256 por archivo. Estos destinos también están disponibles en CLI, batch y
+exportación de proyectos, sin entregar rutas al frontend.
 
 Antes de publicar se puede elegir no proteger, enmascarar o aplicar SHA-256 a
 columnas cuyos nombres sugieren correo, teléfono, dirección, nombre o

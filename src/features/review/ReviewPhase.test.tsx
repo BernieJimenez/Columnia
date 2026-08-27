@@ -70,8 +70,8 @@ const profile: DatasetProfile = {
       maximumLength: 12,
       averageLength: 6.4,
       suggestedType: null,
-      typeMatchPercentage: null,
-      invalidTypeCount: null,
+      typeMatchPercentage: 95,
+      invalidTypeCount: 6,
       sentinelCount: null,
       privacySignal: null,
       standardDeviation: null,
@@ -273,6 +273,12 @@ describe("ReviewPhase", () => {
     );
     expect(screen.getByRole("table", { name: "Tabla de patrones de nulos" })).toHaveTextContent(
       "5.0%",
+    );
+    expect(screen.getByRole("list", { name: "Validación de formato por columna" })).toHaveTextContent(
+      "nombre95.0%",
+    );
+    expect(screen.getByRole("table", { name: "Tabla de validación de formato" })).toHaveTextContent(
+      "6",
     );
     expect(screen.getByRole("heading", { name: "Distribución numérica" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Distribución numérica por columna" })).toHaveTextContent(
