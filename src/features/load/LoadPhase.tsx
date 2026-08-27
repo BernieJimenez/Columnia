@@ -87,6 +87,12 @@ export function LoadPhase({
         </button>
       </header>
 
+      {runtime.kind === "connected" && (
+        <p className="load-drop-hint" role="note">
+          También puedes arrastrar un archivo compatible a esta ventana.
+        </p>
+      )}
+
       {!current && (
         <section className="load-brief" aria-labelledby="load-brief-title">
           <div className="load-brief__lead">

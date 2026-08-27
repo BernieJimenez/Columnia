@@ -715,6 +715,11 @@ export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {
   return invoke<DatasetSourceInspection | null>("pick_dataset_source");
 }
 
+/** Inspects the path captured by Tauri's native drag/drop event without exposing it to React. */
+export function inspectDroppedDataset(): Promise<DatasetSourceInspection | null> {
+  return invoke<DatasetSourceInspection | null>("inspect_dropped_dataset");
+}
+
 export function loadDatasetSelection(
   selectionId: string,
   sheetId: string | null,

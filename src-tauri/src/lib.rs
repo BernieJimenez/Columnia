@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 pub mod automation;
@@ -140,6 +140,17 @@ pub fn run() {
             app.manage(projects);
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event {
+                if let Some(path) = paths.first() {
+                    window
+                        .app_handle()
+                        .state::<dataset::DatasetState>()
+                        .queue_dropped_path(path.clone());
+                    let _ = window.emit("columnia://dataset-drop", ());
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             get_resource_usage,
@@ -147,6 +158,7 @@ pub fn run() {
             set_performance_profile,
             preview_dataprep_session_migration,
             dataset::pick_dataset_source,
+            dataset::inspect_dropped_dataset,
             dataset::load_dataset_selection,
             dataset::discard_dataset_selection,
             dataset::compare_dataset,

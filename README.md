@@ -25,10 +25,13 @@ huellas compactas XXH3-128 para aprovechar los hilos disponibles sin construir u
 cadena completa por cada fila. La aceleración GPU no forma parte del runtime
 actual.
 
-La vista **Cargar** mantiene hasta cinco archivos recientes en almacenamiento
-local del navegador. Solo conserva nombre visible, formato, fecha e ID opaco;
-**Elegir de nuevo** vuelve a abrir el selector nativo y nunca reutiliza una ruta
-guardada. Los reportes, recetas y manifiestos que salen por CLI también pasan por
+La vista **Cargar** permite seleccionar una fuente con el diálogo nativo o
+arrastrarla a la ventana de Columnia. El evento de arrastre se captura en Rust y
+React recibe únicamente la inspección segura, nunca la ruta local. También
+mantiene hasta cinco archivos recientes en almacenamiento local del navegador.
+Solo conserva nombre visible, formato, fecha e ID opaco; **Elegir de nuevo**
+vuelve a abrir el selector nativo y nunca reutiliza una ruta guardada. Los
+reportes, recetas y manifiestos que salen por CLI también pasan por
 una frontera de sanitización que elimina rutas, valores de datos, emails y
 secretos antes de serializarse.
 Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,
@@ -289,7 +292,8 @@ El flujo principal replica el orden de `dataprepv1.1`: **Cargar → Revisar →
 Preparar → Entregar**. Cada acción aparece únicamente en la etapa que le
 corresponde.
 
-En **Cargar**, usa **Seleccionar dataset**. Rust abre el diálogo nativo para CSV,
+En **Cargar**, usa **Seleccionar dataset** o arrastra un archivo compatible a la
+ventana. Rust abre el diálogo nativo para CSV,
 TSV, TXT delimitado, JSON/JSON Lines, Parquet, XLSX, XLS, XLSB u ODS. En cada libro permite
 elegir la hoja y decidir si la primera fila contiene encabezados o debe conservarse
 como datos generando `column_1`, `column_2`, etc. Rust valida y

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 
 import type { ReviewTab } from "./components/ReviewTabList";
 import {
@@ -73,6 +74,7 @@ import {
   getDatasetConflictPage,
   getDatasetPage,
   getDatasetProfile,
+  inspectDroppedDataset as inspectDroppedDatasetSource,
   joinDataset,
   loadDatasetSelection,
   pickDatasetSource,
@@ -249,6 +251,27 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (status.kind !== "ready") return;
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("columnia://dataset-drop", () => {
+      void inspectDatasetSource(inspectDroppedDatasetSource());
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup();
+      } else {
+        unlisten = cleanup;
+      }
+    }).catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [status.kind]);
+
+  useEffect(() => {
     writeRecentDatasets(recentDatasets);
   }, [recentDatasets]);
 
@@ -303,11 +326,11 @@ export function App() {
     }
   }
 
-  async function selectDataset() {
+  async function inspectDatasetSource(sourcePromise: Promise<DatasetSourceInspection | null>) {
     setActivePhase("load");
     setLoadInspection({ kind: "inspecting" });
     try {
-      const source = await pickDatasetSource();
+      const source = await sourcePromise;
       if (!source) {
         setLoadInspection({ kind: "idle" });
         return;
@@ -323,6 +346,10 @@ export function App() {
     } finally {
       setLoadInspection((current) => current.kind === "inspecting" ? { kind: "idle" } : current);
     }
+  }
+
+  function selectDataset() {
+    return inspectDatasetSource(pickDatasetSource());
   }
 
   function selectRecentDataset(_item: RecentDataset) {

@@ -1417,6 +1417,7 @@ struct PendingComparison {
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
     pending_selection: Mutex<Option<PendingSelection>>,
+    pending_drop: Mutex<Option<PathBuf>>,
     comparison: Mutex<Option<PendingComparison>>,
     load_generation: AtomicU64,
     profile_generation: AtomicU64,
@@ -1425,6 +1426,19 @@ pub struct DatasetState {
 }
 
 impl DatasetState {
+    pub(crate) fn queue_dropped_path(&self, path: PathBuf) {
+        if let Ok(mut pending) = self.pending_drop.lock() {
+            *pending = Some(path);
+        }
+    }
+
+    pub(crate) fn take_dropped_path(&self) -> Result<Option<PathBuf>, String> {
+        self.pending_drop
+            .lock()
+            .map_err(|_| "La selección arrastrada quedó bloqueada inesperadamente.".to_owned())
+            .map(|mut pending| pending.take())
+    }
+
     fn begin_load(&self) -> u64 {
         self.load_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -12742,6 +12756,13 @@ pub async fn pick_dataset_source(
     let path = selection
         .into_path()
         .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
+    inspect_dataset_path(&app, path).await.map(Some)
+}
+
+async fn inspect_dataset_path(
+    app: &AppHandle,
+    path: PathBuf,
+) -> Result<DatasetSourceInspection, String> {
     let (path, file_size_bytes, extension) = validate_dataset_file(&path)?;
     let sheets = if spreadsheet_extensions(&extension) {
         let path = path.clone();
@@ -12787,7 +12808,7 @@ pub async fn pick_dataset_source(
             file_size_bytes,
             sheets,
         });
-    Ok(Some(DatasetSourceInspection {
+    Ok(DatasetSourceInspection {
         selection_id,
         file_name,
         file_size_bytes,
@@ -12799,7 +12820,19 @@ pub async fn pick_dataset_source(
             None
         },
         is_compressed_container: matches!(extension.as_str(), "xlsx" | "xlsb" | "ods"),
-    }))
+    })
+}
+
+/// Consumes the path captured by Tauri's native drag/drop event. The path never
+/// crosses the IPC boundary; React receives only the resulting inspection.
+#[tauri::command]
+pub async fn inspect_dropped_dataset(
+    app: AppHandle,
+) -> Result<Option<DatasetSourceInspection>, String> {
+    let Some(path) = app.state::<DatasetState>().take_dropped_path()? else {
+        return Ok(None);
+    };
+    inspect_dataset_path(&app, path).await.map(Some)
 }
 
 #[tauri::command]
@@ -12922,6 +12955,7 @@ pub fn discard_dataset_selection(
     {
         *selection = None;
     }
+    let _ = state.take_dropped_path();
     Ok(())
 }
 
@@ -18079,6 +18113,26 @@ mod tests {
         assert!(!state.export_was_cancelled(export_generation));
         assert!(state.query_was_cancelled(query_generation));
         assert!(state.cancel("unknown").is_err());
+    }
+
+    #[test]
+    fn queues_and_consumes_a_native_drop_path_once() {
+        let state = DatasetState::default();
+        let path = PathBuf::from("C:/datos/ventas.csv");
+
+        state.queue_dropped_path(path.clone());
+        assert_eq!(
+            state
+                .take_dropped_path()
+                .expect("la cola debe estar disponible"),
+            Some(path)
+        );
+        assert_eq!(
+            state
+                .take_dropped_path()
+                .expect("la cola debe quedar vacía"),
+            None
+        );
     }
 
     #[test]

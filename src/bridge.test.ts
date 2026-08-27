@@ -25,6 +25,7 @@ import {
   importDataprepSessionProject,
   previewDataprepSessionMigration,
   discardDatasetSelection,
+  inspectDroppedDataset,
   loadDatasetSelection,
   pickDatasetSource,
   pickQualityRulesMigration,
@@ -87,6 +88,23 @@ describe("desktop bridge", () => {
     await expect(pickDatasetSource()).resolves.toBeNull();
 
     expect(invoke).toHaveBeenCalledWith("pick_dataset_source");
+  });
+
+  it("inspecciona un archivo arrastrado sin transportar su ruta al frontend", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      selectionId: "opaque-selection",
+      fileName: "ventas.csv",
+      fileSizeBytes: 42,
+      format: "csv",
+      sheets: [],
+      isCompressedContainer: false,
+    });
+
+    await expect(inspectDroppedDataset()).resolves.toMatchObject({
+      selectionId: "opaque-selection",
+      fileName: "ventas.csv",
+    });
+    expect(invoke).toHaveBeenCalledWith("inspect_dropped_dataset");
   });
 
   it("carga una selección opaca y permite descartarla sin entregar rutas", async () => {
