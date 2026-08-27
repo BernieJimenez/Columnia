@@ -6,6 +6,8 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map as JsonMap, Value as JsonValue};
+use sha2::{Digest, Sha256};
 
 use crate::{
     dataset::{self, DatasetState, ExportFormat, SpreadsheetHeaderMode},
@@ -13,10 +15,11 @@ use crate::{
 };
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
 const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n\nAplica una receta Columnia y publica la salida atómicamente. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
+const QUALITY_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli quality-migration-report --rules <ruta.json>\n\nHace un preflight sanitizado de un contrato Columnia, DataPrep v1–v3 o legacy. Resume por regla la severidad y las políticas on_missing/null_policy, identifica omisiones y devuelve código 2 si hace falta revisión manual. No migra ni evalúa filas.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
@@ -28,6 +31,7 @@ const BATCH_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const BATCH_MAX_JOBS: usize = 64;
 const BATCH_MAX_FIELD_CHARS: usize = 4 * 1024;
 const BATCH_MAX_TOTAL_TEXT_CHARS: usize = 64 * 1024;
+const QUALITY_MIGRATION_REPORT_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutomationFormat {
@@ -98,6 +102,9 @@ pub enum CliCommand {
         input: PathBuf,
         sheet: Option<String>,
         header: Option<SpreadsheetHeaderMode>,
+        rules: PathBuf,
+    },
+    QualityMigrationReport {
         rules: PathBuf,
     },
     Batch {
@@ -216,6 +223,49 @@ pub struct ValidateOutput {
 impl ValidateOutput {
     pub fn passed(&self) -> bool {
         self.passed
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityMigrationRuleReport {
+    rule_index: usize,
+    source_kind: String,
+    status: &'static str,
+    severity: &'static str,
+    on_missing: &'static str,
+    null_policy: &'static str,
+    issues: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityMigrationPolicySummary {
+    blocking_rules: usize,
+    non_blocking_rules: usize,
+    unsupported_policy_rules: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QualityMigrationReportOutput {
+    schema_version: u8,
+    command: &'static str,
+    source_format: &'static str,
+    source_version: Option<String>,
+    artifact_sha256: String,
+    total_rules: usize,
+    convertible_rules: usize,
+    omitted_rules: usize,
+    warning_count: usize,
+    policies: QualityMigrationPolicySummary,
+    rules: Vec<QualityMigrationRuleReport>,
+    manual_actions: Vec<&'static str>,
+}
+
+impl QualityMigrationReportOutput {
+    pub fn requires_manual_review(&self) -> bool {
+        self.omitted_rules > 0 || self.policies.unsupported_policy_rules > 0
     }
 }
 
@@ -462,6 +512,303 @@ fn optional_text_flag(
         .transpose()
 }
 
+fn migration_report_version(
+    map: &JsonMap<String, JsonValue>,
+) -> Result<Option<u8>, AutomationError> {
+    let Some(value) = map.get("version").or_else(|| map.get("schema_version")) else {
+        return Ok(None);
+    };
+    let parsed = value
+        .as_u64()
+        .and_then(|value| u8::try_from(value).ok())
+        .or_else(|| value.as_str()?.trim().parse::<u8>().ok())
+        .ok_or_else(|| AutomationError::new("La versión del contrato debe ser un entero."))?;
+    Ok(Some(parsed))
+}
+
+fn migration_report_document(
+    document: &JsonValue,
+) -> Result<(&'static str, Option<String>, Vec<JsonValue>), AutomationError> {
+    match document {
+        JsonValue::Array(rules) => Ok(("legacy", None, rules.clone())),
+        JsonValue::Object(map) => {
+            if map.contains_key("format") {
+                let format = map
+                    .get("format")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| {
+                        AutomationError::new("El formato del contrato debe ser texto.")
+                    })?;
+                if format != "columnia-quality-rules" {
+                    return Err(AutomationError::new(
+                        "El formato del contrato de calidad no es compatible.",
+                    ));
+                }
+                let version = migration_report_version(map)?;
+                if version != Some(1) {
+                    return Err(AutomationError::new(
+                        "El contrato Columnia debe usar la versión 1.",
+                    ));
+                }
+                let rules = map
+                    .get("rules")
+                    .and_then(JsonValue::as_array)
+                    .cloned()
+                    .ok_or_else(|| {
+                        AutomationError::new("El contrato debe contener una lista rules.")
+                    })?;
+                return Ok(("columnia", Some("1".to_owned()), rules));
+            }
+
+            let version = migration_report_version(map)?;
+            if version.is_some_and(|version| !(1..=3).contains(&version)) {
+                return Err(AutomationError::new(
+                    "La versión DataPrep no es compatible; se admiten las versiones 1 a 3.",
+                ));
+            }
+            let source_format = if map.contains_key("quality_rules")
+                || map.contains_key("schema_version")
+                || version.is_some_and(|version| version >= 2)
+            {
+                "dataprep"
+            } else {
+                "legacy"
+            };
+            let rules = map
+                .get("rules")
+                .or_else(|| map.get("quality_rules"))
+                .and_then(JsonValue::as_array)
+                .cloned()
+                .ok_or_else(|| {
+                    AutomationError::new("El contrato debe contener una lista rules.")
+                })?;
+            Ok((
+                source_format,
+                version.map(|version| version.to_string()),
+                rules,
+            ))
+        }
+        _ => Err(AutomationError::new(
+            "El contrato debe ser una lista o un objeto JSON.",
+        )),
+    }
+}
+
+fn migration_report_kind(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "not_null" => Some("not_null"),
+        "non_empty" => Some("non_empty"),
+        "unique" => Some("unique"),
+        "numeric_range" | "range" => Some("numeric_range"),
+        "allowed_values" => Some("allowed_values"),
+        "regex" => Some("regex"),
+        "dtype" => Some("dtype"),
+        "unique_together" => Some("unique_together"),
+        "column_compare" | "column_comparison" => Some("column_compare"),
+        "referential_integrity" | "referential" => Some("referential_integrity"),
+        "monotonic" => Some("monotonic"),
+        "aggregate_check" | "aggregate" => Some("aggregate_check"),
+        "aggregate_reconciliation" | "aggregate_reconcile" | "reconciliation" => {
+            Some("aggregate_reconciliation")
+        }
+        "distribution_drift" | "drift" => Some("distribution_drift"),
+        "date_range" => Some("date_range"),
+        "conditional" => Some("conditional"),
+        "schema_contract" | "schema" => Some("schema_contract"),
+        "row_count" => Some("row_count"),
+        _ => None,
+    }
+}
+
+fn migration_report_policy(
+    map: &JsonMap<String, JsonValue>,
+    key: &str,
+    default: &'static str,
+) -> &'static str {
+    let Some(value) = map.get(key) else {
+        return default;
+    };
+    if value.is_null() {
+        return default;
+    }
+    let Some(value) = value.as_str() else {
+        return "invalid_policy";
+    };
+    match (key, value.trim().to_ascii_lowercase().as_str()) {
+        ("severity", "blocking") => "blocking",
+        ("severity", "warning" | "warn" | "non_blocking" | "non-blocking" | "info") => {
+            "non_blocking"
+        }
+        ("on_missing", "fail") => "fail",
+        ("on_missing", "warning" | "warn" | "skip" | "ignore" | "continue") => "non_blocking",
+        ("null_policy", "invalid") => "invalid",
+        ("null_policy", "warning" | "warn" | "skip" | "ignore" | "allow" | "valid") => {
+            "non_blocking"
+        }
+        _ => "unsupported_policy",
+    }
+}
+
+fn migration_report_rule(
+    rule_index: usize,
+    value: &JsonValue,
+) -> (QualityMigrationRuleReport, bool, bool, bool) {
+    let Some(map) = value.as_object() else {
+        return (
+            QualityMigrationRuleReport {
+                rule_index,
+                source_kind: "unknown".to_owned(),
+                status: "manual_review",
+                severity: "invalid_policy",
+                on_missing: "invalid_policy",
+                null_policy: "invalid_policy",
+                issues: vec!["rule_not_object"],
+            },
+            false,
+            false,
+            false,
+        );
+    };
+    let source_kind = map
+        .get("kind")
+        .or_else(|| map.get("type"))
+        .and_then(JsonValue::as_str)
+        .and_then(migration_report_kind)
+        .map(str::to_owned);
+    let kind_supported = source_kind.is_some();
+    let source_kind = source_kind.unwrap_or_else(|| {
+        if map.get("kind").or_else(|| map.get("type")).is_some() {
+            "unsupported".to_owned()
+        } else {
+            "unknown".to_owned()
+        }
+    });
+    let severity = migration_report_policy(map, "severity", "blocking_default");
+    let on_missing = migration_report_policy(map, "on_missing", "fail_default");
+    let null_policy = migration_report_policy(map, "null_policy", "invalid_default");
+    let policy_compatible = matches!(severity, "blocking" | "blocking_default")
+        && matches!(on_missing, "fail" | "fail_default")
+        && matches!(null_policy, "invalid" | "invalid_default");
+    let mut issues = Vec::new();
+    if !kind_supported {
+        issues.push("unsupported_kind");
+    }
+    if !policy_compatible {
+        if !matches!(severity, "blocking" | "blocking_default") {
+            issues.push("severity_not_blocking");
+        }
+        if !matches!(on_missing, "fail" | "fail_default") {
+            issues.push("on_missing_not_fail");
+        }
+        if !matches!(null_policy, "invalid" | "invalid_default") {
+            issues.push("null_policy_not_invalid");
+        }
+    }
+    let requires_column = source_kind != "row_count" && source_kind != "schema_contract";
+    let has_column = map
+        .get("column")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|column| !column.trim().is_empty())
+        || (source_kind == "referential_integrity"
+            && map
+                .get("columns")
+                .or_else(|| map.get("key_columns"))
+                .and_then(JsonValue::as_array)
+                .is_some_and(|columns| !columns.is_empty()));
+    if requires_column && !has_column {
+        issues.push("column_required");
+    }
+    let status = if issues.is_empty() {
+        "compatible"
+    } else {
+        "manual_review"
+    };
+    let policy_issue = !policy_compatible;
+    let explicit_non_blocking =
+        severity == "non_blocking" || on_missing == "non_blocking" || null_policy == "non_blocking";
+    (
+        QualityMigrationRuleReport {
+            rule_index,
+            source_kind,
+            status,
+            severity,
+            on_missing,
+            null_policy,
+            issues,
+        },
+        status == "compatible",
+        policy_issue,
+        explicit_non_blocking,
+    )
+}
+
+pub fn quality_migration_report(
+    input: &Path,
+) -> Result<QualityMigrationReportOutput, AutomationError> {
+    let bytes = fs::read(input).map_err(|_| {
+        AutomationError::new("No se pudo leer el contrato de calidad para el preflight.")
+    })?;
+    if bytes.len() as u64 > QUALITY_MIGRATION_REPORT_FILE_LIMIT_BYTES {
+        return Err(AutomationError::new(
+            "El contrato de calidad supera el límite local de 1 MiB.",
+        ));
+    }
+    let document = serde_json::from_slice::<JsonValue>(&bytes)
+        .map_err(|_| AutomationError::new("El contrato de calidad no es JSON válido."))?;
+    let (source_format, source_version, rules) = migration_report_document(&document)?;
+    if rules.len() > 16 {
+        return Err(AutomationError::new(
+            "El contrato contiene más de 16 reglas; Columnia requiere revisión antes de importar.",
+        ));
+    }
+    let mut rule_reports = Vec::with_capacity(rules.len());
+    let mut convertible_rules = 0;
+    let mut unsupported_policy_rules = 0;
+    let mut non_blocking_rules = 0;
+    for (index, rule) in rules.iter().enumerate() {
+        let (report, convertible, policy_issue, explicit_non_blocking) =
+            migration_report_rule(index + 1, rule);
+        convertible_rules += usize::from(convertible);
+        unsupported_policy_rules += usize::from(policy_issue);
+        non_blocking_rules += usize::from(explicit_non_blocking);
+        rule_reports.push(report);
+    }
+    let omitted_rules = rules.len().saturating_sub(convertible_rules);
+    let warning_count = rule_reports
+        .iter()
+        .filter(|rule| rule.status == "manual_review")
+        .count();
+    let mut manual_actions = vec!["Validar el contrato convertido antes de exportar."];
+    if omitted_rules > 0 {
+        manual_actions.push(
+            "Revisar y recrear manualmente las reglas omitidas; ninguna omisión se aprueba de forma automática.",
+        );
+    }
+    if unsupported_policy_rules > 0 {
+        manual_actions.push(
+            "Revisar severidades y políticas on_missing/null_policy antes de aceptar el contrato.",
+        );
+    }
+    Ok(QualityMigrationReportOutput {
+        schema_version: 1,
+        command: "quality-migration-report",
+        source_format,
+        source_version,
+        artifact_sha256: format!("{:x}", Sha256::digest(&bytes)),
+        total_rules: rules.len(),
+        convertible_rules,
+        omitted_rules,
+        warning_count,
+        policies: QualityMigrationPolicySummary {
+            blocking_rules: rules.len().saturating_sub(non_blocking_rules),
+            non_blocking_rules,
+            unsupported_policy_rules,
+        },
+        rules: rule_reports,
+        manual_actions,
+    })
+}
+
 fn parse_format(value: OsString) -> Result<AutomationFormat, AutomationError> {
     match value.to_str() {
         Some("csv") => Ok(AutomationFormat::Csv),
@@ -574,6 +921,16 @@ where
                 sheet,
                 header,
                 rules,
+            })
+        }
+        "quality-migration-report" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(QUALITY_MIGRATION_REPORT_HELP));
+            }
+            let (mut flags, _) = parse_flags(rest, &["--rules"], &[])?;
+            Ok(CliCommand::QualityMigrationReport {
+                rules: PathBuf::from(required_flag(&mut flags, "--rules")?),
             })
         }
         "batch" => {
@@ -1309,6 +1666,14 @@ mod tests {
             ])
             .unwrap(),
             CliCommand::Validate { rules, .. } if rules == Path::new("rules.json")
+        ));
+        assert!(matches!(
+            parse_cli_args(["quality-migration-report", "--rules", "rules.json"]).unwrap(),
+            CliCommand::QualityMigrationReport { rules } if rules == Path::new("rules.json")
+        ));
+        assert!(matches!(
+            parse_cli_args(["quality-migration-report", "--help"]).unwrap(),
+            CliCommand::Help(text) if text.contains("preflight sanitizado")
         ));
         assert_eq!(
             parse_cli_args(["batch", "--manifest", "batch.json"]).unwrap(),
@@ -2163,5 +2528,98 @@ mod tests {
                 "totalRules",
             ]
         );
+    }
+
+    #[test]
+    fn quality_migration_report_counts_non_blocking_policies_without_exposing_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let rules = directory.path().join("dataprep.json");
+        let document = serde_json::json!({
+            "version": 3,
+            "quality_rules": [
+                {
+                    "type": "not_null",
+                    "column": "private-email-column",
+                    "severity": "blocking",
+                    "on_missing": "fail",
+                    "null_policy": "invalid",
+                    "value": "secret-value"
+                },
+                {
+                    "kind": "unique",
+                    "column": "customer-id",
+                    "severity": "warning"
+                },
+                {
+                    "kind": "future_rule",
+                    "column": "future-column"
+                }
+            ]
+        });
+        fs::write(&rules, serde_json::to_vec(&document).unwrap()).unwrap();
+
+        let report = quality_migration_report(&rules).unwrap();
+
+        assert_eq!(report.source_format, "dataprep");
+        assert_eq!(report.source_version.as_deref(), Some("3"));
+        assert_eq!(report.total_rules, 3);
+        assert_eq!(report.convertible_rules, 1);
+        assert_eq!(report.omitted_rules, 2);
+        assert_eq!(report.policies.blocking_rules, 2);
+        assert_eq!(report.policies.non_blocking_rules, 1);
+        assert_eq!(report.policies.unsupported_policy_rules, 1);
+        assert!(report.requires_manual_review());
+        assert_eq!(report.rules[1].severity, "non_blocking");
+        assert_eq!(report.rules[1].status, "manual_review");
+        assert_eq!(report.rules[2].source_kind, "unsupported");
+
+        let serialized = serde_json::to_string(&report).unwrap();
+        assert!(!serialized.contains("private-email-column"));
+        assert!(!serialized.contains("secret-value"));
+        assert!(!serialized.contains(rules.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn quality_migration_report_accepts_columnia_v1_and_requires_no_review() {
+        let directory = tempfile::tempdir().unwrap();
+        let rules = directory.path().join("columnia.json");
+        fs::write(
+            &rules,
+            serde_json::to_vec(&serde_json::json!({
+                "format": "columnia-quality-rules",
+                "version": 1,
+                "rules": [{ "kind": "unique", "column": "id" }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = quality_migration_report(&rules).unwrap();
+
+        assert_eq!(report.source_format, "columnia");
+        assert_eq!(report.source_version.as_deref(), Some("1"));
+        assert_eq!(report.convertible_rules, 1);
+        assert_eq!(report.omitted_rules, 0);
+        assert!(!report.requires_manual_review());
+    }
+
+    #[test]
+    fn quality_migration_report_rejects_future_dataprep_versions() {
+        let directory = tempfile::tempdir().unwrap();
+        let rules = directory.path().join("future.json");
+        fs::write(
+            &rules,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 4,
+                "rules": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = quality_migration_report(&rules).unwrap_err();
+
+        assert!(error.to_string().contains("versión DataPrep"));
+        assert!(!error.to_string().contains("future.json"));
     }
 }

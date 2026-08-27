@@ -791,6 +791,10 @@ export function removeIdentifierColumns(): Promise<ColumnRemovalResult> {
   return invoke<ColumnRemovalResult>("remove_identifier_columns");
 }
 
+export function removePersonalColumns(): Promise<ColumnRemovalResult> {
+  return invoke<ColumnRemovalResult>("remove_personal_columns");
+}
+
 export function normalizeColumnNames(): Promise<ColumnNormalizationResult> {
   return invoke<ColumnNormalizationResult>("normalize_column_names");
 }

@@ -10,7 +10,7 @@ export type ChangeStatus =
   | { kind: "idle" }
   | {
       kind: "working";
-      action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "sentinels" | "booleans" | "impute" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+      action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "sentinels" | "booleans" | "impute" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
     }
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
@@ -105,6 +105,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     empty_columns: "Eliminando columnas vacías…",
     high_null_columns: "Eliminando columnas con alta nulidad…",
     identifier_columns: "Retirando columnas identificadoras…",
+    personal_columns: "Retirando datos personales detectados…",
     sentinels: "Normalizando valores centinela…",
     booleans: "Normalizando booleanos…",
     impute: "Imputando nulos de forma conservadora…",

@@ -1127,12 +1127,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Activar una columna reservada `_cambios` para trazabilidad local por fila;
   las mutaciones posteriores conservan/añaden la etiqueta de operación y la
   columna queda protegida de la limpieza textual general.
-- [ ] Completar la migración del catálogo de limpieza sugerida: PII y las reglas
-  avanzadas que aún no tengan una acción reversible. Los identificadores ya
-  tienen una acción explícita y confirmada. La
+- [ ] Completar la migración del catálogo de limpieza sugerida: las reglas
+  avanzadas que aún no tengan una acción reversible. Los identificadores y el
+  PII personal (correo, teléfono, dirección y nombre) ya tienen acciones
+  explícitas y confirmadas. La
   eliminación difusa ya tiene una primera acción implementada: confirma el
   impacto agregado, conserva la primera fila/orden y las copias exactas, y
-  permite deshacer; siguen pendientes PII accionable y las reglas restantes.
+  permite deshacer; siguen pendientes las reglas restantes.
   También están cubiertos como señal vacíos, constantes,
   alta nulidad, centinelas, imputación conservadora, booleanos y auditoría
   `_cambios`.
@@ -1148,15 +1149,15 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir una lectura agregada de cobertura temporal para columnas Date,
   Datetime, Timestamp y fechas detectadas, con rango mínimo/máximo, cobertura,
   filas con valor y tabla accesible equivalente sin exponer celdas.
-- [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
+- [x] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
   distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
   calendario, tendencias y series temporales, siempre con tabla accesible equivalente. Las
   primeras ampliaciones ya incluyen ranking de patrones de nulos, validación
   visual de formatos, grupos categóricos, cobertura temporal, tendencias por
   día/mes/año y una matriz de correlaciones de Pearson acotada, todas con tabla
-  equivalente; el calendario diario dedicado ya está disponible y las series
-  temporales completas siguen pendientes.
+  equivalente; el calendario diario dedicado y la serie de línea con métrica de
+  filas/porcentaje ya están disponibles.
 - [x] Añadir tendencia temporal diaria para rangos de hasta 90 días, con días
   sin filas visibles, payload acotado, cancelación cooperativa y tabla accesible
   equivalente; los rangos mayores conservan la agregación mensual o anual.
@@ -1298,6 +1299,10 @@ del original.
 - [ ] Crear un informe de migración con operaciones convertidas, omitidas,
   advertencias, acciones manuales y hash de los artefactos; no publicar secretos,
   rutas administradas ni valores de datasets en el resultado.
+- [x] Añadir un preflight CLI `quality-migration-report` para contratos Columnia,
+  DataPrep v1–v3 y legacy: resume severidad/políticas, marca reglas omitidas,
+  conserva el hash del artefacto y devuelve código 2 cuando requiere revisión,
+  sin publicar rutas, columnas ni valores.
 - [ ] Añadir compatibilidad de bridge solo donde sea necesaria para la migración:
   contrato versionado, operación larga/cancelable, errores sanitizados y
   compatibilidad de recetas; no exponer la allowlist Python completa.

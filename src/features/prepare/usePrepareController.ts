@@ -15,6 +15,7 @@ import {
   removeEmptyColumns,
   removeHighNullColumns,
   removeIdentifierColumns,
+  removePersonalColumns,
   removeDuplicates,
   removeNearDuplicates,
   redoLastChange,
@@ -185,6 +186,26 @@ export function usePrepareController({
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas identificadoras para retirar; se conserva al menos una columna del dataset."
           : `Se retiraron ${result.removedColumnCount.toLocaleString()} columnas identificadoras: ${result.removedColumns.join(", ")}. La operación puede revertirse desde el historial.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyPersonalColumnRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "personal_columns" });
+    try {
+      const result = await removePersonalColumns();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: result.removedColumnCount === 0
+          ? "No se detectaron columnas de datos personales para retirar; se conserva al menos una columna del dataset."
+          : `Se retiraron ${result.removedColumnCount.toLocaleString()} columnas de datos personales. No se muestran nombres ni valores. La operación puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -412,6 +433,7 @@ export function usePrepareController({
     applyEmptyColumnRemoval,
     applyHighNullColumnRemoval,
     applyIdentifierColumnRemoval,
+    applyPersonalColumnRemoval,
     applySentinelNormalization,
     applyBooleanNormalization,
     applyMissingValueImputation,

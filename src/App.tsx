@@ -743,6 +743,7 @@ export function App() {
                 onRemoveEmptyColumns={prepare.applyEmptyColumnRemoval}
                 onRemoveHighNullColumns={prepare.applyHighNullColumnRemoval}
                 onRemoveIdentifierColumns={prepare.applyIdentifierColumnRemoval}
+                onRemovePersonalColumns={prepare.applyPersonalColumnRemoval}
                 onNormalizeSentinels={prepare.applySentinelNormalization}
                 onNormalizeBooleans={prepare.applyBooleanNormalization}
                 onImputeMissingValues={prepare.applyMissingValueImputation}

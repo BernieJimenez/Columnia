@@ -194,6 +194,10 @@ CSV conserva la protección contra fórmulas. `validate`
 lee el documento `columnia-quality-rules` v1; también acepta el documento legado
 `{"version":1,"rules":[...]}`. Formatos o versiones futuras se rechazan.
 Devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
+`quality-migration-report --rules FILE` ejecuta un preflight sanitizado para
+contratos Columnia, DataPrep v1–v3 y legacy: informa severidades, políticas,
+omisiones, acciones manuales y hash SHA-256 sin exponer rutas, columnas ni
+valores; devuelve 2 si requiere revisión.
 
 Un manifiesto batch v1 contiene entre 1 y 64 trabajos `input`, `recipe`,
 `output` y `format`, más `sheet`/`header` para libros. Las rutas relativas se
@@ -224,6 +228,7 @@ Todos emiten JSON v1 por stdout sin rutas, filas ni muestras. Sus contratos son:
 | `project-inspect` | `schemaVersion`, `command`, `project`, `profileCached`, `qualityRuleCount`, `recipeDraftPresent`, `history` con conteo, cursor, disponibilidad de undo/redo y estado degradado |
 | `project-export` | `schemaVersion`, `command`, `status`, `format`, `quality`; añade `fileName` y `fileSizeBytes` solo cuando publica |
 | `project-delete` | `schemaVersion`, `command`, `id`, `deleted` |
+| `quality-migration-report` | `schemaVersion`, `command`, `sourceFormat`, `sourceVersion`, `artifactSha256`, `policies`, reglas agregadas y acciones manuales |
 
 El código 0 indica éxito, 2 indica una exportación bloqueada por reglas
 reprobadas y 1 indica error de uso, carga o almacenamiento.

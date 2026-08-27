@@ -4380,6 +4380,50 @@ fn remove_identifier_columns_from_frame(
     Ok((cleaned, removed_columns))
 }
 
+fn remove_personal_columns_from_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, Vec<String>), String> {
+    if frame.height() == 0 || frame.width() <= 1 {
+        return Ok((frame.clone(), Vec::new()));
+    }
+
+    let candidates = frame
+        .columns()
+        .iter()
+        .filter(|column| {
+            column.name() != "_cambios"
+                && matches!(
+                    privacy_signal(column.name()),
+                    Some("email" | "phone" | "address" | "name")
+                )
+        })
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    let removable_count = candidates.len().min(frame.width().saturating_sub(1));
+    let removed_columns = candidates
+        .into_iter()
+        .take(removable_count)
+        .collect::<Vec<_>>();
+    if removed_columns.is_empty() {
+        return Ok((frame.clone(), removed_columns));
+    }
+
+    let remaining_columns = frame
+        .get_column_names()
+        .iter()
+        .filter(|name| {
+            !removed_columns
+                .iter()
+                .any(|removed| removed == name.as_str())
+        })
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let cleaned = frame.select(&remaining_columns).map_err(|error| {
+        format!("No se pudieron retirar columnas con datos personales: {error}")
+    })?;
+    Ok((cleaned, removed_columns))
+}
+
 fn normalize_column_name(name: &str) -> String {
     let decomposed = name
         .nfd()
@@ -12859,6 +12903,37 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
 }
 
 #[tauri::command]
+pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, removed_columns) = remove_personal_columns_from_frame(&dataset.frame)?;
+        let removed_column_count = removed_columns.len();
+        let preview = if removed_columns.is_empty() {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        } else {
+            publish_candidate(dataset, cleaned, "Retirar datos personales detectados")?
+        };
+        Ok(ColumnRemovalResult {
+            dataset: preview,
+            removed_column_count,
+            // Personal-column names stay in the native operation only; the IPC result is aggregate.
+            removed_columns: Vec::new(),
+        })
+    })
+    .await
+    .map_err(|error| {
+        format!("La eliminación de columnas con datos personales se interrumpió: {error}")
+    })?
+}
+
+#[tauri::command]
 pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -18251,6 +18326,40 @@ mod tests {
         assert_eq!(removed_columns, vec!["customer_id"]);
         assert_eq!(cleaned.get_column_names(), vec!["order_id"]);
         assert_eq!(cleaned.height(), 2);
+    }
+
+    #[test]
+    fn removes_personal_columns_by_category_without_touching_row_audit() {
+        let frame = df![
+            "email" => &["ana@example.com", "luis@example.com"],
+            "phone" => &["555-0100", "555-0101"],
+            "address" => &["Calle 1", "Calle 2"],
+            "name" => &["Ana", "Luis"],
+            "_cambios" => &[Some(""), Some("" )],
+            "amount" => &[10_i64, 20]
+        ]
+        .unwrap();
+
+        let (cleaned, removed_columns) = remove_personal_columns_from_frame(&frame)
+            .expect("las columnas personales deben poder retirarse");
+        assert_eq!(removed_columns, vec!["email", "phone", "address", "name"]);
+        assert_eq!(cleaned.get_column_names(), vec!["_cambios", "amount"]);
+        assert_eq!(cleaned.height(), 2);
+    }
+
+    #[test]
+    fn keeps_one_personal_column_when_all_usable_columns_are_personal() {
+        let frame = df![
+            "email" => &["ana@example.com", "luis@example.com"],
+            "nombre" => &["Ana", "Luis"]
+        ]
+        .unwrap();
+
+        let (cleaned, removed_columns) = remove_personal_columns_from_frame(&frame)
+            .expect("el dataset debe conservar una columna");
+        assert_eq!(removed_columns, vec!["email"]);
+        assert_eq!(cleaned.get_column_names(), vec!["nombre"]);
+        assert_eq!(cleaned.width(), 1);
     }
 
     #[test]

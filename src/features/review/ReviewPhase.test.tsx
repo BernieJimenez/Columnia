@@ -470,6 +470,11 @@ describe("ReviewPhase", () => {
     expect(trendTable).toHaveTextContent("2024-02");
     expect(trendTable).toHaveTextContent("36");
     expect(trendTable).toHaveTextContent("33.3%");
+    expect(screen.getByRole("img", { name: /Serie temporal de fecha por filas/ })).toBeInTheDocument();
+    const metric = screen.getByRole("combobox", { name: "Métrica temporal para fecha" });
+    expect(metric).toHaveValue("rows");
+    fireEvent.change(metric, { target: { value: "percentage" } });
+    expect(screen.getByRole("img", { name: /Serie temporal de fecha por porcentaje de valores/ })).toBeInTheDocument();
   });
 
   it("muestra una tendencia diaria acotada con tabla equivalente", () => {

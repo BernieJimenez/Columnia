@@ -24,6 +24,7 @@ interface PreparePhaseProps {
   onRemoveEmptyColumns: () => void;
   onRemoveHighNullColumns: () => void;
   onRemoveIdentifierColumns?: () => void;
+  onRemovePersonalColumns?: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onImputeMissingValues: () => void;
@@ -54,6 +55,7 @@ export function PreparePhase({
   onRemoveEmptyColumns,
   onRemoveHighNullColumns,
   onRemoveIdentifierColumns = () => undefined,
+  onRemovePersonalColumns = () => undefined,
   onNormalizeSentinels,
   onNormalizeBooleans,
   onImputeMissingValues,
@@ -76,9 +78,14 @@ export function PreparePhase({
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
+  const [personalConfirmation, setPersonalConfirmation] = useState(false);
   const identifierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
     : [];
+  const personalColumns = profileStatus.kind === "ready"
+    ? profileStatus.profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios")
+    : [];
+  const personalCategories = summarizePersonalPrivacySignals(personalColumns);
 
   useEffect(() => {
     const available = new Set(textColumns.map((column) => column.name));
@@ -184,6 +191,7 @@ export function PreparePhase({
               onRemoveEmptyColumns={onRemoveEmptyColumns}
               onRemoveHighNullColumns={onRemoveHighNullColumns}
               onRemoveIdentifierColumns={() => setIdentifierConfirmation(true)}
+              onRemovePersonalColumns={() => setPersonalConfirmation(true)}
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
               onImputeMissingValues={onImputeMissingValues}
@@ -428,8 +436,64 @@ export function PreparePhase({
           </div>
         </ModalDialog>
       )}
+      {personalConfirmation && personalColumns.length > 0 && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="personal-confirm-title"
+          describedBy="personal-confirm-description"
+          onDismiss={() => setPersonalConfirmation(false)}
+        >
+          <p className="step">Confirmación requerida</p>
+          <h3 id="personal-confirm-title">Retirar datos personales detectados</h3>
+          <p id="personal-confirm-description">
+            Se retirarán {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} identificadas por categorías agregadas: {personalCategories}.
+            No se mostrarán nombres de columnas, celdas ni valores del dataset. Se excluirá _cambios,
+            se conservará al menos una columna utilizable y el cambio podrá revertirse desde el historial.
+            Los identificadores se gestionan con la acción separada de esta sección.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setPersonalConfirmation(false)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                setPersonalConfirmation(false);
+                onRemovePersonalColumns();
+              }}
+              disabled={changing}
+            >
+              Retirar datos personales
+            </button>
+          </div>
+        </ModalDialog>
+      )}
     </>
   );
+}
+
+const PERSONAL_PRIVACY_LABELS = {
+  email: "correo electrónico",
+  phone: "teléfono",
+  address: "dirección",
+  name: "nombre",
+} as const;
+
+function isPersonalPrivacySignal(signal: string | null): signal is keyof typeof PERSONAL_PRIVACY_LABELS {
+  return signal !== null && signal in PERSONAL_PRIVACY_LABELS;
+}
+
+function summarizePersonalPrivacySignals(columns: Array<{ privacySignal: string | null }>): string {
+  const counts = columns.reduce<Record<string, number>>((result, column) => {
+    if (isPersonalPrivacySignal(column.privacySignal)) {
+      result[column.privacySignal] = (result[column.privacySignal] ?? 0) + 1;
+    }
+    return result;
+  }, {});
+  return Object.entries(counts)
+    .map(([signal, count]) => `${PERSONAL_PRIVACY_LABELS[signal as keyof typeof PERSONAL_PRIVACY_LABELS]} (${count})`)
+    .join(", ");
 }
 
 function CleaningSignals({
@@ -439,6 +503,7 @@ function CleaningSignals({
   onRemoveEmptyColumns,
   onRemoveHighNullColumns,
   onRemoveIdentifierColumns,
+  onRemovePersonalColumns,
   onNormalizeSentinels,
   onNormalizeBooleans,
   onImputeMissingValues,
@@ -449,6 +514,7 @@ function CleaningSignals({
   onRemoveEmptyColumns: () => void;
   onRemoveHighNullColumns: () => void;
   onRemoveIdentifierColumns: () => void;
+  onRemovePersonalColumns: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onImputeMissingValues: () => void;
@@ -476,6 +542,8 @@ function CleaningSignals({
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
+  const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
+  const personalCategories = summarizePersonalPrivacySignals(personalColumns);
   const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || booleans.length > 0 || typeDrift.length > 0 || personal.length > 0;
 
   return (
@@ -516,7 +584,7 @@ function CleaningSignals({
             <li><strong>Tipos sugeridos:</strong> {typeDrift.map((column) => column.name).join(", ")} contiene valores que no coinciden con la sugerencia detectada.</li>
           )}
           {personal.length > 0 && (
-            <li className="cleaning-signals__privacy"><strong>Posible dato personal:</strong> revisa el tratamiento de {personal.map((column) => column.name).join(", ")} antes de exportar o compartir.</li>
+            <li className="cleaning-signals__privacy"><strong>Posible dato personal:</strong> {personalColumns.length} {personalColumns.length === 1 ? "columna detectada" : "columnas detectadas"} por categoría agregada: {personalCategories}. Revisa su tratamiento antes de exportar o compartir.</li>
           )}
           </ul>
           {constant.length > 0 && (
@@ -561,6 +629,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onRemoveIdentifierColumns} disabled={busy}>
                 Revisar identificadores detectados
+              </button>
+            </div>
+          )}
+          {personalColumns.length > 0 && (
+            <div className="cleaning-signals__action cleaning-signals__action--privacy">
+              <p>
+                Retira correo electrónico, teléfono, dirección y nombre detectados por el encabezado.
+                La acción no muestra nombres ni valores, excluye _cambios, conserva al menos una columna
+                y queda disponible para revertir desde el historial.
+              </p>
+              <button type="button" onClick={onRemovePersonalColumns} disabled={busy}>
+                Revisar datos personales detectados
               </button>
             </div>
           )}

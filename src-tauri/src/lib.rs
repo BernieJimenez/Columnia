@@ -132,6 +132,7 @@ pub fn run() {
             dataset::remove_empty_columns,
             dataset::remove_high_null_columns,
             dataset::remove_identifier_columns,
+            dataset::remove_personal_columns,
             dataset::normalize_column_names,
             dataset::trim_text_values,
             dataset::normalize_text_values,

@@ -60,6 +60,15 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             }
             return Ok(ExitCode::from(2));
         }
+        CliCommand::QualityMigrationReport { rules } => {
+            let output = automation::quality_migration_report(&rules)?;
+            let requires_manual_review = output.requires_manual_review();
+            privacy::write_sanitized_json(io::stdout().lock(), &output)?;
+            println!();
+            if requires_manual_review {
+                return Ok(ExitCode::from(2));
+            }
+        }
         CliCommand::Batch { manifest } => {
             let output = automation::batch(&manifest)?;
             let failed = output.failed();

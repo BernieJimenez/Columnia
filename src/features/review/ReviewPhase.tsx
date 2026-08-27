@@ -1195,7 +1195,8 @@ function TemporalTrendChart({
 }) {
   const titleId = `quality-temporal-trend-title-${summaryIndex}`;
   const tableLabel = `Tendencia temporal para ${summary.column}`;
-  const maximumCount = Math.max(1, ...summary.periods.map((period) => period.rowCount));
+  const [metric, setMetric] = useState<TemporalMetric>("rows");
+  const metricId = `quality-temporal-metric-${summaryIndex}`;
 
   return (
     <div
@@ -1209,24 +1210,35 @@ function TemporalTrendChart({
         agregados del perfil, nunca valores de celdas. Se incluyen {summary.parsedRowCount.toLocaleString()}
         de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString()} filas interpretables.
       </p>
-      {summary.granularity === "day" ? (
-        <DailyTemporalCalendar summary={summary} />
-      ) : summary.periods.length > 0 ? (
-        <div className="quality-temporal-trend__bars" role="list" aria-label={tableLabel}>
-          {summary.periods.map((period) => (
-            <div className="quality-temporal-trend__item" role="listitem" key={period.period}>
-              <div className="quality-temporal-trend__bar-wrap">
-                <span
-                  className="quality-temporal-trend__bar"
-                  aria-hidden="true"
-                  style={{ height: `${(period.rowCount / maximumCount) * 100}%` }}
-                />
-              </div>
-              <strong title={period.period}>{period.period}</strong>
-              <small>{period.rowCount.toLocaleString()} filas</small>
+      {summary.periods.length > 0 ? (
+        <>
+          <div className="quality-temporal-trend__toolbar">
+            <div>
+              <span className="quality-temporal-trend__metric-caption">Lectura visible</span>
+              <strong>{temporalMetricLabel(metric)}</strong>
             </div>
-          ))}
-        </div>
+            <label htmlFor={metricId}>
+              Medir por
+              <select
+                id={metricId}
+                value={metric}
+                aria-label={`Métrica temporal para ${summary.column}`}
+                onChange={(event) => setMetric(event.target.value as TemporalMetric)}
+              >
+                <option value="rows">Filas</option>
+                <option value="percentage">Porcentaje</option>
+              </select>
+            </label>
+          </div>
+          <TemporalLineChart
+            summary={summary}
+            metric={metric}
+            titleId={`${titleId}-chart`}
+          />
+          {summary.granularity === "day" && <DailyTemporalCalendar summary={summary} />}
+        </>
+      ) : summary.granularity === "day" ? (
+        <DailyTemporalCalendar summary={summary} />
       ) : (
         <p className="quality-temporal-empty" role="status">
           No hay periodos interpretables para mostrar en esta columna.
@@ -1257,6 +1269,114 @@ function TemporalTrendChart({
         {summary.unparsedRowCount.toLocaleString()} filas sin periodo interpretable.
         {summary.truncated ? " Los periodos más antiguos se agruparon para mantener la lectura rápida." : ""}
       </p>
+    </div>
+  );
+}
+
+type TemporalMetric = "rows" | "percentage";
+
+function TemporalLineChart({
+  summary,
+  metric,
+  titleId,
+}: {
+  summary: TemporalSeriesSummary;
+  metric: TemporalMetric;
+  titleId: string;
+}) {
+  const chartHeight = 188;
+  const chartWidth = Math.max(560, summary.periods.length * 72);
+  const padding = { top: 18, right: 18, bottom: 34, left: 56 };
+  const plotWidth = Math.max(1, chartWidth - padding.left - padding.right);
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const values = summary.periods.map((period) => temporalMetricValue(period, metric));
+  const maximumValue = metric === "percentage"
+    ? 100
+    : Math.max(1, ...values);
+  const points = summary.periods.map((period, index) => {
+    const x = summary.periods.length === 1
+      ? padding.left + plotWidth / 2
+      : padding.left + (index / (summary.periods.length - 1)) * plotWidth;
+    const y = padding.top + plotHeight - (values[index] / maximumValue) * plotHeight;
+    return { x, y, period };
+  });
+  const pointList = points.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+  const baseline = padding.top + plotHeight;
+  const areaPath = points.length > 0
+    ? `M ${points[0].x.toFixed(2)} ${baseline.toFixed(2)} L ${points.map(({ x, y }) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(" L ")} L ${points.at(-1)!.x.toFixed(2)} ${baseline.toFixed(2)} Z`
+    : "";
+  const labelIndexes = temporalAxisIndexes(summary.periods.length);
+  const descriptionId = `${titleId}-description`;
+
+  return (
+    <div className="quality-temporal-line" role="group" aria-labelledby={titleId}>
+      <div className="quality-temporal-line__legend">
+        <span><i aria-hidden="true" /> {temporalMetricLabel(metric)}</span>
+        <span>Escala máxima: {temporalMetricDisplay(maximumValue, metric)}</span>
+      </div>
+      <div className="quality-temporal-line__viewport">
+        <svg
+          className="quality-temporal-line__chart"
+          width={chartWidth}
+          height={chartHeight}
+          style={{ width: `max(100%, ${chartWidth}px)` }}
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          role="img"
+          aria-labelledby={`${titleId} ${descriptionId}`}
+        >
+          <title id={titleId}>
+            Serie temporal de {summary.column} por {temporalMetricLabel(metric).toLowerCase()}
+          </title>
+          <desc id={descriptionId}>
+            Línea con {summary.periods.length.toLocaleString()} periodos. La tabla inferior contiene los mismos datos.
+          </desc>
+          {[0, 0.5, 1].map((ratio) => {
+            const y = padding.top + plotHeight * ratio;
+            return (
+              <line
+                className="quality-temporal-line__grid"
+                key={ratio}
+                x1={padding.left}
+                x2={chartWidth - padding.right}
+                y1={y}
+                y2={y}
+              />
+            );
+          })}
+          <path className="quality-temporal-line__area" d={areaPath} aria-hidden="true" />
+          <polyline className="quality-temporal-line__path" points={pointList} aria-hidden="true" />
+          <text className="quality-temporal-line__scale" x={padding.left - 10} y={padding.top + 4} textAnchor="end">
+            {temporalMetricDisplay(maximumValue, metric)}
+          </text>
+          <text
+            className="quality-temporal-line__scale"
+            x={padding.left - 10}
+            y={padding.top + plotHeight / 2 + 4}
+            textAnchor="end"
+          >
+            {temporalMetricDisplay(maximumValue / 2, metric)}
+          </text>
+          <text className="quality-temporal-line__scale" x={padding.left - 10} y={baseline + 4} textAnchor="end">
+            {temporalMetricDisplay(0, metric)}
+          </text>
+          {points.map(({ x, y, period }) => (
+            <circle className="quality-temporal-line__point" key={period.period} cx={x} cy={y} r="4">
+              <title>{`${period.period}: ${temporalMetricDisplay(temporalMetricValue(period, metric), metric)}`}</title>
+            </circle>
+          ))}
+          {labelIndexes.map((index) => (
+            <text
+              className="quality-temporal-line__label"
+              key={summary.periods[index].period}
+              x={points[index].x}
+              y={chartHeight - 8}
+              textAnchor={index === 0 ? "start" : index === summary.periods.length - 1 ? "end" : "middle"}
+            >
+              {formatTemporalAxisLabel(summary.periods[index].period, summary.granularity)}
+            </text>
+          ))}
+        </svg>
+      </div>
     </div>
   );
 }
@@ -1486,6 +1606,29 @@ function temporalTypeLabel(column: ColumnProfile): string {
 function formatTemporalValue(value: string | null): string {
   if (!value) return "No disponible";
   return value.replace("T", " ").replace(/\+00:00$/, " UTC");
+}
+
+function temporalMetricLabel(metric: TemporalMetric): string {
+  return metric === "rows" ? "Filas" : "Porcentaje de valores";
+}
+
+function temporalMetricValue(period: { rowCount: number; percentage: number }, metric: TemporalMetric): number {
+  return metric === "rows" ? Math.max(0, period.rowCount) : clampPercentage(period.percentage);
+}
+
+function temporalMetricDisplay(value: number, metric: TemporalMetric): string {
+  return metric === "rows" ? Math.round(value).toLocaleString() : `${clampPercentage(value).toFixed(0)}%`;
+}
+
+function temporalAxisIndexes(periodCount: number): number[] {
+  if (periodCount <= 3) return Array.from({ length: periodCount }, (_, index) => index);
+  const indexes = [0, Math.floor((periodCount - 1) / 2), periodCount - 1];
+  return [...new Set(indexes)];
+}
+
+function formatTemporalAxisLabel(period: string, granularity: TemporalSeriesSummary["granularity"]): string {
+  if (granularity === "day") return formatCalendarDay(period);
+  return period;
 }
 
 function parseTemporalDay(value: string): Date | null {

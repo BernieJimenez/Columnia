@@ -55,7 +55,20 @@ Diagnóstico incorpora una lectura visual compacta del perfil por columna:
   alto contraste y navegación sin depender del color.
 
 La entrega cubre la visualización rápida del diagnóstico. Los gráficos
-exploratorios interactivos y los filtros avanzados siguen pendientes.
+exploratorios interactivos y los filtros avanzados siguen pendientes. Las
+tendencias temporales incluyen ahora una serie de línea con área, selector de
+filas/porcentaje, escala y puntos accesibles; la tabla inferior conserva la
+equivalencia exacta y el calendario diario se mantiene como vista complementaria.
+
+## Privacidad accionable en Preparar
+
+El catálogo de limpieza separa los identificadores de otras señales personales.
+Cuando el perfil detecta correo electrónico, teléfono, dirección o nombre por el
+encabezado, Preparar ofrece una revisión agregada y una confirmación explícita.
+La acción retira esas columnas de forma reversible, excluye `_cambios`, conserva
+al menos una columna utilizable y no envía nombres ni valores por IPC; el
+historial permite deshacerla. La privacidad de recetas, reportes, manifiestos y
+conectores remotos sigue siendo una brecha independiente.
 
 ## Segunda entrega de paridad: comparación y consolidación
 

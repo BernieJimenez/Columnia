@@ -243,7 +243,7 @@ describe("PreparePhase", () => {
 
     expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
     expect(screen.getByRole("list")).toHaveTextContent("1 filas adicionales");
-    expect(screen.getByRole("list")).toHaveTextContent("Posible dato personal: revisa el tratamiento de email");
+    expect(screen.getByRole("list")).toHaveTextContent("Posible dato personal: 1 columna detectada por categoría agregada: correo electrónico (1)");
     expect(screen.getByRole("button", { name: "Revisar identificadores detectados" })).toBeInTheDocument();
     expect(screen.getByRole("list")).toHaveTextContent("Duplicados parecidos: 1");
     expect(screen.getByRole("list")).toHaveTextContent("Tipos sugeridos:");
@@ -349,6 +349,53 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
     fireEvent.click(screen.getByRole("button", { name: "Retirar identificadores" }));
     expect(onRemoveIdentifierColumns).toHaveBeenCalledOnce();
+  });
+
+  it("confirma el retiro de PII por categorías agregadas sin exponer nombres ni valores", () => {
+    const onRemovePersonalColumns = vi.fn();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onAnalyzeQuality={() => undefined}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveNearDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onRemoveIdentifierColumns={() => undefined}
+      onRemovePersonalColumns={onRemovePersonalColumns}
+      onNormalizeSentinels={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" });
+    expect(dialog).toHaveTextContent("1 columna personal");
+    expect(dialog).toHaveTextContent("correo electrónico (1)");
+    expect(dialog).not.toHaveTextContent("email");
+    expect(dialog).not.toHaveTextContent("ana@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onRemovePersonalColumns).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
+    expect(onRemovePersonalColumns).toHaveBeenCalledOnce();
   });
 });
 

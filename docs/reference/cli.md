@@ -95,6 +95,18 @@ está disponible. La validación completa ocurre antes de escribir el catálogo,
 por lo que una sesión inválida no crea ni reemplaza proyectos. El nombre de la
 sesión se usa cuando se omite `--name`.
 
+### `quality-migration-report`
+
+```text
+quality-migration-report --rules FILE
+```
+
+Ejecuta un preflight sanitizado de un contrato de calidad Columnia v1,
+DataPrep v1–v3 o legacy. Devuelve un resumen por regla con la severidad y las
+políticas `on_missing`/`null_policy`, el hash SHA-256 del artefacto y acciones
+manuales. No muestra rutas, nombres de columnas ni valores. El código es `2`
+cuando existen reglas omitidas o políticas no equivalentes que deben revisarse.
+
 ### `project-inspect`
 
 ```text
