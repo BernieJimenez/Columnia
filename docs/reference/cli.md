@@ -103,10 +103,11 @@ session-migration-report --session FILE
 
 Ejecuta un preflight de solo lectura para una sesión DataPrep v1–v3 usando el
 mismo cargador que `project-import-dataprep`. Devuelve estados de origen y
-snapshot, hoja, etapa, operaciones aplicadas, receta, calidad y análisis, junto
-con referencias ausentes, colisiones, hash SHA-256 y acciones manuales. No
-abre el almacén ni escribe proyectos. El código es `2` cuando la sesión
-requiere revisión manual.
+snapshot, etapa, operaciones aplicadas, receta, calidad y análisis, junto con
+referencias ausentes, colisiones, hash SHA-256 y acciones manuales. En stdout,
+`sourceFileName` y `sheetName` se redactan; se conservan únicamente estados,
+flags y conteos estructurales. No abre el almacén ni escribe proyectos. El
+código es `2` cuando la sesión requiere revisión manual.
 
 ### `quality-migration-report`
 
@@ -152,11 +153,22 @@ Borra únicamente cuando `--confirm` coincide exactamente con `--id`.
 - `project-import-dataprep` devuelve `imported: true` y el resumen opaco del
   proyecto nuevo; no devuelve la ruta de la sesión ni sus referencias.
 - `session-migration-report` devuelve únicamente metadatos estructurales y
-  estados de referencias; no devuelve rutas, columnas, filas ni valores.
+  estados de referencias; no devuelve rutas, nombres de archivo, nombres de
+  hoja, columnas, filas ni valores. Los estados, flags, conteos y hashes se
+  mantienen para poder automatizar la revisión.
+- `project-inspect` conserva el identificador, nombre visible, dimensiones,
+  flags y estado del historial, pero redacta el nombre del dataset y las
+  marcas temporales antes de escribir stdout.
+- `project-export` conserva estado, formato, tamaño y conteos de calidad, pero
+  redacta el nombre del archivo exportado; una exportación bloqueada no revela
+  rutas ni contenido.
+- `batch` devuelve solamente estado, ordinal de fallo y conteos agregados; no
+  publica rutas, manifiestos, recetas, filas ni valores.
 - Código 0: éxito; código 1: uso, carga o almacenamiento; código 2: calidad
   reprobada o fallo parcial de batch.
-- Las rutas se mantienen en Rust y no aparecen en stdout ni en errores de
-  contrato.
+- Todos los comandos que escriben JSON pasan por la misma sanitización antes de
+  llegar a stdout. Las rutas, nombres de archivo, valores, emails y secretos
+  se mantienen en Rust y no aparecen en stdout ni en errores de contrato.
 - La exportación es atómica y un fallo conserva un destino anterior.
 
 ## Relacionado

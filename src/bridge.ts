@@ -541,7 +541,7 @@ export interface OperationProgress {
   percent: number;
 }
 
-export type CancellableOperation = OperationProgress["operation"];
+export type CancellableOperation = OperationProgress["operation"] | "query";
 export type ExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type PrivacyMode = "none" | "mask" | "hash";
 export type ConflictSource = "current" | "compared";

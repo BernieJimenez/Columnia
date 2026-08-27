@@ -1343,8 +1343,9 @@ body { color: var(--text-primary); background: var(--canvas); }
 .recipe-row > button:hover:not(:disabled) { border-color: var(--border-subtle); background: var(--surface-subtle); }
 
 .local-query__heading { display: block; }
-.local-query__actions { display: flex; justify-content: flex-end; }
+.local-query__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .local-query__actions button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 4px; background: transparent; color: var(--accent); font-weight: 750; }
+.local-query__status { margin: 0; color: var(--text-secondary); font-size: .8125rem; }
 
 .export-panel { grid-template-columns: minmax(180px, .55fr) minmax(0, 1.45fr); align-items: center; }
 .export-controls { display: grid; grid-template-columns: minmax(120px, .55fr) minmax(220px, 1.45fr) auto; align-items: end; gap: 10px; }

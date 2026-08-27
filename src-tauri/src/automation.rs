@@ -1871,6 +1871,10 @@ mod tests {
 
     use super::*;
 
+    fn sanitized_output<T: Serialize>(value: &T) -> JsonValue {
+        crate::privacy::sanitized_json(value).expect("el contrato CLI debe sanitizarse")
+    }
+
     fn write_recipe(path: &Path, from: &str, to: &str) {
         let document = serde_json::json!({
             "version": 1,
@@ -2456,7 +2460,7 @@ mod tests {
         assert!(!result.failed());
         assert!(directory.path().join("first-output.csv").is_file());
         assert!(directory.path().join("second-output.parquet").is_file());
-        let json = serde_json::to_value(result).unwrap();
+        let json = serde_json::to_value(&result).unwrap();
         assert_eq!(json["status"], "succeeded");
         assert_eq!(json["totalJobs"], 2);
         assert_eq!(json["completedJobs"], 2);
@@ -2464,6 +2468,17 @@ mod tests {
         assert_eq!(json.as_object().unwrap().len(), 6);
         assert!(json.get("failedJobNumber").is_none());
         assert!(!json
+            .to_string()
+            .contains(directory.path().to_str().unwrap()));
+
+        let sanitized = sanitized_output(&result);
+        assert_eq!(sanitized["command"], "batch");
+        assert_eq!(sanitized["status"], "succeeded");
+        assert_eq!(sanitized["totalJobs"], 2);
+        assert_eq!(sanitized["completedJobs"], 2);
+        assert_eq!(sanitized["changedJobs"], 2);
+        assert!(!sanitized.to_string().contains("first-output.csv"));
+        assert!(!sanitized
             .to_string()
             .contains(directory.path().to_str().unwrap()));
     }
@@ -2646,19 +2661,39 @@ mod tests {
                 .len(),
             7
         );
+        let sanitized_inspection = sanitized_output(&inspected);
+        assert_eq!(sanitized_inspection["project"]["id"], id);
+        assert_eq!(
+            sanitized_inspection["project"]["datasetFileName"],
+            "[redactado]"
+        );
+        assert_eq!(sanitized_inspection["project"]["rowCount"], 2);
+        assert_eq!(sanitized_inspection["qualityRuleCount"], 1);
+        assert_eq!(sanitized_inspection["history"]["entryCount"], 2);
+        assert!(!sanitized_inspection.to_string().contains("source.csv"));
 
         let exported = project_export(&store, &id, &output, AutomationFormat::Csv, false).unwrap();
         assert!(!exported.blocked());
         assert!(output.is_file());
         assert_eq!(exported.quality.passed, Some(true));
         assert_eq!(exported.quality.total_rules, 1);
-        let json = serde_json::to_value(exported).unwrap();
+        let json = serde_json::to_value(&exported).unwrap();
         assert_eq!(json["command"], "project-export");
         assert_eq!(json["fileName"], "export.csv");
         assert_eq!(json.as_object().unwrap().len(), 7);
         assert_eq!(json["quality"].as_object().unwrap().len(), 7);
         assert!(json.get("path").is_none());
         assert!(!json
+            .to_string()
+            .contains(directory.path().to_str().unwrap()));
+        let sanitized_export = sanitized_output(&exported);
+        assert_eq!(sanitized_export["command"], "project-export");
+        assert_eq!(sanitized_export["status"], "succeeded");
+        assert_eq!(sanitized_export["fileName"], "[redactado]");
+        assert_eq!(sanitized_export["quality"]["passed"], true);
+        assert_eq!(sanitized_export["quality"]["rowCount"], 2);
+        assert!(!sanitized_export.to_string().contains("export.csv"));
+        assert!(!sanitized_export
             .to_string()
             .contains(directory.path().to_str().unwrap()));
 
@@ -2726,6 +2761,16 @@ mod tests {
                     .len(),
                 5
             );
+            let sanitized = sanitized_output(&result);
+            assert_eq!(sanitized["status"], "blocked");
+            assert_eq!(sanitized["quality"]["passed"], false);
+            assert_eq!(sanitized["quality"]["rowCount"], 2);
+            assert!(sanitized.get("fileName").is_none());
+            assert!(!sanitized.to_string().contains("absent.csv"));
+            assert!(!sanitized.to_string().contains("existing.csv"));
+            assert!(!sanitized
+                .to_string()
+                .contains(directory.path().to_str().unwrap()));
         }
         assert!(!absent.exists());
         assert_eq!(fs::read_to_string(existing).unwrap(), "previous");
@@ -2876,6 +2921,17 @@ mod tests {
         assert!(!serialized.contains("private-email-column"));
         assert!(!serialized.contains("secret-value"));
         assert!(!serialized.contains(rules.to_string_lossy().as_ref()));
+
+        let sanitized = sanitized_output(&report);
+        assert_eq!(sanitized["command"], "quality-migration-report");
+        assert_eq!(sanitized["totalRules"], 3);
+        assert_eq!(sanitized["omittedRules"], 2);
+        assert_eq!(sanitized["policies"]["blockingRules"], 2);
+        assert!(!sanitized.to_string().contains("private-email-column"));
+        assert!(!sanitized.to_string().contains("secret-value"));
+        assert!(!sanitized
+            .to_string()
+            .contains(rules.to_string_lossy().as_ref()));
     }
 
     #[test]
@@ -2930,6 +2986,20 @@ mod tests {
             .contains("private-email"));
         assert!(!serde_json::to_string(&report)
             .unwrap()
+            .contains(session.to_string_lossy().as_ref()));
+
+        let sanitized = sanitized_output(&report);
+        assert_eq!(sanitized["command"], "session-migration-report");
+        assert_eq!(sanitized["origin"]["source"]["status"], "available");
+        assert_eq!(sanitized["origin"]["snapshot"]["available"], true);
+        assert_eq!(sanitized["origin"]["sourceFileName"], "[redactado]");
+        assert_eq!(sanitized["session"]["sheetName"], "[redactado]");
+        assert_eq!(sanitized["session"]["appliedOperationCount"], 1);
+        assert!(!sanitized.to_string().contains("source.csv"));
+        assert!(!sanitized.to_string().contains("snapshot.csv"));
+        assert!(!sanitized.to_string().contains("private-email"));
+        assert!(!sanitized
+            .to_string()
             .contains(session.to_string_lossy().as_ref()));
     }
 

@@ -1,12 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DatasetPreview, DatasetProfile } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, DatasetQueryResult } from "../../bridge";
 import * as bridge from "../../bridge";
 import { DataPreview, ReviewPhase } from "./ReviewPhase";
 import { createReadyDatasetStatus } from "../load/loadModel";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const dataset: DatasetPreview = {
   fileName: "datos.csv",
@@ -359,6 +362,60 @@ describe("ReviewPhase", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 filas disponibles"));
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
     expect(bridge.queryDataset).toHaveBeenCalledWith("SELECT id FROM dataset LIMIT 1");
+  });
+
+  it("permite cancelar una consulta y no pinta una respuesta tardía", async () => {
+    let resolveQuery: (result: DatasetQueryResult) => void = () => undefined;
+    const pendingQuery = new Promise<DatasetQueryResult>((resolve) => {
+      resolveQuery = resolve;
+    });
+    vi.spyOn(bridge, "queryDataset").mockReturnValue(pendingQuery);
+    vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+    expect(screen.getByRole("button", { name: "Cancelar consulta" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar consulta" }));
+    await waitFor(() => {
+      expect(bridge.cancelOperation).toHaveBeenCalledWith("query");
+      expect(screen.getByRole("status")).toHaveTextContent("Consulta cancelada");
+    });
+
+    resolveQuery({
+      columns: [{ name: "id", dataType: "Int64" }],
+      rowCount: 1,
+      offset: 0,
+      rows: [["1"]],
+      truncated: false,
+    });
+    await Promise.resolve();
+    expect(screen.queryByRole("region", { name: "Resultado de consulta SQL" })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("No se actualizó el resultado");
   });
 
   it("muestra visualizaciones accesibles con valores equivalentes al perfil", () => {

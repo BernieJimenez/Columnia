@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
-import { queryDataset } from "../../bridge";
+import { cancelOperation, queryDataset } from "../../bridge";
 import type {
   DatasetColumn,
   DatasetJoinType,
@@ -509,24 +509,59 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
   const [state, setState] = useState<
     | { kind: "idle" }
-    | { kind: "loading" }
+    | { kind: "loading"; cancelRequested: boolean }
     | { kind: "ready"; result: DatasetQueryResult }
+    | { kind: "cancelled" }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [queryOpen, setQueryOpen] = useState(false);
+  const activeQueryRef = useRef(0);
+  const cancelledQueryRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (state.kind !== "idle") setQueryOpen(true);
   }, [state.kind]);
 
   async function runQuery() {
-    setState({ kind: "loading" });
+    const requestId = activeQueryRef.current + 1;
+    activeQueryRef.current = requestId;
+    cancelledQueryRef.current = null;
+    setState({ kind: "loading", cancelRequested: false });
     try {
-      setState({ kind: "ready", result: await queryDataset(query) });
+      const result = await queryDataset(query);
+      if (activeQueryRef.current !== requestId) return;
+      if (cancelledQueryRef.current === requestId) {
+        setState({ kind: "cancelled" });
+        return;
+      }
+      setState({ kind: "ready", result });
     } catch (error: unknown) {
+      if (activeQueryRef.current !== requestId) return;
+      if (cancelledQueryRef.current === requestId) {
+        setState({ kind: "cancelled" });
+        return;
+      }
       setState({
         kind: "error",
         message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function cancelQuery() {
+    if (state.kind !== "loading" || state.cancelRequested) return;
+    const requestId = activeQueryRef.current;
+    cancelledQueryRef.current = requestId;
+    setState({ kind: "loading", cancelRequested: true });
+    try {
+      await cancelOperation("query");
+      if (activeQueryRef.current === requestId) setState({ kind: "cancelled" });
+    } catch (error: unknown) {
+      if (activeQueryRef.current !== requestId) return;
+      cancelledQueryRef.current = null;
+      setState({
+        kind: "error",
+        message: `No se pudo cancelar la consulta: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
   }
@@ -574,7 +609,28 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
           <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
             {state.kind === "loading" ? "Consultando…" : "Ejecutar consulta"}
           </button>
+          {state.kind === "loading" && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void cancelQuery()}
+              disabled={state.cancelRequested}
+              aria-describedby="local-query-status"
+            >
+              {state.cancelRequested ? "Cancelando…" : "Cancelar consulta"}
+            </button>
+          )}
         </div>
+        {state.kind === "loading" && (
+          <p id="local-query-status" className="local-query__status" role="status" aria-live="polite">
+            {state.cancelRequested ? "Solicitando la cancelación…" : "La consulta sigue en ejecución."}
+          </p>
+        )}
+        {state.kind === "cancelled" && (
+          <p className="notice" role="status" aria-live="polite">
+            Consulta cancelada. No se actualizó el resultado.
+          </p>
+        )}
         {state.kind === "error" && <p className="notice notice--error" role="alert">No se pudo ejecutar la consulta: {state.message}</p>}
         {state.kind === "ready" && <LocalQueryResult result={state.result} />}
       </section>

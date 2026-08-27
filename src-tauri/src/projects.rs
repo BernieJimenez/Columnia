@@ -2349,6 +2349,117 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_fixture_roundtrips_sheet_workspace_and_history_artifacts() {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio");
+        let fixture_directory = repository.join("fixtures/migration");
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("session-roundtrip.json");
+        let source = directory.path().join("ventas-hoja.csv");
+        fs::copy(
+            fixture_directory.join("dataprep-session-v1-roundtrip.json"),
+            &session,
+        )
+        .unwrap();
+        fs::copy(fixture_directory.join("ventas-hoja.csv"), &source).unwrap();
+
+        let store = ProjectStore::initialize(directory.path().join("projects")).unwrap();
+        let plan = dataset::load_dataprep_session_migration_plan(&session)
+            .expect("la fixture de sesión debe producir un plan válido");
+        assert!(plan.can_create_project);
+        assert_eq!(
+            plan.source_status,
+            dataset::SessionReferenceStatus::Available
+        );
+        assert_eq!(plan.sheet_name.as_deref(), Some("Datos"));
+        assert_eq!(plan.quality_rules.len(), 1);
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la fixture debe convertirse en un proyecto durable");
+        let active_state = DatasetState::default();
+        let opened = store
+            .open(&active_state, imported.id.clone())
+            .expect("el proyecto importado debe reabrirse");
+        assert_eq!(opened.dataset.file_name, "ventas-hoja.csv");
+        assert_eq!(opened.dataset.columns[0].name, "new_name");
+        assert_eq!(opened.dataset.columns[1].name, "amount");
+        assert_eq!(opened.workspace.quality_rules.len(), 1);
+        let recipe = opened
+            .workspace
+            .recipe_draft
+            .as_ref()
+            .expect("la receta migrada debe persistirse en el workspace");
+        let recipe_json = serde_json::to_value(recipe)
+            .expect("el artefacto de receta debe conservar metadatos de sesión");
+        let session_metadata = &recipe_json["migrationReport"]["session"];
+        assert_eq!(session_metadata["sheetName"], "Datos");
+        assert_eq!(session_metadata["appliedOperationCount"], 2);
+        assert_eq!(session_metadata["qualityRuleCount"], 1);
+        assert_eq!(session_metadata["analysisCheckCount"], 2);
+
+        let initial_frame = active_state
+            .active_project_snapshot()
+            .expect("el dataset importado debe estar activo")
+            .frame;
+        let revised_frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("new_name".into(), vec!["Alpha", "Beta", "Gamma"]).into_column(),
+                Series::new("amount".into(), vec![10_i64, 20, 30]).into_column(),
+            ],
+        )
+        .unwrap();
+        active_state
+            .project_test_record(revised_frame.clone(), "Agregar venta")
+            .unwrap();
+        store
+            .save(
+                &active_state,
+                Some(imported.id.clone()),
+                "Sesión round-trip de ventas".to_owned(),
+                opened.workspace.clone(),
+            )
+            .expect("el workspace y el historial deben guardarse juntos");
+
+        let stored = store
+            .stored_project(&store.connection().unwrap(), &imported.id)
+            .unwrap()
+            .unwrap();
+        let generation = store
+            .generation_path(&imported.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
+        let artifacts = fs::read_dir(&generation)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(artifacts.iter().any(|name| name == "current.parquet"));
+        assert!(artifacts.iter().any(|name| name == "history-000.parquet"));
+        assert!(artifacts.iter().any(|name| name == "history-001.parquet"));
+        drop(store);
+
+        let reopened_store = ProjectStore::initialize(directory.path().join("projects")).unwrap();
+        let restored_state = DatasetState::default();
+        let restored = reopened_store
+            .open(&restored_state, imported.id)
+            .expect("los artefactos de la sesión deben sobrevivir al reinicio");
+        assert_eq!(restored.dataset.columns[0].name, "new_name");
+        assert_eq!(restored.dataset.row_count, 3);
+        let restored_history = restored_state.active_project_snapshot().unwrap().history;
+        assert_eq!(restored_history.entries.len(), 3);
+        assert_eq!(restored_history.cursor, 2);
+        assert!(restored_state
+            .project_test_undo()
+            .unwrap()
+            .equals_missing(&initial_frame));
+        assert!(restored_state
+            .project_test_redo()
+            .unwrap()
+            .equals_missing(&revised_frame));
+    }
+
+    #[test]
     fn automation_inspect_is_read_only_and_reports_recipe_history_and_profile() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("projects");
