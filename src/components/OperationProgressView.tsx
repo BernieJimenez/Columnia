@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import type { OperationProgress } from "../bridge";
 
 interface OperationProgressViewProps {
@@ -28,15 +30,32 @@ const OPERATION_COPY: Record<
   },
 };
 
+function formatElapsed(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
 export function OperationProgressView({
   progress,
   cancellation,
 }: OperationProgressViewProps) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const copy = OPERATION_COPY[progress.operation];
   const percent = Math.min(100, Math.max(0, progress.percent));
   const isCancelling = cancellation.kind === "requested";
   const titleId = `operation-progress-title-${progress.operation}`;
   const descriptionId = `operation-progress-description-${progress.operation}`;
+
+  useEffect(() => {
+    setElapsedSeconds(0);
+    if (isCancelling) return undefined;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [progress.operation, isCancelling]);
 
   return (
     <section
@@ -83,7 +102,14 @@ export function OperationProgressView({
       </div>
 
       <footer className="operation-progress__footer">
-        <p>{isCancelling ? "Terminando la operación actual…" : "El avance se actualiza automáticamente."}</p>
+        <p>
+          {isCancelling
+            ? "Terminando la operación actual…"
+            : "El avance se actualiza automáticamente. Los datasets grandes pueden tardar varios minutos."}
+        </p>
+        <span className="operation-progress__elapsed" aria-label={`Tiempo transcurrido: ${formatElapsed(elapsedSeconds)}`}>
+          {formatElapsed(elapsedSeconds)}
+        </span>
         <button
           type="button"
           onClick={cancellation.kind === "available" ? cancellation.onCancel : undefined}

@@ -51,4 +51,22 @@ describe("OperationProgressView", () => {
     expect(screen.getByRole("progressbar", { name: "Progreso: Analizando columnas" })).toHaveValue(100);
     expect(screen.getByText("100%", { selector: ".operation-progress__percent" })).toBeInTheDocument();
   });
+
+  it("muestra el tiempo transcurrido para operaciones largas", async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <OperationProgressView
+          progress={{ operation: "profile", stage: "Analizando columnas", percent: 40 }}
+          cancellation={{ kind: "available", onCancel: vi.fn() }}
+        />,
+      );
+
+      expect(screen.getByLabelText("Tiempo transcurrido: 00:00")).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(65_000);
+      expect(screen.getByLabelText("Tiempo transcurrido: 01:05")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

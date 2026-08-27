@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteProject,
   getRecoveryCandidate,
+  importDataprepSessionProject,
   listProjects,
   openProject,
   saveProject,
@@ -27,7 +28,18 @@ interface ProjectsControllerOptions {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  const sanitized = raw
+    .replace(/[A-Za-z]:[\\/][^\r\n"'`<>]*/g, "archivo seleccionado")
+    .replace(/(?:^|\s)(?:\/[^\s"'`<>]+)+/g, " archivo seleccionado")
+    .trim();
+  return (sanitized || "No se pudo completar la operación.").slice(0, 240);
+}
+
+function isUserCancellation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLocaleLowerCase("es");
+  return normalized.includes("no se seleccionó") || normalized.includes("cancelada por el usuario");
 }
 
 export function useProjectsController({
@@ -116,6 +128,28 @@ export function useProjectsController({
     );
   }, [onProjectOpened, refresh, runExclusive]);
 
+  const importSession = useCallback(async () => {
+    await runExclusive(
+      { kind: "working", operation: "import", projectId: null },
+      async () => {
+        try {
+          const imported = await importDataprepSessionProject();
+          const result = await openProject(imported.id);
+          await onProjectOpened(result);
+          setActiveProject(result.project);
+          setOperation({ kind: "success", message: `Sesión DataPrep importada como “${result.project.name}”.` });
+          await refresh();
+        } catch (error: unknown) {
+          if (isUserCancellation(error)) {
+            setOperation({ kind: "idle" });
+            return;
+          }
+          throw error;
+        }
+      },
+    );
+  }, [onProjectOpened, refresh, runExclusive]);
+
   const confirmDelete = useCallback(async () => {
     if (deletion.kind !== "confirming") return;
     const target = deletion.project;
@@ -140,6 +174,7 @@ export function useProjectsController({
     refresh,
     save,
     open,
+    importSession,
     requestDelete: (project: ProjectSummary) => setDeletion({ kind: "confirming", project }),
     cancelDelete: () => setDeletion({ kind: "idle" }),
     confirmDelete,

@@ -9,12 +9,14 @@ use polars::prelude::{DataFrame, ParquetWriter};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::dataset::{
-    validate_project_profile, validate_project_workspace, DatasetPreview, DatasetProfile,
+    self, validate_project_profile, validate_project_workspace, DatasetPreview, DatasetProfile,
     DatasetState, ProjectHistoryCapture, ProjectHistoryRestore, ProjectHistoryRestoreEntry,
-    QualityRule, StoredTransformRecipe,
+    QualityRule, SpreadsheetHeaderMode, StoredTransformRecipe,
 };
+use serde_json::{Map as JsonMap, Value as JsonValue};
 
 const SCHEMA_VERSION: i64 = 3;
 const ID_LENGTH: usize = 32;
@@ -943,6 +945,122 @@ fn storage_error() -> String {
     "No se pudo acceder al almacenamiento privado de proyectos.".to_owned()
 }
 
+fn session_reference_value(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
+    let session = root.get("session").and_then(JsonValue::as_object);
+    ["source_path", "sourcePath", "file_name", "fileName"]
+        .into_iter()
+        .find_map(|key| {
+            root.get(key).filter(|value| !value.is_null()).or_else(|| {
+                session
+                    .and_then(|map| map.get(key))
+                    .filter(|value| !value.is_null())
+            })
+        })
+}
+
+fn resolve_dataprep_source(session_path: &Path) -> Result<PathBuf, String> {
+    let bytes = fs::read(session_path)
+        .map_err(|_| "No se pudo leer la sesión DataPrep para localizar su fuente.".to_owned())?;
+    let root = serde_json::from_slice::<JsonValue>(&bytes)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .ok_or_else(|| "La sesión DataPrep no contiene una fuente utilizable.".to_owned())?;
+    let reference = session_reference_value(&root)
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.contains("://"))
+        .ok_or_else(|| "La fuente de la sesión DataPrep no está disponible.".to_owned())?;
+    let candidate = Path::new(reference);
+    let candidate = if candidate.is_absolute() {
+        candidate.to_owned()
+    } else {
+        session_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(candidate)
+    };
+    dataset::canonicalize_file_for_automation(&candidate)
+        .map_err(|_| "La fuente de la sesión DataPrep no está disponible.".to_owned())
+}
+
+fn import_dataprep_session_project_from_path(
+    store: &ProjectStore,
+    session_path: &Path,
+    name: Option<String>,
+    sheet_name: Option<String>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+) -> Result<ProjectSummary, String> {
+    let session_path = dataset::canonicalize_file_for_automation(session_path)
+        .map_err(|_| "La sesión DataPrep seleccionada no está disponible.".to_owned())?;
+    let plan = dataset::load_dataprep_session_migration_plan(&session_path)?;
+    if !plan.can_create_project {
+        let mut reasons = Vec::new();
+        if !plan.missing_references.is_empty() {
+            reasons.push("faltan archivos vinculados".to_owned());
+        }
+        if !plan.collisions.is_empty() {
+            reasons.push("hay operaciones con nombres en conflicto".to_owned());
+        }
+        return Err(format!(
+            "La sesión no se puede importar: {}.",
+            reasons.join(" y ")
+        ));
+    }
+    let source_path = resolve_dataprep_source(&session_path)?;
+    let extension = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let is_spreadsheet = matches!(extension.as_str(), "xlsx" | "xls" | "xlsb" | "ods");
+    let explicit_sheet = sheet_name.is_some();
+    let requested_sheet = sheet_name.or_else(|| plan.sheet_name.clone());
+    let (requested_sheet, requested_header) = if is_spreadsheet {
+        let sheet = requested_sheet
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "La sesión no indica una hoja válida para el libro.".to_owned())?;
+        if let (Some(expected), Some(actual)) = (plan.sheet_name.as_deref(), Some(sheet.as_str())) {
+            if expected != actual {
+                return Err(
+                    "La hoja elegida no coincide con la hoja registrada en la sesión.".to_owned(),
+                );
+            }
+        }
+        (
+            Some(sheet),
+            Some(header_mode.unwrap_or(SpreadsheetHeaderMode::FirstRow)),
+        )
+    } else {
+        if explicit_sheet || header_mode.is_some() {
+            return Err(
+                "La sesión no puede asignar una hoja a este formato de archivo.".to_owned(),
+            );
+        }
+        (None, None)
+    };
+    let (frame, preview) = dataset::load_dataset_for_automation(
+        &source_path,
+        requested_sheet.as_deref(),
+        requested_header,
+    )
+    .map_err(|_| "La fuente de la sesión no se puede leer con el esquema registrado.".to_owned())?;
+    let imported = DatasetState::for_project_import(frame, preview.file_name.clone())?;
+    imported
+        .apply_project_import_recipe(&plan.recipe.recipe)
+        .map_err(|_| {
+            "La receta de la sesión no coincide con el esquema de la fuente.".to_owned()
+        })?;
+    store.save(
+        &imported,
+        None,
+        name.unwrap_or(plan.name),
+        ProjectWorkspace {
+            quality_rules: plan.quality_rules,
+            recipe_draft: Some(plan.recipe),
+        },
+    )
+}
+
 fn write_snapshot(frame: &DataFrame, destination: &Path) -> Result<(), String> {
     if destination.exists() {
         return Err(storage_error());
@@ -1086,6 +1204,38 @@ pub async fn open_project(app: AppHandle, project_id: String) -> Result<ProjectO
 #[tauri::command]
 pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), String> {
     run_project_operation(app, move |store, _| store.delete(project_id)).await
+}
+
+/// Maps a DataPrep session into a new catalog project without touching the active dataset.
+/// All references and schema-dependent operations are verified before the catalog is written.
+#[tauri::command]
+pub async fn import_dataprep_session_project(
+    app: AppHandle,
+    name: Option<String>,
+    sheet_name: Option<String>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+) -> Result<ProjectSummary, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Sesión DataPrep", &["json"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Err("No se seleccionó una sesión DataPrep.".to_owned());
+    };
+    let session_path = selection
+        .into_path()
+        .map_err(|_| "No se pudo resolver la sesión DataPrep seleccionada.".to_owned())?;
+    run_project_operation(app, move |store, _| {
+        import_dataprep_session_project_from_path(
+            store,
+            &session_path,
+            name,
+            sheet_name,
+            header_mode,
+        )
+    })
+    .await
 }
 
 #[cfg(debug_assertions)]
@@ -1906,6 +2056,100 @@ mod tests {
         automation_delete_project(&root, &saved.id).unwrap();
         assert!(!generation.exists());
         assert!(automation_list_projects(&root).unwrap().is_empty());
+    }
+
+    fn write_session(directory: &Path, source: &str, transform: JsonValue) -> PathBuf {
+        let source_path = directory.join(source);
+        fs::write(&source_path, "value,label\n1,uno\n2,dos\n").unwrap();
+        let session_path = directory.join("session.json");
+        fs::write(
+            &session_path,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Sesión importada",
+                "saved_at": "2026-08-24T00:00:00Z",
+                "source_path": source,
+                "transform": transform
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        session_path
+    }
+
+    #[test]
+    fn dataprep_session_mapping_validates_schema_before_creating_project() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let session = write_session(
+            directory.path(),
+            "source.csv",
+            serde_json::json!({"rename_text": "missing -> renamed"}),
+        );
+        let error = import_dataprep_session_project_from_path(&store, &session, None, None, None)
+            .unwrap_err();
+
+        assert!(error.contains("no coincide con el esquema"));
+        assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+        assert!(store.list().unwrap().is_empty());
+        assert_eq!(snapshot_count(&store), 0);
+    }
+
+    #[test]
+    fn dataprep_session_mapping_reports_missing_source_without_replacing_catalog() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (active, _) = active_state(directory.path(), &[7, 8], "existing.csv");
+        let existing = store
+            .save(
+                &active,
+                None,
+                "Proyecto válido".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let session = write_session(directory.path(), "missing.csv", serde_json::json!({}));
+        fs::remove_file(directory.path().join("missing.csv")).unwrap();
+        let before_snapshots = snapshot_count(&store);
+        let error = import_dataprep_session_project_from_path(
+            &store,
+            &session,
+            Some("No debe publicarse".to_owned()),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("faltan archivos vinculados"));
+        assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+        assert_eq!(store.list().unwrap(), vec![existing.clone()]);
+        assert_eq!(snapshot_count(&store), before_snapshots);
+        assert_eq!(
+            store
+                .open(&DatasetState::default(), existing.id.clone())
+                .unwrap()
+                .project,
+            existing
+        );
+    }
+
+    #[test]
+    fn dataprep_session_mapping_rejects_sheet_options_for_non_workbooks() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let session = write_session(directory.path(), "source.csv", serde_json::json!({}));
+        let error = import_dataprep_session_project_from_path(
+            &store,
+            &session,
+            None,
+            Some("Datos".to_owned()),
+            None,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("no puede asignar una hoja"));
+        assert!(store.list().unwrap().is_empty());
+        assert_eq!(snapshot_count(&store), 0);
     }
 
     #[test]

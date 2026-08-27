@@ -6579,6 +6579,18 @@ fn migration_string_field(map: &JsonMap<String, JsonValue>, keys: &[&str]) -> Op
         .find_map(|key| map.get(*key).and_then(JsonValue::as_str).map(str::to_owned))
 }
 
+fn migration_policy_value(
+    map: &JsonMap<String, JsonValue>,
+    key: &str,
+    default: &str,
+) -> Result<String, String> {
+    match map.get(key) {
+        None | Some(JsonValue::Null) => Ok(default.to_owned()),
+        Some(JsonValue::String(value)) => Ok(value.trim().to_ascii_lowercase()),
+        Some(_) => Err(format!("El campo '{key}' debe ser texto.")),
+    }
+}
+
 fn migration_number_field(
     map: &JsonMap<String, JsonValue>,
     keys: &[&str],
@@ -6591,6 +6603,11 @@ fn migration_number_field(
     };
     let number = value
         .as_f64()
+        .or_else(|| {
+            value
+                .as_str()
+                .and_then(|value| value.trim().parse::<f64>().ok())
+        })
         .filter(|number| number.is_finite())
         .ok_or_else(|| format!("El campo '{key}' debe ser un número finito."))?;
     Ok(Some(number))
@@ -6608,6 +6625,17 @@ fn migration_usize_field(
     };
     let number = value
         .as_u64()
+        .or_else(|| {
+            value.as_f64().and_then(|number| {
+                (number.is_finite() && number >= 0.0 && number.fract() == 0.0)
+                    .then_some(number as u64)
+            })
+        })
+        .or_else(|| {
+            value
+                .as_str()
+                .and_then(|value| value.trim().parse::<u64>().ok())
+        })
         .and_then(|number| usize::try_from(number).ok())
         .ok_or_else(|| format!("El campo '{key}' debe ser un entero no negativo."))?;
     Ok(Some(number))
@@ -6700,7 +6728,7 @@ fn migration_quality_kind(value: &str) -> Option<QualityRuleKind> {
         "not_null" => Some(QualityRuleKind::NotNull),
         "non_empty" => Some(QualityRuleKind::NonEmpty),
         "unique" => Some(QualityRuleKind::Unique),
-        "numeric_range" => Some(QualityRuleKind::NumericRange),
+        "numeric_range" | "range" => Some(QualityRuleKind::NumericRange),
         "allowed_values" => Some(QualityRuleKind::AllowedValues),
         "regex" => Some(QualityRuleKind::Regex),
         "dtype" => Some(QualityRuleKind::Dtype),
@@ -6820,6 +6848,18 @@ fn migrate_conditional_then(
         return Err(
             "conditional solo admite subreglas then fila-a-fila: not_null, non_empty, numeric_range, allowed_values, regex o dtype.".to_owned(),
         );
+    }
+    for (key, expected, label) in [
+        ("severity", "blocking", "La severidad"),
+        ("on_missing", "fail", "La política on_missing"),
+        ("null_policy", "invalid", "La política de nulos"),
+    ] {
+        let value = migration_policy_value(map, key, expected)?;
+        if value != expected {
+            return Err(format!(
+                "{label} de la subregla then ({value}) no tiene equivalente seguro en Columnia."
+            ));
+        }
     }
     let column = migration_string_field(map, &["column"])
         .filter(|column| !column.trim().is_empty())
@@ -7165,9 +7205,19 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             continue;
         }
 
-        let severity = migration_string_field(&map, &["severity"])
-            .unwrap_or_else(|| "blocking".to_owned())
-            .to_ascii_lowercase();
+        let severity = match migration_policy_value(&map, "severity", "blocking") {
+            Ok(value) => value,
+            Err(error) => {
+                omitted_rules += 1;
+                warnings.push(migration_warning(
+                    rule_index,
+                    &source_kind,
+                    "omitted",
+                    error,
+                ));
+                continue;
+            }
+        };
         if severity != "blocking" {
             omitted_rules += 1;
             warnings.push(migration_warning(
@@ -7178,9 +7228,19 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             ));
             continue;
         }
-        let on_missing = migration_string_field(&map, &["on_missing"])
-            .unwrap_or_else(|| "fail".to_owned())
-            .to_ascii_lowercase();
+        let on_missing = match migration_policy_value(&map, "on_missing", "fail") {
+            Ok(value) => value,
+            Err(error) => {
+                omitted_rules += 1;
+                warnings.push(migration_warning(
+                    rule_index,
+                    &source_kind,
+                    "omitted",
+                    error,
+                ));
+                continue;
+            }
+        };
         if on_missing != "fail" {
             omitted_rules += 1;
             warnings.push(migration_warning(
@@ -7191,9 +7251,19 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             ));
             continue;
         }
-        let null_policy = migration_string_field(&map, &["null_policy"])
-            .unwrap_or_else(|| "invalid".to_owned())
-            .to_ascii_lowercase();
+        let null_policy = match migration_policy_value(&map, "null_policy", "invalid") {
+            Ok(value) => value,
+            Err(error) => {
+                omitted_rules += 1;
+                warnings.push(migration_warning(
+                    rule_index,
+                    &source_kind,
+                    "omitted",
+                    error,
+                ));
+                continue;
+            }
+        };
         if null_policy != "invalid" {
             omitted_rules += 1;
             warnings.push(migration_warning(
@@ -7577,6 +7647,19 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             Ok(error) => error,
             Err(error) => Some(error),
         };
+        let conversion_error = conversion_error.or_else(|| {
+            [
+                ("toleranceAbs", rule.tolerance_abs),
+                ("toleranceRel", rule.tolerance_rel),
+                ("threshold", rule.threshold),
+            ]
+            .into_iter()
+            .find_map(|(field, value)| {
+                value
+                    .filter(|value| *value < 0.0)
+                    .map(|_| format!("{field} no puede ser negativo."))
+            })
+        });
         if let Some(error) = conversion_error {
             omitted_rules += 1;
             warnings.push(migration_warning(
@@ -20394,6 +20477,83 @@ mod tests {
     }
 
     #[test]
+    fn migration_preserves_range_alias_and_numeric_tolerance_strings() {
+        let result = migrate_quality_rules_document(serde_json::json!({
+            "version": 3,
+            "rules": [
+                {
+                    "kind": "range",
+                    "column": "age",
+                    "min": "0",
+                    "max": "120",
+                    "maxInvalid": "2"
+                },
+                {
+                    "kind": "aggregate_check",
+                    "column": "amount",
+                    "aggregate": "sum",
+                    "expected": "100.5",
+                    "toleranceAbs": "0.5",
+                    "toleranceRel": "0.01",
+                    "max_invalid": 0
+                }
+            ]
+        }))
+        .expect("los aliases numéricos de DataPrep deben conservarse");
+
+        assert_eq!(result.converted_rules.len(), 2);
+        assert_eq!(
+            result.converted_rules[0].kind,
+            QualityRuleKind::NumericRange
+        );
+        assert_eq!(result.converted_rules[0].min, Some(0.0));
+        assert_eq!(result.converted_rules[0].max, Some(120.0));
+        assert_eq!(result.converted_rules[0].max_invalid, Some(2));
+        assert_eq!(result.converted_rules[1].expected, Some(100.5));
+        assert_eq!(result.converted_rules[1].tolerance_abs, Some(0.5));
+        assert_eq!(result.converted_rules[1].tolerance_rel, Some(0.01));
+        assert_eq!(result.omitted_rules, 0);
+    }
+
+    #[test]
+    fn migration_omits_negative_tolerance_instead_of_returning_invalid_rule() {
+        let result = migrate_quality_rules_document(serde_json::json!({
+            "version": 3,
+            "rules": [
+                {
+                    "kind": "aggregate_check",
+                    "column": "amount",
+                    "expected": 100,
+                    "toleranceAbs": -0.5,
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "distribution_drift",
+                    "column": "amount",
+                    "baseline": [100],
+                    "threshold": -1,
+                    "max_invalid": 0
+                }
+            ]
+        }))
+        .expect("una tolerancia negativa no debe invalidar todo el documento");
+
+        assert_eq!(result.converted_rules.len(), 0);
+        assert_eq!(result.omitted_rules, 2);
+        assert!(result
+            .warnings
+            .iter()
+            .all(|warning| warning.severity == "omitted"));
+        assert!(result.warnings.iter().any(|warning| warning
+            .message
+            .contains("toleranceAbs no puede ser negativo")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("threshold no puede ser negativo")));
+    }
+
+    #[test]
     fn migrates_simple_and_composite_referential_integrity_values() {
         let result = migrate_quality_rules_document(serde_json::json!({
             "rules": [
@@ -20529,6 +20689,47 @@ mod tests {
             rule.then.as_deref().and_then(|then| then.values.clone()),
             Some(vec!["active".to_owned()])
         );
+    }
+
+    #[test]
+    fn migration_omits_nonrepresentable_nested_policy_and_malformed_policy() {
+        let result = migrate_quality_rules_document(serde_json::json!({
+            "version": 3,
+            "rules": [
+                {
+                    "kind": "conditional",
+                    "column": "amount",
+                    "when": {"column": "status", "value": "active"},
+                    "then": {
+                        "kind": "not_null",
+                        "severity": "warning"
+                    },
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "not_null",
+                    "column": "status",
+                    "severity": true,
+                    "max_invalid": 0
+                }
+            ]
+        }))
+        .expect("las políticas no representables deben aislarse por regla");
+
+        assert_eq!(result.converted_rules.len(), 0);
+        assert_eq!(result.omitted_rules, 2);
+        assert!(result
+            .warnings
+            .iter()
+            .all(|warning| warning.severity == "omitted"));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("La severidad de la subregla then")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("severity' debe ser texto")));
     }
 
     #[test]

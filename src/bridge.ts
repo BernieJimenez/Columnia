@@ -847,3 +847,15 @@ export function openProject(projectId: string): Promise<ProjectOpenResult> {
 export function deleteProject(projectId: string): Promise<void> {
   return invoke<void>("delete_project", { projectId });
 }
+
+export function importDataprepSessionProject(
+  name: string | null = null,
+  sheetName: string | null = null,
+  headerMode: SpreadsheetHeaderMode | null = null,
+): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>("import_dataprep_session_project", {
+    name,
+    sheetName,
+    headerMode,
+  });
+}

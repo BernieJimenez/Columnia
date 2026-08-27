@@ -103,6 +103,65 @@ const profile: DatasetProfile = {
   ],
 };
 
+const temporalProfile: DatasetProfile = {
+  ...profile,
+  columns: [
+    ...profile.columns,
+    {
+      ...profile.columns[0],
+      name: "fecha",
+      dataType: "Date",
+      nullCount: 12,
+      completenessPercentage: 90,
+      uniqueCount: 100,
+      minimum: "2024-01-01",
+      maximum: "2024-12-31",
+      mean: null,
+      emptyCount: null,
+      minimumLength: null,
+      maximumLength: null,
+      averageLength: null,
+      suggestedType: null,
+      typeMatchPercentage: null,
+      invalidTypeCount: null,
+      sentinelCount: null,
+      privacySignal: null,
+      standardDeviation: null,
+      firstQuartile: null,
+      median: null,
+      thirdQuartile: null,
+      outlierCount: null,
+      histogram: null,
+    },
+    {
+      ...profile.columns[0],
+      name: "actualizado_en",
+      dataType: "Datetime(time_unit='ms', time_zone='UTC')",
+      nullCount: 0,
+      completenessPercentage: 100,
+      uniqueCount: 120,
+      minimum: "2024-01-01T08:00:00+00:00",
+      maximum: "2024-12-31T18:30:00+00:00",
+      mean: null,
+      emptyCount: null,
+      minimumLength: null,
+      maximumLength: null,
+      averageLength: null,
+      suggestedType: null,
+      typeMatchPercentage: null,
+      invalidTypeCount: null,
+      sentinelCount: null,
+      privacySignal: null,
+      standardDeviation: null,
+      firstQuartile: null,
+      median: null,
+      thirdQuartile: null,
+      outlierCount: null,
+      histogram: null,
+    },
+  ],
+};
+
 describe("ReviewPhase", () => {
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
     const onAnalyzeQuality = vi.fn();
@@ -321,6 +380,45 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
       "95.0%",
     );
+  });
+
+  it("muestra rango y cobertura temporal sin exponer celdas", () => {
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile: temporalProfile }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Cobertura temporal" })).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: "Tabla de cobertura temporal" });
+    expect(table).toHaveTextContent("fecha");
+    expect(table).toHaveTextContent("Fecha");
+    expect(table).toHaveTextContent("2024-01-01");
+    expect(table).toHaveTextContent("2024-12-31");
+    expect(table).toHaveTextContent("108 de 120");
+    expect(table).toHaveTextContent("90.0%");
+    expect(table).toHaveTextContent("actualizado_en");
+    expect(table).toHaveTextContent("Fecha y hora");
+    expect(table).toHaveTextContent("2024-12-31 18:30:00 UTC");
   });
 
   it("exige y emite una decisión explícita por conflicto", () => {

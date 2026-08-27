@@ -20,6 +20,7 @@ interface ProjectsPanelProps {
   disabled: boolean;
   onSave: (name: string) => void;
   onOpen: (projectId: string) => void;
+  onImportSession: () => void;
   onDeleteRequest: (project: ProjectSummary) => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
@@ -44,6 +45,7 @@ export function ProjectsPanel({
   disabled,
   onSave,
   onOpen,
+  onImportSession,
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
@@ -70,9 +72,19 @@ export function ProjectsPanel({
           <h3 id="projects-title">Proyectos</h3>
           <p>Un proyecto conserva el dataset, las reglas, el borrador, el perfil calculado y el historial reversible.</p>
         </div>
-        {catalog.kind === "error" && (
-          <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>
-        )}
+        <div className="projects__heading-actions">
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={onImportSession}
+            disabled={disabled || catalog.kind === "loading"}
+          >
+            Importar sesión DataPrep
+          </button>
+          {catalog.kind === "error" && (
+            <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>
+          )}
+        </div>
       </div>
 
       {catalog.kind === "loading" && <p className="notice" role="status">Cargando proyectos locales…</p>}
@@ -109,7 +121,9 @@ export function ProjectsPanel({
         <small id="project-name-help">Entre 1 y {MAX_PROJECT_NAME_LENGTH} caracteres; se recortan espacios al guardar.</small>
       </form>
 
-      {operation.kind === "working" && <p className="notice" role="status">Procesando proyecto…</p>}
+      {operation.kind === "working" && <p className="notice" role="status">
+        {operation.operation === "import" ? "Importando sesión DataPrep y preparando proyecto…" : "Procesando proyecto…"}
+      </p>}
       {operation.kind === "success" && <p className="notice notice--success" role="status">{operation.message}</p>}
       {operation.kind === "error" && <p className="notice notice--error" role="alert">{operation.message}</p>}
 

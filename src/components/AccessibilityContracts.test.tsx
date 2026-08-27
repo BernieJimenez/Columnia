@@ -43,6 +43,7 @@ describe("contratos de accesibilidad de la interfaz", () => {
         disabled={true}
         onSave={vi.fn()}
         onOpen={vi.fn()}
+        onImportSession={vi.fn()}
         onDeleteRequest={vi.fn()}
         onDeleteCancel={vi.fn()}
         onDeleteConfirm={vi.fn()}

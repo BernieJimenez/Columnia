@@ -9,8 +9,10 @@ o valores del dataset.
 Columnia acepta recetas nativas con la forma `StoredTransformRecipe` y también
 los documentos DataPrep v1–v3 que contienen `transform` o `transform_config`,
 además de manifiestos de sesión que incluyan una de esas transformaciones. La
-importación ocurre al seleccionar un archivo JSON desde Preparar; el resultado
-siempre se normaliza a una receta Columnia v1 antes de mostrarla.
+importación de recetas ocurre al seleccionar un archivo JSON desde Preparar; el
+resultado siempre se normaliza a una receta Columnia v1 antes de mostrarla.
+Desde Proyectos existe además una acción separada para mapear una sesión guardada
+al catálogo cuando su fuente local puede validarse de forma segura.
 
 | Semántica DataPrep | Receta Columnia | Estado |
 | --- | --- | --- |
@@ -86,17 +88,19 @@ El inventario mínimo se prueba con fixtures sintéticas versionadas en
 | `dataprep-quality-v3.json` | Reglas DataPrep v3 | Forma de contrato de calidad sin datos de usuario |
 | `legacy-recipe-v1.json` | Receta antigua | Campos legacy sin versión explícita |
 
-Los manifiestos de sesión no restauran todavía un dataset ni escriben un
-proyecto: sus rutas y snapshots se convierten en señales booleanas sanitizadas,
-y la hoja, etapa y conteos de operaciones, reglas y análisis se conservan en el
-informe estructurado. Esto permite revisar el alcance de la sesión sin publicar
-rutas ni datos, y evita confundir una receta parcial con una sesión reanudable.
+La revisión de manifiestos de sesión desde Preparar no restaura un dataset: sus
+rutas y snapshots se convierten en señales booleanas sanitizadas, y la hoja,
+etapa y conteos de operaciones, reglas y análisis se conservan en el informe
+estructurado. Desde Proyectos, **Importar sesión DataPrep** ofrece una slice de
+mapeo segura: el selector nativo mantiene la ruta fuera del bridge, la fuente,
+hoja, esquema y receta se validan en un estado temporal, y solo después se
+publica un snapshot y se abre el proyecto resultante. Una cancelación o error no
+modifica el dataset activo ni reemplaza proyectos existentes.
 
 ## Límites pendientes
 
-La restauración completa de sesiones, reglas de calidad incrustadas, artefactos
-de análisis y round-trip hacia proyectos requiere contratos separados. La
-primera slice de sesión reconoce esos campos y los informa; todavía no los
-activa ni crea snapshots automáticamente. El siguiente paso sigue siendo
-validar el esquema y mapear una sesión importada al catálogo de proyectos antes
-de escribir cualquier artefacto durable.
+La restauración completa de sesiones, historial de ejecuciones, caché, artefactos
+de análisis y round-trip hacia proyectos requiere contratos separados. La slice
+actual conserva la receta y las reglas representables en el workspace nuevo, pero
+no reconstruye snapshots históricos ni afirma que los análisis originales puedan
+reanudarse automáticamente.

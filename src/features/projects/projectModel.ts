@@ -14,7 +14,7 @@ export type ProjectCatalogState =
 
 export type ProjectOperationState =
   | { kind: "idle" }
-  | { kind: "working"; operation: "save" | "open" | "delete"; projectId: string | null }
+  | { kind: "working"; operation: "save" | "open" | "import" | "delete"; projectId: string | null }
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
 

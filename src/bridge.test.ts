@@ -22,6 +22,7 @@ import {
   normalizeBooleanValues,
   normalizeTextValues,
   openProject,
+  importDataprepSessionProject,
   discardDatasetSelection,
   loadDatasetSelection,
   pickDatasetSource,
@@ -460,6 +461,19 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledWith("open_project", { projectId: "project-1" });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
+  });
+
+  it("importa sesiones DataPrep mediante selector nativo sin argumentos de ruta", async () => {
+    vi.mocked(invoke).mockResolvedValue({ id: "project-2", name: "Sesión" });
+
+    await expect(importDataprepSessionProject()).resolves.toEqual({ id: "project-2", name: "Sesión" });
+
+    expect(invoke).toHaveBeenCalledWith("import_dataprep_session_project", {
+      name: null,
+      sheetName: null,
+      headerMode: null,
+    });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("sessionPath");
   });
 
   it("exporta mediante selector nativo sin recibir una ruta de React", async () => {

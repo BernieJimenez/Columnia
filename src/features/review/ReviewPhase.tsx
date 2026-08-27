@@ -11,6 +11,7 @@ import type {
   DatasetQueryResult,
   ConflictResolution,
   ConflictSource,
+  ColumnProfile,
   NumericCorrelationMatrix,
   CategoricalGroupSummary,
 } from "../../bridge";
@@ -996,6 +997,12 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
             </div>
           </div>
         )}
+        {profile.columns.some(isTemporalColumn) && (
+          <TemporalCoverageChart
+            columns={profile.columns.filter(isTemporalColumn)}
+            rowCount={profile.rowCount}
+          />
+        )}
         {distributionColumns.length > 0 && (
           <div className="quality-chart" role="group" aria-labelledby="quality-distribution-title">
             <h5 id="quality-distribution-title">Distribución numérica</h5>
@@ -1106,6 +1113,68 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
         )}
       </div>
     </section>
+  );
+}
+
+function TemporalCoverageChart({
+  columns,
+  rowCount,
+}: {
+  columns: ColumnProfile[];
+  rowCount: number;
+}) {
+  return (
+    <div className="quality-chart quality-chart--wide quality-temporal" role="group" aria-labelledby="quality-temporal-title">
+      <h5 id="quality-temporal-title">Cobertura temporal</h5>
+      <p className="quality-chart__note">
+        Rango mínimo–máximo y filas con valor para columnas de fecha o fecha-hora. Se calcula con
+        el perfil, sin leer ni mostrar celdas.
+      </p>
+      <div className="quality-temporal__table">
+        <table aria-label="Tabla de cobertura temporal">
+          <caption className="visually-hidden">Rango y cobertura de columnas temporales</caption>
+          <thead>
+            <tr>
+              <th scope="col">Columna</th>
+              <th scope="col">Tipo</th>
+              <th scope="col">Rango detectado</th>
+              <th scope="col">Filas con valor</th>
+              <th scope="col">Cobertura</th>
+            </tr>
+          </thead>
+          <tbody>
+            {columns.map((column) => {
+              const availableRows = Math.max(0, rowCount - column.nullCount);
+              const coverage = clampPercentage(column.completenessPercentage);
+
+              return (
+                <tr key={column.name}>
+                  <th scope="row">{column.name}</th>
+                  <td>{temporalTypeLabel(column)}</td>
+                  <td className="quality-temporal__range">
+                    <span className="quality-temporal__range-value">
+                      {formatTemporalValue(column.minimum)}
+                      <span aria-hidden="true"> → </span>
+                      <span className="visually-hidden"> hasta </span>
+                      {formatTemporalValue(column.maximum)}
+                    </span>
+                    {(column.minimum === null || column.maximum === null) && (
+                      <span className="visually-hidden">Rango parcial o no disponible</span>
+                    )}
+                  </td>
+                  <td>{availableRows.toLocaleString()} de {Math.max(0, rowCount).toLocaleString()}</td>
+                  <td>{coverage.toFixed(1)}%</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="profile-note">
+        La cobertura representa valores no nulos; un rango ausente significa que el perfil no pudo
+        calcular uno de sus límites.
+      </p>
+    </div>
   );
 }
 
@@ -1253,6 +1322,26 @@ function correlationClass(coefficient: number | null, isDiagonal: boolean): stri
   if (coefficient >= 0.7 || coefficient <= -0.7) return "quality-correlation__cell quality-correlation__cell--strong";
   if (coefficient >= 0.3 || coefficient <= -0.3) return "quality-correlation__cell quality-correlation__cell--moderate";
   return "quality-correlation__cell quality-correlation__cell--weak";
+}
+
+function isTemporalColumn(column: ColumnProfile): boolean {
+  const dataType = column.dataType.trim().toLowerCase();
+  return dataType === "date"
+    || dataType.includes("datetime")
+    || dataType.includes("timestamp")
+    || column.suggestedType === "date";
+}
+
+function temporalTypeLabel(column: ColumnProfile): string {
+  const dataType = column.dataType.trim().toLowerCase();
+  if (dataType === "date") return "Fecha";
+  if (dataType.includes("datetime") || dataType.includes("timestamp")) return "Fecha y hora";
+  return "Fecha detectada";
+}
+
+function formatTemporalValue(value: string | null): string {
+  if (!value) return "No disponible";
+  return value.replace("T", " ").replace(/\+00:00$/, " UTC");
 }
 
 function clampPercentage(value: number): number {

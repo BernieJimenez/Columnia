@@ -133,7 +133,8 @@ pub fn run() {
             projects::get_recovery_candidate,
             projects::save_project,
             projects::open_project,
-            projects::delete_project
+            projects::delete_project,
+            projects::import_dataprep_session_project
         ])
         .run(tauri::generate_context!())
         .expect("Columnia no pudo iniciar el runtime de escritorio");

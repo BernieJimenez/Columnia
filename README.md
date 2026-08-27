@@ -81,6 +81,11 @@ de análisis. Las referencias al archivo original y a snapshots se conservan
 únicamente como señales de revisión; no se activan ni se copian automáticamente,
 por lo que una importación parcial nunca reemplaza un proyecto válido.
 
+Desde el panel **Proyectos** también puedes elegir **Importar sesión DataPrep**.
+Columnia valida la fuente, la hoja, el esquema y la receta en un estado temporal;
+solo publica el proyecto después de superar esas comprobaciones y abre el proyecto
+importado automáticamente. Cancelar el selector no cambia el dataset activo.
+
 ## Desarrollo local
 
 ```powershell
@@ -316,6 +321,11 @@ Diagnóstico también muestra un histograma por intervalos para cada columna
 numérica. Cada gráfico conserva una tabla de frecuencias equivalente para
 teclado y lector de pantalla, y sus límites se mantienen estables al guardar y
 abrir un proyecto.
+
+Cuando el perfil detecta columnas `Date`, `Datetime`, `Timestamp` o fechas
+textuales, Diagnóstico añade una tabla de **Cobertura temporal** con rango mínimo
+y máximo, filas con valor y porcentaje de cobertura. Esta señal usa únicamente
+el perfil agregado y no envía celdas a la interfaz.
 
 En **Preparar**, cuando el perfil encuentra duplicados exactos, **Eliminar duplicados** conserva
 la primera aparición y elimina las repeticiones posteriores de la sesión activa.

@@ -11,7 +11,8 @@
   visualizaciones accesibles, resolución por columna/valor, privacidad visible
   en los destinos locales, correlaciones numéricas acotadas y contratos de calidad v3 con documento canónico
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, conserva
-  opciones de entrega y reconoce metadatos de sesiones con fixtures sintéticas;
+  opciones de entrega, reconoce metadatos de sesiones con fixtures sintéticas y
+  ofrece una primera cobertura temporal y un mapeo seguro de sesiones al catálogo;
   mantiene pendientes la restauración completa de sesiones y el round-trip hacia proyectos;
   I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.57.0`.
@@ -1140,13 +1141,17 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   doce columnas y una muestra de hasta 100.000 filas, con tabla accesible y
   cancelación cooperativa; las columnas sin variación muestran un valor no
   disponible en vez de inventar una relación.
+- [x] Añadir una lectura agregada de cobertura temporal para columnas Date,
+  Datetime, Timestamp y fechas detectadas, con rango mínimo/máximo, cobertura,
+  filas con valor y tabla accesible equivalente sin exponer celdas.
 - [ ] Ampliar visualizaciones y análisis exploratorio: perfil de columnas,
   distribuciones, histogramas/boxplots, correlaciones, grupos, patrones de
   nulos, validación de formatos, centinelas, casi duplicados, completitud,
-  calendario y series temporales, siempre con tabla accesible equivalente. Las
+  calendario, tendencias y series temporales, siempre con tabla accesible equivalente. Las
   primeras ampliaciones ya incluyen ranking de patrones de nulos, validación
-  visual de formatos y una matriz de correlaciones de Pearson acotada, todas
-  con tabla equivalente; grupos, calendario y series temporales siguen pendientes.
+  visual de formatos, grupos categóricos, cobertura temporal y una matriz de
+  correlaciones de Pearson acotada, todas con tabla equivalente; calendario,
+  tendencias y series temporales siguen pendientes.
 - [x] Extender los contratos de calidad con la primera slice v3: `allowed_values`,
   `regex`, `dtype`, unicidad compuesta y `row_count`, con tolerancias, límites de
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.
@@ -1267,12 +1272,20 @@ del original.
   tolerancias, severidad,
   referencias, condiciones y reglas no soportadas como advertencias explícitas;
   nunca convertir una regla bloqueante en una entrega aprobada silenciosamente.
+- [x] Reforzar la migración de reglas representables con aliases de tipo, números
+  serializados como texto y validación cerrada de políticas/tolerancias; los
+  valores inválidos se omiten con warnings en vez de publicarse como reglas
+  convertidas.
 - [ ] Importar sesiones guardadas de DataPrep: dataset/origen, hoja, etapa,
   operaciones aplicadas, receta, reglas y análisis; cuando no sea seguro guardar
   un snapshot, conservar solo una referencia reproducible y explicarlo.
 - [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
   con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
   colisiones de nombres antes de escribir cualquier snapshot.
+- [x] Implementar la primera slice de mapeo de sesiones DataPrep al catálogo:
+  selector nativo, validación de referencias, esquema, formato, hoja y receta
+  en un estado temporal, publicación únicamente después de validar y errores sin
+  rutas administradas en el bridge.
 - [ ] Crear un informe de migración con operaciones convertidas, omitidas,
   advertencias, acciones manuales y hash de los artefactos; no publicar secretos,
   rutas administradas ni valores de datasets en el resultado.
@@ -1399,6 +1412,8 @@ del original.
 | 2026-08-24 | Versión 0.55.0: la migración de contratos de calidad genera un informe auditable con conteos, omisiones, advertencias, acciones manuales y SHA-256 del artefacto sin exponer rutas ni valores | Implementada |
 | 2026-08-24 | Versión 0.56.0: los pipelines DataPrep conservan opciones de entrega compatibles, normalizan XLSX a Excel y publican informe con warnings para semánticas de exportación omitidas, sin exponer rutas | Implementada |
 | 2026-08-24 | Versión 0.57.0: inventario y fixtures sintéticas de migración para pipelines, sesiones, calidad y legacy; los metadatos de sesión se reconocen y se omiten con warnings sanitizados | Implementada |
+| 2026-08-26 | P1 añade cobertura temporal agregada en Review: rangos Date/Datetime/Timestamp, filas con valor y porcentaje de cobertura con tabla equivalente; el calendario y las series temporales completas siguen pendientes | Implementada |
+| 2026-08-26 | M1 añade una slice segura para mapear sesiones DataPrep al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta y publicación transaccional sin tocar el dataset activo; la restauración completa y el round-trip siguen pendientes | Implementada |
 
 ## 10. Fuentes de esta revisión
 
