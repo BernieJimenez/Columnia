@@ -1,6 +1,7 @@
 use serde::Serialize;
 
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 pub mod automation;
 mod dataset;
@@ -9,6 +10,8 @@ mod projects;
 mod resource;
 
 use resource::{PerformanceProfile, PerformanceSettings};
+
+type SessionMigrationReport = automation::SessionMigrationReportOutput;
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +81,30 @@ fn set_performance_profile(profile: PerformanceProfile) -> Result<PerformanceSet
     resource::set_performance_profile(profile)
 }
 
+/// Previsualiza una sesión DataPrep sin crear proyectos ni modificar el estado activo.
+#[tauri::command]
+async fn preview_dataprep_session_migration(
+    app: AppHandle,
+) -> Result<Option<SessionMigrationReport>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Sesión DataPrep", &["json"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|_| "No se pudo resolver la sesión DataPrep seleccionada.".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        automation::session_migration_report(&path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|_| "La previsualización de la sesión se interrumpió.".to_owned())?
+    .map(Some)
+}
+
 #[cfg(desktop)]
 fn restore_main_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
@@ -118,6 +145,7 @@ pub fn run() {
             get_resource_usage,
             get_performance_settings,
             set_performance_profile,
+            preview_dataprep_session_migration,
             dataset::pick_dataset_source,
             dataset::load_dataset_selection,
             dataset::discard_dataset_selection,

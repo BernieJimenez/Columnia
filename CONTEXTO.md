@@ -447,7 +447,12 @@ fotografía orientativa, no un umbral.
   presencia de referencias de origen/snapshot sin copiar rutas. Proyectos puede
   restaurar un `snapshot_path` local y compatible como dataset temporal cuando
   falta la fuente original; la restauración histórica completa sigue siendo
-  explícitamente manual.
+  explícitamente manual. El bridge nativo ofrece un preflight local sanitizado
+  antes de importar, sin crear proyectos ni modificar el dataset activo; la
+  superficie visual de Proyectos permanece enfocada en el catálogo.
+- La migración de reglas reconoce aliases snake/camel, severidades históricas,
+  tolerancias y condiciones heredadas; referencias externas, políticas no
+  equivalentes y contradicciones se conservan como omisiones explícitas.
 - Integración frontend del ciclo guardar/abrir/eliminar: Vitest cubre el guardado, la confirmación/cancelación destructiva y la conservación del dataset activo; el smoke de escritorio valida el contrato de `ProjectsPanel` y el arranque de la ventana/WebView2.
 - Accesibilidad WCAG 2.2 de bajo riesgo: targets interactivos mínimos de 24 px, reducción global de movimiento y prueba de regresión CSS para ambos contratos.
 - Baseline local de rendimiento medido: Vite listo en 278–283 ms, Cargo debug en 0.86–0.91 s y startup total del smoke en 6.33–6.98 s, con mediana aproximada de 6.71 s; bundle v0.40.0 verificado en 314,827 bytes raw/90,154 gzip.

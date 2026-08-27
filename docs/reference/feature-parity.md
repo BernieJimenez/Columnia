@@ -306,14 +306,20 @@ camelCase, conserva tolerancias por conteo y porcentaje, y aplica el límite de
 
 La importación es deliberadamente parcial: reglas desconocidas, severidades no
 bloqueantes, políticas `on_missing`/`null_policy` incompatibles y parámetros
-malformados se omiten con un informe visible por regla. Una regla sin tolerancia
-se importa como bloqueante con máximo de inválidos igual a cero; nunca se
-convierte silenciosamente una política no equivalente en una aprobación.
+malformados se omiten con un informe visible por regla. Se reconocen aliases
+snake/camel, severidades históricas (`error`, `critical`, `fatal`), referencias
+escalares y condiciones heredadas; una referencia externa, `nullable: true` o
+una contradicción entre `severity` y `blocking` queda omitida con warning. Una
+regla sin tolerancia se importa como bloqueante con máximo de inválidos igual a
+cero; nunca se convierte silenciosamente una política no equivalente en una
+aprobación.
 Los pipelines JSON todavía no se convierten automáticamente en proyectos. Las
-sesiones guardadas ya se reconocen y dejan un resumen estructural sanitizado; la
-primera vertical también importa una sesión sintética, la reabre, la valida y la
-exporta sin publicar rutas. La restauración completa y el round-trip con fixtures
-representativas siguen pendientes en M1.
+sesiones guardadas ya se reconocen y dejan un resumen estructural sanitizado; el
+bridge nativo dispone de un preflight que puede revisarse antes de crear un
+proyecto sin modificar el dataset activo. La primera vertical también importa
+una sesión sintética, la reabre, la valida y la exporta sin publicar rutas. La
+restauración completa y el round-trip con fixtures representativas siguen
+pendientes en M1.
 
 ## Tercera entrega de paridad: script SQL
 

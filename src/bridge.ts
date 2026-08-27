@@ -440,6 +440,48 @@ export interface SessionMigrationMetadata {
 
 export type SessionReferenceStatus = "not_provided" | "available" | "missing" | "unsupported";
 
+export interface SessionMigrationReferenceReport {
+  status: SessionReferenceStatus;
+  available: boolean;
+}
+
+export interface SessionMigrationReport {
+  schemaVersion: number;
+  command: "session-migration-report";
+  artifactSha256: string;
+  origin: {
+    source: SessionMigrationReferenceReport;
+    snapshot: SessionMigrationReferenceReport;
+    sourceFileName: string | null;
+  };
+  session: {
+    sourceVersion: string | null;
+    sheetName: string | null;
+    stageLabel: string | null;
+    appliedOperationCount: number;
+    analysisCheckCount: number;
+  };
+  recipeSummary: {
+    operationCount: number;
+    convertedOperationCount: number;
+    omittedOperationCount: number;
+    warningCount: number;
+    convertedOperations: string[];
+    omittedOperations: string[];
+  };
+  quality: {
+    totalRules: number;
+    convertedRules: number;
+    omittedRules: number;
+    warningCount: number;
+  };
+  missingReferences: string[];
+  collisions: string[];
+  canCreateProject: boolean;
+  requiresManualReview: boolean;
+  manualActions: string[];
+}
+
 export interface DataprepSessionMigrationPlan {
   name: string;
   sourceFileName: string | null;
@@ -918,4 +960,8 @@ export function importDataprepSessionProject(
     sheetName,
     headerMode,
   });
+}
+
+export function previewDataprepSessionMigration(): Promise<SessionMigrationReport | null> {
+  return invoke<SessionMigrationReport | null>("preview_dataprep_session_migration");
 }

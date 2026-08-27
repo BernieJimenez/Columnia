@@ -23,6 +23,7 @@ import {
   normalizeTextValues,
   openProject,
   importDataprepSessionProject,
+  previewDataprepSessionMigration,
   discardDatasetSelection,
   loadDatasetSelection,
   pickDatasetSource,
@@ -47,6 +48,7 @@ import {
   type ProjectWorkspace,
   type RecipeExportOptions,
   type RecipeMigrationReport,
+  type SessionMigrationReport,
   type TransformRecipe,
 } from "./bridge";
 
@@ -487,6 +489,46 @@ describe("desktop bridge", () => {
       headerMode: null,
     });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("sessionPath");
+  });
+
+  it("previsualiza sesiones DataPrep mediante selector nativo sin argumentos de ruta", async () => {
+    const report: SessionMigrationReport = {
+      schemaVersion: 1,
+      command: "session-migration-report",
+      artifactSha256: "c".repeat(64),
+      origin: {
+        source: { status: "available", available: true },
+        snapshot: { status: "not_provided", available: false },
+        sourceFileName: "ventas.csv",
+      },
+      session: {
+        sourceVersion: "3",
+        sheetName: "Datos",
+        stageLabel: "Revisar",
+        appliedOperationCount: 1,
+        analysisCheckCount: 0,
+      },
+      recipeSummary: {
+        operationCount: 1,
+        convertedOperationCount: 1,
+        omittedOperationCount: 0,
+        warningCount: 0,
+        convertedOperations: ["filters"],
+        omittedOperations: [],
+      },
+      quality: { totalRules: 0, convertedRules: 0, omittedRules: 0, warningCount: 0 },
+      missingReferences: [],
+      collisions: [],
+      canCreateProject: true,
+      requiresManualReview: false,
+      manualActions: [],
+    };
+    vi.mocked(invoke).mockResolvedValue(report);
+
+    await expect(previewDataprepSessionMigration()).resolves.toEqual(report);
+
+    expect(invoke).toHaveBeenCalledWith("preview_dataprep_session_migration");
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1] ?? "")).not.toContain("path");
   });
 
   it("exporta mediante selector nativo sin recibir una ruta de React", async () => {

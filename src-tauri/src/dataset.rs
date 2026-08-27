@@ -7152,11 +7152,109 @@ fn migration_policy_value(
     key: &str,
     default: &str,
 ) -> Result<String, String> {
-    match map.get(key) {
+    let value = match key {
+        "on_missing" => map
+            .get(key)
+            .filter(|value| !value.is_null())
+            .or_else(|| map.get("onMissing").filter(|value| !value.is_null())),
+        "null_policy" => map
+            .get(key)
+            .filter(|value| !value.is_null())
+            .or_else(|| map.get("nullPolicy").filter(|value| !value.is_null())),
+        _ => map.get(key).filter(|value| !value.is_null()),
+    };
+    match value {
         None | Some(JsonValue::Null) => Ok(default.to_owned()),
-        Some(JsonValue::String(value)) => Ok(value.trim().to_ascii_lowercase()),
+        Some(JsonValue::String(value)) => {
+            let value = value.trim().to_ascii_lowercase();
+            let normalized = match key {
+                "on_missing" if matches!(value.as_str(), "error" | "block" | "blocking") => "fail",
+                "null_policy" if matches!(value.as_str(), "reject" | "error" | "fail") => "invalid",
+                _ => value.as_str(),
+            };
+            Ok(normalized.to_owned())
+        }
         Some(_) => Err(format!("El campo '{key}' debe ser texto.")),
     }
+}
+
+fn migration_blocking_value(map: &JsonMap<String, JsonValue>) -> Result<Option<bool>, String> {
+    let Some(value) = map
+        .get("blocking")
+        .or_else(|| map.get("is_blocking"))
+        .or_else(|| map.get("isBlocking"))
+    else {
+        return Ok(None);
+    };
+    value
+        .as_bool()
+        .map(Some)
+        .ok_or_else(|| "El campo 'blocking' debe ser booleano.".to_owned())
+}
+
+fn migration_severity_value(map: &JsonMap<String, JsonValue>) -> Result<String, String> {
+    let blocking = migration_blocking_value(map)?;
+    let severity_is_absent = map.get("severity").is_none_or(JsonValue::is_null);
+    let severity = if severity_is_absent && blocking == Some(false) {
+        "warning".to_owned()
+    } else {
+        migration_policy_value(map, "severity", "blocking")?
+    };
+    let normalized = match severity.as_str() {
+        // DataPrep historically called blocking rules "error" or "critical".
+        // They are equivalent to Columnia's blocking gate and can be retained.
+        "blocking" | "error" | "critical" | "fatal" => "blocking",
+        "warning" | "warn" | "non_blocking" | "non-blocking" | "info" => "non_blocking",
+        _ => return Err(format!("La severidad '{severity}' no está soportada.")),
+    };
+    if let Some(blocking) = blocking {
+        let blocking_severity = if blocking { "blocking" } else { "non_blocking" };
+        if normalized != blocking_severity {
+            return Err(
+                "severity y blocking describen políticas contradictorias; la regla se omitió."
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(normalized.to_owned())
+}
+
+fn migration_has_true_nullable(map: &JsonMap<String, JsonValue>) -> Result<bool, String> {
+    let Some(value) = map
+        .get("nullable")
+        .or_else(|| map.get("allow_nulls"))
+        .or_else(|| map.get("allowNulls"))
+    else {
+        return Ok(false);
+    };
+    value
+        .as_bool()
+        .ok_or_else(|| "El campo 'nullable' debe ser booleano.".to_owned())
+}
+
+fn migration_validate_quality_metadata(
+    map: &JsonMap<String, JsonValue>,
+    label: &str,
+) -> Result<(), String> {
+    if migration_has_true_nullable(map)? {
+        return Err(format!(
+            "{label} declara nullable/allowNulls=true, pero el contrato Columnia no puede conservar esa política sin degradar la regla."
+        ));
+    }
+    if [
+        "reference_revision",
+        "referenceRevision",
+        "reference_dataset",
+        "referenceDataset",
+    ]
+    .iter()
+    .any(|key| map.get(*key).is_some_and(|value| !value.is_null()))
+    {
+        return Err(format!(
+            "{label} usa una referencia externa (referenceRevision/referenceDataset) que Columnia no puede resolver de forma segura."
+        ));
+    }
+    Ok(())
 }
 
 fn migration_number_field(
@@ -7417,8 +7515,13 @@ fn migrate_conditional_then(
             "conditional solo admite subreglas then fila-a-fila: not_null, non_empty, numeric_range, allowed_values, regex o dtype.".to_owned(),
         );
     }
+    let severity = migration_severity_value(map)?;
+    if severity != "blocking" {
+        return Err(format!(
+            "La severidad de la subregla then ({severity}) no tiene equivalente seguro en Columnia."
+        ));
+    }
     for (key, expected, label) in [
-        ("severity", "blocking", "La severidad"),
         ("on_missing", "fail", "La política on_missing"),
         ("null_policy", "invalid", "La política de nulos"),
     ] {
@@ -7429,6 +7532,7 @@ fn migrate_conditional_then(
             ));
         }
     }
+    migration_validate_quality_metadata(map, "La subregla then")?;
     let column = migration_string_field(map, &["column"])
         .filter(|column| !column.trim().is_empty())
         .unwrap_or_else(|| fallback_column.to_owned());
@@ -7461,14 +7565,14 @@ fn migrate_conditional_then(
     };
     match kind {
         QualityRuleKind::NumericRange => {
-            rule.min = migration_number_field(map, &["min"])?;
-            rule.max = migration_number_field(map, &["max"])?;
+            rule.min = migration_number_field(map, &["min", "min_value", "minValue"])?;
+            rule.max = migration_number_field(map, &["max", "max_value", "maxValue"])?;
             if rule.min.is_none() && rule.max.is_none() {
                 return Err("La subregla numeric_range necesita min o max.".to_owned());
             }
         }
         QualityRuleKind::AllowedValues => {
-            rule.values = migration_string_array(map, &["values"])?;
+            rule.values = migration_reference_values(map, &["values"], 1)?;
             if rule.values.as_ref().is_none_or(Vec::is_empty) {
                 return Err("La subregla allowed_values necesita values[].".to_owned());
             }
@@ -7773,7 +7877,7 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
             continue;
         }
 
-        let severity = match migration_policy_value(&map, "severity", "blocking") {
+        let severity = match migration_severity_value(&map) {
             Ok(value) => value,
             Err(error) => {
                 omitted_rules += 1;
@@ -7792,7 +7896,17 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                 rule_index,
                 &source_kind,
                 "omitted",
-                "La severidad no bloqueante no se convierte porque Columnia aún no tiene severidades por regla.",
+                "La severidad no bloqueante no se convierte porque Columnia aún no tiene severidades por regla; la regla se omitió para no aprobarla silenciosamente.",
+            ));
+            continue;
+        }
+        if let Err(error) = migration_validate_quality_metadata(&map, "La regla") {
+            omitted_rules += 1;
+            warnings.push(migration_warning(
+                rule_index,
+                &source_kind,
+                "omitted",
+                error,
             ));
             continue;
         }
@@ -7913,13 +8027,13 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
         let conversion_result = (|| -> Result<Option<String>, String> {
             Ok(match kind {
                 QualityRuleKind::NumericRange => {
-                    rule.min = migration_number_field(&map, &["min"])?;
-                    rule.max = migration_number_field(&map, &["max"])?;
+                    rule.min = migration_number_field(&map, &["min", "min_value", "minValue"])?;
+                    rule.max = migration_number_field(&map, &["max", "max_value", "maxValue"])?;
                     (rule.min.is_none() && rule.max.is_none())
                         .then(|| "numeric_range necesita min o max.".to_owned())
                 }
                 QualityRuleKind::AllowedValues => {
-                    rule.values = migration_string_array(&map, &["values"])?;
+                    rule.values = migration_reference_values(&map, &["values"], 1)?;
                     rule.values
                         .as_ref()
                         .filter(|values| !values.is_empty())
@@ -7935,7 +8049,8 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                         .then(|| "regex necesita pattern.".to_owned())
                 }
                 QualityRuleKind::Dtype => {
-                    let source_dtype = migration_string_field(&map, &["dtype"]);
+                    let source_dtype =
+                        migration_string_field(&map, &["dtype", "expected_type", "expectedType"]);
                     rule.dtype = source_dtype
                         .as_deref()
                         .and_then(migration_dtype)
@@ -7960,9 +8075,10 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                 QualityRuleKind::ColumnCompare => {
                     rule.columns = migration_string_array(&map, &["columns"])?;
                     if rule.columns.is_none() {
-                        if let Some(other_column) =
-                            migration_string_field(&map, &["other_column", "right_column"])
-                        {
+                        if let Some(other_column) = migration_string_field(
+                            &map,
+                            &["other_column", "otherColumn", "right_column", "rightColumn"],
+                        ) {
                             rule.columns = Some(vec![rule.column.clone(), other_column]);
                         }
                     }
@@ -7997,7 +8113,12 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                     let column_count = rule.columns.as_ref().map_or(0, Vec::len);
                     rule.reference_values = migration_reference_values(
                         &map,
-                        &["reference_values", "referenceValues", "reference"],
+                        &[
+                            "reference_values",
+                            "referenceValues",
+                            "reference",
+                            "references",
+                        ],
                         column_count,
                     )?;
                     if rule
@@ -8039,7 +8160,12 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                         .transpose()?;
                     rule.reference_values = migration_reference_values(
                         &map,
-                        &["reference_values", "referenceValues", "reference"],
+                        &[
+                            "reference_values",
+                            "referenceValues",
+                            "reference",
+                            "references",
+                        ],
                         1,
                     )?;
                     rule.tolerance_abs = migration_number_field(
@@ -8066,7 +8192,12 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                     )?;
                     rule.reference_values = migration_reference_values(
                         &map,
-                        &["reference_values", "referenceValues", "reference"],
+                        &[
+                            "reference_values",
+                            "referenceValues",
+                            "reference",
+                            "references",
+                        ],
                         1,
                     )?;
                     rule.tolerance_abs = migration_number_field(
@@ -8098,7 +8229,12 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                     if rule.baseline.as_ref().is_none_or(Vec::is_empty) {
                         rule.baseline = migration_reference_values(
                             &map,
-                            &["reference_values", "referenceValues", "reference"],
+                            &[
+                                "reference_values",
+                                "referenceValues",
+                                "reference",
+                                "references",
+                            ],
                             1,
                         )?;
                     }
@@ -8117,10 +8253,14 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                     }
                 }
                 QualityRuleKind::DateRange => {
-                    rule.min_date =
-                        migration_string_field(&map, &["min_date", "minDate", "min_value", "min"]);
-                    rule.max_date =
-                        migration_string_field(&map, &["max_date", "maxDate", "max_value", "max"]);
+                    rule.min_date = migration_string_field(
+                        &map,
+                        &["min_date", "minDate", "min_value", "minValue", "min"],
+                    );
+                    rule.max_date = migration_string_field(
+                        &map,
+                        &["max_date", "maxDate", "max_value", "maxValue", "max"],
+                    );
                     let has_invalid_bound = rule
                         .min_date
                         .as_deref()
@@ -8149,7 +8289,11 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
                     }
                 }
                 QualityRuleKind::Conditional => {
-                    rule.when = migration_quality_condition(map.get("when"))?;
+                    rule.when = migration_quality_condition(
+                        map.get("when")
+                            .or_else(|| map.get("condition"))
+                            .or_else(|| map.get("if")),
+                    )?;
                     let then = migrate_conditional_then(map.get("then"), &rule.column)?;
                     rule.then = Some(Box::new(then));
                     if rule.when.is_none() {
@@ -9374,7 +9518,18 @@ fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Re
             })?;
             if !matches!(
                 condition_column.dtype(),
-                DataType::String | DataType::Int64 | DataType::Float64 | DataType::Boolean
+                DataType::String
+                    | DataType::Boolean
+                    | DataType::Int8
+                    | DataType::Int16
+                    | DataType::Int32
+                    | DataType::Int64
+                    | DataType::UInt8
+                    | DataType::UInt16
+                    | DataType::UInt32
+                    | DataType::UInt64
+                    | DataType::Float32
+                    | DataType::Float64
             ) {
                 return Err(format!(
                     "La condición de '{}' solo admite columnas String, numéricas o Boolean.",
@@ -9694,24 +9849,24 @@ fn quality_condition_matches(value: AnyValue<'_>, condition: &QualityCondition) 
         return false;
     };
     match value {
-        AnyValue::Null => false,
         AnyValue::String(actual) => {
             quality_comparison_ordering_matches(actual.cmp(expected), operator)
         }
         AnyValue::StringOwned(actual) => {
             quality_comparison_ordering_matches(actual.as_str().cmp(expected), operator)
         }
-        AnyValue::Int64(actual) => expected.parse::<i64>().is_ok_and(|expected| {
-            quality_comparison_ordering_matches(actual.cmp(&expected), operator)
-        }),
-        AnyValue::Float64(actual) => expected.parse::<f64>().ok().is_some_and(|expected| {
-            actual
-                .partial_cmp(&expected)
-                .is_some_and(|ordering| quality_comparison_ordering_matches(ordering, operator))
-        }),
         AnyValue::Boolean(actual) => expected.parse::<bool>().is_ok_and(|expected| {
             quality_comparison_ordering_matches(actual.cmp(&expected), operator)
         }),
+        AnyValue::Null => false,
+        value if quality_numeric_value(value.clone()).is_some() => {
+            let actual = quality_numeric_value(value).expect("se verificó el tipo numérico");
+            expected.parse::<f64>().ok().is_some_and(|expected| {
+                actual
+                    .partial_cmp(&expected)
+                    .is_some_and(|ordering| quality_comparison_ordering_matches(ordering, operator))
+            })
+        }
         _ => false,
     }
 }
@@ -21495,6 +21650,140 @@ mod tests {
     }
 
     #[test]
+    fn migration_preserves_v3_aliases_and_scalar_allowed_values() {
+        let result = migrate_quality_rules_document(serde_json::json!({
+            "version": 3,
+            "quality_rules": [
+                {
+                    "type": "allowed_values",
+                    "column": "status",
+                    "values": ["ok", 1, true],
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "numeric_range",
+                    "column": "amount",
+                    "min_value": "1",
+                    "maxValue": "3",
+                    "maxInvalidPct": "5"
+                },
+                {
+                    "kind": "dtype",
+                    "column": "amount",
+                    "expectedType": "integer",
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "column_compare",
+                    "column": "left",
+                    "otherColumn": "right",
+                    "operator": "lte",
+                    "max_invalid": 0
+                }
+            ]
+        }))
+        .expect("los aliases v3 representables deben migrarse");
+
+        assert_eq!(result.converted_rules.len(), 4);
+        assert_eq!(
+            result.converted_rules[0].values,
+            Some(vec!["ok".to_owned(), "1".to_owned(), "true".to_owned()])
+        );
+        assert_eq!(result.converted_rules[1].min, Some(1.0));
+        assert_eq!(result.converted_rules[1].max, Some(3.0));
+        assert_eq!(result.converted_rules[1].max_invalid_pct, Some(5.0));
+        assert_eq!(result.converted_rules[2].dtype.as_deref(), Some("integer"));
+        assert_eq!(
+            result.converted_rules[3].columns,
+            Some(vec!["left".to_owned(), "right".to_owned()])
+        );
+    }
+
+    #[test]
+    fn migration_maps_blocking_alias_and_omits_unsafe_policy_metadata() {
+        let result = migrate_quality_rules_document(serde_json::json!({
+            "version": 3,
+            "rules": [
+                {
+                    "kind": "not_null",
+                    "column": "id",
+                    "severity": "error",
+                    "onMissing": "fail",
+                    "nullPolicy": "invalid",
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "unique",
+                    "column": "id",
+                    "blocking": false,
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "not_null",
+                    "column": "id",
+                    "nullable": true,
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "not_null",
+                    "column": "id",
+                    "referenceRevision": "rev-12",
+                    "max_invalid": 0
+                },
+                {
+                    "kind": "not_null",
+                    "column": "id",
+                    "severity": "warning",
+                    "blocking": true,
+                    "max_invalid": 0
+                }
+            ]
+        }))
+        .expect("las políticas deben aislarse por regla");
+
+        assert_eq!(result.converted_rules.len(), 1);
+        assert_eq!(result.converted_rules[0].kind, QualityRuleKind::NotNull);
+        assert_eq!(result.omitted_rules, 4);
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("no bloqueante")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("nullable/allowNulls=true")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("referencia externa")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains("contradictorias")));
+    }
+
+    #[test]
+    fn migration_accepts_condition_alias_but_keeps_nested_policies_blocking() {
+        let result = migrate_quality_rules_document(serde_json::json!([{
+            "kind": "conditional",
+            "column": "amount",
+            "condition": {"column": "status", "op": "eq", "val": "active"},
+            "then": {"kind": "numeric_range", "minValue": 0, "maxValue": 10},
+            "max_invalid": 0
+        }]))
+        .expect("la condición compatible debe migrarse");
+
+        assert_eq!(result.converted_rules.len(), 1);
+        let rule = &result.converted_rules[0];
+        assert_eq!(
+            rule.when.as_ref().map(|condition| condition.operator),
+            Some(Some(QualityComparison::Eq))
+        );
+        assert_eq!(rule.then.as_deref().and_then(|then| then.min), Some(0.0));
+        assert_eq!(rule.then.as_deref().and_then(|then| then.max), Some(10.0));
+    }
+
+    #[test]
     fn migration_omits_negative_tolerance_instead_of_returning_invalid_rule() {
         let result = migrate_quality_rules_document(serde_json::json!({
             "version": 3,
@@ -21623,6 +21912,36 @@ mod tests {
         allowed.max_invalid = Some(1);
         let result = evaluate_quality_rules(&frame, &[allowed]).unwrap();
         assert!(result.passed);
+    }
+
+    #[test]
+    fn quality_rules_match_numeric_conditions_across_integer_widths() {
+        let frame = df![
+            "status" => &["active", "inactive", "active"],
+            "code" => &[1_i32, 2, 1],
+            "amount" => &[Some(10_i64), None, Some(20)]
+        ]
+        .unwrap();
+        let mut allowed = quality_rule("status", QualityRuleKind::AllowedValues);
+        allowed.values = Some(vec!["active".to_owned(), "inactive".to_owned()]);
+        allowed.max_invalid = Some(0);
+
+        let mut conditional = quality_rule("amount", QualityRuleKind::Conditional);
+        conditional.when = Some(QualityCondition {
+            column: "code".to_owned(),
+            operator: Some(QualityComparison::Eq),
+            value: Some("1".to_owned()),
+        });
+        conditional.then = Some(Box::new(quality_rule("amount", QualityRuleKind::NotNull)));
+        conditional.max_invalid = Some(0);
+
+        let result = evaluate_quality_rules(&frame, &[allowed, conditional]).unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.rules[0].invalid_count, 0);
+        assert_eq!(result.rules[1].invalid_count, 0);
+        assert_eq!(result.rules[1].checked_count, 3);
+        assert_eq!(result.failed_rules, 0);
     }
 
     #[test]

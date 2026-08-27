@@ -1280,10 +1280,14 @@ del original.
   `columnia-quality-rules` v1, guardarlo atómicamente e importar de forma
   explícita Columnia v1, DataPrep v1–v3 y documentos legados compatibles; las
   versiones futuras y contratos ambiguos fallan antes de convertir reglas.
-- [ ] Completar la migración de semánticas de reglas antiguas y v3, conservando
+- [x] Completar la migración de semánticas de reglas antiguas y v3, conservando
   tolerancias, severidad,
   referencias, condiciones y reglas no soportadas como advertencias explícitas;
   nunca convertir una regla bloqueante en una entrega aprobada silenciosamente.
+  Se aceptan aliases snake/camel, severidades históricas (`error`, `critical`,
+  `fatal`), `blocking`, referencias escalares y condiciones heredadas; las
+  políticas externas, `nullable` no equivalente y contradicciones se omiten con
+  warning explícito.
 - [x] Reforzar la migración de reglas representables con aliases de tipo, números
   serializados como texto y validación cerrada de políticas/tolerancias; los
   valores inválidos se omiten con warnings en vez de publicarse como reglas
@@ -1310,9 +1314,11 @@ del original.
   DataPrep v1–v3 y legacy: resume severidad/políticas, marca reglas omitidas,
   conserva el hash del artefacto y devuelve código 2 cuando requiere revisión,
   sin publicar rutas, columnas ni valores.
-- [ ] Añadir compatibilidad de bridge solo donde sea necesaria para la migración:
-  contrato versionado, operación larga/cancelable, errores sanitizados y
-  compatibilidad de recetas; no exponer la allowlist Python completa.
+- [x] Añadir la primera compatibilidad de bridge necesaria para la migración:
+  contrato versionado, selector nativo, lectura fuera del hilo de UI, errores
+  sanitizados y compatibilidad con el informe de sesiones; no se expone la
+  allowlist Python completa. La cancelación/progreso de importaciones largas
+  sigue pendiente como ampliación separada.
 - [x] Verificar una primera vertical de round-trip con una sesión sintética:
   importar → reabrir → validar → exportar, comparando conteos, columnas y tipos;
   los casos de importación parcial conservan la regresión que impide reemplazar un

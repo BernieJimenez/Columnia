@@ -1935,3 +1935,85 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
   .quality-chart__track-fill--other { color: CanvasText; background: Highlight !important; }
   .quality-groups .quality-chart__table { border-color: ButtonText; background: Canvas; }
 }
+
+/* Final shell polish: preserve context on small screens and make state changes
+ * visible without relying on color alone. */
+:root { --accent-soft: #e3f0ec; }
+:root[data-theme="light"] { --accent-soft: #e3f0ec; }
+:root[data-theme="dark"] { --accent-soft: #21463f; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) { --accent-soft: #21463f; }
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline-color: var(--focus-ring);
+}
+
+.workspace button:not(:disabled):hover,
+.workspace select:not(:disabled):hover,
+.workspace input:not(:disabled):hover,
+.workspace textarea:not(:disabled):hover,
+.sidebar__utilities > summary:hover {
+  border-color: var(--accent);
+}
+
+.side-nav button[aria-disabled="true"]:not(:disabled) {
+  color: var(--disabled-text);
+  background: transparent;
+}
+.side-nav button[aria-disabled="true"]:not(:disabled):hover {
+  border-color: var(--border-subtle);
+  background: var(--disabled-surface);
+}
+
+.table-region tbody tr:hover,
+.profile-region tbody tr:hover {
+  background: var(--surface-subtle);
+}
+
+.workspace :is(h2, h3, h4, h5) { text-wrap: balance; }
+
+@media (max-width: 700px) {
+  .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(96px, auto);
+    align-items: center;
+    gap: 10px;
+  }
+  .topbar > div:first-child { display: grid; }
+  .flow-overview { width: 100%; max-width: none; gap: 6px; }
+  .flow-overview__copy {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: 2px 8px;
+  }
+  .flow-overview__next {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .runtime {
+    width: 100%;
+    max-width: 132px;
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar { grid-template-columns: 1fr; }
+  .runtime { max-width: none; }
+}
+
+@media (forced-colors: active) {
+  .side-nav button[aria-disabled="true"]:not(:disabled):hover,
+  .table-region tbody tr:hover,
+  .profile-region tbody tr:hover { border-color: ButtonText; background: Canvas; }
+}
