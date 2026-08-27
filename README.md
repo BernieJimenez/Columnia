@@ -175,6 +175,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- i
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- batch --manifest lote.json
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-list --store .\almacen-columnia
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-save --store .\almacen-columnia --name Ventas --input datos.csv --profile
+cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-import-dataprep --store .\almacen-columnia --session sesion-dataprep.json --name Ventas-migradas
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-inspect --store .\almacen-columnia --id <id>
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-export --store .\almacen-columnia --id <id> --output entrega.parquet --format parquet
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-delete --store .\almacen-columnia --id <id> --confirm <id>
@@ -202,12 +203,13 @@ propio manifiesto. Cada trabajo es atómico, pero el lote no es una transacción
 global: un fallo tardío conserva los trabajos anteriores, informa su ordinal y
 termina con código 2. Un manifiesto inválido termina con código 1 sin outputs.
 
-Los cinco comandos de proyectos requieren un almacén explícito y canonicalizado
+Los seis comandos de proyectos requieren un almacén explícito y canonicalizado
 mediante `--store <directorio>`; no usan implícitamente el directorio privado de
 la aplicación de escritorio:
 
 - `project-save --store DIR --name NAME --input FILE [--id ID] [--sheet NAME --header first-row|generated] [--recipe FILE] [--rules FILE] [--profile]` crea un proyecto o actualiza el ID indicado. La receta, las reglas y el cálculo de perfil son opcionales.
 - `project-list --store DIR` lista resúmenes ordenados del catálogo.
+- `project-import-dataprep --store DIR --session FILE [--name NAME]` migra una sesión DataPrep como proyecto nuevo. Valida referencias y receta antes de escribir; si la fuente falta, usa un snapshot compatible cuando existe.
 - `project-inspect --store DIR --id ID` inspecciona metadatos y estado durable sin activar el proyecto ni abrir una sesión de escritorio.
 - `project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]` valida y exporta el snapshot completo de forma atómica, sin activarlo ni cambiar la recuperación del escritorio. Las reglas guardadas siempre deben aprobar; `--allow-unvalidated` solo autoriza un proyecto que no tenga reglas.
 - `project-delete --store DIR --id ID --confirm ID` borra únicamente cuando la confirmación coincide exactamente con el ID.
@@ -218,6 +220,7 @@ Todos emiten JSON v1 por stdout sin rutas, filas ni muestras. Sus contratos son:
 | --- | --- |
 | `project-list` | `schemaVersion`, `command`, `projects` con resúmenes de ID, nombre, archivo visible, dimensiones y fechas |
 | `project-save` | `schemaVersion`, `command`, `created`, `project` |
+| `project-import-dataprep` | `schemaVersion`, `command`, `imported`, `project` |
 | `project-inspect` | `schemaVersion`, `command`, `project`, `profileCached`, `qualityRuleCount`, `recipeDraftPresent`, `history` con conteo, cursor, disponibilidad de undo/redo y estado degradado |
 | `project-export` | `schemaVersion`, `command`, `status`, `format`, `quality`; añade `fileName` y `fileSizeBytes` solo cuando publica |
 | `project-delete` | `schemaVersion`, `command`, `id`, `deleted` |

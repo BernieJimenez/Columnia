@@ -740,6 +740,15 @@ pub(crate) fn automation_import_project(
     ProjectStore::initialize(root.to_path_buf())?.save(dataset, project_id, name, workspace)
 }
 
+pub(crate) fn automation_import_dataprep_session_project(
+    root: &Path,
+    session_path: &Path,
+    name: Option<String>,
+) -> Result<ProjectSummary, String> {
+    let store = ProjectStore::initialize(root.to_path_buf())?;
+    import_dataprep_session_project_from_path(&store, session_path, name, None, None)
+}
+
 pub(crate) fn automation_inspect_project(
     root: &Path,
     project_id: &str,

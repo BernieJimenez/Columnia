@@ -107,6 +107,30 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+  }, {
+    name: "customer_id",
+    dataType: "String",
+    nullCount: 0,
+    completenessPercentage: 100,
+    uniqueCount: 5,
+    minimum: null,
+    maximum: null,
+    mean: null,
+    emptyCount: 0,
+    minimumLength: 1,
+    maximumLength: 2,
+    averageLength: 1.5,
+    suggestedType: null,
+    typeMatchPercentage: null,
+    invalidTypeCount: null,
+    sentinelCount: 0,
+    privacySignal: "identifier",
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
+    histogram: null,
   }],
 };
 
@@ -220,6 +244,7 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
     expect(screen.getByRole("list")).toHaveTextContent("1 filas adicionales");
     expect(screen.getByRole("list")).toHaveTextContent("Posible dato personal: revisa el tratamiento de email");
+    expect(screen.getByRole("button", { name: "Revisar identificadores detectados" })).toBeInTheDocument();
     expect(screen.getByRole("list")).toHaveTextContent("Duplicados parecidos: 1");
     expect(screen.getByRole("list")).toHaveTextContent("Tipos sugeridos:");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
@@ -279,6 +304,51 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados parecidos" }));
     expect(onRemoveNearDuplicates).toHaveBeenCalledOnce();
+  });
+
+  it("confirma el retiro de identificadores sin exponer celdas y permite cancelarlo", () => {
+    const onRemoveIdentifierColumns = vi.fn();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onAnalyzeQuality={() => undefined}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveNearDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onRemoveIdentifierColumns={onRemoveIdentifierColumns}
+      onNormalizeSentinels={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Retirar identificadores detectados" });
+    expect(dialog).toHaveTextContent("1 columna identificadora");
+    expect(dialog).toHaveTextContent("customer_id");
+    expect(dialog).not.toHaveTextContent("Ana");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onRemoveIdentifierColumns).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retirar identificadores" }));
+    expect(onRemoveIdentifierColumns).toHaveBeenCalledOnce();
   });
 });
 

@@ -13,13 +13,14 @@ use crate::{
 };
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
 const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n\nAplica una receta Columnia y publica la salida atómicamente. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
+const PROJECT_IMPORT_DATAPREP_HELP: &str = "USO:\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n\nMigra una sesión DataPrep como un proyecto nuevo. La sesión y sus referencias se validan antes de escribir el almacén; si falta la fuente se usa un snapshot compatible cuando está disponible. Emite solo el resumen opaco del proyecto.\n";
 const PROJECT_INSPECT_HELP: &str = "USO:\n  columnia-cli project-inspect --store <directorio> --id <id>\n\nEmite metadatos, flags y conteos del proyecto sin abrir una sesión de escritorio.\n";
 const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica; un bundle incluye la receta validada del proyecto cuando existe.\n";
 const PROJECT_DELETE_HELP: &str = "USO:\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nElimina el proyecto solo cuando --confirm coincide exactamente con --id.\n";
@@ -115,6 +116,11 @@ pub enum CliCommand {
         recipe: Option<PathBuf>,
         rules: Option<PathBuf>,
         profile: bool,
+    },
+    ProjectImportDataprep {
+        store: PathBuf,
+        session: PathBuf,
+        name: Option<String>,
     },
     ProjectInspect {
         store: PathBuf,
@@ -299,6 +305,15 @@ pub struct ProjectSaveOutput {
     schema_version: u8,
     command: &'static str,
     created: bool,
+    project: ProjectSummary,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectImportDataprepOutput {
+    schema_version: u8,
+    command: &'static str,
+    imported: bool,
     project: ProjectSummary,
 }
 
@@ -612,6 +627,18 @@ where
                 profile: switches.contains("--profile"),
             })
         }
+        "project-import-dataprep" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(PROJECT_IMPORT_DATAPREP_HELP));
+            }
+            let (mut flags, _) = parse_flags(rest, &["--store", "--session", "--name"], &[])?;
+            Ok(CliCommand::ProjectImportDataprep {
+                store: PathBuf::from(required_flag(&mut flags, "--store")?),
+                session: PathBuf::from(required_flag(&mut flags, "--session")?),
+                name: optional_text_flag(&mut flags, "--name")?,
+            })
+        }
         "project-inspect" => {
             if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
             {
@@ -873,6 +900,21 @@ pub fn project_save(
         schema_version: 1,
         command: "project-save",
         created: !existed,
+        project,
+    })
+}
+
+pub fn project_import_dataprep(
+    store: &Path,
+    session: &Path,
+    name: Option<String>,
+) -> Result<ProjectImportDataprepOutput, AutomationError> {
+    let project = projects::automation_import_dataprep_session_project(store, session, name)
+        .map_err(|_| AutomationError::new("No se pudo importar la sesión DataPrep."))?;
+    Ok(ProjectImportDataprepOutput {
+        schema_version: 1,
+        command: "project-import-dataprep",
+        imported: true,
         project,
     })
 }
@@ -1298,6 +1340,37 @@ mod tests {
         ));
         assert!(matches!(
             parse_cli_args([
+                "project-import-dataprep",
+                "--store",
+                "projects",
+                "--session",
+                "session.json",
+                "--name",
+                "Migrada"
+            ])
+            .unwrap(),
+            CliCommand::ProjectImportDataprep { store, session, name }
+                if store == Path::new("projects")
+                    && session == Path::new("session.json")
+                    && name.as_deref() == Some("Migrada")
+        ));
+        assert!(matches!(
+            parse_cli_args(["project-import-dataprep", "--help"]).unwrap(),
+            CliCommand::Help(text) if text.contains("Migra una sesión DataPrep")
+        ));
+        assert!(parse_cli_args(["project-import-dataprep", "--store", "projects"]).is_err());
+        assert!(parse_cli_args([
+            "project-import-dataprep",
+            "--store",
+            "projects",
+            "--session",
+            "session.json",
+            "--store",
+            "other"
+        ])
+        .is_err());
+        assert!(matches!(
+            parse_cli_args([
                 "project-export",
                 "--store",
                 "projects",
@@ -1618,6 +1691,89 @@ mod tests {
         assert!(validate(&input, None, None, &rules).is_err());
         fs::write(&rules, br#"{"version":1,"rules":[],"extra":true}"#).unwrap();
         assert!(validate(&input, None, None, &rules).is_err());
+    }
+
+    #[test]
+    fn dataprep_session_cli_import_roundtrips_to_a_project_and_export() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("projects");
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        let output = directory.path().join("export.csv");
+        fs::write(&source, "old,value\nA,1\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Sesión sintética",
+                "source_path": "source.csv",
+                "transform_config": { "rename_text": "old -> new" }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            project_import_dataprep(&store, &session, Some("Migrada desde CLI".to_owned()))
+                .unwrap();
+        let imported_json = serde_json::to_value(&imported).unwrap();
+        assert_eq!(imported_json["schemaVersion"], 1);
+        assert_eq!(imported_json["command"], "project-import-dataprep");
+        assert_eq!(imported_json["imported"], true);
+        assert_eq!(imported_json["project"]["name"], "Migrada desde CLI");
+        assert!(!imported_json
+            .to_string()
+            .contains(directory.path().to_str().unwrap()));
+
+        let listing = project_list(&store).unwrap();
+        assert_eq!(listing.projects.len(), 1);
+        assert_eq!(listing.projects[0].id, imported.project.id);
+        let inspection = project_inspect(&store, &imported.project.id).unwrap();
+        assert!(inspection.recipe_draft_present);
+
+        let exported = project_export(
+            &store,
+            &imported.project.id,
+            &output,
+            AutomationFormat::Csv,
+            true,
+        )
+        .unwrap();
+        assert_eq!(exported.status, "succeeded");
+        assert!(fs::read_to_string(output).unwrap().starts_with("new,value"));
+    }
+
+    #[test]
+    fn dataprep_session_cli_import_failure_is_sanitized_and_preserves_catalog() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("projects");
+        let source = directory.path().join("source.csv");
+        let invalid_session = directory.path().join("invalid-session.json");
+        fs::write(&source, "value\n1\n").unwrap();
+        fs::write(&invalid_session, b"{\"version\":1,\"source_path\":\"").unwrap();
+
+        let existing = project_save(
+            &store,
+            "Proyecto existente".to_owned(),
+            &source,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        let error = project_import_dataprep(&store, &invalid_session, None).unwrap_err();
+        assert_eq!(error.to_string(), "No se pudo importar la sesión DataPrep.");
+        assert!(!error
+            .to_string()
+            .contains(directory.path().to_str().unwrap()));
+
+        let listing = project_list(&store).unwrap();
+        assert_eq!(listing.projects.len(), 1);
+        assert_eq!(listing.projects[0].id, existing.project.id);
+        assert_eq!(listing.projects[0].name, "Proyecto existente");
     }
 
     #[test]

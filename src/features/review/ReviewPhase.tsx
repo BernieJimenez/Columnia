@@ -1209,21 +1209,29 @@ function TemporalTrendChart({
         agregados del perfil, nunca valores de celdas. Se incluyen {summary.parsedRowCount.toLocaleString()}
         de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString()} filas interpretables.
       </p>
-      <div className="quality-temporal-trend__bars" role="list" aria-label={tableLabel}>
-        {summary.periods.map((period) => (
-          <div className="quality-temporal-trend__item" role="listitem" key={period.period}>
-            <div className="quality-temporal-trend__bar-wrap">
-              <span
-                className="quality-temporal-trend__bar"
-                aria-hidden="true"
-                style={{ height: `${(period.rowCount / maximumCount) * 100}%` }}
-              />
+      {summary.granularity === "day" ? (
+        <DailyTemporalCalendar summary={summary} />
+      ) : summary.periods.length > 0 ? (
+        <div className="quality-temporal-trend__bars" role="list" aria-label={tableLabel}>
+          {summary.periods.map((period) => (
+            <div className="quality-temporal-trend__item" role="listitem" key={period.period}>
+              <div className="quality-temporal-trend__bar-wrap">
+                <span
+                  className="quality-temporal-trend__bar"
+                  aria-hidden="true"
+                  style={{ height: `${(period.rowCount / maximumCount) * 100}%` }}
+                />
+              </div>
+              <strong title={period.period}>{period.period}</strong>
+              <small>{period.rowCount.toLocaleString()} filas</small>
             </div>
-            <strong title={period.period}>{period.period}</strong>
-            <small>{period.rowCount.toLocaleString()} filas</small>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <p className="quality-temporal-empty" role="status">
+          No hay periodos interpretables para mostrar en esta columna.
+        </p>
+      )}
       <div className="quality-temporal-trend__table">
         <table aria-label={tableLabel}>
           <caption className="visually-hidden">{tableLabel}</caption>
@@ -1249,6 +1257,67 @@ function TemporalTrendChart({
         {summary.unparsedRowCount.toLocaleString()} filas sin periodo interpretable.
         {summary.truncated ? " Los periodos más antiguos se agruparon para mantener la lectura rápida." : ""}
       </p>
+    </div>
+  );
+}
+
+function DailyTemporalCalendar({ summary }: { summary: TemporalSeriesSummary }) {
+  const calendarLabel = `Calendario diario para ${summary.column}`;
+  const firstWeekday = temporalDayWeekday(summary.periods[0]?.period);
+  const leadingEmptyDays = firstWeekday === null ? 0 : firstWeekday;
+  const maximumCount = Math.max(1, ...summary.periods.map((period) => period.rowCount));
+
+  if (summary.periods.length === 0) {
+    return (
+      <div className="quality-temporal-calendar quality-temporal-calendar--empty" role="group" aria-label={calendarLabel}>
+        <h6>Calendario diario</h6>
+        <p className="quality-temporal-empty" role="status">
+          No hay días interpretables para mostrar en esta columna.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="quality-temporal-calendar" role="group" aria-label={calendarLabel}>
+      <div className="quality-temporal-calendar__heading">
+        <h6>Calendario diario</h6>
+        <p>La intensidad resume la cantidad de filas; los días sin filas permanecen visibles.</p>
+      </div>
+      <div className="quality-temporal-calendar__weekdays" aria-hidden="true">
+        {[
+          "Lun",
+          "Mar",
+          "Mié",
+          "Jue",
+          "Vie",
+          "Sáb",
+          "Dom",
+        ].map((day) => <span key={day}>{day}</span>)}
+      </div>
+      <ol className="quality-temporal-calendar__days" aria-label={calendarLabel}>
+        {Array.from({ length: leadingEmptyDays }, (_, index) => (
+          <li className="quality-temporal-calendar__empty-day" aria-hidden="true" key={`empty-${index}`} />
+        ))}
+        {summary.periods.map((period) => {
+          const level = period.rowCount === 0
+            ? 0
+            : Math.max(1, Math.ceil((period.rowCount / maximumCount) * 4));
+          const rowLabel = `${period.rowCount.toLocaleString()} ${period.rowCount === 1 ? "fila" : "filas"}`;
+
+          return (
+            <li
+              className={`quality-temporal-calendar__day quality-temporal-calendar__day--level-${level}`}
+              key={period.period}
+              aria-label={`${period.period}: ${rowLabel}, ${clampPercentage(period.percentage).toFixed(1)}% de los valores interpretables`}
+            >
+              <time dateTime={period.period}>{formatCalendarDay(period.period)}</time>
+              <strong>{period.rowCount.toLocaleString()}</strong>
+              <small>filas</small>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -1417,6 +1486,37 @@ function temporalTypeLabel(column: ColumnProfile): string {
 function formatTemporalValue(value: string | null): string {
   if (!value) return "No disponible";
   return value.replace("T", " ").replace(/\+00:00$/, " UTC");
+}
+
+function parseTemporalDay(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (
+    date.getUTCFullYear() !== Number(match[1])
+    || date.getUTCMonth() !== Number(match[2]) - 1
+    || date.getUTCDate() !== Number(match[3])
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function temporalDayWeekday(value: string | undefined): number | null {
+  if (!value) return null;
+  const date = parseTemporalDay(value);
+  return date ? (date.getUTCDay() + 6) % 7 : null;
+}
+
+function formatCalendarDay(value: string): string {
+  const date = parseTemporalDay(value);
+  return date
+    ? new Intl.DateTimeFormat("es", {
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      }).format(date)
+    : value;
 }
 
 function clampPercentage(value: number): number {

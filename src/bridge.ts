@@ -787,6 +787,10 @@ export function removeHighNullColumns(): Promise<ColumnRemovalResult> {
   return invoke<ColumnRemovalResult>("remove_high_null_columns");
 }
 
+export function removeIdentifierColumns(): Promise<ColumnRemovalResult> {
+  return invoke<ColumnRemovalResult>("remove_identifier_columns");
+}
+
 export function normalizeColumnNames(): Promise<ColumnNormalizationResult> {
   return invoke<ColumnNormalizationResult>("normalize_column_names");
 }

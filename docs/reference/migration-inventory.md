@@ -97,8 +97,10 @@ hoja, esquema y receta en un estado temporal, y solo después puede publicar un
 snapshot y abrir el proyecto resultante. Si la fuente original ya no existe,
 un `snapshot_path` local y compatible puede restaurarse como dataset temporal
 sin volver a ejecutar la receta sobre datos ya materializados. La acción no se
-expone en el panel de Proyectos; una cancelación o error no modifica el dataset
-activo ni reemplaza proyectos existentes.
+expone en el panel de Proyectos; la CLI la ofrece como
+`project-import-dataprep --store DIR --session FILE [--name NAME]` para
+migraciones autorizadas. Una cancelación o error no modifica el dataset activo
+ni reemplaza proyectos existentes.
 
 ## Límites pendientes
 

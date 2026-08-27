@@ -196,6 +196,18 @@ const dailyTemporalProfile: DatasetProfile = {
   ],
 };
 
+const emptyDailyTemporalProfile: DatasetProfile = {
+  ...dailyTemporalProfile,
+  temporalSeries: [
+    {
+      ...dailyTemporalProfile.temporalSeries![0],
+      parsedRowCount: 0,
+      unparsedRowCount: 120,
+      periods: [],
+    },
+  ],
+};
+
 describe("ReviewPhase", () => {
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
     const onAnalyzeQuality = vi.fn();
@@ -487,10 +499,46 @@ describe("ReviewPhase", () => {
     );
 
     expect(screen.getByText(/Conteo de filas por día/)).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Calendario diario para fecha" })).toBeInTheDocument();
+    const calendar = screen.getByRole("list", { name: "Calendario diario para fecha" });
+    expect(calendar).toHaveTextContent("1 abr");
+    expect(screen.getByRole("listitem", { name: /2024-04-02: 0 filas/ })).toBeInTheDocument();
     const trendTable = screen.getByRole("table", { name: "Tendencia temporal para fecha" });
     expect(trendTable).toHaveTextContent("2024-04-02");
     expect(trendTable).toHaveTextContent("2024-04-03");
     expect(trendTable).toHaveTextContent("50.0%");
+  });
+
+  it("expone un estado vacío cuando no hay días interpretables", () => {
+    render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        profileStatus={{ kind: "ready", profile: emptyDailyTemporalProfile }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("group", { name: "Calendario diario para fecha" })).toHaveTextContent(
+      "No hay días interpretables para mostrar en esta columna.",
+    );
+    expect(screen.getByRole("table", { name: "Tendencia temporal para fecha" })).toBeInTheDocument();
   });
 
   it("exige y emite una decisión explícita por conflicto", () => {

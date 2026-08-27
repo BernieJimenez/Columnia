@@ -82,6 +82,19 @@ project-list --store DIR
 
 Lista resúmenes ordenados sin activar datasets ni devolver rutas internas.
 
+### `project-import-dataprep`
+
+```text
+project-import-dataprep --store DIR --session FILE [--name NAME]
+```
+
+Migra una sesión DataPrep a un proyecto nuevo. La sesión debe ser un JSON
+local con una fuente o snapshot compatible; la fuente se prefiere para poder
+reproducir la receta y el snapshot se usa como respaldo cuando la fuente ya no
+está disponible. La validación completa ocurre antes de escribir el catálogo,
+por lo que una sesión inválida no crea ni reemplaza proyectos. El nombre de la
+sesión se usa cuando se omite `--name`.
+
 ### `project-inspect`
 
 ```text
@@ -111,6 +124,8 @@ Borra únicamente cuando `--confirm` coincide exactamente con `--id`.
 ## Contratos y seguridad
 
 - JSON de salida: `schemaVersion: 1` y `command`.
+- `project-import-dataprep` devuelve `imported: true` y el resumen opaco del
+  proyecto nuevo; no devuelve la ruta de la sesión ni sus referencias.
 - Código 0: éxito; código 1: uso, carga o almacenamiento; código 2: calidad
   reprobada o fallo parcial de batch.
 - Las rutas se mantienen en Rust y no aparecen en stdout ni en errores de

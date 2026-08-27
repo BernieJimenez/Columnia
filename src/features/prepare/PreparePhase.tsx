@@ -23,6 +23,7 @@ interface PreparePhaseProps {
   onRemoveConstantColumns: () => void;
   onRemoveEmptyColumns: () => void;
   onRemoveHighNullColumns: () => void;
+  onRemoveIdentifierColumns?: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onImputeMissingValues: () => void;
@@ -52,6 +53,7 @@ export function PreparePhase({
   onRemoveConstantColumns,
   onRemoveEmptyColumns,
   onRemoveHighNullColumns,
+  onRemoveIdentifierColumns = () => undefined,
   onNormalizeSentinels,
   onNormalizeBooleans,
   onImputeMissingValues,
@@ -73,6 +75,10 @@ export function PreparePhase({
   const [removeAccents, setRemoveAccents] = useState(true);
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
+  const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
+  const identifierColumns = profileStatus.kind === "ready"
+    ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
+    : [];
 
   useEffect(() => {
     const available = new Set(textColumns.map((column) => column.name));
@@ -177,6 +183,7 @@ export function PreparePhase({
           onRemoveConstantColumns={onRemoveConstantColumns}
               onRemoveEmptyColumns={onRemoveEmptyColumns}
               onRemoveHighNullColumns={onRemoveHighNullColumns}
+              onRemoveIdentifierColumns={() => setIdentifierConfirmation(true)}
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
               onImputeMissingValues={onImputeMissingValues}
@@ -389,6 +396,38 @@ export function PreparePhase({
           </div>
         </ModalDialog>
       )}
+      {identifierConfirmation && identifierColumns.length > 0 && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="identifier-confirm-title"
+          describedBy="identifier-confirm-description"
+          onDismiss={() => setIdentifierConfirmation(false)}
+        >
+          <p className="step">Confirmación requerida</p>
+          <h3 id="identifier-confirm-title">Retirar identificadores detectados</h3>
+          <p id="identifier-confirm-description">
+            Se retirarán {identifierColumns.length === 1 ? "1 columna identificadora" : `${identifierColumns.length} columnas identificadoras`} detectadas por el nombre del encabezado: {identifierColumns.map((column) => column.name).join(", ")}.
+            No se mostrarán celdas ni valores del dataset. Se conservará al menos una columna y el cambio podrá revertirse desde el historial.
+            Las columnas de email, teléfono, dirección y nombre no se retiran con esta acción.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setIdentifierConfirmation(false)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                setIdentifierConfirmation(false);
+                onRemoveIdentifierColumns();
+              }}
+              disabled={changing}
+            >
+              Retirar identificadores
+            </button>
+          </div>
+        </ModalDialog>
+      )}
     </>
   );
 }
@@ -399,6 +438,7 @@ function CleaningSignals({
   onRemoveConstantColumns,
   onRemoveEmptyColumns,
   onRemoveHighNullColumns,
+  onRemoveIdentifierColumns,
   onNormalizeSentinels,
   onNormalizeBooleans,
   onImputeMissingValues,
@@ -408,6 +448,7 @@ function CleaningSignals({
   onRemoveConstantColumns: () => void;
   onRemoveEmptyColumns: () => void;
   onRemoveHighNullColumns: () => void;
+  onRemoveIdentifierColumns: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onImputeMissingValues: () => void;
@@ -508,6 +549,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onRemoveHighNullColumns} disabled={busy}>
                 Eliminar columnas con alta nulidad
+              </button>
+            </div>
+          )}
+          {profile.columns.some((column) => column.privacySignal === "identifier") && (
+            <div className="cleaning-signals__action cleaning-signals__action--privacy">
+              <p>
+                Retira solo las columnas marcadas como identificadoras por su encabezado. No se
+                inspeccionan ni muestran celdas, se conserva al menos una columna y la operación
+                queda disponible para revertir desde el historial.
+              </p>
+              <button type="button" onClick={onRemoveIdentifierColumns} disabled={busy}>
+                Revisar identificadores detectados
               </button>
             </div>
           )}

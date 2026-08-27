@@ -12,9 +12,10 @@
   en los destinos locales, correlaciones numéricas acotadas y contratos de calidad v3 con documento canónico
   Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, conserva
   opciones de entrega, reconoce metadatos de sesiones con fixtures sintéticas y
-  ofrece una primera cobertura temporal y un mapeo seguro de sesiones al catálogo;
-  mantiene pendientes la restauración completa de sesiones y la cobertura integral del
-  round-trip hacia proyectos;
+  ofrece cobertura temporal con calendario diario accesible, retiro confirmado de
+  identificadores y migración de sesiones por CLI; mantiene pendientes la
+  restauración completa de sesiones y la cobertura integral del round-trip hacia
+  proyectos;
   I3/I5 conservan validaciones externas de plataforma.
 - Versión actual del prototipo: `0.57.0`.
 - Implementación: iniciada el 2026-08-12.
@@ -1126,12 +1127,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Activar una columna reservada `_cambios` para trazabilidad local por fila;
   las mutaciones posteriores conservan/añaden la etiqueta de operación y la
   columna queda protegida de la limpieza textual general.
-- [ ] Completar la migración del catálogo de limpieza sugerida: identificadores,
-  PII y las reglas avanzadas que aún no tengan una acción reversible. La
+- [ ] Completar la migración del catálogo de limpieza sugerida: PII y las reglas
+  avanzadas que aún no tengan una acción reversible. Los identificadores ya
+  tienen una acción explícita y confirmada. La
   eliminación difusa ya tiene una primera acción implementada: confirma el
   impacto agregado, conserva la primera fila/orden y las copias exactas, y
-  permite deshacer; siguen pendientes identificadores, PII accionable y las
-  reglas restantes. También están cubiertos como señal vacíos, constantes,
+  permite deshacer; siguen pendientes PII accionable y las reglas restantes.
+  También están cubiertos como señal vacíos, constantes,
   alta nulidad, centinelas, imputación conservadora, booleanos y auditoría
   `_cambios`.
 - [x] Añadir una visualización accesible de distribución numérica tipo boxplot
@@ -1153,7 +1155,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   primeras ampliaciones ya incluyen ranking de patrones de nulos, validación
   visual de formatos, grupos categóricos, cobertura temporal, tendencias por
   día/mes/año y una matriz de correlaciones de Pearson acotada, todas con tabla
-  equivalente; calendario diario dedicado y series temporales completas siguen pendientes.
+  equivalente; el calendario diario dedicado ya está disponible y las series
+  temporales completas siguen pendientes.
 - [x] Añadir tendencia temporal diaria para rangos de hasta 90 días, con días
   sin filas visibles, payload acotado, cancelación cooperativa y tabla accesible
   equivalente; los rangos mayores conservan la agregación mensual o anual.
@@ -1425,6 +1428,9 @@ del original.
 | 2026-08-24 | Versión 0.57.0: inventario y fixtures sintéticas de migración para pipelines, sesiones, calidad y legacy; los metadatos de sesión se reconocen y se omiten con warnings sanitizados | Implementada |
 | 2026-08-26 | P1 añade cobertura y tendencia temporal agregadas en Review: rangos Date/Datetime/Timestamp, conteos por mes/año, filas interpretables y porcentaje con tabla equivalente; el calendario diario y las series temporales completas siguen pendientes | Implementada |
 | 2026-08-26 | M1 añade una slice segura para mapear sesiones DataPrep al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta, restauración de `snapshot_path` compatible cuando falta la fuente y publicación transaccional sin tocar el dataset activo; una prueba nativa cubre importar → reabrir → validar → exportar, mientras la restauración histórica completa sigue pendiente | Implementada |
+| 2026-08-27 | P1 incorpora un calendario diario accesible para rangos cortos, conserva días sin filas y mantiene la tabla exacta equivalente; las series temporales completas siguen pendientes | Implementada |
+| 2026-08-27 | P1 incorpora retiro explícito y reversible de columnas identificadoras detectadas por encabezado, con confirmación, conservación de una columna y protección de valores personales | Implementada |
+| 2026-08-27 | M1 incorpora `project-import-dataprep` en la CLI: migra sesiones con validación previa, fallback a snapshot compatible, salida JSON sanitizada y creación de proyectos nuevos sin reemplazos | Implementada |
 
 ## 10. Fuentes de esta revisión
 

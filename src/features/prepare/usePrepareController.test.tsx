@@ -52,6 +52,7 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyConstantColumnRemoval}>Constantes</button>
     <button type="button" onClick={controller.applyEmptyColumnRemoval}>Vacías</button>
     <button type="button" onClick={controller.applyHighNullColumnRemoval}>Alta nulidad</button>
+    <button type="button" onClick={controller.applyIdentifierColumnRemoval}>Identificadores</button>
     <button type="button" onClick={controller.applySentinelNormalization}>Centinelas</button>
     <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
     <button type="button" onClick={controller.applyMissingValueImputation}>Imputar</button>
@@ -174,6 +175,28 @@ describe("usePrepareController", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
       "Se eliminaron 1 columnas con alta nulidad: comentarios.",
     ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("publica la eliminación de columnas identificadoras y refresca historial", async () => {
+    vi.spyOn(bridge, "removeIdentifierColumns").mockResolvedValue({
+      dataset,
+      removedColumnCount: 1,
+      removedColumns: ["customer_id"],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Identificadores" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se retiraron 1 columnas identificadoras: customer_id.",
+    ));
+    expect(bridge.removeIdentifierColumns).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();

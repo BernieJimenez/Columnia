@@ -100,6 +100,17 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             )?;
             println!();
         }
+        CliCommand::ProjectImportDataprep {
+            store,
+            session,
+            name,
+        } => {
+            privacy::write_sanitized_json(
+                io::stdout().lock(),
+                &automation::project_import_dataprep(&store, &session, name)?,
+            )?;
+            println!();
+        }
         CliCommand::ProjectInspect { store, id } => {
             privacy::write_sanitized_json(
                 io::stdout().lock(),

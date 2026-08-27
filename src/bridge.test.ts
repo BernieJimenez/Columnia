@@ -34,6 +34,7 @@ import {
   removeConstantColumns,
   removeEmptyColumns,
   removeHighNullColumns,
+  removeIdentifierColumns,
   redoLastChange,
   saveProject,
   saveQualityRulesDocument,
@@ -308,6 +309,18 @@ describe("desktop bridge", () => {
     await removeHighNullColumns();
 
     expect(invoke).toHaveBeenCalledWith("remove_high_null_columns");
+  });
+
+  it("retira columnas identificadoras mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: { fileName: "datos.csv" },
+      removedColumnCount: 1,
+      removedColumns: ["customer_id"],
+    });
+
+    await removeIdentifierColumns();
+
+    expect(invoke).toHaveBeenCalledWith("remove_identifier_columns");
   });
 
   it("envía una receta estructural completa en una sola invocación", async () => {

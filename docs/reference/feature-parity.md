@@ -11,11 +11,11 @@ claro y esté cubierta por una prueba o evidencia local.
 | --- | --- | --- | --- | --- |
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
-| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos acotados, cobertura temporal y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario, tendencias y series temporales |
+| Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos acotados, cobertura temporal y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario completo, tendencias y series temporales |
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación; importación del núcleo representable de pipelines DataPrep v1–v3 | Parcial | Migrar catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
-| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura y tendencia temporal diaria/mensual/anual acotada y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, calendario diario dedicado, series temporales, filtros e interacciones |
+| Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura, calendario diario y tendencia temporal diaria/mensual/anual acotada y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, series temporales completas, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas, CLI y primera importación segura de sesiones DataPrep con validación previa | Parcial | Completar restauración de sesiones, round-trip, caché y actividad |
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales y confirmación visible de columnas protegidas | Parcial | Privacidad de recetas/reports/manifests y conectores remotos |
@@ -440,9 +440,11 @@ invalidar el perfil y las compuertas de entrega.
 
 Columnia clasifica nombres de columnas con señales conservadoras de correo,
 teléfono, dirección, identificador o nombre. Solo publica la categoría y el nombre
-de la columna en el perfil; no inspecciona ni devuelve muestras para esta señal. La
-protección de salida con máscara/hash sigue siendo una decisión independiente y
-explícita.
+de la columna en el perfil; no inspecciona ni devuelve muestras para esta señal.
+Preparar permite revisar y retirar únicamente las columnas clasificadas como
+identificadoras, con confirmación, historial reversible y conservación de al menos
+una columna. Email, teléfono, dirección y nombre siguen requiriendo una decisión
+explícita de protección al exportar mediante máscara o hash.
 
 ## Trazabilidad local por fila
 
@@ -472,7 +474,7 @@ La migración tiene dos capas distintas:
    faltan el catálogo completo de limpieza
    sugerida, la optimización global del plan y el análisis exploratorio
    (distribuciones, correlaciones, grupos, nulos, centinelas, casi duplicados,
-   calendario diario y series temporales completas), la severidad y las políticas de calidad que
+   series temporales completas), la severidad y las políticas de calidad que
    aún no tienen equivalencia segura, los conectores PostgreSQL/MySQL/SQL Server,
    los bundles auditables y el procesamiento
    fuera de memoria; Excel y SQLite locales ya están cubiertos en la primera

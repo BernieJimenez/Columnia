@@ -14,6 +14,7 @@ import {
   removeEmptyRows,
   removeEmptyColumns,
   removeHighNullColumns,
+  removeIdentifierColumns,
   removeDuplicates,
   removeNearDuplicates,
   redoLastChange,
@@ -164,6 +165,26 @@ export function usePrepareController({
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas con al menos 80% de valores nulos."
           : `Se eliminaron ${result.removedColumnCount.toLocaleString()} columnas con alta nulidad: ${result.removedColumns.join(", ")}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyIdentifierColumnRemoval() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "identifier_columns" });
+    try {
+      const result = await removeIdentifierColumns();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      setChangeStatus({
+        kind: "applied",
+        message: result.removedColumnCount === 0
+          ? "No se detectaron columnas identificadoras para retirar; se conserva al menos una columna del dataset."
+          : `Se retiraron ${result.removedColumnCount.toLocaleString()} columnas identificadoras: ${result.removedColumns.join(", ")}. La operación puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -390,6 +411,7 @@ export function usePrepareController({
     applyConstantColumnRemoval,
     applyEmptyColumnRemoval,
     applyHighNullColumnRemoval,
+    applyIdentifierColumnRemoval,
     applySentinelNormalization,
     applyBooleanNormalization,
     applyMissingValueImputation,
