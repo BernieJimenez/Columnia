@@ -1279,6 +1279,8 @@ del original.
 
 | Fecha | Decisión | Estado |
 | --- | --- | --- |
+| 2026-08-26 | Evaluar filtros SQL locales por bloques Rayon; las consultas paginadas cuentan en paralelo y solo reescanean los bloques que contienen la ventana solicitada, mientras los agregados conservan todos sus índices | Implementada en `src-tauri/src/dataset.rs`; joins grandes y ejecución DuckDB siguen en cola |
+| 2026-08-26 | Hacer explícito el progreso de Cargar, Diagnóstico y Entrega con contexto, etapa actual, estado de cancelación y porcentaje acotado, manteniendo la región viva accesible | Implementada en `src/components/OperationProgressView.tsx` y `src/styles.css` |
 | 2026-08-26 | Las consultas SQL locales no agregadas cuentan coincidencias en una pasada y conservan solo la ventana `LIMIT/OFFSET`; las agregaciones mantienen todas sus filas para calcular resultados exactos | Implementada en `src-tauri/src/dataset.rs`; joins grandes y ejecución DuckDB siguen en cola |
 | 2026-08-26 | Contar duplicados exactos con `unique` lazy en motor streaming y proyectar solo el total, con fallback eager exacto si el backend no soporta el plan | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame` activo y el perfil incremental completo siguen en cola |
 | 2026-08-26 | Reutilizar una única conversión `Float64` durante el perfil numérico para compartirla entre histograma y atípicos y reducir picos de memoria | Implementada en `src-tauri/src/dataset.rs` |

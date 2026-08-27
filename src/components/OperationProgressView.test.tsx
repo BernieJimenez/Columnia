@@ -16,6 +16,11 @@ describe("OperationProgressView", () => {
     );
 
     expect(screen.getByRole("status")).toHaveAttribute("aria-atomic", "true");
+    expect(screen.getByRole("heading", { name: "Cargando dataset" })).toBeInTheDocument();
+    expect(screen.getByText("Importación")).toBeInTheDocument();
+    expect(screen.getByText("Etapa actual")).toBeInTheDocument();
+    expect(screen.getByText("En curso")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("progressbar", { name: "Progreso: Leyendo columnas" })).toHaveValue(35);
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onCancel).toHaveBeenCalledOnce();
@@ -30,5 +35,20 @@ describe("OperationProgressView", () => {
     );
 
     expect(screen.getByRole("button", { name: "Cancelando…" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByText("Cancelación solicitada")).toBeInTheDocument();
+  });
+
+  it("mantiene el porcentaje dentro de los límites visuales", () => {
+    render(
+      <OperationProgressView
+        progress={{ operation: "profile", stage: "Analizando columnas", percent: 140 }}
+        cancellation={{ kind: "available", onCancel: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Analizando calidad" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Progreso: Analizando columnas" })).toHaveValue(100);
+    expect(screen.getByText("100%", { selector: ".operation-progress__percent" })).toBeInTheDocument();
   });
 });

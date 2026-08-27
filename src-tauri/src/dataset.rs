@@ -66,6 +66,7 @@ const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
 const NUMERIC_HISTOGRAM_BUCKETS: usize = 12;
+const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -2043,6 +2044,56 @@ fn local_predicate_matches(
     })
 }
 
+fn local_row_matches(
+    frame: &DataFrame,
+    row_index: usize,
+    predicates: &[LocalPredicate],
+) -> Result<bool, String> {
+    for predicate in predicates {
+        if !local_predicate_matches(frame, row_index, predicate)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn local_query_block_flags(
+    frame: &DataFrame,
+    predicates: &[LocalPredicate],
+    start: usize,
+    end: usize,
+) -> Result<Vec<bool>, String> {
+    (start..end)
+        .into_par_iter()
+        .map(|row_index| local_row_matches(frame, row_index, predicates))
+        .collect::<Result<Vec<_>, _>>()
+}
+
+fn local_query_block_match_count(
+    frame: &DataFrame,
+    predicates: &[LocalPredicate],
+    start: usize,
+    end: usize,
+) -> Result<usize, String> {
+    Ok(local_query_block_flags(frame, predicates, start, end)?
+        .into_iter()
+        .filter(|matches| *matches)
+        .count())
+}
+
+fn local_query_block_rows(
+    frame: &DataFrame,
+    predicates: &[LocalPredicate],
+    start: usize,
+    end: usize,
+) -> Result<Vec<usize>, String> {
+    Ok(local_query_block_flags(frame, predicates, start, end)?
+        .into_iter()
+        .enumerate()
+        .filter_map(|(offset, matches)| matches.then_some(start + offset))
+        .collect())
+}
+
 fn aggregate_result(
     frame: &DataFrame,
     projection: &LocalProjection,
@@ -2166,31 +2217,61 @@ fn local_query_row(
 
 fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryResult, String> {
     let plan = parse_local_query(query, frame)?;
-    let mut matching_rows = Vec::with_capacity(if plan.aggregate {
-        frame.height()
+    let block_count = frame.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    let (matching_count, matching_rows) = if plan.aggregate {
+        // Aggregate queries need every matching row, but each block can be
+        // evaluated independently. Rayon keeps the block order deterministic
+        // when the vectors are flattened below.
+        let block_rows = (0..block_count)
+            .into_par_iter()
+            .map(|block_index| {
+                let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+                let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+                local_query_block_rows(frame, &plan.predicates, start, end)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let matching_count = block_rows.iter().map(Vec::len).sum();
+        let matching_rows = block_rows.into_iter().flatten().collect();
+        (matching_count, matching_rows)
     } else {
-        plan.limit
-    });
-    let mut matching_count = 0usize;
-    for row_index in 0..frame.height() {
-        let mut matches = true;
-        for predicate in &plan.predicates {
-            if !local_predicate_matches(frame, row_index, predicate)? {
-                matches = false;
+        // A paged query first counts each block in parallel. Only the block(s)
+        // containing the requested window are scanned a second time, so a
+        // query over millions of matching rows never indexes every match.
+        let block_counts = (0..block_count)
+            .into_par_iter()
+            .map(|block_index| {
+                let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+                let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+                local_query_block_match_count(frame, &plan.predicates, start, end)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let matching_count = block_counts.iter().sum();
+        if plan.offset > matching_count {
+            return Err("La página solicitada está fuera del resultado filtrado.".to_owned());
+        }
+
+        let mut offset_in_matches = plan.offset;
+        let mut remaining = plan.limit;
+        let mut matching_rows = Vec::with_capacity(plan.limit.min(matching_count));
+        for (block_index, block_match_count) in block_counts.iter().copied().enumerate() {
+            if remaining == 0 {
                 break;
             }
-        }
-        if matches {
-            let match_position = matching_count;
-            matching_count += 1;
-            // Aggregations need every matching row. A paged projection only
-            // retains the requested window instead of indexing the whole frame.
-            if plan.aggregate || (match_position >= plan.offset && matching_rows.len() < plan.limit)
-            {
-                matching_rows.push(row_index);
+            if offset_in_matches >= block_match_count {
+                offset_in_matches -= block_match_count;
+                continue;
             }
+
+            let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+            let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+            let block_rows = local_query_block_rows(frame, &plan.predicates, start, end)?;
+            let take = remaining.min(block_match_count - offset_in_matches);
+            matching_rows.extend(block_rows.into_iter().skip(offset_in_matches).take(take));
+            remaining -= take;
+            offset_in_matches = 0;
         }
-    }
+        (matching_count, matching_rows)
+    };
     let columns = plan
         .projections
         .iter()
@@ -14927,6 +15008,56 @@ mod tests {
         assert!(execute_local_query(&frame, "SELECT SUM(city) FROM dataset").is_err());
         assert!(execute_local_query(&frame, "SELECT city, COUNT(*) FROM dataset").is_err());
         assert!(execute_local_query(&frame, "SELECT city FROM dataset GROUP BY city").is_err());
+    }
+
+    #[test]
+    fn local_query_parallel_blocks_preserve_page_order_and_aggregate_totals() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS * 2 + 37;
+        let ids = (0..row_count as i64).collect::<Vec<_>>();
+        let values = ids.iter().map(|value| value * 2).collect::<Vec<_>>();
+        let frame = DataFrame::new(
+            row_count,
+            vec![
+                Series::new("id".into(), ids).into_column(),
+                Series::new("value".into(), values).into_column(),
+            ],
+        )
+        .expect("el dataset de prueba debe construirse");
+
+        let offset = LOCAL_QUERY_BLOCK_ROWS - 2;
+        let query =
+            format!("SELECT id, value FROM dataset WHERE value >= 0 LIMIT 5 OFFSET {offset}");
+        let first_page =
+            execute_local_query(&frame, &query).expect("la página paralela debe ejecutarse");
+        let second_page =
+            execute_local_query(&frame, &query).expect("la página paralela debe ser determinista");
+
+        assert_eq!(first_page, second_page);
+        assert_eq!(first_page.row_count, row_count);
+        assert_eq!(
+            first_page.rows,
+            (offset as i64..offset as i64 + 5)
+                .map(|id| vec![Some(id.to_string()), Some((id * 2).to_string())])
+                .collect::<Vec<_>>()
+        );
+
+        let aggregate = execute_local_query(
+            &frame,
+            "SELECT COUNT(*) AS total, SUM(value) AS total_value, AVG(value) AS average_value, MIN(value) AS minimum_value, MAX(value) AS maximum_value FROM dataset WHERE value >= 0",
+        )
+        .expect("la agregación paralela debe ejecutarse");
+        let sum = (row_count as i64 * (row_count as i64 - 1)).to_string();
+        let average = (row_count as f64 - 1.0).to_string();
+        assert_eq!(
+            aggregate.rows,
+            vec![vec![
+                Some(row_count.to_string()),
+                Some(sum),
+                Some(average),
+                Some("0".to_owned()),
+                Some(((row_count as i64 - 1) * 2).to_string()),
+            ]]
+        );
     }
 
     #[test]

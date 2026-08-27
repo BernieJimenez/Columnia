@@ -561,6 +561,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-26 | El filtro SQL local se ejecuta por bloques en Rayon: calcula conteos en paralelo y reescanea únicamente los bloques necesarios para una página, preservando el orden y la exactitud de las agregaciones. La vista de progreso ahora comunica operación, etapa, estado de cancelación y porcentaje normalizado con semántica accesible. | `src-tauri/src/dataset.rs`, `src/components/OperationProgressView.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | El explorador SQL local limita la memoria de consultas proyectadas: recorre el filtro, cuenta coincidencias y conserva solo la página solicitada; los `GROUP BY` y agregados siguen reteniendo el conjunto necesario para preservar exactitud. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | El conteo de duplicados exactos del perfil usa `unique` lazy con motor streaming y proyecta solo el total; si el backend no puede ejecutar el plan, conserva un fallback eager exacto. El perfil numérico comparte una única vista `Float64` entre histograma y atípicos para evitar conversiones duplicadas. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | La comparación por filas y la agrupación de claves usan reducciones Rayon y ordenan los índices resultantes para conservar determinismo; la mejora aprovecha CPU sin cambiar el contrato ni materializar firmas globales adicionales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |

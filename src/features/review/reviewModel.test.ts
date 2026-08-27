@@ -57,6 +57,13 @@ describe("reviewModel", () => {
       percent: 70,
     });
     expect(progressed).toMatchObject({ kind: "loading", progress: { percent: 70 } });
+    expect(
+      updateProfileProgress(progressed, {
+        operation: "profile",
+        stage: "Contando valores únicos",
+        percent: 25,
+      }),
+    ).toBe(progressed);
     expect(requestProfileCancellation(progressed)).toMatchObject({
       kind: "loading",
       cancelRequested: true,

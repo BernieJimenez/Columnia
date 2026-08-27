@@ -21,7 +21,10 @@ export function updateProfileProgress(
   current: ProfileStatus,
   progress: OperationProgress,
 ): ProfileStatus {
-  return current.kind === "loading" ? { ...current, progress } : current;
+  if (current.kind !== "loading" || progress.percent < current.progress.percent) {
+    return current;
+  }
+  return { ...current, progress: { ...progress, percent: Math.min(100, progress.percent) } };
 }
 
 export function requestProfileCancellation(current: ProfileStatus): ProfileStatus {

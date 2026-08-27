@@ -7,28 +7,91 @@ interface OperationProgressViewProps {
     | { kind: "requested" };
 }
 
+const OPERATION_COPY: Record<
+  OperationProgress["operation"],
+  { eyebrow: string; title: string; description: string }
+> = {
+  load: {
+    eyebrow: "Importación",
+    title: "Cargando dataset",
+    description: "Estamos preparando tus datos para que puedas revisarlos.",
+  },
+  profile: {
+    eyebrow: "Diagnóstico",
+    title: "Analizando calidad",
+    description: "Estamos comprobando estructura, valores y consistencia.",
+  },
+  export: {
+    eyebrow: "Entrega",
+    title: "Exportando dataset",
+    description: "Estamos escribiendo una copia validada en el formato elegido.",
+  },
+};
+
 export function OperationProgressView({
   progress,
   cancellation,
 }: OperationProgressViewProps) {
+  const copy = OPERATION_COPY[progress.operation];
+  const percent = Math.min(100, Math.max(0, progress.percent));
+  const isCancelling = cancellation.kind === "requested";
+  const titleId = `operation-progress-title-${progress.operation}`;
+  const descriptionId = `operation-progress-description-${progress.operation}`;
+
   return (
-    <div className="operation-progress" role="status" aria-live="polite" aria-atomic="true">
-      <div>
-        <span>{progress.stage}</span>
-        <strong>{progress.percent}%</strong>
+    <section
+      className={`operation-progress${isCancelling ? " operation-progress--cancelling" : ""}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-busy={!isCancelling}
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+    >
+      <header className="operation-progress__header">
+        <div className="operation-progress__title-block">
+          <span className="operation-progress__eyebrow">{copy.eyebrow}</span>
+          <h3 id={titleId}>{copy.title}</h3>
+        </div>
+        <span className="operation-progress__state">
+          <span className="operation-progress__state-dot" aria-hidden="true" />
+          {isCancelling ? "Cancelación solicitada" : "En curso"}
+        </span>
+      </header>
+
+      <p id={descriptionId} className="operation-progress__description">
+        {copy.description}
+      </p>
+
+      <div className="operation-progress__current">
+        <div className="operation-progress__stage">
+          <span>Etapa actual</span>
+          <strong>{progress.stage}</strong>
+        </div>
+        <strong className="operation-progress__percent">{percent}%</strong>
       </div>
+
       <progress
         aria-label={`Progreso: ${progress.stage}`}
         max={100}
-        value={progress.percent}
+        value={percent}
       />
-      <button
-        type="button"
-        onClick={cancellation.kind === "available" ? cancellation.onCancel : undefined}
-        disabled={cancellation.kind === "requested"}
-      >
-        {cancellation.kind === "requested" ? "Cancelando…" : "Cancelar"}
-      </button>
-    </div>
+
+      <div className="operation-progress__scale" aria-hidden="true">
+        <span>Inicio</span>
+        <span>Completado</span>
+      </div>
+
+      <footer className="operation-progress__footer">
+        <p>{isCancelling ? "Terminando la operación actual…" : "El avance se actualiza automáticamente."}</p>
+        <button
+          type="button"
+          onClick={cancellation.kind === "available" ? cancellation.onCancel : undefined}
+          disabled={isCancelling}
+        >
+          {isCancelling ? "Cancelando…" : "Cancelar"}
+        </button>
+      </footer>
+    </section>
   );
 }
