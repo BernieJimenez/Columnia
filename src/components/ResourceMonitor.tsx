@@ -1,6 +1,18 @@
 import { memo, useEffect, useState } from "react";
 
-import { getResourceUsage, type ResourceUsage } from "../bridge";
+import {
+  getPerformanceSettings as defaultFetchPerformanceSettings,
+  getResourceUsage,
+  setPerformanceProfile as defaultApplyPerformanceProfile,
+  type PerformanceProfile,
+  type PerformanceSettings,
+  type ResourceUsage,
+} from "../bridge";
+import {
+  hasPerformanceProfilePreference,
+  readPerformanceProfile,
+  writePerformanceProfile,
+} from "../features/settings/performanceModel";
 
 type ResourceMonitorState =
   | { kind: "disabled" }
@@ -12,6 +24,8 @@ export interface ResourceMonitorProps {
   enabled: boolean;
   fetchUsage?: () => Promise<ResourceUsage>;
   pollIntervalMs?: number;
+  fetchPerformanceSettings?: () => Promise<PerformanceSettings>;
+  setPerformanceProfile?: (profile: PerformanceProfile) => Promise<PerformanceSettings>;
 }
 
 function clampMeter(value: number, maximum: number): number {
@@ -48,9 +62,18 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   enabled,
   fetchUsage = getResourceUsage,
   pollIntervalMs = 2000,
+  fetchPerformanceSettings = defaultFetchPerformanceSettings,
+  setPerformanceProfile = defaultApplyPerformanceProfile,
 }: ResourceMonitorProps) {
   const [state, setState] = useState<ResourceMonitorState>(
     enabled ? { kind: "loading" } : { kind: "disabled" },
+  );
+  const [performance, setPerformance] = useState<PerformanceSettings | null>(null);
+  const [performanceProfile, setPerformanceProfileState] = useState<PerformanceProfile>(() =>
+    readPerformanceProfile(),
+  );
+  const [performanceStatus, setPerformanceStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    "idle",
   );
 
   useEffect(() => {
@@ -80,6 +103,65 @@ export const ResourceMonitor = memo(function ResourceMonitor({
     };
   }, [enabled, fetchUsage, pollIntervalMs]);
 
+  useEffect(() => {
+    if (!enabled) {
+      setPerformanceStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    const preferredProfile = readPerformanceProfile();
+    const hasStoredPreference = hasPerformanceProfilePreference();
+    setPerformanceProfileState(preferredProfile);
+    setPerformanceStatus("loading");
+
+    const configure = async () => {
+      try {
+        const current = await fetchPerformanceSettings();
+        if (cancelled) return;
+
+        if (!hasStoredPreference) {
+          setPerformance(current);
+          setPerformanceStatus("ready");
+          return;
+        }
+
+        if (current.applied && current.requestedProfile === preferredProfile) {
+          setPerformance(current);
+          setPerformanceStatus("ready");
+          return;
+        }
+
+        const configured = await setPerformanceProfile(preferredProfile);
+        if (!cancelled) {
+          setPerformance(configured);
+          setPerformanceStatus("ready");
+        }
+      } catch {
+        if (!cancelled) setPerformanceStatus("error");
+      }
+    };
+
+    void configure();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, fetchPerformanceSettings, setPerformanceProfile]);
+
+  const choosePerformanceProfile = (nextProfile: PerformanceProfile) => {
+    setPerformanceProfileState(nextProfile);
+    writePerformanceProfile(nextProfile);
+    if (!enabled) return;
+
+    setPerformanceStatus("loading");
+    void setPerformanceProfile(nextProfile)
+      .then((settings) => {
+        setPerformance(settings);
+        setPerformanceStatus("ready");
+      })
+      .catch(() => setPerformanceStatus("error"));
+  };
+
   const usage = state.kind === "ready" ? state.usage : null;
   const processCpu = usage?.processCpuPercentage ?? 0;
   const systemCpu = usage?.systemCpuPercentage ?? 0;
@@ -95,6 +177,13 @@ export const ResourceMonitor = memo(function ResourceMonitor({
       : state.kind === "loading"
         ? "Midiendo…"
         : "Actualizado en vivo";
+  const performanceText = !enabled
+    ? "Solo disponible en la app de escritorio"
+    : performanceStatus === "loading"
+      ? "Aplicando antes de la próxima operación…"
+      : performance?.applied && performance.activeThreads
+        ? `Activo: ${performance.activeThreads} ${performance.activeThreads === 1 ? "hilo" : "hilos"}`
+        : performance?.reason ?? "Se aplicará antes de la primera operación";
 
   return (
     <div className="resource-monitor" role="group" aria-label="Consumo de recursos">
@@ -157,6 +246,23 @@ export const ResourceMonitor = memo(function ResourceMonitor({
           <span>{gpu?.status === "available" ? "Aceleración" : "Motor local"}</span>
           <strong>{gpu?.status === "available" ? "Activa" : "CPU"}</strong>
         </div>
+      </div>
+
+      <div className="resource-monitor__performance">
+        <label htmlFor="resource-performance-profile">Modo de rendimiento</label>
+        <select
+          id="resource-performance-profile"
+          value={performanceProfile}
+          disabled={!enabled || performanceStatus === "loading"}
+          onChange={(event) =>
+            choosePerformanceProfile(event.target.value as PerformanceProfile)
+          }
+        >
+          <option value="conservative">Ahorro · 1 hilo</option>
+          <option value="balanced">Equilibrado · mitad de hilos</option>
+          <option value="maximum">Máximo · todos los hilos</option>
+        </select>
+        <p aria-live="polite">{performanceText}</p>
       </div>
     </div>
   );

@@ -95,6 +95,19 @@ está disponible. La validación completa ocurre antes de escribir el catálogo,
 por lo que una sesión inválida no crea ni reemplaza proyectos. El nombre de la
 sesión se usa cuando se omite `--name`.
 
+### `session-migration-report`
+
+```text
+session-migration-report --session FILE
+```
+
+Ejecuta un preflight de solo lectura para una sesión DataPrep v1–v3 usando el
+mismo cargador que `project-import-dataprep`. Devuelve estados de origen y
+snapshot, hoja, etapa, operaciones aplicadas, receta, calidad y análisis, junto
+con referencias ausentes, colisiones, hash SHA-256 y acciones manuales. No
+abre el almacén ni escribe proyectos. El código es `2` cuando la sesión
+requiere revisión manual.
+
 ### `quality-migration-report`
 
 ```text
@@ -138,6 +151,8 @@ Borra únicamente cuando `--confirm` coincide exactamente con `--id`.
 - JSON de salida: `schemaVersion: 1` y `command`.
 - `project-import-dataprep` devuelve `imported: true` y el resumen opaco del
   proyecto nuevo; no devuelve la ruta de la sesión ni sus referencias.
+- `session-migration-report` devuelve únicamente metadatos estructurales y
+  estados de referencias; no devuelve rutas, columnas, filas ni valores.
 - Código 0: éxito; código 1: uso, carga o almacenamiento; código 2: calidad
   reprobada o fallo parcial de batch.
 - Las rutas se mantienen en Rust y no aparecen en stdout ni en errores de

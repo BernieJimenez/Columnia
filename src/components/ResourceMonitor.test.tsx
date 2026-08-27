@@ -1,10 +1,11 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ResourceMonitor } from "./ResourceMonitor";
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -66,5 +67,51 @@ describe("ResourceMonitor", () => {
       "Disponible en la app de escritorio",
     );
     expect(fetchUsage).not.toHaveBeenCalled();
+  });
+
+  it("aplica el perfil de concurrencia elegido antes de la siguiente operación", async () => {
+    const fetchUsage = vi.fn().mockResolvedValue({
+      processCpuPercentage: 0,
+      systemCpuPercentage: 0,
+      logicalCpuCount: 8,
+      processMemoryBytes: 0,
+      systemMemoryUsedBytes: 0,
+      systemMemoryTotalBytes: 1,
+    });
+    const settings = {
+      requestedProfile: "balanced" as const,
+      activeProfile: "balanced" as const,
+      requestedThreads: 4,
+      activeThreads: 4,
+      applied: true,
+      locked: false,
+      reason: null,
+    };
+    const fetchPerformanceSettings = vi.fn().mockResolvedValue(settings);
+    const setPerformanceProfile = vi.fn().mockResolvedValue({
+      ...settings,
+      requestedProfile: "maximum" as const,
+      activeProfile: "maximum" as const,
+      requestedThreads: 8,
+      activeThreads: 8,
+    });
+
+    render(
+      <ResourceMonitor
+        enabled
+        fetchUsage={fetchUsage}
+        fetchPerformanceSettings={fetchPerformanceSettings}
+        setPerformanceProfile={setPerformanceProfile}
+      />,
+    );
+
+    const select = await screen.findByLabelText("Modo de rendimiento");
+    expect(select).toHaveValue("balanced");
+    expect(setPerformanceProfile).not.toHaveBeenCalled();
+    fireEvent.change(select, { target: { value: "maximum" } });
+
+    await waitFor(() => expect(setPerformanceProfile).toHaveBeenCalledWith("maximum"));
+    expect(await screen.findByText("Activo: 8 hilos")).toBeInTheDocument();
+    expect(window.localStorage.getItem("columnia.performance-profile")).toBe("maximum");
   });
 });

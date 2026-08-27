@@ -72,6 +72,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .resource-monitor__meter::-webkit-meter-optimum-value { border-radius: 3px; background: #b58b4a; }
 .resource-monitor__meter::-moz-meter-bar { border-radius: 3px; background: #b58b4a; }
 .resource-monitor__system { color: #8e9699; }
+.resource-monitor__performance { margin-top: 14px; padding-top: 12px; border-top: 1px solid #30343b; }
+.resource-monitor__performance label { display: block; margin-bottom: 6px; color: #a4adb0; font-size: .75rem; font-weight: 750; }
+.resource-monitor__performance select { width: 100%; min-height: 40px; padding: 6px 28px 6px 8px; border: 1px solid #465057; border-radius: 3px; background: #20252a; color: #e0e2de; font-size: .75rem; font-weight: 750; }
+.resource-monitor__performance p { margin: 7px 0 0; color: #a4adb0; font-size: .7rem; line-height: 1.35; overflow-wrap: anywhere; }
 .sidebar__dataset { margin-top: auto; padding-top: 18px; border-top: 1px solid #b5c6c1; }
 .sidebar__dataset span, .sidebar__dataset strong { display: block; }
 .sidebar__dataset span { color: #617973; font-size: .75rem; font-weight: 750; letter-spacing: 0; text-transform: uppercase; }
@@ -651,9 +655,10 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .side-nav__copy strong { overflow-wrap: anywhere; font-size: .78rem; line-height: 1.15; }
   .resource-monitor, .theme-switcher { grid-column: 1; }
   .resource-monitor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; padding: 10px 12px; }
-  .resource-monitor__heading { grid-column: 1 / -1; }
+  .resource-monitor__heading, .resource-monitor__performance { grid-column: 1 / -1; }
   .resource-monitor__metric { min-width: 0; margin-top: 0; }
   .resource-monitor__system { display: none; }
+  .resource-monitor__performance { margin-top: 0; }
   .theme-switcher { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px 14px; padding: 10px 12px; }
   .theme-switcher__heading { display: block; }
   .theme-switcher__eyebrow, .theme-switcher__heading p, .theme-switcher__status { display: none; }

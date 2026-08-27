@@ -176,6 +176,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- b
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-list --store .\almacen-columnia
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-save --store .\almacen-columnia --name Ventas --input datos.csv --profile
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-import-dataprep --store .\almacen-columnia --session sesion-dataprep.json --name Ventas-migradas
+cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- session-migration-report --session sesion-dataprep.json
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-inspect --store .\almacen-columnia --id <id>
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-export --store .\almacen-columnia --id <id> --output entrega.parquet --format parquet
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-delete --store .\almacen-columnia --id <id> --confirm <id>
@@ -198,6 +199,10 @@ Devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga
 contratos Columnia, DataPrep v1–v3 y legacy: informa severidades, políticas,
 omisiones, acciones manuales y hash SHA-256 sin exponer rutas, columnas ni
 valores; devuelve 2 si requiere revisión.
+`session-migration-report --session FILE` ejecuta el mismo preflight
+de solo lectura sobre una sesión DataPrep v1–v3: resume origen, snapshot, hoja,
+etapa, operaciones, receta, calidad y análisis, detecta referencias ausentes y
+colisiones, e incluye el hash y acciones manuales sin escribir proyectos.
 
 Un manifiesto batch v1 contiene entre 1 y 64 trabajos `input`, `recipe`,
 `output` y `format`, más `sheet`/`header` para libros. Las rutas relativas se
@@ -229,6 +234,7 @@ Todos emiten JSON v1 por stdout sin rutas, filas ni muestras. Sus contratos son:
 | `project-export` | `schemaVersion`, `command`, `status`, `format`, `quality`; añade `fileName` y `fileSizeBytes` solo cuando publica |
 | `project-delete` | `schemaVersion`, `command`, `id`, `deleted` |
 | `quality-migration-report` | `schemaVersion`, `command`, `sourceFormat`, `sourceVersion`, `artifactSha256`, `policies`, reglas agregadas y acciones manuales |
+| `session-migration-report` | `schemaVersion`, `command`, `artifactSha256`, `origin`, `session`, `recipeSummary`, `quality`, referencias, colisiones y acciones manuales |
 
 El código 0 indica éxito, 2 indica una exportación bloqueada por reglas
 reprobadas y 1 indica error de uso, carga o almacenamiento.

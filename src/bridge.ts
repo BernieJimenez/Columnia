@@ -19,6 +19,18 @@ export interface ResourceUsage {
   gpu?: GpuUsage;
 }
 
+export type PerformanceProfile = "conservative" | "balanced" | "maximum";
+
+export interface PerformanceSettings {
+  requestedProfile: PerformanceProfile;
+  activeProfile: PerformanceProfile | null;
+  requestedThreads: number;
+  activeThreads: number | null;
+  applied: boolean;
+  locked: boolean;
+  reason: string | null;
+}
+
 export interface GpuUsage {
   status: "available" | "unavailable";
   usagePercentage: number | null;
@@ -649,6 +661,14 @@ export function getResourceUsage(): Promise<ResourceUsage> {
   return invoke<ResourceUsage>("get_resource_usage");
 }
 
+export function getPerformanceSettings(): Promise<PerformanceSettings> {
+  return invoke<PerformanceSettings>("get_performance_settings");
+}
+
+export function setPerformanceProfile(profile: PerformanceProfile): Promise<PerformanceSettings> {
+  return invoke<PerformanceSettings>("set_performance_profile", { profile });
+}
+
 export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {
   return invoke<DatasetSourceInspection | null>("pick_dataset_source");
 }
@@ -707,6 +727,10 @@ export function getDatasetPage(offset: number, limit: number): Promise<DatasetPa
   return invoke<DatasetPage>("get_dataset_page", { offset, limit });
 }
 
+/**
+ * Runs the bounded local SELECT contract. JOIN can read only the comparison
+ * already loaded by Review through the logical table `compared`.
+ */
 export function queryDataset(query: string): Promise<DatasetQueryResult> {
   return invoke<DatasetQueryResult>("query_dataset", { query });
 }

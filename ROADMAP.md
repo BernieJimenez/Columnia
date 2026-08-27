@@ -1223,6 +1223,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
   Parquet cacheado, chunks, comparación/joins grandes, historial degradado y
   presupuestos explícitos sin materialización silenciosa.
+- [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
+  recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
+  persistencia local y estado explícito cuando el pool ya no puede cambiarse.
 - [ ] Completar la paridad de sesión operativa: archivos recientes, muestras,
   arrastrar/soltar, preferencias, caché derivada, historial de ejecuciones y
   apertura segura de outputs; el modelo durable de proyectos de Columnia se
@@ -1296,9 +1299,13 @@ del original.
   en un estado temporal, publicación únicamente después de validar, fallback a
   `snapshot_path` compatible cuando falta la fuente y errores sin rutas
   administradas en el bridge.
-- [ ] Crear un informe de migración con operaciones convertidas, omitidas,
-  advertencias, acciones manuales y hash de los artefactos; no publicar secretos,
-  rutas administradas ni valores de datasets en el resultado.
+- [x] Crear un informe de migración con operaciones convertidas, omitidas,
+  advertencias, acciones manuales y hash de los artefactos; el preflight CLI
+  session-migration-report lee manifiestos DataPrep v1–v3, resume origen,
+  snapshot, hoja, etapa, receta, calidad y análisis, detecta referencias
+  ausentes/colisiones y no publica secretos, rutas administradas ni valores de
+  datasets. Devuelve código 2 cuando requiere revisión y nunca escribe
+  proyectos.
 - [x] Añadir un preflight CLI `quality-migration-report` para contratos Columnia,
   DataPrep v1–v3 y legacy: resume severidad/políticas, marca reglas omitidas,
   conserva el hash del artefacto y devuelve código 2 cuando requiere revisión,

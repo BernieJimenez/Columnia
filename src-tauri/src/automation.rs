@@ -15,11 +15,12 @@ use crate::{
 };
 
 const WORKBOOK_FLAGS: &str = "Para XLSX, XLS, XLSB u ODS son obligatorios --sheet <nombre-exacto> y --header first-row|generated. En otros formatos están prohibidos.";
-const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
+const GENERAL_HELP: &str = "Columnia CLI\n\nUSO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n  columnia-cli quality-migration-report --rules <ruta.json>\n  columnia-cli session-migration-report --session <ruta.json>\n  columnia-cli batch --manifest <ruta.json>\n  columnia-cli project-list --store <directorio>\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n  columnia-cli project-inspect --store <directorio> --id <id>\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n  columnia-cli project-delete --store <directorio> --id <id> --confirm <id>\n\nFORMATOS DE ENTRADA:\n  CSV, TSV, JSON, Parquet, XLSX, XLS, XLSB y ODS.\n\nLIBROS:\n  Selección estricta por nombre exacto de hoja; no se elige una hoja implícitamente.\n\nSALIDA:\n  JSON v1 por stdout, sin rutas, filas ni muestras. quality-migration-report, validate, un trabajo batch fallido o una exportación bloqueada por calidad terminan con código 2 cuando requieren revisión; los errores de uso, carga o almacenamiento terminan con código 1. Batch hace preflight completo y publica cada trabajo atómicamente, pero no es una transacción global: conserva las salidas ya completadas ante un fallo tardío.\n";
 const INSPECT_HELP: &str = "USO:\n  columnia-cli inspect --input <ruta> [--sheet <nombre> --header first-row|generated]\n\nInspecciona un dataset y emite esquema y dimensiones como JSON, sin filas ni rutas.\n";
 const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--sheet <nombre> --header first-row|generated] --recipe <ruta> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle\n\nAplica una receta Columnia y publica la salida atómicamente. CSV y Excel escriben valores como texto seguro; SQL produce un script portable, SQLite una base local con tabla dataset y bundle un ZIP con dataset, diccionario, receta validada, calidad opcional y manifest.\n";
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const QUALITY_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli quality-migration-report --rules <ruta.json>\n\nHace un preflight sanitizado de un contrato Columnia, DataPrep v1–v3 o legacy. Resume por regla la severidad y las políticas on_missing/null_policy, identifica omisiones y devuelve código 2 si hace falta revisión manual. No migra ni evalúa filas.\n";
+const SESSION_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli session-migration-report --session <ruta.json>\n\nHace un preflight sanitizado de una sesión DataPrep v1–v3. Resume referencias de origen y snapshot, hoja, etapa, operaciones, receta, calidad y análisis; detecta referencias ausentes y colisiones sin escribir proyectos. Devuelve código 2 si requiere revisión manual.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
@@ -106,6 +107,9 @@ pub enum CliCommand {
     },
     QualityMigrationReport {
         rules: PathBuf,
+    },
+    SessionMigrationReport {
+        session: PathBuf,
     },
     Batch {
         manifest: PathBuf,
@@ -266,6 +270,74 @@ pub struct QualityMigrationReportOutput {
 impl QualityMigrationReportOutput {
     pub fn requires_manual_review(&self) -> bool {
         self.omitted_rules > 0 || self.policies.unsupported_policy_rules > 0
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMigrationReferenceOutput {
+    status: &'static str,
+    available: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMigrationOriginOutput {
+    source: SessionMigrationReferenceOutput,
+    snapshot: SessionMigrationReferenceOutput,
+    source_file_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMigrationSessionOutput {
+    source_version: Option<String>,
+    sheet_name: Option<String>,
+    stage_label: Option<String>,
+    applied_operation_count: usize,
+    analysis_check_count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMigrationRecipeOutput {
+    operation_count: usize,
+    converted_operation_count: usize,
+    omitted_operation_count: usize,
+    warning_count: usize,
+    converted_operations: Vec<String>,
+    omitted_operations: Vec<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMigrationQualityOutput {
+    total_rules: usize,
+    converted_rules: usize,
+    omitted_rules: usize,
+    warning_count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMigrationReportOutput {
+    schema_version: u8,
+    command: &'static str,
+    artifact_sha256: String,
+    origin: SessionMigrationOriginOutput,
+    session: SessionMigrationSessionOutput,
+    recipe_summary: SessionMigrationRecipeOutput,
+    quality: SessionMigrationQualityOutput,
+    missing_references: Vec<String>,
+    collisions: Vec<String>,
+    can_create_project: bool,
+    requires_manual_review: bool,
+    manual_actions: Vec<String>,
+}
+
+impl SessionMigrationReportOutput {
+    pub fn requires_manual_review(&self) -> bool {
+        self.requires_manual_review
     }
 }
 
@@ -809,6 +881,213 @@ pub fn quality_migration_report(
     })
 }
 
+fn session_reference_status_label(status: dataset::SessionReferenceStatus) -> &'static str {
+    match status {
+        dataset::SessionReferenceStatus::NotProvided => "not_provided",
+        dataset::SessionReferenceStatus::Available => "available",
+        dataset::SessionReferenceStatus::Missing => "missing",
+        dataset::SessionReferenceStatus::Unsupported => "unsupported",
+    }
+}
+
+fn serialized_usize(value: Option<&JsonValue>, key: &str) -> usize {
+    value
+        .and_then(JsonValue::as_object)
+        .and_then(|map| map.get(key))
+        .and_then(JsonValue::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or_default()
+}
+
+fn serialized_string(value: Option<&JsonValue>, key: &str) -> Option<String> {
+    value
+        .and_then(JsonValue::as_object)
+        .and_then(|map| map.get(key))
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| value.as_u64().map(|number| number.to_string()))
+        })
+}
+
+fn serialized_strings(value: Option<&JsonValue>, key: &str) -> Vec<String> {
+    value
+        .and_then(JsonValue::as_object)
+        .and_then(|map| map.get(key))
+        .and_then(JsonValue::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(JsonValue::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn recipe_operation_count(recipe: Option<&JsonValue>) -> usize {
+    let Some(recipe) = recipe.and_then(JsonValue::as_object) else {
+        return 0;
+    };
+    let list_fields = [
+        "renames",
+        "casts",
+        "dateParses",
+        "filters",
+        "outlierTreatments",
+        "contactNormalizations",
+        "textExtractions",
+    ];
+    let list_count = list_fields
+        .iter()
+        .map(|field| {
+            recipe
+                .get(*field)
+                .and_then(JsonValue::as_array)
+                .map_or(0, Vec::len)
+        })
+        .sum::<usize>();
+    let single_fields = [
+        "calculatedColumn",
+        "findReplace",
+        "splitColumn",
+        "mergeColumns",
+        "groupSummary",
+    ];
+    let single_count = single_fields
+        .iter()
+        .filter(|field| recipe.get(**field).is_some_and(JsonValue::is_object))
+        .count();
+    let keep_columns = recipe
+        .get("keepColumns")
+        .and_then(JsonValue::as_array)
+        .is_some_and(|columns| !columns.is_empty());
+    list_count + single_count + usize::from(keep_columns)
+}
+
+/// Runs the same session parser as the project importer, but never opens the
+/// project store or writes snapshots. All returned fields are structural.
+pub fn session_migration_report(
+    input: &Path,
+) -> Result<SessionMigrationReportOutput, AutomationError> {
+    let session = dataset::canonicalize_file_for_automation(input)
+        .map_err(|_| AutomationError::new("La sesión DataPrep seleccionada no está disponible."))?;
+    let bytes = fs::read(&session).map_err(|_| {
+        AutomationError::new("No se pudo leer la sesión DataPrep para el preflight.")
+    })?;
+    let plan = dataset::load_dataprep_session_migration_plan(&session).map_err(|_| {
+        AutomationError::new("La sesión DataPrep no se puede migrar de forma segura.")
+    })?;
+    let recipe_json = serde_json::to_value(&plan.recipe)
+        .map_err(|_| AutomationError::new("No se pudo serializar el resumen de la sesión."))?;
+    let recipe_report = recipe_json.get("migrationReport");
+    let session_metadata = recipe_report.and_then(|value| value.get("session"));
+    let converted_operations = serialized_strings(recipe_report, "convertedOperations");
+    let omitted_operations = serialized_strings(recipe_report, "omittedOperations");
+    let recipe_summary = SessionMigrationRecipeOutput {
+        operation_count: recipe_operation_count(recipe_json.get("recipe")),
+        converted_operation_count: converted_operations.len(),
+        omitted_operation_count: omitted_operations.len(),
+        warning_count: serialized_usize(recipe_report, "warningCount"),
+        converted_operations,
+        omitted_operations,
+    };
+    let quality_json = plan
+        .quality_report
+        .as_ref()
+        .and_then(|report| serde_json::to_value(report).ok());
+    let quality_summary = SessionMigrationQualityOutput {
+        total_rules: serialized_usize(quality_json.as_ref(), "totalItems"),
+        converted_rules: serialized_usize(quality_json.as_ref(), "convertedItems"),
+        omitted_rules: serialized_usize(quality_json.as_ref(), "omittedItems"),
+        warning_count: serialized_usize(quality_json.as_ref(), "warningCount"),
+    };
+    let source_status = session_reference_status_label(plan.source_status);
+    let snapshot_status = session_reference_status_label(plan.snapshot_status);
+    let mut manual_actions = Vec::new();
+    if !plan.missing_references.is_empty() {
+        manual_actions.push(
+            "Restaurar o reubicar las referencias ausentes antes de confiar en la migración."
+                .to_owned(),
+        );
+    }
+    if matches!(
+        plan.source_status,
+        dataset::SessionReferenceStatus::Missing | dataset::SessionReferenceStatus::Unsupported
+    ) && matches!(
+        plan.snapshot_status,
+        dataset::SessionReferenceStatus::Available
+    ) {
+        manual_actions.push(
+            "Confirmar que el snapshot disponible representa la última versión reproducible."
+                .to_owned(),
+        );
+    }
+    if !plan.collisions.is_empty() {
+        manual_actions.push(
+            "Resolver las colisiones de nombres antes de aplicar la receta migrada.".to_owned(),
+        );
+    }
+    if recipe_summary.omitted_operation_count > 0 || recipe_summary.warning_count > 0 {
+        manual_actions.push(
+            "Revisar las operaciones y opciones omitidas frente al pipeline original.".to_owned(),
+        );
+    }
+    if quality_summary.omitted_rules > 0 {
+        manual_actions.push(
+            "Recrear manualmente las reglas de calidad omitidas antes de exportar.".to_owned(),
+        );
+    } else if quality_summary.warning_count > 0 {
+        manual_actions.push(
+            "Confirmar las advertencias del contrato de calidad frente al documento original."
+                .to_owned(),
+        );
+    }
+    if !plan.can_create_project && manual_actions.is_empty() {
+        manual_actions
+            .push("Corregir las referencias o la receta antes de crear el proyecto.".to_owned());
+    }
+    manual_actions.dedup();
+    let requires_manual_review = !manual_actions.is_empty();
+    Ok(SessionMigrationReportOutput {
+        schema_version: 1,
+        command: "session-migration-report",
+        artifact_sha256: format!("{:x}", Sha256::digest(&bytes)),
+        origin: SessionMigrationOriginOutput {
+            source: SessionMigrationReferenceOutput {
+                status: source_status,
+                available: matches!(
+                    plan.source_status,
+                    dataset::SessionReferenceStatus::Available
+                ),
+            },
+            snapshot: SessionMigrationReferenceOutput {
+                status: snapshot_status,
+                available: matches!(
+                    plan.snapshot_status,
+                    dataset::SessionReferenceStatus::Available
+                ),
+            },
+            source_file_name: plan.source_file_name,
+        },
+        session: SessionMigrationSessionOutput {
+            source_version: serialized_string(recipe_report, "sourceVersion"),
+            sheet_name: plan.sheet_name,
+            stage_label: plan.stage_label,
+            applied_operation_count: serialized_usize(session_metadata, "appliedOperationCount"),
+            analysis_check_count: serialized_usize(session_metadata, "analysisCheckCount"),
+        },
+        recipe_summary,
+        quality: quality_summary,
+        missing_references: plan.missing_references,
+        collisions: plan.collisions,
+        can_create_project: plan.can_create_project,
+        requires_manual_review,
+        manual_actions,
+    })
+}
+
 fn parse_format(value: OsString) -> Result<AutomationFormat, AutomationError> {
     match value.to_str() {
         Some("csv") => Ok(AutomationFormat::Csv),
@@ -931,6 +1210,16 @@ where
             let (mut flags, _) = parse_flags(rest, &["--rules"], &[])?;
             Ok(CliCommand::QualityMigrationReport {
                 rules: PathBuf::from(required_flag(&mut flags, "--rules")?),
+            })
+        }
+        "session-migration-report" => {
+            if matches!(rest, [argument] if argument == OsStr::new("--help") || argument == OsStr::new("-h"))
+            {
+                return Ok(CliCommand::Help(SESSION_MIGRATION_REPORT_HELP));
+            }
+            let (mut flags, _) = parse_flags(rest, &["--session"], &[])?;
+            Ok(CliCommand::SessionMigrationReport {
+                session: PathBuf::from(required_flag(&mut flags, "--session")?),
             })
         }
         "batch" => {
@@ -1675,6 +1964,16 @@ mod tests {
             parse_cli_args(["quality-migration-report", "--help"]).unwrap(),
             CliCommand::Help(text) if text.contains("preflight sanitizado")
         ));
+        assert!(matches!(
+            parse_cli_args(["session-migration-report", "--session", "session.json"]).unwrap(),
+            CliCommand::SessionMigrationReport { session }
+                if session == Path::new("session.json")
+        ));
+        assert!(matches!(
+            parse_cli_args(["session-migration-report", "--help"]).unwrap(),
+            CliCommand::Help(text) if text.contains("sesión DataPrep")
+        ));
+        assert!(parse_cli_args(["session-migration-report"]).is_err());
         assert_eq!(
             parse_cli_args(["batch", "--manifest", "batch.json"]).unwrap(),
             CliCommand::Batch {
@@ -2577,6 +2876,95 @@ mod tests {
         assert!(!serialized.contains("private-email-column"));
         assert!(!serialized.contains("secret-value"));
         assert!(!serialized.contains(rules.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn session_migration_report_summarizes_v3_without_writing_a_project() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.csv");
+        let snapshot = directory.path().join("snapshot.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "value,label\n1,one\n").unwrap();
+        fs::write(&snapshot, "value,label\n1,one\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 3,
+                "name": "Sesión confidencial",
+                "source_path": "source.csv",
+                "snapshot_path": "snapshot.csv",
+                "sheet_name": "Datos",
+                "stage_label": "Preparar",
+                "applied_ops": [{"kind": "filter"}],
+                "quality_rules": [{"kind": "not_null", "column": "private-email"}],
+                "analysis_checks": {"duplicates": {}, "outliers": {}},
+                "transform": {
+                    "rename_text": "value -> amount",
+                    "filters": [{"col": "amount", "op": ">", "val": "0"}]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = session_migration_report(&session).unwrap();
+
+        assert_eq!(report.command, "session-migration-report");
+        assert_eq!(report.session.source_version.as_deref(), Some("3"));
+        assert_eq!(report.origin.source.status, "available");
+        assert_eq!(report.origin.snapshot.status, "available");
+        assert_eq!(
+            report.origin.source_file_name.as_deref(),
+            Some("source.csv")
+        );
+        assert_eq!(report.session.sheet_name.as_deref(), Some("Datos"));
+        assert_eq!(report.session.stage_label.as_deref(), Some("Preparar"));
+        assert_eq!(report.session.applied_operation_count, 1);
+        assert_eq!(report.session.analysis_check_count, 2);
+        assert_eq!(report.recipe_summary.operation_count, 2);
+        assert_eq!(report.quality.total_rules, 1);
+        assert_eq!(report.quality.converted_rules, 1);
+        assert!(report.requires_manual_review());
+        assert!(!serde_json::to_string(&report)
+            .unwrap()
+            .contains("private-email"));
+        assert!(!serde_json::to_string(&report)
+            .unwrap()
+            .contains(session.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn session_migration_report_marks_missing_source_and_snapshot_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let snapshot = directory.path().join("snapshot.parquet");
+        let session = directory.path().join("session.json");
+        fs::write(&snapshot, b"not a dataset but a present reference").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "source_path": "moved.csv",
+                "snapshot_path": "snapshot.parquet",
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = session_migration_report(&session).unwrap();
+
+        assert_eq!(report.origin.source.status, "missing");
+        assert_eq!(report.origin.snapshot.status, "available");
+        assert!(report.can_create_project);
+        assert!(report.requires_manual_review());
+        assert!(report
+            .manual_actions
+            .iter()
+            .any(|action| action.contains("snapshot")));
+        assert!(report
+            .missing_references
+            .iter()
+            .any(|reference| reference == "source"));
     }
 
     #[test]

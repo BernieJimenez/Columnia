@@ -83,6 +83,8 @@ const MAX_TEMPORAL_PERIODS: usize = 48;
 const MAX_TEMPORAL_DAY_SPAN: i64 = 90;
 const MAX_TEMPORAL_MONTH_SPAN: i64 = 36;
 const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
+const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
+const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -2043,6 +2045,122 @@ fn parse_local_projection(
     Ok((projections, aggregate))
 }
 
+#[derive(Clone, Debug)]
+struct LocalJoinOperand {
+    table: Option<String>,
+    column: String,
+}
+
+fn parse_local_join_operand(value: &str) -> Result<LocalJoinOperand, String> {
+    let identifier = local_identifier(value)?;
+    let mut parts = identifier.split('.');
+    let first = parts.next().unwrap_or_default();
+    let second = parts.next();
+    if parts.next().is_some() {
+        return Err("El JOIN solo permite columnas de dataset o compared.".to_owned());
+    }
+    if let Some(column) = second {
+        if !matches!(first, "dataset" | "compared") || column.is_empty() {
+            return Err("El JOIN solo permite columnas de dataset o compared.".to_owned());
+        }
+        Ok(LocalJoinOperand {
+            table: Some(first.to_owned()),
+            column: column.to_owned(),
+        })
+    } else {
+        Ok(LocalJoinOperand {
+            table: None,
+            column: first.to_owned(),
+        })
+    }
+}
+
+fn parse_local_join_query(
+    query: &str,
+    current: &DataFrame,
+    compared: Option<&DataFrame>,
+) -> Result<Option<(DataFrame, String)>, String> {
+    let pattern = Regex::new(
+        r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*=\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))(.*)$"#,
+    )
+    .expect("el patrón de JOIN local debe ser válido");
+    let Some(captures) = pattern.captures(query) else {
+        if query.to_ascii_lowercase().contains("join") {
+            return Err(
+                "El JOIN local debe usar FROM dataset JOIN compared ON columna = columna."
+                    .to_owned(),
+            );
+        }
+        return Ok(None);
+    };
+    let compared = compared.ok_or_else(|| {
+        "No hay un dataset comparado cargado. Selecciona una fuente en Comparar datasets antes de usar JOIN."
+            .to_owned()
+    })?;
+    if current.height().saturating_add(compared.height()) > LOCAL_QUERY_JOIN_MAX_INPUT_ROWS {
+        return Err(format!(
+            "El JOIN local limita las entradas a {LOCAL_QUERY_JOIN_MAX_INPUT_ROWS} filas para proteger la memoria."
+        ));
+    }
+
+    let left = parse_local_join_operand(
+        captures
+            .get(3)
+            .expect("la clave izquierda debe existir")
+            .as_str(),
+    )?;
+    let right = parse_local_join_operand(
+        captures
+            .get(4)
+            .expect("la clave derecha debe existir")
+            .as_str(),
+    )?;
+    let left_table = left.table.as_deref().unwrap_or("dataset");
+    let right_table = right.table.as_deref().unwrap_or("compared");
+    if left_table == right_table {
+        return Err(
+            "El JOIN debe relacionar una columna de dataset con una de compared.".to_owned(),
+        );
+    }
+    let (current_key, compared_key) = if left_table == "dataset" {
+        (left.column, right.column)
+    } else {
+        (right.column, left.column)
+    };
+    let join_type = match captures
+        .get(2)
+        .map(|value| value.as_str().to_ascii_lowercase())
+    {
+        Some(value) if value == "left" => DatasetJoinType::Left,
+        Some(value) if value == "full" => DatasetJoinType::Full,
+        _ => DatasetJoinType::Inner,
+    };
+    let joined = join_frames_on_keys(
+        current,
+        compared,
+        &[current_key],
+        &[compared_key],
+        join_type,
+    )?;
+    if joined.height() > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
+        return Err(format!(
+            "El resultado del JOIN supera el límite local de {LOCAL_QUERY_JOIN_MAX_RESULT_ROWS} filas."
+        ));
+    }
+    let normalized_query = format!(
+        "SELECT {} FROM dataset{}",
+        captures
+            .get(1)
+            .expect("la proyección debe existir")
+            .as_str(),
+        captures
+            .get(5)
+            .map(|value| value.as_str())
+            .unwrap_or_default()
+    );
+    Ok(Some((joined, normalized_query)))
+}
+
 fn parse_local_predicates(
     where_clause: Option<&str>,
     frame: &DataFrame,
@@ -2540,6 +2658,18 @@ fn execute_local_query(frame: &DataFrame, query: &str) -> Result<DatasetQueryRes
         rows,
         truncated,
     })
+}
+
+fn execute_local_query_with_comparison(
+    current: &DataFrame,
+    compared: Option<&DataFrame>,
+    query: &str,
+) -> Result<DatasetQueryResult, String> {
+    if let Some((joined, normalized_query)) = parse_local_join_query(query, current, compared)? {
+        execute_local_query(&joined, &normalized_query)
+    } else {
+        execute_local_query(current, query)
+    }
 }
 
 fn numeric_value(value: AnyValue<'_>) -> Option<f64> {
@@ -11510,12 +11640,39 @@ fn join_frames(
     key_columns: &[String],
     join_type: DatasetJoinType,
 ) -> Result<DataFrame, String> {
-    validate_key_columns(current, compared, key_columns)?;
+    join_frames_on_keys(current, compared, key_columns, key_columns, join_type)
+}
+
+fn join_frames_on_keys(
+    current: &DataFrame,
+    compared: &DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
+    join_type: DatasetJoinType,
+) -> Result<DataFrame, String> {
+    if current_keys.is_empty() || current_keys.len() != compared_keys.len() {
+        return Err(
+            "El JOIN necesita el mismo número de columnas clave en ambos datasets.".to_owned(),
+        );
+    }
+    for (current_key, compared_key) in current_keys.iter().zip(compared_keys) {
+        let current_column = current.column(current_key).map_err(|_| {
+            format!("La columna clave '{current_key}' no existe en el dataset activo.")
+        })?;
+        let compared_column = compared.column(compared_key).map_err(|_| {
+            format!("La columna clave '{compared_key}' no existe en el dataset comparado.")
+        })?;
+        if current_column.dtype() != compared_column.dtype() {
+            return Err(format!(
+                "Las columnas clave '{current_key}' y '{compared_key}' tienen tipos incompatibles."
+            ));
+        }
+    }
     current
         .join(
             compared,
-            key_columns.iter(),
-            key_columns.iter(),
+            current_keys.iter(),
+            compared_keys.iter(),
             JoinArgs::new(join_type.polars_type()).with_coalesce(JoinCoalesce::CoalesceColumns),
             None,
         )
@@ -12355,21 +12512,30 @@ pub fn get_dataset_page(
 
 #[tauri::command]
 pub async fn query_dataset(app: AppHandle, query: String) -> Result<DatasetQueryResult, String> {
-    let frame = {
+    let (frame, compared) = {
         let state = app.state::<DatasetState>();
         let current = state
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        current
+        let frame = current
             .as_ref()
             .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?
             .frame
-            .clone()
+            .clone();
+        let compared = state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?
+            .as_ref()
+            .map(|pending| pending.frame.clone());
+        (frame, compared)
     };
-    tauri::async_runtime::spawn_blocking(move || execute_local_query(&frame, &query))
-        .await
-        .map_err(|error| format!("La consulta local se interrumpió: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        execute_local_query_with_comparison(&frame, compared.as_ref(), &query)
+    })
+    .await
+    .map_err(|error| format!("La consulta local se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -16866,6 +17032,75 @@ mod tests {
         assert!(execute_local_query(&frame, "DELETE FROM dataset").is_err());
         assert!(execute_local_query(&frame, "SELECT * FROM dataset LIMIT 201").is_err());
         assert!(execute_local_query(&frame, "SELECT missing FROM dataset").is_err());
+    }
+
+    #[test]
+    fn local_query_joins_only_the_loaded_comparison_and_pages_results() {
+        let current = df![
+            "id" => &[1_i64, 2, 3],
+            "city" => &["Santo Domingo", "Santiago", "La Vega"]
+        ]
+        .unwrap();
+        let compared = df![
+            "id" => &[2_i64, 3],
+            "segment" => &["B", "C"]
+        ]
+        .unwrap();
+
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT id, segment FROM dataset LEFT JOIN compared ON dataset.id = compared.id LIMIT 2",
+        )
+        .expect("el JOIN local debe usar la comparación cargada");
+
+        assert_eq!(
+            result
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "segment"]
+        );
+        assert_eq!(result.row_count, 3);
+        assert_eq!(result.offset, 0);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("1".to_owned()), None],
+                vec![Some("2".to_owned()), Some("B".to_owned())]
+            ]
+        );
+        assert!(result.truncated);
+    }
+
+    #[test]
+    fn local_query_join_requires_comparison_and_matching_key_types() {
+        let current = df!["id" => &[1_i64], "value" => &[10_i64]].unwrap();
+        let compared = df!["id" => &["1"], "segment" => &["A"]].unwrap();
+
+        let missing = execute_local_query_with_comparison(
+            &current,
+            None,
+            "SELECT * FROM dataset JOIN compared ON id = id LIMIT 1",
+        )
+        .expect_err("un JOIN sin comparación no debe leer una fuente arbitraria");
+        assert!(missing.contains("No hay un dataset comparado cargado"));
+
+        let incompatible = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT * FROM dataset JOIN compared ON id = id LIMIT 1",
+        )
+        .expect_err("las claves con tipos distintos deben rechazarse");
+        assert!(incompatible.contains("tipos incompatibles"));
+
+        assert!(execute_local_query_with_comparison(
+            &current,
+            Some(&current),
+            "SELECT * FROM dataset RIGHT JOIN compared ON id = id LIMIT 1",
+        )
+        .is_err());
     }
 
     #[test]

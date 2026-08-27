@@ -303,6 +303,8 @@ describe("ReviewPhase", () => {
 
     expect(screen.getByText("actualizacion.csv")).toBeInTheDocument();
     expect(screen.getByText("Filas compartidas")).toBeInTheDocument();
+    expect(screen.getByText(/La comparación cargada también está disponible como compared/)).toBeInTheDocument();
+    expect(screen.getByText(/SELECT id, segmento FROM dataset LEFT JOIN compared/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /id/ })).toBeChecked();
     fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
     fireEvent.click(screen.getByRole("radio", { name: /^Left/ }));

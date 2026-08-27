@@ -300,6 +300,7 @@ function normalizeRustFieldType(type: string): string {
       "ContactKind",
       "ExtractionKind",
       "SessionReferenceStatus",
+      "PerformanceProfile",
     ].includes(withoutReference)
   ) return "string";
   return withoutReference;
@@ -444,6 +445,7 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const registered = registeredTauriCommands(rustSource);
@@ -458,6 +460,7 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const registered = registeredTauriCommands(rustSource);
@@ -472,11 +475,13 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const sharedStructures: Array<[rust: string, typescript: string]> = [
       ["AppInfo", "AppInfo"],
       ["ResourceUsage", "ResourceUsage"],
+      ["PerformanceSettings", "PerformanceSettings"],
       ["OperationProgress", "OperationProgress"],
       ["ExportResult", "ExportResult"],
       ["QualityCondition", "QualityCondition"],
@@ -550,12 +555,14 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const aliases = typescriptTypeAliases(bridgeSource);
     const sharedStructures: Array<[rust: string, typescript: string]> = [
       ["AppInfo", "AppInfo"],
       ["ResourceUsage", "ResourceUsage"],
+      ["PerformanceSettings", "PerformanceSettings"],
       ["OperationProgress", "OperationProgress"],
       ["ExportResult", "ExportResult"],
       ["QualityCondition", "QualityCondition"],

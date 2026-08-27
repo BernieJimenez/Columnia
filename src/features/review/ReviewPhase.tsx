@@ -100,6 +100,7 @@ export function ReviewPhase({
             status={profileStatus}
             onAnalyze={onAnalyzeQuality}
             onCancel={onCancelProfile}
+            comparisonAvailable={comparisonStatus.kind === "ready"}
           />
         </div>
       ) : (
@@ -463,11 +464,13 @@ function QualitySection({
   status,
   onAnalyze,
   onCancel,
+  comparisonAvailable,
 }: {
   dataset: DatasetPreview;
   status: ProfileStatus;
   onAnalyze: () => void;
   onCancel: () => void;
+  comparisonAvailable: boolean;
 }) {
   return (
     <section className="phase-section" aria-labelledby="quality-title">
@@ -497,12 +500,12 @@ function QualitySection({
         </p>
       )}
       {status.kind === "ready" && <QualityProfile profile={status.profile} />}
-      <LocalQueryPanel />
+      <LocalQueryPanel comparisonAvailable={comparisonAvailable} />
     </section>
   );
 }
 
-function LocalQueryPanel() {
+function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean }) {
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
   const [state, setState] = useState<
     | { kind: "idle" }
@@ -543,7 +546,18 @@ function LocalQueryPanel() {
           <div>
             <p className="step">Consulta segura</p>
             <h4 id="local-query-title">Consulta SQL de solo lectura</h4>
-            <p>Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples, GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.</p>
+            <p>
+              Solo se acepta SELECT sobre <code>dataset</code>, columnas existentes, filtros simples,
+              GROUP BY y COUNT/SUM/AVG/MIN/MAX; LIMIT/OFFSET queda acotado a 200 filas.
+              {comparisonAvailable
+                ? " La comparación cargada también está disponible como compared para JOIN INNER, LEFT o FULL."
+                : " Carga una comparación para habilitar JOIN con la tabla compared."}
+            </p>
+            {comparisonAvailable && (
+              <p className="local-query__example">
+                Ejemplo: <code>SELECT id, segmento FROM dataset LEFT JOIN compared ON dataset.id = compared.codigo LIMIT 50</code>
+              </p>
+            )}
           </div>
         </div>
         <label className="local-query__field">

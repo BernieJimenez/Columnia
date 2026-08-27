@@ -8,6 +8,8 @@ pub mod privacy;
 mod projects;
 mod resource;
 
+use resource::{PerformanceProfile, PerformanceSettings};
+
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
@@ -66,6 +68,16 @@ fn get_resource_usage() -> Result<ResourceUsage, String> {
     resource::get_resource_usage()
 }
 
+#[tauri::command]
+fn get_performance_settings() -> Result<PerformanceSettings, String> {
+    resource::get_performance_settings()
+}
+
+#[tauri::command]
+fn set_performance_profile(profile: PerformanceProfile) -> Result<PerformanceSettings, String> {
+    resource::set_performance_profile(profile)
+}
+
 #[cfg(desktop)]
 fn restore_main_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
@@ -104,6 +116,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             get_resource_usage,
+            get_performance_settings,
+            set_performance_profile,
             dataset::pick_dataset_source,
             dataset::load_dataset_selection,
             dataset::discard_dataset_selection,
