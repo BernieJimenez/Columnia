@@ -692,7 +692,6 @@ export function App() {
                   disabled={operationBusy}
                   onSave={(name) => void projects.save(name)}
                   onOpen={(projectId) => void projects.open(projectId)}
-                  onImportSession={() => void projects.importSession()}
                   onDeleteRequest={projects.requestDelete}
                   onDeleteCancel={projects.cancelDelete}
                   onDeleteConfirm={() => void projects.confirmDelete()}

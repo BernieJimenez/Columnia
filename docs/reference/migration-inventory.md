@@ -91,14 +91,14 @@ El inventario mínimo se prueba con fixtures sintéticas versionadas en
 La revisión de manifiestos de sesión desde Preparar no restaura un dataset: sus
 rutas y snapshots se convierten en señales booleanas sanitizadas, y la hoja,
 etapa y conteos de operaciones, reglas y análisis se conservan en el informe
-estructurado. Desde Proyectos, **Importar sesión DataPrep** ofrece una slice de
-mapeo segura: el selector nativo mantiene la ruta fuera del bridge, la fuente,
-hoja, esquema y receta se validan en un estado temporal, y solo después se
-publica un snapshot y se abre el proyecto resultante. Si la fuente original ya
-no existe, un `snapshot_path` local y compatible puede restaurarse como dataset
-temporal sin volver a ejecutar la receta sobre datos ya materializados. Una
-cancelación o error no modifica el dataset activo ni reemplaza proyectos
-existentes.
+estructurado. La capa nativa conserva una slice de mapeo segura para
+migraciones controladas: mantiene la ruta fuera del bridge, valida fuente,
+hoja, esquema y receta en un estado temporal, y solo después puede publicar un
+snapshot y abrir el proyecto resultante. Si la fuente original ya no existe,
+un `snapshot_path` local y compatible puede restaurarse como dataset temporal
+sin volver a ejecutar la receta sobre datos ya materializados. La acción no se
+expone en el panel de Proyectos; una cancelación o error no modifica el dataset
+activo ni reemplaza proyectos existentes.
 
 ## Límites pendientes
 

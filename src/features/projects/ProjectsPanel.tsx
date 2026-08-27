@@ -20,7 +20,6 @@ interface ProjectsPanelProps {
   disabled: boolean;
   onSave: (name: string) => void;
   onOpen: (projectId: string) => void;
-  onImportSession: () => void;
   onDeleteRequest: (project: ProjectSummary) => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
@@ -45,7 +44,6 @@ export function ProjectsPanel({
   disabled,
   onSave,
   onOpen,
-  onImportSession,
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
@@ -72,19 +70,11 @@ export function ProjectsPanel({
           <h3 id="projects-title">Proyectos</h3>
           <p>Un proyecto conserva el dataset, las reglas, el borrador, el perfil calculado y el historial reversible.</p>
         </div>
-        <div className="projects__heading-actions">
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={onImportSession}
-            disabled={disabled || catalog.kind === "loading"}
-          >
-            Importar sesión DataPrep
-          </button>
-          {catalog.kind === "error" && (
+        {catalog.kind === "error" && (
+          <div className="projects__heading-actions">
             <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {catalog.kind === "loading" && <p className="notice" role="status">Cargando proyectos locales…</p>}

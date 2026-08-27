@@ -81,12 +81,11 @@ de análisis. Las referencias al archivo original y a snapshots se conservan
 únicamente como señales de revisión; no se activan ni se copian automáticamente,
 por lo que una importación parcial nunca reemplaza un proyecto válido.
 
-Desde el panel **Proyectos** también puedes elegir **Importar sesión DataPrep**.
-Columnia valida la fuente, la hoja, el esquema y la receta en un estado temporal;
-si la fuente original ya no existe, también puede restaurar un `snapshot_path`
-local y compatible como dataset temporal sin volver a ejecutar la receta. Solo
-publica el proyecto después de superar esas comprobaciones y abre el proyecto
-importado automáticamente. Cancelar el selector no cambia el dataset activo.
+La compatibilidad de sesión se mantiene en la capa nativa para migraciones y
+restauraciones controladas, pero no se expone como una acción dentro de
+**Proyectos**. Cuando una migración autorizada valida la fuente, la hoja, el
+esquema y la receta en un estado temporal, puede restaurar un `snapshot_path`
+local y compatible sin volver a ejecutar la receta sobre datos ya materializados.
 
 ## Desarrollo local
 
