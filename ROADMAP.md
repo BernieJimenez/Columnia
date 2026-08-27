@@ -1235,8 +1235,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [ ] Completar la paridad de sesión operativa: muestras, arrastrar/soltar,
   preferencias, caché derivada, historial de ejecuciones y apertura segura de
   outputs; la primera slice de archivos recientes ya conserva solo nombre,
-  formato, fecha e ID opaco, sin rutas. El modelo durable de proyectos de
-  Columnia se conserva como reemplazo de la sesión persistente original.
+  formato, fecha e ID opaco, sin rutas, y Revisar ya muestra una actividad SQL
+  acotada a la sesión con estado, duración y filas, sin guardar la consulta.
+  El modelo durable de proyectos de Columnia se conserva como reemplazo de la
+  sesión persistente original.
 
 **Gate:** cada capacidad marcada como implementada debe tener contrato, prueba
 automatizada y una fila de paridad con evidencia del original.
@@ -1359,6 +1361,7 @@ del original.
 | 2026-08-27 | Sanitizar en una frontera común los JSON públicos de la CLI para eliminar rutas, nombres de archivo, valores, emails, secretos y referencias privadas en reportes, recetas y manifiestos, conservando identificadores, estados y conteos | Implementada; futuros conectores remotos y artefactos adicionales requieren ampliar el contrato |
 | 2026-08-27 | Añadir cancelación cooperativa a SQL local, presupuesto de agregaciones y preflight de cardinalidad para rechazar joins many-to-many antes de materializar resultados fuera de límite | Implementada en `src-tauri/src/dataset.rs`; DuckDB y ejecución incremental completa siguen en cola |
 | 2026-08-27 | Conservar hasta cinco archivos recientes sin rutas y reabrir siempre el selector nativo al elegir uno | Implementada en `src/features/load/recentFilesModel.ts` y `src/features/load/LoadPhase.tsx` |
+| 2026-08-27 | Mostrar actividad SQL de la sesión actual con las últimas cinco ejecuciones, estado, duración y filas, sin persistir texto de consulta ni valores | Implementada en `src/features/review/ReviewPhase.tsx`; el historial durable de ejecuciones sigue en cola |
 | 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
 | 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |

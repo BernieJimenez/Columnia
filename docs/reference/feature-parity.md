@@ -494,6 +494,11 @@ Toda la ejecución comprueba cancelación por bloques, incluida la ordenación y
 la unión. No se aceptan rutas, tablas externas, escrituras ni consultas contra
 una comparación no cargada. DuckDB sigue fuera de esta vertical.
 
+Revisar conserva una actividad efímera de las últimas cinco ejecuciones SQL:
+estado, duración y filas afectadas. No almacena el texto de la consulta ni
+valores del dataset; la persistencia durable del historial de ejecuciones sigue
+pendiente junto con el resto de la paridad de sesión.
+
 ## Brecha de migración desde `dataprepv1.1`
 
 La migración tiene dos capas distintas:

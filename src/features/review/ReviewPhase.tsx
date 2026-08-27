@@ -506,6 +506,14 @@ function QualitySection({
 }
 
 function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean }) {
+  type QueryHistoryOutcome = "success" | "error" | "cancelled";
+  type QueryHistoryEntry = {
+    id: number;
+    outcome: QueryHistoryOutcome;
+    durationMs: number;
+    rowCount: number | null;
+  };
+
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
   const [state, setState] = useState<
     | { kind: "idle" }
@@ -515,32 +523,55 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [queryOpen, setQueryOpen] = useState(false);
+  const [queryHistory, setQueryHistory] = useState<QueryHistoryEntry[]>([]);
   const activeQueryRef = useRef(0);
   const cancelledQueryRef = useRef<number | null>(null);
+  const queryStartedAtRef = useRef(new Map<number, number>());
+  const recordedQueryIdsRef = useRef<number[]>([]);
 
   useEffect(() => {
     if (state.kind !== "idle") setQueryOpen(true);
   }, [state.kind]);
 
+  function recordQueryHistory(
+    requestId: number,
+    outcome: QueryHistoryOutcome,
+    rowCount: number | null = null,
+  ) {
+    if (recordedQueryIdsRef.current.includes(requestId)) return;
+    recordedQueryIdsRef.current = [...recordedQueryIdsRef.current.slice(-31), requestId];
+    const startedAt = queryStartedAtRef.current.get(requestId) ?? Date.now();
+    queryStartedAtRef.current.delete(requestId);
+    setQueryHistory((current) => [
+      { id: requestId, outcome, durationMs: Math.max(0, Date.now() - startedAt), rowCount },
+      ...current,
+    ].slice(0, 5));
+  }
+
   async function runQuery() {
     const requestId = activeQueryRef.current + 1;
     activeQueryRef.current = requestId;
     cancelledQueryRef.current = null;
+    queryStartedAtRef.current.set(requestId, Date.now());
     setState({ kind: "loading", cancelRequested: false });
     try {
       const result = await queryDataset(query);
       if (activeQueryRef.current !== requestId) return;
       if (cancelledQueryRef.current === requestId) {
+        recordQueryHistory(requestId, "cancelled");
         setState({ kind: "cancelled" });
         return;
       }
+      recordQueryHistory(requestId, "success", result.rowCount);
       setState({ kind: "ready", result });
     } catch (error: unknown) {
       if (activeQueryRef.current !== requestId) return;
       if (cancelledQueryRef.current === requestId) {
+        recordQueryHistory(requestId, "cancelled");
         setState({ kind: "cancelled" });
         return;
       }
+      recordQueryHistory(requestId, "error");
       setState({
         kind: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -555,7 +586,10 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
     setState({ kind: "loading", cancelRequested: true });
     try {
       await cancelOperation("query");
-      if (activeQueryRef.current === requestId) setState({ kind: "cancelled" });
+      if (activeQueryRef.current === requestId) {
+        recordQueryHistory(requestId, "cancelled");
+        setState({ kind: "cancelled" });
+      }
     } catch (error: unknown) {
       if (activeQueryRef.current !== requestId) return;
       cancelledQueryRef.current = null;
@@ -621,6 +655,32 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
             </button>
           )}
         </div>
+        {queryHistory.length > 0 && (
+          <section className="local-query__history" aria-labelledby="local-query-history-title">
+            <div className="local-query__history-heading">
+              <div>
+                <p className="step">Sesión actual</p>
+                <h5 id="local-query-history-title">Actividad reciente</h5>
+              </div>
+              <span>Últimas {queryHistory.length} consultas</span>
+            </div>
+            <ol aria-label="Historial de consultas SQL">
+              {queryHistory.map((entry) => (
+                <li key={entry.id} className={`local-query__history-item local-query__history-item--${entry.outcome}`}>
+                  <strong>
+                    {entry.outcome === "success"
+                      ? "Completada"
+                      : entry.outcome === "cancelled"
+                        ? "Cancelada"
+                        : "Error"}
+                  </strong>
+                  <span>{formatQueryDuration(entry.durationMs)}</span>
+                  <span>{entry.rowCount === null ? "Sin resultado" : `${entry.rowCount.toLocaleString()} filas`}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
         {state.kind === "loading" && (
           <p id="local-query-status" className="local-query__status" role="status" aria-live="polite">
             {state.cancelRequested ? "Solicitando la cancelación…" : "La consulta sigue en ejecución."}
@@ -636,6 +696,12 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
       </section>
     </details>
   );
+}
+
+function formatQueryDuration(durationMs: number): string {
+  return durationMs < 1000
+    ? `${durationMs} ms`
+    : `${(durationMs / 1000).toFixed(1)} s`;
 }
 
 function LocalQueryResult({ result }: { result: DatasetQueryResult }) {

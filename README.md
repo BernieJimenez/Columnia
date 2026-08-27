@@ -152,7 +152,9 @@ El explorador SQL local es de solo lectura y trabaja por bloques cancelables. La
 agregaciones rechazan conjuntos coincidentes que exceden su presupuesto y los
 joins aplican un preflight de cardinalidad antes de materializar resultados
 many-to-many. DuckDB y la ejecución incremental completa siguen siendo trabajo
-pendiente.
+pendiente. La sesión actual muestra las últimas cinco ejecuciones con estado,
+duración y filas afectadas, pero nunca conserva el texto de la consulta ni sus
+valores.
 
 Para repetir el tier completo en Windows usa `npm run verify:tier`. Ejecuta tests,
 build, evidencia visual, benchmark sostenido, Package, smokes CLI/WebView2 y los

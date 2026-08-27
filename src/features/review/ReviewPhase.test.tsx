@@ -361,6 +361,8 @@ describe("ReviewPhase", () => {
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 filas disponibles"));
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
+    expect(screen.getByRole("heading", { name: "Actividad reciente" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Completada");
     expect(bridge.queryDataset).toHaveBeenCalledWith("SELECT id FROM dataset LIMIT 1");
   });
 
@@ -405,6 +407,7 @@ describe("ReviewPhase", () => {
       expect(bridge.cancelOperation).toHaveBeenCalledWith("query");
       expect(screen.getByRole("status")).toHaveTextContent("Consulta cancelada");
     });
+    expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Cancelada");
 
     resolveQuery({
       columns: [{ name: "id", dataType: "Int64" }],
