@@ -72,8 +72,15 @@ function Test-OwnedProcess {
     if ($JobHandle -eq [IntPtr]::Zero) { return $false }
     $candidate = Get-Process -Id $Id -ErrorAction SilentlyContinue
     if ($null -eq $candidate) { return $false }
+    try {
+        $processHandle = [IntPtr]$candidate.Handle
+    }
+    catch {
+        return $false
+    }
+    if ($processHandle -eq [IntPtr]::Zero) { return $false }
     $belongsToJob = $false
-    if (-not [ColumniaReleaseEvidence.NativeMethods]::IsProcessInJob($candidate.Handle, $JobHandle, [ref]$belongsToJob)) {
+    if (-not [ColumniaReleaseEvidence.NativeMethods]::IsProcessInJob($processHandle, $JobHandle, [ref]$belongsToJob)) {
         return $false
     }
     return $belongsToJob
