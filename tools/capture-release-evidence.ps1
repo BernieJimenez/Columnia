@@ -79,8 +79,12 @@ function Test-OwnedProcess {
     return $belongsToJob
 }
 
+function Get-TrackedProcessId {
+    @($TrackedProcessIds.GetEnumerator() | ForEach-Object { [int]$_ })
+}
+
 function Stop-CreatedProcesses {
-    foreach ($id in @($TrackedProcessIds)) {
+    foreach ($id in (Get-TrackedProcessId)) {
         if (Test-OwnedProcess -Id $id) {
             Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
         }
@@ -90,11 +94,11 @@ function Stop-CreatedProcesses {
     }
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
-        $remaining = @($TrackedProcessIds | Where-Object { Test-OwnedProcess -Id ([int]$_) })
+        $remaining = @(Get-TrackedProcessId | Where-Object { Test-OwnedProcess -Id $_ })
         if ($remaining.Count -eq 0) { return $true }
         Start-Sleep -Milliseconds 100
     }
-    return @($TrackedProcessIds | Where-Object { Test-OwnedProcess -Id ([int]$_) }).Count -eq 0
+    return @(Get-TrackedProcessId | Where-Object { Test-OwnedProcess -Id $_ }).Count -eq 0
 }
 
 function Get-ListenerOwner {
