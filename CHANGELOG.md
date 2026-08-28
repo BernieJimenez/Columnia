@@ -8,6 +8,15 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Cargar admite arrastrar un dataset a la ventana sin entregar su ruta a React
+  y mantiene hasta cinco referencias recientes sanitizadas que vuelven a abrir
+  el selector nativo.
+- Revisar incorpora actividad SQL efímera y tendencia temporal diaria para
+  rangos cortos, con días vacíos y tabla accesible equivalente.
+- Preparar permite retirar columnas identificadoras de forma explícita,
+  confirmada y reversible, sin publicar sus valores.
+- La CLI sanitiza reportes, recetas y manifiestos en una frontera común, y las
+  consultas/joins locales incorporan cancelación y preflight de cardinalidad.
 - Los manifiestos de sesión DataPrep importados conservan un resumen estructural
   sanitizado en el informe de migración: hoja, etapa, conteos de operaciones,
   reglas y análisis, además de señales booleanas para referencias de origen y
@@ -28,8 +37,9 @@ los artefactos de validación locales.
   equipo, actualización nativa periódica y estado accesible para el shell web.
 - Benchmark reproducible de 100 MiB contra `dataprepv1.1`, con comparación de
   duración, working set, conteos, fixture sintética y cleanup sin conservar datos.
-- Gate de cobertura V8 por capa para `src` (80% statements/lines, 75% branches y
-  functions) y 202 tests frontend.
+- Gate de cobertura V8 global para `src` (80% statements/lines, 75% branches y
+  functions) y 248 tests frontend; el cumplimiento real por capa queda abierto
+  en `T5-04`.
 - Supply chain local con `npm audit`, `cargo-audit`, `cargo-deny`, secret scan,
   inventario reproducible de `THIRD_PARTY_NOTICES` y verificación de red sin
   telemetría.
@@ -58,13 +68,24 @@ los artefactos de validación locales.
 
 ### Validación
 
-- Verificados build Vite, contratos IPC, 177 pruebas Rust y 202 pruebas frontend,
-  pruebas del monitor,
-  evidencia release desktop/móvil/zoom 125%/`forced-colors` y el gate
-  `perf:i1:check`, cobertura frontend, auditorías de supply chain, smoke CDP
-  (`.local/validation/webview2-cdp/20260824T011617Z`), selectores nativos
-  (`.local/validation/webview2-cdp/20260824T233922Z`), Release y Package con
-  MSI/NSIS.
+- En la reauditoría del 2026-08-28 aprobaron 234 pruebas Rust, 248 frontend y 9
+  E2E, además de build Vite, contratos IPC, cobertura y los perfiles Full,
+  Release y Package; Package produjo MSI y NSIS para `137520b`.
+- Las capturas visuales web y release frescas cumplieron sus contratos. Los
+  recorridos CDP/selectores fueron funcionales, pero excedieron memoria; el gate
+  de rendimiento y la comparación del baseline visual release quedaron fallidos
+  y trazados en Tier 5.
+
+### Interno
+
+- Reauditoría profesional exhaustiva sobre `137520b`: se añadió
+  `AUDITORIA_PROFESIONAL_2026-08-28.md` y se abrió Tier 5 con 20 tareas
+  trazables (`T5-01`–`T5-20`). No se modificó comportamiento del producto.
+- `Full`, `Release` y `Package` aprobaron; Package produjo MSI y NSIS ligados al
+  commit auditado. Los gates de rendimiento y baseline visual release fallaron
+  y se conservaron como fallos, sin elevar presupuestos ni aprobar hashes.
+- Queda pendiente reconstruir de forma completa las notas de los commits
+  posteriores al último corte documentado (`T5-15`).
 
 ## [0.57.0] - 2026-08-24
 

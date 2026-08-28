@@ -29,6 +29,24 @@
 - Plataforma inicial de soporte y verificación: Windows x64; macOS y Linux
   deberán verificarse localmente en sus respectivos sistemas antes de declarar
   soporte público.
+- Reauditoría profesional del 2026-08-28: no se detectaron hallazgos críticos;
+  se abrió Tier 5 con 20 tareas. El prototipo local compila y empaqueta, pero la
+  publicación sigue bloqueada por rendimiento, fidelidad de gates, notices y
+  las validaciones externas ya abiertas en I5/I6/I7. Informe:
+  `AUDITORIA_PROFESIONAL_2026-08-28.md`.
+
+### Índice operativo de la reauditoría
+
+El roadmap histórico anterior a esta revisión usa fases y no IDs por Tier. Se
+conserva sin reescribirlo; las tareas nuevas empiezan en Tier 5 y enlazan los
+pendientes existentes cuando corresponde.
+
+| Tanda | Estado | Tareas abiertas | Severidad | Esfuerzo agregado |
+| --- | --- | ---: | --- | --- |
+| Tier 5 — Integridad de gates y preparación de distribución | Abierto 2026-08-28 | 20 | 6 altas, 13 medias, 1 baja | 6 bajas, 9 medias, 5 altas |
+
+Las Fases I5, I6 e I7 siguen abiertas y forman dependencias obligatorias del
+release público; no se duplican como tareas nuevas.
 
 ## 1. Producto de referencia
 
@@ -1346,6 +1364,263 @@ del original.
 - Los proyectos SQLite/Parquet, historial y reglas nativos de Columnia son la
   representación final; la compatibilidad se mide por comportamiento observable,
   no por igualdad de archivos internos.
+
+## Tier 5 — Integridad de gates y preparación de distribución (abierto 2026-08-28)
+
+Origen: reauditoría profesional exhaustiva sobre `137520b`. Las severidades de
+esta tanda prevalecen sobre su número de Tier. Ninguna tarea está implementada
+por el mero hecho de estar documentada aquí.
+
+### Prioridad alta
+
+- [ ] **[T5-01] Aislar y corregir la regresión del ciclo durable del benchmark**
+  - **Área:** Rendimiento / Persistencia
+  - **Severidad:** Alta; regresión
+  - **Ubicación:** `tools/benchmark-datasets.ps1:332`, `src-tauri/src/dataset.rs:16577`
+  - **Qué hacer:** preservar una causa sanitizada por fase, perfilar
+    `project-save`/`project-inspect` y corregir el fallo que interrumpe el ciclo
+    tanto con 1 MiB como con 100 MiB.
+  - **Criterio de aceptación:** tres corridas consecutivas de 100 MiB registran
+    todos los comandos requeridos; `project-save` queda por debajo de 60 s y el
+    cleanup es verdadero sin elevar el baseline.
+  - **Esfuerzo:** alto
+  - **Depende de:** ninguna
+
+- [ ] **[T5-02] Recuperar el presupuesto de memoria privada WebView2**
+  - **Área:** Rendimiento
+  - **Severidad:** Alta; regresión
+  - **Ubicación:** `fixtures/performance/performance-baseline-v1.json:5`, `tools/probe-webview2-cdp.ps1:14`
+  - **Qué hacer:** atribuir memoria por proceso/fase, eliminar retenciones o
+    copias evitables y mantener el presupuesto contractual de 256 MiB privado.
+  - **Criterio de aceptación:** tres recorridos funcionales y uno de selectores
+    nativos consecutivos quedan dentro de 256 MiB privado y 512 MiB working set,
+    con cleanup confirmado.
+  - **Esfuerzo:** alto
+  - **Depende de:** ninguna
+
+- [ ] **[T5-03] Hacer vinculante el presupuesto de primer render**
+  - **Área:** QA / Rendimiento
+  - **Severidad:** Media; verde falso
+  - **Ubicación:** `tools/probe-webview2-playwright.mjs:55`, `tools/probe-webview2-playwright.mjs:172`
+  - **Qué hacer:** separar estado funcional y de rendimiento, y propagar ambos al
+    gate compuesto; medir arranque caliente del binario sin compilación fría.
+  - **Criterio de aceptación:** una marca ausente o fuera de presupuesto produce
+    un estado de rendimiento fallido inequívoco y una prueba del script lo cubre.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+
+- [ ] **[T5-04] Restablecer umbrales de cobertura por capa crítica**
+  - **Área:** QA
+  - **Severidad:** Alta; regresión de una tarea cerrada
+  - **Ubicación:** `vitest.config.ts:18`, `ROADMAP.md:877`
+  - **Qué hacer:** definir grupos/per-file para orquestación, controllers y fases;
+    añadir tests conductuales antes de exigir los umbrales acordados.
+  - **Criterio de aceptación:** bajar artificialmente una capa crítica bajo
+    80/75/75/80 rompe `npm run test:coverage`; ninguna exclusión amplia la oculta.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+
+- [ ] **[T5-05] Limitar `SkipPackage` exclusivamente al bundling**
+  - **Área:** QA / DevOps
+  - **Severidad:** Alta; verde falso
+  - **Ubicación:** `tools/verify-tier.ps1:47`, `tools/check.ps1:158`
+  - **Qué hacer:** ejecutar siempre Full/Release según el tier y omitir solo la
+    creación/inventario de MSI/NSIS; si se conserva otra semántica, renombrarla.
+  - **Criterio de aceptación:** `verify:tier -SkipPackage` ejecuta Rust check,
+    cobertura, Clippy, tests Rust y controles Release exigibles, pero no bundling.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+
+- [ ] **[T5-06] Ligar evidencia release a un commit limpio**
+  - **Área:** QA / DevOps
+  - **Severidad:** Alta
+  - **Ubicación:** `tools/check-release-evidence.mjs:27`, `tools/capture-release-evidence.mjs:159`
+  - **Qué hacer:** registrar `HEAD`, rama, dirty state y hashes de lockfiles; usar
+    el mismo build para captura/paquete y revisar el baseline visual actual.
+  - **Criterio de aceptación:** evidencia de otro commit, árbol sucio o baseline
+    anterior falla; la evidencia fresca aprobada corresponde exactamente al
+    commit empaquetado.
+  - **Esfuerzo:** medio
+  - **Depende de:** T5-05
+
+- [ ] **[T5-20] Completar notices y atribuciones antes de publicar**
+  - **Área:** Legal / Supply chain
+  - **Severidad:** Alta para distribución pública; regresión de una tarea cerrada
+  - **Ubicación:** `THIRD_PARTY_NOTICES.md:3`, `tools/generate-third-party-notices.ps1:94`
+  - **Qué hacer:** resolver 349 licencias `UNKNOWN`, deduplicar identidades,
+    incorporar textos/copyrights requeridos y permitir solo excepciones revisadas.
+  - **Criterio de aceptación:** cero `UNKNOWN` no exceptuados, cero duplicados y
+    revisión legal documentada; `notices:check` falla ante incompletitud, no solo
+    ante diferencia con lockfiles.
+  - **Esfuerzo:** alto
+  - **Depende de:** revisión legal y decisión del canal de distribución
+
+### Prioridad media
+
+- [ ] **[T5-07] Sustituir escala de raster por zoom/reflow accesible real**
+  - **Área:** Accesibilidad
+  - **Severidad:** Media
+  - **Ubicación:** `tools/capture-accessibility-evidence.mjs:17`, `tools/capture-release-evidence.mjs:113`
+  - **Qué hacer:** ejercer zoom CSS/UI real a 125% y 200%, con aserciones de
+    dimensiones, overflow, foco y contenido visible.
+  - **Criterio de aceptación:** el caso cambia el viewport CSS efectivo, su
+    evidencia difiere de desktop y una regresión de reflow rompe el gate.
+  - **Esfuerzo:** bajo
+  - **Depende de:** T5-06
+
+- [ ] **[T5-08] Confinar y confirmar salidas de manifiestos batch**
+  - **Área:** Seguridad
+  - **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/automation.rs:1689`, `src-tauri/src/automation.rs:1768`
+  - **Qué hacer:** rechazar absolutas/`..` por defecto, usar un output root
+    canonicalizado y exigir opt-in/`--force` para destino externo o existente.
+  - **Criterio de aceptación:** tests prueban traversal, absoluta, symlink/reparse,
+    colisión y archivo existente; ningún caso escribe fuera del root sin opt-in.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+
+- [ ] **[T5-09] Corregir la política de advisories de `quick-xml`**
+  - **Área:** Seguridad / Supply chain
+  - **Severidad:** Media
+  - **Ubicación:** `src-tauri/deny.toml:5`, `docs/reference/dependency-audit.md:65`
+  - **Qué hacer:** retirar el feature cloud, actualizar dependencias o demostrar
+    no alcanzabilidad; sustituir la razón factual falsa de las excepciones.
+  - **Criterio de aceptación:** `cargo tree -e features` y la justificación
+    coinciden; `cargo audit`/`cargo deny` pasan con riesgo residual documentado.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+
+- [ ] **[T5-10] Generar el inventario y los contratos IPC exhaustivos**
+  - **Área:** Arquitectura / Seguridad / QA
+  - **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/lib.rs:154`, `src/ipc-contract.test.ts:481`, `THREAT_MODEL.md:71`
+  - **Qué hacer:** detectar automáticamente comandos y estructuras compartidas,
+    conservar literales/versiones y eliminar la cifra manual del threat model.
+  - **Criterio de aceptación:** añadir un comando/tipo no clasificado rompe el
+    gate; los 52 comandos de producción quedan inventariados desde código.
+  - **Esfuerzo:** alto
+  - **Depende de:** ninguna
+
+- [ ] **[T5-11] Permitir reintentar la inicialización del catálogo**
+  - **Área:** Arquitectura / Fiabilidad
+  - **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/projects.rs:159`, `src-tauri/src/projects.rs:174`
+  - **Qué hacer:** cachear solo migraciones exitosas y serializar reintentos sin
+    ejecutar dos migraciones concurrentes.
+  - **Criterio de aceptación:** una prueba inyecta un primer fallo transitorio y
+    la siguiente operación inicializa sin reiniciar el proceso.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+
+- [ ] **[T5-12] Reconciliar generaciones de proyecto huérfanas**
+  - **Área:** Persistencia / Fiabilidad
+  - **Severidad:** Media
+  - **Ubicación:** `src-tauri/src/projects.rs:347`, `src-tauri/src/projects.rs:430`
+  - **Qué hacer:** barrer bajo lock generaciones no referenciadas con margen de
+    edad, registrar fallos sanitizados y no tocar artefactos activos.
+  - **Criterio de aceptación:** una prueba simula crash antes del commit y la
+    siguiente apertura elimina solo el huérfano, conservando el proyecto válido.
+  - **Esfuerzo:** medio
+  - **Depende de:** T5-11
+
+- [ ] **[T5-13] Abrir límites modulares en el motor de datos**
+  - **Área:** Arquitectura / Refactorización
+  - **Severidad:** Media; deuda conocida agravada
+  - **Ubicación:** `src-tauri/src/dataset.rs:8711`, `src-tauri/src/dataset.rs:15648`, `src/App.tsx:100`
+  - **Qué hacer:** extraer por etapas quality/recipe/export/persistence, dividir
+    validadores grandes y reducir clones solo con perfiles y contratos verdes.
+  - **Criterio de aceptación:** primer módulo extraído tiene API interna acotada,
+    sin ciclos, con tests equivalentes y una reducción medida de complejidad o
+    memoria; no se hace una reescritura total.
+  - **Esfuerzo:** alto
+  - **Depende de:** T5-01
+
+- [ ] **[T5-14] Endurecer el gate Playwright local**
+  - **Área:** QA
+  - **Severidad:** Media
+  - **Ubicación:** `playwright.config.ts:5`, `playwright.config.ts:20`
+  - **Qué hacer:** activar `forbidOnly` para gates y servir cada corrida desde un
+    puerto/proceso aislado ligado al bundle recién construido.
+  - **Criterio de aceptación:** un `.only` falla localmente y un servidor previo
+    no puede satisfacer el gate oficial.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+
+- [ ] **[T5-15] Reconstruir la trazabilidad de cambios y dependencias**
+  - **Área:** Documentación
+  - **Severidad:** Media; regresión
+  - **Ubicación:** `CHANGELOG.md:3`, `docs/reference/dependency-audit.md:3`
+  - **Qué hacer:** revisar los commits posteriores al último changelog, completar
+    `[Unreleased]` orientado al usuario y refrescar el snapshot SCA de `0.57.0`.
+  - **Criterio de aceptación:** cada cambio visible actual está representado y el
+    inventario identifica versión, conteos y advisories derivados de los
+    manifest/lockfiles vigentes, sin conservar cifras históricas.
+  - **Esfuerzo:** medio
+  - **Depende de:** T5-09
+
+- [ ] **[T5-16] Incluir las fuentes vivas en el gate documental**
+  - **Área:** Documentación / QA
+  - **Severidad:** Media
+  - **Ubicación:** `tools/check-documentation.mjs:6`, `CONTEXTO.md:94`
+  - **Qué hacer:** validar `ROADMAP.md`, `CONTEXTO.md` y el informe; comprobar
+    métricas generadas y reducir la bitácora duplicada.
+  - **Criterio de aceptación:** un enlace/UTF-8/versión inválido en cualquiera de
+    las fuentes rompe `docs:check`; las líneas de App/dataset se derivan o prueban.
+  - **Esfuerzo:** medio
+  - **Depende de:** T5-15
+
+- [ ] **[T5-17] Fijar toolchains y alinear la configuración de distribución**
+  - **Área:** DevOps / Configuración
+  - **Severidad:** Media
+  - **Ubicación:** `README.md:51`, `package.json:1`, `src-tauri/tauri.conf.json:49`
+  - **Qué hacer:** declarar/comprobar Node/npm/Rust, documentar red de `npm audit`
+    y WebView2, y seleccionar bundles explícitos por plataforma/canal.
+  - **Criterio de aceptación:** una versión fuera de contrato falla con mensaje
+    claro; modo offline no promete pasos de red; Package produce solo targets
+    aprobados.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+
+- [ ] **[T5-18] Hacer descubribles licencia, notices y privacidad local**
+  - **Área:** Legal / Accesibilidad / UX
+  - **Severidad:** Media; requiere revisión legal
+  - **Ubicación:** `src/App.tsx:667`, `src-tauri/tauri.conf.json:52`, `THREAT_MODEL.md:75`
+  - **Qué hacer:** crear una vista accesible Acerca de/Legal/Privacidad y definir
+    persistencia, retención, borrado/desinstalación y responsable/contacto según
+    jurisdicción/canal.
+  - **Criterio de aceptación:** teclado y lector encuentran los textos desde la
+    app instalada; revisión legal y pruebas de retención/borrado quedan anexadas.
+  - **Esfuerzo:** medio
+  - **Depende de:** T5-20 y definición de jurisdicción/canal
+
+### Prioridad baja
+
+- [ ] **[T5-19] Normalizar redacción y compactar el contexto histórico**
+  - **Área:** Ortografía / Documentación
+  - **Severidad:** Baja
+  - **Ubicación:** `tools/generate-third-party-notices.ps1:96`, `docs/how-to/validate-release-evidence.md:1`, `CONTEXTO.md:563`, `CONTEXTO.md:584`
+  - **Qué hacer:** corregir tildes/anglicismos desde las plantillas y trasladar
+    bitácora redundante a CHANGELOG/ADR sin borrar decisiones vigentes.
+  - **Criterio de aceptación:** regenerar notices conserva español correcto y
+    `CONTEXTO.md` contiene estado/decisiones, no un historial de releases duplicado.
+  - **Esfuerzo:** bajo
+  - **Depende de:** T5-16
+
+### Progreso de Tier 5
+
+| Fecha | Estado | Evidencia |
+| --- | --- | --- |
+| 2026-08-28 | Abierto: 20 tareas; 0 cerradas. No se modificó código de producto ni se aprobó un baseline. | `AUDITORIA_PROFESIONAL_2026-08-28.md` |
+
+### Decisiones cerradas que Tier 5 conserva
+
+- SEO no se incorpora mientras Columnia siga sin superficie web indexable.
+- No se añade CI/GitHub Actions: los gates seguirán siendo locales y deberán
+  entregar códigos de salida fiables y evidencia ligada al commit.
+- No se exige Authenticode de pago; sí se debe documentar SmartScreen y no se
+  confunde checksum con autoría.
+- macOS/Linux no se declaran soportados hasta verificarse localmente.
+- No se eleva un presupuesto ni se aprueba un baseline solo para obtener verde.
 
 ## 9. Registro de decisiones
 

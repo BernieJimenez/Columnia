@@ -3,6 +3,10 @@
 > Punto de entrada técnico y operativo para personas y agentes que trabajen en este repositorio.
 > Este archivo describe el código que existe hoy. `ROADMAP.md` describe también decisiones y trabajo futuro.
 
+`CONTEXTO.md` es el nombre español histórico del `CONTEXT.md` solicitado por el
+proceso de revisión. Se conserva como única fuente viva para no mantener dos
+documentos equivalentes que puedan divergir.
+
 ## Ficha rápida
 
 | Campo | Estado verificado |
@@ -16,7 +20,8 @@
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Última revisión de este documento | 2026-08-27, rama `master`, v0.57 validado en las superficies afectadas; Fases I0, I1, I4 e I8 cerradas; I3/I5 avanzadas, P1 con comparación por columna/valor paginada, histogramas, correlaciones numéricas acotadas, cobertura y tendencias temporales, calendario diario accesible, retiro confirmado de identificadores, validación visual de formatos, bundle ZIP auditable, asesor de impacto de recetas, spill temporal de fingerprints y privacidad de artefactos CLI, M1 con importación de recetas DataPrep v1–v3, opciones de entrega, fixtures, resumen estructural sanitizado de sesiones, informe visible de migración, mapeo seguro de sesiones al catálogo, migración de sesiones por CLI y primera vertical de round-trip |
+| Pruebas observadas | 248 frontend, 234 Rust y 9 E2E aprobadas; Full/Release/Package pasan en la estación auditada |
+| Última revisión de este documento | 2026-08-28, rama `master`, base `137520b28b96233a27a6152978a57ef2a2dda9bd`; reauditoría exhaustiva completada, Tier 5 abierto con 20 tareas; rendimiento y baseline visual release permanecen fallidos |
 
 ## Para qué existe este documento
 
@@ -91,7 +96,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | Ruta | Responsabilidad |
 | --- | --- |
 | `src/main.tsx` | Monta `<App />` en modo estricto de React. |
-| `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz en unas 504 líneas. |
+| `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz en 867 líneas. |
 | `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
 | `src/components/ResourceMonitor.tsx` | Monitor compacto de consumo de CPU/RAM del proceso y del equipo, con polling nativo, selector persistente de concurrencia Rayon y estado degradado para el shell web. |
 | `src/features/load/` | Fase Cargar: vista y modelo de inspección, selección de hojas, arrastre nativo sin rutas en React, archivos recientes sin rutas, progreso, cancelación y recuperación. |
@@ -106,14 +111,14 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, eventos nativos de arrastre, estados de dataset/proyectos y los comandos permitidos. |
 | `src-tauri/src/resource.rs` | Obtiene CPU y memoria del proceso Columnia y del sistema mediante `sysinfo`, sin exponer rutas ni datos. |
-| `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en unas 7,983 líneas. |
+| `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en 22,745 líneas; producción ocupa aproximadamente 16,766 antes de `mod tests`. |
 | `src-tauri/src/projects.rs` | Catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, perfil e historial versionados y cinco comandos de proyectos. |
 | `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de datasets, lotes y los cinco comandos CLI de proyectos. |
 | `src-tauri/src/bin/columnia-cli.rs` | Ejecutable CLI mínimo que delega en el módulo de automatización. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
 | `tools/check.ps1` | Entrada única para los gates locales Fast, Full y Release; genera evidencia JSON auditable en `.local/validation/` y en Release ejecuta supply chain/instalador. |
-| `vitest.config.ts` | Cobertura V8 por capa para `src`, con umbrales 80% statements/lines, 75% branches/functions. |
+| `vitest.config.ts` | Cobertura V8 global para `src`, con umbrales 80% statements/lines y 75% branches/functions; la aplicación real por capa queda abierta en `T5-04`. |
 | `tools/check-supply-chain.ps1` / `src-tauri/deny.toml` | npm audit, cargo audit, cargo-deny, secretos, avisos de terceros y política de red con excepciones upstream justificadas. |
 | `tools/check-network-policy.mjs` / `docs/reference/network-privacy.md` | Inventario local de red, CSP productivo y política de telemetría desactivada por defecto. |
 | `src-tauri/src/privacy.rs` | Serialización pública sanitizada para reportes, recetas y manifiestos: elimina rutas, valores, emails, secretos y referencias de filesystem, conservando identificadores, estados y conteos agregados. |
@@ -231,7 +236,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `open_project`
 - `delete_project`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores, nombres de campos y tipos concretos de 43 estructuras compartidas. Normaliza referencias, números, `Vec`/arrays, `Option`/campos opcionales, herencia, literales y alias conocidos. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y una allowlist manual de 54 estructuras compartidas. No es exhaustiva: omite estructuras públicas y normaliza algunos enums/literales con pérdida de precisión; `T5-10` debe cerrar esa brecha. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -400,9 +405,9 @@ Los gates estáticos verifican que la CSP de producción permanezca local, que d
 
 Los gates de supply chain rechazan paquetes npm sin SRI fuerte o fuera del registro oficial, crates sin checksum o fuera de crates.io, fuentes Git e identidades contradictorias. Release genera el SBOM sin red, timestamps, UUID, rutas locales ni URLs de descarga.
 
-La validación actual registra 202 pruebas frontend y 177 pruebas Rust; las ramas
-específicas de symlinks/reparse points dependen de la plataforma. Son una
-fotografía orientativa, no un umbral.
+La validación del 2026-08-28 registra 248 pruebas frontend, 234 pruebas Rust y 9
+E2E; las ramas específicas de symlinks/reparse points dependen de la plataforma.
+Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 
 ## Estado real frente a arquitectura objetivo
 
@@ -416,7 +421,8 @@ fotografía orientativa, no un umbral.
 - Threat model vivo y gates de regresión para CSP, permisos, payloads semánticos y fórmulas CSV.
 - Navegación por teclado inicial con skip link, pestañas ARIA, foco visible, regiones anunciables y diálogos con ciclo/restauración de foco.
 - SBOM CycloneDX 1.6 reproducible y gates offline de integridad/procedencia para npm y Cargo.
-- Cobertura V8 por capa sobre `src` con gate 80/75/75/80; supply
+- Cobertura V8 global sobre `src` con gate 80/75/75/80; la cobertura real por
+  capa está abierta en `T5-04`. Supply
   chain local con npm audit, cargo-audit 0.22.2, cargo-deny 0.20.2, secret scan,
   avisos de terceros y política de red/telemetría.
 - Instalador declarado `NSIS currentUser`, licencia MIT y avisos de terceros
@@ -532,6 +538,16 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
 7. **Roadmap acumulativo**: contiene decisiones propuestas, aprobadas e implementadas; no todas reflejan dependencias presentes.
 8. **Sin CI por política**: la calidad depende de ejecutar y registrar correctamente los gates locales.
+9. **Gates con semántica incompleta**: cobertura por capa, primer render,
+   `SkipPackage`, zoom 125% y evidencia release no hacen cumplir literalmente
+   todo lo que su nombre/documentación afirma; consultar Tier 5.
+10. **Rendimiento en regresión**: tres smokes WebView2 excedieron 256 MiB de
+    memoria privada y el benchmark durable se interrumpe tras `project-save`.
+11. **Persistencia recuperable incompleta**: una primera migración fallida queda
+    cacheada hasta reiniciar y un crash antes del commit puede dejar generaciones
+    Parquet huérfanas.
+12. **Distribución no promovible**: Package genera MSI/NSIS, pero notices,
+    instalación en VM, updater/firma y orquestador de release siguen abiertos.
 
 ## Cómo trabajar en este repositorio
 
@@ -569,6 +585,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-28 | Reauditoría profesional exhaustiva sobre `137520b`: 248 tests frontend, 234 Rust y 9 E2E aprobaron; Full/Release/Package pasaron y Package produjo MSI/NSIS. Se verificaron regresiones de rendimiento, verdes falsos de cobertura/tiers/evidencia, deuda de seguridad/arquitectura y bloqueos legales de distribución. Se abrió Tier 5 con 20 tareas; no se corrigió código ni se aprobó un baseline. | `AUDITORIA_PROFESIONAL_2026-08-28.md`, `ROADMAP.md`, `.local/validation/20260828T054125Z-137520b-package.json`, `.local/validation/performance-baseline/20260828T053153Z/summary.json` |
 | 2026-08-26 | Review incorpora cobertura temporal agregada para Date/Datetime/Timestamp y fechas detectadas: muestra rango, filas con valor y porcentaje con tabla accesible equivalente sin enviar celdas a React. | `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | M1 incorpora un mapeo seguro de sesiones DataPrep al catálogo de proyectos mediante selector nativo. La fuente, hoja, esquema y receta se validan en un estado temporal y el snapshot solo se publica después de pasar todas las comprobaciones; el bridge no recibe rutas. | `src-tauri/src/projects.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `ROADMAP.md` |
 | 2026-08-26 | La migración de reglas acepta aliases y números finitos serializados como texto, y omite con warning tolerancias negativas o políticas no representables para evitar conversiones inválidas. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
@@ -709,6 +726,7 @@ Al actualizarlo:
 
 ## Documentos relacionados
 
+- [AUDITORIA_PROFESIONAL_2026-08-28.md](AUDITORIA_PROFESIONAL_2026-08-28.md): informe exhaustivo, evidencia, puntuaciones y trazabilidad hacia Tier 5.
 - [README.md](README.md): visión funcional y uso actual.
 - [THREAT_MODEL.md](THREAT_MODEL.md): fronteras de confianza, amenazas, controles y riesgos residuales.
 - [ROADMAP.md](ROADMAP.md): planificación, decisiones históricas y pendientes.
