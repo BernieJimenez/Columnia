@@ -3,7 +3,8 @@ param(
     [ValidateRange(1024, 65535)]
     [int]$Port = 9230,
     [ValidateRange(15, 900)]
-    [int]$TimeoutSeconds = 120
+    [int]$TimeoutSeconds = 120,
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,12 +136,17 @@ try {
     if (-not (Test-Path -LiteralPath $FixturePath -PathType Leaf)) { throw "No existe la fixture sintética estable." }
     if (@(Get-ListenerOwner).Count -gt 0) { throw "El puerto CDP $Port ya está ocupado." }
 
-    Push-Location $ProjectRoot
-    try {
-        & npm run tauri build -- --no-bundle
-        if ($LASTEXITCODE -ne 0) { throw "El build Tauri release falló." }
+    if ($SkipBuild) {
+        Write-Host "Se reutiliza el binario release producido por el gate anterior."
     }
-    finally { Pop-Location }
+    else {
+        Push-Location $ProjectRoot
+        try {
+            & npm run tauri build -- --no-bundle
+            if ($LASTEXITCODE -ne 0) { throw "El build Tauri release falló." }
+        }
+        finally { Pop-Location }
+    }
 
     if (-not (Test-Path -LiteralPath $ReleaseExecutable -PathType Leaf)) {
         throw "No se encontró el binario release: $ReleaseExecutable"

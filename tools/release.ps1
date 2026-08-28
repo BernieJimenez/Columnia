@@ -181,7 +181,7 @@ try {
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "tools\smoke-cli.ps1")
     }
     Invoke-ReleaseStep "Release accessibility evidence" {
-        & npm.cmd run accessibility:release
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "tools\capture-release-evidence.ps1") -SkipBuild
     }
     Invoke-ReleaseStep "Release accessibility baseline" {
         & npm.cmd run accessibility:release:check

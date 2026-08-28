@@ -1474,7 +1474,8 @@ por el mero hecho de estar documentada aquí.
     hashes de ambos lockfiles y los cinco hashes visuales. La captura aprobada
     incluye desktop, móvil, zoom 125%, zoom 200% y forced-colors; el commit
     posterior que guarda exclusivamente el baseline es el único delta permitido
-    por el checker.
+    por el checker. El orquestador reutiliza para la captura el mismo binario
+    producido por el gate `Release/Package`.
 
 - [ ] **[T5-20] Completar notices y atribuciones antes de publicar**
   - **Área:** Legal / Supply chain

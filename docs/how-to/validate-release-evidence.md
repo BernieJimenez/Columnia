@@ -24,6 +24,10 @@ El orquestador exige una rama y un árbol Git limpios, conserva un reporte en
 `.local/validation/release-orchestration/` y no crea tags, no publica artefactos
 ni contacta servicios externos.
 
+Cuando se ejecuta desde `release.ps1`, la captura reutiliza el ejecutable que ya
+produjo el gate `Release`/`Package`; la opción `-SkipBuild` existe para evitar
+que la evidencia se genere desde una reconstrucción distinta.
+
 1. Ejecuta los contratos de documentación y versión:
 
    ```powershell

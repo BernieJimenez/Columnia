@@ -20,6 +20,9 @@ los artefactos de validación locales.
 - `release:updater:dry-run` amplía el orquestador de release con configuración
   temporal de endpoint, firma local, SBOM, gates completos y verificación
   fail-closed de instalador/firma/manifiesto.
+- El orquestador de release reutiliza el binario `Release/Package` para capturar
+  la evidencia visual, evitando reconstruir un ejecutable distinto después del
+  gate de empaquetado.
 - El perfil `Release` incorpora y aprueba el contrato updater junto con sus
   gates de documentación, IPC, toolchains, cobertura, supply chain, instalador,
   SBOM y binario Tauri sin bundle; la corrida local no implica un árbol limpio
