@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "activeKey": {
+    "id": "columnia-updater-2026-08",
+    "fingerprint": "305178DC8577354F",
+    "publicKey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMwNTE3OERDODU3NzM1NEYKUldSUE5YZUYzSGhSTUhkTi9sUFBxRm5EOWZJcnR5eXZ6M25YSWxGVDBnSDIvQ0Rua3Jla3R5MUcK"
+  },
+  "rotation": {
+    "strategy": "bridge-release-signed-by-previous-key",
+    "dualKeySupport": false,
+    "oldPrivateKeyRetirement": "Keep the previous private key offline until the bridge release is published, downloaded, verified, and the recovery window is closed.",
+    "requiredEvidence": [
+      "new public-key fingerprint recorded and reviewed",
+      "bridge release signed by the previous key",
+      "new-key release downloaded and verified",
+      "rollback installer verified before retiring the previous key"
+    ]
+  },
+  "recovery": {
+    "failClosedOn": [
+      "invalid signature",
+      "unknown signing key",
+      "corrupt manifest",
+      "hash mismatch",
+      "unreachable channel"
+    ],
+    "preserveInstalledVersion": true,
+    "manualRecovery": "Stop publication, preserve the installed version, verify a manually downloaded installer and distribute a bridge release signed by the last trusted key. Never replace a trusted key in place without a signed bridge release."
+  }
+}

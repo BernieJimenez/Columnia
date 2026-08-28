@@ -210,6 +210,9 @@ try {
         Invoke-Checked "Installer contract" $ProjectRoot {
             & (Join-Path $ProjectRoot "tools\check-installer-contract.ps1")
         }
+        Invoke-Checked "Updater key policy" $ProjectRoot {
+            & node tools/check-updater-key-policy.mjs
+        }
         Invoke-Checked "Updater manifest contract" $ProjectRoot {
             npm run updater:contract:test
         }
@@ -231,6 +234,13 @@ try {
         $PackageArtifactsEvidence.sha256 = (Get-FileHash -LiteralPath $PackageArtifactsPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $PackageArtifactsEvidence.artifactCount = @($PackageArtifactsDocument.artifacts).Count
         $PackageArtifactsEvidence.artifacts = @($PackageArtifactsDocument.artifacts)
+        Invoke-Checked "Installed artifact smoke" $ProjectRoot {
+            $NsisInstallerPath = Join-Path $TauriRoot "target\release\bundle\nsis\Columnia_$($ProjectVersion)_x64-setup.exe"
+            if (-not (Test-Path -LiteralPath $NsisInstallerPath -PathType Leaf)) {
+                throw "No se encontró el instalador NSIS empaquetado: $NsisInstallerPath"
+            }
+            & (Join-Path $ProjectRoot "tools\smoke-installed-artifact.ps1") -InstallerPath $NsisInstallerPath
+        }
     }
 
     $ValidationStatus = "passed"

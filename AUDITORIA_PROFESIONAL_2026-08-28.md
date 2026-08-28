@@ -794,8 +794,9 @@ el prototipo en un release público.
   siguen siendo incrementales.
 - **F-06/T5-18/T5-20:** el orquestador local `tools/release.ps1` ya existe y
   ejecuta los gates sin publicar, etiquetar ni contactar servicios remotos.
-  Siguen pendientes la VM limpia, el canal real de updater, la rotación de
-  claves y las decisiones externas sobre responsable, jurisdicción, contacto,
+  La política de rotación/recuperación ya está versionada y comprobada; siguen
+  pendientes la VM limpia, el canal real de updater, la ejecución de la release
+  puente y las decisiones externas sobre responsable, jurisdicción, contacto,
   mercados, retención y canal legal final.
 
 ## Addendum de implementación — 2026-08-28
@@ -815,3 +816,11 @@ las observaciones y métricas del commit auditado se conservan sin reescritura.
 - La prueba de contrato del updater y los gates locales siguen siendo evidencia
   estructural; no sustituyen la instalación en VM, el canal publicado, la
   rotación de claves ni la aceptación legal de T5-18/T5-20.
+- **I5/I6/I7 — controles locales adicionales:** el smoke NSIS real pasó desde un
+  usuario no administrador con ruta Unicode/con espacios, primera apertura,
+  segunda invocación absorbida por instancia única, desinstalación, mediciones
+  de tamaño/tiempo y retención controlada de datos. `Package` lo ejecuta después
+  del bundle. La política de claves versionada exige release puente firmada por
+  la clave anterior y conserva la versión instalada ante fallos; el verificador
+  de assets publicados comprueba de nuevo HTTPS, tamaño, SHA-256 y minisign.
+  Estos controles no cierran la VM limpia, el canal real ni la revisión legal.

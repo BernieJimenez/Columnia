@@ -921,13 +921,21 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
   adicional mientras la distribución conserve la licencia MIT.
 - [ ] Validar instalación, primera apertura, segunda instancia, actualización,
   desinstalación y conservación/borrado opcional de datos.
-- [ ] Probar usuario sin privilegios administrativos y rutas con Unicode/espacios.
+- [x] Probar usuario sin privilegios administrativos y rutas con Unicode/espacios.
 - [x] Definir política WebView2 bootstrapper/offline: el instalador descarga el
   bootstrapper oficial cuando hace falta; un instalador totalmente offline sigue
   pendiente de validación como variante separada.
-- [ ] Medir tamaño, tiempo de instalación y tiempo hasta ventana utilizable.
+- [x] Medir tamaño, tiempo de instalación y tiempo hasta ventana utilizable.
 
 **Gate:** smoke desde una VM Windows limpia, no solo desde la máquina de desarrollo.
+
+> Evidencia local 2026-08-28: `tools/smoke-installed-artifact.ps1` pasó con el
+> NSIS `Columnia_0.57.0_x64-setup.exe` desde `IMPACTX\User` sin privilegios,
+> una ruta temporal con espacios/Unicode, primera apertura en 711 ms,
+> segunda invocación absorbida por instancia única, instalación en 5.3 s,
+> desinstalación en 1.3 s y retención/borrado del sentinel de datos de usuario.
+> La VM limpia, la actualización y las decisiones opcionales de borrado siguen
+> siendo necesarias para cerrar el gate.
 
 ### Fase I6 — Actualizaciones autenticadas
 
@@ -946,7 +954,10 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
   semver para estable y prerelease; el contrato local también prueba artefacto
   truncado, firma alterada, manifiesto incompleto/corrupto y URL insegura. Falta
   ejercitar el canal y el instalador real.
-- [ ] Definir rotación y recuperación de claves antes del primer release público.
+- [x] Definir rotación y recuperación de claves antes del primer release público.
+  La política versionada y su gate son `fixtures/updater/key-policy-v1.json` y
+  `npm run updater:key:check`; la implementación actual exige una release
+  puente firmada por la clave anterior.
 - [x] Documentar expresamente que esta firma autentica actualizaciones de
   Columnia, pero no elimina el aviso de SmartScreen ni identifica al editor ante
   Windows.
@@ -965,12 +976,16 @@ versión instalada utilizable.
 - [x] No firmar con Authenticode; aceptar y documentar `Editor desconocido` y el
   posible aviso de SmartScreen.
 - [x] Generar SHA-256, SBOM, manifiesto de procedencia local y notas de release.
-- [ ] Instalar y ejecutar el artefacto final antes de publicarlo.
+- [x] Instalar y ejecutar el artefacto final antes de publicarlo.
+  El smoke NSIS local está integrado en el perfil `Package`; la VM limpia sigue
+  pendiente como validación de distribución.
 - [ ] Crear el tag únicamente después de superar toda la validación local.
 - [ ] Publicar manualmente en el canal gratuito elegido.
 - [ ] Descargar otra vez los assets publicados y verificar localmente firma/hash.
-- [ ] Mantener una vía de reanudación segura si falla después de crear el tag o
-  durante la publicación manual.
+- [x] Mantener una vía de reanudación segura si falla después de crear el tag o
+  durante la publicación manual. `docs/how-to/publish-release.md` exige no
+  mover tags, reanudar con `--expected-version` y volver a descargar/verificar
+  los assets con `npm run updater:verify-published`.
 
 **Gate:** publicación promovida manualmente solo después de verificar los assets
 descargados, no los archivos locales previos a la subida.

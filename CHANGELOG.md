@@ -106,6 +106,14 @@ los artefactos de validación locales.
   además de los cinco escenarios desktop, móvil, zoom 125%, zoom 200% y
   forced-colors. El checker solo tolera el commit posterior que modifica
   exclusivamente el propio baseline.
+- Smoke reproducible del instalador NSIS con usuario sin privilegios, ruta
+  Unicode/con espacios, primera apertura, segunda invocación con instancia única,
+  desinstalación y retención controlada de datos de usuario; `Package` lo ejecuta
+  después de construir e inventariar el bundle.
+- Política ejecutable de rotación/recuperación del updater con release puente
+  firmada por la clave anterior, preservación de la versión instalada ante fallo
+  y gate de fingerprint; `updater:verify-published` vuelve a descargar el
+  manifiesto/instalador HTTPS y verifica tamaño, SHA-256 y firma minisign.
 
 ### Validación histórica de la reauditoría
 
@@ -142,6 +150,14 @@ los artefactos de validación locales.
 - `release:dry-run` valida el preflight de distribución y exige rama/árbol
   limpios; la captura release aprobada queda ligada al commit de evidencia y el
   baseline solo se guarda en un commit posterior exclusivo de ese archivo.
+- El smoke NSIS local pasó desde un usuario no administrador: instalación en
+  5.3 s, primera ventana en 711 ms, segunda invocación sin proceso duplicado,
+  desinstalación en 1.3 s y sentinel de datos de usuario conservado durante la
+  desinstalación y limpiado después. La VM limpia, el canal real y la
+  aceptación legal siguen abiertos.
+- La rotación de claves ya tiene contrato versionado y gate local; la descarga
+  posterior a publicación tiene verificador criptográfico, pero no se ejecutó
+  contra un canal real porque todavía no existe un canal público configurado.
 - Accesibilidad visual (desktop/móvil, zoom 125%/200% y forced-colors) y
   `perf:check` pasan con la evidencia renovada.
 

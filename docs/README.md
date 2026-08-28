@@ -15,6 +15,8 @@ comportamiento implementado.
 
 - [Validar evidencia del release](how-to/validate-release-evidence.md): compilar
   el binario, capturar ventanas y comprobar el baseline.
+- [Publicar y verificar un release](how-to/publish-release.md): preparar un
+  release firmado, descargar los assets publicados y reanudar con seguridad.
 
 ### Referencia
 
@@ -29,7 +31,7 @@ comportamiento implementado.
 - [Evidencia visual del release](reference/release-evidence.md): sumario,
   baseline, ownership y procedimiento para aceptar cambios.
 - [Revisión legal y distribución](reference/legal-distribution-review.md): MIT,
-  notices, privacidad local y flujo de updater firmado.
+  notices, privacidad local, rotación de claves y flujo de updater firmado.
 - [Gobierno del repositorio](reference/repository-governance.md) y
   [auditoría de dependencias](reference/dependency-audit.md).
 - [Inventario IPC](reference/ipc-inventory.json) y [revisión legal de distribución](reference/legal-distribution-review.md).

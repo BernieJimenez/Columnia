@@ -50,9 +50,23 @@ servir el instalador con el mismo nombre.
 
 La firma del updater autentica el artefacto ante Columnia, pero no es
 Authenticode: Windows puede seguir mostrando “Editor desconocido” y SmartScreen.
-La rotación de claves requiere una nueva compilación que distribuya la clave
-pública nueva y una coordinación de migración; no se debe borrar la clave
-privada histórica hasta completar esa transición.
+La política ejecutable de rotación vive en
+`fixtures/updater/key-policy-v1.json` y se comprueba con
+`npm run updater:key:check`. Como la compilación actual confía en una sola
+clave pública, una rotación segura requiere una release puente firmada por la
+clave anterior que incruste la clave nueva. La clave privada histórica se
+conserva offline hasta publicar y volver a descargar/verificar la release
+puente, verificar la primera release firmada con la clave nueva y cerrar la
+ventana de recuperación. Si la clave se compromete, se detiene el canal, se
+conserva la versión instalada y se recupera mediante un instalador verificado o
+una release puente; nunca se sustituye la clave confiable en el canal sin esa
+transición firmada.
+
+La verificación posterior a publicación se ejecuta con
+`npm run updater:verify-published`. Descarga el manifiesto y el instalador del
+canal HTTPS y comprueba tamaño, SHA-256 y firma minisign con la clave pública
+embebida. Un fallo no instala ni elimina la versión local y deja evidencia
+sanitizada en el directorio indicado.
 
 ## Evidencia técnica
 

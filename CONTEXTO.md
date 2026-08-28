@@ -20,8 +20,8 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 267 frontend y 244 Rust aprobadas; E2E y Package históricos pasan en la estación auditada; el smoke nativo Win32 actual también pasa con cleanup y presupuesto de memoria |
-| Última revisión de este documento | 2026-08-28, rama `master`; implementación técnica de Tier 5 mayormente cerrada. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, contrato local de manifiesto, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas y validación del canal |
+| Pruebas observadas | 267 frontend y 244 Rust aprobadas; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Última revisión de este documento | 2026-08-28, rama `master`; implementación técnica de Tier 5 mayormente cerrada. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
 
@@ -35,7 +35,7 @@ la semántica de duplicados parecidos y reduce el `project-save` de 100 MiB a
 (`.local/validation/performance-benchmark/20260828T184531Z`).
 
 Siguen siendo bloqueantes antes de publicar: validar instalación/actualización
-en una VM Windows limpia, y cerrar las decisiones legales de canal,
+en una VM Windows limpia y contra un canal real, y cerrar las decisiones legales de canal,
 jurisdicción, responsable, contacto, retención y rotación del updater. La
 evidencia release ya está ligada a un `HEAD` limpio: el baseline conserva el
 commit aprobado, los dos lockfiles y los cinco hashes visuales; su commit
@@ -62,8 +62,9 @@ gates locales y no publica ni etiqueta.
   ya pasan; el bundle
   firmado de prueba produjo MSI/NSIS y sus firmas `.sig`; la ruta reproducible
   está en `release:updater:dry-run` y requiere variables de entorno privadas.
-  `updater:contract:test` cubre mutaciones estructurales locales, pero no cierra
-  la validación de canal real, red, recuperación o rotación de claves.
+  `updater:contract:test` cubre mutaciones estructurales locales y
+  `updater:key:check` verifica el fingerprint/política de rotación, pero no cierra
+  la validación de canal real, red o adopción de una release puente.
 
 ## Para qué existe este documento
 
@@ -165,7 +166,9 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/check-supply-chain.ps1` / `src-tauri/deny.toml` | npm audit, cargo audit, cargo-deny, secretos, avisos de terceros y política de red con excepciones upstream justificadas. |
 | `tools/check-network-policy.mjs` / `docs/reference/network-privacy.md` | Inventario local de red, CSP productivo y política de telemetría desactivada por defecto. |
 | `src-tauri/src/privacy.rs` | Serialización pública sanitizada para reportes, recetas y manifiestos: elimina rutas, valores, emails, secretos y referencias de filesystem, conservando identificadores, estados y conteos agregados. |
-| `tools/check-installer-contract.ps1` / `THIRD_PARTY_NOTICES.md` | Contrato de NSIS currentUser, WebView2 bootstrapper y recursos legales reproducibles. |
+| `tools/check-installer-contract.ps1` / `tools/smoke-installed-artifact.ps1` | Contrato de NSIS currentUser, WebView2 bootstrapper, smoke del artefacto instalado y recursos legales reproducibles. |
+| `tools/check-updater-key-policy.mjs` / `fixtures/updater/key-policy-v1.json` | Fingerprint de la clave pública embebida, release puente para rotación y recuperación fail-closed. |
+| `tools/verify-published-assets.mjs` | Descarga posterior a publicación y verificación criptográfica local de manifiesto, tamaño, SHA-256 y firma minisign. |
 | `tools/generate-sbom.ps1` / `tools/extract-package-lock-packages.mjs` | Generan offline un SBOM CycloneDX 1.6 reproducible desde ambos lockfiles, compatible con Windows PowerShell 5.1. |
 | `docs/reference/feature-parity.md` | Matriz de paridad verificable con `dataprepv1.1`, con entregas CSV/JSON/Parquet/SQL/Excel/SQLite, comparación por columna y visualizaciones accesibles documentadas. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
@@ -389,7 +392,10 @@ Playwright construye y sirve un preview Vite local en `http://127.0.0.1:4173` (e
 .\tools\check.ps1 -Profile Package
 npm run smoke:desktop -- -TimeoutSeconds 120
 npm run smoke:cli
+npm run smoke:installer
 npm run smoke:cdp
+npm run updater:key:check
+npm run updater:verify-published -- --manifest-url <https-url> --output-dir <evidence-dir> --target windows-x86_64 --expected-version <version>
 npm run perf:summary
 npm run perf:benchmark
 npm run perf:i1
@@ -409,7 +415,7 @@ npm run verify:tier
 | Fast | `cargo fmt --check`, `cargo check`, Vitest, build TypeScript/Vite y presupuesto frontend |
 | Full | Fast + Clippy con warnings como errores + pruebas Rust de biblioteca |
 | Release | Full + SBOM CycloneDX reproducible + build Tauri optimizado sin bundle |
-| Package | Release + MSI/NSIS en Windows + inventario diferencial con tamaño y SHA-256 |
+| Package | Release + MSI/NSIS en Windows + inventario diferencial con tamaño y SHA-256 + smoke del instalador NSIS |
 
 Después de generar evidencia, `npm run accessibility:check` valida el contrato
 visual versionado y el SHA-256 de cada captura. `npm run perf:check` compara la
@@ -435,6 +441,13 @@ políticas de ramas/commits, el inventario local de dependencias y el manifest d
 fixtures sintéticas. Estos contratos son independientes de la cobertura manual
 de accesibilidad, los benchmarks grandes y la automatización Win32 pendientes
 en fases posteriores.
+
+`npm run smoke:installer` ejecuta el instalador NSIS real como usuario sin
+privilegios en una ruta temporal con espacios y Unicode. Mide instalación y
+primera apertura, comprueba que la segunda invocación respete la instancia única,
+desinstala, verifica que los datos de usuario sobrevivan y elimina únicamente
+su sentinel temporal. Este smoke no sustituye una VM Windows limpia ni el
+ejercicio de actualización contra un canal publicado.
 
 El presupuesto actual admite por archivo hasta 512 KiB raw/160 KiB gzip para JavaScript y 128 KiB raw/40 KiB gzip para CSS; el total JS+CSS no puede superar 768 KiB raw/240 KiB gzip. El baseline verificado es aproximadamente 308 KiB raw y 88 KiB gzip (315,829/90,324 bytes).
 
