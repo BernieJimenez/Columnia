@@ -934,8 +934,11 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 > una ruta temporal con espacios/Unicode, primera apertura en 711 ms,
 > segunda invocación absorbida por instancia única, instalación en 5.3 s,
 > desinstalación en 1.3 s y retención/borrado del sentinel de datos de usuario.
-> La VM limpia, la actualización y las decisiones opcionales de borrado siguen
-> siendo necesarias para cerrar el gate.
+> Una ejecución adicional con `-PreviousInstallerPath` instaló `0.49.0`, actualizó
+> en la misma ruta a `0.57.0`, conservó el sentinel durante el upgrade y la
+> desinstalación, y confirmó cleanup. La VM limpia, el updater contra canal real
+> y las decisiones opcionales de borrado siguen siendo necesarias para cerrar
+> el gate.
 
 ### Fase I6 — Actualizaciones autenticadas
 
@@ -1659,6 +1662,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-28 | Package firmado del updater aprobado en Windows: Tauri produjo MSI/NSIS y `.sig`; el manifiesto estático para `windows-x86_64`, SHA-256 y verificación del par artefacto/firma pasan localmente. El canal real, la VM y la promoción siguen fuera de esta corrida. | `.local/validation/updater-build/updater-manifest.json`, `.local/validation/updater-build/updater-integrity.json`, `.local/validation/20260828T194329Z-6ec7bae-package.json` |
 | 2026-08-28 | Contrato updater reproducible aprobado: el gate ejercita un fixture válido y confirma fallo cerrado ante artefacto truncado, firma alterada, manifiesto incompleto/corrupto y URL HTTP; no sustituye la prueba del canal ni la validación criptográfica contra un servidor publicado. | `tools/test-updater-manifest.mjs`, `npm run updater:contract:test` |
 | 2026-08-28 | Smoke del artefacto NSIS real aprobado desde usuario sin privilegios: instalación en ruta Unicode/con espacios, primera apertura, instancia única, desinstalación y retención controlada del dato de usuario; `Package` lo ejecuta automáticamente. | `tools/smoke-installed-artifact.ps1`, `.local/validation/installer-smoke/20260828T230154Z/summary.json`, `.local/validation/20260828T225503Z-ff90fb2-package.json` |
+| 2026-08-28 | Smoke de upgrade local aprobado con `Columnia_0.49.0_x64-setup.exe` como versión previa: misma ruta de instalación, ejecutable actualizado a `0.57.0`, datos de usuario conservados y cleanup confirmado. | `tools/smoke-installed-artifact.ps1 -PreviousInstallerPath`, `.local/validation/installer-smoke/20260828T235459Z/summary.json` |
 | 2026-08-28 | Política de rotación updater versionada y comprobada por fingerprint: rotación normal mediante release puente; compromiso de clave mediante congelación del canal y recuperación fuera de banda, sin firmar otra release con la clave comprometida. | `fixtures/updater/key-policy-v1.json`, `tools/check-updater-key-policy.mjs`, `npm run updater:key:check` |
 | 2026-08-28 | Perfil `Release` completo aprobado después de integrar el contrato updater: documentación, IPC, toolchains, cobertura, build web, Clippy, 244 tests Rust, SBOM, supply chain, instalador, fixture updater y binario Tauri sin bundle. La evidencia release posterior fue capturada desde un commit limpio, revisada visualmente en los cinco escenarios y ligada al baseline; la ruta local se valida con `npm run accessibility:release:check`. | `.local/validation/20260828T214048Z-6ec7bae-release.json`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-28 | Smoke nativo aislado aprobado desde `npm run smoke:native-selectors`: los cuatro diálogos Win32 de abrir/guardar pasan con filtrado por proceso, outputs verificados, cleanup confirmado y presupuesto de 512 MiB working set / 256 MiB privado respetado. El smoke Playwright se mantiene separado para no mezclar su retención de WebView2 con la medición nativa. | `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |

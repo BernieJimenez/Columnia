@@ -118,6 +118,9 @@ los artefactos de validación locales.
   Unicode/con espacios, primera apertura, segunda invocación con instancia única,
   desinstalación y retención controlada de datos de usuario; `Package` lo ejecuta
   después de construir e inventariar el bundle.
+- El smoke del instalador acepta un NSIS anterior explícito para probar un
+  upgrade real en la misma ruta, con comprobación de versión y supervivencia de
+  datos antes de la desinstalación.
 - Política ejecutable de rotación/recuperación del updater con release puente
   firmada por la clave anterior, preservación de la versión instalada ante fallo
   y gate de fingerprint; `updater:verify-published` vuelve a descargar el

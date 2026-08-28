@@ -449,6 +449,16 @@ desinstala, verifica que los datos de usuario sobrevivan y elimina únicamente
 su sentinel temporal. Este smoke no sustituye una VM Windows limpia ni el
 ejercicio de actualización contra un canal publicado.
 
+Para probar además un upgrade local entre dos versiones, se puede pasar un
+artefacto NSIS anterior explícito: `powershell -File
+tools/smoke-installed-artifact.ps1 -InstallerPath
+src-tauri/target/release/bundle/nsis/Columnia_0.57.0_x64-setup.exe
+-PreviousInstallerPath <artefacto-anterior>`. El escenario instala la versión
+anterior, instala la objetivo en la misma ruta, comprueba la versión del
+ejecutable y verifica que el sentinel de datos sobreviva al upgrade y a la
+desinstalación. No se ejecuta automáticamente en `Package` porque requiere
+proporcionar un artefacto histórico compatible.
+
 El presupuesto actual admite por archivo hasta 512 KiB raw/160 KiB gzip para JavaScript y 128 KiB raw/40 KiB gzip para CSS; el total JS+CSS no puede superar 768 KiB raw/240 KiB gzip. El baseline verificado es aproximadamente 308 KiB raw y 88 KiB gzip (315,829/90,324 bytes).
 
 `npm run perf:benchmark` usa tres iteraciones sostenidas de transformaciones

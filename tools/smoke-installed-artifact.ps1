@@ -2,6 +2,9 @@
 param(
     [string]$InstallerPath,
 
+    # Optional explicit prior NSIS artifact for a real same-path upgrade.
+    [string]$PreviousInstallerPath,
+
     [ValidateRange(15, 600)]
     [int]$TimeoutSeconds = 90,
 
@@ -40,6 +43,7 @@ else {
     Join-Path $ProjectRoot $ReportPath
 }
 $InstallerFullPath = $null
+$PreviousInstallerFullPath = $null
 $ScenarioRoot = $null
 $ScenarioId = [Guid]::NewGuid().ToString("N")
 $InstallRoot = $null
@@ -83,6 +87,18 @@ $UninstallEvidence = [ordered]@{
     durationMs = $null
     exitCode = $null
     executableRemoved = $false
+}
+$UpdateEvidence = [ordered]@{
+    status = "not_requested"
+    previousArtifact = $null
+    previousVersion = $null
+    previousInstallDurationMs = $null
+    previousInstallExitCode = $null
+    targetVersion = $Package.version
+    updateDurationMs = $null
+    updateInstallExitCode = $null
+    updatedVersion = $null
+    dataSurvivedUpgrade = $false
 }
 $RetentionEvidence = [ordered]@{
     sentinelCreated = $false
@@ -190,6 +206,17 @@ function Wait-PathState {
     return (Test-Path -LiteralPath $Path) -eq $ExpectedPresent
 }
 
+function Get-InstalledFileVersion {
+    param([string]$Path)
+
+    try {
+        return [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path).FileVersion
+    }
+    catch {
+        return $null
+    }
+}
+
 try {
     if ($env:OS -ne "Windows_NT") { throw "La prueba del instalador requiere Windows." }
     $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -205,6 +232,15 @@ try {
     if ([System.IO.Path]::GetExtension($InstallerFullPath).ToLowerInvariant() -ne ".exe") {
         throw "El smoke instalado requiere el instalador NSIS .exe; no se ejecuta MSI sin una ruta separada de validación."
     }
+    if (-not [string]::IsNullOrWhiteSpace($PreviousInstallerPath)) {
+        $PreviousInstallerFullPath = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $PreviousInstallerPath -ErrorAction Stop).Path)
+        if ([System.IO.Path]::GetExtension($PreviousInstallerFullPath).ToLowerInvariant() -ne ".exe") {
+            throw "El artefacto previo del smoke de upgrade debe ser un instalador NSIS .exe."
+        }
+        if ($PreviousInstallerFullPath -eq $InstallerFullPath) {
+            throw "El artefacto previo del smoke de upgrade debe ser distinto del instalador objetivo."
+        }
+    }
 
     $ScenarioRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("Columnia Installer Smoke é " + $ScenarioId)
     $InstallRoot = Join-Path $ScenarioRoot "Instalación con espacios ñ"
@@ -217,13 +253,48 @@ try {
     New-Item -ItemType Directory -Path $ScenarioRoot, $DataRoot, $LocalDataRoot, $TempRoot -Force | Out-Null
     $InstallEvidence.pathUsesUnicodeAndSpaces = $InstallRoot -match "[^\u0000-\u007F]" -and $InstallRoot -match "\s"
 
-    $installTimer = [System.Diagnostics.Stopwatch]::StartNew()
-    $installerProcess = Start-Process -FilePath $InstallerFullPath -ArgumentList @("/S", "/D=$InstallRoot") -WindowStyle Hidden -Wait -PassThru
-    $installTimer.Stop()
-    $InstallEvidence.durationMs = $installTimer.ElapsedMilliseconds
-    $InstallEvidence.exitCode = $installerProcess.ExitCode
-    if ($installerProcess.ExitCode -ne 0) { throw "El instalador NSIS terminó con código $($installerProcess.ExitCode)." }
-    if (-not (Wait-PathState -Path $AppPath -ExpectedPresent $true)) { throw "El instalador no creó Columnia.exe en la ruta Unicode esperada." }
+    if ($PreviousInstallerFullPath) {
+        $UpdateEvidence.status = "running"
+        $UpdateEvidence.previousArtifact = $PreviousInstallerFullPath
+        $previousInstallTimer = [System.Diagnostics.Stopwatch]::StartNew()
+        $previousInstallerProcess = Start-Process -FilePath $PreviousInstallerFullPath -ArgumentList @("/S", "/D=$InstallRoot") -WindowStyle Hidden -Wait -PassThru
+        $previousInstallTimer.Stop()
+        $UpdateEvidence.previousInstallDurationMs = $previousInstallTimer.ElapsedMilliseconds
+        $UpdateEvidence.previousInstallExitCode = $previousInstallerProcess.ExitCode
+        if ($previousInstallerProcess.ExitCode -ne 0) { throw "El instalador previo NSIS terminó con código $($previousInstallerProcess.ExitCode)." }
+        if (-not (Wait-PathState -Path $AppPath -ExpectedPresent $true)) { throw "El instalador previo no creó Columnia.exe en la ruta Unicode esperada." }
+        $UpdateEvidence.previousVersion = Get-InstalledFileVersion -Path $AppPath
+
+        $upgradeDataDirectory = Split-Path -Parent $SentinelPath
+        New-Item -ItemType Directory -Path $upgradeDataDirectory -Force | Out-Null
+        Set-Content -LiteralPath $SentinelPath -Value "installer-smoke-upgrade-retention" -Encoding utf8
+
+        $updateTimer = [System.Diagnostics.Stopwatch]::StartNew()
+        $installerProcess = Start-Process -FilePath $InstallerFullPath -ArgumentList @("/S", "/D=$InstallRoot") -WindowStyle Hidden -Wait -PassThru
+        $updateTimer.Stop()
+        $UpdateEvidence.updateDurationMs = $updateTimer.ElapsedMilliseconds
+        $UpdateEvidence.updateInstallExitCode = $installerProcess.ExitCode
+        if ($installerProcess.ExitCode -ne 0) { throw "El instalador objetivo NSIS terminó con código $($installerProcess.ExitCode) durante el upgrade." }
+        if (-not (Wait-PathState -Path $AppPath -ExpectedPresent $true)) { throw "El upgrade no conservó Columnia.exe en la ruta Unicode esperada." }
+        $UpdateEvidence.updatedVersion = Get-InstalledFileVersion -Path $AppPath
+        if (-not $UpdateEvidence.updatedVersion -or $UpdateEvidence.updatedVersion -notlike "$($Package.version)*") {
+            throw "El upgrade no dejó la versión objetivo $($Package.version) en Columnia.exe."
+        }
+        $UpdateEvidence.dataSurvivedUpgrade = Test-Path -LiteralPath $SentinelPath -PathType Leaf
+        if (-not $UpdateEvidence.dataSurvivedUpgrade) { throw "El upgrade eliminó el sentinel de datos de usuario." }
+        $UpdateEvidence.status = "passed"
+        $InstallEvidence.durationMs = $UpdateEvidence.previousInstallDurationMs
+        $InstallEvidence.exitCode = $UpdateEvidence.previousInstallExitCode
+    }
+    else {
+        $installTimer = [System.Diagnostics.Stopwatch]::StartNew()
+        $installerProcess = Start-Process -FilePath $InstallerFullPath -ArgumentList @("/S", "/D=$InstallRoot") -WindowStyle Hidden -Wait -PassThru
+        $installTimer.Stop()
+        $InstallEvidence.durationMs = $installTimer.ElapsedMilliseconds
+        $InstallEvidence.exitCode = $installerProcess.ExitCode
+        if ($installerProcess.ExitCode -ne 0) { throw "El instalador NSIS terminó con código $($installerProcess.ExitCode)." }
+        if (-not (Wait-PathState -Path $AppPath -ExpectedPresent $true)) { throw "El instalador no creó Columnia.exe en la ruta Unicode esperada." }
+    }
     if (-not (Test-Path -LiteralPath $UninstallerPath -PathType Leaf)) { throw "El instalador no creó el desinstalador esperado." }
     $InstallEvidence.status = "passed"
 
@@ -325,6 +396,7 @@ finally {
         install = $InstallEvidence
         firstOpen = $FirstOpenEvidence
         secondInstance = $SecondInstanceEvidence
+        update = $UpdateEvidence
         uninstall = $UninstallEvidence
         retention = $RetentionEvidence
         cleanup = [ordered]@{
@@ -342,5 +414,10 @@ if ($SmokeStatus -ne "passed") {
     exit 1
 }
 
-Write-Host "Smoke del instalador aprobado: instalación, primera/segunda invocación, ruta Unicode, desinstalación y retención de datos de usuario confirmadas."
+if ($UpdateEvidence.status -eq "passed") {
+    Write-Host "Smoke del instalador aprobado: upgrade, primera/segunda invocación, ruta Unicode, desinstalación y retención de datos de usuario confirmados."
+}
+else {
+    Write-Host "Smoke del instalador aprobado: instalación, primera/segunda invocación, ruta Unicode, desinstalación y retención de datos de usuario confirmadas."
+}
 Write-Host "Evidencia: $EvidenceRelativePath"
