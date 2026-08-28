@@ -58,9 +58,11 @@ clave anterior que incruste la clave nueva. La clave privada histórica se
 conserva offline hasta publicar y volver a descargar/verificar la release
 puente, verificar la primera release firmada con la clave nueva y cerrar la
 ventana de recuperación. Si la clave se compromete, se detiene el canal, se
-conserva la versión instalada y se recupera mediante un instalador verificado o
-una release puente; nunca se sustituye la clave confiable en el canal sin esa
-transición firmada.
+prohíbe una release puente firmada con esa clave, se conserva la versión
+instalada y se recupera mediante un instalador fuera de banda autenticado por
+separado que incruste la nueva clave. Nunca se sustituye la clave confiable en
+el canal sin una transición firmada; la respuesta a compromiso requiere además
+la verificación independiente del instalador de recuperación.
 
 La verificación posterior a publicación se ejecuta con
 `npm run updater:verify-published`. Descarga el manifiesto y el instalador del

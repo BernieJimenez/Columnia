@@ -56,5 +56,10 @@ if (policy.recovery?.preserveInstalledVersion !== true || policy.recovery?.manua
 if (!Array.isArray(policy.recovery?.failClosedOn) || policy.recovery.failClosedOn.length < 5) {
   fail("La política debe enumerar las condiciones de fallo cerrado del updater.");
 }
+if (policy.recovery.compromiseResponse?.automatedBridgeAllowed !== false ||
+    !Array.isArray(policy.recovery.compromiseResponse.steps) ||
+    policy.recovery.compromiseResponse.steps.length < 5) {
+  fail("El compromiso de la clave debe congelar el canal y prohibir una release puente automática.");
+}
 
 console.log(`Política de claves updater aprobada: ${activeKey.id}, fingerprint ${activeKey.fingerprint}.`);

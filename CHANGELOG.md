@@ -113,7 +113,9 @@ los artefactos de validación locales.
 - Política ejecutable de rotación/recuperación del updater con release puente
   firmada por la clave anterior, preservación de la versión instalada ante fallo
   y gate de fingerprint; `updater:verify-published` vuelve a descargar el
-  manifiesto/instalador HTTPS y verifica tamaño, SHA-256 y firma minisign.
+  manifiesto/instalador HTTPS y verifica tamaño, SHA-256 y firma minisign. Ante
+  compromiso de la clave, el contrato congela el canal y prohíbe firmar otra
+  release puente con la clave comprometida.
 
 ### Validación histórica de la reauditoría
 

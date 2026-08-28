@@ -25,6 +25,16 @@
       "unreachable channel"
     ],
     "preserveInstalledVersion": true,
-    "manualRecovery": "Stop publication, preserve the installed version, verify a manually downloaded installer and distribute a bridge release signed by the last trusted key. Never replace a trusted key in place without a signed bridge release."
+    "manualRecovery": "For a normal planned rotation, distribute a bridge release signed by the previous trusted key. For a suspected compromise, stop the channel and do not sign a bridge with the compromised key; preserve the installed version and use a separately authenticated, out-of-band installer containing the new public key before resuming updates.",
+    "compromiseResponse": {
+      "automatedBridgeAllowed": false,
+      "steps": [
+        "freeze the updater channel and retain the last known-good manifest",
+        "do not publish another artifact signed by the compromised key",
+        "verify the recovery installer through a separately authenticated channel",
+        "install the recovery build manually and verify its new key fingerprint",
+        "resume publication only after a downloaded new-key release passes verification"
+      ]
+    }
   }
 }
