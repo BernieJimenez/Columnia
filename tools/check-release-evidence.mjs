@@ -69,7 +69,7 @@ try {
   if (baseline.git?.commit && summary.git.commit !== baseline.git.commit) {
     fail("La evidencia release no corresponde al commit aprobado por el baseline.");
   }
-  if (summary.lockfiles?.packageLockSha256 !== baseline.lockfiles?.packageLockSha256 || summary.lockfiles?.cargoLockSha256 !== baseline.lockfiles?.cargoLockSha256) {
+  if (!updateBaseline && (summary.lockfiles?.packageLockSha256 !== baseline.lockfiles?.packageLockSha256 || summary.lockfiles?.cargoLockSha256 !== baseline.lockfiles?.cargoLockSha256)) {
     fail("Los lockfiles de la evidencia release no coinciden con el baseline.");
   }
   if (summary.status !== "passed") fail(`La evidencia release no está aprobada: ${summary.status}.`);
