@@ -73,11 +73,12 @@ try {
   };
   if (currentGit.dirty) fail("El árbol Git debe estar limpio para validar evidencia release.");
   const currentCommitMatchesEvidence = summary.git?.commit === currentGit.commit
-    || isBaselineCommit(currentGit.commit, summary.git?.commit);
+    || (summary.git?.commit && isBaselineCommit(currentGit.commit, summary.git.commit));
   if (!currentCommitMatchesEvidence || summary.git?.branch !== currentGit.branch || summary.git?.dirty !== false) {
     fail("La evidencia release no corresponde al HEAD limpio actual.");
   }
-  if (!updateBaseline && baseline.git?.commit && summary.git.commit !== baseline.git.commit) {
+  if (!updateBaseline && baseline.git?.commit && summary.git.commit !== baseline.git.commit
+      && !isBaselineCommit(summary.git.commit, baseline.git.commit)) {
     fail("La evidencia release no corresponde al commit aprobado por el baseline.");
   }
   if (!updateBaseline && (summary.lockfiles?.packageLockSha256 !== baseline.lockfiles?.packageLockSha256 || summary.lockfiles?.cargoLockSha256 !== baseline.lockfiles?.cargoLockSha256)) {
