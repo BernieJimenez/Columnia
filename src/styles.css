@@ -321,7 +321,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .project-recovery span, .project-list span, .project-list small, .project-save small { color: #627770; font-size: .76rem; }
 .project-save { display: grid; gap: 6px; margin-top: 18px; }
 .project-save > label { color: #47625f; font-size: .78rem; font-weight: 800; text-transform: uppercase; }
-.project-save > div { display: flex; gap: 8px; }
+.project-save > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .project-save input { flex: 1 1 auto; min-width: 0; padding: 10px 11px; border: 1px solid #8eaaa3; border-radius: 3px; background: #fff; color: #18343a; }
 .project-save input:focus-visible { outline: 3px solid #e3aa50; outline-offset: 2px; }
 .projects__empty { color: #627770; font-size: .86rem; }
