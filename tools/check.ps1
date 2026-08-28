@@ -80,6 +80,20 @@ function Get-ToolVersion {
     }
 }
 
+function Get-Sha256 {
+    param([string]$Path)
+
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 function Get-LockfileFingerprint {
     param([string]$Path)
 
@@ -93,7 +107,7 @@ function Get-LockfileFingerprint {
     try {
         return [ordered]@{
             status = "available"
-            sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+            sha256 = Get-Sha256 $Path
         }
     }
     catch {
@@ -186,7 +200,7 @@ try {
     }
     $FrontendBundleDocument = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
     $FrontendBundleEvidence.status = $FrontendBundleDocument.status
-    $FrontendBundleEvidence.sha256 = (Get-FileHash -LiteralPath $FrontendBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $FrontendBundleEvidence.sha256 = Get-Sha256 $FrontendBundlePath
     $FrontendBundleEvidence.fileCount = @($FrontendBundleDocument.files).Count
     $FrontendBundleEvidence.totals = $FrontendBundleDocument.totals
     $FrontendBundleEvidence.limits = $FrontendBundleDocument.limits
@@ -202,7 +216,7 @@ try {
         }
         $SbomDocument = Get-Content -LiteralPath $SbomPath -Raw | ConvertFrom-Json
         $SbomEvidence.status = "available"
-        $SbomEvidence.sha256 = (Get-FileHash -LiteralPath $SbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $SbomEvidence.sha256 = Get-Sha256 $SbomPath
         $SbomEvidence.componentCount = @($SbomDocument.components).Count
         Invoke-Checked "Supply-chain audit" $ProjectRoot {
             & (Join-Path $ProjectRoot "tools\check-supply-chain.ps1") -RequireAuditTools
@@ -231,7 +245,7 @@ try {
         }
         $PackageArtifactsDocument = Get-Content -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
         $PackageArtifactsEvidence.status = $PackageArtifactsDocument.status
-        $PackageArtifactsEvidence.sha256 = (Get-FileHash -LiteralPath $PackageArtifactsPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $PackageArtifactsEvidence.sha256 = Get-Sha256 $PackageArtifactsPath
         $PackageArtifactsEvidence.artifactCount = @($PackageArtifactsDocument.artifacts).Count
         $PackageArtifactsEvidence.artifacts = @($PackageArtifactsDocument.artifacts)
         Invoke-Checked "Installed artifact smoke" $ProjectRoot {
@@ -255,7 +269,7 @@ catch {
         try {
             $FailedBundleDocument = Get-Content -LiteralPath $FrontendBundlePath -Raw | ConvertFrom-Json
             $FrontendBundleEvidence.status = $FailedBundleDocument.status
-            $FrontendBundleEvidence.sha256 = (Get-FileHash -LiteralPath $FrontendBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $FrontendBundleEvidence.sha256 = Get-Sha256 $FrontendBundlePath
             $FrontendBundleEvidence.fileCount = @($FailedBundleDocument.files).Count
             $FrontendBundleEvidence.totals = $FailedBundleDocument.totals
             $FrontendBundleEvidence.limits = $FailedBundleDocument.limits
@@ -271,7 +285,7 @@ catch {
         try {
             $FailedArtifactsDocument = Get-Content -LiteralPath $PackageArtifactsPath -Raw | ConvertFrom-Json
             $PackageArtifactsEvidence.status = $FailedArtifactsDocument.status
-            $PackageArtifactsEvidence.sha256 = (Get-FileHash -LiteralPath $PackageArtifactsPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $PackageArtifactsEvidence.sha256 = Get-Sha256 $PackageArtifactsPath
             $PackageArtifactsEvidence.artifactCount = @($FailedArtifactsDocument.artifacts).Count
             $PackageArtifactsEvidence.artifacts = @($FailedArtifactsDocument.artifacts)
         }
