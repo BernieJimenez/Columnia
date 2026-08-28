@@ -39,6 +39,8 @@ los artefactos de validación locales.
   confirmada y reversible, sin publicar sus valores.
 - La CLI sanitiza reportes, recetas y manifiestos en una frontera común, y las
   consultas/joins locales incorporan cancelación y preflight de cardinalidad.
+- El smoke CLI valida la redacción de nombres de archivo en stdout sin dejar de
+  comprobar que las salidas locales se publiquen completas y de forma atómica.
 - Los manifiestos de sesión DataPrep importados conservan un resumen estructural
   sanitizado en el informe de migración: hoja, etapa, conteos de operaciones,
   reglas y análisis, además de señales booleanas para referencias de origen y

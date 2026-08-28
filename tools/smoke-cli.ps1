@@ -194,7 +194,10 @@ function New-ExpectedTransform {
     [pscustomobject][ordered]@{
         schemaVersion = 1
         command = "transform"
-        outputFileName = $OutputFileName
+        # The CLI stdout crosses the common privacy boundary. File names are
+        # intentionally redacted there, while the native operation still
+        # publishes the output to the requested local destination.
+        outputFileName = "[redactado]"
         fileSizeBytes = $FileSizeBytes
         format = $Format
         changed = $true
@@ -353,7 +356,7 @@ try {
     $WorkbookOutputPath = Join-Path $ProjectRoot ($WorkbookOutputRelative -replace "/", "\")
     Assert-DeepEqual `
         -Expected ([pscustomobject][ordered]@{
-            schemaVersion = 1; command = "transform"; outputFileName = "workbook-output.csv"
+            schemaVersion = 1; command = "transform"; outputFileName = "[redactado]"
             fileSizeBytes = (Get-Item $WorkbookOutputPath).Length; format = "CSV"; changed = $true
             summary = [pscustomobject][ordered]@{
                 inputRowCount = 2; outputRowCount = 2; inputColumnCount = 2; outputColumnCount = 2
@@ -520,7 +523,7 @@ try {
             "--output", $ProjectExportPath, "--format", "csv"
         ))
     if ($ProjectExport.schemaVersion -ne 1 -or $ProjectExport.command -cne "project-export" -or
-        $ProjectExport.status -cne "succeeded" -or $ProjectExport.fileName -cne "project-export.csv" -or
+        $ProjectExport.status -cne "succeeded" -or $ProjectExport.fileName -cne "[redactado]" -or
         $ProjectExport.fileSizeBytes -ne (Get-Item -LiteralPath $ProjectExportPath).Length -or
         -not $ProjectExport.quality.validated -or -not $ProjectExport.quality.passed -or
         $ProjectExport.quality.totalRules -ne 1 -or $ProjectExport.quality.failedRules -ne 0) {

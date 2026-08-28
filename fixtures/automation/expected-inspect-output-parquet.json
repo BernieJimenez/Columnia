@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "command": "inspect",
-  "fileName": "output.parquet",
+  "fileName": "[redactado]",
   "rowCount": 2,
   "columnCount": 3,
   "columns": [
