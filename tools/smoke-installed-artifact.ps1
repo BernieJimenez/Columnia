@@ -11,6 +11,21 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Package = Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json
+
+function Get-Sha256 {
+    param([string]$Path)
+
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 $RunStartedAt = [DateTimeOffset]::UtcNow
 $Stamp = $RunStartedAt.ToString("yyyyMMddTHHmmssZ")
 $EvidenceRelativePath = ".local/validation/installer-smoke/$Stamp"
@@ -299,7 +314,7 @@ finally {
             path = if ($InstallerFullPath) { $InstallerFullPath } else { $InstallerPath }
             kind = "nsis"
             sizeBytes = if ($InstallerFullPath -and (Test-Path -LiteralPath $InstallerFullPath)) { (Get-Item -LiteralPath $InstallerFullPath).Length } else { $null }
-            sha256 = if ($InstallerFullPath -and (Test-Path -LiteralPath $InstallerFullPath)) { (Get-FileHash -LiteralPath $InstallerFullPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+            sha256 = if ($InstallerFullPath -and (Test-Path -LiteralPath $InstallerFullPath)) { Get-Sha256 $InstallerFullPath } else { $null }
         }
         identity = [ordered]@{
             user = $IdentityName

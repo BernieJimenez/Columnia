@@ -23,9 +23,9 @@ los artefactos de validación locales.
 - El orquestador de release reutiliza el binario `Release/Package` para capturar
   la evidencia visual, evitando reconstruir un ejecutable distinto después del
   gate de empaquetado.
-- El gate de release calcula sus fingerprints SHA-256 con la API criptográfica
-  del runtime, manteniendo el flujo compatible con los hosts PowerShell usados
-  por npm y por la ejecución directa.
+- Los gates de release, SBOM e instalador calculan sus fingerprints SHA-256 con
+  la API criptográfica del runtime, manteniendo el flujo compatible con los
+  hosts PowerShell usados por npm y por la ejecución directa.
 - El perfil `Release` incorpora y aprueba el contrato updater junto con sus
   gates de documentación, IPC, toolchains, cobertura, supply chain, instalador,
   SBOM y binario Tauri sin bundle; la corrida local no implica un árbol limpio
