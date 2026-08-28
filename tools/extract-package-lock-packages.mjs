@@ -7,11 +7,18 @@ if (!lockPath) {
 }
 
 const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+const packageNameFromLockPath = (path) => {
+  const marker = "node_modules/";
+  const index = path.lastIndexOf(marker);
+  return index >= 0 ? path.slice(index + marker.length) : path;
+};
 const packages = Object.entries(lock.packages ?? {})
   .filter(([path, value]) => path && value && value.version)
   .map(([path, value]) => ({
-    path,
+    name: packageNameFromLockPath(path),
     version: String(value.version),
+    license: value.license ?? "UNKNOWN",
+    source: value.resolved ?? "package-lock.json",
     integrity: value.integrity ?? null,
   }));
 

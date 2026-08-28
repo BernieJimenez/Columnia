@@ -4,6 +4,21 @@ export interface AppInfo {
   name: string;
   version: string;
   platform: string;
+  updaterConfigured?: boolean;
+}
+
+export interface UpdateInfo {
+  currentVersion: string;
+  version: string;
+  notes: string | null;
+  date: string | null;
+  sizeBytes: number | null;
+}
+
+export interface UpdaterProgress {
+  phase: "started" | "progress" | "finished" | "cancelled";
+  downloadedBytes: number;
+  contentLength: number | null;
 }
 
 export interface ResourceUsage {
@@ -697,6 +712,23 @@ function progressChannel(onProgress?: ProgressHandler): Channel<OperationProgres
 
 export function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
+}
+
+export function checkForUpdate(): Promise<UpdateInfo | null> {
+  return invoke<UpdateInfo | null>("check_for_update");
+}
+
+export function downloadUpdate(onProgress?: (progress: UpdaterProgress) => void): Promise<void> {
+  const channel = new Channel<UpdaterProgress>((progress) => onProgress?.(progress));
+  return invoke<void>("download_update", { onProgress: channel });
+}
+
+export function cancelUpdateDownload(): Promise<void> {
+  return invoke<void>("cancel_update_download");
+}
+
+export function installUpdate(): Promise<void> {
+  return invoke<void>("install_update");
 }
 
 export function getResourceUsage(): Promise<ResourceUsage> {

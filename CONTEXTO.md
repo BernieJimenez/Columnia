@@ -20,8 +20,49 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado e historial/cursor durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 248 frontend, 234 Rust y 9 E2E aprobadas; Full/Release/Package pasan en la estación auditada |
-| Última revisión de este documento | 2026-08-28, rama `master`, base `137520b28b96233a27a6152978a57ef2a2dda9bd`; reauditoría exhaustiva completada, Tier 5 abierto con 20 tareas; rendimiento y baseline visual release permanecen fallidos |
+| Pruebas observadas | 267 frontend y 244 Rust aprobadas; E2E y Package históricos pasan en la estación auditada; el smoke nativo Win32 actual también pasa con cleanup y presupuesto de memoria |
+| Última revisión de este documento | 2026-08-28, rama `master`; implementación técnica de Tier 5 mayormente cerrada. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, contrato local de manifiesto y selectores nativos pasan; faltan baseline release ligado a commit limpio y decisiones legales/operativas |
+
+### Estado verificable de Tier 5
+
+La implementación actual cerró técnicamente los gates de cobertura por capa,
+`SkipPackage`, zoom/reflow de 125% y 200%, inventario IPC, toolchains, notices,
+confinamiento batch, reintento del catálogo, reconciliación de generaciones y
+endurecimiento Playwright y updater autenticado. El fast-path de fingerprints normalizados mantiene
+la semántica de duplicados parecidos y reduce el `project-save` de 100 MiB a
+59.75 s en una corrida corta y el benchmark formal registra `project-save` en
+52.09 s con tres actualizaciones entre 56.37 y 57.31 s
+(`.local/validation/performance-benchmark/20260828T184531Z`).
+
+Siguen siendo bloqueantes antes de publicar: regenerar y aprobar evidencia
+visual desde un `HEAD` limpio, validar instalación/actualización en una VM
+Windows limpia, y cerrar las decisiones legales de canal, jurisdicción,
+responsable, contacto, retención y rotación del updater. El recorrido de
+selectores nativos ya pasa en una sesión gráfica habilitada dentro de ambos
+presupuestos de memoria.
+El orquestador local `tools/release.ps1` ya está implementado; solo ejecuta
+gates locales y no publica ni etiqueta.
+
+### Validación de la implementación Tier 5
+
+- `tools/check.ps1 -Profile Full` y `tools/check.ps1 -Profile Release` pasan:
+  build, cobertura, clippy, supply chain, SBOM, instalador, 267 tests frontend
+  y 244 tests Rust.
+- El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
+  253.48 MiB privados, dentro de presupuesto, ejecuta 3 ciclos sostenidos y
+  confirma cleanup (`.local/validation/webview2-cdp/20260828T185215Z`). El
+  recorrido nativo aislado verifica abrir dataset, guardar/cargar receta y
+  exportar con 521.79 MiB de working set y 265.98 MiB privados, también dentro
+  de presupuesto (`.local/validation/webview2-cdp/20260828T203917Z`).
+- `npm run accessibility:visual`, `npm run accessibility:check` y
+  `npm run perf:check` pasan; evidencia visual:
+  `.local/validation/accessibility-visual/20260828T185137Z`.
+- La captura release desde un commit limpio, la aprobación del baseline visual
+  y la revisión legal final siguen siendo requisitos de publicación. El bundle
+  firmado de prueba produjo MSI/NSIS y sus firmas `.sig`; la ruta reproducible
+  está en `release:updater:dry-run` y requiere variables de entorno privadas.
+  `updater:contract:test` cubre mutaciones estructurales locales, pero no cierra
+  la validación de canal real, red, recuperación o rotación de claves.
 
 ## Para qué existe este documento
 
@@ -95,7 +136,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 
 | Ruta | Responsabilidad |
 | --- | --- |
-| `src/main.tsx` | Monta `<App />` en modo estricto de React. |
+| `src/main.tsx` | Monta `<App />` en modo estricto de React y publica la marca de bootstrap usada para separar compilación fría del primer render. |
 | `src/App.tsx` | Coordina el flujo principal y los estados compartidos de la interfaz en 867 líneas. |
 | `src/components/` | Componentes accesibles extraídos para diálogos, tabs de revisión y progreso cancelable. |
 | `src/components/ResourceMonitor.tsx` | Monitor compacto de consumo de CPU/RAM del proceso y del equipo, con polling nativo, selector persistente de concurrencia Rayon y estado degradado para el shell web. |
@@ -111,14 +152,15 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `src-tauri/src/main.rs` | Entrada mínima del ejecutable; delega en `columnia_lib::run()`. |
 | `src-tauri/src/lib.rs` | Inicializa Tauri, instancia única, diálogo nativo, eventos nativos de arrastre, estados de dataset/proyectos y los comandos permitidos. |
 | `src-tauri/src/resource.rs` | Obtiene CPU y memoria del proceso Columnia y del sistema mediante `sysinfo`, sin exponer rutas ni datos. |
-| `src-tauri/src/dataset.rs` | Motor de datos completo. Contiene carga, tipos, perfiles, recetas, historial y exportación en 22,745 líneas; producción ocupa aproximadamente 16,766 antes de `mod tests`. |
+| `src-tauri/src/dataset.rs` | Motor de datos principal. Contiene carga, tipos, perfiles, recetas, historial y exportación; el fingerprinting de duplicados parecidos vive en el módulo interno acotado `dataset_fingerprints.rs`. |
+| `src-tauri/src/dataset_fingerprints.rs` | API interna para huellas exactas/normalizadas de filas, fast-path ASCII y normalización Unicode usada por perfilado y retiro de duplicados parecidos. |
 | `src-tauri/src/projects.rs` | Catálogo SQLite v3 compatible con v1/v2, snapshots Parquet durables, perfil e historial versionados y cinco comandos de proyectos. |
 | `src-tauri/src/automation.rs` | Parser estricto, contratos JSON y orquestación reutilizable de datasets, lotes y los cinco comandos CLI de proyectos. |
 | `src-tauri/src/bin/columnia-cli.rs` | Ejecutable CLI mínimo que delega en el módulo de automatización. |
 | `src-tauri/capabilities/main.json` | Capability mínima para la ventana `main`: solamente `core:default`. |
 | `src-tauri/tauri.conf.json` | Ventana, build, bundle y CSP de producción/desarrollo. |
 | `tools/check.ps1` | Entrada única para los gates locales Fast, Full y Release; genera evidencia JSON auditable en `.local/validation/` y en Release ejecuta supply chain/instalador. |
-| `vitest.config.ts` | Cobertura V8 global para `src`, con umbrales 80% statements/lines y 75% branches/functions; la aplicación real por capa queda abierta en `T5-04`. |
+| `vitest.config.ts` / `tools/check-coverage.mjs` | Cobertura V8 global y por capa crítica: App, Entrega, Preparar y controller con umbrales 80% statements/lines y 75% branches/functions. |
 | `tools/check-supply-chain.ps1` / `src-tauri/deny.toml` | npm audit, cargo audit, cargo-deny, secretos, avisos de terceros y política de red con excepciones upstream justificadas. |
 | `tools/check-network-policy.mjs` / `docs/reference/network-privacy.md` | Inventario local de red, CSP productivo y política de telemetría desactivada por defecto. |
 | `src-tauri/src/privacy.rs` | Serialización pública sanitizada para reportes, recetas y manifiestos: elimina rutas, valores, emails, secretos y referencias de filesystem, conservando identificadores, estados y conteos agregados. |
@@ -129,19 +171,24 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
 | `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, perfila el árbol de procesos y aplica presupuestos observables de 512 MiB de working set, 256 MiB de memoria privada y transformaciones nativas sostenidas; restaura el entorno y limpia su Job Object. |
 | `tools/probe-webview2-restart.ps1` | Ejecuta las fases aisladas prepare/verify del reinicio real y eleva al resumen de cada fase el estado del presupuesto y el conteo/duración IPC, delegando el cleanup al probe CDP. |
-| `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y registra primer render, landmarks, `ProjectsPanel`, skip link, foco principal y cantidad de controles sin mutar datos. |
+| `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y separa estado funcional de presupuesto de primer render relativo al bootstrap; ambos son necesarios para aprobar el probe. |
 | `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de `ProjectsPanel`, repite transformaciones/exportaciones nativas sostenidas, y en el smoke debug guarda/abre/consulta/elimina un proyecto sintético con cleanup; registra duración por comando y total, pero no rutas ni datos del catálogo. |
 | `tools/summarize-performance.ps1` | Lee únicamente `summary.json` dentro de `.local/validation/`, clasifica señales web/CDP/desktop, conserva el perfil de memoria, el presupuesto y las duraciones nativas, calcula deltas y genera `summary.json`/`summary.csv` sin rutas absolutas ni datos sensibles. |
-| `tools/capture-accessibility-evidence.mjs` | Construye el preview local, captura desktop/móvil/escala 125%/forced-colors y publica capturas más un resumen sanitizado de landmarks, foco, targets y overflow bajo `.local/validation/`. |
+| `tools/capture-accessibility-evidence.mjs` | Construye el preview local, captura desktop/móvil/zoom CSS 125% y 200%/forced-colors y publica capturas más un resumen sanitizado de landmarks, foco, targets y overflow bajo `.local/validation/`. |
 | `tools/check-accessibility-baseline.mjs` | Compara la evidencia visual más reciente con el contrato versionado de `fixtures/accessibility/`, verificando escenarios, landmarks, targets, foco, overflow y SHA-256 de cada captura. |
-| `tools/capture-release-evidence.ps1` / `tools/capture-release-evidence.mjs` | Construyen el binario Tauri sin bundle, lo exponen únicamente por CDP de loopback y capturan cuatro escenarios desde el ejecutable optimizado, con hashes de binario/fixture y sumario sanitizado. |
-| `tools/check-release-evidence.mjs` | Comprueba el sumario release contra el baseline de escenarios, contrato, versiones, hashes y ownership; solo `--update-baseline` acepta una diferencia visual intencional. |
+| `tools/capture-release-evidence.ps1` / `tools/capture-release-evidence.mjs` | Construyen el binario Tauri sin bundle, exigen árbol limpio, registran commit/rama/lockfiles y capturan desktop/móvil/zoom CSS 125% y 200%/forced-colors desde el ejecutable optimizado. |
+| `tools/check-release-evidence.mjs` | Comprueba el sumario release contra el baseline de escenarios, contrato, versiones, commit limpio, hashes de lockfiles y ownership; solo `--update-baseline` acepta una diferencia visual intencional. |
+| `tools/release.ps1` | Orquesta el pre-release local con toolchains, documentación, IPC, perfil Release/Package, CLI, evidencia visual, baseline y rendimiento; exige rama/árbol limpio y nunca crea tags ni publica servicios remotos. |
+| `tools/generate-updater-manifest.mjs` / `tools/check-updater-manifest.mjs` / `tools/test-updater-manifest.mjs` | Generan y verifican el par manifiesto/inventario del updater; el contrato reproducible muta un fixture local para probar truncado, firma alterada, manifiesto incompleto/corrupto y URL insegura sin contactar la red. |
 | `tools/check-documentation.mjs` | Valida el mapa Diátaxis, ADR/CHANGELOG, enlaces locales, UTF-8 sin BOM, coherencia de versiones y ownership de imágenes. |
-| `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide tres iteraciones sostenidas de transform CSV/Parquet, actualiza dos veces el mismo proyecto y verifica reapertura/exportación durable; conserva solo tiempos, conteos, estados y cleanup sin datos después de borrar el almacén temporal. |
+| `tools/benchmark-datasets.ps1` | Genera un CSV sintético cercano al objetivo indicado, mide iteraciones sostenidas de transform CSV/Parquet, actualiza el mismo proyecto el número indicado de veces y verifica reapertura/exportación durable; conserva solo tiempos, conteos, estados y cleanup sin datos después de borrar el almacén temporal. |
 | `tools/benchmark-i1.ps1` / `tools/check-i1-benchmark.mjs` | Benchmark cruzado de la inspección de 100 MiB contra `dataprepv1.1`, con selección del entorno Python, comparación de duración/working set, validación de conteos y cleanup. |
 | `tools/check-performance-baseline.ps1` | Convierte el resumen CDP, el benchmark de datasets y el reporte Package en un gate contra `fixtures/performance/performance-baseline-v1.json`, incluyendo duración máxima por operación, con evidencia sanitizada y estado explícito. |
 | `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
 | `tools/verify-tier.ps1` | Orquesta el tier reproducible completo: tests, build, accesibilidad, benchmark sostenido, Package, smokes CLI/WebView2 y gates finales; permite omitir Package o native de forma explícita. |
+| `tools/check-toolchains.mjs` / `rust-toolchain.toml` | Rechazan Node/npm/Rust fuera de las versiones exactas del entorno de release. |
+| `tools/check-ipc-inventory.mjs` / `docs/reference/ipc-inventory.json` | Generan y verifican desde Rust el inventario de 56 comandos de producción, 4 debug y 56 estructuras compartidas; los tests de contrato consumen el inventario. |
+| `docs/reference/legal-distribution-review.md` / `src/App.tsx` | Hacen descubribles MIT, notices y privacidad local; la revisión legal de canal/jurisdicción/contacto sigue pendiente antes de publicar. |
 | `ACCESSIBILITY_MANUAL_CHECKLIST.md` | Checklist operativa para teclado, lector de pantalla, High Contrast, zoom y evidencia manual; no declara completada la auditoría sin una sesión real. |
 | `fixtures/accessibility/visual-baseline-v1.json` | Contrato versionado de escenarios y mínimos visuales; no contiene imágenes ni datos de usuario. |
 | `fixtures/performance/performance-baseline-v1.json` | Presupuestos versionados de memoria CDP, transformaciones nativas sostenidas, benchmark sostenido de 100 MiB, duración por operación y bundle frontend. |
@@ -236,7 +283,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `open_project`
 - `delete_project`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y una allowlist manual de 54 estructuras compartidas. No es exhaustiva: omite estructuras públicas y normaliza algunos enums/literales con pérdida de precisión; `T5-10` debe cerrar esa brecha. Las 14 subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y las 56 estructuras compartidas del inventario generado. Las subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -518,9 +565,11 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
   de 100 MiB y el benchmark CLI `.local/validation/performance-benchmark/20260823T223949Z`
   validó 256 MiB/2,220,032 filas con tres ciclos y dos actualizaciones, pero
   observó hasta 1.12 GiB de working set;
-- el smoke `npm run smoke:native-selectors` ya es un gate de `verify:tier` cuando no se usa `-SkipNative`: recorre abrir dataset, guardar/cargar receta y exportar con fixtures sintéticos, variantes de editor Abrir/Guardar como, cleanup y evidencia sanitizada; la auditoría manual de lector de pantalla/High Contrast sigue pendiente;
+- el smoke `npm run smoke:native-selectors` ya es un gate de `verify:tier` cuando no se usa `-SkipNative`: recorre abrir dataset, guardar/cargar receta y exportar con fixtures sintéticos, variantes de editor Abrir/Guardar como, cleanup y evidencia sanitizada; el driver filtra el diálogo por proceso/owner y tiene timeout propio; la auditoría manual de lector de pantalla/High Contrast sigue pendiente;
 - presupuesto integral global de dataset+historial para entradas grandes y comparación contra `dataprepv1.1`; v0.49 mide tres ciclos nativos sobre el dataset de probe y aplica el presupuesto global del árbol, pero todavía no prueba datasets grandes desde WebView2;
-- escaneo de vulnerabilidades, firma de instaladores y updater autenticado; SBOM, gates offline y empaquetado Windows básico ya existen;
+- escaneo de vulnerabilidades y firma Authenticode de Windows siguen fuera de
+  alcance; updater autenticado, SBOM, gates offline y empaquetado Windows básico
+  ya existen;
 - verificación real en macOS y Linux.
 - restauración segura de sesiones DataPrep y mapeo al catálogo de proyectos;
   el informe estructural ya está disponible, pero no activa snapshots ni escribe
@@ -532,22 +581,24 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
-3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 43 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 56 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: los datasets no tienen un tope fijo de tamaño. Polars materializa el dataset y algunas operaciones crean candidatos completos, por lo que la capacidad efectiva depende de la RAM, el espacio disponible y los demás recursos del equipo.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.
 7. **Roadmap acumulativo**: contiene decisiones propuestas, aprobadas e implementadas; no todas reflejan dependencias presentes.
 8. **Sin CI por política**: la calidad depende de ejecutar y registrar correctamente los gates locales.
-9. **Gates con semántica incompleta**: cobertura por capa, primer render,
-   `SkipPackage`, zoom 125% y evidencia release no hacen cumplir literalmente
-   todo lo que su nombre/documentación afirma; consultar Tier 5.
-10. **Rendimiento en regresión**: tres smokes WebView2 excedieron 256 MiB de
-    memoria privada y el benchmark durable se interrumpe tras `project-save`.
-11. **Persistencia recuperable incompleta**: una primera migración fallida queda
-    cacheada hasta reiniciar y un crash antes del commit puede dejar generaciones
-    Parquet huérfanas.
-12. **Distribución no promovible**: Package genera MSI/NSIS, pero notices,
-    instalación en VM, updater/firma y orquestador de release siguen abiertos.
+9. **Gates de publicación condicionados**: cobertura por capa, primer render,
+   `SkipPackage`, zoom 125% y evidencia release ya tienen contratos ejecutables;
+   la evidencia release aún exige un commit limpio y la revisión legal final.
+10. **Rendimiento con alcance acotado**: el benchmark durable de 100 MiB y tres
+    ciclos WebView2 cumplen sus presupuestos actuales, pero la capacidad global
+    para datasets mayores y la interacción nativa requieren validación adicional.
+11. **Persistencia recuperable en evolución**: los reintentos de inicialización y
+    la reconciliación de generaciones ya están implementados; deben conservarse
+    las pruebas de fallo y el margen de seguridad al ampliar el esquema.
+12. **Distribución no promovible aún**: Package, notices, updater firmado y el
+    orquestador local existen; instalación en VM, canal, rotación de clave y
+    decisiones legales siguen abiertos.
 
 ## Cómo trabajar en este repositorio
 
@@ -585,6 +636,8 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-28 | I6 añade un contrato updater estructural reproducible y lo integra al perfil Release/Package: un fixture temporal aprueba el par válido y falla ante truncado, firma alterada, manifiesto incompleto/corrupto y URL HTTP. La prueba no contacta la red ni sustituye la validación del canal real. | `tools/test-updater-manifest.mjs`, `tools/check.ps1`, `.local/validation/20260828T214048Z-6ec7bae-release.json` |
+| 2026-08-28 | T5-02 queda respaldado por un smoke nativo aislado: los cuatro diálogos Win32 pasan, el driver rechaza ventanas residuales por PID/owner, espera el cierre modal y corta drivers bloqueados; el recorrido oficial registra 521.79 MiB working set, 265.98 MiB privados y cleanup confirmado. El smoke nativo se separa del runner Playwright para medir el presupuesto de WebView2 sin retención del runner. | `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-cdp.ps1`, `tools/probe-webview2-native-selectors.mjs`, `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
 | 2026-08-28 | Reauditoría profesional exhaustiva sobre `137520b`: 248 tests frontend, 234 Rust y 9 E2E aprobaron; Full/Release/Package pasaron y Package produjo MSI/NSIS. Se verificaron regresiones de rendimiento, verdes falsos de cobertura/tiers/evidencia, deuda de seguridad/arquitectura y bloqueos legales de distribución. Se abrió Tier 5 con 20 tareas; no se corrigió código ni se aprobó un baseline. | `AUDITORIA_PROFESIONAL_2026-08-28.md`, `ROADMAP.md`, `.local/validation/20260828T054125Z-137520b-package.json`, `.local/validation/performance-baseline/20260828T053153Z/summary.json` |
 | 2026-08-26 | Review incorpora cobertura temporal agregada para Date/Datetime/Timestamp y fechas detectadas: muestra rango, filas con valor y porcentaje con tabla accesible equivalente sin enviar celdas a React. | `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | M1 incorpora un mapeo seguro de sesiones DataPrep al catálogo de proyectos mediante selector nativo. La fuente, hoja, esquema y receta se validan en un estado temporal y el snapshot solo se publica después de pasar todas las comprobaciones; el bridge no recibe rutas. | `src-tauri/src/projects.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `ROADMAP.md` |

@@ -5,9 +5,13 @@ use tauri_plugin_dialog::DialogExt;
 
 pub mod automation;
 mod dataset;
+mod dataset_fingerprints;
 pub mod privacy;
+mod project_recovery;
 mod projects;
 mod resource;
+#[cfg(desktop)]
+mod updater;
 
 use resource::{PerformanceProfile, PerformanceSettings};
 
@@ -19,6 +23,8 @@ struct AppInfo {
     name: &'static str,
     version: &'static str,
     platform: &'static str,
+    /// Optional so older desktop builds can omit the updater capability flag.
+    updater_configured: Option<bool>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -53,11 +59,23 @@ pub enum GpuStatus {
     Unavailable,
 }
 
+fn updater_configured() -> bool {
+    #[cfg(desktop)]
+    {
+        updater::configured()
+    }
+    #[cfg(not(desktop))]
+    {
+        false
+    }
+}
+
 fn current_app_info() -> AppInfo {
     AppInfo {
         name: "Columnia",
         version: env!("CARGO_PKG_VERSION"),
         platform: std::env::consts::OS,
+        updater_configured: Some(updater_configured()),
     }
 }
 
@@ -125,6 +143,8 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             restore_main_window(app);
         }));
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        builder = builder.manage(updater::UpdaterState::default());
     }
 
     builder
@@ -178,6 +198,14 @@ pub fn run() {
             dataset::save_quality_rules_document,
             dataset::pick_quality_rules_migration,
             dataset::pick_dataprep_session_migration,
+            #[cfg(desktop)]
+            updater::check_for_update,
+            #[cfg(desktop)]
+            updater::download_update,
+            #[cfg(desktop)]
+            updater::cancel_update_download,
+            #[cfg(desktop)]
+            updater::install_update,
             dataset::remove_duplicates,
             dataset::remove_near_duplicates,
             dataset::remove_empty_rows,

@@ -52,9 +52,11 @@ try {
     Invoke-NpmStage "Benchmark sostenido y proyecto durable" @("run", "perf:benchmark")
     Invoke-NpmStage "Resumen de rendimiento" @("run", "perf:summary")
 
-    if (-not $SkipPackage) {
-        Invoke-PowerShellStage "Package" "tools/check.ps1" @("-Profile", "Package")
-    }
+    # SkipPackage only skips the expensive MSI/NSIS bundling. Release still
+    # executes Rust, coverage, Clippy, supply-chain, installer-contract and
+    # the unbundled Tauri build.
+    $CheckProfile = if ($SkipPackage) { "Release" } else { "Package" }
+    Invoke-PowerShellStage "Release gates" "tools/check.ps1" @("-Profile", $CheckProfile)
 
     Invoke-PowerShellStage "Smoke CLI" "tools/smoke-cli.ps1"
 

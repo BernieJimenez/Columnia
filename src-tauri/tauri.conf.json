@@ -48,7 +48,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "createUpdaterArtifacts": false,
+    "targets": ["msi", "nsis"],
     "resources": [
       "../LICENSE",
       "../THIRD_PARTY_NOTICES.md"
@@ -68,6 +69,15 @@
       },
       "nsis": {
         "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMwNTE3OERDODU3NzM1NEYKUldSUE5YZUYzSGhSTUhkTi9sUFBxRm5EOWZJcnR5eXZ6M25YSWxGVDBnSDIvQ0Rua3Jla3R5MUcK",
+      "endpoints": [],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

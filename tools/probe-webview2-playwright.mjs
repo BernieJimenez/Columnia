@@ -57,12 +57,24 @@ async function readFirstRender(page) {
     const marks = performance
       .getEntriesByName("columnia:app-render")
       .filter((entry) => entry.entryType === "mark");
+    const bootstrapMarks = performance
+      .getEntriesByName("columnia:app-bootstrap")
+      .filter((entry) => entry.entryType === "mark");
     const first = marks[0];
-    const startTime = first?.startTime ?? null;
+    const bootstrap = bootstrapMarks[0];
+    const absoluteStartTime = first?.startTime ?? null;
+    const startTime = first && bootstrap
+      ? Math.max(0, first.startTime - bootstrap.startTime)
+      : absoluteStartTime;
     return {
       markName: "columnia:app-render",
       found: Boolean(first),
       markCount: marks.length,
+      bootstrapMarkName: "columnia:app-bootstrap",
+      bootstrapFound: Boolean(bootstrap),
+      bootstrapMarkCount: bootstrapMarks.length,
+      bootstrapStartTime: bootstrap?.startTime ?? null,
+      absoluteStartTime,
       startTime,
       withinBudget: typeof startTime === "number" && startTime < budgetMs,
       budgetMs,
@@ -170,13 +182,14 @@ async function inspectPage(page) {
   }
 
   const focus = await readKeyboardFocus(page);
-  // El presupuesto de 3 s se conserva como señal de rendimiento. En el
-  // arranque Tauri debug puede incluir compilación fría y no debe convertir
-  // una medición válida del shell en un fallo de landmarks/foco.
-  const status = landmarks.valid && focus.valid ? "passed" : "failed";
+  const functionalStatus = landmarks.valid && focus.valid ? "passed" : "failed";
+  const performanceStatus = firstRender.withinBudget ? "passed" : "failed";
+  const status = functionalStatus === "passed" && performanceStatus === "passed" ? "passed" : "failed";
   return {
     status,
-    phase: status === "passed" ? "ready" : "shell_contract_failed",
+    phase: status === "passed" ? "ready" : functionalStatus === "failed" ? "shell_contract_failed" : "first_render_budget_failed",
+    functionalStatus,
+    performanceStatus,
     ...shell,
     firstRender,
     landmarks,
@@ -221,7 +234,9 @@ try {
       }
       if (evidence.status === "failed") {
         console.log(JSON.stringify(snapshotResult("failed", pageEvidence, {
-          error: "El shell nativo no cumple el contrato de primer render, landmarks o foco.",
+          error: evidence.performanceStatus === "failed"
+            ? "El primer render del shell nativo excede el presupuesto de 3 s."
+            : "El shell nativo no cumple el contrato de landmarks o foco.",
         })));
         process.exitCode = 1;
         throw new Error("__probe_complete__");

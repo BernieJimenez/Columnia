@@ -36,7 +36,9 @@ async function requestNativeDialog(mode, targetPath) {
         const response = JSON.parse(readFileSync(requestFile, "utf8"));
         if (response.requestId === requestId && response.status === "passed") return response;
         if (response.requestId === requestId && response.status === "failed") {
-          throw new Error(`${mode}_${response.errorCode ?? "native_dialog_driver_failed"}`);
+          const error = new Error(`${mode}_${response.errorCode ?? "native_dialog_driver_failed"}`);
+          error.diagnostics = Array.isArray(response.diagnostics) ? response.diagnostics : [];
+          throw error;
         }
       } catch (error) {
         if (error instanceof SyntaxError || error?.code === "ENOENT") {
@@ -81,6 +83,10 @@ async function invokeWithNativeDialog(page, command, args, mode, targetPath) {
   const driver = requestNativeDialog(mode, targetPath);
   const invocation = invoke(page, command, args);
   const [result] = await withTimeout(Promise.all([invocation, driver]), helperTimeoutMs, "native_dialog_timeout");
+  // rfd closes the Win32 modal asynchronously after the command resolves.
+  // Give that window a bounded teardown interval before the next native
+  // command, otherwise the following dialog can be created disabled.
+  await sleep(750);
   return result;
 }
 
@@ -229,6 +235,7 @@ try {
     status: "failed",
     phase: "native_file_selectors_failed",
     errorCode: error instanceof Error ? error.message : "native_selectors_failed",
+    diagnostics: error instanceof Error && Array.isArray(error.diagnostics) ? error.diagnostics : [],
     interactions: [],
   }));
   process.exitCode = 1;

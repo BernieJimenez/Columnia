@@ -63,6 +63,7 @@ import {
 } from "./features/review/reviewModel";
 import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
+import { UpdatePanel } from "./components/UpdatePanel";
 
 import {
   cancelOperation,
@@ -673,6 +674,25 @@ export function App() {
           <div className="sidebar__utilities-content">
             <ResourceMonitor enabled={status.kind === "ready"} />
             <ThemeSwitcher />
+            <UpdatePanel
+              enabled={status.kind === "ready" && status.info?.updaterConfigured === true}
+              currentVersion={status.kind === "ready" && status.info ? status.info.version : null}
+            />
+          </div>
+        </details>
+
+        <details className="sidebar__legal">
+          <summary>Licencia y privacidad</summary>
+          <div className="sidebar__legal-content">
+            <p><strong>Columnia</strong> funciona localmente y no envía datasets a servicios externos.</p>
+            <p><strong>Versión:</strong> {status.kind === "ready" && status.info ? status.info.version : "no disponible"}</p>
+            <h2>Licencia</h2>
+            <p>El producto se distribuye bajo MIT. Las dependencias conservan sus avisos en <code>THIRD_PARTY_NOTICES.md</code>.</p>
+            <h2>Privacidad local</h2>
+            <p>Los archivos seleccionados, proyectos, perfiles y artefactos temporales permanecen en el dispositivo. No se usan telemetría, cuentas ni analítica remota.</p>
+            <h2>Retención y borrado</h2>
+            <p>El usuario controla la carpeta de proyectos y puede eliminar proyectos desde la aplicación o borrar sus archivos locales. Los snapshots huérfanos se limpian de forma oportunista después de una hora de gracia.</p>
+            <p className="sidebar__legal-note">Responsable y canal de contacto: deben definirse para la jurisdicción de publicación antes de distribuir.</p>
           </div>
         </details>
       </aside>

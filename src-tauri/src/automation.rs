@@ -21,7 +21,7 @@ const TRANSFORM_HELP: &str = "USO:\n  columnia-cli transform --input <ruta> [--s
 const VALIDATE_HELP: &str = "USO:\n  columnia-cli validate --input <ruta> [--sheet <nombre> --header first-row|generated] --rules <ruta.json>\n\nEvalúa un contrato JSON Columnia con {\"format\":\"columnia-quality-rules\",\"version\":1,\"rules\":[...]}. El documento anterior {\"version\":1,\"rules\":[...]} sigue admitido por compatibilidad. Emite solo conteos; código 0 si pasa y 2 si no pasa.\n";
 const QUALITY_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli quality-migration-report --rules <ruta.json>\n\nHace un preflight sanitizado de un contrato Columnia, DataPrep v1–v3 o legacy. Resume por regla la severidad y las políticas on_missing/null_policy, identifica omisiones y devuelve código 2 si hace falta revisión manual. No migra ni evalúa filas.\n";
 const SESSION_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli session-migration-report --session <ruta.json>\n\nHace un preflight sanitizado de una sesión DataPrep v1–v3. Resume referencias de origen y snapshot, hoja, etapa, operaciones, receta, calidad y análisis; detecta referencias ausentes y colisiones sin escribir proyectos. Devuelve código 2 si requiere revisión manual.\n";
-const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json>\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
+const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json> [--force]\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto o outputRoot. Por defecto las salidas quedan confinadas a ese root, no pueden usar rutas absolutas, traversal ni reemplazar archivos existentes. --force permite un destino externo o existente, pero no permite colisionar con el manifiesto, inputs o recetas. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
 const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
 const PROJECT_IMPORT_DATAPREP_HELP: &str = "USO:\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n\nMigra una sesión DataPrep como un proyecto nuevo. La sesión y sus referencias se validan antes de escribir el almacén; si falta la fuente se usa un snapshot compatible cuando está disponible. Emite solo el resumen opaco del proyecto.\n";
@@ -113,6 +113,7 @@ pub enum CliCommand {
     },
     Batch {
         manifest: PathBuf,
+        force: bool,
     },
     ProjectList {
         store: PathBuf,
@@ -345,6 +346,8 @@ impl SessionMigrationReportOutput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BatchManifest {
     version: u8,
+    #[serde(default)]
+    output_root: Option<String>,
     jobs: Vec<BatchJobDocument>,
 }
 
@@ -1227,9 +1230,10 @@ where
             {
                 return Ok(CliCommand::Help(BATCH_HELP));
             }
-            let (mut flags, _) = parse_flags(rest, &["--manifest"], &[])?;
+            let (mut flags, switches) = parse_flags(rest, &["--manifest"], &["--force"])?;
             Ok(CliCommand::Batch {
                 manifest: PathBuf::from(required_flag(&mut flags, "--manifest")?),
+                force: switches.contains("--force"),
             })
         }
         "project-list" => {
@@ -1566,8 +1570,11 @@ pub fn project_import_dataprep(
 }
 
 pub fn project_inspect(store: &Path, id: &str) -> Result<ProjectInspectOutput, AutomationError> {
-    let inspection = projects::automation_inspect_project(store, id)
-        .map_err(|_| AutomationError::new("No se pudo inspeccionar el proyecto solicitado."))?;
+    let inspection = projects::automation_inspect_project(store, id).map_err(|error| {
+        AutomationError::new(format!(
+            "No se pudo inspeccionar el proyecto solicitado. Fase durable: {error}"
+        ))
+    })?;
     Ok(ProjectInspectOutput {
         schema_version: 1,
         command: "project-inspect",
@@ -1695,6 +1702,14 @@ fn resolve_manifest_path(base: &Path, value: &str) -> PathBuf {
     }
 }
 
+fn has_unsafe_relative_segments(value: &str) -> bool {
+    let path = Path::new(value);
+    path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+}
+
 #[cfg(windows)]
 fn output_collision_key(path: &Path) -> String {
     path.to_string_lossy().to_lowercase()
@@ -1734,7 +1749,10 @@ fn validate_batch_text_budget(manifest: &BatchManifest) -> Result<(), Automation
     Ok(())
 }
 
-fn prepare_batch(manifest_path: &Path) -> Result<Vec<PreparedBatchJob>, AutomationError> {
+fn prepare_batch(
+    manifest_path: &Path,
+    force: bool,
+) -> Result<Vec<PreparedBatchJob>, AutomationError> {
     let canonical_manifest =
         dataset::canonicalize_file_for_automation(manifest_path).map_err(|_| {
             AutomationError::new("No se pudo cargar un manifiesto batch regular y válido.")
@@ -1760,6 +1778,29 @@ fn prepare_batch(manifest_path: &Path) -> Result<Vec<PreparedBatchJob>, Automati
     let base = canonical_manifest
         .parent()
         .expect("un archivo canonicalizado siempre tiene carpeta");
+    let output_root = if let Some(requested_root) = manifest.output_root.as_deref() {
+        if !force && has_unsafe_relative_segments(requested_root) {
+            return Err(AutomationError::new(
+                "outputRoot batch debe ser relativo y no puede contener traversal.",
+            ));
+        }
+        resolve_manifest_path(base, requested_root)
+    } else {
+        base.to_owned()
+    };
+    let canonical_output_root = fs::canonicalize(&output_root).map_err(|_| {
+        AutomationError::new("El outputRoot batch debe ser un directorio existente y válido.")
+    })?;
+    if !canonical_output_root.is_dir() {
+        return Err(AutomationError::new(
+            "El outputRoot batch debe ser un directorio existente y válido.",
+        ));
+    }
+    if !force && !canonical_output_root.starts_with(base) {
+        return Err(AutomationError::new(
+            "El outputRoot batch debe permanecer dentro de la carpeta del manifiesto.",
+        ));
+    }
     let mut prepared = Vec::with_capacity(manifest.jobs.len());
     let mut output_keys = HashSet::with_capacity(manifest.jobs.len());
     let mut source_keys = HashSet::with_capacity(manifest.jobs.len() * 2 + 1);
@@ -1768,7 +1809,12 @@ fn prepare_batch(manifest_path: &Path) -> Result<Vec<PreparedBatchJob>, Automati
     for job in manifest.jobs {
         let input = resolve_manifest_path(base, &job.input);
         let recipe = resolve_manifest_path(base, &job.recipe);
-        let output = resolve_manifest_path(base, &job.output);
+        if !force && has_unsafe_relative_segments(&job.output) {
+            return Err(AutomationError::new(
+                "Una salida batch debe ser relativa y no puede contener traversal.",
+            ));
+        }
+        let output = resolve_manifest_path(&canonical_output_root, &job.output);
         let format = AutomationFormat::from(job.format);
         validate_input_options(&input, job.sheet.as_deref(), job.header)?;
         if output
@@ -1794,6 +1840,16 @@ fn prepare_batch(manifest_path: &Path) -> Result<Vec<PreparedBatchJob>, Automati
             .map_err(|_| AutomationError::new("Una receta batch no es un documento válido."))?;
         let canonical_output = dataset::canonicalize_output_for_automation(&output)
             .map_err(|_| AutomationError::new("Un destino batch no es válido."))?;
+        if !force && !canonical_output.starts_with(&canonical_output_root) {
+            return Err(AutomationError::new(
+                "Una salida batch debe permanecer dentro del outputRoot.",
+            ));
+        }
+        if !force && fs::symlink_metadata(&output).is_ok() {
+            return Err(AutomationError::new(
+                "Una salida batch existente requiere --force para reemplazarse.",
+            ));
+        }
         let output_key = output_collision_key(&canonical_output);
         if !output_keys.insert(output_key) {
             return Err(AutomationError::new(
@@ -1824,7 +1880,14 @@ fn prepare_batch(manifest_path: &Path) -> Result<Vec<PreparedBatchJob>, Automati
 }
 
 pub fn batch(manifest_path: &Path) -> Result<BatchOutput, AutomationError> {
-    let jobs = prepare_batch(manifest_path)?;
+    batch_with_options(manifest_path, false)
+}
+
+pub fn batch_with_options(
+    manifest_path: &Path,
+    force: bool,
+) -> Result<BatchOutput, AutomationError> {
+    let jobs = prepare_batch(manifest_path, force)?;
     let total_jobs = jobs.len();
     let mut completed_jobs = 0;
     let mut changed_jobs = 0;
@@ -1981,9 +2044,14 @@ mod tests {
         assert_eq!(
             parse_cli_args(["batch", "--manifest", "batch.json"]).unwrap(),
             CliCommand::Batch {
-                manifest: PathBuf::from("batch.json")
+                manifest: PathBuf::from("batch.json"),
+                force: false,
             }
         );
+        assert!(matches!(
+            parse_cli_args(["batch", "--manifest", "batch.json", "--force"]).unwrap(),
+            CliCommand::Batch { force: true, .. }
+        ));
         assert!(matches!(
             parse_cli_args(["batch", "--help"]).unwrap(),
             CliCommand::Help(text) if text.contains("no es una transacción global")
@@ -2496,6 +2564,57 @@ mod tests {
 
         assert!(batch(&directory.path().join("batch.json")).is_err());
         assert!(!directory.path().join("output.csv").exists());
+    }
+
+    #[test]
+    fn batch_confines_outputs_and_requires_force_for_external_or_existing_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let outside = directory.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(directory.path().join("input.csv"), "old\nA\n").unwrap();
+        write_recipe(&directory.path().join("recipe.json"), "old", "new");
+        let external_output = outside.join("external.csv");
+        let manifest = directory.path().join("batch.json");
+        fs::write(
+            &manifest,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "jobs": [{
+                    "input": "input.csv",
+                    "recipe": "recipe.json",
+                    "output": external_output,
+                    "format": "csv"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert!(batch(&manifest).is_err());
+        assert!(!external_output.exists());
+        assert!(!batch_with_options(&manifest, true).unwrap().failed());
+        assert!(external_output.is_file());
+
+        let existing_output = directory.path().join("existing.csv");
+        fs::write(&existing_output, "previous\n").unwrap();
+        fs::write(
+            &manifest,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "jobs": [{
+                    "input": "input.csv",
+                    "recipe": "recipe.json",
+                    "output": "existing.csv",
+                    "format": "csv"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(batch(&manifest).is_err());
+        assert_eq!(fs::read_to_string(&existing_output).unwrap(), "previous\n");
+        assert!(!batch_with_options(&manifest, true).unwrap().failed());
+        assert!(fs::read_to_string(existing_output).unwrap().contains("new"));
     }
 
     #[test]

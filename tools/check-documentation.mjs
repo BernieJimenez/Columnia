@@ -13,9 +13,14 @@ const requiredFiles = [
   "docs/how-to/validate-release-evidence.md",
   "docs/reference/cli.md",
   "docs/reference/release-evidence.md",
+  "ROADMAP.md",
+  "CONTEXTO.md",
+  "AUDITORIA_PROFESIONAL_2026-08-28.md",
+  "THREAT_MODEL.md",
+  "docs/reference/ipc-inventory.json",
   "docs/explanation/local-first-architecture.md",
 ];
-const markdownRoots = ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs"];
+const markdownRoots = ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", "ROADMAP.md", "CONTEXTO.md", "AUDITORIA_PROFESIONAL_2026-08-28.md", "THREAT_MODEL.md", "docs"];
 const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -80,6 +85,10 @@ try {
     fail("La versión de npm, lockfile, Cargo, Cargo.lock y Tauri no está sincronizada.");
   }
   if (!changelog.includes(`[${version}]`)) fail(`CHANGELOG.md no contiene la versión ${version}.`);
+  if (!changelog.includes("Tier 5")) fail("CHANGELOG.md no documenta el estado de Tier 5.");
+  if (!await readUtf8("ROADMAP.md").then((roadmap) => roadmap.includes("Tier 5"))) fail("ROADMAP.md no contiene el roadmap Tier 5.");
+  if (!await readUtf8("CONTEXTO.md").then((context) => context.includes("Tier 5"))) fail("CONTEXTO.md no contiene el contexto Tier 5.");
+  if (!await readUtf8("AUDITORIA_PROFESIONAL_2026-08-28.md").then((audit) => audit.includes("T5-"))) fail("El informe de auditoría no contiene la trazabilidad Tier 5.");
   if (!docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
     fail("docs/README.md no expone los cuatro cuadrantes Diátaxis.");
   }

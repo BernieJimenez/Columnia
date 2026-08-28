@@ -8,6 +8,22 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
+  descarga con progreso/cancelación, instalación nativa y clave pública
+  embebida; la frontera Rust rechaza versiones semver iguales, anteriores o
+  inválidas; el flujo firmado genera `.sig`, manifiesto estático e inventario
+  SHA-256 sin guardar la clave privada en el repositorio.
+- Contrato reproducible `updater:contract:test` para el gate Release/Package:
+  aprueba el par válido y confirma fallo cerrado ante artefacto truncado, firma
+  alterada, manifiesto incompleto/corrupto y URL HTTP. Este fixture estructural
+  no reemplaza la validación criptográfica ni el ejercicio contra un canal real.
+- `release:updater:dry-run` amplía el orquestador de release con configuración
+  temporal de endpoint, firma local, SBOM, gates completos y verificación
+  fail-closed de instalador/firma/manifiesto.
+- El perfil `Release` incorpora y aprueba el contrato updater junto con sus
+  gates de documentación, IPC, toolchains, cobertura, supply chain, instalador,
+  SBOM y binario Tauri sin bundle; la corrida local no implica un árbol limpio
+  ni autoriza publicación.
 - Cargar admite arrastrar un dataset a la ventana sin entregar su ruta a React
   y mantiene hasta cinco referencias recientes sanitizadas que vuelven a abrir
   el selector nativo.
@@ -26,7 +42,8 @@ los artefactos de validación locales.
   documento legado v1; versiones futuras y formatos ambiguos fallan cerrados.
 - Selector nativo Win32 estabilizado para Abrir/Guardar como, con soporte de
   editores `1148`/`1001`, fallback de UI Automation/Win32/Unicode y entrada al
-  gate `verify:tier` mediante `npm run smoke:native-selectors`.
+  gate `verify:tier` mediante `npm run smoke:native-selectors`; el driver filtra
+  ventanas por PID/owner, espera el cierre del modal y corta procesos bloqueados.
 - Entregar permite importar y guardar contratos mediante diálogos nativos,
   muestra el origen/versión y mantiene las rutas fuera de React; la CLI acepta
   el formato canónico y el legado.
@@ -38,8 +55,8 @@ los artefactos de validación locales.
 - Benchmark reproducible de 100 MiB contra `dataprepv1.1`, con comparación de
   duración, working set, conteos, fixture sintética y cleanup sin conservar datos.
 - Gate de cobertura V8 global para `src` (80% statements/lines, 75% branches y
-  functions) y 248 tests frontend; el cumplimiento real por capa queda abierto
-  en `T5-04`.
+  functions), más umbrales por capa crítica para App, Entrega, Preparar y su
+  controller; la suite frontend actual tiene 267 tests.
 - Supply chain local con `npm audit`, `cargo-audit`, `cargo-deny`, secret scan,
   inventario reproducible de `THIRD_PARTY_NOTICES` y verificación de red sin
   telemetría.
@@ -65,8 +82,27 @@ los artefactos de validación locales.
 - Benchmark CLI de 256 MiB con 2,220,032 filas, tres transformaciones sostenidas
   y dos actualizaciones durables; el flujo pasa, pero su working set máximo es
   aproximadamente 1.12 GiB y queda fuera del presupuesto de 512 MiB.
+- Tier 5 endurece la automatización batch: las salidas quedan confinadas al
+  `outputRoot` del manifiesto por defecto y `--force` es obligatorio para
+  destinos externos o existentes.
+- Tier 5 añade inventario IPC generado desde `generate_handler!`, contrato de
+  56 comandos de producción, 4 debug y 56 estructuras compartidas, toolchains
+  exactas Node/npm/Rust, notices offline sin `UNKNOWN` y una revisión legal de
+  distribución pendiente de completar por canal/jurisdicción.
+- Tier 5 hace durable la recuperación del catálogo: los fallos de inicialización
+  se pueden reintentar sin reiniciar y las generaciones huérfanas antiguas se
+  reconcilian sin tocar las activas. El perfilado de duplicados normalizados
+  incorpora un fast-path ASCII; la evidencia corta de 100 MiB registra
+  `project-save` en 59.75 s y su actualización en 58.84 s.
+- Tier 5 abre el primer límite modular del motor Rust en
+  `dataset_fingerprints.rs`, con API interna acotada y cobertura equivalente
+  para duplicados exactos y parecidos; quality/recipe/export/persistence
+  conservan extracciones posteriores como trabajo incremental.
+- Tier 5 incorpora `tools/release.ps1` y `npm run release:dry-run` para
+  orquestar los gates locales con rama y árbol limpios; el flujo no etiqueta,
+  publica ni contacta servicios remotos.
 
-### Validación
+### Validación histórica de la reauditoría
 
 - En la reauditoría del 2026-08-28 aprobaron 234 pruebas Rust, 248 frontend y 9
   E2E, además de build Vite, contratos IPC, cobertura y los perfiles Full,
@@ -76,6 +112,33 @@ los artefactos de validación locales.
   de rendimiento y la comparación del baseline visual release quedaron fallidos
   y trazados en Tier 5.
 
+### Validación de la implementación Tier 5
+
+- `tools/check.ps1 -Profile Full` y `tools/check.ps1 -Profile Release` pasan:
+  build, cobertura, clippy, supply chain, SBOM, instalador, 267 tests frontend
+  y 244 tests Rust.
+- El benchmark formal final de tres actualizaciones durables pasa en 100 MiB:
+  `project-save` en 52.09 s y sus tres actualizaciones en 56.37–57.31 s, con
+  reapertura, exportación y cleanup confirmados. Evidencia:
+  `.local/validation/performance-benchmark/20260828T184531Z/summary.json`.
+- La medición nativa de memoria privada WebView2 ya pasa en el smoke aislado:
+  521.79 MiB de working set, 265.98 MiB privados y cleanup confirmado, con los
+  cuatro diálogos Win32 aprobados. La captura release desde un commit limpio y
+  la revisión legal final siguen siendo requisitos de publicación.
+- El probe CDP funcional de ProjectsPanel midió 470.25 MiB de working set y
+  253.48 MiB privados, dentro de presupuesto, ejecutó 3 ciclos sostenidos y
+  confirmó cleanup. El smoke nativo aislado aprobó abrir dataset, guardar/cargar
+  receta y exportar sin exponer rutas; Playwright y selectores se ejecutan como
+  gates separados para no mezclar sus perfiles de memoria.
+- Las pruebas Rust del updater cubren versiones estables, downgrade, igualdad,
+  prerelease e inputs inválidos; el ejercicio contra un canal real sigue siendo
+  una validación de I6 pendiente.
+- `release:dry-run` valida el preflight de distribución y rechaza correctamente
+  el árbol de trabajo actual por estar sucio; la captura release aprobada debe
+  ejecutarse después de crear el commit que se vaya a distribuir.
+- Accesibilidad visual (desktop/móvil, zoom 125%/200% y forced-colors) y
+  `perf:check` pasan con la evidencia renovada.
+
 ### Interno
 
 - Reauditoría profesional exhaustiva sobre `137520b`: se añadió
@@ -84,8 +147,9 @@ los artefactos de validación locales.
 - `Full`, `Release` y `Package` aprobaron; Package produjo MSI y NSIS ligados al
   commit auditado. Los gates de rendimiento y baseline visual release fallaron
   y se conservaron como fallos, sin elevar presupuestos ni aprobar hashes.
-- Queda pendiente reconstruir de forma completa las notas de los commits
-  posteriores al último corte documentado (`T5-15`).
+- El estado operativo posterior se documenta en la sección de validación de la
+  implementación Tier 5; el texto de la reauditoría anterior se conserva como
+  histórico del commit auditado.
 
 ## [0.57.0] - 2026-08-24
 

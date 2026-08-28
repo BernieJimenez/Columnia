@@ -1551,4 +1551,142 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
     expect(screen.queryByText("Ver versiones (1)")).not.toBeInTheDocument();
   });
+
+  it("mantiene la compuerta de exportación y presenta éxito, cancelación y errores", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "entrega.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 1,
+      columns: [{ name: "valor", dataType: "String" }], rows: [["A"], ["B"]],
+    };
+    mockDatasetLoad(dataset);
+    const exportSpy = vi.spyOn(bridge, "exportDataset").mockResolvedValue({
+      fileName: "entrega.zip",
+      fileSizeBytes: 2048,
+      format: "Paquete Columnia",
+      protectedColumnCount: 0,
+      protectedColumns: [],
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await switchPhase("Entregar");
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Confirmo que quiero exportar sin validar la calidad",
+    }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "bundle" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
+    await waitFor(() => expect(screen.getByText(/Paquete Columnia exportado como entrega\.zip/)).toBeInTheDocument());
+    expect(exportSpy).toHaveBeenCalledWith("bundle", [], true, expect.anything(), "none");
+
+    exportSpy.mockResolvedValueOnce(null);
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
+    await waitFor(() => expect(screen.queryByText(/Paquete Columnia exportado/)).not.toBeInTheDocument());
+
+    exportSpy.mockRejectedValueOnce(new Error("operación cancelada por el usuario"));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    exportSpy.mockRejectedValueOnce(new Error("disco lleno"));
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("disco lleno"));
+  });
+
+  it("expone el estado web y la ficha local de licencia y privacidad", () => {
+    render(<App />);
+    expect(screen.getByText("Vista web · motor no conectado")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Licencia y privacidad"));
+    expect(screen.getByText("funciona localmente y no envía datasets a servicios externos.")).toBeInTheDocument();
+    expect(screen.getByText("Licencia", { selector: "h2" })).toBeInTheDocument();
+  });
+
+  it("coordina comparación, descarte, consolidación y unión desde Revisar", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "actual.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 2,
+      columns: [{ name: "id", dataType: "Int64" }, { name: "valor", dataType: "String" }],
+      rows: [["1", "A"], ["2", "B"]],
+    };
+    mockDatasetLoad(dataset);
+    const comparison = {
+      currentFileName: "actual.csv",
+      comparedFileName: "nuevo.csv",
+      currentRowCount: 2,
+      comparedRowCount: 2,
+      commonRowCount: 1,
+      currentOnlyRowCount: 1,
+      comparedOnlyRowCount: 1,
+      sharedColumns: ["id"],
+      currentOnlyColumns: ["valor"],
+      comparedOnlyColumns: [],
+      schemaCompatible: true,
+      keyColumns: ["id"],
+      matchedKeyCount: 1,
+      currentOnlyKeyCount: 1,
+      comparedOnlyKeyCount: 0,
+      conflictingKeyCount: 0,
+      duplicateKeyCount: 0,
+      conflicts: [],
+      conflictOffset: 0,
+      conflictsTruncated: false,
+      canConsolidate: true,
+    };
+    const compareSpy = vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
+    vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
+    vi.spyOn(bridge, "useConsolidatedDataset").mockResolvedValue(dataset);
+    const joinSpy = vi.spyOn(bridge, "joinDataset").mockResolvedValue(dataset);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await waitFor(() => expect(screen.getByText("Comparar con otro dataset")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Comparar con otro dataset"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
+    await waitFor(() => expect(compareSpy).toHaveBeenCalledWith(["id"]));
+    expect(screen.getByText("nuevo.csv")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Descartar comparación" }));
+    await waitFor(() => expect(bridge.clearDatasetComparison).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
+    await waitFor(() => expect(screen.getByText("nuevo.csv")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Consolidar filas" }));
+    await waitFor(() => expect(bridge.useConsolidatedDataset).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Left/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir fuente y unir" }));
+    await waitFor(() => expect(joinSpy).toHaveBeenCalledWith(["id"], "left"));
+  });
+
+  it("protege el historial reciente, precarga etapas y permite reintentar el catálogo", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    const listProjects = vi.spyOn(bridge, "listProjects")
+      .mockRejectedValueOnce(new Error("catálogo temporalmente no disponible"))
+      .mockResolvedValue([]);
+    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+    const pick = vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue(null);
+    localStorage.setItem("columnia.recent-datasets", JSON.stringify([
+      { id: "recent-1", fileName: "C:\\datos\\ventas.csv", format: "csv", lastOpenedAt: 2 },
+      { id: "recent-2", fileName: "clientes.json", format: "json", lastOpenedAt: 1 },
+    ]));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("catálogo temporalmente"));
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(2));
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.focus(screen.getByRole("button", { name: "Preparar" }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Entregar" }));
+    fireEvent.click(screen.getByText("Preferencias y recursos"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Elegir de nuevo" })[0]);
+    await waitFor(() => expect(pick).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Quitar ventas.csv del historial" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar historial" }));
+    expect(screen.queryByRole("heading", { name: "Archivos recientes" })).not.toBeInTheDocument();
+    localStorage.removeItem("columnia.recent-datasets");
+  });
 });

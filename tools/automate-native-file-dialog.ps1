@@ -22,6 +22,11 @@ public static class ColumniaNativeDialogMethods {
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr FindWindow(string className, string windowName);
 
+    public delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string windowName);
 
@@ -45,6 +50,9 @@ public static class ColumniaNativeDialogMethods {
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool IsWindowEnabled(IntPtr window);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool IsWindowVisible(IntPtr window);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
@@ -103,6 +111,39 @@ public static class ColumniaNativeDialogMethods {
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern IntPtr GetWindow(IntPtr window, uint command);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    public static IntPtr FindVisibleWindowForProcess(
+        string className,
+        string windowName,
+        uint processId,
+        IntPtr owner
+    ) {
+        IntPtr result = IntPtr.Zero;
+        EnumWindows((window, _) => {
+            if (!IsWindowVisible(window)) {
+                return true;
+            }
+            uint candidateProcessId;
+            GetWindowThreadProcessId(window, out candidateProcessId);
+            if (candidateProcessId != processId && GetWindow(window, 4) != owner) {
+                return true;
+            }
+            var candidateClass = new StringBuilder(256);
+            var candidateName = new StringBuilder(256);
+            GetClassName(window, candidateClass, candidateClass.Capacity);
+            GetWindowText(window, candidateName, candidateName.Capacity);
+            if (string.Equals(candidateClass.ToString(), className, StringComparison.Ordinal)
+                && string.Equals(candidateName.ToString(), windowName, StringComparison.Ordinal)) {
+                result = window;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
 }
 "@
 
@@ -115,6 +156,17 @@ $ActionDiagnostics = [System.Collections.Generic.List[string]]::new()
 
 function Get-ColumniaWindow {
     return [ColumniaNativeDialogMethods]::FindWindow("Tauri Window", "Columnia")
+}
+
+function Get-WindowProcessId {
+    param([IntPtr]$Window)
+
+    if ($Window -eq [IntPtr]::Zero) {
+        return 0
+    }
+    [uint32]$processId = 0
+    [void][ColumniaNativeDialogMethods]::GetWindowThreadProcessId($Window, [ref]$processId)
+    return [int]$processId
 }
 
 function Get-NativeFileDialogElement {
@@ -137,6 +189,11 @@ function Get-NativeFileDialogElement {
             if ($current.ClassName -ne "#32770" -or $titles -notcontains $current.Name) {
                 continue
             }
+            $columniaProcessId = Get-WindowProcessId -Window (Get-ColumniaWindow)
+            if ($columniaProcessId -ne 0 -and $current.ProcessId -ne $columniaProcessId) {
+                [void]$ActionDiagnostics.Add("native_dialog_process_mismatch")
+                continue
+            }
             return $window
         }
     }
@@ -154,8 +211,15 @@ function Get-NativeFileDialog {
     else {
         @("Guardar como", "Save As", "Guardar", "Save")
     }
+    $columniaWindow = Get-ColumniaWindow
+    $columniaProcessId = Get-WindowProcessId -Window $columniaWindow
     foreach ($title in $titles) {
-        $window = [ColumniaNativeDialogMethods]::FindWindow("#32770", $title)
+        $window = [ColumniaNativeDialogMethods]::FindVisibleWindowForProcess(
+            "#32770",
+            $title,
+            [uint32]$columniaProcessId,
+            $columniaWindow
+        )
         if ($window -ne [IntPtr]::Zero) {
             return $window
         }
@@ -372,10 +436,15 @@ try {
     }
 
     Focus-ColumniaWindow
+    $focusAttempt = 0
     while ([DateTimeOffset]::UtcNow -lt $Deadline) {
         $Stage = "find_window"
         $dialog = Get-NativeFileDialog
         if ($dialog -eq [IntPtr]::Zero) {
+            if (($focusAttempt % 4) -eq 0) {
+                Focus-ColumniaWindow
+            }
+            $focusAttempt++
             Start-Sleep -Milliseconds 150
             continue
         }

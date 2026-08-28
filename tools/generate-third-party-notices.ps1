@@ -45,30 +45,19 @@ function Invoke-Captured {
 }
 
 $Rows = [System.Collections.Generic.List[object]]::new()
-$NpmOutput = Invoke-Captured -FilePath "npm.cmd" -ArgumentList @("ls", "--all", "--json", "--omit=optional", "--include=dev") -WorkingDirectory $ProjectRoot -AllowFailure
-if ([string]::IsNullOrWhiteSpace($NpmOutput)) {
-    throw "npm ls no pudo producir el inventario de dependencias."
+$NpmRowsJson = & node.exe (Join-Path $PSScriptRoot "extract-package-lock-packages.mjs") (Join-Path $ProjectRoot "package-lock.json")
+if ($LASTEXITCODE -ne 0) { throw "node no pudo leer package-lock.json." }
+$NpmPackages = $NpmRowsJson | ConvertFrom-Json
+foreach ($Package in @($NpmPackages)) {
+    if ([string]$Package.name -eq "columnia") { continue }
+    $Rows.Add([ordered]@{
+            ecosystem = "npm"
+            name = [string]$Package.name
+            version = [string]$Package.version
+            license = Normalize-License $Package.license
+            source = if ($Package.source) { [string]$Package.source } else { "package-lock.json" }
+        })
 }
-$NpmTree = $NpmOutput | ConvertFrom-Json
-
-function Add-NpmNode {
-    param($Node, [string]$FallbackName = "")
-    if ($null -eq $Node) { return }
-    $Name = if ($Node.name) { [string]$Node.name } else { $FallbackName }
-    if ($Name -and $Node.version -and $Name -ne "columnia") {
-        $Rows.Add([ordered]@{
-                ecosystem = "npm"
-                name = $Name
-                version = [string]$Node.version
-                license = Normalize-License $Node.license
-                source = if ($Node.resolved) { [string]$Node.resolved } else { "package-lock.json" }
-            })
-    }
-    foreach ($Property in @($Node.dependencies.PSObject.Properties)) {
-        Add-NpmNode -Node $Property.Value -FallbackName $Property.Name
-    }
-}
-Add-NpmNode -Node $NpmTree
 
 $CargoOutput = Invoke-Captured -FilePath "cargo.exe" -ArgumentList @("metadata", "--format-version", "1", "--locked", "--manifest-path", (Join-Path $TauriRoot "Cargo.toml")) -WorkingDirectory $TauriRoot
 $CargoMetadataPath = Join-Path $env:TEMP "columnia-cargo-metadata-$([Guid]::NewGuid().ToString('N')).json"
@@ -91,12 +80,26 @@ foreach ($Package in @($CargoPackages)) {
         })
 }
 
-$UniqueRows = @($Rows | Sort-Object ecosystem, name, version, source)
+$UniqueRows = @(
+    $Rows |
+        Group-Object -Property { "$($_.ecosystem)|$($_.name)|$($_.version)|$($_.source)" } |
+        ForEach-Object {
+            $Licenses = @($_.Group | ForEach-Object { [string]$_.license } | Sort-Object -Unique)
+            if ($Licenses.Count -ne 1) {
+                throw "Se detectaron licencias contradictorias para el grupo $($_.Name)."
+            }
+            $_.Group[0]
+        } |
+        Sort-Object ecosystem, name, version, source
+)
+if (@($UniqueRows | Where-Object { [string]$_.license -eq "UNKNOWN" }).Count -gt 0) {
+    throw "El inventario de terceros contiene licencias UNKNOWN; corrige los metadatos antes de distribuir."
+}
 $Lines = [System.Collections.Generic.List[string]]::new()
 $Lines.Add("# Third-party notices")
 $Lines.Add("")
-$Lines.Add("Este indice se genera desde `package-lock.json` y `src-tauri/Cargo.lock`. No contiene datos de usuario ni secretos.")
-$Lines.Add("Los paquetes conservan sus avisos y licencias segun sus metadatos de distribucion; antes de publicar se debe revisar cualquier licencia marcada como `UNKNOWN`.")
+$Lines.Add("Este índice se genera desde `package-lock.json` y `src-tauri/Cargo.lock`. No contiene datos de usuario ni secretos.")
+$Lines.Add("Las licencias se toman de los metadatos de distribución y se conservan como expresiones SPDX cuando están disponibles; requiere revisión legal antes de publicar.")
 $Lines.Add("")
 $Lines.Add("| Ecosistema | Paquete | Version | Licencia | Fuente |")
 $Lines.Add("| --- | --- | --- | --- | --- |")
@@ -105,6 +108,7 @@ foreach ($Row in $UniqueRows) {
 }
 $Lines.Add("")
 $Lines.Add("Total: $($UniqueRows.Count) dependencias de terceros.")
+$Lines.Add("Este inventario no sustituye los textos completos de copyright/licencia de cada paquete.")
 $Expected = ($Lines -join "`n") + "`n"
 
 if ($Check) {

@@ -1,6 +1,6 @@
 # Inventario local de dependencias y auditorías
 
-Snapshot tomado el **2026-08-23** sobre `0.49.0`, rama `master`. Este archivo
+Snapshot técnico actualizado el **2026-08-28** sobre `0.57.0`, rama `master`. Este archivo
 es una lista local reproducible, no una aprobación permanente de actualizar a
 la última versión. Antes de cambiar una dependencia, ejecuta los comandos de la
 tabla y registra el resultado en el mismo cambio.
@@ -35,7 +35,8 @@ de supply chain verifica checksums y fuentes. Las versiones declaradas son:
 
 `calamine 0.36.1`, `chrono 0.4.45`, `polars 0.55.2`, `rusqlite 0.37.0`,
 `serde 1`, `serde_json 1`, `tauri 2`, `tauri-plugin-dialog 2.7.2`, `tempfile 3`,
-`unicode-normalization 0.1`, `tauri-plugin-single-instance 2` para escritorio,
+`unicode-normalization 0.1`, `tokio 1.48`, `tokio-util 0.7`,
+`tauri-plugin-single-instance 2` y `tauri-plugin-updater 2.10.1` para escritorio,
 y `tauri-build 2` como dependencia de build.
 
 ## Snapshot de actualización
@@ -61,13 +62,15 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 
 | Comando | Resultado del snapshot | Interpretación |
 | --- | --- | --- |
-| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 287 dependencias del lockfile | Revisión npm limpia; repetir antes de release |
-| `cargo audit --json` | `cargo-audit 0.22.2`; 0 vulnerabilidades después de dos excepciones documentadas; 17 avisos de mantenimiento y 1 unsound informativos | `h2` subió a 0.4.18; `quick-xml 0.39.4` queda en `object_store 0.13.2`, fuera de los features cloud, hasta que Polars publique una rama compatible |
+| `npm audit --json --omit=optional` | 0 vulnerabilidades reportadas; 287 dependencias del lockfile | Revisión npm limpia en el snapshot; repetir antes de release |
+| `cargo audit --json` | `cargo-audit 0.22.2`; 0 vulnerabilidades después de las excepciones documentadas; los avisos informativos no son bloqueantes | `quick-xml 0.39.4` llega transitivamente por `object_store 0.13.2`; Columnia no habilita los features cloud ni expone un flujo remoto. La razón vigente está en `src-tauri/deny.toml` |
 | `cargo deny --format json check` | `cargo-deny 0.20.2`; advisories/licencias/fuentes sin errores; 48 duplicados en warning | Política explícita en `src-tauri/deny.toml`; excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |
 | `npm run secrets:check` | 0 hallazgos; 347 archivos inspeccionados | Escaneo local de claves privadas, tokens y credenciales asignadas |
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
-| `npm run notices:check` | Aprobado; 1001 dependencias | `THIRD_PARTY_NOTICES.md` se deriva de ambos lockfiles |
+| `npm run notices:check` | Aprobado; 960 identidades de dependencia sin `UNKNOWN` | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas o contradictorias |
+| `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
+| `npm run ipc:check` | Aprobado; 56 comandos de producción, 4 debug y 56 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y

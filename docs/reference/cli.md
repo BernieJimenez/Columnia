@@ -52,11 +52,15 @@ carga.
 ### `batch`
 
 ```text
-batch --manifest MANIFEST
+batch --manifest MANIFEST [--force]
 ```
 
-El manifiesto JSON v1 contiene entre 1 y 64 trabajos. Columnia ejecuta un
-preflight completo antes de escribir, rechaza colisiones y publica cada salida
+El manifiesto JSON v1 contiene entre 1 y 64 trabajos y puede declarar un
+`outputRoot` existente. Por defecto, `outputRoot` y cada salida deben permanecer
+dentro de la carpeta del manifiesto; no se permiten rutas absolutas, `..` ni
+reemplazo de archivos existentes. `--force` es el opt-in explícito para una
+salida externa o existente, sujeto a la validación de colisiones con fuentes.
+Columnia ejecuta un preflight completo antes de escribir y publica cada salida
 individualmente. Un fallo tardío conserva los trabajos anteriores y termina con
 código 2; un manifiesto inválido termina con código 1 sin outputs.
 

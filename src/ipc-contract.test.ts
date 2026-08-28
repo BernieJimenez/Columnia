@@ -9,6 +9,17 @@ const debugOnlyCommands = new Set([
   "probe_reopen_project",
 ]);
 
+type SharedStructure = [rust: string, typescript: string];
+
+function sharedStructuresFromInventory(): SharedStructure[] {
+  const inventory = JSON.parse(
+    readFileSync(resolve("docs/reference/ipc-inventory.json"), "utf8"),
+  ) as { sharedStructures?: Array<{ rust: string; typescript: string }> };
+  return (inventory.sharedStructures ?? []).map(
+    ({ rust, typescript }) => [rust, typescript] as SharedStructure,
+  );
+}
+
 function registeredTauriCommands(source: string): string[] {
   const marker = source.indexOf("tauri::generate_handler!");
   const openingIndex = marker < 0 ? -1 : source.indexOf("[", marker);
@@ -446,6 +457,7 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const registered = registeredTauriCommands(rustSource);
@@ -461,6 +473,7 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const registered = registeredTauriCommands(rustSource);
@@ -476,64 +489,10 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
-    const sharedStructures: Array<[rust: string, typescript: string]> = [
-      ["AppInfo", "AppInfo"],
-      ["ResourceUsage", "ResourceUsage"],
-      ["PerformanceSettings", "PerformanceSettings"],
-      ["OperationProgress", "OperationProgress"],
-      ["ExportResult", "ExportResult"],
-      ["QualityCondition", "QualityCondition"],
-      ["QualityRule", "QualityRule"],
-      ["QualityRuleResult", "QualityRuleResult"],
-      ["QualityValidationResult", "QualityValidationResult"],
-      ["QualityMigrationWarning", "QualityMigrationWarning"],
-      ["QualityMigrationResult", "QualityMigrationResult"],
-      ["DataprepSessionMigrationPlan", "DataprepSessionMigrationPlan"],
-      ["QualityRulesDocument", "QualityRulesDocument"],
-      ["DatasetColumn", "DatasetColumn"],
-      ["DatasetPreview", "DatasetPreview"],
-      ["WorkbookSheet", "WorkbookSheet"],
-      ["DatasetSourceInspection", "DatasetSourceInspection"],
-      ["DatasetPage", "DatasetPage"],
-      ["DatasetQueryResult", "DatasetQueryResult"],
-      ["NumericCorrelation", "NumericCorrelation"],
-      ["NumericCorrelationMatrix", "NumericCorrelationMatrix"],
-      ["CategoricalGroup", "CategoricalGroup"],
-      ["CategoricalGroupSummary", "CategoricalGroupSummary"],
-      ["ColumnProfile", "ColumnProfile"],
-      ["DatasetProfile", "DatasetProfile"],
-      ["DatasetMutation", "DatasetMutation"],
-      ["ColumnRename", "ColumnRename"],
-      ["ColumnNormalizationResult", "ColumnNormalizationResult"],
-      ["ChangedTextColumn", "ChangedTextColumn"],
-      ["TextCleaningResult", "TextCleaningResult"],
-      ["HistoryResult", "HistoryResult"],
-      ["HistoryEntryState", "HistoryEntryState"],
-      ["HistoryState", "HistoryState"],
-      ["SafeCorrectionsResult", "SafeCorrectionsResult"],
-      ["RecipeRename", "RecipeRename"],
-      ["RecipeCast", "RecipeCast"],
-      ["RecipeDateParse", "RecipeDateParse"],
-      ["RecipeFilter", "RecipeFilter"],
-      ["CalculatedOperand", "CalculatedOperand"],
-      ["CalculatedColumnRecipe", "CalculatedColumnRecipe"],
-      ["FindReplaceRecipe", "FindReplaceRecipe"],
-      ["SplitColumnRecipe", "SplitColumnRecipe"],
-      ["MergeColumnsRecipe", "MergeColumnsRecipe"],
-      ["OutlierTreatment", "OutlierTreatment"],
-      ["SummaryAggregation", "SummaryAggregation"],
-      ["GroupSummaryRecipe", "GroupSummaryRecipe"],
-      ["ContactNormalization", "ContactNormalization"],
-      ["TextExtraction", "TextExtraction"],
-      ["TransformRecipe", "TransformRecipe"],
-      ["StoredTransformRecipe", "SavedRecipe"],
-      ["TransformRecipeResult", "TransformRecipeResult"],
-      ["ProjectSummary", "ProjectSummary"],
-      ["ProjectOpenResult", "ProjectOpenResult"],
-      ["ProjectWorkspace", "ProjectWorkspace"],
-    ];
+    const sharedStructures = sharedStructuresFromInventory();
 
     const contracts = Object.fromEntries(
       sharedStructures.map(([rustName, typescriptName]) => [
@@ -556,64 +515,11 @@ describe("contrato IPC", () => {
       readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
       readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
+      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
     ].join("\n");
     const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
     const aliases = typescriptTypeAliases(bridgeSource);
-    const sharedStructures: Array<[rust: string, typescript: string]> = [
-      ["AppInfo", "AppInfo"],
-      ["ResourceUsage", "ResourceUsage"],
-      ["PerformanceSettings", "PerformanceSettings"],
-      ["OperationProgress", "OperationProgress"],
-      ["ExportResult", "ExportResult"],
-      ["QualityCondition", "QualityCondition"],
-      ["QualityRule", "QualityRule"],
-      ["QualityRuleResult", "QualityRuleResult"],
-      ["QualityValidationResult", "QualityValidationResult"],
-      ["QualityMigrationWarning", "QualityMigrationWarning"],
-      ["QualityMigrationResult", "QualityMigrationResult"],
-      ["DataprepSessionMigrationPlan", "DataprepSessionMigrationPlan"],
-      ["DatasetColumn", "DatasetColumn"],
-      ["DatasetPreview", "DatasetPreview"],
-      ["WorkbookSheet", "WorkbookSheet"],
-      ["DatasetSourceInspection", "DatasetSourceInspection"],
-      ["DatasetPage", "DatasetPage"],
-      ["DatasetQueryResult", "DatasetQueryResult"],
-      ["NumericCorrelation", "NumericCorrelation"],
-      ["NumericCorrelationMatrix", "NumericCorrelationMatrix"],
-      ["CategoricalGroup", "CategoricalGroup"],
-      ["CategoricalGroupSummary", "CategoricalGroupSummary"],
-      ["ColumnProfile", "ColumnProfile"],
-      ["DatasetProfile", "DatasetProfile"],
-      ["DatasetMutation", "DatasetMutation"],
-      ["ColumnRename", "ColumnRename"],
-      ["ColumnNormalizationResult", "ColumnNormalizationResult"],
-      ["ChangedTextColumn", "ChangedTextColumn"],
-      ["TextCleaningResult", "TextCleaningResult"],
-      ["HistoryResult", "HistoryResult"],
-      ["HistoryEntryState", "HistoryEntryState"],
-      ["HistoryState", "HistoryState"],
-      ["SafeCorrectionsResult", "SafeCorrectionsResult"],
-      ["RecipeRename", "RecipeRename"],
-      ["RecipeCast", "RecipeCast"],
-      ["RecipeDateParse", "RecipeDateParse"],
-      ["RecipeFilter", "RecipeFilter"],
-      ["CalculatedOperand", "CalculatedOperand"],
-      ["CalculatedColumnRecipe", "CalculatedColumnRecipe"],
-      ["FindReplaceRecipe", "FindReplaceRecipe"],
-      ["SplitColumnRecipe", "SplitColumnRecipe"],
-      ["MergeColumnsRecipe", "MergeColumnsRecipe"],
-      ["OutlierTreatment", "OutlierTreatment"],
-      ["SummaryAggregation", "SummaryAggregation"],
-      ["GroupSummaryRecipe", "GroupSummaryRecipe"],
-      ["ContactNormalization", "ContactNormalization"],
-      ["TextExtraction", "TextExtraction"],
-      ["TransformRecipe", "TransformRecipe"],
-      ["StoredTransformRecipe", "SavedRecipe"],
-      ["TransformRecipeResult", "TransformRecipeResult"],
-      ["ProjectSummary", "ProjectSummary"],
-      ["ProjectOpenResult", "ProjectOpenResult"],
-      ["ProjectWorkspace", "ProjectWorkspace"],
-    ];
+    const sharedStructures = sharedStructuresFromInventory();
 
     for (const [rustName, typescriptName] of sharedStructures) {
       expect(

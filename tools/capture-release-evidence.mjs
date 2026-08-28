@@ -1,5 +1,7 @@
 import { chromium } from "@playwright/test";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +31,28 @@ const captureTimeoutMs = 20_000;
 
 if (!Number.isInteger(port) || port < 1024 || port > 65535 || !outputPath || !projectVersion || !binaryPath || !binarySha256 || !fixturePath || !fixtureSha256) {
   console.error(JSON.stringify({ status: "failed", error: "Faltan argumentos de captura release." }));
+  process.exit(1);
+}
+
+function gitOutput(argumentsList) {
+  return execFileSync("git", argumentsList, { cwd: projectRoot, encoding: "utf8" }).trim();
+}
+
+function fileSha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+const git = {
+  commit: gitOutput(["rev-parse", "HEAD"]),
+  branch: gitOutput(["branch", "--show-current"]),
+  dirty: gitOutput(["status", "--porcelain"]).length > 0,
+};
+const lockfiles = {
+  packageLockSha256: fileSha256(join(projectRoot, "package-lock.json")),
+  cargoLockSha256: fileSha256(join(projectRoot, "src-tauri", "Cargo.lock")),
+};
+if (git.dirty) {
+  console.error(JSON.stringify({ status: "failed", error: "La captura release exige un árbol Git limpio." }));
   process.exit(1);
 }
 
@@ -123,6 +147,10 @@ try {
       features: [{ name: "forced-colors", value: captureCase.forcedColors }],
     });
     await page.waitForTimeout(250);
+    await page.evaluate((zoom) => {
+      document.documentElement.style.zoom = String(zoom);
+      document.documentElement.dataset.columniaZoom = String(zoom);
+    }, captureCase.zoom ?? 1);
     const inspection = await inspectShell(page, captureCase.forcedColors);
     const screenshotPath = join(dirname(outputPath), `${captureCase.name}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -140,6 +168,7 @@ try {
       name: captureCase.name,
       viewport: captureCase.viewport,
       deviceScaleFactor: captureCase.deviceScaleFactor,
+      zoom: captureCase.zoom ?? 1,
       forcedColors: captureCase.forcedColors,
       screenshot: relativePath(screenshotPath),
       screenshotSha256,
@@ -174,6 +203,8 @@ try {
       sizeBytes: fixtureSizeBytes,
       sha256: fixtureSha256,
     },
+    git,
+    lockfiles,
     cases: capturedCases,
     evidenceDirectory: relativePath(dirname(outputPath)),
     error,

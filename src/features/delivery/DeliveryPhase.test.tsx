@@ -9,6 +9,7 @@ import {
   INITIAL_DELIVERY_CONTRACT,
   reduceDeliveryContract,
   type DeliveryContractState,
+  type DeliveryExportState,
   type DeliveryExportRequest,
 } from "./deliveryModel";
 
@@ -34,20 +35,26 @@ const dataset: DatasetPreview = {
 function DeliveryHarness({
   onExport,
   recipeDraft = null,
+  initialContract = INITIAL_DELIVERY_CONTRACT,
+  exportState = { kind: "idle" },
+  onCancelExport = () => undefined,
 }: {
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
+  initialContract?: DeliveryContractState;
+  exportState?: DeliveryExportState;
+  onCancelExport?: () => void;
 }) {
-  const [contract, setContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
+  const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
     <DeliveryPhase
       dataset={dataset}
       recipeDraft={recipeDraft}
       contract={contract}
-      exportState={{ kind: "idle" }}
+      exportState={exportState}
       onContractAction={(action) => setContract((current) => reduceDeliveryContract(current, action))}
       onExport={onExport}
-      onCancelExport={() => undefined}
+      onCancelExport={onCancelExport}
     />
   );
 }
@@ -398,6 +405,113 @@ describe("DeliveryPhase", () => {
     })).not.toBeChecked();
   });
 
+  it("cubre los editores de parámetros y sus transiciones de regla", () => {
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Exportar sin validar/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
+    const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos regla 1" }), {
+      target: { value: "2" },
+    });
+    fireEvent.change(kind, { target: { value: "numeric_range" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Mínimo regla 1" }), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Máximo regla 1" }), {
+      target: { value: "" },
+    });
+    fireEvent.change(kind, { target: { value: "allowed_values" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Valores permitidos regla 1" }), {
+      target: { value: "ok\npending" },
+    });
+    fireEvent.change(kind, { target: { value: "regex" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Patrón regular regla 1" }), {
+      target: { value: "^ok$" },
+    });
+    fireEvent.change(kind, { target: { value: "dtype" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Tipo esperado regla 1" }), {
+      target: { value: "integer" },
+    });
+
+    fireEvent.change(kind, { target: { value: "aggregate_check" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Valor esperado agregado regla 1" }), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Referencias agregadas regla 1" }), {
+      target: { value: "10\n20" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Tolerancia absoluta agregada regla 1" }), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Tolerancia relativa agregada regla 1" }), {
+      target: { value: "0.1" },
+    });
+
+    fireEvent.change(kind, { target: { value: "aggregate_reconciliation" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna izquierda agregada regla 1" }), {
+      target: { value: "limite" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna derecha agregada regla 1" }), {
+      target: { value: "estado" },
+    });
+    fireEvent.change(kind, { target: { value: "column_compare" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna izquierda comparar regla 1" }), {
+      target: { value: "limite" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna derecha comparar regla 1" }), {
+      target: { value: "estado" },
+    });
+
+    fireEvent.change(kind, { target: { value: "conditional" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna condición regla 1" }), {
+      target: { value: "estado" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Operador condición regla 1" }), {
+      target: { value: "ne" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Valor condición regla 1" }), {
+      target: { value: "pending" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna objetivo conditional regla 1" }), {
+      target: { value: "limite" },
+    });
+    const thenKind = screen.getByRole("combobox", { name: "Comprobación then regla 1" });
+    fireEvent.change(thenKind, { target: { value: "numeric_range" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Mínimo then regla 1" }), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Máximo then regla 1" }), {
+      target: { value: "2" },
+    });
+    fireEvent.change(thenKind, { target: { value: "allowed_values" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Valores permitidos then regla 1" }), {
+      target: { value: "ok" },
+    });
+    fireEvent.change(thenKind, { target: { value: "regex" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Patrón regular then regla 1" }), {
+      target: { value: "^ok$" },
+    });
+    fireEvent.change(thenKind, { target: { value: "dtype" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Tipo esperado then regla 1" }), {
+      target: { value: "string" },
+    });
+
+    fireEvent.change(kind, { target: { value: "schema_contract" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Columnas requeridas esquema regla 1" }), {
+      target: { value: "total\nestado" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Orden requerido esquema regla 1" }), {
+      target: { value: "total\nestado" },
+    });
+
+    expect(screen.getByRole("textbox", { name: "Columnas requeridas esquema regla 1" })).toHaveValue("total\nestado");
+    expect(screen.getByRole("textbox", { name: "Orden requerido esquema regla 1" })).toHaveValue("total\nestado");
+  });
+
   it("importa reglas DataPrep, aplica las convertibles y muestra la compatibilidad", async () => {
     vi.spyOn(bridge, "pickQualityRulesMigration").mockResolvedValue({
       sourceFormat: "dataprep",
@@ -456,5 +570,146 @@ describe("DeliveryPhase", () => {
     expect(save).toHaveBeenCalledWith([
       { column: "total", kind: "not_null", maxInvalid: 0 },
     ]);
+  });
+
+  it("muestra los estados fallido, desactualizado y de error del gate", async () => {
+    const result = {
+      passed: false,
+      rowCount: 2,
+      totalRules: 1,
+      failedRules: 1,
+      rules: [{
+        column: "total",
+        kind: "not_null" as const,
+        maxInvalid: 0,
+        checkedCount: 2,
+        invalidCount: 1,
+        invalidPct: 50,
+        passed: false,
+      }],
+    };
+    vi.spyOn(bridge, "validateQualityRules").mockResolvedValue(result);
+    const failedContract: DeliveryContractState = {
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "ready", result },
+    };
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} initialContract={failedContract} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido");
+    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+
+    const staleContract: DeliveryContractState = {
+      ...failedContract,
+      gate: { kind: "stale", result },
+    };
+    cleanup();
+    render(<DeliveryHarness onExport={onExport} initialContract={staleContract} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Resultado desactualizado");
+
+    vi.restoreAllMocks();
+    vi.spyOn(bridge, "validateQualityRules").mockRejectedValue(new Error("gate no disponible"));
+    cleanup();
+    render(<DeliveryHarness onExport={onExport} />);
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("gate no disponible"));
+  });
+
+  it("maneja importaciones y guardados cancelados, nulos y fallidos", async () => {
+    const onExport = vi.fn();
+    const pick = vi.spyOn(bridge, "pickQualityRulesMigration").mockResolvedValue(null);
+    render(<DeliveryHarness onExport={onExport} />);
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar contrato" }));
+    await waitFor(() => expect(pick).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Importación revisada")).not.toBeInTheDocument();
+
+    pick.mockRejectedValueOnce(new Error("archivo ilegible"));
+    fireEvent.click(screen.getByRole("button", { name: "Importar contrato" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("archivo ilegible"));
+
+    const save = vi.spyOn(bridge, "saveQualityRulesDocument").mockResolvedValue(null);
+    fireEvent.click(screen.getByRole("button", { name: "Guardar contrato" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Contrato guardado")).not.toBeInTheDocument();
+
+    save.mockRejectedValueOnce(new Error("carpeta no disponible"));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar contrato" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("carpeta no disponible"));
+  });
+
+  it("presenta el progreso de exportación, permite cancelarlo y muestra resultados", () => {
+    const onCancelExport = vi.fn();
+    const loading: DeliveryExportState = {
+      kind: "loading",
+      format: "csv",
+      progress: { operation: "export", stage: "Escribiendo", percent: 40 },
+      cancellation: "available",
+    };
+    render(<DeliveryHarness onExport={vi.fn()} exportState={loading} onCancelExport={onCancelExport} />);
+    expect(screen.getByRole("heading", { name: "Exportando dataset" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onCancelExport).toHaveBeenCalledOnce();
+
+    cleanup();
+    render(<DeliveryHarness onExport={vi.fn()} exportState={{ ...loading, cancellation: "requested" }} />);
+    expect(screen.getByRole("button", { name: "Cancelando…" })).toBeDisabled();
+
+    cleanup();
+    render(<DeliveryHarness
+      onExport={vi.fn()}
+      recipeDraft={recipeDraft}
+      exportState={{
+        kind: "success",
+        result: {
+          fileName: "entrega.zip",
+          fileSizeBytes: 2048,
+          format: "Paquete Columnia",
+          protectedColumnCount: 1,
+          protectedColumns: ["email"],
+        },
+      }}
+    />);
+    expect(screen.getByRole("status")).toHaveTextContent("Paquete Columnia exportado");
+    expect(screen.getByRole("status")).toHaveTextContent("recipe.json validada");
+    expect(screen.getByRole("status")).toHaveTextContent("Privacidad aplicada a 1 columnas: email");
+
+    cleanup();
+    render(<DeliveryHarness onExport={vi.fn()} exportState={{ kind: "error", message: "disco lleno" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("disco lleno");
+  });
+
+  it("cubre cambios de regla, tolerancias, columnas y eliminación", () => {
+    const onContractAction = vi.fn();
+    function ControlledDelivery() {
+      const [contract, setContract] = useState<DeliveryContractState>({
+        kind: "with_contract",
+        rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+        gate: { kind: "idle" },
+      });
+      return <DeliveryPhase
+        dataset={dataset}
+        contract={contract}
+        exportState={{ kind: "idle" }}
+        onContractAction={(action) => {
+          onContractAction(action);
+          setContract((current) => reduceDeliveryContract(current, action));
+        }}
+        onExport={vi.fn()}
+        onCancelExport={vi.fn()}
+      />;
+    }
+    render(<ControlledDelivery />);
+    const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Tolerancia regla 1" }), { target: { value: "both" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Porcentaje regla 1" }), { target: { value: "5" } });
+    fireEvent.change(kind, { target: { value: "unique_together" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Columna compuesta limite, regla 1" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Comprobación regla 1" }), { target: { value: "column_compare" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Columna derecha comparar regla 1" }), { target: { value: "estado" } });
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar regla 1" }));
+    expect(onContractAction).toHaveBeenCalled();
+    expect(screen.getByText("Entrega no validada")).toBeInTheDocument();
   });
 });

@@ -30,7 +30,15 @@ const cases = [
   {
     name: "zoom-125",
     viewport: { width: 1280, height: 900 },
-    deviceScaleFactor: 1.25,
+    deviceScaleFactor: 1,
+    zoom: 1.25,
+    forcedColors: "none",
+  },
+  {
+    name: "zoom-200",
+    viewport: { width: 1280, height: 900 },
+    deviceScaleFactor: 1,
+    zoom: 2,
     forcedColors: "none",
   },
   {
@@ -151,6 +159,10 @@ try {
       const page = await context.newPage();
       await page.emulateMedia({ reducedMotion: "reduce", forcedColors: captureCase.forcedColors });
       await page.goto(baseUrl, { waitUntil: "networkidle" });
+      await page.evaluate((zoom) => {
+        document.documentElement.style.zoom = String(zoom);
+        document.documentElement.dataset.columniaZoom = String(zoom);
+      }, captureCase.zoom ?? 1);
       const inspection = await inspectShell(page, captureCase.forcedColors);
       const screenshotName = `${captureCase.name}.png`;
       const screenshotPath = join(evidenceDirectory, screenshotName);
@@ -171,6 +183,7 @@ try {
         name: captureCase.name,
         viewport: captureCase.viewport,
         deviceScaleFactor: captureCase.deviceScaleFactor,
+        zoom: captureCase.zoom ?? 1,
         forcedColors: captureCase.forcedColors,
         screenshot: relative(projectRoot, screenshotPath).replaceAll("\\", "/"),
         screenshotSha256,

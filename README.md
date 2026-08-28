@@ -161,7 +161,8 @@ valores.
 
 Para repetir el tier completo en Windows usa `npm run verify:tier`. Ejecuta tests,
 build, evidencia visual, benchmark sostenido, Package, smokes CLI/WebView2 y los
-gates finales de experiencia en orden; admite `-SkipPackage` o `-SkipNative` si se
+gates finales de experiencia en orden; `-SkipPackage` conserva todos los gates de
+Release y omite únicamente el bundling MSI/NSIS; `-SkipNative` aísla una estación si se
 necesita aislar una estación sin instalador o sin WebView2. La auditoría manual con
 lector de pantalla y High Contrast se registra en
 [ACCESSIBILITY_MANUAL_CHECKLIST.md](ACCESSIBILITY_MANUAL_CHECKLIST.md).
@@ -172,7 +173,15 @@ de recetas y el destino de exportación. Usa únicamente fixtures sintéticos y
 elimina sus temporales; la evidencia conserva estados y nombres de interacción,
 nunca rutas. El recorrido forma parte de `verify:tier` cuando no se usa
 `-SkipNative`; el gate contempla las variantes de editor de Abrir/Guardar como
-y mantiene el límite extendido de 180 s para el arranque nativo.
+y mantiene el límite extendido de 180 s para el arranque nativo. Se ejecuta
+separado del runner Playwright para que el presupuesto de memoria mida solo el
+árbol Columnia/WebView2.
+
+El panel **Actualizaciones** aparece en la sección de utilidades del lateral
+solo cuando la compilación tiene un endpoint updater configurado. Nunca consulta
+la red automáticamente: la persona inicia la comprobación, ve versión/notas/
+tamaño, descarga con progreso y cancelación, y la instalación queda protegida
+por la firma pública de Tauri.
 
 Para comprobar continuidad entre procesos ejecuta `npm run smoke:restart`. El
 comando corre dos fases aisladas: prepara y persiste el proyecto, termina la
@@ -284,7 +293,8 @@ CLI consulta su [referencia completa](docs/reference/cli.md), y para validar el
 artefacto optimizado usa el [how-to de evidencia del release](docs/how-to/validate-release-evidence.md).
 Los cambios visibles se registran en [CHANGELOG.md](CHANGELOG.md).
 
-`Fast` comprueba formato, compilación Rust, pruebas frontend y build web. `Full`
+`Fast` comprueba formato, compilación Rust, pruebas frontend y build web. Todos los
+perfiles comprueban además documentación, inventario IPC y toolchains fijados. `Full`
 añade Clippy con warnings como errores y las pruebas Rust. `Release` agrega el
 binario Tauri optimizado sin crear instaladores ni usar servicios externos.
 
@@ -467,6 +477,23 @@ oficiales de Tauri/NSIS y valida sus hashes:
 ```powershell
 .\tools\check.ps1 -Profile Package
 ```
+
+Para producir además los artefactos firmados del updater y el manifiesto estático,
+define `COLUMNIA_UPDATER_ENDPOINT`, `COLUMNIA_UPDATER_ASSET_BASE_URL`,
+`TAURI_SIGNING_PRIVATE_KEY` y opcionalmente
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, siempre con la clave privada fuera del
+repositorio, y ejecuta:
+
+```powershell
+npm run release:updater:dry-run
+```
+
+El flujo exige árbol limpio, genera `.sig`, SBOM, notas, SHA-256 y evidencia
+local; no crea tags ni publica archivos. La firma del updater no es Authenticode
+y no elimina el aviso de SmartScreen. El contrato estructural de manifiesto/firma
+se puede repetir con `npm run updater:contract:test`; usa únicamente fixtures
+locales y no sustituye probar el canal publicado, una red ausente o la
+recuperación/rotación de claves.
 
 Para comprobar automáticamente el shell web y el mismo arranque que se usa durante desarrollo:
 

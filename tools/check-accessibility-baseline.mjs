@@ -74,6 +74,7 @@ try {
     if (!actualCase) fail(`Falta el caso visual ${expectedCase.name}.`);
     assertEqual(actualCase.viewport, expectedCase.viewport, `${expectedCase.name}.viewport`);
     assertEqual(actualCase.deviceScaleFactor, expectedCase.deviceScaleFactor, `${expectedCase.name}.deviceScaleFactor`);
+    assertEqual(actualCase.zoom ?? 1, expectedCase.zoom ?? 1, `${expectedCase.name}.zoom`);
     assertEqual(actualCase.forcedColors, expectedCase.forcedColors, `${expectedCase.name}.forcedColors`);
     if (actualCase.valid !== true) fail(`El caso visual ${expectedCase.name} no está marcado como válido.`);
     const inspection = actualCase.inspection ?? {};

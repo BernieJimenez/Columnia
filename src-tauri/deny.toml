@@ -6,10 +6,11 @@
 ignore = [
   # object_store 0.13.x (transitivo de Polars) todavía requiere quick-xml 0.39.x.
   # Polars/Arrow aún no publica una rama compatible con quick-xml >= 0.41.0.
-  # El feature cloud no está habilitado en Columnia; revisar y retirar esta
-  # excepción cuando Polars actualice object_store.
-  { id = "RUSTSEC-2026-0194", reason = "Transitive object_store 0.13.x; cloud feature disabled and Polars has not released a compatible object_store upgrade." },
-  { id = "RUSTSEC-2026-0195", reason = "Transitive object_store 0.13.x; cloud feature disabled and Polars has not released a compatible object_store upgrade." },
+  # Polars habilita transitivamente object_store/cloud en su grafo de Parquet.
+  # Columnia no expone rutas remotas ni llama HTTP: la no alcanzabilidad se
+  # verifica en tools/check-network-policy.mjs y debe repetirse al actualizar.
+  { id = "RUSTSEC-2026-0194", reason = "Transitive object_store 0.13.x from the Polars parquet graph; Columnia exposes no remote source or HTTP path. Re-review on Polars/object_store upgrade." },
+  { id = "RUSTSEC-2026-0195", reason = "Transitive object_store 0.13.x from the Polars parquet graph; Columnia exposes no remote source or HTTP path. Re-review on Polars/object_store upgrade." },
   # Tauri's urlpattern/GTK graph currently has no safe replacement available
   # without replacing the desktop runtime. Keep these as explicit, reviewable
   # upstream exceptions instead of silently disabling advisory checks.
@@ -41,6 +42,9 @@ allow = [
   "BSD-3-Clause",
   "BSL-1.0",
   "CC0-1.0",
+  # webpki-root-certs is a transitive Rustls trust-store dependency of the
+  # Tauri runtime/updater. Its upstream crate metadata declares this license.
+  "CDLA-Permissive-2.0",
   "ISC",
   "LGPL-2.1-or-later",
   "MIT",

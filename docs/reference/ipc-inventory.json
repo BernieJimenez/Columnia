@@ -1,0 +1,541 @@
+{
+  "schemaVersion": 1,
+  "sourceFiles": [
+    "src-tauri/src/lib.rs",
+    "src-tauri/src/dataset.rs",
+    "src-tauri/src/projects.rs",
+    "src-tauri/src/resource.rs",
+    "src-tauri/src/updater.rs",
+    "src/bridge.ts"
+  ],
+  "productionCommands": [
+    {
+      "name": "get_app_info",
+      "module": "lib",
+      "debug": false
+    },
+    {
+      "name": "get_resource_usage",
+      "module": "lib",
+      "debug": false
+    },
+    {
+      "name": "get_performance_settings",
+      "module": "lib",
+      "debug": false
+    },
+    {
+      "name": "set_performance_profile",
+      "module": "lib",
+      "debug": false
+    },
+    {
+      "name": "preview_dataprep_session_migration",
+      "module": "lib",
+      "debug": false
+    },
+    {
+      "name": "pick_dataset_source",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "inspect_dropped_dataset",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "load_dataset_selection",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "discard_dataset_selection",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "compare_dataset",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "get_dataset_conflict_page",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "join_dataset",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "resolve_dataset_conflicts",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "clear_dataset_comparison",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "use_consolidated_dataset",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "get_dataset_page",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "query_dataset",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "get_dataset_profile",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "validate_quality_rules",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "cancel_operation",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "export_dataset",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "save_transform_recipe",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "pick_transform_recipe",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "save_quality_rules_document",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "pick_quality_rules_migration",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "pick_dataprep_session_migration",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "check_for_update",
+      "module": "updater",
+      "debug": false
+    },
+    {
+      "name": "download_update",
+      "module": "updater",
+      "debug": false
+    },
+    {
+      "name": "cancel_update_download",
+      "module": "updater",
+      "debug": false
+    },
+    {
+      "name": "install_update",
+      "module": "updater",
+      "debug": false
+    },
+    {
+      "name": "remove_duplicates",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "remove_near_duplicates",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "remove_empty_rows",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "enable_row_audit",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "remove_constant_columns",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "remove_empty_columns",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "remove_high_null_columns",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "remove_identifier_columns",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "remove_personal_columns",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "normalize_column_names",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "trim_text_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "normalize_text_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "normalize_sentinel_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "normalize_boolean_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "impute_missing_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "apply_safe_corrections",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "apply_transform_recipe",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "get_history_state",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "undo_last_change",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "redo_last_change",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "list_projects",
+      "module": "projects",
+      "debug": false
+    },
+    {
+      "name": "get_recovery_candidate",
+      "module": "projects",
+      "debug": false
+    },
+    {
+      "name": "save_project",
+      "module": "projects",
+      "debug": false
+    },
+    {
+      "name": "open_project",
+      "module": "projects",
+      "debug": false
+    },
+    {
+      "name": "delete_project",
+      "module": "projects",
+      "debug": false
+    },
+    {
+      "name": "import_dataprep_session_project",
+      "module": "projects",
+      "debug": false
+    }
+  ],
+  "debugCommands": [
+    {
+      "name": "probe_seed_dataset",
+      "module": "dataset",
+      "debug": true
+    },
+    {
+      "name": "probe_save_transform_recipe",
+      "module": "dataset",
+      "debug": true
+    },
+    {
+      "name": "probe_export_dataset",
+      "module": "dataset",
+      "debug": true
+    },
+    {
+      "name": "probe_reopen_project",
+      "module": "projects",
+      "debug": true
+    }
+  ],
+  "sharedStructures": [
+    {
+      "rust": "AppInfo",
+      "typescript": "AppInfo"
+    },
+    {
+      "rust": "UpdateInfo",
+      "typescript": "UpdateInfo"
+    },
+    {
+      "rust": "UpdaterProgress",
+      "typescript": "UpdaterProgress"
+    },
+    {
+      "rust": "ResourceUsage",
+      "typescript": "ResourceUsage"
+    },
+    {
+      "rust": "PerformanceSettings",
+      "typescript": "PerformanceSettings"
+    },
+    {
+      "rust": "OperationProgress",
+      "typescript": "OperationProgress"
+    },
+    {
+      "rust": "ExportResult",
+      "typescript": "ExportResult"
+    },
+    {
+      "rust": "QualityCondition",
+      "typescript": "QualityCondition"
+    },
+    {
+      "rust": "QualityRule",
+      "typescript": "QualityRule"
+    },
+    {
+      "rust": "QualityRuleResult",
+      "typescript": "QualityRuleResult"
+    },
+    {
+      "rust": "QualityValidationResult",
+      "typescript": "QualityValidationResult"
+    },
+    {
+      "rust": "QualityMigrationWarning",
+      "typescript": "QualityMigrationWarning"
+    },
+    {
+      "rust": "QualityMigrationResult",
+      "typescript": "QualityMigrationResult"
+    },
+    {
+      "rust": "DataprepSessionMigrationPlan",
+      "typescript": "DataprepSessionMigrationPlan"
+    },
+    {
+      "rust": "QualityRulesDocument",
+      "typescript": "QualityRulesDocument"
+    },
+    {
+      "rust": "DatasetColumn",
+      "typescript": "DatasetColumn"
+    },
+    {
+      "rust": "DatasetPreview",
+      "typescript": "DatasetPreview"
+    },
+    {
+      "rust": "WorkbookSheet",
+      "typescript": "WorkbookSheet"
+    },
+    {
+      "rust": "DatasetSourceInspection",
+      "typescript": "DatasetSourceInspection"
+    },
+    {
+      "rust": "DatasetPage",
+      "typescript": "DatasetPage"
+    },
+    {
+      "rust": "DatasetQueryResult",
+      "typescript": "DatasetQueryResult"
+    },
+    {
+      "rust": "NumericCorrelation",
+      "typescript": "NumericCorrelation"
+    },
+    {
+      "rust": "NumericCorrelationMatrix",
+      "typescript": "NumericCorrelationMatrix"
+    },
+    {
+      "rust": "CategoricalGroup",
+      "typescript": "CategoricalGroup"
+    },
+    {
+      "rust": "CategoricalGroupSummary",
+      "typescript": "CategoricalGroupSummary"
+    },
+    {
+      "rust": "ColumnProfile",
+      "typescript": "ColumnProfile"
+    },
+    {
+      "rust": "DatasetProfile",
+      "typescript": "DatasetProfile"
+    },
+    {
+      "rust": "DatasetMutation",
+      "typescript": "DatasetMutation"
+    },
+    {
+      "rust": "ColumnRename",
+      "typescript": "ColumnRename"
+    },
+    {
+      "rust": "ColumnNormalizationResult",
+      "typescript": "ColumnNormalizationResult"
+    },
+    {
+      "rust": "ChangedTextColumn",
+      "typescript": "ChangedTextColumn"
+    },
+    {
+      "rust": "TextCleaningResult",
+      "typescript": "TextCleaningResult"
+    },
+    {
+      "rust": "HistoryResult",
+      "typescript": "HistoryResult"
+    },
+    {
+      "rust": "HistoryEntryState",
+      "typescript": "HistoryEntryState"
+    },
+    {
+      "rust": "HistoryState",
+      "typescript": "HistoryState"
+    },
+    {
+      "rust": "SafeCorrectionsResult",
+      "typescript": "SafeCorrectionsResult"
+    },
+    {
+      "rust": "RecipeRename",
+      "typescript": "RecipeRename"
+    },
+    {
+      "rust": "RecipeCast",
+      "typescript": "RecipeCast"
+    },
+    {
+      "rust": "RecipeDateParse",
+      "typescript": "RecipeDateParse"
+    },
+    {
+      "rust": "RecipeFilter",
+      "typescript": "RecipeFilter"
+    },
+    {
+      "rust": "CalculatedOperand",
+      "typescript": "CalculatedOperand"
+    },
+    {
+      "rust": "CalculatedColumnRecipe",
+      "typescript": "CalculatedColumnRecipe"
+    },
+    {
+      "rust": "FindReplaceRecipe",
+      "typescript": "FindReplaceRecipe"
+    },
+    {
+      "rust": "SplitColumnRecipe",
+      "typescript": "SplitColumnRecipe"
+    },
+    {
+      "rust": "MergeColumnsRecipe",
+      "typescript": "MergeColumnsRecipe"
+    },
+    {
+      "rust": "OutlierTreatment",
+      "typescript": "OutlierTreatment"
+    },
+    {
+      "rust": "SummaryAggregation",
+      "typescript": "SummaryAggregation"
+    },
+    {
+      "rust": "GroupSummaryRecipe",
+      "typescript": "GroupSummaryRecipe"
+    },
+    {
+      "rust": "ContactNormalization",
+      "typescript": "ContactNormalization"
+    },
+    {
+      "rust": "TextExtraction",
+      "typescript": "TextExtraction"
+    },
+    {
+      "rust": "TransformRecipe",
+      "typescript": "TransformRecipe"
+    },
+    {
+      "rust": "StoredTransformRecipe",
+      "typescript": "SavedRecipe"
+    },
+    {
+      "rust": "TransformRecipeResult",
+      "typescript": "TransformRecipeResult"
+    },
+    {
+      "rust": "ProjectSummary",
+      "typescript": "ProjectSummary"
+    },
+    {
+      "rust": "ProjectOpenResult",
+      "typescript": "ProjectOpenResult"
+    },
+    {
+      "rust": "ProjectWorkspace",
+      "typescript": "ProjectWorkspace"
+    }
+  ]
+}

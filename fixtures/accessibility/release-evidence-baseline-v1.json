@@ -15,6 +15,7 @@
         "height": 900
       },
       "deviceScaleFactor": 1,
+      "zoom": 1,
       "forcedColors": "none"
     },
     {
@@ -24,6 +25,7 @@
         "height": 844
       },
       "deviceScaleFactor": 1,
+      "zoom": 1,
       "forcedColors": "none"
     },
     {
@@ -32,7 +34,18 @@
         "width": 1280,
         "height": 900
       },
-      "deviceScaleFactor": 1.25,
+      "deviceScaleFactor": 1,
+      "zoom": 1.25,
+      "forcedColors": "none"
+    },
+    {
+      "name": "zoom-200",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "deviceScaleFactor": 1,
+      "zoom": 2,
       "forcedColors": "none"
     },
     {
@@ -42,6 +55,7 @@
         "height": 900
       },
       "deviceScaleFactor": 1,
+      "zoom": 1,
       "forcedColors": "active"
     }
   ],

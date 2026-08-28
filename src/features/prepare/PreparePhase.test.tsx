@@ -397,6 +397,158 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
     expect(onRemovePersonalColumns).toHaveBeenCalledOnce();
   });
+
+  it("ejecuta callbacks opcionales y cierra confirmaciones con Escape", () => {
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onAnalyzeQuality={() => undefined}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeSentinels={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados parecidos" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Retirar identificadores detectados" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retirar identificadores" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
+  });
+
+  it("cubre estados de análisis, navegación de tabs y limpieza de texto seleccionada", () => {
+    const callbacks = {
+      onAnalyzeQuality: vi.fn(),
+      onCancelProfile: vi.fn(),
+      onRemoveDuplicates: vi.fn(),
+      onRemoveNearDuplicates: vi.fn(),
+      onRemoveEmptyRows: vi.fn(),
+      onRemoveConstantColumns: vi.fn(),
+      onRemoveEmptyColumns: vi.fn(),
+      onRemoveHighNullColumns: vi.fn(),
+      onRemoveIdentifierColumns: vi.fn(),
+      onRemovePersonalColumns: vi.fn(),
+      onNormalizeSentinels: vi.fn(),
+      onNormalizeBooleans: vi.fn(),
+      onImputeMissingValues: vi.fn(),
+      onEnableRowAudit: vi.fn(),
+      onNormalizeColumns: vi.fn(),
+      onApplyRecommended: vi.fn(),
+      onTrimText: vi.fn(),
+      onNormalizeText: vi.fn(),
+      onApplyTransforms: vi.fn(),
+      onRecipeDraftChange: vi.fn(),
+      onUndo: vi.fn(),
+      onRedo: vi.fn(),
+    };
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "idle" }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={{ ...EMPTY_HISTORY, canRedo: true }}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Analizar antes de preparar" }));
+    expect(callbacks.onAnalyzeQuality).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Transformaciones" }), { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: "Correcciones" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Correcciones" }), { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Transformaciones" })).toHaveAttribute("aria-selected", "true");
+
+    cleanup();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{
+        kind: "loading",
+        progress: { operation: "profile", stage: "Columnas", percent: 20 },
+        cancelRequested: false,
+      }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(callbacks.onCancelProfile).toHaveBeenCalledOnce();
+
+    cleanup();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{
+        kind: "loading",
+        progress: { operation: "profile", stage: "Columnas", percent: 20 },
+        cancelRequested: true,
+      }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+    expect(screen.getByRole("button", { name: "Cancelando…" })).toBeDisabled();
+
+    cleanup();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+    fireEvent.click(screen.getByText("Correcciones avanzadas"));
+    fireEvent.click(screen.getByLabelText("nombre"));
+    fireEvent.click(screen.getByLabelText("Eliminar acentos"));
+    fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
+    expect(callbacks.onNormalizeText).toHaveBeenCalledWith(["nombre"], false);
+    fireEvent.click(screen.getByRole("button", { name: "Recortar espacios" }));
+    expect(callbacks.onTrimText).toHaveBeenCalledOnce();
+
+    cleanup();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "error", message: "perfil no disponible" }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      {...callbacks}
+    />);
+    expect(screen.getByRole("alert")).toHaveTextContent("perfil no disponible");
+  });
 });
 
 describe("TransformRecipeEditor", () => {

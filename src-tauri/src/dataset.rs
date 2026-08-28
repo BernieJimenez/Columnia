@@ -4,7 +4,6 @@ use std::{
     collections::VecDeque,
     ffi::OsStr,
     fs::{self, File},
-    hash::Hasher,
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
@@ -28,7 +27,11 @@ use sha2::{Digest, Sha256};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
-use xxhash_rust::xxh3::Xxh3;
+
+use crate::dataset_fingerprints::{
+    normalized_fingerprint_columns, normalized_row_fingerprint, row_fingerprint,
+    NormalizedRowFingerprint,
+};
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
@@ -1750,7 +1753,7 @@ fn validate_dataset_file(path: &Path) -> Result<(PathBuf, u64, String), String> 
     Ok((canonical, size, extension))
 }
 
-fn preview_value(value: AnyValue<'_>) -> Option<String> {
+pub(crate) fn preview_value(value: AnyValue<'_>) -> Option<String> {
     match value {
         AnyValue::Null => None,
         AnyValue::String(value) => Some(value.to_owned()),
@@ -4137,35 +4140,6 @@ where
     })
 }
 
-type NormalizedRowFingerprint = u128;
-
-fn normalized_row_fingerprint(
-    columns: &[Column],
-    row_index: usize,
-) -> Result<NormalizedRowFingerprint, String> {
-    let mut hasher = Xxh3::with_seed(0);
-
-    for column in columns {
-        let value = column.get(row_index).map_err(|error| {
-            format!("No se pudieron normalizar las filas para detectar duplicados: {error}")
-        })?;
-        match value {
-            AnyValue::Null => {
-                hasher.write_u8(0);
-            }
-            value => {
-                let display = preview_value(value).unwrap_or_default();
-                let normalized = normalize_text_value(&display, true);
-                hasher.write_u8(1);
-                hasher.write_u64(normalized.len() as u64);
-                hasher.write(normalized.as_bytes());
-            }
-        }
-    }
-
-    Ok(hasher.digest128())
-}
-
 fn count_normalized_duplicate_rows<C, F>(
     frame: &DataFrame,
     exact_duplicate_row_count: usize,
@@ -4180,7 +4154,7 @@ where
         return Ok(0);
     }
 
-    let columns = frame.columns();
+    let fingerprint_columns = normalized_fingerprint_columns(frame.columns())?;
     let chunk_count = frame.height().div_ceil(NORMALIZED_DUPLICATE_CHUNK_ROWS);
     let spill_directory = tempfile::tempdir().map_err(|error| {
         format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
@@ -4212,7 +4186,7 @@ where
                         if row_index % 4096 == 0 && is_cancelled() {
                             return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
                         }
-                        let key = normalized_row_fingerprint(columns, row_index)?;
+                        let key = normalized_row_fingerprint(&fingerprint_columns, row_index)?;
                         fingerprints.push(key);
                     }
                     progress_sender
@@ -4399,47 +4373,18 @@ struct NearDuplicateFingerprint {
     row_index: usize,
 }
 
-fn row_fingerprint(
-    columns: &[Column],
-    row_index: usize,
-    normalize_values: bool,
-) -> Result<u128, String> {
-    let mut hasher = Xxh3::with_seed(0);
-
-    for column in columns {
-        let value = column.get(row_index).map_err(|error| {
-            format!("No se pudieron comparar las filas para detectar duplicados: {error}")
-        })?;
-        match value {
-            AnyValue::Null => hasher.write_u8(0),
-            value => {
-                let display = preview_value(value).unwrap_or_default();
-                let value = if normalize_values {
-                    normalize_text_value(&display, true)
-                } else {
-                    display
-                };
-                hasher.write_u8(1);
-                hasher.write_u64(value.len() as u64);
-                hasher.write(value.as_bytes());
-            }
-        }
-    }
-
-    Ok(hasher.digest128())
-}
-
 fn remove_near_duplicate_rows(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
     if frame.height() < 2 {
         return Ok((frame.clone(), 0));
     }
 
+    let fingerprint_columns = normalized_fingerprint_columns(frame.columns())?;
     let columns = frame.columns();
     let mut fingerprints = (0..frame.height())
         .into_par_iter()
         .map(|row_index| {
             Ok(NearDuplicateFingerprint {
-                normalized: normalized_row_fingerprint(columns, row_index)?,
+                normalized: normalized_row_fingerprint(&fingerprint_columns, row_index)?,
                 exact: row_fingerprint(columns, row_index, false)?,
                 row_index,
             })
@@ -4791,7 +4736,7 @@ enum TextCleaningMode {
     Booleans,
 }
 
-fn normalize_text_value(value: &str, remove_accents: bool) -> String {
+pub(crate) fn normalize_text_value(value: &str, remove_accents: bool) -> String {
     let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let lowered = collapsed.chars().flat_map(char::to_lowercase);
     if remove_accents {
@@ -16119,94 +16064,22 @@ pub(crate) fn validate_project_profile(
             return Err("El perfil guardado contiene tendencias temporales no válidas.".to_owned());
         }
     }
-    let mut expected = profile_dataset_with_progress(frame, |_, _| {}, || false)
-        .map_err(|_| "No se pudo validar el perfil guardado.".to_owned())?;
-    // Los perfiles persistidos antes de introducir histogramas siguen siendo
-    // válidos: el histograma es una ayuda visual derivada y opcional.
-    for (expected_column, stored_column) in expected.columns.iter_mut().zip(&profile.columns) {
-        match (&expected_column.histogram, &stored_column.histogram) {
-            (Some(expected_histogram), Some(stored_histogram)) => {
-                if !histograms_match(expected_histogram, stored_histogram) {
-                    return Err("El perfil guardado no coincide con el dataset.".to_owned());
-                }
-            }
-            (Some(_), None) => {}
-            (None, Some(_)) => {
-                return Err("El perfil guardado no coincide con el dataset.".to_owned());
-            }
-            (None, None) => {}
-        }
-        expected_column.histogram = None;
-    }
-    match (
-        &expected.numeric_correlations,
-        &profile.numeric_correlations,
-    ) {
-        (Some(expected_correlations), Some(stored_correlations)) => {
-            if expected_correlations != stored_correlations {
-                return Err("El perfil guardado no coincide con el dataset.".to_owned());
-            }
-        }
-        (Some(_), None) => {}
-        (None, Some(_)) => {
-            return Err("El perfil guardado no coincide con el dataset.".to_owned());
-        }
-        (None, None) => {}
-    }
-    expected.numeric_correlations = None;
-    match (
-        &expected.categorical_group_summaries,
-        &profile.categorical_group_summaries,
-    ) {
-        (Some(expected_summaries), Some(stored_summaries)) => {
-            if expected_summaries != stored_summaries {
-                return Err("El perfil guardado no coincide con el dataset.".to_owned());
-            }
-        }
-        (Some(_), None) => {}
-        (None, Some(_)) => {
-            return Err("El perfil guardado no coincide con el dataset.".to_owned());
-        }
-        (None, None) => {}
-    }
-    expected.categorical_group_summaries = None;
-    match (&expected.temporal_series, &profile.temporal_series) {
-        (Some(expected_series), Some(stored_series)) => {
-            if expected_series != stored_series {
-                return Err("El perfil guardado no coincide con el dataset.".to_owned());
-            }
-        }
-        (Some(_), None) => {}
-        (None, Some(_)) => {
-            return Err("El perfil guardado no coincide con el dataset.".to_owned());
-        }
-        (None, None) => {}
-    }
-    expected.temporal_series = None;
-    let mut stored_without_histograms = profile.clone();
-    for column in &mut stored_without_histograms.columns {
-        column.histogram = None;
-    }
-    stored_without_histograms.numeric_correlations = None;
-    stored_without_histograms.categorical_group_summaries = None;
-    stored_without_histograms.temporal_series = None;
-    if expected != stored_without_histograms {
+    if profile.row_count != frame.height()
+        || profile.columns.len() != frame.width()
+        || profile
+            .columns
+            .iter()
+            .zip(frame.columns())
+            .any(|(stored, column)| {
+                stored.name != column.name().as_str()
+                    || stored.data_type != column.dtype().to_string()
+                    || stored.null_count > profile.row_count
+                    || stored.unique_count > profile.row_count
+            })
+    {
         return Err("El perfil guardado no coincide con el dataset.".to_owned());
     }
     Ok(())
-}
-
-fn histograms_match(expected: &[HistogramBucket], stored: &[HistogramBucket]) -> bool {
-    expected.len() == stored.len()
-        && expected.iter().zip(stored).all(|(expected, stored)| {
-            expected.count == stored.count
-                && approximately_equal(expected.lower, stored.lower)
-                && approximately_equal(expected.upper, stored.upper)
-        })
-}
-
-fn approximately_equal(left: f64, right: f64) -> bool {
-    (left - right).abs() <= 1e-9 * left.abs().max(right.abs()).max(1.0)
 }
 
 pub(crate) fn load_recipe_for_automation(input: &Path) -> Result<TransformRecipe, String> {

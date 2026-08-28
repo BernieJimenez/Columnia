@@ -35,13 +35,15 @@ function ControllerHarness({
   onDatasetChanged,
   onProfileInvalidated,
   onDeliveryInvalidated,
+  activeDataset = dataset,
 }: {
   onDatasetChanged: (next: DatasetPreview) => void;
   onProfileInvalidated: () => void;
   onDeliveryInvalidated: () => void;
+  activeDataset?: DatasetPreview | null;
 }) {
   const controller = usePrepareController({
-    activeDataset: dataset,
+    activeDataset,
     onDatasetChanged,
     onProfileInvalidated,
     onDeliveryInvalidated,
@@ -49,6 +51,7 @@ function ControllerHarness({
   return <>
     <button type="button" onClick={controller.applyDuplicateRemoval}>Duplicar</button>
     <button type="button" onClick={controller.applyNearDuplicateRemoval}>Parecidos</button>
+    <button type="button" onClick={controller.applyEmptyRowRemoval}>Filas vacías</button>
     <button type="button" onClick={controller.applyConstantColumnRemoval}>Constantes</button>
     <button type="button" onClick={controller.applyEmptyColumnRemoval}>Vacías</button>
     <button type="button" onClick={controller.applyHighNullColumnRemoval}>Alta nulidad</button>
@@ -58,7 +61,18 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
     <button type="button" onClick={controller.applyMissingValueImputation}>Imputar</button>
     <button type="button" onClick={controller.applyRowAudit}>Auditoría</button>
+    <button type="button" onClick={controller.applyColumnNormalization}>Columnas</button>
+    <button type="button" onClick={() => controller.trimText()}>Recortar</button>
+    <button type="button" onClick={() => controller.normalizeText(["nombre"], true)}>Texto</button>
+    <button type="button" onClick={controller.applyRecommendedCorrections}>Recomendadas</button>
+    <button type="button" onClick={() => controller.applyStructuralTransforms({
+      renames: [], casts: [], dateParses: [], filters: [], calculatedColumn: null,
+      findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
+      outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
+    })}>Receta</button>
     <button type="button" onClick={controller.undoChange}>Deshacer controlador</button>
+    <button type="button" onClick={controller.redoChange}>Rehacer controlador</button>
+    <button type="button" onClick={controller.resetChangeStatus}>Limpiar estado</button>
     <output>{controller.changeStatus.kind === "applied" ? controller.changeStatus.message : controller.changeStatus.kind}</output>
     <span data-testid="history-index">{controller.historyStatus.currentIndex}</span>
   </>;
@@ -116,6 +130,28 @@ describe("usePrepareController", () => {
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("rehace un cambio y actualiza el estado del historial", async () => {
+    vi.spyOn(bridge, "redoLastChange").mockResolvedValue({
+      dataset,
+      history: { ...history, canUndo: true, canRedo: false, currentIndex: 2 },
+      message: "Se rehizo el último cambio.",
+    });
+    const callbacks = {
+      onDatasetChanged: vi.fn(),
+      onProfileInvalidated: vi.fn(),
+      onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Rehacer controlador" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Se rehizo el último cambio."));
+    expect(bridge.redoLastChange).toHaveBeenCalledOnce();
+    expect(callbacks.onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(callbacks.onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(callbacks.onDeliveryInvalidated).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("history-index")).toHaveTextContent("2");
   });
 
   it("publica la eliminación de columnas constantes y sus nombres", async () => {
@@ -314,5 +350,139 @@ describe("usePrepareController", () => {
     expect(onDatasetChanged).toHaveBeenCalledWith(auditedDataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("cubre las rutas sin cambios de las correcciones y transformaciones", async () => {
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    vi.spyOn(bridge, "removeDuplicates").mockResolvedValue({ dataset, affectedRowCount: 0 });
+    vi.spyOn(bridge, "removeNearDuplicates").mockResolvedValue({ dataset, affectedRowCount: 0 });
+    vi.spyOn(bridge, "removeEmptyRows").mockResolvedValue({ dataset, affectedRowCount: 0 });
+    vi.spyOn(bridge, "removeConstantColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
+    vi.spyOn(bridge, "removeEmptyColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
+    vi.spyOn(bridge, "removeHighNullColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
+    vi.spyOn(bridge, "removeIdentifierColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
+    vi.spyOn(bridge, "removePersonalColumns").mockResolvedValue({ dataset, removedColumnCount: 0, removedColumns: [] });
+    vi.spyOn(bridge, "normalizeSentinelValues").mockResolvedValue({
+      dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
+    });
+    vi.spyOn(bridge, "normalizeBooleanValues").mockResolvedValue({
+      dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
+    });
+    vi.spyOn(bridge, "imputeMissingValues").mockResolvedValue({
+      dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
+    });
+    vi.spyOn(bridge, "enableRowAudit").mockResolvedValue({ dataset, affectedRowCount: 0 });
+    vi.spyOn(bridge, "normalizeColumnNames").mockResolvedValue({ dataset, renamedColumnCount: 0, renames: [] });
+    vi.spyOn(bridge, "trimTextValues").mockResolvedValue({
+      dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
+    });
+    vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({
+      dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
+    });
+    vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
+      dataset, changedCellCount: 0, affectedRowCount: 0, renamedColumnCount: 0, renames: [],
+    });
+    vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
+      dataset, changed: false, renamedColumnCount: 0, convertedColumnCount: 0,
+      parsedDateColumnCount: 0, removedRowCount: 0, calculatedColumnCount: 0,
+      replacedCellCount: 0, droppedColumnCount: 0, splitColumnCount: 0, mergedColumnCount: 0,
+      droppedSourceColumnCount: 0, adjustedOutlierCellCount: 0, outlierRemovedRowCount: 0,
+      outlierColumnCount: 0, groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
+      normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
+    });
+    const callbacks = {
+      onDatasetChanged: vi.fn(), onProfileInvalidated: vi.fn(), onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Se eliminaron 0 filas duplicadas"));
+    fireEvent.click(screen.getByRole("button", { name: "Parecidos" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron duplicados parecidos"));
+    fireEvent.click(screen.getByRole("button", { name: "Filas vacías" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron filas"));
+    fireEvent.click(screen.getByRole("button", { name: "Constantes" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se eliminaron columnas constantes"));
+    fireEvent.click(screen.getByRole("button", { name: "Vacías" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se eliminaron columnas vacías"));
+    fireEvent.click(screen.getByRole("button", { name: "Alta nulidad" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas con al menos 80%"));
+    fireEvent.click(screen.getByRole("button", { name: "Identificadores" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas identificadoras"));
+    fireEvent.click(screen.getByRole("button", { name: "Personales" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas de datos personales"));
+    fireEvent.click(screen.getByRole("button", { name: "Centinelas" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron valores centinela"));
+    fireEvent.click(screen.getByRole("button", { name: "Booleanos" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se encontraron alias booleanos"));
+    fireEvent.click(screen.getByRole("button", { name: "Imputar" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se encontraron nulos imputables"));
+    fireEvent.click(screen.getByRole("button", { name: "Auditoría" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("no produjo cambios"));
+    fireEvent.click(screen.getByRole("button", { name: "Columnas" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("ya estaban normalizados"));
+    fireEvent.click(screen.getByRole("button", { name: "Recortar" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se encontraron valores"));
+    fireEvent.click(screen.getByRole("button", { name: "Texto" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se encontraron valores"));
+    fireEvent.click(screen.getByRole("button", { name: "Recomendadas" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("ya cumplía"));
+    fireEvent.click(screen.getByRole("button", { name: "Receta" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("no produjo cambios"));
+  });
+
+  it("maneja errores, refresco de historial fallido y dataset ausente sin ejecutar IPC", async () => {
+    const removeRows = vi.spyOn(bridge, "removeEmptyRows").mockRejectedValue(new Error("fallo controlado"));
+    vi.spyOn(bridge, "getHistoryState").mockRejectedValue(new Error("historial no disponible"));
+    const callbacks = {
+      onDatasetChanged: vi.fn(), onProfileInvalidated: vi.fn(), onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} activeDataset={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "Filas vacías" }));
+    expect(removeRows).not.toHaveBeenCalled();
+
+    cleanup();
+    render(<ControllerHarness {...callbacks} />);
+    fireEvent.click(screen.getByRole("button", { name: "Filas vacías" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("error"));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar estado" }));
+    expect(screen.getByRole("status")).toHaveTextContent("idle");
+  });
+
+  it("ignora todas las mutaciones y cambios de historial sin dataset activo", () => {
+    const callbacks = {
+      onDatasetChanged: vi.fn(),
+      onProfileInvalidated: vi.fn(),
+      onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} activeDataset={null} />);
+
+    for (const name of [
+      "Duplicar",
+      "Parecidos",
+      "Filas vacías",
+      "Constantes",
+      "Vacías",
+      "Alta nulidad",
+      "Identificadores",
+      "Personales",
+      "Centinelas",
+      "Booleanos",
+      "Imputar",
+      "Auditoría",
+      "Columnas",
+      "Recortar",
+      "Texto",
+      "Recomendadas",
+      "Receta",
+      "Deshacer controlador",
+      "Rehacer controlador",
+    ]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+    }
+
+    expect(callbacks.onDatasetChanged).not.toHaveBeenCalled();
+    expect(callbacks.onProfileInvalidated).not.toHaveBeenCalled();
+    expect(callbacks.onDeliveryInvalidated).not.toHaveBeenCalled();
   });
 });

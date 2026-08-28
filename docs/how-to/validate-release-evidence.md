@@ -13,6 +13,17 @@ ni los hashes visuales aprobados.
 
 ## Pasos
 
+Para ejecutar todos los gates locales en una sola corrida, con publicación
+remota desactivada:
+
+```powershell
+npm run release:dry-run
+```
+
+El orquestador exige una rama y un árbol Git limpios, conserva un reporte en
+`.local/validation/release-orchestration/` y no crea tags, no publica artefactos
+ni contacta servicios externos.
+
 1. Ejecuta los contratos de documentación y versión:
 
    ```powershell
@@ -65,6 +76,31 @@ Baseline release aprobado: .local/validation/release-evidence-check/<timestamp>
 
 El árbol de trabajo no debe recibir capturas ni datasets temporales. `.local/`
 está ignorado por Git.
+
+## Release firmado y updater
+
+Para validar también el canal de actualizaciones, usa una clave privada ubicada
+fuera del repositorio y define un endpoint HTTPS más la base HTTPS donde se
+servirán los assets:
+
+```powershell
+$env:COLUMNIA_UPDATER_ENDPOINT = "https://updates.example/columnia.json"
+$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.57.0/"
+$env:TAURI_SIGNING_PRIVATE_KEY = "C:\ruta-privada\columnia-updater.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+npm run release:updater:dry-run
+```
+
+El flujo produce firmas `.sig` de Tauri, un manifiesto estático y un inventario
+de SHA-256 bajo `.local/validation/release-orchestration/`. El gate falla si
+falta el instalador, la firma, la URL HTTPS o cualquier hash; no publica, crea
+tags ni sube archivos. `npm run updater:check` puede volver a verificar un par
+manifiesto/inventario ya generado pasando sus rutas con `--manifest` y
+`--inventory`. Para comprobar el contrato de forma aislada, ejecuta
+`npm run updater:contract:test`: genera un fixture temporal y verifica el caso
+válido, truncado de artefacto, firma alterada, manifiesto incompleto/corrupto y
+URL HTTP. Es una prueba estructural local; la aceptación de I6 todavía requiere
+ejercitar un canal real, pérdida de red, recuperación y rotación de claves.
 
 ## Troubleshooting
 

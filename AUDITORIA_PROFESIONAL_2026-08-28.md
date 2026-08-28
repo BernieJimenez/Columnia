@@ -723,3 +723,77 @@ que cambien trabajo futuro.
 | F-16 | Nuevo/deriva | `T5-17` |
 | F-17 | Nuevo | `T5-18` |
 | F-18 | Nuevo | `T5-19` |
+
+## 9. Addendum de implementación — 2026-08-28
+
+Este addendum conserva el veredicto histórico sobre `137520b` y registra el
+estado del trabajo realizado después de la auditoría. No convierte por sí solo
+el prototipo en un release público.
+
+### Hallazgos con control técnico implementado
+
+- **F-01/T5-02:** el recorrido nativo aislado verifica los cuatro diálogos
+  Win32 (abrir dataset, guardar/cargar receta y exportar), sin campos de ruta
+  expuestos, con cleanup confirmado y dentro de los límites de 512 MiB working
+  set / 256 MiB privados. La corrida oficial registra 521,785,344 bytes de
+  working set y 265,981,952 bytes privados. El driver restringe ventanas al PID/owner de Columnia,
+  espera el cierre modal entre comandos y termina de forma controlada un driver
+  bloqueado. Evidencia: `.local/validation/webview2-cdp/20260828T203917Z/summary.json`.
+- **F-02/T5-03:** el probe Playwright separa estado funcional y presupuesto de
+  primer render; el estado compuesto falla si falta cualquiera de los dos. La
+  métrica nativa usa el delta entre `columnia:app-bootstrap` y
+  `columnia:app-render` para excluir compilación fría de Vite sin quitar el
+  presupuesto de 3 s.
+- **F-03/T5-04:** `npm run test:coverage` aplica umbrales por archivo para App,
+  Entrega, Preparar y `usePrepareController`; la corrida actual tiene 267 tests
+  y cumple los umbrales críticos.
+- **F-04/T5-05:** `-SkipPackage` solo evita bundling MSI/NSIS; conserva los
+  checks Rust, cobertura, supply chain y Release.
+- **F-05/T5-06:** captura y validación release registran commit, rama, árbol
+  limpio y hashes de `package-lock.json`/`Cargo.lock`; cualquier árbol sucio,
+  commit distinto o baseline desactualizado falla.
+- **F-07/T5-07:** 125% y 200% aplican zoom CSS real con contratos de overflow,
+  foco y contenido visible; `deviceScaleFactor` ya no se usa como sustituto.
+  La captura local renovada y su baseline pasan en
+  `.local/validation/accessibility-visual/20260828T185137Z`.
+- **F-09/T5-08:** batch rechaza por defecto traversal, absolutas, destinos fuera
+  del root y archivos existentes; `--force` es opt-in y conserva comprobaciones
+  contra colisiones con inputs, recetas y manifiesto.
+- **F-10/T5-09:** la excepción `quick-xml` documenta su ruta transitiva real
+  por `object_store` y la ausencia de features cloud en Columnia.
+- **F-11/T5-10:** el inventario generado conserva 56 comandos de producción,
+  4 debug y 56 estructuras; los tests de contrato usan ese inventario.
+- **F-12/T5-11 y F-13/T5-12:** la inicialización solo cachea éxitos y la
+  apertura reconcilia generaciones válidas antiguas no referenciadas con margen
+  de una hora, sin tocar activas ni staging.
+- **F-16/T5-17:** Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 están fijados
+  y los bundles Tauri se limitan a MSI y NSIS.
+- **T5-15/T5-16/T5-19/T5-20 técnico:** notices y auditoría de dependencias se
+  regeneran offline con 960 identidades sin `UNKNOWN`, el gate documental
+  incluye las fuentes vivas y la app expone MIT, notices y privacidad local.
+- **I6/I7 técnico:** `tauri-plugin-updater` ya está integrado con consulta
+  explícita, progreso/cancelación, instalación verificada y clave pública
+  embebida; Rust exige que la versión semver sea estrictamente posterior y
+  rechaza entradas inválidas. Un Package firmado real produjo MSI/NSIS y `.sig`; el manifiesto
+  estático y el inventario SHA-256 pasan sus gates. El contrato reproducible del
+  gate también confirma fallo cerrado ante artefacto truncado, firma alterada,
+  manifiesto incompleto/corrupto y URL HTTP. Esto no sustituye el canal real ni
+  la verificación criptográfica contra assets publicados. La clave privada vive
+  fuera del repositorio y el flujo se activa solo con variables de entorno.
+
+### Validaciones todavía abiertas
+
+- **F-01/T5-01:** la corrida formal final del binario modular registra
+  `project-save` en 52.09 s y tres actualizaciones durables en 56.37–57.31 s
+  sobre 100 MiB; reapertura, exportación y cleanup también fueron confirmados.
+  Evidencia: `.local/validation/performance-benchmark/20260828T184531Z/summary.json`.
+- **F-14/T5-13:** se extrajo `dataset_fingerprints.rs` como primer límite
+  modular del motor de datos, con API `pub(crate)` acotada y los 244 tests Rust
+  verdes. El módulo contiene 150 líneas y `dataset.rs` queda 119 líneas por
+  debajo de `HEAD`; las siguientes fronteras de quality/recipe/export/persistence
+  siguen siendo incrementales.
+- **F-06/T5-18/T5-20:** el orquestador local `tools/release.ps1` ya existe y
+  ejecuta los gates sin publicar, etiquetar ni contactar servicios remotos.
+  Siguen pendientes la VM limpia, el canal real de updater, la rotación de
+  claves y las decisiones externas sobre responsable, jurisdicción, contacto,
+  mercados, retención y canal legal final.

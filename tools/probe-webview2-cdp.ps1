@@ -420,20 +420,66 @@ function Invoke-NativeSelectorsProbe {
                 }
                 if ($null -ne $Request -and $Request.status -eq "pending" -and $Request.requestId -ne $HandledRequestId) {
                     $HandledRequestId = [string]$Request.requestId
-                    $DriverOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $DriverPath `
-                        -Mode ([string]$Request.mode) `
-                        -Path ([string]$Request.targetPath) 2>&1)
+                    $DriverOutputPath = Join-Path $EvidenceDirectory ("native-dialog-driver-{0}.stdout.log" -f $HandledRequestId)
+                    $DriverErrorPath = Join-Path $EvidenceDirectory ("native-dialog-driver-{0}.stderr.log" -f $HandledRequestId)
+                    $DriverProcess = $null
+                    $DriverOutput = @()
+                    $DriverTimedOut = $false
+                    try {
+                        $DriverProcess = Start-Process `
+                            -FilePath "powershell.exe" `
+                            -ArgumentList @(
+                                "-NoProfile",
+                                "-ExecutionPolicy",
+                                "Bypass",
+                                "-File",
+                                "`"$DriverPath`"",
+                                "-Mode",
+                                ([string]$Request.mode),
+                                "-Path",
+                                "`"$([string]$Request.targetPath)`"",
+                                "-TimeoutSeconds",
+                                "30"
+                            ) `
+                            -WorkingDirectory $ProjectRoot `
+                            -WindowStyle Hidden `
+                            -RedirectStandardOutput $DriverOutputPath `
+                            -RedirectStandardError $DriverErrorPath `
+                            -PassThru
+                        if (-not $DriverProcess.WaitForExit(35 * 1000)) {
+                            $DriverTimedOut = $true
+                            Stop-Process -Id $DriverProcess.Id -Force -ErrorAction SilentlyContinue
+                        }
+                        if (-not $DriverTimedOut -and (Test-Path -LiteralPath $DriverOutputPath -PathType Leaf)) {
+                            $DriverOutput = @(Get-Content -LiteralPath $DriverOutputPath)
+                        }
+                    }
+                    catch {
+                        $DriverTimedOut = $false
+                    }
+                    finally {
+                        if ($null -ne $DriverProcess) {
+                            $DriverProcess.Refresh()
+                            if (-not $DriverProcess.HasExited) {
+                                Stop-Process -Id $DriverProcess.Id -Force -ErrorAction SilentlyContinue
+                            }
+                        }
+                    }
                     $DriverJsonLine = @(
                         $DriverOutput |
                             Where-Object { ([string]$_).TrimStart().StartsWith("{") } |
                             Select-Object -Last 1
                     )
                     $DriverStatus = "failed"
-                    $DriverErrorCode = "native_dialog_driver_failed"
+                    $DriverErrorCode = if ($DriverTimedOut) { "native_dialog_driver_timeout" } else { "native_dialog_driver_failed" }
+                    $DriverDiagnostics = @()
                     if ($DriverJsonLine.Count -gt 0) {
                         try {
                             $DriverResult = [string]$DriverJsonLine[0] | ConvertFrom-Json
                             $DriverStatus = [string]$DriverResult.status
+                            if ($null -ne $DriverResult.diagnostics) {
+                                $DriverDiagnostics = @($DriverResult.diagnostics | ForEach-Object { [string]$_ })
+                            }
                             if ($DriverStatus -eq "passed") {
                                 $DriverErrorCode = $null
                             }
@@ -449,6 +495,7 @@ function Invoke-NativeSelectorsProbe {
                         requestId = $HandledRequestId
                         status = if ($DriverStatus -eq "passed") { "passed" } else { "failed" }
                         errorCode = $DriverErrorCode
+                        diagnostics = $DriverDiagnostics
                     } | ConvertTo-Json -Compress
                     [System.IO.File]::WriteAllText(
                         $RequestPath,

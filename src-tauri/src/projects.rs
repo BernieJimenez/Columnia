@@ -1,7 +1,9 @@
 use std::{
+    collections::HashSet,
     fs::{self},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
 };
 
 use chrono::{SecondsFormat, Utc};
@@ -107,7 +109,7 @@ struct ProjectStore {
     root: PathBuf,
     snapshots: PathBuf,
     catalog: PathBuf,
-    initialized: Arc<OnceLock<Result<(), String>>>,
+    initialized: Arc<Mutex<bool>>,
 }
 
 #[derive(Debug)]
@@ -166,13 +168,47 @@ impl ProjectStore {
             catalog: root.join("projects.sqlite3"),
             root,
             snapshots,
-            initialized: Arc::new(OnceLock::new()),
+            initialized: Arc::new(Mutex::new(false)),
         };
         Ok(store)
     }
 
     fn ensure_initialized(&self) -> Result<(), String> {
-        self.initialized.get_or_init(|| self.migrate()).clone()
+        let mut initialized = self
+            .initialized
+            .lock()
+            .map_err(|_| "El catálogo de proyectos no está disponible.".to_owned())?;
+        if *initialized {
+            return Ok(());
+        }
+        self.migrate()?;
+        self.reconcile_orphan_generations();
+        *initialized = true;
+        Ok(())
+    }
+
+    fn reconcile_orphan_generations(&self) {
+        let active = self
+            .connection()
+            .ok()
+            .and_then(|connection| {
+                let mut statement = connection
+                    .prepare(
+                        "SELECT generation_name FROM projects WHERE generation_name IS NOT NULL",
+                    )
+                    .ok()?;
+                let rows = statement
+                    .query_map([], |row| row.get::<_, String>(0))
+                    .ok()?;
+                Some(rows.filter_map(Result::ok).collect::<HashSet<_>>())
+            })
+            .unwrap_or_default();
+        let _ = crate::project_recovery::reconcile_orphan_generations(
+            &self.snapshots,
+            &active,
+            SystemTime::now(),
+            Duration::from_secs(60 * 60),
+        );
     }
 
     fn connection(&self) -> Result<Connection, String> {
@@ -1413,6 +1449,20 @@ mod tests {
         let store = ProjectStore::initialize_deferred(directory.path().join("data")).unwrap();
 
         assert!(!store.catalog.exists());
+        assert!(store.list().unwrap().is_empty());
+        assert!(store.catalog.exists());
+    }
+
+    #[test]
+    fn deferred_store_retries_after_a_transient_initialization_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            ProjectStore::initialize_deferred(directory.path().join("retryable-data")).unwrap();
+        fs::write(&store.catalog, b"not a sqlite catalog").unwrap();
+
+        assert!(store.list().is_err());
+        fs::remove_file(&store.catalog).unwrap();
+
         assert!(store.list().unwrap().is_empty());
         assert!(store.catalog.exists());
     }

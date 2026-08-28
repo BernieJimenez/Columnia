@@ -30,10 +30,13 @@
   deberán verificarse localmente en sus respectivos sistemas antes de declarar
   soporte público.
 - Reauditoría profesional del 2026-08-28: no se detectaron hallazgos críticos;
-  se abrió Tier 5 con 20 tareas. El prototipo local compila y empaqueta, pero la
-  publicación sigue bloqueada por rendimiento, fidelidad de gates, notices y
-  las validaciones externas ya abiertas en I5/I6/I7. Informe:
-  `AUDITORIA_PROFESIONAL_2026-08-28.md`.
+  se abrió Tier 5 con 20 tareas. La implementación técnica de la mayoría de
+  los gates ya está en el árbol de trabajo. El benchmark corto posterior a la
+  optimización registra `project-save` en 59.75 s para 100 MiB; la corrida
+  formal de tres actualizaciones ya cumple el presupuesto; la memoria nativa
+  WebView2, la evidencia release desde un commit limpio y las decisiones
+  legales/operativas siguen
+  bloqueando la publicación. Informe: `AUDITORIA_PROFESIONAL_2026-08-28.md`.
 
 ### Índice operativo de la reauditoría
 
@@ -43,7 +46,7 @@ pendientes existentes cuando corresponde.
 
 | Tanda | Estado | Tareas abiertas | Severidad | Esfuerzo agregado |
 | --- | --- | ---: | --- | --- |
-| Tier 5 — Integridad de gates y preparación de distribución | Abierto 2026-08-28 | 20 | 6 altas, 13 medias, 1 baja | 6 bajas, 9 medias, 5 altas |
+| Tier 5 — Integridad de gates y preparación de distribución | Implementación técnica mayormente cerrada 2026-08-28 | 20 | validaciones nativas y bloqueos legales/operativos | ver progreso detallado abajo |
 
 Las Fases I5, I6 e I7 siguen abiertas y forman dependencias obligatorias del
 release público; no se duplican como tareas nuevas.
@@ -198,8 +201,8 @@ existen.
 | Instancia de la aplicación | No se identificó bloqueo de segunda instancia | Plugin `single-instance` | Implementar instancia única y reactivar la ventana existente |
 | Empaquetado Windows | EXE one-file; MSIX local experimental | Instaladores NSIS y MSI | Publicar NSIS por usuario; evaluar MSI para empresas |
 | Instalación sin administrador | EXE portable | NSIS `currentUser` | Ofrecer instalación por usuario sin UAC |
-| Actualizaciones desde la app | Hay ejemplos de manifiesto, pero no flujo runtime completo | Consulta releases, muestra notas, descarga con progreso y verifica SHA-256 | Implementar UX equivalente con el updater firmado de Tauri |
-| Autenticidad de actualización | SHA-256 externo, sin firma | Instalador y SHA-256 en el mismo release; reconoce que no autentica al editor | No copiar este límite: exigir firma del updater; mantener SHA-256 como evidencia adicional |
+| Actualizaciones desde la app | Hay ejemplos de manifiesto, pero no flujo runtime completo | Consulta releases, muestra notas, descarga con progreso y verifica SHA-256 | Implementado con `tauri-plugin-updater`, UI explícita, progreso/cancelación y SHA-256 adicional |
+| Autenticidad de actualización | SHA-256 externo, sin firma | Instalador y SHA-256 en el mismo release; reconoce que no autentica al editor | Firma minisign de Tauri integrada; la firma no sustituye Authenticode ni elimina SmartScreen |
 | Automatización de release | Build, verificadores, smoke y checklist separados | `release.ps1` prueba, sincroniza versiones, compila, genera hashes, etiqueta y crea GitHub Release; admite dry-run | Crear un orquestador reproducible con dry-run, pero sin permitir saltar gates en releases oficiales |
 | Versionado | `pyproject.toml` y metadatos Windows | Versión sincronizada en npm, Cargo y Tauri | Definir una fuente de verdad y verificar que los manifiestos coincidan |
 | Automatización de pruebas | Matriz completa en GitHub Actions y herramientas locales | Solo pruebas y release locales | Ejecutar todos los gates localmente mediante scripts reproducibles; sin CI ni workflows |
@@ -928,19 +931,23 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 
 ### Fase I6 — Actualizaciones autenticadas
 
-- [ ] Usar `tauri-plugin-updater`, cuya firma criptográfica se genera localmente
+- [x] Usar `tauri-plugin-updater`, cuya firma criptográfica se genera localmente
   con Tauri CLI y no requiere comprar un certificado.
-- [ ] Generar y custodiar fuera del repositorio la clave privada del updater.
-- [ ] Incrustar únicamente la clave pública en la aplicación.
-- [ ] Publicar manifiesto, firma y checksum; rechazar un release incompleto.
-- [ ] Mostrar versión, tamaño y notas antes de descargar.
-- [ ] Descargar solo tras acción del usuario, mostrando progreso y cancelación.
-- [ ] Verificar firma antes de instalar y limitar cualquier ruta ejecutable al
+- [x] Generar y custodiar fuera del repositorio la clave privada del updater.
+- [x] Incrustar únicamente la clave pública en la aplicación.
+- [x] Generar manifiesto, firma y checksum; rechazar un release incompleto.
+- [x] Mostrar versión, tamaño y notas antes de descargar.
+- [x] Descargar solo tras acción del usuario, mostrando progreso y cancelación.
+- [x] Verificar firma antes de instalar y limitar cualquier ruta ejecutable al
   directorio privado del updater.
 - [ ] Probar downgrade, versión igual, prerelease, descarga parcial, firma inválida,
-  manifiesto corrupto, falta de red y recuperación después de un cierre.
+  manifiesto corrupto, falta de red y recuperación después de un cierre. La
+  frontera Rust ya rechaza downgrade/igualdad y versiones inválidas, con pruebas
+  semver para estable y prerelease; el contrato local también prueba artefacto
+  truncado, firma alterada, manifiesto incompleto/corrupto y URL insegura. Falta
+  ejercitar el canal y el instalador real.
 - [ ] Definir rotación y recuperación de claves antes del primer release público.
-- [ ] Documentar expresamente que esta firma autentica actualizaciones de
+- [x] Documentar expresamente que esta firma autentica actualizaciones de
   Columnia, pero no elimina el aviso de SmartScreen ni identifica al editor ante
   Windows.
 
@@ -949,15 +956,15 @@ versión instalada utilizable.
 
 ### Fase I7 — Release local reproducible
 
-- [ ] Crear `tools/release.ps1` con `-DryRun` y mensajes de recuperación claros.
-- [ ] Exigir árbol completamente limpio, incluyendo archivos no rastreados.
-- [ ] Ejecutar todos los gates; la publicación oficial no admite `SkipTests`.
-- [ ] Sincronizar/verificar versión en Tauri, Cargo, npm y metadatos Windows.
-- [ ] Construir NSIS y los artefactos del updater desde el commit etiquetado.
-- [ ] Firmar gratuitamente los artefactos del updater con la clave privada local.
-- [ ] No firmar con Authenticode; aceptar y documentar `Editor desconocido` y el
+- [x] Crear `tools/release.ps1` con `-DryRun` y mensajes de recuperación claros.
+- [x] Exigir árbol completamente limpio, incluyendo archivos no rastreados.
+- [x] Ejecutar todos los gates; la publicación oficial no admite `SkipTests`.
+- [x] Sincronizar/verificar versión en Tauri, Cargo, npm y metadatos Windows.
+- [x] Construir NSIS y los artefactos del updater desde el commit etiquetado.
+- [x] Firmar gratuitamente los artefactos del updater con la clave privada local.
+- [x] No firmar con Authenticode; aceptar y documentar `Editor desconocido` y el
   posible aviso de SmartScreen.
-- [ ] Generar SHA-256, SBOM, manifiesto de procedencia local y notas de release.
+- [x] Generar SHA-256, SBOM, manifiesto de procedencia local y notas de release.
 - [ ] Instalar y ejecutar el artefacto final antes de publicarlo.
 - [ ] Crear el tag únicamente después de superar toda la validación local.
 - [ ] Publicar manualmente en el canal gratuito elegido.
@@ -1373,7 +1380,7 @@ por el mero hecho de estar documentada aquí.
 
 ### Prioridad alta
 
-- [ ] **[T5-01] Aislar y corregir la regresión del ciclo durable del benchmark**
+- [x] **[T5-01] Aislar y corregir la regresión del ciclo durable del benchmark**
   - **Área:** Rendimiento / Persistencia
   - **Severidad:** Alta; regresión
   - **Ubicación:** `tools/benchmark-datasets.ps1:332`, `src-tauri/src/dataset.rs:16577`
@@ -1386,7 +1393,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** alto
   - **Depende de:** ninguna
 
-- [ ] **[T5-02] Recuperar el presupuesto de memoria privada WebView2**
+- [x] **[T5-02] Recuperar el presupuesto de memoria privada WebView2**
   - **Área:** Rendimiento
   - **Severidad:** Alta; regresión
   - **Ubicación:** `fixtures/performance/performance-baseline-v1.json:5`, `tools/probe-webview2-cdp.ps1:14`
@@ -1395,10 +1402,15 @@ por el mero hecho de estar documentada aquí.
   - **Criterio de aceptación:** tres recorridos funcionales y uno de selectores
     nativos consecutivos quedan dentro de 256 MiB privado y 512 MiB working set,
     con cleanup confirmado.
+  - **Resultado:** tres ciclos funcionales y un recorrido nativo aprobados; el
+    recorrido nativo más reciente registró 521,785,344 bytes de working set y
+    265,981,952 bytes privados, con cleanup confirmado. El driver filtra por
+    proceso/owner, espera el cierre del modal entre acciones y tiene timeout
+    propio para no dejar colgado el gate.
   - **Esfuerzo:** alto
   - **Depende de:** ninguna
 
-- [ ] **[T5-03] Hacer vinculante el presupuesto de primer render**
+- [x] **[T5-03] Hacer vinculante el presupuesto de primer render**
   - **Área:** QA / Rendimiento
   - **Severidad:** Media; verde falso
   - **Ubicación:** `tools/probe-webview2-playwright.mjs:55`, `tools/probe-webview2-playwright.mjs:172`
@@ -1409,7 +1421,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
 
-- [ ] **[T5-04] Restablecer umbrales de cobertura por capa crítica**
+- [x] **[T5-04] Restablecer umbrales de cobertura por capa crítica**
   - **Área:** QA
   - **Severidad:** Alta; regresión de una tarea cerrada
   - **Ubicación:** `vitest.config.ts:18`, `ROADMAP.md:877`
@@ -1420,7 +1432,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
 
-- [ ] **[T5-05] Limitar `SkipPackage` exclusivamente al bundling**
+- [x] **[T5-05] Limitar `SkipPackage` exclusivamente al bundling**
   - **Área:** QA / DevOps
   - **Severidad:** Alta; verde falso
   - **Ubicación:** `tools/verify-tier.ps1:47`, `tools/check.ps1:158`
@@ -1442,13 +1454,19 @@ por el mero hecho de estar documentada aquí.
     commit empaquetado.
   - **Esfuerzo:** medio
   - **Depende de:** T5-05
+  - **Implementación:** captura/check y el orquestador `tools/release.ps1`
+    rechazan árboles sucios; falta ejecutar la captura aprobada desde el commit
+    que se vaya a distribuir.
 
 - [ ] **[T5-20] Completar notices y atribuciones antes de publicar**
   - **Área:** Legal / Supply chain
   - **Severidad:** Alta para distribución pública; regresión de una tarea cerrada
   - **Ubicación:** `THIRD_PARTY_NOTICES.md:3`, `tools/generate-third-party-notices.ps1:94`
-  - **Qué hacer:** resolver 349 licencias `UNKNOWN`, deduplicar identidades,
-    incorporar textos/copyrights requeridos y permitir solo excepciones revisadas.
+  - **Qué hacer:** mantener el inventario reproducible sin `UNKNOWN`, incorporar
+    textos/copyrights requeridos cuando el canal los exija y anexar la revisión
+    legal de las excepciones, atribuciones y jurisdicciones aplicables. El gate
+    técnico y el inventario actual ya están implementados; queda la revisión
+    legal del canal elegido.
   - **Criterio de aceptación:** cero `UNKNOWN` no exceptuados, cero duplicados y
     revisión legal documentada; `notices:check` falla ante incompletitud, no solo
     ante diferencia con lockfiles.
@@ -1457,7 +1475,7 @@ por el mero hecho de estar documentada aquí.
 
 ### Prioridad media
 
-- [ ] **[T5-07] Sustituir escala de raster por zoom/reflow accesible real**
+- [x] **[T5-07] Sustituir escala de raster por zoom/reflow accesible real**
   - **Área:** Accesibilidad
   - **Severidad:** Media
   - **Ubicación:** `tools/capture-accessibility-evidence.mjs:17`, `tools/capture-release-evidence.mjs:113`
@@ -1468,7 +1486,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** bajo
   - **Depende de:** T5-06
 
-- [ ] **[T5-08] Confinar y confirmar salidas de manifiestos batch**
+- [x] **[T5-08] Confinar y confirmar salidas de manifiestos batch**
   - **Área:** Seguridad
   - **Severidad:** Media
   - **Ubicación:** `src-tauri/src/automation.rs:1689`, `src-tauri/src/automation.rs:1768`
@@ -1479,7 +1497,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
 
-- [ ] **[T5-09] Corregir la política de advisories de `quick-xml`**
+- [x] **[T5-09] Corregir la política de advisories de `quick-xml`**
   - **Área:** Seguridad / Supply chain
   - **Severidad:** Media
   - **Ubicación:** `src-tauri/deny.toml:5`, `docs/reference/dependency-audit.md:65`
@@ -1490,18 +1508,18 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
 
-- [ ] **[T5-10] Generar el inventario y los contratos IPC exhaustivos**
+- [x] **[T5-10] Generar el inventario y los contratos IPC exhaustivos**
   - **Área:** Arquitectura / Seguridad / QA
   - **Severidad:** Media
   - **Ubicación:** `src-tauri/src/lib.rs:154`, `src/ipc-contract.test.ts:481`, `THREAT_MODEL.md:71`
   - **Qué hacer:** detectar automáticamente comandos y estructuras compartidas,
     conservar literales/versiones y eliminar la cifra manual del threat model.
   - **Criterio de aceptación:** añadir un comando/tipo no clasificado rompe el
-    gate; los 52 comandos de producción quedan inventariados desde código.
+    gate; los 56 comandos de producción quedan inventariados desde código.
   - **Esfuerzo:** alto
   - **Depende de:** ninguna
 
-- [ ] **[T5-11] Permitir reintentar la inicialización del catálogo**
+- [x] **[T5-11] Permitir reintentar la inicialización del catálogo**
   - **Área:** Arquitectura / Fiabilidad
   - **Severidad:** Media
   - **Ubicación:** `src-tauri/src/projects.rs:159`, `src-tauri/src/projects.rs:174`
@@ -1512,7 +1530,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
 
-- [ ] **[T5-12] Reconciliar generaciones de proyecto huérfanas**
+- [x] **[T5-12] Reconciliar generaciones de proyecto huérfanas**
   - **Área:** Persistencia / Fiabilidad
   - **Severidad:** Media
   - **Ubicación:** `src-tauri/src/projects.rs:347`, `src-tauri/src/projects.rs:430`
@@ -1523,19 +1541,23 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** medio
   - **Depende de:** T5-11
 
-- [ ] **[T5-13] Abrir límites modulares en el motor de datos**
+- [x] **[T5-13] Abrir límites modulares en el motor de datos**
   - **Área:** Arquitectura / Refactorización
   - **Severidad:** Media; deuda conocida agravada
-  - **Ubicación:** `src-tauri/src/dataset.rs:8711`, `src-tauri/src/dataset.rs:15648`, `src/App.tsx:100`
-  - **Qué hacer:** extraer por etapas quality/recipe/export/persistence, dividir
-    validadores grandes y reducir clones solo con perfiles y contratos verdes.
-  - **Criterio de aceptación:** primer módulo extraído tiene API interna acotada,
-    sin ciclos, con tests equivalentes y una reducción medida de complejidad o
-    memoria; no se hace una reescritura total.
+  - **Ubicación:** `src-tauri/src/dataset_fingerprints.rs`, `src-tauri/src/dataset.rs`, `src/App.tsx:100`
+  - **Qué hacer:** extraer por etapas los límites de quality/recipe/export/persistence,
+    dividir validadores grandes y reducir clones solo con perfiles y contratos verdes.
+  - **Criterio de aceptación:** el primer módulo extraído tiene API interna acotada,
+    sin ciclos, con tests equivalentes y una reducción medida de complejidad del
+    motor; las siguientes fronteras se abren por etapas y no se hace una
+    reescritura total.
+  - **Resultado:** `dataset_fingerprints.rs` contiene 150 líneas y `dataset.rs`
+    queda 119 líneas por debajo de `HEAD`; `cargo fmt`, clippy y los 244 tests
+    Rust pasan.
   - **Esfuerzo:** alto
   - **Depende de:** T5-01
 
-- [ ] **[T5-14] Endurecer el gate Playwright local**
+- [x] **[T5-14] Endurecer el gate Playwright local**
   - **Área:** QA
   - **Severidad:** Media
   - **Ubicación:** `playwright.config.ts:5`, `playwright.config.ts:20`
@@ -1546,7 +1568,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
 
-- [ ] **[T5-15] Reconstruir la trazabilidad de cambios y dependencias**
+- [x] **[T5-15] Reconstruir la trazabilidad de cambios y dependencias**
   - **Área:** Documentación
   - **Severidad:** Media; regresión
   - **Ubicación:** `CHANGELOG.md:3`, `docs/reference/dependency-audit.md:3`
@@ -1558,7 +1580,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** medio
   - **Depende de:** T5-09
 
-- [ ] **[T5-16] Incluir las fuentes vivas en el gate documental**
+- [x] **[T5-16] Incluir las fuentes vivas en el gate documental**
   - **Área:** Documentación / QA
   - **Severidad:** Media
   - **Ubicación:** `tools/check-documentation.mjs:6`, `CONTEXTO.md:94`
@@ -1569,7 +1591,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** medio
   - **Depende de:** T5-15
 
-- [ ] **[T5-17] Fijar toolchains y alinear la configuración de distribución**
+- [x] **[T5-17] Fijar toolchains y alinear la configuración de distribución**
   - **Área:** DevOps / Configuración
   - **Severidad:** Media
   - **Ubicación:** `README.md:51`, `package.json:1`, `src-tauri/tauri.conf.json:49`
@@ -1587,7 +1609,8 @@ por el mero hecho de estar documentada aquí.
   - **Ubicación:** `src/App.tsx:667`, `src-tauri/tauri.conf.json:52`, `THREAT_MODEL.md:75`
   - **Qué hacer:** crear una vista accesible Acerca de/Legal/Privacidad y definir
     persistencia, retención, borrado/desinstalación y responsable/contacto según
-    jurisdicción/canal.
+    jurisdicción/canal. La vista y el comportamiento local ya están
+    implementados; queda la aceptación legal y la prueba en el canal elegido.
   - **Criterio de aceptación:** teclado y lector encuentran los textos desde la
     app instalada; revisión legal y pruebas de retención/borrado quedan anexadas.
   - **Esfuerzo:** medio
@@ -1595,7 +1618,7 @@ por el mero hecho de estar documentada aquí.
 
 ### Prioridad baja
 
-- [ ] **[T5-19] Normalizar redacción y compactar el contexto histórico**
+- [x] **[T5-19] Normalizar redacción y compactar el contexto histórico**
   - **Área:** Ortografía / Documentación
   - **Severidad:** Baja
   - **Ubicación:** `tools/generate-third-party-notices.ps1:96`, `docs/how-to/validate-release-evidence.md:1`, `CONTEXTO.md:563`, `CONTEXTO.md:584`
@@ -1610,7 +1633,14 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
-| 2026-08-28 | Abierto: 20 tareas; 0 cerradas. No se modificó código de producto ni se aprobó un baseline. | `AUDITORIA_PROFESIONAL_2026-08-28.md` |
+| 2026-08-28 | Implementación técnica mayormente cerrada: T5-01–T5-05, T5-07–T5-17 y T5-19; T5-06/T5-18/T5-20 siguen pendientes de evidencia o decisiones externas. El orquestador local y el updater firmado ya están implementados. | Código, cobertura, IPC, notices, toolchains, benchmark formal, Package firmado, smoke nativo y suite Rust |
+| 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
+| 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
+| 2026-08-28 | CDP funcional de ProjectsPanel y perf gate aprobados: 3 ciclos sostenidos, 470.25 MiB working set, 253.48 MiB privados y cleanup; accesibilidad visual 125%/200% y forced-colors aprobada. | `.local/validation/webview2-cdp/20260828T185215Z/summary.json`, `.local/validation/accessibility-visual/20260828T185137Z` |
+| 2026-08-28 | Package firmado del updater aprobado en Windows: Tauri produjo MSI/NSIS y `.sig`; el manifiesto estático para `windows-x86_64`, SHA-256 y verificación del par artefacto/firma pasan localmente. El canal real, la VM y la promoción siguen fuera de esta corrida. | `.local/validation/updater-build/updater-manifest.json`, `.local/validation/updater-build/updater-integrity.json`, `.local/validation/20260828T194329Z-6ec7bae-package.json` |
+| 2026-08-28 | Contrato updater reproducible aprobado: el gate ejercita un fixture válido y confirma fallo cerrado ante artefacto truncado, firma alterada, manifiesto incompleto/corrupto y URL HTTP; no sustituye la prueba del canal ni la validación criptográfica contra un servidor publicado. | `tools/test-updater-manifest.mjs`, `npm run updater:contract:test` |
+| 2026-08-28 | Perfil `Release` completo aprobado después de integrar el contrato updater: documentación, IPC, toolchains, cobertura, build web, Clippy, 244 tests Rust, SBOM, supply chain, instalador, fixture updater y binario Tauri sin bundle. Esta corrida es local y no cierra T5-06 porque el árbol aún contiene cambios no comprometidos. | `.local/validation/20260828T214048Z-6ec7bae-release.json` |
+| 2026-08-28 | Smoke nativo aislado aprobado desde `npm run smoke:native-selectors`: los cuatro diálogos Win32 de abrir/guardar pasan con filtrado por proceso, outputs verificados, cleanup confirmado y presupuesto de 512 MiB working set / 256 MiB privado respetado. El smoke Playwright se mantiene separado para no mezclar su retención de WebView2 con la medición nativa. | `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

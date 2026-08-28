@@ -120,6 +120,7 @@ New-Item -ItemType Directory -Path $EvidenceDirectory -Force | Out-Null
 
 try {
     if ($env:OS -ne "Windows_NT") { throw "La evidencia de release requiere Windows/WebView2." }
+    if (@(git -C $ProjectRoot status --porcelain).Count -gt 0) { throw "La evidencia de release exige un árbol Git limpio; registra primero el commit de release." }
     if (-not (Test-Path -LiteralPath $FixturePath -PathType Leaf)) { throw "No existe la fixture sintética estable." }
     if (@(Get-ListenerOwner).Count -gt 0) { throw "El puerto CDP $Port ya está ocupado." }
 

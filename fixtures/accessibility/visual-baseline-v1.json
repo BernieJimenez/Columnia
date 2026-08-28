@@ -6,24 +6,35 @@
       "name": "desktop",
       "viewport": { "width": 1280, "height": 900 },
       "deviceScaleFactor": 1,
+      "zoom": 1,
       "forcedColors": "none"
     },
     {
       "name": "mobile",
       "viewport": { "width": 390, "height": 844 },
       "deviceScaleFactor": 1,
+      "zoom": 1,
       "forcedColors": "none"
     },
     {
       "name": "zoom-125",
       "viewport": { "width": 1280, "height": 900 },
-      "deviceScaleFactor": 1.25,
+      "deviceScaleFactor": 1,
+      "zoom": 1.25,
+      "forcedColors": "none"
+    },
+    {
+      "name": "zoom-200",
+      "viewport": { "width": 1280, "height": 900 },
+      "deviceScaleFactor": 1,
+      "zoom": 2,
       "forcedColors": "none"
     },
     {
       "name": "forced-colors",
       "viewport": { "width": 1280, "height": 900 },
       "deviceScaleFactor": 1,
+      "zoom": 1,
       "forcedColors": "active"
     }
   ],

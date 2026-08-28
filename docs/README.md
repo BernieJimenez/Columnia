@@ -28,8 +28,11 @@ comportamiento implementado.
   memoria disponible y estado explícito de la capacidad GPU.
 - [Evidencia visual del release](reference/release-evidence.md): sumario,
   baseline, ownership y procedimiento para aceptar cambios.
+- [Revisión legal y distribución](reference/legal-distribution-review.md): MIT,
+  notices, privacidad local y flujo de updater firmado.
 - [Gobierno del repositorio](reference/repository-governance.md) y
   [auditoría de dependencias](reference/dependency-audit.md).
+- [Inventario IPC](reference/ipc-inventory.json) y [revisión legal de distribución](reference/legal-distribution-review.md).
 - [Política de fixtures](reference/fixtures-policy.md).
 - [Red, privacidad y telemetría](reference/network-privacy.md).
 

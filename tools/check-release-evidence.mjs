@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,10 @@ function fail(message) {
 
 function relativePath(path) {
   return relative(projectRoot, path).replaceAll("\\", "/");
+}
+
+function gitOutput(argumentsList) {
+  return execFileSync("git", argumentsList, { cwd: projectRoot, encoding: "utf8" }).trim();
 }
 
 async function readJson(path) {
@@ -52,6 +57,21 @@ try {
   summaryPath = await latestSummary();
   const summary = await readJson(summaryPath);
   const packageManifest = await readJson(join(projectRoot, "package.json"));
+  const currentGit = {
+    commit: gitOutput(["rev-parse", "HEAD"]),
+    branch: gitOutput(["branch", "--show-current"]),
+    dirty: gitOutput(["status", "--porcelain"]).length > 0,
+  };
+  if (currentGit.dirty) fail("El árbol Git debe estar limpio para validar evidencia release.");
+  if (summary.git?.commit !== currentGit.commit || summary.git?.branch !== currentGit.branch || summary.git?.dirty !== false) {
+    fail("La evidencia release no corresponde al HEAD limpio actual.");
+  }
+  if (baseline.git?.commit && summary.git.commit !== baseline.git.commit) {
+    fail("La evidencia release no corresponde al commit aprobado por el baseline.");
+  }
+  if (summary.lockfiles?.packageLockSha256 !== baseline.lockfiles?.packageLockSha256 || summary.lockfiles?.cargoLockSha256 !== baseline.lockfiles?.cargoLockSha256) {
+    fail("Los lockfiles de la evidencia release no coinciden con el baseline.");
+  }
   if (summary.status !== "passed") fail(`La evidencia release no está aprobada: ${summary.status}.`);
   if (summary.schemaVersion !== baseline.schemaVersion || summary.captureVersion !== baseline.captureVersion) {
     fail("La versión del contrato de evidencia release no coincide.");
@@ -77,6 +97,7 @@ try {
     if (actualCase.deviceScaleFactor !== expectedCase.deviceScaleFactor || actualCase.forcedColors !== expectedCase.forcedColors) {
       fail(`${expectedCase.name}: escala o forced-colors cambió.`);
     }
+    if ((actualCase.zoom ?? 1) !== (expectedCase.zoom ?? 1)) fail(`${expectedCase.name}: zoom cambió.`);
     if (actualCase.valid !== true) fail(`${expectedCase.name}: contrato visual inválido.`);
     const inspection = actualCase.inspection ?? {};
     for (const landmark of baseline.contract.landmarks) {
@@ -102,6 +123,8 @@ try {
     baseline.approvedAt = new Date().toISOString();
     baseline.projectVersion = summary.projectVersion;
     baseline.fixturePath = summary.fixture.path;
+    baseline.git = summary.git;
+    baseline.lockfiles = summary.lockfiles;
     baseline.screenshots = Object.fromEntries(checks.map((check) => [check.name, check.screenshotSha256]));
     await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
   }

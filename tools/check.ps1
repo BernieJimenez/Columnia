@@ -2,7 +2,9 @@ param(
     [ValidateSet("Fast", "Full", "Release", "Package")]
     [string]$Profile = "Fast",
 
-    [string]$ReportPath
+    [string]$ReportPath,
+
+    [string]$TauriConfigPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +22,13 @@ $TreeDirty = @(git -C $ProjectRoot status --porcelain).Count -gt 0
 $ProjectVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "package.json") -Raw | ConvertFrom-Json).version
 $RunStamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
 $ReleaseLike = $Profile -in @("Release", "Package")
+$TauriConfigArguments = @()
+if (-not [string]::IsNullOrWhiteSpace($TauriConfigPath)) {
+    if (-not (Test-Path -LiteralPath $TauriConfigPath -PathType Leaf)) {
+        throw "La configuración Tauri alternativa no existe: $TauriConfigPath"
+    }
+    $TauriConfigArguments = @("--config", (Resolve-Path -LiteralPath $TauriConfigPath).Path)
+}
 $SbomRelativePath = ".local/validation/columnia.cdx.json"
 $SbomPath = Join-Path $ProjectRoot ".local\validation\columnia.cdx.json"
 $SbomEvidence = [ordered]@{
@@ -152,6 +161,12 @@ try {
     Invoke-Checked "Documentation" $ProjectRoot {
         & node tools/check-documentation.mjs
     }
+    Invoke-Checked "IPC inventory" $ProjectRoot {
+        & node tools/check-ipc-inventory.mjs
+    }
+    Invoke-Checked "Toolchains" $ProjectRoot {
+        & node tools/check-toolchains.mjs
+    }
     Invoke-Checked "Repository governance" $ProjectRoot {
         & (Join-Path $ProjectRoot "tools\check-governance.ps1")
     }
@@ -195,14 +210,19 @@ try {
         Invoke-Checked "Installer contract" $ProjectRoot {
             & (Join-Path $ProjectRoot "tools\check-installer-contract.ps1")
         }
-        Invoke-Checked "Tauri release build" $ProjectRoot { npm run tauri build -- --no-bundle }
+        Invoke-Checked "Updater manifest contract" $ProjectRoot {
+            npm run updater:contract:test
+        }
+        $TauriReleaseArguments = @("run", "tauri", "--", "build", "--no-bundle") + $TauriConfigArguments
+        Invoke-Checked "Tauri release build" $ProjectRoot { & npm.cmd @TauriReleaseArguments }
     }
 
     if ($Profile -eq "Package") {
         Invoke-Checked "Bundle artifact snapshot" $ProjectRoot {
             node tools/check-bundle.mjs snapshot --project-root $ProjectRoot --bundle-root (Join-Path $TauriRoot "target\release\bundle") --output $PackageSnapshotPath
         }
-        Invoke-Checked "Tauri package build" $ProjectRoot { npm run tauri build }
+        $TauriPackageArguments = @("run", "tauri", "--", "build") + $TauriConfigArguments
+        Invoke-Checked "Tauri package build" $ProjectRoot { & npm.cmd @TauriPackageArguments }
         Invoke-Checked "Bundle artifact inventory" $ProjectRoot {
             node tools/check-bundle.mjs artifacts --project-root $ProjectRoot --bundle-root (Join-Path $TauriRoot "target\release\bundle") --snapshot $PackageSnapshotPath --output $PackageArtifactsPath
         }

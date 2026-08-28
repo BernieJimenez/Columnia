@@ -78,8 +78,8 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
                 return Ok(ExitCode::from(2));
             }
         }
-        CliCommand::Batch { manifest } => {
-            let output = automation::batch(&manifest)?;
+        CliCommand::Batch { manifest, force } => {
+            let output = automation::batch_with_options(&manifest, force)?;
             let failed = output.failed();
             privacy::write_sanitized_json(io::stdout().lock(), &output)?;
             println!();
