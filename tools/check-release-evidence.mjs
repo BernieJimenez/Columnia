@@ -25,6 +25,15 @@ function gitOutput(argumentsList) {
   return execFileSync("git", argumentsList, { cwd: projectRoot, encoding: "utf8" }).trim();
 }
 
+function isBaselineCommit(currentCommit, evidenceCommit) {
+  const parents = gitOutput(["rev-list", "--parents", "-n", "1", currentCommit]).split(/\s+/);
+  if (parents.length !== 2 || parents[1] !== evidenceCommit) return false;
+  const changedFiles = gitOutput(["diff-tree", "--no-commit-id", "--name-only", "-r", currentCommit])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  return changedFiles.length === 1 && changedFiles[0] === relativePath(baselinePath);
+}
+
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
@@ -63,7 +72,9 @@ try {
     dirty: gitOutput(["status", "--porcelain"]).length > 0,
   };
   if (currentGit.dirty) fail("El árbol Git debe estar limpio para validar evidencia release.");
-  if (summary.git?.commit !== currentGit.commit || summary.git?.branch !== currentGit.branch || summary.git?.dirty !== false) {
+  const currentCommitMatchesEvidence = summary.git?.commit === currentGit.commit
+    || isBaselineCommit(currentGit.commit, summary.git?.commit);
+  if (!currentCommitMatchesEvidence || summary.git?.branch !== currentGit.branch || summary.git?.dirty !== false) {
     fail("La evidencia release no corresponde al HEAD limpio actual.");
   }
   if (baseline.git?.commit && summary.git.commit !== baseline.git.commit) {

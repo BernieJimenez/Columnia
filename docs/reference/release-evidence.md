@@ -1,6 +1,6 @@
 # Evidencia visual del release
 
-La evidencia visual de release es un sumario JSON más cuatro capturas tomadas
+La evidencia visual de release es un sumario JSON más cinco capturas tomadas
 desde el binario Tauri optimizado. Sirve para detectar cambios del shell antes de
 publicar un artefacto, no para sustituir una auditoría manual con tecnologías de
 asistencia.
@@ -15,7 +15,7 @@ El script escribe un documento `schemaVersion: 1` con estos campos:
 | `projectVersion` | string | Coincide con npm, Cargo, Cargo.lock y Tauri. |
 | `binary` | object | Ruta relativa, tamaño y SHA-256 del ejecutable. |
 | `fixture` | object | Ruta relativa y SHA-256 de la fixture sintética estable. |
-| `cases` | array | Exactamente desktop, mobile, zoom-125 y forced-colors. |
+| `cases` | array | Exactamente desktop, mobile, zoom-125, zoom-200 y forced-colors. |
 | `status` | string | Debe ser `passed` para entrar al baseline. |
 
 Cada caso conserva viewport, escala, modo forced-colors, inspección de
@@ -31,9 +31,10 @@ sumario con ese archivo y vuelve a calcular cada hash desde el PNG.
 
 Una diferencia falla el gate. Para aceptar un cambio visual intencional:
 
-1. inspecciona las cuatro imágenes nuevas;
+1. inspecciona las cinco imágenes nuevas;
 2. explica el cambio en `CHANGELOG.md` o en un ADR;
-3. regenera el baseline con el comando explícito documentado;
+3. regenera el baseline con el comando explícito documentado y guarda ese
+   archivo en un commit posterior exclusivo del baseline;
 4. ejecuta otra vez `npm run accessibility:release:check`.
 
 No se versionan capturas dentro de `docs/` manualmente. Las capturas canónicas

@@ -1443,7 +1443,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
 
-- [ ] **[T5-06] Ligar evidencia release a un commit limpio**
+- [x] **[T5-06] Ligar evidencia release a un commit limpio**
   - **Área:** QA / DevOps
   - **Severidad:** Alta
   - **Ubicación:** `tools/check-release-evidence.mjs:27`, `tools/capture-release-evidence.mjs:159`
@@ -1454,9 +1454,12 @@ por el mero hecho de estar documentada aquí.
     commit empaquetado.
   - **Esfuerzo:** medio
   - **Depende de:** T5-05
-  - **Implementación:** captura/check y el orquestador `tools/release.ps1`
-    rechazan árboles sucios; falta ejecutar la captura aprobada desde el commit
-    que se vaya a distribuir.
+  - **Resultado:** captura/check y el orquestador `tools/release.ps1` rechazan
+    árboles sucios; el baseline versionado conserva el commit de evidencia, los
+    hashes de ambos lockfiles y los cinco hashes visuales. La captura aprobada
+    incluye desktop, móvil, zoom 125%, zoom 200% y forced-colors; el commit
+    posterior que guarda exclusivamente el baseline es el único delta permitido
+    por el checker.
 
 - [ ] **[T5-20] Completar notices y atribuciones antes de publicar**
   - **Área:** Legal / Supply chain
@@ -1633,13 +1636,13 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
-| 2026-08-28 | Implementación técnica mayormente cerrada: T5-01–T5-05, T5-07–T5-17 y T5-19; T5-06/T5-18/T5-20 siguen pendientes de evidencia o decisiones externas. El orquestador local y el updater firmado ya están implementados. | Código, cobertura, IPC, notices, toolchains, benchmark formal, Package firmado, smoke nativo y suite Rust |
+| 2026-08-28 | Implementación técnica mayormente cerrada: T5-01–T5-17 y T5-19; T5-18/T5-20 siguen pendientes de aceptación legal y pruebas del canal. T5-06 queda cerrado con evidencia release ligada a commit limpio y baseline visual actualizado. El orquestador local y el updater firmado ya están implementados. | Código, cobertura, IPC, notices, toolchains, benchmark formal, Package firmado, smoke nativo, suite Rust y `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
 | 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
 | 2026-08-28 | CDP funcional de ProjectsPanel y perf gate aprobados: 3 ciclos sostenidos, 470.25 MiB working set, 253.48 MiB privados y cleanup; accesibilidad visual 125%/200% y forced-colors aprobada. | `.local/validation/webview2-cdp/20260828T185215Z/summary.json`, `.local/validation/accessibility-visual/20260828T185137Z` |
 | 2026-08-28 | Package firmado del updater aprobado en Windows: Tauri produjo MSI/NSIS y `.sig`; el manifiesto estático para `windows-x86_64`, SHA-256 y verificación del par artefacto/firma pasan localmente. El canal real, la VM y la promoción siguen fuera de esta corrida. | `.local/validation/updater-build/updater-manifest.json`, `.local/validation/updater-build/updater-integrity.json`, `.local/validation/20260828T194329Z-6ec7bae-package.json` |
 | 2026-08-28 | Contrato updater reproducible aprobado: el gate ejercita un fixture válido y confirma fallo cerrado ante artefacto truncado, firma alterada, manifiesto incompleto/corrupto y URL HTTP; no sustituye la prueba del canal ni la validación criptográfica contra un servidor publicado. | `tools/test-updater-manifest.mjs`, `npm run updater:contract:test` |
-| 2026-08-28 | Perfil `Release` completo aprobado después de integrar el contrato updater: documentación, IPC, toolchains, cobertura, build web, Clippy, 244 tests Rust, SBOM, supply chain, instalador, fixture updater y binario Tauri sin bundle. Esta corrida es local y no cierra T5-06 porque el árbol aún contiene cambios no comprometidos. | `.local/validation/20260828T214048Z-6ec7bae-release.json` |
+| 2026-08-28 | Perfil `Release` completo aprobado después de integrar el contrato updater: documentación, IPC, toolchains, cobertura, build web, Clippy, 244 tests Rust, SBOM, supply chain, instalador, fixture updater y binario Tauri sin bundle. La evidencia release posterior fue capturada desde un commit limpio, revisada visualmente en los cinco escenarios y ligada al baseline; la ruta local se valida con `npm run accessibility:release:check`. | `.local/validation/20260828T214048Z-6ec7bae-release.json`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-28 | Smoke nativo aislado aprobado desde `npm run smoke:native-selectors`: los cuatro diálogos Win32 de abrir/guardar pasan con filtrado por proceso, outputs verificados, cleanup confirmado y presupuesto de 512 MiB working set / 256 MiB privado respetado. El smoke Playwright se mantiene separado para no mezclar su retención de WebView2 con la medición nativa. | `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
 
 ### Decisiones cerradas que Tier 5 conserva

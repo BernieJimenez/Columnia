@@ -101,6 +101,11 @@ los artefactos de validación locales.
 - Tier 5 incorpora `tools/release.ps1` y `npm run release:dry-run` para
   orquestar los gates locales con rama y árbol limpios; el flujo no etiqueta,
   publica ni contacta servicios remotos.
+- Tier 5 liga la evidencia visual de release a un commit limpio: el baseline
+  versionado conserva commit, rama, hashes de `package-lock.json` y `Cargo.lock`,
+  además de los cinco escenarios desktop, móvil, zoom 125%, zoom 200% y
+  forced-colors. El checker solo tolera el commit posterior que modifica
+  exclusivamente el propio baseline.
 
 ### Validación histórica de la reauditoría
 
@@ -124,7 +129,8 @@ los artefactos de validación locales.
 - La medición nativa de memoria privada WebView2 ya pasa en el smoke aislado:
   521.79 MiB de working set, 265.98 MiB privados y cleanup confirmado, con los
   cuatro diálogos Win32 aprobados. La captura release desde un commit limpio y
-  la revisión legal final siguen siendo requisitos de publicación.
+  la revisión visual del baseline ya están aprobadas; la revisión legal final
+  y la validación del canal siguen siendo requisitos de publicación.
 - El probe CDP funcional de ProjectsPanel midió 470.25 MiB de working set y
   253.48 MiB privados, dentro de presupuesto, ejecutó 3 ciclos sostenidos y
   confirmó cleanup. El smoke nativo aislado aprobó abrir dataset, guardar/cargar
@@ -133,9 +139,9 @@ los artefactos de validación locales.
 - Las pruebas Rust del updater cubren versiones estables, downgrade, igualdad,
   prerelease e inputs inválidos; el ejercicio contra un canal real sigue siendo
   una validación de I6 pendiente.
-- `release:dry-run` valida el preflight de distribución y rechaza correctamente
-  el árbol de trabajo actual por estar sucio; la captura release aprobada debe
-  ejecutarse después de crear el commit que se vaya a distribuir.
+- `release:dry-run` valida el preflight de distribución y exige rama/árbol
+  limpios; la captura release aprobada queda ligada al commit de evidencia y el
+  baseline solo se guarda en un commit posterior exclusivo de ese archivo.
 - Accesibilidad visual (desktop/móvil, zoom 125%/200% y forced-colors) y
   `perf:check` pasan con la evidencia renovada.
 

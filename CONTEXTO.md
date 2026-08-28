@@ -21,7 +21,7 @@ documentos equivalentes que puedan divergir.
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
 | Pruebas observadas | 267 frontend y 244 Rust aprobadas; E2E y Package históricos pasan en la estación auditada; el smoke nativo Win32 actual también pasa con cleanup y presupuesto de memoria |
-| Última revisión de este documento | 2026-08-28, rama `master`; implementación técnica de Tier 5 mayormente cerrada. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, contrato local de manifiesto y selectores nativos pasan; faltan baseline release ligado a commit limpio y decisiones legales/operativas |
+| Última revisión de este documento | 2026-08-28, rama `master`; implementación técnica de Tier 5 mayormente cerrada. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, contrato local de manifiesto, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas y validación del canal |
 
 ### Estado verificable de Tier 5
 
@@ -34,12 +34,13 @@ la semántica de duplicados parecidos y reduce el `project-save` de 100 MiB a
 52.09 s con tres actualizaciones entre 56.37 y 57.31 s
 (`.local/validation/performance-benchmark/20260828T184531Z`).
 
-Siguen siendo bloqueantes antes de publicar: regenerar y aprobar evidencia
-visual desde un `HEAD` limpio, validar instalación/actualización en una VM
-Windows limpia, y cerrar las decisiones legales de canal, jurisdicción,
-responsable, contacto, retención y rotación del updater. El recorrido de
-selectores nativos ya pasa en una sesión gráfica habilitada dentro de ambos
-presupuestos de memoria.
+Siguen siendo bloqueantes antes de publicar: validar instalación/actualización
+en una VM Windows limpia, y cerrar las decisiones legales de canal,
+jurisdicción, responsable, contacto, retención y rotación del updater. La
+evidencia release ya está ligada a un `HEAD` limpio: el baseline conserva el
+commit aprobado, los dos lockfiles y los cinco hashes visuales; su commit
+posterior solo modifica el propio baseline. El recorrido de selectores nativos
+ya pasa en una sesión gráfica habilitada dentro de ambos presupuestos de memoria.
 El orquestador local `tools/release.ps1` ya está implementado; solo ejecuta
 gates locales y no publica ni etiqueta.
 
@@ -57,8 +58,8 @@ gates locales y no publica ni etiqueta.
 - `npm run accessibility:visual`, `npm run accessibility:check` y
   `npm run perf:check` pasan; evidencia visual:
   `.local/validation/accessibility-visual/20260828T185137Z`.
-- La captura release desde un commit limpio, la aprobación del baseline visual
-  y la revisión legal final siguen siendo requisitos de publicación. El bundle
+- La captura release desde un commit limpio y la aprobación del baseline visual
+  ya pasan; el bundle
   firmado de prueba produjo MSI/NSIS y sus firmas `.sig`; la ruta reproducible
   está en `release:updater:dry-run` y requiere variables de entorno privadas.
   `updater:contract:test` cubre mutaciones estructurales locales, pero no cierra
@@ -636,6 +637,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-28 | T5-06 queda cerrado: la evidencia release se captura desde un árbol limpio, registra commit/rama/lockfiles, cubre desktop, móvil, zoom 125%, zoom 200% y forced-colors, y el checker exige que el único commit posterior sea el del baseline. | `tools/capture-release-evidence.mjs`, `tools/check-release-evidence.mjs`, `tools/capture-release-evidence.ps1`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-28 | I6 añade un contrato updater estructural reproducible y lo integra al perfil Release/Package: un fixture temporal aprueba el par válido y falla ante truncado, firma alterada, manifiesto incompleto/corrupto y URL HTTP. La prueba no contacta la red ni sustituye la validación del canal real. | `tools/test-updater-manifest.mjs`, `tools/check.ps1`, `.local/validation/20260828T214048Z-6ec7bae-release.json` |
 | 2026-08-28 | T5-02 queda respaldado por un smoke nativo aislado: los cuatro diálogos Win32 pasan, el driver rechaza ventanas residuales por PID/owner, espera el cierre modal y corta drivers bloqueados; el recorrido oficial registra 521.79 MiB working set, 265.98 MiB privados y cleanup confirmado. El smoke nativo se separa del runner Playwright para medir el presupuesto de WebView2 sin retención del runner. | `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-cdp.ps1`, `tools/probe-webview2-native-selectors.mjs`, `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
 | 2026-08-28 | Reauditoría profesional exhaustiva sobre `137520b`: 248 tests frontend, 234 Rust y 9 E2E aprobaron; Full/Release/Package pasaron y Package produjo MSI/NSIS. Se verificaron regresiones de rendimiento, verdes falsos de cobertura/tiers/evidencia, deuda de seguridad/arquitectura y bloqueos legales de distribución. Se abrió Tier 5 con 20 tareas; no se corrigió código ni se aprobó un baseline. | `AUDITORIA_PROFESIONAL_2026-08-28.md`, `ROADMAP.md`, `.local/validation/20260828T054125Z-137520b-package.json`, `.local/validation/performance-baseline/20260828T053153Z/summary.json` |

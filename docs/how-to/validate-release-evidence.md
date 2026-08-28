@@ -1,6 +1,6 @@
 # How to validar la evidencia del release
 
-Este flujo compila el binario Tauri de release, captura cuatro ventanas
+Este flujo compila el binario Tauri de release, captura cinco ventanas
 definidas sobre el WebView2 del binario y comprueba que no cambien los contratos
 ni los hashes visuales aprobados.
 
@@ -55,15 +55,19 @@ ni contacta servicios externos.
 
 ## Ventanas y contrato
 
-La captura de release usa exactamente estas ventanas: desktop `1280×900`, móvil
-`390×844`, escala `125%` y `forced-colors`. Cada caso comprueba un `main`, una
-`nav`, un `aside`, foco visible, targets de al menos 24 px y ausencia de
-overflow horizontal.
+La captura de release usa exactamente estos casos: desktop `1280×900`, móvil
+`390×844`, zoom CSS `125%`, zoom CSS `200%` y `forced-colors`. Cada caso
+comprueba un `main`, una `nav`, un `aside`, foco visible, targets de al menos
+24 px y ausencia de overflow horizontal. El escenario de zoom `200%` activa el
+reflow compacto del shell para que la escala no convierta la tarjeta en una
+columna ilegible.
 
 El baseline exige además que el origen sea `tauri-release-binary`, que la
 versión coincida con npm/Cargo/Tauri y que el hash de cada screenshot se
-mantenga. Una diferencia falla el gate y deja el nuevo sumario para revisión;
-no actualices el baseline para ocultar una regresión.
+mantenga. La captura debe corresponder al `HEAD` limpio; al versionar el
+baseline se permite únicamente un commit posterior que modifique ese archivo.
+Una diferencia falla el gate y deja el nuevo sumario para revisión; no
+actualices el baseline para ocultar una regresión.
 
 ## Verificación
 

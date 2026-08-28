@@ -797,3 +797,21 @@ el prototipo en un release público.
   Siguen pendientes la VM limpia, el canal real de updater, la rotación de
   claves y las decisiones externas sobre responsable, jurisdicción, contacto,
   mercados, retención y canal legal final.
+
+## Addendum de implementación — 2026-08-28
+
+Este addendum actualiza el estado posterior al corte histórico de la auditoría;
+las observaciones y métricas del commit auditado se conservan sin reescritura.
+
+- **F-05/T5-06 queda cerrado técnicamente:** la captura release exige un árbol
+  limpio y registra `HEAD`, rama, estado dirty y hashes de ambos lockfiles. El
+  baseline versionado conserva los cinco hashes visuales —desktop, móvil, zoom
+  CSS 125%, zoom CSS 200% y forced-colors— después de revisión visual humana.
+  El checker mantiene la coincidencia exacta y solo permite el commit posterior
+  que modifica exclusivamente el archivo del baseline.
+- El caso zoom CSS 200% recibió un reflow compacto para evitar una tarjeta
+  ilegible bajo la escala aplicada por el harness. La captura release y su
+  verificación normal pasan con el binario Tauri optimizado.
+- La prueba de contrato del updater y los gates locales siguen siendo evidencia
+  estructural; no sustituyen la instalación en VM, el canal publicado, la
+  rotación de claves ni la aceptación legal de T5-18/T5-20.

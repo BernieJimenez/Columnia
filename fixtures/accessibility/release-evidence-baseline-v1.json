@@ -6,7 +6,7 @@
   "fixturePath": "fixtures/automation/input.csv",
   "owner": "Columnia maintainers",
   "purpose": "Canonical release-shell screenshots for visual regression detection",
-  "approvedAt": "2026-08-25T02:39:52.436Z",
+  "approvedAt": "2026-08-28T22:26:17.507Z",
   "requiredCases": [
     {
       "name": "desktop",
@@ -70,9 +70,19 @@
     "requireNoHorizontalOverflow": true
   },
   "screenshots": {
-    "desktop": "aa2c8b6e72e50ed9ccc4efcb091b846a039a1c0e7dec618d2341d7362e1a9e69",
-    "mobile": "061ffe56cf83a01c5398fa7d3da47d410bd57e8b5c4336e104136c0d077730a2",
-    "zoom-125": "8db26bfb4c9c4e0fa1d3f1af6bd15f14a5d3f280951590846d1101ef7b26d37f",
-    "forced-colors": "b6ae919dbbb1a1d2870b2368540cff6c88e5a1b02724dcede4368ac126781474"
+    "desktop": "31ee2846f6be29e4e7b8dc8ca398d95fa69ad932c905525609c4b6df77f064a8",
+    "mobile": "608005d7d01b457023141e9b68957632fd61a0a72272d900e58b38b753d52fee",
+    "zoom-125": "6cff1012c40b3866cea81a432fd01979ef61195a143e0a1114e3a5d4cd977ef4",
+    "zoom-200": "632ec71b0cc0621ac77c6be57a84e01f374e930657da9a644180e33e8d1eb4a8",
+    "forced-colors": "7021f900a67dd2182c35e135fe56dcb2bb436c3b2f63ab193661911996782b38"
+  },
+  "git": {
+    "commit": "28eddc5f9df580566a19475f8233d5f748103431",
+    "branch": "master",
+    "dirty": false
+  },
+  "lockfiles": {
+    "packageLockSha256": "b8c1e58e19c259aca2ce7e191eb228473521afae76766fcfb4e69f3f3a363b61",
+    "cargoLockSha256": "cb7e6c35207d7f815604e88bf4af32f9f5d4fcfc016606c2f629f3acaf6feefa"
   }
 }
