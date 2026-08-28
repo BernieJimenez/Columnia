@@ -6,7 +6,7 @@
   "fixturePath": "fixtures/automation/input.csv",
   "owner": "Columnia maintainers",
   "purpose": "Canonical release-shell screenshots for visual regression detection",
-  "approvedAt": "2026-08-28T23:32:29.503Z",
+  "approvedAt": "2026-08-28T23:43:17.403Z",
   "requiredCases": [
     {
       "name": "desktop",
@@ -77,7 +77,7 @@
     "forced-colors": "7021f900a67dd2182c35e135fe56dcb2bb436c3b2f63ab193661911996782b38"
   },
   "git": {
-    "commit": "897106454ac4a97bb0bfb6acd415d72e0c3fb790",
+    "commit": "c9b9f92dff6abf1d22e6bcf3d0171131b0828243",
     "branch": "master",
     "dirty": false
   },
