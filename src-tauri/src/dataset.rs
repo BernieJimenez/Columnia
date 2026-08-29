@@ -65,6 +65,8 @@ const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_AUDIT_CELL_CHARS: usize = 2048;
 const RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
+const MAX_SESSION_METADATA_NAMES: usize = 64;
+const MAX_SESSION_METADATA_NAME_CHARS: usize = 96;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
@@ -1056,6 +1058,10 @@ pub struct SessionMigrationMetadata {
     applied_operation_count: usize,
     quality_rule_count: usize,
     analysis_check_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    applied_operations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    analysis_checks: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -6270,6 +6276,46 @@ fn migration_session_metadata(
             })?,
     };
 
+    let metadata_name = |value: &JsonValue| -> Option<String> {
+        let candidate = value.as_str().or_else(|| {
+            value.as_object().and_then(|map| {
+                ["name", "kind", "operation", "id"]
+                    .iter()
+                    .find_map(|key| map.get(*key).and_then(JsonValue::as_str))
+            })
+        })?;
+        let candidate = candidate.trim();
+        if candidate.is_empty()
+            || candidate.chars().count() > MAX_SESSION_METADATA_NAME_CHARS
+            || candidate
+                .chars()
+                .any(|character| character.is_control() || matches!(character, '/' | '\\'))
+        {
+            return None;
+        }
+        Some(candidate.to_owned())
+    };
+    let metadata_names = |key: &str| -> Result<Vec<String>, String> {
+        let Some(value) = migration_session_field(root, key) else {
+            return Ok(Vec::new());
+        };
+        let mut names = match value {
+            JsonValue::Array(values) => values.iter().filter_map(metadata_name).collect(),
+            JsonValue::Object(values) if key == "analysis_checks" => values
+                .keys()
+                .filter_map(|value| metadata_name(&JsonValue::String(value.clone())))
+                .collect(),
+            JsonValue::Null => Vec::new(),
+            _ => {
+                return Err(format!(
+                    "El metadato de sesión '{key}' debe ser un objeto o arreglo."
+                ));
+            }
+        };
+        names.truncate(MAX_SESSION_METADATA_NAMES);
+        Ok(names)
+    };
+
     Ok(Some(SessionMigrationMetadata {
         has_source_reference: migration_session_field(root, "source_path")
             .is_some_and(|value| !value.is_null()),
@@ -6280,6 +6326,8 @@ fn migration_session_metadata(
         applied_operation_count: count_array("applied_ops")?,
         quality_rule_count: count_array("quality_rules")?,
         analysis_check_count,
+        applied_operations: metadata_names("applied_ops")?,
+        analysis_checks: metadata_names("analysis_checks")?,
     }))
 }
 
@@ -16918,6 +16966,14 @@ mod tests {
         assert_eq!(json["migrationReport"]["session"]["qualityRuleCount"], 1);
         assert_eq!(json["migrationReport"]["session"]["analysisCheckCount"], 1);
         assert_eq!(
+            json["migrationReport"]["session"]["appliedOperations"],
+            serde_json::json!(["normalize_text"])
+        );
+        assert_eq!(
+            json["migrationReport"]["session"]["analysisChecks"],
+            serde_json::json!(["completeness"])
+        );
+        assert_eq!(
             json["migrationReport"]["session"]["hasSourceReference"],
             true
         );
@@ -16946,6 +17002,14 @@ mod tests {
         assert_eq!(report["session"]["appliedOperationCount"], 2);
         assert_eq!(report["session"]["qualityRuleCount"], 2);
         assert_eq!(report["session"]["analysisCheckCount"], 3);
+        assert_eq!(
+            report["session"]["appliedOperations"],
+            serde_json::json!(["trim_text", "normalize_text"])
+        );
+        assert_eq!(
+            report["session"]["analysisChecks"],
+            serde_json::json!(["completeness", "duplicates", "outliers"])
+        );
         assert_eq!(report["session"]["hasSourceReference"], true);
         assert_eq!(report["session"]["hasSnapshotReference"], true);
         assert!(report["omittedOperations"]

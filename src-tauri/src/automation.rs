@@ -297,6 +297,10 @@ pub struct SessionMigrationSessionOutput {
     stage_label: Option<String>,
     applied_operation_count: usize,
     analysis_check_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    applied_operations: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    analysis_checks: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -1080,6 +1084,8 @@ pub fn session_migration_report(
             stage_label: plan.stage_label,
             applied_operation_count: serialized_usize(session_metadata, "appliedOperationCount"),
             analysis_check_count: serialized_usize(session_metadata, "analysisCheckCount"),
+            applied_operations: serialized_strings(session_metadata, "appliedOperations"),
+            analysis_checks: serialized_strings(session_metadata, "analysisChecks"),
         },
         recipe_summary,
         quality: quality_summary,
@@ -3096,6 +3102,11 @@ mod tests {
         assert_eq!(report.session.stage_label.as_deref(), Some("Preparar"));
         assert_eq!(report.session.applied_operation_count, 1);
         assert_eq!(report.session.analysis_check_count, 2);
+        assert_eq!(report.session.applied_operations, vec!["filter"]);
+        assert_eq!(
+            report.session.analysis_checks,
+            vec!["duplicates", "outliers"]
+        );
         assert_eq!(report.recipe_summary.operation_count, 2);
         assert_eq!(report.quality.total_rules, 1);
         assert_eq!(report.quality.converted_rules, 1);

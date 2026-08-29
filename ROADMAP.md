@@ -1349,7 +1349,9 @@ del original.
   convertidas.
 - [ ] Importar sesiones guardadas de DataPrep: dataset/origen, hoja, etapa,
   operaciones aplicadas, receta, reglas y análisis; cuando no sea seguro guardar
-  un snapshot, conservar solo una referencia reproducible y explicarlo.
+  un snapshot, conservar solo una referencia reproducible y explicarlo. La
+  vertical actual conserva además nombres estructurales acotados de operaciones
+  y comprobaciones, pero no resultados de análisis ni cachés reanudables.
 - [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
   con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
   colisiones de nombres antes de escribir cualquier snapshot.
@@ -1669,6 +1671,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-28 | Perfil `Release` completo aprobado después de integrar el contrato updater: documentación, IPC, toolchains, cobertura, build web, Clippy, 244 tests Rust, SBOM, supply chain, instalador, fixture updater y binario Tauri sin bundle. La evidencia release posterior fue capturada desde un commit limpio, revisada visualmente en los cinco escenarios y ligada al baseline; la ruta local se valida con `npm run accessibility:release:check`. | `.local/validation/20260828T214048Z-6ec7bae-release.json`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-28 | Smoke nativo aislado aprobado desde `npm run smoke:native-selectors`: los cuatro diálogos Win32 de abrir/guardar pasan con filtrado por proceso, outputs verificados, cleanup confirmado y presupuesto de 512 MiB working set / 256 MiB privado respetado. El smoke Playwright se mantiene separado para no mezclar su retención de WebView2 con la medición nativa. | `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
 | 2026-08-29 | `perf:webview2` aprobado: 100 MiB/819,137 filas dentro de WebView2, con selector Win32, carga, paginación, transformación, exportación y cleanup; el recorrido grande queda separado del CDP normal y registra 686,817,280 bytes de working set y 456,114,176 bytes privados bajo su techo de medición 1.5 GiB/1 GiB. El presupuesto global 512/256 MiB continúa abierto. | `.local/validation/performance-webview2/20260829T010235Z/summary.json`, `.local/validation/webview2-cdp/20260829T010238Z/summary.json` |
+| 2026-08-29 | M1 conserva en `migrationReport.session` los nombres estructurales acotados de operaciones aplicadas y comprobaciones de análisis cuando son tokens seguros; sus conteos, receta, reglas y round-trip durable siguen siendo verificables, mientras resultados, cachés y snapshots históricos de DataPrep continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `docs/reference/migration-inventory.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

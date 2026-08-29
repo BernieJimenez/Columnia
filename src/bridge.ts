@@ -451,6 +451,8 @@ export interface SessionMigrationMetadata {
   appliedOperationCount: number;
   qualityRuleCount: number;
   analysisCheckCount: number;
+  appliedOperations?: string[];
+  analysisChecks?: string[];
 }
 
 export type SessionReferenceStatus = "not_provided" | "available" | "missing" | "unsupported";
@@ -475,6 +477,8 @@ export interface SessionMigrationReport {
     stageLabel: string | null;
     appliedOperationCount: number;
     analysisCheckCount: number;
+    appliedOperations?: string[];
+    analysisChecks?: string[];
   };
   recipeSummary: {
     operationCount: number;

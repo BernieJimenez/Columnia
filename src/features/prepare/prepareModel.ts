@@ -65,7 +65,15 @@ function isRecipeMigrationReport(value: unknown): value is RecipeMigrationReport
       (typeof candidate.session.stageLabel === "string" || candidate.session.stageLabel === null) &&
       typeof candidate.session.appliedOperationCount === "number" &&
       typeof candidate.session.qualityRuleCount === "number" &&
-      typeof candidate.session.analysisCheckCount === "number"
+      typeof candidate.session.analysisCheckCount === "number" &&
+      (candidate.session.appliedOperations === undefined || (
+        Array.isArray(candidate.session.appliedOperations) &&
+        candidate.session.appliedOperations.every((operation) => typeof operation === "string")
+      )) &&
+      (candidate.session.analysisChecks === undefined || (
+        Array.isArray(candidate.session.analysisChecks) &&
+        candidate.session.analysisChecks.every((check) => typeof check === "string")
+      ))
     ));
 }
 

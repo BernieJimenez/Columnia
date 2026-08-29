@@ -102,6 +102,13 @@ expone en el panel de Proyectos; la CLI la ofrece como
 migraciones autorizadas. Una cancelación o error no modifica el dataset activo
 ni reemplaza proyectos existentes.
 
+Cuando el manifiesto aporta identificadores estructurales, el informe conserva
+hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
+límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
+no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
+se guardan resultados, celdas, cachés ni rutas resueltas; por eso esta mejora no
+afirma que un análisis de DataPrep pueda reanudarse automáticamente.
+
 ## Límites pendientes
 
 La restauración completa de sesiones, historial de ejecuciones, caché, artefactos

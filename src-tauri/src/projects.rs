@@ -2448,6 +2448,14 @@ mod tests {
         assert_eq!(session_metadata["appliedOperationCount"], 2);
         assert_eq!(session_metadata["qualityRuleCount"], 1);
         assert_eq!(session_metadata["analysisCheckCount"], 2);
+        assert_eq!(
+            session_metadata["appliedOperations"],
+            serde_json::json!(["normalize_text", "rename_text"])
+        );
+        assert_eq!(
+            session_metadata["analysisChecks"],
+            serde_json::json!(["completeness", "duplicates"])
+        );
 
         let initial_frame = active_state
             .active_project_snapshot()

@@ -13,6 +13,9 @@ los artefactos de validación locales.
   paginación, transformación y exportación con evidencia agregada de duración,
   memoria y cleanup. `perf:check` y `verify:tier` exigen este recorrido además
   del benchmark CLI.
+- La migración de sesiones DataPrep conserva en el artefacto de receta los
+  identificadores estructurales acotados de operaciones aplicadas y comprobaciones
+  de análisis, además de sus conteos; no guarda resultados, cachés ni rutas.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o
