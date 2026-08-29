@@ -2040,6 +2040,60 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_roundtrips_a_real_workbook_sheet() {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio");
+        let fixture = repository.join("fixtures/migration/dataprep-session-v1-roundtrip.json");
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("session-workbook.json");
+        let source = directory.path().join("ventas-hoja.xlsx");
+        let source_frame = DataFrame::new(
+            2,
+            vec![
+                polars::prelude::Series::new("old_name".into(), [" Alpha ", "Beta"]).into_column(),
+                polars::prelude::Series::new("amount".into(), vec![10_i64, 20]).into_column(),
+            ],
+        )
+        .unwrap();
+        dataset::export_frame_for_automation(&source_frame, &source, dataset::ExportFormat::Excel)
+            .expect("el libro de prueba debe escribirse");
+
+        let mut manifest: JsonValue =
+            serde_json::from_str(&fs::read_to_string(&fixture).unwrap()).unwrap();
+        let manifest_object = manifest
+            .as_object_mut()
+            .expect("la fixture debe ser un objeto JSON");
+        manifest_object.insert(
+            "filename".to_owned(),
+            JsonValue::String("ventas-hoja.xlsx".to_owned()),
+        );
+        manifest_object.insert(
+            "source_path".to_owned(),
+            JsonValue::String("ventas-hoja.xlsx".to_owned()),
+        );
+        manifest_object.insert(
+            "sheet_name".to_owned(),
+            JsonValue::String("dataset".to_owned()),
+        );
+        fs::write(&session, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+
+        let store = ProjectStore::initialize(directory.path().join("projects")).unwrap();
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la sesión de workbook debe convertirse en un proyecto");
+        let opened = store
+            .open(&DatasetState::default(), imported.id)
+            .expect("el proyecto de workbook debe reabrirse");
+
+        assert_eq!(opened.dataset.file_name, "ventas-hoja.xlsx");
+        assert_eq!(opened.dataset.row_count, 2);
+        assert_eq!(opened.dataset.columns[0].name, "new_name");
+        assert_eq!(opened.dataset.columns[1].data_type, "f64");
+        assert_eq!(opened.workspace.active_phase.as_deref(), Some("deliver"));
+    }
+
+    #[test]
     fn profile_and_history_cursor_roundtrip_across_restart_with_working_undo_redo() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("data");

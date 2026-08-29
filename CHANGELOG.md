@@ -31,6 +31,9 @@ los artefactos de validación locales.
   de 90% de coincidencia: rechaza pérdida de precisión y conserva
   identificadores y códigos con ceros iniciales. El inventario IPC pasa a 66
   comandos de producción.
+- La cobertura M1 añade un round-trip de sesión contra un libro `.xlsx` real:
+  genera el libro con el exportador nativo, valida la hoja registrada, importa
+  la receta, reabre el proyecto y comprueba esquema, conteos y etapa activa.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
    `drop_fuzzy_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
