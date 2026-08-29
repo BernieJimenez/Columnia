@@ -17089,9 +17089,10 @@ impl DatasetState {
         for operation in [
             "drop_duplicates",
             "drop_empty_rows",
-            "impute_numeric",
             "normalize_sentinels",
+            "impute_numeric",
             "impute_categorical",
+            "trim_text",
             "fix_encoding",
             "normalize_booleans",
             "normalize_columns",
@@ -17129,6 +17130,7 @@ impl DatasetState {
                 "fix_encoding" => {
                     clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
                 }
+                "trim_text" => clean_text_columns(&cleaned, None, TextCleaningMode::Trim)?,
                 "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
                 "normalize_columns" => {
                     let (names, renames) = normalized_column_names(&cleaned);
