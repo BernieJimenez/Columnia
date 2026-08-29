@@ -5470,6 +5470,99 @@ fn impute_categorical_values_in_frame(
     ))
 }
 
+fn cast_dataprep_numeric_columns(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_columns = Vec::new();
+    let mut changed_cell_count = 0;
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios" || column.dtype() != &DataType::String {
+            continue;
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?
+            .iter()
+            .map(|value| value.map(str::to_owned))
+            .collect::<Vec<_>>();
+        let non_null_count = values.iter().flatten().count();
+        if non_null_count == 0 {
+            continue;
+        }
+
+        let integer_values = values
+            .iter()
+            .map(|value| {
+                value
+                    .as_deref()
+                    .and_then(|value| value.trim().parse::<i64>().ok())
+            })
+            .collect::<Vec<_>>();
+        let integer_count = integer_values.iter().flatten().count();
+        let has_decimal_token = values.iter().flatten().any(|value| {
+            value
+                .trim()
+                .chars()
+                .any(|character| matches!(character, '.' | 'e' | 'E'))
+        });
+
+        if !has_decimal_token && integer_count * 10 > non_null_count * 9 {
+            let converted = Column::new(name.clone().into(), integer_values);
+            cleaned.replace(&name, converted).map_err(|error| {
+                format!("No se pudo convertir la columna numérica '{name}': {error}")
+            })?;
+            changed_cell_count += integer_count;
+            changed_columns.push(ChangedTextColumn {
+                name,
+                changed_cell_count: integer_count,
+            });
+            continue;
+        }
+
+        let float_values = values
+            .iter()
+            .map(|value| {
+                value.as_deref().and_then(|value| {
+                    let parsed = value.trim().parse::<f64>().ok()?;
+                    parsed.is_finite().then_some(parsed)
+                })
+            })
+            .collect::<Vec<_>>();
+        let float_count = float_values.iter().flatten().count();
+        if float_count * 10 <= non_null_count * 9 {
+            continue;
+        }
+        if float_values
+            .iter()
+            .flatten()
+            .any(|value| value.fract() == 0.0 && value.abs() > (1_u64 << 53) as f64)
+        {
+            return Err(format!(
+                "La columna '{name}' contiene números que perderían precisión al convertirse."
+            ));
+        }
+        let converted = Column::new(name.clone().into(), float_values);
+        cleaned.replace(&name, converted).map_err(|error| {
+            format!("No se pudo convertir la columna numérica '{name}': {error}")
+        })?;
+        changed_cell_count += float_count;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: float_count,
+        });
+    }
+
+    Ok((
+        cleaned,
+        usize::from(changed_cell_count > 0),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
 fn impute_outlier_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
@@ -17241,6 +17334,7 @@ impl DatasetState {
             "impute_categorical",
             "trim_text",
             "fix_encoding",
+            "cast_numeric",
             "normalize_booleans",
             "normalize_columns",
         ] {
@@ -17297,6 +17391,7 @@ impl DatasetState {
                     clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
                 }
                 "trim_text" => clean_text_columns(&cleaned, None, TextCleaningMode::Trim)?,
+                "cast_numeric" => cast_dataprep_numeric_columns(&cleaned)?,
                 "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
                 "normalize_columns" => {
                     let (names, renames) = normalized_column_names(&cleaned);

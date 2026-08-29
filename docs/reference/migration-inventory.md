@@ -36,6 +36,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `fix_encoding` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando cada valor puede repararse inequívocamente; es reversible, agregada y no modifica números, `_cambios` ni valores ambiguos |
 | `impute_categorical` | Acción directa de Preparar e importación de sesión | Convertida/reproducida cuando la semántica es determinista: nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
 | `trim_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente para columnas textuales, recortando espacios exteriores de forma determinista y protegiendo `_cambios` |
+| `cast_numeric` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para texto con más de 90% de valores numéricos; convierte a `Int64`/`Float64`, conserva nulos no convertibles y rechaza conversiones inseguras |
 | `normalize_booleans` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando una columna de texto usa solo tokens booleanos conocidos y contiene ambos valores; se convierte al tipo booleano, sin modificar `_cambios` |
 | `normalize_columns` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con normalización Unicode y colisiones deterministas; se ejecuta antes de la receta estructural |
 | `group_summary` | `groupSummary` | Convertida para agregaciones conocidas |
@@ -124,7 +125,7 @@ se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas
 Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
-`fix_encoding`,
+`fix_encoding`, `cast_numeric`,
 `normalize_booleans` y `normalize_columns` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de
 limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas

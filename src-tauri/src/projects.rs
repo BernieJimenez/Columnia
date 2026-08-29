@@ -2587,6 +2587,43 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_replays_numeric_cast_from_csv_without_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "amount,label\n1,uno\n2,dos\n3,tres\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Conversión numérica reproducible",
+                "source_path": "source.csv",
+                "applied_ops": ["cast_numeric"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("el cast numérico debe poder reproducirse desde CSV");
+        let state = DatasetState::default();
+        store
+            .open(&state, imported.id)
+            .expect("el proyecto convertido debe reabrirse");
+        let active = state
+            .active_project_snapshot()
+            .expect("el dataset convertido debe quedar activo");
+        let amount = active.frame.column("amount").unwrap();
+
+        assert_eq!(amount.dtype(), &DataType::Int64);
+        assert_eq!(amount.i64().unwrap().get(1), Some(2));
+        assert_eq!(active.history.entries.len(), 2);
+    }
+
+    #[test]
     fn dataprep_session_replays_numeric_imputation_from_parquet_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
