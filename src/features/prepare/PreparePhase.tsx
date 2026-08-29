@@ -30,6 +30,7 @@ interface PreparePhaseProps {
   onFixEncoding?: () => void;
   onNullifyInvalidTypes?: () => void;
   onImputeMissingValues: () => void;
+  onImputeCategoricalValues?: () => void;
   onImputeOutliers?: () => void;
   onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
@@ -64,6 +65,7 @@ export function PreparePhase({
   onFixEncoding = () => undefined,
   onNullifyInvalidTypes = () => undefined,
   onImputeMissingValues,
+  onImputeCategoricalValues = () => undefined,
   onImputeOutliers = () => undefined,
   onEnableRowAudit,
   onNormalizeColumns,
@@ -207,6 +209,7 @@ export function PreparePhase({
               onFixEncoding={onFixEncoding}
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
               onImputeMissingValues={onImputeMissingValues}
+              onImputeCategoricalValues={onImputeCategoricalValues}
               onImputeOutliers={onImputeOutliers}
         />
       )}
@@ -552,6 +555,7 @@ function CleaningSignals({
   onFixEncoding,
   onNullifyInvalidTypes,
   onImputeMissingValues,
+  onImputeCategoricalValues,
   onImputeOutliers,
 }: {
   profile: DatasetProfile;
@@ -566,6 +570,7 @@ function CleaningSignals({
   onFixEncoding: () => void;
   onNullifyInvalidTypes: () => void;
   onImputeMissingValues: () => void;
+  onImputeCategoricalValues: () => void;
   onImputeOutliers: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
@@ -594,6 +599,9 @@ function CleaningSignals({
   const typeDriftColumns = typeDrift;
   const outliers = profile.columns.filter(
     (column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios",
+  );
+  const categoricalImputable = profile.columns.filter(
+    (column) => column.dataType === "String" && column.nullCount > 0 && column.name !== "_cambios",
   );
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
@@ -770,6 +778,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onImputeMissingValues} disabled={busy}>
                 Intentar imputación conservadora
+              </button>
+            </div>
+          )}
+          {categoricalImputable.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes completar explícitamente los nulos de texto con la categoría
+                <strong> Desconocido</strong>. Esta alternativa no infiere una moda ni cambia
+                números, no modifica _cambios y es reversible desde el historial.
+              </p>
+              <button type="button" onClick={onImputeCategoricalValues} disabled={busy}>
+                Completar categorías desconocidas
               </button>
             </div>
           )}

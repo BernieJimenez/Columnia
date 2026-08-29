@@ -22,6 +22,7 @@ import {
   normalizeSentinelValues,
   normalizeBooleanValues,
   fixEncodingValues,
+  imputeCategoricalValues,
   nullifyInvalidTypeValues,
   normalizeTextValues,
   openLastExport,
@@ -314,6 +315,19 @@ describe("desktop bridge", () => {
     await imputeOutlierValues();
 
     expect(invoke).toHaveBeenCalledWith("impute_outlier_values");
+  });
+
+  it("imputa categorías mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: {},
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "status", changedCellCount: 1 }],
+    });
+
+    await imputeCategoricalValues();
+
+    expect(invoke).toHaveBeenCalledWith("impute_categorical_values");
   });
 
   it("elimina columnas constantes mediante un comando tipado", async () => {

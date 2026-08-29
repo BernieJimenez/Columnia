@@ -6,6 +6,7 @@ import {
   enableRowAudit,
   fixEncodingValues,
   getHistoryState,
+  imputeCategoricalValues,
   imputeMissingValues,
   imputeOutlierValues,
   nullifyInvalidTypeValues,
@@ -349,6 +350,27 @@ export function usePrepareController({
     }
   }
 
+  async function applyCategoricalImputation() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "categorical_impute" });
+    try {
+      const result = await imputeCategoricalValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se encontraron nulos textuales para completar como Desconocido."
+          : `Se completaron ${result.changedCellCount.toLocaleString()} nulos textuales como Desconocido en: ${columns}. El cambio puede revertirse desde el historial.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function applyRowAudit() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "audit" });
@@ -511,6 +533,7 @@ export function usePrepareController({
     applyEncodingFix,
     applyInvalidTypeCleanup,
     applyMissingValueImputation,
+    applyCategoricalImputation,
     applyOutlierImputation,
     applyRowAudit,
     applyColumnNormalization,

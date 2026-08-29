@@ -224,6 +224,7 @@ pub fn run() {
             dataset::fix_encoding_values,
             dataset::nullify_invalid_type_values,
             dataset::impute_missing_values,
+            dataset::impute_categorical_values,
             dataset::impute_outlier_values,
             dataset::apply_safe_corrections,
             dataset::apply_transform_recipe,

@@ -25,6 +25,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `calc` | `calculatedColumn` | Convertida para operaciones equivalentes |
 | `split_column`, `merge_columns` | `splitColumn`, `mergeColumns` | Convertida |
 | `outliers` | `outlierTreatments` | Convertida para `cap`/`drop`; `impute` está disponible en recetas nativas Columnia |
+| `impute_categorical` | Acción directa de Preparar | Convertida como imputación explícita de nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
 | `group_summary` | `groupSummary` | Convertida para agregaciones conocidas |
 | `normalize_contacts` | `contactNormalizations` | Convertida |
 | `extract_text` | `textExtractions` | Convertida |

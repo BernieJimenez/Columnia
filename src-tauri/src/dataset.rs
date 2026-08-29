@@ -5082,6 +5082,53 @@ fn impute_missing_values_in_frame(
     ))
 }
 
+fn impute_categorical_values_in_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios" || column.dtype() != &DataType::String || column.null_count() == 0 {
+            continue;
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let mut column_changes = 0;
+        let transformed = values
+            .iter()
+            .enumerate()
+            .map(|(row_index, value)| match value {
+                Some(value) => Some((*value).to_owned()),
+                None => {
+                    column_changes += 1;
+                    changed_cell_count += 1;
+                    changed_rows[row_index] = true;
+                    Some("Desconocido".to_owned())
+                }
+            })
+            .collect::<Vec<_>>();
+        cleaned
+            .replace(&name, Column::new(name.clone().into(), transformed))
+            .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: column_changes,
+        });
+    }
+
+    Ok((
+        cleaned,
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
 fn impute_outlier_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
@@ -13954,6 +14001,35 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
 }
 
 #[tauri::command]
+pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
+            impute_categorical_values_in_frame(&dataset.frame)?;
+        let preview = if changed_cell_count > 0 {
+            publish_candidate(dataset, cleaned, "Imputación categórica")?
+        } else {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        };
+        Ok(TextCleaningResult {
+            dataset: preview,
+            affected_row_count,
+            changed_cell_count,
+            changed_columns,
+        })
+    })
+    .await
+    .map_err(|error| format!("La imputación categórica se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -21244,6 +21320,42 @@ mod tests {
         );
         assert_eq!(
             cleaned.column("amount").unwrap().i64().unwrap().get(5),
+            None
+        );
+    }
+
+    #[test]
+    fn categorical_imputation_uses_desconocido_without_touching_row_audit() {
+        let frame = DataFrame::new(
+            5,
+            vec![
+                Series::new(
+                    "status".into(),
+                    [Some("active"), None, Some("inactive"), None, None],
+                )
+                .into_column(),
+                Series::new(
+                    "_cambios".into(),
+                    [Some("manual"), None, Some(""), None, None],
+                )
+                .into_column(),
+            ],
+        )
+        .unwrap();
+
+        let (cleaned, affected_rows, changed_cells, changed_columns) =
+            impute_categorical_values_in_frame(&frame).unwrap();
+        assert_eq!(affected_rows, 3);
+        assert_eq!(changed_cells, 3);
+        assert_eq!(changed_columns.len(), 1);
+        assert_eq!(changed_columns[0].name, "status");
+        assert_eq!(changed_columns[0].changed_cell_count, 3);
+        assert_eq!(
+            cleaned.column("status").unwrap().str().unwrap().get(1),
+            Some("Desconocido")
+        );
+        assert_eq!(
+            cleaned.column("_cambios").unwrap().str().unwrap().get(1),
             None
         );
     }

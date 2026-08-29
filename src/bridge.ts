@@ -950,6 +950,10 @@ export function imputeMissingValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("impute_missing_values");
 }
 
+export function imputeCategoricalValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("impute_categorical_values");
+}
+
 export function imputeOutlierValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("impute_outlier_values");
 }

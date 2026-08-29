@@ -450,6 +450,11 @@ se conservan y cualquier acción requiere confirmación. Para evitar pérdida
 silenciosa, el motor rechaza infinitos, NaN y enteros fuera del rango exacto que
 puede representar durante el cálculo.
 
+Para nulos textuales, la imputación conservadora usa una moda repetida cuando
+existe evidencia suficiente; también puedes elegir explícitamente **Completar
+categorías desconocidas**, que usa `Desconocido` y queda registrada de forma
+reversible sin tocar números ni `_cambios`.
+
 **Agrupar y resumir** reemplaza la granularidad del dataset por grupos estables,
 ordenados según su primera aparición. Admite claves nulas y agregaciones de suma,
 promedio, mínimo, máximo, conteo de filas y valores únicos. El motor conserva los

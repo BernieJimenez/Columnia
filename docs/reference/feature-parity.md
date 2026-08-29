@@ -13,7 +13,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos acotados, cobertura temporal y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario completo, tendencias y series temporales |
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
-| Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers con límite/eliminación/imputación por mediana y agregación; importación del núcleo representable de pipelines DataPrep v1–v3; reparación reversible de doble codificación UTF-8 y apartado confirmado de valores incompatibles con sugerencias semánticas | Parcial | Migrar las reglas avanzadas restantes del catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
+| Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers con límite/eliminación/imputación por mediana, imputación categórica explícita como `Desconocido` y agregación; importación del núcleo representable de pipelines DataPrep v1–v3; reparación reversible de doble codificación UTF-8 y apartado confirmado de valores incompatibles con sugerencias semánticas | Parcial | Migrar las reglas avanzadas restantes del catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura, calendario diario y tendencia temporal diaria/mensual/anual acotada y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, series temporales completas, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
@@ -488,6 +488,14 @@ observada de su columna, conserva los nulos y los tipos `Int64`/`Float64`, exclu
 `_cambios` y publica una sola revisión en el historial. Las recetas ofrecen la
 misma semántica como acción `impute` y solicitan confirmación junto con los demás
 tratamientos de outliers.
+
+## Imputación categórica explícita
+
+Preparar ofrece una acción optativa separada para completar únicamente nulos de
+columnas textuales con la categoría `Desconocido`. No infiere una moda, no cambia
+columnas numéricas ni la columna reservada `_cambios`, publica solo filas/celdas y
+columnas afectadas como impacto agregado y crea una revisión reversible en el
+historial.
 
 ## Señales agregadas de privacidad e identificadores
 

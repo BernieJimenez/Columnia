@@ -20,8 +20,8 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado, historial/cursor y actividad SQL agregada durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 275 frontend y 248 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
-| Última revisión de este documento | 2026-08-29, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana y el inventario IPC registra 60 comandos de producción. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
+| Pruebas observadas | 277 frontend y 249 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Última revisión de este documento | 2026-08-29, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana e imputación categórica explícita como `Desconocido`; el inventario IPC registra 61 comandos de producción. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
 
@@ -192,7 +192,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
 | `tools/verify-tier.ps1` | Orquesta el tier reproducible completo: tests, build, accesibilidad, benchmark sostenido, Package, smokes CLI/WebView2 y gates finales; permite omitir Package o native de forma explícita. |
 | `tools/check-toolchains.mjs` / `rust-toolchain.toml` | Rechazan Node/npm/Rust fuera de las versiones exactas del entorno de release. |
-| `tools/check-ipc-inventory.mjs` / `docs/reference/ipc-inventory.json` | Generan y verifican desde Rust el inventario de 60 comandos de producción, 4 debug y 57 estructuras compartidas; los tests de contrato consumen el inventario. |
+| `tools/check-ipc-inventory.mjs` / `docs/reference/ipc-inventory.json` | Generan y verifican desde Rust el inventario de 61 comandos de producción, 4 debug y 57 estructuras compartidas; los tests de contrato consumen el inventario. |
 | `docs/reference/legal-distribution-review.md` / `src/App.tsx` | Hacen descubribles MIT, notices y privacidad local; la revisión legal de canal/jurisdicción/contacto sigue pendiente antes de publicar. |
 | `ACCESSIBILITY_MANUAL_CHECKLIST.md` | Checklist operativa para teclado, lector de pantalla, High Contrast, zoom y evidencia manual; no declara completada la auditoría sin una sesión real. |
 | `fixtures/accessibility/visual-baseline-v1.json` | Contrato versionado de escenarios y mínimos visuales; no contiene imágenes ni datos de usuario. |
@@ -326,6 +326,7 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - división y combinación de columnas;
 - tratamiento IQR por límite o eliminación;
 - imputación IQR reversible por mediana, con preservación de tipos numéricos y `_cambios`;
+- imputación categórica explícita de nulos textuales como `Desconocido`, sin tocar números ni `_cambios`;
 - agrupación con agregaciones tipadas;
 - normalización de correos, teléfonos y direcciones;
 - extracciones textuales Unicode;

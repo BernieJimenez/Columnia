@@ -10,7 +10,7 @@ export type ChangeStatus =
   | { kind: "idle" }
   | {
       kind: "working";
-       action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "outlier_impute" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+       action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "categorical_impute" | "outlier_impute" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
     }
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
@@ -119,6 +119,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     encoding: "Corrigiendo doble codificación UTF-8…",
     invalid_types: "Apartando valores incompatibles…",
     impute: "Imputando nulos de forma conservadora…",
+    categorical_impute: "Completando nulos textuales…",
     outlier_impute: "Imputando outliers por mediana…",
     audit: "Activando trazabilidad por fila…",
     columns: "Normalizando nombres de columnas…",

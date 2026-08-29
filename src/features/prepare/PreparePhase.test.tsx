@@ -242,6 +242,7 @@ describe("PreparePhase", () => {
     const onNormalizeBooleans = vi.fn();
     const onFixEncoding = vi.fn();
     const onImputeMissingValues = vi.fn();
+    const onImputeCategoricalValues = vi.fn();
     const onImputeOutliers = vi.fn();
     const onEnableRowAudit = vi.fn();
     render(<PreparePhase
@@ -262,6 +263,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={onNormalizeBooleans}
       onFixEncoding={onFixEncoding}
       onImputeMissingValues={onImputeMissingValues}
+      onImputeCategoricalValues={onImputeCategoricalValues}
       onImputeOutliers={onImputeOutliers}
       onEnableRowAudit={onEnableRowAudit}
       onNormalizeColumns={() => undefined}
@@ -294,6 +296,8 @@ describe("PreparePhase", () => {
     expect(onNormalizeBooleans).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Intentar imputación conservadora" }));
     expect(onImputeMissingValues).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Completar categorías desconocidas" }));
+    expect(onImputeCategoricalValues).toHaveBeenCalledOnce();
     expect(screen.getByRole("list")).toHaveTextContent("Valores atípicos: amount (1) supera los límites IQR de 1.5.");
     fireEvent.click(screen.getByRole("button", { name: "Imputar outliers con mediana" }));
     expect(onImputeOutliers).toHaveBeenCalledOnce();
