@@ -1195,6 +1195,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Interpretar como `Datetime` las columnas de texto con una fecha dominante
   en un formato cerrado y cobertura segura; omitir formatos ambiguos, preservar
   nulos y ofrecer una acción directa reversible con impacto agregado.
+- [x] Convertir como números las columnas de texto con más de 90% de coincidencia
+  numérica, rechazando pérdida de precisión y preservando identificadores o
+  códigos con ceros iniciales mediante una acción directa reversible.
 - [ ] Completar la migración del catálogo de limpieza sugerida: las reglas
   avanzadas que aún no tengan una acción reversible. Los identificadores y el
   PII personal (correo, teléfono, dirección y nombre) ya tienen acciones de
@@ -1756,6 +1759,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | M1/P1 migra `selected_cleaning_operations` mediante aliases canónicos: `normalize_text` y las demás limpiezas deterministas entran al replay desde la fuente y al informe de sesión; las operaciones avanzadas sin equivalente reversible conservan una advertencia específica y no se ejecutan silenciosamente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | M1/P1 incorpora `mask_pii` y `drop_fuzzy_duplicates` al replay seguro de sesiones DataPrep: sin snapshot compatible se aplica la máscara predeterminada y conservadora `[REDACTED]` o el fingerprint normalizado local (hasta 5.000 filas), preservando nulos, copias exactas, columnas no personales y `_cambios`; los snapshots mantienen prioridad y los modos hash/clave explícita no se inventan. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | P1 cierra la brecha de acción directa para `parse_dates`: Preparar ofrece interpretar columnas de texto con un formato de fecha dominante cerrado, omite mezclas ambiguas, conserva nulos y publica el cambio en el historial reversible con impacto agregado; el inventario IPC pasa a 65 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
+| 2026-08-29 | P1 cierra la brecha de acción directa para `cast_numeric`: Preparar convierte texto con más de 90% de coincidencia numérica, rechaza pérdida de precisión, conserva identificadores/códigos con ceros iniciales y publica una mutación reversible con impacto agregado; el inventario IPC pasa a 66 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 

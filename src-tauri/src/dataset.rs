@@ -5721,6 +5721,7 @@ fn cast_dataprep_numeric_columns(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
     let mut changed_columns = Vec::new();
     let mut changed_cell_count = 0;
 
@@ -5737,6 +5738,14 @@ fn cast_dataprep_numeric_columns(
             .collect::<Vec<_>>();
         let non_null_count = values.iter().flatten().count();
         if non_null_count == 0 {
+            continue;
+        }
+        if privacy_signal(&name) == Some("identifier")
+            || values
+                .iter()
+                .flatten()
+                .any(|value| dataprep_leading_zero_text(value))
+        {
             continue;
         }
 
@@ -5757,6 +5766,11 @@ fn cast_dataprep_numeric_columns(
         });
 
         if !has_decimal_token && integer_count * 10 > non_null_count * 9 {
+            for (row_index, value) in integer_values.iter().enumerate() {
+                if value.is_some() {
+                    changed_rows[row_index] = true;
+                }
+            }
             let converted = Column::new(name.clone().into(), integer_values);
             cleaned.replace(&name, converted).map_err(|error| {
                 format!("No se pudo convertir la columna numérica '{name}': {error}")
@@ -5791,6 +5805,11 @@ fn cast_dataprep_numeric_columns(
                 "La columna '{name}' contiene números que perderían precisión al convertirse."
             ));
         }
+        for (row_index, value) in float_values.iter().enumerate() {
+            if value.is_some() {
+                changed_rows[row_index] = true;
+            }
+        }
         let converted = Column::new(name.clone().into(), float_values);
         cleaned.replace(&name, converted).map_err(|error| {
             format!("No se pudo convertir la columna numérica '{name}': {error}")
@@ -5804,7 +5823,7 @@ fn cast_dataprep_numeric_columns(
 
     Ok((
         cleaned,
-        usize::from(changed_cell_count > 0),
+        changed_rows.into_iter().filter(|changed| *changed).count(),
         changed_cell_count,
         changed_columns,
     ))
@@ -14893,6 +14912,31 @@ fn apply_dataprep_date_parsing(app: AppHandle) -> Result<TextCleaningResult, Str
     })
 }
 
+fn apply_dataprep_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let state = app.state::<DatasetState>();
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let (cast, affected_row_count, changed_cell_count, changed_columns) =
+        cast_dataprep_numeric_columns(&dataset.frame)?;
+    let preview = if changed_cell_count > 0 {
+        publish_candidate(dataset, cast, "Convertir números detectados")?
+    } else {
+        loaded_dataset_preview(dataset, &dataset.frame)?
+    };
+
+    Ok(TextCleaningResult {
+        dataset: preview,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    })
+}
+
 #[tauri::command]
 pub async fn trim_text_values(app: AppHandle) -> Result<TextCleaningResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -14924,6 +14968,13 @@ pub async fn parse_date_values(app: AppHandle) -> Result<TextCleaningResult, Str
     tauri::async_runtime::spawn_blocking(move || apply_dataprep_date_parsing(app))
         .await
         .map_err(|error| format!("La interpretación de fechas se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn cast_numeric_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || apply_dataprep_numeric_cast(app))
+        .await
+        .map_err(|error| format!("La conversión numérica se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -21660,6 +21711,30 @@ mod tests {
         assert_eq!(changed_cells, 4);
         assert_eq!(changed_columns.len(), 1);
         assert_eq!(changed_columns[0].name, "safe");
+    }
+
+    #[test]
+    fn dataprep_numeric_cast_skips_identifiers_and_leading_zero_codes() {
+        let frame = df![
+            "amount" => &["10.5", "11.5", "12.5"],
+            "code" => &["001", "002", "003"],
+            "customer_id" => &["100", "101", "102"]
+        ]
+        .expect("la fixture numérica debe construirse");
+
+        let (cast, changed_rows, changed_cells, changed_columns) =
+            cast_dataprep_numeric_columns(&frame).expect("el cast seguro debe completarse");
+
+        assert_eq!(cast.column("amount").unwrap().dtype(), &DataType::Float64);
+        assert_eq!(cast.column("code").unwrap().dtype(), &DataType::String);
+        assert_eq!(
+            cast.column("customer_id").unwrap().dtype(),
+            &DataType::String
+        );
+        assert_eq!(changed_rows, 3);
+        assert_eq!(changed_cells, 3);
+        assert_eq!(changed_columns.len(), 1);
+        assert_eq!(changed_columns[0].name, "amount");
     }
 
     #[test]

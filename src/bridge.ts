@@ -950,6 +950,10 @@ export function parseDateValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("parse_date_values");
 }
 
+export function castNumericValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("cast_numeric_values");
+}
+
 export function normalizeSentinelValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("normalize_sentinel_values");
 }

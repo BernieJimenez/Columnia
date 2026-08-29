@@ -221,6 +221,7 @@ pub fn run() {
             dataset::trim_text_values,
             dataset::normalize_text_values,
             dataset::parse_date_values,
+            dataset::cast_numeric_values,
             dataset::normalize_sentinel_values,
             dataset::normalize_boolean_values,
             dataset::fix_encoding_values,

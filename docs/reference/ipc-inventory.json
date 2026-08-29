@@ -235,6 +235,11 @@
       "debug": false
     },
     {
+      "name": "cast_numeric_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "normalize_sentinel_values",
       "module": "dataset",
       "debug": false

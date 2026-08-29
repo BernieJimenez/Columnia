@@ -29,6 +29,7 @@ interface PreparePhaseProps {
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onParseDates?: () => void;
+  onCastNumeric?: () => void;
   onFixEncoding?: () => void;
   onNullifyInvalidTypes?: () => void;
   onImputeMissingValues: () => void;
@@ -68,6 +69,7 @@ export function PreparePhase({
   onNormalizeSentinels,
   onNormalizeBooleans,
   onParseDates = () => undefined,
+  onCastNumeric = () => undefined,
   onFixEncoding = () => undefined,
   onNullifyInvalidTypes = () => undefined,
   onImputeMissingValues,
@@ -221,6 +223,7 @@ export function PreparePhase({
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
               onParseDates={onParseDates}
+              onCastNumeric={onCastNumeric}
               onFixEncoding={onFixEncoding}
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
                onImputeMissingValues={onImputeMissingValues}
@@ -641,6 +644,7 @@ function CleaningSignals({
   onNormalizeSentinels,
   onNormalizeBooleans,
   onParseDates,
+  onCastNumeric,
   onFixEncoding,
   onNullifyInvalidTypes,
   onImputeMissingValues,
@@ -660,6 +664,7 @@ function CleaningSignals({
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onParseDates: () => void;
+  onCastNumeric: () => void;
   onFixEncoding: () => void;
   onNullifyInvalidTypes: () => void;
   onImputeMissingValues: () => void;
@@ -691,6 +696,12 @@ function CleaningSignals({
   const dateCandidates = profile.columns.filter(
     (column) => column.name !== "_cambios" && column.dataType === "String" && column.suggestedType === "date",
   );
+  const numericCandidates = profile.columns.filter(
+    (column) => column.name !== "_cambios" && column.dataType === "String" &&
+      (column.suggestedType === "integer" || column.suggestedType === "decimal") &&
+      (column.typeMatchPercentage ?? 0) > 90 &&
+      column.privacySignal !== "identifier",
+  );
   const typeDrift = profile.columns.filter(
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
@@ -704,7 +715,7 @@ function CleaningSignals({
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
-  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
+  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || numericCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -748,6 +759,9 @@ function CleaningSignals({
           )}
           {dateCandidates.length > 0 && (
             <li><strong>Fechas detectadas:</strong> {dateCandidates.map((column) => column.name).join(", ")} coincide con un formato de fecha cerrado.</li>
+          )}
+          {numericCandidates.length > 0 && (
+            <li><strong>Números detectados:</strong> {numericCandidates.map((column) => column.name).join(", ")} admite una conversión numérica segura.</li>
           )}
           {typeDrift.length > 0 && (
             <li><strong>Tipos sugeridos:</strong> {typeDrift.map((column) => column.name).join(", ")} contiene valores que no coinciden con la sugerencia detectada.</li>
@@ -888,6 +902,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onParseDates} disabled={busy}>
                 Interpretar fechas detectadas
+              </button>
+            </div>
+          )}
+          {numericCandidates.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes convertir estas columnas de texto a números. Se exige al menos 90% de
+                valores numéricos válidos, se rechaza la pérdida de precisión y se conservan los
+                identificadores o códigos con ceros iniciales.
+              </p>
+              <button type="button" onClick={onCastNumeric} disabled={busy}>
+                Convertir números detectados
               </button>
             </div>
           )}

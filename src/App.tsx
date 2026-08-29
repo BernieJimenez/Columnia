@@ -849,6 +849,7 @@ export function App() {
                 onNormalizeSentinels={prepare.applySentinelNormalization}
                 onNormalizeBooleans={prepare.applyBooleanNormalization}
                 onParseDates={prepare.applyDateParsing}
+                onCastNumeric={prepare.applyNumericCast}
                 onFixEncoding={prepare.applyEncodingFix}
                 onNullifyInvalidTypes={prepare.applyInvalidTypeCleanup}
                 onImputeMissingValues={prepare.applyMissingValueImputation}

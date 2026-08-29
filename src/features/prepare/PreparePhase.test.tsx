@@ -86,6 +86,31 @@ const cleaningSignalsProfile: DatasetProfile = {
     outlierCount: null,
     histogram: null,
   }, {
+    name: "cantidad",
+    dataType: "String",
+    nullCount: 0,
+    completenessPercentage: 100,
+    uniqueCount: 5,
+    minimum: "1",
+    maximum: "5",
+    mean: null,
+    emptyCount: 0,
+    minimumLength: 1,
+    maximumLength: 1,
+    averageLength: 1,
+    suggestedType: "integer",
+    typeMatchPercentage: 100,
+    invalidTypeCount: 0,
+    sentinelCount: 0,
+    encodingIssueCount: 0,
+    privacySignal: null,
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
+    histogram: null,
+  }, {
     name: "empty_column",
     dataType: "String",
     nullCount: 5,
@@ -266,6 +291,7 @@ describe("PreparePhase", () => {
     const onNormalizeSentinels = vi.fn();
     const onNormalizeBooleans = vi.fn();
     const onParseDates = vi.fn();
+    const onCastNumeric = vi.fn();
     const onFixEncoding = vi.fn();
     const onImputeMissingValues = vi.fn();
     const onImputeCategoricalValues = vi.fn();
@@ -290,6 +316,7 @@ describe("PreparePhase", () => {
       onNormalizeSentinels={onNormalizeSentinels}
       onNormalizeBooleans={onNormalizeBooleans}
       onParseDates={onParseDates}
+      onCastNumeric={onCastNumeric}
       onFixEncoding={onFixEncoding}
       onImputeMissingValues={onImputeMissingValues}
       onImputeCategoricalValues={onImputeCategoricalValues}
@@ -328,6 +355,9 @@ describe("PreparePhase", () => {
     expect(onNormalizeBooleans).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Interpretar fechas detectadas" }));
     expect(onParseDates).toHaveBeenCalledOnce();
+    expect(screen.getByRole("list")).toHaveTextContent("Números detectados: cantidad admite una conversión numérica segura.");
+    fireEvent.click(screen.getByRole("button", { name: "Convertir números detectados" }));
+    expect(onCastNumeric).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Intentar imputación conservadora" }));
     expect(onImputeMissingValues).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Completar categorías desconocidas" }));

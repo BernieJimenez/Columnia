@@ -27,6 +27,10 @@ los artefactos de validación locales.
   fechas detectadas: solo usa un formato dominante cerrado, omite columnas
   ambiguas y publica únicamente el impacto agregado. El inventario IPC pasa a
   65 comandos de producción.
+- Preparar ofrece una acción reversible para convertir texto numérico con más
+  de 90% de coincidencia: rechaza pérdida de precisión y conserva
+  identificadores y códigos con ceros iniciales. El inventario IPC pasa a 66
+  comandos de producción.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
    `drop_fuzzy_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,

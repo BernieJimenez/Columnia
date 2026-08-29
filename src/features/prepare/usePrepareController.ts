@@ -17,6 +17,7 @@ import {
   normalizeBooleanValues,
   normalizeTextValues,
   parseDateValues,
+  castNumericValues,
   maskPersonalValues,
   removeConstantColumns,
   removeEmptyRows,
@@ -334,6 +335,27 @@ export function usePrepareController({
     }
   }
 
+  async function applyNumericCast() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "cast_numeric" });
+    try {
+      const result = await castNumericValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se detectaron columnas de texto numéricas seguras para convertir."
+          : `Se convirtieron ${result.changedCellCount.toLocaleString()} valores numéricos en: ${columns}. Los identificadores y códigos con ceros iniciales se conservaron; el cambio puede revertirse desde el historial.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function applyInvalidTypeCleanup() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "invalid_types" });
@@ -610,6 +632,7 @@ export function usePrepareController({
     applySentinelNormalization,
     applyBooleanNormalization,
     applyDateParsing,
+    applyNumericCast,
     applyEncodingFix,
     applyInvalidTypeCleanup,
     applyMissingValueImputation,
