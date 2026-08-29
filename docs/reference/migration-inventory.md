@@ -36,6 +36,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `normalize_sentinels` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con el vocabulario cerrado de DataPrep; convierte solo texto centinela a nulo, es reversible, agregada y no modifica números ni `_cambios` |
 | `fix_encoding` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando cada valor puede repararse inequívocamente; es reversible, agregada y no modifica números, `_cambios` ni valores ambiguos |
 | `impute_categorical` | Acción directa de Preparar e importación de sesión | Convertida/reproducida cuando la semántica es determinista: nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
+| `parse_dates` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para columnas textuales con formatos cerrados y cobertura segura; convierte a `Datetime`, conserva nulos y omite columnas ambiguas o con demasiadas fechas ilegibles |
 | `trim_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente para columnas textuales, recortando espacios exteriores de forma determinista y protegiendo `_cambios` |
 | `normalize_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con espacios colapsados, minúsculas y eliminación de acentos; protege `_cambios` |
 | `cast_numeric` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para texto con más de 90% de valores numéricos; convierte a `Int64`/`Float64`, conserva nulos no convertibles y rechaza conversiones inseguras |
@@ -97,8 +98,11 @@ selector de Entregar; quedan señalados para revisión antes de exportar.
 
 También se informa cuando el pipeline trae operaciones de limpieza,
 análisis o calidad incrustadas. `selected_cleaning_operations` reconoce aliases
-de las limpiezas deterministas y los normaliza a nombres canónicos. `mask_pii`
-se reproduce únicamente como la máscara local predeterminada y conservadora;
+de las limpiezas deterministas y los normaliza a nombres canónicos. `parse_dates`
+solo convierte columnas textuales con formatos cerrados, cobertura de al menos
+80%, años entre 1900 y 2100 y como máximo 1% de literales no interpretables;
+las columnas ambiguas se dejan intactas. `mask_pii` se reproduce únicamente como
+la máscara local predeterminada y conservadora;
 los modos hash o con clave explícita no se inventan y requieren revisión manual.
 Una operación sin equivalente reversible conserva una advertencia específica
 para revisión manual y no se ejecuta como si fuera equivalente.
@@ -143,8 +147,8 @@ portables; solo conserva esos nombres de categoría y una acción manual, nunca
 su contenido ni la referencia de archivo.
 Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
-`normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
-`normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`,
+`normalize_sentinels`, `impute_numeric`, `impute_categorical`, `parse_dates`,
+`trim_text`, `normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`,
 `impute_outliers`, `drop_outliers`, `normalize_booleans`, `mask_pii`,
 `drop_fuzzy_duplicates`, `normalize_columns` y `add_cambios_col` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de

@@ -3170,12 +3170,84 @@ struct TextStatistics {
     invalid_type_count: Option<usize>,
 }
 
-fn is_supported_date(value: &str) -> bool {
-    const DATE_FORMATS: &[&str] = &["%Y-%m-%d", "%Y/%m/%d", "%B %d, %Y", "%b %d, %Y"];
+#[derive(Clone, Copy)]
+enum DataprepDateFormat {
+    Ymd,
+    DmySlash,
+    MdySlash,
+    DmyDash,
+    YmdSlash,
+    DmyShort,
+    DmyLong,
+    CompactYmd,
+    DmyShortDash,
+    MdyShort,
+    MdyLong,
+    YmdTime,
+    YmdSpaceTime,
+    DmySlashTime,
+    Iso8601,
+}
 
-    DATE_FORMATS
+const DATAPREP_DATE_FORMATS: &[DataprepDateFormat] = &[
+    DataprepDateFormat::Ymd,
+    DataprepDateFormat::DmySlash,
+    DataprepDateFormat::MdySlash,
+    DataprepDateFormat::DmyDash,
+    DataprepDateFormat::YmdSlash,
+    DataprepDateFormat::DmyShort,
+    DataprepDateFormat::DmyLong,
+    DataprepDateFormat::CompactYmd,
+    DataprepDateFormat::DmyShortDash,
+    DataprepDateFormat::MdyShort,
+    DataprepDateFormat::MdyLong,
+    DataprepDateFormat::YmdTime,
+    DataprepDateFormat::YmdSpaceTime,
+    DataprepDateFormat::DmySlashTime,
+    DataprepDateFormat::Iso8601,
+];
+
+fn parse_dataprep_datetime(value: &str, format: DataprepDateFormat) -> Option<NaiveDateTime> {
+    let value = value.trim();
+    let parse_date = |format| {
+        NaiveDate::parse_from_str(value, format)
+            .ok()
+            .and_then(|date| date.and_hms_opt(0, 0, 0))
+    };
+    let parse_datetime = |formats: &[&str]| {
+        formats
+            .iter()
+            .find_map(|format| NaiveDateTime::parse_from_str(value, format).ok())
+    };
+
+    match format {
+        DataprepDateFormat::Ymd => parse_date("%Y-%m-%d"),
+        DataprepDateFormat::DmySlash => parse_date("%d/%m/%Y"),
+        DataprepDateFormat::MdySlash => parse_date("%m/%d/%Y"),
+        DataprepDateFormat::DmyDash => parse_date("%d-%m-%Y"),
+        DataprepDateFormat::YmdSlash => parse_date("%Y/%m/%d"),
+        DataprepDateFormat::DmyShort => parse_date("%d %b %Y"),
+        DataprepDateFormat::DmyLong => parse_date("%d %B %Y"),
+        DataprepDateFormat::CompactYmd => parse_date("%Y%m%d"),
+        DataprepDateFormat::DmyShortDash => parse_date("%d-%b-%Y"),
+        DataprepDateFormat::MdyShort => parse_date("%b %d, %Y"),
+        DataprepDateFormat::MdyLong => parse_date("%B %d, %Y"),
+        DataprepDateFormat::YmdTime => {
+            parse_datetime(&["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S"])
+        }
+        DataprepDateFormat::YmdSpaceTime => {
+            parse_datetime(&["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%d %H:%M:%S"])
+        }
+        DataprepDateFormat::DmySlashTime => parse_datetime(&["%d/%m/%Y %H:%M"]),
+        DataprepDateFormat::Iso8601 => parse_recipe_datetime(value, RecipeDateFormat::Iso8601).ok(),
+    }
+}
+
+fn is_supported_date(value: &str) -> bool {
+    DATAPREP_DATE_FORMATS
         .iter()
-        .any(|format| NaiveDate::parse_from_str(value, format).is_ok())
+        .copied()
+        .any(|format| parse_dataprep_datetime(value, format).is_some())
 }
 
 fn is_missing_sentinel(value: &str) -> bool {
@@ -5291,6 +5363,109 @@ fn normalize_dataprep_boolean_columns(
     ))
 }
 
+fn parse_dataprep_date_columns(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    const INFERENCE_THRESHOLD_PERCENTAGE: usize = 80;
+    const MAX_EXTRA_NULL_PERCENTAGE: usize = 1;
+
+    let mut cleaned = frame.clone();
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios"
+            || !matches!(
+                column.dtype(),
+                DataType::String | DataType::Date | DataType::Datetime(_, _)
+            )
+        {
+            continue;
+        }
+        if matches!(column.dtype(), DataType::Date | DataType::Datetime(_, _)) {
+            continue;
+        }
+
+        let values = strict_column_text(column)?;
+        let non_null_count = values.iter().filter(|value| value.is_some()).count();
+        if non_null_count == 0 {
+            continue;
+        }
+        let sample = values
+            .iter()
+            .filter_map(Option::as_deref)
+            .take(50)
+            .collect::<Vec<_>>();
+        if sample.is_empty() {
+            continue;
+        }
+
+        let inferred_format = DATAPREP_DATE_FORMATS.iter().copied().find(|format| {
+            let parsed = sample
+                .iter()
+                .filter_map(|value| parse_dataprep_datetime(value, *format))
+                .collect::<Vec<_>>();
+            parsed.len() * 100 > sample.len() * INFERENCE_THRESHOLD_PERCENTAGE
+                && parsed
+                    .iter()
+                    .all(|value| (1900..=2100).contains(&value.year()))
+        });
+
+        let parse_value = |value: &str| {
+            inferred_format
+                .and_then(|format| parse_dataprep_datetime(value, format))
+                .or_else(|| {
+                    DATAPREP_DATE_FORMATS
+                        .iter()
+                        .copied()
+                        .find_map(|format| parse_dataprep_datetime(value, format))
+                })
+        };
+        let parsed = values
+            .iter()
+            .map(|value| value.as_deref().and_then(parse_value))
+            .collect::<Vec<_>>();
+        let parsed_count = parsed.iter().filter(|value| value.is_some()).count();
+        let extra_null_count = non_null_count.saturating_sub(parsed_count);
+        if parsed_count * 100 <= sample.len() * INFERENCE_THRESHOLD_PERCENTAGE
+            || extra_null_count * 100 > values.len() * MAX_EXTRA_NULL_PERCENTAGE
+            || parsed
+                .iter()
+                .flatten()
+                .any(|value| !(1900..=2100).contains(&value.year()))
+        {
+            continue;
+        }
+
+        let milliseconds = parsed
+            .into_iter()
+            .map(|value| value.map(|value| value.and_utc().timestamp_millis()))
+            .collect::<Vec<_>>();
+        let converted = Series::new(column.name().clone(), milliseconds)
+            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+            .map_err(|error| {
+                format!("No se pudo interpretar la columna de fechas '{name}': {error}")
+            })?
+            .into_column();
+        cleaned.replace(&name, converted).map_err(|error| {
+            format!("No se pudo actualizar la columna de fechas '{name}': {error}")
+        })?;
+        changed_cell_count += parsed_count;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: parsed_count,
+        });
+    }
+
+    Ok((
+        cleaned,
+        usize::from(!changed_columns.is_empty()),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
 fn impute_missing_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
@@ -7077,6 +7252,7 @@ fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
         "normalize_sentinels" | "sentinels" => Some("normalize_sentinels"),
         "impute_numeric" | "impute_missing_numeric" => Some("impute_numeric"),
         "impute_categorical" | "impute_missing_categorical" => Some("impute_categorical"),
+        "parse_dates" | "parse_date_columns" | "parse_datetime" => Some("parse_dates"),
         "trim_text" | "trim_text_values" => Some("trim_text"),
         "normalize_text" | "normalize_text_values" => Some("normalize_text"),
         "fix_encoding" | "repair_encoding" => Some("fix_encoding"),
@@ -17725,6 +17901,7 @@ impl DatasetState {
             "normalize_sentinels",
             "impute_numeric",
             "impute_categorical",
+            "parse_dates",
             "trim_text",
             "normalize_text",
             "fix_encoding",
@@ -17784,6 +17961,7 @@ impl DatasetState {
                     )
                 }
                 "impute_numeric" => impute_dataprep_numeric_values_in_frame(&cleaned)?,
+                "parse_dates" => parse_dataprep_date_columns(&cleaned)?,
                 "normalize_sentinels" => {
                     clean_text_columns(&cleaned, None, TextCleaningMode::Sentinels)?
                 }
@@ -21423,6 +21601,31 @@ mod tests {
                 polars::prelude::DataType::Datetime(_, _)
             ));
         }
+    }
+
+    #[test]
+    fn dataprep_date_cleaning_skips_ambiguous_columns_instead_of_creating_nulls() {
+        let frame = df![
+            "safe" => &["2025-01-02", "2025-01-03", "2025-01-04"],
+            "ambiguous" => &["01/02/2025", "02/03/2025", "not-a-date"]
+        ]
+        .expect("la fixture de fechas debe construirse");
+
+        let (cleaned, changed_rows, changed_cells, changed_columns) =
+            parse_dataprep_date_columns(&frame).expect("el parseo conservador debe completarse");
+
+        assert!(matches!(
+            cleaned.column("safe").unwrap().dtype(),
+            polars::prelude::DataType::Datetime(_, _)
+        ));
+        assert_eq!(
+            cleaned.column("ambiguous").unwrap().dtype(),
+            &DataType::String
+        );
+        assert_eq!(changed_rows, 1);
+        assert_eq!(changed_cells, 3);
+        assert_eq!(changed_columns.len(), 1);
+        assert_eq!(changed_columns[0].name, "safe");
     }
 
     #[test]

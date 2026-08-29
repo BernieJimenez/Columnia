@@ -26,7 +26,7 @@ los artefactos de validación locales.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
    `drop_fuzzy_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
-   `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers` y `drop_outliers`,
+   `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `parse_dates`, `trim_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers` y `drop_outliers`,
    `normalize_text`, `normalize_booleans`, `mask_pii`, `normalize_columns` y `add_cambios_col` durante el fallback a la fuente
    cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible
    conserva prioridad para evitar reaplicar operaciones sobre un estado

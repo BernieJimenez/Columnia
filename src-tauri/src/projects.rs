@@ -3033,6 +3033,47 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_replays_inferred_dates_without_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(
+            &source,
+            "when,label\n2025-01-02,first\n2025-01-03,second\n2025-01-04,third\n",
+        )
+        .unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Fechas inferidas reproducibles",
+                "source_path": "source.csv",
+                "selected_cleaning_operations": ["parse_dates"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("las fechas inferidas deben poder reproducirse desde la fuente");
+        let state = DatasetState::default();
+        store.open(&state, imported.id).unwrap();
+        let active = state
+            .active_project_snapshot()
+            .expect("el proyecto de fechas debe quedar activo");
+
+        assert!(matches!(
+            active.frame.column("when").unwrap().dtype(),
+            polars::prelude::DataType::Datetime(_, _)
+        ));
+        assert_eq!(active.frame.column("when").unwrap().len(), 3);
+        assert_eq!(active.history.entries.len(), 2);
+    }
+
+    #[test]
     fn dataprep_session_replays_fuzzy_duplicate_cleaning_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
