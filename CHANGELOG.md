@@ -70,6 +70,10 @@ los artefactos de validación locales.
   sesión activa. También conserva el desplazamiento de la página visible de la
   muestra, normaliza offsets inválidos y vuelve a la primera página si la página
   guardada ya no está disponible. La migración SQLite pasa a v7.
+- La cobertura crítica por capa vuelve a pasar con `npm run test:coverage`:
+  `App`, `DeliveryPhase`, `PreparePhase`, `usePrepareController` y
+  `useProjectsController` mantienen sus umbrales propios, incluyendo las ramas
+  de confirmación y desmarcado de correcciones de Preparar.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o

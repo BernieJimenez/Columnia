@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
@@ -311,6 +311,10 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("alertdialog")).toHaveTextContent("Limitar valores atípicos");
     fireEvent.click(screen.getByRole("button", { name: "Limitar outliers" }));
     expect(onCapOutliers).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar filas atípicas" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Se eliminará cualquier fila");
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Eliminar filas atípicas" }));
+    expect(onDropOutliers).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Activar trazabilidad" }));
     expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });
@@ -630,6 +634,8 @@ describe("PreparePhase", () => {
       {...callbacks}
     />);
     fireEvent.click(screen.getByText("Correcciones avanzadas"));
+    fireEvent.click(screen.getByLabelText("nombre"));
+    fireEvent.click(screen.getByLabelText("nombre"));
     fireEvent.click(screen.getByLabelText("nombre"));
     fireEvent.click(screen.getByLabelText("Eliminar acentos"));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
