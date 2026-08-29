@@ -70,8 +70,8 @@ const SENTINEL_VALUES: &[&str] = &[
     "(vacio)",
 ];
 const MOJIBAKE_MARKERS: &[&str] = &[
-    "â€™", "â€œ", "â€", "Ã©", "Ã¨", "Ã ", "Ã¢", "Ã®", "Ã´", "Ã³", "Ã±", "Ã¼", "Ã¡", "Ã­", "Ãº",
-    "â€”", "â€¦",
+    "â€™", "â€œ", "â€", "Ã©", "Ã¨", "Ã ", "Ã¢", "Ã®", "Ã´", "Ã³", "Ã±", "Ã¼", "Ã¡", "Ã\u{AD}",
+    "Ãº", "â€”", "â€¦",
 ];
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;

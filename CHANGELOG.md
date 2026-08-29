@@ -54,6 +54,10 @@ los artefactos de validación locales.
 - La importación de sesiones DataPrep recalcula y persiste el perfil agregado
   del dataset importado antes de publicar el proyecto, para que Revisar abra
   con una caché de calidad válida sin conservar filas, celdas, rutas ni muestras.
+- Los proyectos con perfil cacheado guardan la huella SHA-256 del
+  `current.parquet` durable y descartan automáticamente solo ese perfil si el
+  snapshot cambia al reabrir; los catálogos anteriores siguen siendo legibles y
+  se actualizan al próximo guardado mediante la migración SQLite v5.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o

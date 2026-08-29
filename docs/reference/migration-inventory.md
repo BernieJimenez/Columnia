@@ -147,8 +147,9 @@ completamente nulas y no elimina por sí sola texto en blanco. Si existe un
 snapshot compatible, se usa ese estado materializado y las operaciones no se
 reaplican.
 Al publicar un proyecto importado, Columnia recalcula y persiste su propio
-perfil agregado para que Revisar tenga una caché verificable; esto no afirma que
-un análisis de DataPrep pueda reanudarse automáticamente.
+perfil agregado junto con la huella SHA-256 de `current.parquet`, para que
+Revisar tenga una caché verificable y pueda invalidarla si el snapshot cambia;
+esto no afirma que un análisis de DataPrep pueda reanudarse automáticamente.
 
 ## Límites pendientes
 

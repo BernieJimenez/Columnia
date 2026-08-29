@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     fs::{self},
+    io::Read,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
@@ -19,8 +20,9 @@ use crate::dataset::{
     QualityRule, SpreadsheetHeaderMode, StoredTransformRecipe,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
+use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const ID_LENGTH: usize = 32;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
@@ -134,6 +136,7 @@ struct StoredProject {
     generation_name: Option<String>,
     history_manifest_json: Option<String>,
     profile_json: Option<String>,
+    profile_cache_sha256: Option<String>,
     sql_history_json: String,
 }
 
@@ -271,10 +274,11 @@ impl ProjectStore {
                            generation_name TEXT,
                            history_manifest_json TEXT,
                            profile_json TEXT,
+                           profile_cache_sha256 TEXT,
                            sql_history_json TEXT NOT NULL DEFAULT '[]'
                          );
                          CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                         PRAGMA user_version = 4;",
+                         PRAGMA user_version = 5;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -291,8 +295,9 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN generation_name TEXT;
                          ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
+                         ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
                          ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
-                         PRAGMA user_version = 4;",
+                         PRAGMA user_version = 5;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -306,8 +311,9 @@ impl ProjectStore {
                         "ALTER TABLE projects ADD COLUMN generation_name TEXT;
                          ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
+                         ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
                          ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
-                         PRAGMA user_version = 4;",
+                         PRAGMA user_version = 5;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -319,7 +325,20 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
-                         PRAGMA user_version = 4;",
+                         ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
+                         PRAGMA user_version = 5;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            4 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
+                         PRAGMA user_version = 5;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -428,6 +447,11 @@ impl ProjectStore {
             .transpose()
             .map_err(|_| "No se pudo validar el perfil del proyecto.".to_owned())?;
         write_generation(&active.frame, &active.history, &generation_path)?;
+        let profile_cache_sha256 = active
+            .profile
+            .as_ref()
+            .map(|_| hash_file_sha256(&generation_path.join("current.parquet")))
+            .transpose()?;
 
         if fail_before_database {
             let _ = fs::remove_dir_all(&generation_path);
@@ -456,7 +480,8 @@ impl ProjectStore {
                 "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
                  column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
                  quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
-                 history_manifest_json = ?10, profile_json = ?11, sql_history_json = ?12 WHERE id = ?13",
+                 history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
+                 sql_history_json = ?13 WHERE id = ?14",
                 params![
                     name,
                     active.file_name,
@@ -469,6 +494,7 @@ impl ProjectStore {
                     generation_name,
                     history_manifest_json,
                     profile_json,
+                    profile_cache_sha256,
                     sql_history_json,
                     id
                 ],
@@ -478,8 +504,9 @@ impl ProjectStore {
                 "INSERT INTO projects
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
-                  generation_name, history_manifest_json, profile_json, sql_history_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                  generation_name, history_manifest_json, profile_json, profile_cache_sha256,
+                  sql_history_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     id,
                     name,
@@ -493,6 +520,7 @@ impl ProjectStore {
                     generation_name,
                     history_manifest_json,
                     profile_json,
+                    profile_cache_sha256,
                     sql_history_json
                 ],
             )
@@ -529,10 +557,15 @@ impl ProjectStore {
             .stored_project(&connection, project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
         let workspace = decode_workspace(&stored)?;
-        let profile = decode_profile(&stored)?;
+        let mut profile = decode_profile(&stored)?;
         let candidate = if let Some(generation_name) = stored.generation_name.as_deref() {
             let generation = self.generation_path(project_id, generation_name)?;
             let current = self.generation_file(&generation, "current.parquet")?;
+            if profile.is_some() && !profile_cache_matches(&stored, &current)? {
+                // A cache from a different generation is not fatal; Review can
+                // recompute the derived profile for the verified dataset.
+                profile = None;
+            }
             let history = self.decode_history(&stored, &generation)?;
             DatasetState::prepare_durable_project_candidate(
                 current,
@@ -541,7 +574,10 @@ impl ProjectStore {
                 Some(history),
             )?
         } else {
-            if stored.history_manifest_json.is_some() || profile.is_some() {
+            if stored.history_manifest_json.is_some()
+                || profile.is_some()
+                || stored.profile_cache_sha256.is_some()
+            {
                 return Err("El estado persistente del proyecto no es consistente.".to_owned());
             }
             let snapshot_path = self.snapshot_path(project_id, &stored.snapshot_name)?;
@@ -653,7 +689,8 @@ impl ProjectStore {
             .query_row(
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at,
                         updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
-                        generation_name, history_manifest_json, profile_json, sql_history_json
+                        generation_name, history_manifest_json, profile_json,
+                        profile_cache_sha256, sql_history_json
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -665,7 +702,8 @@ impl ProjectStore {
                         generation_name: row.get(10)?,
                         history_manifest_json: row.get(11)?,
                         profile_json: row.get(12)?,
-                        sql_history_json: row.get(13)?,
+                        profile_cache_sha256: row.get(13)?,
+                        sql_history_json: row.get(14)?,
                     })
                 },
             )
@@ -911,6 +949,33 @@ fn decode_profile(stored: &StoredProject) -> Result<Option<DatasetProfile>, Stri
         .map(serde_json::from_str)
         .transpose()
         .map_err(|_| "El perfil guardado del proyecto no es válido.".to_owned())
+}
+
+fn profile_cache_matches(stored: &StoredProject, current: &Path) -> Result<bool, String> {
+    let Some(expected) = stored.profile_cache_sha256.as_deref() else {
+        // Catalogs created before the cache fingerprint existed remain
+        // readable; the next save upgrades them to the verified contract.
+        return Ok(true);
+    };
+    if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(false);
+    }
+    let actual = hash_file_sha256(current)?;
+    Ok(actual.eq_ignore_ascii_case(expected))
+}
+
+fn hash_file_sha256(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|_| storage_error())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|_| storage_error())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn prepare_store_directory(requested: &Path) -> Result<PathBuf, String> {
@@ -1604,7 +1669,7 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         drop(store);
-        ProjectStore::initialize(root).expect("reabrir v4 debe ser idempotente");
+        ProjectStore::initialize(root).expect("reabrir v5 debe ser idempotente");
     }
 
     #[test]
@@ -1643,6 +1708,7 @@ mod tests {
         assert!(columns.contains(&"generation_name".to_owned()));
         assert!(columns.contains(&"history_manifest_json".to_owned()));
         assert!(columns.contains(&"profile_json".to_owned()));
+        assert!(columns.contains(&"profile_cache_sha256".to_owned()));
         assert!(columns.contains(&"sql_history_json".to_owned()));
     }
 
@@ -1653,7 +1719,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 5;")
+            .execute_batch("PRAGMA user_version = 6;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -1665,7 +1731,7 @@ mod tests {
             .unwrap()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -1735,6 +1801,49 @@ mod tests {
             .project_test_redo()
             .unwrap()
             .equals_missing(&frame(&[9])));
+    }
+
+    #[test]
+    fn stale_profile_cache_is_invalidated_when_current_snapshot_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data");
+        let store = ProjectStore::initialize(root).unwrap();
+        let (state, _) = active_state(directory.path(), &[1, 2], "profile.csv");
+        state.project_test_cache_profile().unwrap();
+        state.project_test_degrade_history().unwrap();
+        let project = store
+            .save(
+                &state,
+                None,
+                "Perfil verificable".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+
+        let stored = store
+            .stored_project(&store.connection().unwrap(), &project.id)
+            .unwrap()
+            .unwrap();
+        let cache_hash = stored
+            .profile_cache_sha256
+            .as_deref()
+            .expect("un perfil guardado debe tener huella");
+        assert_eq!(cache_hash.len(), 64);
+        let generation = store
+            .generation_path(&project.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
+        let current = store
+            .generation_file(&generation, "current.parquet")
+            .unwrap();
+        fs::remove_file(&current).unwrap();
+        write_snapshot(&frame(&[9, 10]), &current).unwrap();
+
+        let reopened = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let result = reopened
+            .open(&DatasetState::default(), project.id)
+            .expect("un snapshot cambiado debe seguir abriendo el proyecto");
+        assert!(result.profile.is_none());
+        assert_eq!(result.dataset.row_count, 2);
     }
 
     #[test]
