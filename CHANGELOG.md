@@ -16,12 +16,16 @@ los artefactos de validación locales.
   completa nulos textuales como `Desconocido`, sin tocar números ni `_cambios`,
   con impacto agregado; el inventario IPC actual pasa a 61 comandos de producción.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
-  `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
-  `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`, `cast_numeric`,
-  `normalize_booleans`, `normalize_columns` y `add_cambios_col` durante el fallback a la fuente
-  cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible
-  conserva prioridad para evitar reaplicar operaciones sobre un estado
-  materializado.
+   `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
+   `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`, `cast_numeric`,
+   `normalize_text`, `normalize_booleans`, `normalize_columns` y `add_cambios_col` durante el fallback a la fuente
+   cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible
+   conserva prioridad para evitar reaplicar operaciones sobre un estado
+   materializado.
+- El catálogo DataPrep `selected_cleaning_operations` se migra por aliases canónicos:
+  las limpiezas deterministas se reproducen desde la fuente, se conservan en el
+  informe de sesión y las operaciones sin equivalente (por ejemplo `mask_pii`)
+  quedan como advertencias accionables, sin descartarse silenciosamente.
 - El preflight de sesiones DataPrep clasifica bloques reconocibles de resultados,
   historial y cachés como artefactos no portables, conservando solo sus categorías
   sanitizadas y una acción manual; no copia contenido ni rutas de esos artefactos.

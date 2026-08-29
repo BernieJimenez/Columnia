@@ -6866,6 +6866,7 @@ fn migration_session_field<'a>(
         "sheet_name" => "sheetName",
         "stage_label" => "stageLabel",
         "applied_ops" => "appliedOps",
+        "selected_cleaning_operations" => "selectedCleaningOperations",
         "quality_rules" => "qualityRules",
         "analysis_checks" => "analysisChecks",
         "file_name" => "fileName",
@@ -6885,6 +6886,54 @@ fn migration_session_field<'a>(
                 .and_then(|map| map.get(camel_case))
                 .filter(|value| !value.is_null())
         })
+}
+
+fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "drop_duplicates" | "remove_duplicates" | "deduplicate" => Some("drop_duplicates"),
+        "drop_high_null_cols" | "drop_high_null_columns" | "remove_high_null_columns" => {
+            Some("drop_high_null_cols")
+        }
+        "drop_id_cols" | "drop_id_columns" | "drop_identifier_columns" => Some("drop_id_cols"),
+        "drop_empty_cols" | "drop_empty_columns" | "remove_empty_columns" => {
+            Some("drop_empty_cols")
+        }
+        "drop_constant_cols" | "drop_constant_columns" | "remove_constant_columns" => {
+            Some("drop_constant_cols")
+        }
+        "drop_empty_rows" | "remove_empty_rows" => Some("drop_empty_rows"),
+        "normalize_sentinels" | "sentinels" => Some("normalize_sentinels"),
+        "impute_numeric" | "impute_missing_numeric" => Some("impute_numeric"),
+        "impute_categorical" | "impute_missing_categorical" => Some("impute_categorical"),
+        "trim_text" | "trim_text_values" => Some("trim_text"),
+        "normalize_text" | "normalize_text_values" => Some("normalize_text"),
+        "fix_encoding" | "repair_encoding" => Some("fix_encoding"),
+        "cast_numeric" | "cast_numeric_columns" => Some("cast_numeric"),
+        "normalize_booleans" | "normalize_boolean_values" => Some("normalize_booleans"),
+        "normalize_columns" | "normalize_column_names" => Some("normalize_columns"),
+        "add_cambios_col" | "enable_row_audit" => Some("add_cambios_col"),
+        _ => None,
+    }
+}
+
+fn migration_metadata_name(value: &JsonValue) -> Option<String> {
+    let candidate = value.as_str().or_else(|| {
+        value.as_object().and_then(|map| {
+            ["name", "kind", "operation", "id"]
+                .iter()
+                .find_map(|key| map.get(*key).and_then(JsonValue::as_str))
+        })
+    })?;
+    let candidate = candidate.trim();
+    if candidate.is_empty()
+        || candidate.chars().count() > MAX_SESSION_METADATA_NAME_CHARS
+        || candidate
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '/' | '\\'))
+    {
+        return None;
+    }
+    Some(candidate.to_owned())
 }
 
 fn migration_session_artifact_names(root: &JsonMap<String, JsonValue>) -> Vec<String> {
@@ -6944,6 +6993,7 @@ fn migration_session_metadata(
         "sheet_name",
         "stage_label",
         "applied_ops",
+        "selected_cleaning_operations",
         "quality_rules",
         "analysis_checks",
     ]
@@ -6990,34 +7040,15 @@ fn migration_session_metadata(
             })?,
     };
 
-    let metadata_name = |value: &JsonValue| -> Option<String> {
-        let candidate = value.as_str().or_else(|| {
-            value.as_object().and_then(|map| {
-                ["name", "kind", "operation", "id"]
-                    .iter()
-                    .find_map(|key| map.get(*key).and_then(JsonValue::as_str))
-            })
-        })?;
-        let candidate = candidate.trim();
-        if candidate.is_empty()
-            || candidate.chars().count() > MAX_SESSION_METADATA_NAME_CHARS
-            || candidate
-                .chars()
-                .any(|character| character.is_control() || matches!(character, '/' | '\\'))
-        {
-            return None;
-        }
-        Some(candidate.to_owned())
-    };
     let metadata_names = |key: &str| -> Result<Vec<String>, String> {
         let Some(value) = migration_session_field(root, key) else {
             return Ok(Vec::new());
         };
         let mut names = match value {
-            JsonValue::Array(values) => values.iter().filter_map(metadata_name).collect(),
+            JsonValue::Array(values) => values.iter().filter_map(migration_metadata_name).collect(),
             JsonValue::Object(values) if key == "analysis_checks" => values
                 .keys()
-                .filter_map(|value| metadata_name(&JsonValue::String(value.clone())))
+                .filter_map(|value| migration_metadata_name(&JsonValue::String(value.clone())))
                 .collect(),
             JsonValue::Null => Vec::new(),
             _ => {
@@ -7030,6 +7061,24 @@ fn migration_session_metadata(
         Ok(names)
     };
 
+    let explicit_applied_operations = metadata_names("applied_ops")?;
+    let selected_cleaning_operations = metadata_names("selected_cleaning_operations")?;
+    let mut applied_operations = explicit_applied_operations
+        .into_iter()
+        .map(|operation| {
+            migration_cleaning_operation(&operation)
+                .unwrap_or(operation.as_str())
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    applied_operations.extend(
+        selected_cleaning_operations
+            .into_iter()
+            .filter_map(|operation| migration_cleaning_operation(&operation).map(str::to_owned)),
+    );
+    let mut seen_operations = HashSet::new();
+    applied_operations.retain(|operation| seen_operations.insert(operation.clone()));
+
     Ok(Some(SessionMigrationMetadata {
         has_source_reference: migration_session_field(root, "source_path")
             .is_some_and(|value| !value.is_null()),
@@ -7037,10 +7086,10 @@ fn migration_session_metadata(
             .is_some_and(|value| !value.is_null()),
         sheet_name: optional_text("sheet_name")?,
         stage_label: optional_text("stage_label")?,
-        applied_operation_count: count_array("applied_ops")?,
+        applied_operation_count: applied_operations.len(),
         quality_rule_count: count_array("quality_rules")?,
         analysis_check_count,
-        applied_operations: metadata_names("applied_ops")?,
+        applied_operations,
         analysis_checks: metadata_names("analysis_checks")?,
         non_portable_artifacts,
     }))
@@ -7480,20 +7529,38 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
     let mut warnings = Vec::new();
     let session = migration_session_metadata(root)?;
 
-    if let Some(selected_cleaning_operations) = root.get("selected_cleaning_operations") {
+    if let Some(selected_cleaning_operations) =
+        migration_session_field(root, "selected_cleaning_operations")
+    {
         let operations = selected_cleaning_operations.as_array().ok_or_else(|| {
             "selected_cleaning_operations de DataPrep debe ser un arreglo.".to_owned()
         })?;
-        if !operations.is_empty() {
-            push_migration_operation(&mut omitted_operations, "selected_cleaning_operations");
-            warnings.push(recipe_migration_warning(
-                "selected_cleaning_operations",
-                "omitted",
-                format!(
-                    "Se omitieron {} operaciones de limpieza que deben revisarse en Columnia.",
-                    operations.len()
-                ),
-            ));
+        for operation in operations {
+            let Some(name) = migration_metadata_name(operation) else {
+                push_migration_operation(&mut omitted_operations, "selected_cleaning_operations");
+                warnings.push(recipe_migration_warning(
+                    "selected_cleaning_operations",
+                    "omitted",
+                    "Una operación de limpieza no tiene un identificador migrable y requiere revisión manual.",
+                ));
+                continue;
+            };
+            if let Some(canonical) = migration_cleaning_operation(&name) {
+                push_migration_operation(
+                    &mut converted_operations,
+                    format!("selected_cleaning_operations.{canonical}"),
+                );
+            } else {
+                push_migration_operation(
+                    &mut omitted_operations,
+                    format!("selected_cleaning_operations.{name}"),
+                );
+                warnings.push(recipe_migration_warning(
+                    format!("selected_cleaning_operations.{name}"),
+                    "omitted",
+                    "La operación de limpieza DataPrep no tiene un equivalente reversible automático y requiere revisión manual.",
+                ));
+            }
         }
     }
     for (key, canonical_key) in [
@@ -7545,17 +7612,29 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
         ));
     }
     if let Some(applied_ops) = migration_session_field(root, "applied_ops") {
-        let count = applied_ops
+        let operations = applied_ops
             .as_array()
-            .ok_or_else(|| "applied_ops de la sesión DataPrep debe ser un arreglo.".to_owned())?
-            .len();
-        if count > 0 {
+            .ok_or_else(|| "applied_ops de la sesión DataPrep debe ser un arreglo.".to_owned())?;
+        let mut replayable_count = 0;
+        for operation in operations {
+            if let Some(canonical) = migration_metadata_name(operation)
+                .and_then(|name| migration_cleaning_operation(&name))
+            {
+                push_migration_operation(
+                    &mut converted_operations,
+                    format!("session.applied_ops.{canonical}"),
+                );
+                replayable_count += 1;
+            }
+        }
+        let non_replayable_count = operations.len().saturating_sub(replayable_count);
+        if non_replayable_count > 0 {
             push_migration_operation(&mut omitted_operations, "session.applied_ops");
             warnings.push(recipe_migration_warning(
                 "session.applied_ops",
                 "omitted",
                 format!(
-                    "Se omitieron {count} operaciones aplicadas de la sesión; deben revisarse contra el dataset importado."
+                    "Se omitieron {non_replayable_count} operaciones aplicadas de la sesión; deben revisarse contra el dataset importado."
                 ),
             ));
         }
@@ -17394,6 +17473,7 @@ impl DatasetState {
             "impute_numeric",
             "impute_categorical",
             "trim_text",
+            "normalize_text",
             "fix_encoding",
             "cast_numeric",
             "normalize_booleans",
@@ -17453,6 +17533,13 @@ impl DatasetState {
                     clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
                 }
                 "trim_text" => clean_text_columns(&cleaned, None, TextCleaningMode::Trim)?,
+                "normalize_text" => clean_text_columns(
+                    &cleaned,
+                    None,
+                    TextCleaningMode::Normalize {
+                        remove_accents: true,
+                    },
+                )?,
                 "cast_numeric" => cast_dataprep_numeric_columns(&cleaned)?,
                 "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
                 "normalize_columns" => {
@@ -17918,6 +18005,20 @@ mod tests {
         assert_eq!(json["exportOptions"]["formats"][1], "excel");
         assert_eq!(json["exportOptions"]["selectedColumns"][1], "age");
         assert_eq!(json["exportOptions"]["privacyMode"], "mask");
+        assert_eq!(
+            json["migrationReport"]["session"]["appliedOperations"],
+            serde_json::json!(["normalize_text"])
+        );
+        assert!(json["migrationReport"]["convertedOperations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "selected_cleaning_operations.normalize_text"));
+        assert!(json["migrationReport"]["omittedOperations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "selected_cleaning_operations.mask_pii"));
         assert_eq!(json["migrationReport"]["sourceFormat"], "dataprep");
         assert_eq!(json["migrationReport"]["sourceVersion"], 3);
         assert!(json["migrationReport"]["convertedItems"].as_u64().unwrap() > 0);
@@ -17953,7 +18054,12 @@ mod tests {
 
         assert!(omitted.iter().any(|value| value == "session.source_path"));
         assert!(omitted.iter().any(|value| value == "session.snapshot_path"));
-        assert!(omitted.iter().any(|value| value == "session.applied_ops"));
+        assert!(!omitted.iter().any(|value| value == "session.applied_ops"));
+        assert!(json["migrationReport"]["convertedOperations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "session.applied_ops.normalize_text"));
         assert!(omitted.iter().any(|value| value == "quality_rules"));
         assert!(omitted
             .iter()
@@ -18057,11 +18163,16 @@ mod tests {
         );
         assert_eq!(report["session"]["hasSourceReference"], true);
         assert_eq!(report["session"]["hasSnapshotReference"], true);
-        assert!(report["omittedOperations"]
+        assert!(!report["omittedOperations"]
             .as_array()
             .expect("el informe debe listar omisiones")
             .iter()
             .any(|value| value == "session.applied_ops"));
+        assert!(report["convertedOperations"]
+            .as_array()
+            .expect("el informe debe listar conversiones")
+            .iter()
+            .any(|value| value == "session.applied_ops.normalize_text"));
         assert!(report["omittedOperations"]
             .as_array()
             .expect("el informe debe listar omisiones")

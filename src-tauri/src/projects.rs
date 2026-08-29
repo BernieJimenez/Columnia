@@ -2542,6 +2542,44 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_replays_selected_cleaning_operations_without_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "name\n  María  \n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Catálogo seleccionado reproducible",
+                "source_path": "source.csv",
+                "selected_cleaning_operations": ["normalize_text_values"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la operación seleccionada debe poder reproducirse desde la fuente");
+        let state = DatasetState::default();
+        store
+            .open(&state, imported.id)
+            .expect("el proyecto seleccionado debe reabrirse");
+        let active = state
+            .active_project_snapshot()
+            .expect("el dataset seleccionado debe quedar activo");
+
+        assert_eq!(
+            active.frame.column("name").unwrap().str().unwrap().get(0),
+            Some("maria")
+        );
+        assert_eq!(active.history.entries.len(), 2);
+    }
+
+    #[test]
     fn dataprep_session_replays_structural_cleaning_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
@@ -2891,8 +2929,8 @@ mod tests {
         assert_eq!(restored.dataset.columns[0].name, "new_name");
         assert_eq!(restored.dataset.row_count, 3);
         let restored_history = restored_state.active_project_snapshot().unwrap().history;
-        assert_eq!(restored_history.entries.len(), 3);
-        assert_eq!(restored_history.cursor, 2);
+        assert_eq!(restored_history.entries.len(), 4);
+        assert_eq!(restored_history.cursor, 3);
         assert!(restored_state
             .project_test_undo()
             .unwrap()

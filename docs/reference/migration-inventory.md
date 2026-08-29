@@ -36,6 +36,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `fix_encoding` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando cada valor puede repararse inequívocamente; es reversible, agregada y no modifica números, `_cambios` ni valores ambiguos |
 | `impute_categorical` | Acción directa de Preparar e importación de sesión | Convertida/reproducida cuando la semántica es determinista: nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
 | `trim_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente para columnas textuales, recortando espacios exteriores de forma determinista y protegiendo `_cambios` |
+| `normalize_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con espacios colapsados, minúsculas y eliminación de acentos; protege `_cambios` |
 | `cast_numeric` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para texto con más de 90% de valores numéricos; convierte a `Int64`/`Float64`, conserva nulos no convertibles y rechaza conversiones inseguras |
 | `normalize_booleans` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando una columna de texto usa solo tokens booleanos conocidos y contiene ambos valores; se convierte al tipo booleano, sin modificar `_cambios` |
 | `normalize_columns` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con normalización Unicode y colisiones deterministas; se ejecuta antes de la receta estructural |
@@ -48,8 +49,10 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 
 - Las versiones futuras a v3 se rechazan antes de convertirlas.
 - Expresiones regulares en `find_replace`, booleanos personalizados y
-  operaciones sin equivalente no se descartan: la carga falla con una razón
-  accionable para revisión manual.
+  operaciones estructurales sin equivalente no se descartan: la carga falla con
+  una razón accionable para revisión manual. En `selected_cleaning_operations`,
+  una limpieza desconocida se conserva como advertencia específica para poder
+  revisar el catálogo sin ejecutar una aproximación insegura.
 - Los campos desconocidos de una receta nativa Columnia continúan fallando por
   `deny_unknown_fields`.
 - El nombre y la fecha de la receta se conservan cuando están presentes; si la
@@ -88,8 +91,10 @@ automáticamente porque todavía no tienen un equivalente completo en el
 selector de Entregar; quedan señalados para revisión antes de exportar.
 
 También se informa cuando el pipeline trae operaciones de limpieza,
-análisis o calidad incrustadas: esas superficies se migran por contratos
-separados y no se descartan silenciosamente.
+análisis o calidad incrustadas. `selected_cleaning_operations` reconoce aliases
+de las limpiezas deterministas y los normaliza a nombres canónicos; una operación
+sin equivalente reversible conserva una advertencia específica para revisión
+manual y no se ejecuta como si fuera equivalente.
 
 ## Fixtures y formatos auditados
 
@@ -130,7 +135,7 @@ su contenido ni la referencia de archivo.
 Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
-`fix_encoding`, `cast_numeric`,
+`normalize_text`, `fix_encoding`, `cast_numeric`,
 `normalize_booleans`, `normalize_columns` y `add_cambios_col` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de
 limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
