@@ -537,6 +537,7 @@ describe("desktop bridge", () => {
       recipeDraft: null,
       reviewTab: "preview",
       previewOffset: 50,
+      activePhase: "prepare",
     };
     vi.mocked(invoke).mockResolvedValue({ id: "project-1", name: "Ventas" });
 

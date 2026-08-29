@@ -74,6 +74,10 @@ los artefactos de validación locales.
   `App`, `DeliveryPhase`, `PreparePhase`, `usePrepareController` y
   `useProjectsController` mantienen sus umbrales propios, incluyendo las ramas
   de confirmación y desmarcado de correcciones de Preparar.
+- El workspace durable conserva también la etapa activa del flujo (`load`,
+  `review`, `prepare` o `deliver`) y la restaura al abrir proyectos; los
+  catálogos anteriores vuelven a Revisar y las etapas desconocidas se rechazan
+  sin sustituir la sesión activa. La migración SQLite pasa a v8.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o

@@ -542,9 +542,10 @@ duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en
 su workspace y se restaura al abrirlo; un proyecto todavía no guardado conserva
 la actividad solo durante la sesión actual. No almacena el texto de la consulta,
 rutas ni valores del dataset. El workspace también conserva la vista activa de
-Revisar (`diagnosis` o `preview`) y el desplazamiento de la página visible de la
-muestra; proyectos anteriores y offsets inválidos vuelven a la primera página
-o a Diagnóstico según corresponda. Las muestras de análisis y otras preferencias
+Revisar (`diagnosis` o `preview`), la etapa activa del flujo (`load`, `review`,
+`prepare` o `deliver`) y el desplazamiento de la página visible de la muestra;
+proyectos anteriores, etapas desconocidas y offsets inválidos vuelven a Revisar,
+la primera página o Diagnóstico según corresponda. Las muestras de análisis y otras preferencias
 de sesión siguen pendientes dentro de la paridad completa; la apertura segura
 del último output local ya está cubierta por Entregar con revalidación en Rust.
 

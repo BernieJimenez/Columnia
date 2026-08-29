@@ -717,9 +717,11 @@ export interface ProjectWorkspace {
   sqlHistory?: SqlQueryHistoryEntry[];
   reviewTab?: ProjectReviewTab;
   previewOffset?: number;
+  activePhase?: ProjectActivePhase;
 }
 
 export type ProjectReviewTab = "diagnosis" | "preview";
+export type ProjectActivePhase = "load" | "review" | "prepare" | "deliver";
 
 type ProgressHandler = (progress: OperationProgress) => void;
 

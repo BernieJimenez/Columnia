@@ -199,6 +199,7 @@ export function App() {
       ...(sqlHistory.length > 0 ? { sqlHistory } : {}),
       reviewTab,
       previewOffset: datasetStatus.kind === "ready" ? datasetStatus.pageOffset : 0,
+      activePhase,
     },
     onActiveProjectDeleted: () => setSqlHistory([]),
     onProjectOpened: async ({ dataset, workspace, profile }) => {
@@ -226,8 +227,8 @@ export function App() {
       setRecipeDraft(workspace.recipeDraft);
       setSqlHistory(workspace.sqlHistory ?? []);
       setRecipeSession((current) => current + 1);
-       setReviewTab(workspace.reviewTab ?? "diagnosis");
-      setActivePhase("review");
+      setReviewTab(workspace.reviewTab ?? "diagnosis");
+      setActivePhase(workspace.activePhase ?? "review");
     },
   });
   const deliveryDatasetFingerprint = datasetStatus.kind === "ready"

@@ -22,7 +22,7 @@ use crate::dataset::{
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 const ID_LENGTH: usize = 32;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
@@ -73,6 +73,8 @@ pub struct ProjectWorkspace {
     pub review_tab: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview_offset: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_phase: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -145,6 +147,7 @@ struct StoredProject {
     sql_history_json: String,
     review_tab: String,
     preview_offset: i64,
+    active_phase: String,
 }
 
 struct ValidatedProject {
@@ -284,10 +287,11 @@ impl ProjectStore {
                            profile_cache_sha256 TEXT,
                            sql_history_json TEXT NOT NULL DEFAULT '[]',
                             review_tab TEXT NOT NULL DEFAULT 'diagnosis',
-                            preview_offset INTEGER NOT NULL DEFAULT 0
+                           preview_offset INTEGER NOT NULL DEFAULT 0,
+                           active_phase TEXT NOT NULL DEFAULT 'review'
                          );
                           CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                          PRAGMA user_version = 7;",
+                          PRAGMA user_version = 8;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -308,7 +312,8 @@ impl ProjectStore {
                           ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                            ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
-                           PRAGMA user_version = 7;",
+                           ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                           PRAGMA user_version = 8;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -326,7 +331,8 @@ impl ProjectStore {
                           ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                            ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
-                           PRAGMA user_version = 7;",
+                           ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                           PRAGMA user_version = 8;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -341,7 +347,8 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                          ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
-                         PRAGMA user_version = 7;",
+                         ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         PRAGMA user_version = 8;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -355,7 +362,8 @@ impl ProjectStore {
                         "ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
                           ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                           ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
-                          PRAGMA user_version = 7;",
+                          ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                          PRAGMA user_version = 8;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -368,7 +376,8 @@ impl ProjectStore {
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                          ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
-                         PRAGMA user_version = 7;",
+                         ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         PRAGMA user_version = 8;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -380,7 +389,20 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
-                         PRAGMA user_version = 7;",
+                         ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         PRAGMA user_version = 8;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            7 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         PRAGMA user_version = 8;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -468,6 +490,7 @@ impl ProjectStore {
             workspace.preview_offset,
             active.row_count,
         )?)?;
+        let active_phase = active_phase_label(workspace.active_phase.as_deref())?.to_owned();
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -528,7 +551,8 @@ impl ProjectStore {
                  column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
                  quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
                   history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
-                   sql_history_json = ?13, review_tab = ?14, preview_offset = ?15 WHERE id = ?16",
+                 sql_history_json = ?13, review_tab = ?14, preview_offset = ?15,
+                 active_phase = ?16 WHERE id = ?17",
                 params![
                     name,
                     active.file_name,
@@ -545,6 +569,7 @@ impl ProjectStore {
                     sql_history_json,
                     review_tab,
                     preview_offset,
+                    active_phase,
                     id
                 ],
             )
@@ -554,8 +579,8 @@ impl ProjectStore {
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
                    generation_name, history_manifest_json, profile_json, profile_cache_sha256,
-                    sql_history_json, review_tab, preview_offset)
-                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                    sql_history_json, review_tab, preview_offset, active_phase)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 params![
                     id,
                     name,
@@ -572,7 +597,8 @@ impl ProjectStore {
                     profile_cache_sha256,
                     sql_history_json,
                     review_tab,
-                    preview_offset
+                    preview_offset,
+                    active_phase,
                 ],
             )
         };
@@ -741,7 +767,8 @@ impl ProjectStore {
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at,
                         updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
                         generation_name, history_manifest_json, profile_json,
-                         profile_cache_sha256, sql_history_json, review_tab, preview_offset
+                         profile_cache_sha256, sql_history_json, review_tab, preview_offset,
+                         active_phase
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -757,6 +784,7 @@ impl ProjectStore {
                         sql_history_json: row.get(14)?,
                         review_tab: row.get(15)?,
                         preview_offset: row.get(16)?,
+                        active_phase: row.get(17)?,
                     })
                 },
             )
@@ -966,12 +994,14 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
     validate_sql_query_history(&sql_history)?;
     let review_tab = parse_review_tab(&stored.review_tab)?;
     let preview_offset = parse_preview_offset(stored.preview_offset, stored.summary.row_count);
+    let active_phase = parse_active_phase(&stored.active_phase)?;
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
         sql_history,
         review_tab,
         preview_offset,
+        active_phase,
     })
 }
 
@@ -986,6 +1016,21 @@ fn review_tab_label(tab: Option<&str>) -> Result<&'static str, String> {
 fn parse_review_tab(value: &str) -> Result<Option<String>, String> {
     let label = review_tab_label(Some(value))?;
     Ok((label == "preview").then(|| label.to_owned()))
+}
+
+fn active_phase_label(phase: Option<&str>) -> Result<&'static str, String> {
+    match phase {
+        Some("load") => Ok("load"),
+        Some("prepare") => Ok("prepare"),
+        Some("deliver") => Ok("deliver"),
+        Some("review") | None => Ok("review"),
+        Some(_) => Err("La etapa guardada del proyecto no es válida.".to_owned()),
+    }
+}
+
+fn parse_active_phase(value: &str) -> Result<Option<String>, String> {
+    let label = active_phase_label(Some(value))?;
+    Ok((label != "review").then(|| label.to_owned()))
 }
 
 fn validate_preview_offset(offset: Option<usize>, row_count: usize) -> Result<usize, String> {
@@ -1386,6 +1431,7 @@ fn import_dataprep_session_project_from_path(
             sql_history: Vec::new(),
             review_tab: Default::default(),
             preview_offset: Default::default(),
+            active_phase: Default::default(),
         },
     )
 }
@@ -1665,7 +1711,8 @@ mod tests {
                 "durationMs": 42,
                 "rowCount": 2
             }],
-            "reviewTab": "preview"
+            "reviewTab": "preview",
+            "activePhase": "prepare"
         }))
         .expect("el workspace de prueba debe ser válido")
     }
@@ -1760,7 +1807,7 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         drop(store);
-        ProjectStore::initialize(root).expect("reabrir v7 debe ser idempotente");
+        ProjectStore::initialize(root).expect("reabrir v8 debe ser idempotente");
     }
 
     #[test]
@@ -1803,10 +1850,11 @@ mod tests {
         assert!(columns.contains(&"sql_history_json".to_owned()));
         assert!(columns.contains(&"review_tab".to_owned()));
         assert!(columns.contains(&"preview_offset".to_owned()));
+        assert!(columns.contains(&"active_phase".to_owned()));
     }
 
     #[test]
-    fn migration_from_v6_adds_preview_offset_without_requiring_dataset_data() {
+    fn migration_from_v6_adds_session_fields_without_requiring_dataset_data() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("data-v6");
         fs::create_dir_all(&root).unwrap();
@@ -1832,6 +1880,36 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert!(columns.contains(&"preview_offset".to_owned()));
+        assert!(columns.contains(&"active_phase".to_owned()));
+    }
+
+    #[test]
+    fn migration_from_v7_adds_active_phase_without_requiring_dataset_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data-v7");
+        fs::create_dir_all(&root).unwrap();
+        Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                 PRAGMA user_version = 7;",
+            )
+            .unwrap();
+
+        let store = ProjectStore::initialize(root).unwrap();
+        let connection = store.connection().unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let columns = connection
+            .prepare("PRAGMA table_info(projects)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"active_phase".to_owned()));
     }
 
     #[test]
@@ -1841,7 +1919,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 8;")
+            .execute_batch("PRAGMA user_version = 9;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -2259,6 +2337,7 @@ mod tests {
                 .collect(),
             review_tab: Default::default(),
             preview_offset: Default::default(),
+            active_phase: Default::default(),
         };
         assert!(store
             .save(
@@ -2292,6 +2371,20 @@ mod tests {
                 Some(created.id.clone()),
                 "No publicado".to_owned(),
                 invalid_preview_offset,
+            )
+            .is_err());
+        let invalid_active_phase: ProjectWorkspace = serde_json::from_value(serde_json::json!({
+            "qualityRules": [],
+            "recipeDraft": null,
+            "activePhase": "unsupported"
+        }))
+        .unwrap();
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_active_phase,
             )
             .is_err());
         assert_eq!(store.list().unwrap(), vec![created]);

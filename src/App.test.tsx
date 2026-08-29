@@ -161,7 +161,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0 },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load" },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -204,7 +204,7 @@ describe("App", () => {
     const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset,
-      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50 },
+      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50, activePhase: "prepare" },
       profile: { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
     });
     const pageSpy = vi.spyOn(bridge, "getDatasetPage").mockResolvedValue({
@@ -223,13 +223,15 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0 },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load" },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(project.id));
     expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
     expect(screen.getByRole("tab", { name: "Vista previa" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByRole("cell", { name: "lucia@example.com" })).toBeInTheDocument();
     expect(screen.getByText(/Filas 51–51 de 75/)).toBeInTheDocument();
