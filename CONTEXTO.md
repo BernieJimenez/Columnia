@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 283 frontend y 264 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 283 frontend y 266 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-08-29, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido` y protección reversible de valores personales con `[REDACTED]`; el inventario IPC registra 64 comandos de producción y 58 estructuras, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
@@ -46,7 +46,7 @@ gates locales y no publica ni etiqueta.
 
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 281 tests frontend y 262 tests Rust; los
+- Las suites locales actuales pasan: 283 tests frontend y 266 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
