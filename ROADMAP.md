@@ -1460,11 +1460,13 @@ por el mero hecho de estar documentada aquí.
   - **Criterio de aceptación:** tres recorridos funcionales y uno de selectores
     nativos consecutivos quedan dentro de 256 MiB privado y 512 MiB working set,
     con cleanup confirmado.
-  - **Resultado:** tres ciclos funcionales y un recorrido nativo aprobados; el
-    recorrido nativo más reciente registró 521,785,344 bytes de working set y
-    265,981,952 bytes privados, con cleanup confirmado. El driver filtra por
-    proceso/owner, espera el cierre del modal entre acciones y tiene timeout
-    propio para no dejar colgado el gate.
+  - **Resultado:** el driver filtra por proceso/owner y el perfil limita tanto
+    memoria como cleanup a procesos dentro del `Job Object`. La réplica que
+    contaba un descendiente externo llegó a 332,472,320 bytes privados; la
+    corrida posterior pasó con 503,644,160 bytes de working set y 267,456,512
+    bytes privados, con cleanup confirmado. El driver espera el cierre del
+    modal entre acciones y tiene timeout propio para no dejar colgado el gate;
+    la variación del runtime WebView2 sigue bajo observación cerca del límite.
   - **Esfuerzo:** alto
   - **Depende de:** ninguna
 
@@ -1712,6 +1714,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | P1 añade detección agregada y reparación reversible de doble codificación UTF-8 heredada; solo se aplican conversiones de texto inequívocas y se excluyen números y `_cambios`. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
 | 2026-08-29 | M1 regenera y persiste el perfil agregado al importar una sesión DataPrep; el proyecto abre con caché de calidad válida, mientras resultados originales, cachés reanudables e historial que no estén en el artefacto siguen pendientes. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | Nueva corrida estricta `smoke:cdp` con Playwright, ProjectsPanel, mutaciones nativas y cleanup aprobados: el working set quedó en 501,563,392 bytes dentro de 512 MiB, pero la memoria privada alcanzó 272,379,904 bytes frente al límite de 256 MiB. Corridas diagnósticas previas quedaron en 256.06–258.06 MiB; no se atribuye todavía una fuga al código y el gate privado estable sigue abierto. | `.local/validation/webview2-cdp/20260829T023923Z/summary.json`, `tools/probe-webview2-cdp.ps1` |
+| 2026-08-29 | El perfil de `smoke:cdp` ahora comprueba pertenencia al `Job Object` al medir y limpiar el árbol; una réplica explicó 63,680,512 bytes privados de un descendiente externo no reconocido. La corrida posterior quedó dentro del contrato con 503,644,160 bytes de working set, 267,456,512 bytes privados y cleanup confirmado. | `.local/validation/webview2-cdp/20260829T044214Z/summary.json`, `.local/validation/webview2-cdp/20260829T044540Z/summary.json`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-29 | P1 amplía el catálogo de limpieza con una acción confirmada para apartar como nulos los valores de texto que contradicen una sugerencia semántica con al menos 90% de coincidencia; la operación es reversible, no muestra celdas y conserva pendientes las reglas avanzadas restantes. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
 | 2026-08-29 | P1 añade imputación reversible de outliers por mediana: el perfil muestra solo conteos agregados, Preparar ofrece la acción directa y las recetas admiten `impute`; Int64/Float64 conservan su tipo y `_cambios` queda protegido. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/TransformRecipeEditor.tsx` |
 | 2026-08-29 | P1 añade imputación categórica explícita y reversible: completa solo nulos textuales como `Desconocido`, protege números y `_cambios`, publica impacto agregado y actualiza el inventario IPC a 61 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts` |

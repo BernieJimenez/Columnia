@@ -82,6 +82,9 @@ $ProcessProfile = [ordered]@{
     peakWorkingSetBytes = 0L
     lastWorkingSetBytes = $null
     peakPrivateMemoryBytes = 0L
+    peakByProcess = [ordered]@{}
+    peakByPhase = [ordered]@{}
+    unownedProcessNames = @()
 }
 $PerformanceBudget = $null
 $NativeDatasetAbsolutePath = $null
@@ -112,7 +115,10 @@ function Get-DebugAppProcesses {
 }
 
 function Update-ProcessProfile {
-    param([int[]]$ProcessIds)
+    param(
+        [int[]]$ProcessIds,
+        [string]$Phase = "probe"
+    )
 
     $Processes = @($ProcessIds | Sort-Object -Unique | ForEach-Object {
         Get-Process -Id ([int]$_) -ErrorAction SilentlyContinue
@@ -140,6 +146,45 @@ function Update-ProcessProfile {
     }
     if ($PrivateMemoryBytes -gt $script:ProcessProfile.peakPrivateMemoryBytes) {
         $script:ProcessProfile.peakPrivateMemoryBytes = $PrivateMemoryBytes
+    }
+
+    foreach ($Group in @($Processes | Group-Object -Property ProcessName)) {
+        $ProcessName = [string]$Group.Name
+        $GroupWorkingSetBytes = [int64](($Group.Group | Measure-Object -Property WorkingSet64 -Sum).Sum)
+        $GroupPrivateMemoryBytes = [int64](($Group.Group | Measure-Object -Property PrivateMemorySize64 -Sum).Sum)
+        if (-not $script:ProcessProfile.peakByProcess.Contains($ProcessName)) {
+            $script:ProcessProfile.peakByProcess[$ProcessName] = [ordered]@{
+                peakWorkingSetBytes = 0L
+                peakPrivateMemoryBytes = 0L
+            }
+        }
+        $ProcessPeak = $script:ProcessProfile.peakByProcess[$ProcessName]
+        if ($GroupWorkingSetBytes -gt $ProcessPeak.peakWorkingSetBytes) {
+            $ProcessPeak.peakWorkingSetBytes = $GroupWorkingSetBytes
+        }
+        if ($GroupPrivateMemoryBytes -gt $ProcessPeak.peakPrivateMemoryBytes) {
+            $ProcessPeak.peakPrivateMemoryBytes = $GroupPrivateMemoryBytes
+        }
+    }
+
+    if (-not $script:ProcessProfile.peakByPhase.Contains($Phase)) {
+        $script:ProcessProfile.peakByPhase[$Phase] = [ordered]@{
+            sampleCount = 0
+            processCount = 0
+            peakWorkingSetBytes = 0L
+            peakPrivateMemoryBytes = 0L
+        }
+    }
+    $PhasePeak = $script:ProcessProfile.peakByPhase[$Phase]
+    $PhasePeak.sampleCount++
+    if ($Processes.Count -gt $PhasePeak.processCount) {
+        $PhasePeak.processCount = $Processes.Count
+    }
+    if ($WorkingSetBytes -gt $PhasePeak.peakWorkingSetBytes) {
+        $PhasePeak.peakWorkingSetBytes = $WorkingSetBytes
+    }
+    if ($PrivateMemoryBytes -gt $PhasePeak.peakPrivateMemoryBytes) {
+        $PhasePeak.peakPrivateMemoryBytes = $PrivateMemoryBytes
     }
 }
 
@@ -184,9 +229,19 @@ function Test-OwnedProcess {
         return $false
     }
 
+    try {
+        $ProcessHandle = [IntPtr]$Candidate.Handle
+    }
+    catch {
+        return $false
+    }
+    if ($ProcessHandle -eq [IntPtr]::Zero) {
+        return $false
+    }
+
     $BelongsToJob = $false
     if (-not [ColumniaWebView2CdpProbe.NativeMethods]::IsProcessInJob(
-        $Candidate.Handle,
+        $ProcessHandle,
         $JobHandle,
         [ref]$BelongsToJob
     )) {
@@ -205,7 +260,7 @@ function Add-ProcessTree {
         $ParentId = $Pending.Dequeue()
         foreach ($Child in $Processes | Where-Object { [int]$_.ParentProcessId -eq $ParentId }) {
             $ChildId = [int]$Child.ProcessId
-            if ($TrackedProcessIds.Add($ChildId)) {
+            if ((Test-OwnedProcess -Id $ChildId) -and $TrackedProcessIds.Add($ChildId)) {
                 $Pending.Enqueue($ChildId)
             }
         }
@@ -231,7 +286,24 @@ function Get-AppProcessTreeIds {
             }
         }
     }
-    return @($Ids | ForEach-Object { [int]$_ })
+    $script:ProcessProfile.unownedProcessNames = @(
+        @($script:ProcessProfile.unownedProcessNames) +
+            @(
+                $Ids |
+                    Where-Object { -not (Test-OwnedProcess -Id ([int]$_)) } |
+                    ForEach-Object {
+                        (Get-Process -Id ([int]$_) -ErrorAction SilentlyContinue).ProcessName
+                    }
+            ) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+            Sort-Object -Unique
+    )
+
+    return @(
+        $Ids |
+            Where-Object { Test-OwnedProcess -Id ([int]$_) } |
+            ForEach-Object { [int]$_ }
+    )
 }
 
 function Get-CdpSnapshot {
@@ -641,7 +713,7 @@ try {
             }
             $snapshot = Get-CdpSnapshot -OwnedProcessIds @($OwnedListeners | ForEach-Object { [int]$_.OwningProcess })
             if ($null -ne $snapshot) {
-                Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+                Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds) -Phase "cdp_ready"
                 $VersionPayload = $snapshot.version
                 $TargetsPayload = $snapshot.targets
                 $DesktopStarted = $true
@@ -652,7 +724,7 @@ try {
 
                 if ($RunPlaywright -and ($PlaywrightStatus -eq "pending" -or $PlaywrightStatus -eq "not_ready")) {
                     Invoke-PlaywrightProbe
-                    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+                    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds) -Phase "playwright"
                 }
                 if ($RunPlaywright -and $PlaywrightStatus -eq "passed") {
                     if (-not $RunProjects -and -not $RunNativeSelectors) {
@@ -662,7 +734,7 @@ try {
 
                     if ($ProjectsStatus -eq "pending" -or $ProjectsStatus -eq "not_ready") {
                         Invoke-ProjectsProbe
-                        Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+                        Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds) -Phase "projects"
                     }
                     if ($ProjectsStatus -eq "passed" -and -not $RunNativeSelectors) {
                         $Status = "supported"
@@ -683,7 +755,7 @@ try {
                 if (-not $RunPlaywright -and $RunProjects) {
                     if ($ProjectsStatus -eq "pending" -or $ProjectsStatus -eq "not_ready") {
                         Invoke-ProjectsProbe
-                        Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+                        Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds) -Phase "projects"
                     }
                     if ($ProjectsStatus -eq "passed" -and -not $RunNativeSelectors) {
                         $Status = "supported"
@@ -703,7 +775,7 @@ try {
 
                 if ($RunNativeSelectors -and (-not $RunPlaywright -or $PlaywrightStatus -eq "passed") -and ($NativeSelectorsStatus -eq "pending" -or $NativeSelectorsStatus -eq "not_ready")) {
                     Invoke-NativeSelectorsProbe
-                    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+                    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds) -Phase "native_selectors"
                 }
                 if ($RunNativeSelectors -and $NativeSelectorsStatus -eq "passed") {
                     $Status = "supported"
@@ -752,7 +824,7 @@ catch {
     $FailureMessage = $_.Exception.Message
 }
 finally {
-    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds)
+    Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds) -Phase "final"
     $PerformanceBudget = Get-PerformanceBudget
     if ($Status -eq "supported" -and $PerformanceBudget.status -eq "exceeded") {
         $Status = "failed"

@@ -25,6 +25,9 @@ los artefactos de validación locales.
 - El preflight de sesiones DataPrep clasifica bloques reconocibles de resultados,
   historial y cachés como artefactos no portables, conservando solo sus categorías
   sanitizadas y una acción manual; no copia contenido ni rutas de esos artefactos.
+- El probe WebView2 atribuye memoria por proceso y fase, y limita el perfil y el
+  cleanup a procesos pertenecientes al `Job Object`; así evita contar o terminar
+  descendientes externos con un `ParentProcessId` coincidente.
 - Benchmark reproducible de datasets grandes dentro de WebView2: `perf:webview2`
   genera un CSV temporal de 100 MiB y verifica selección nativa, carga,
   paginación, transformación y exportación con evidencia agregada de duración,

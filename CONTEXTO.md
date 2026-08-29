@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado, historial/cursor y actividad SQL agregada durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 277 frontend y 249 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 277 frontend y 254 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-08-29, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana e imputación categórica explícita como `Desconocido`; el inventario IPC registra 61 comandos de producción. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
@@ -46,15 +46,15 @@ gates locales y no publica ni etiqueta.
 
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 275 tests frontend y 248 tests Rust; los
+- Las suites locales actuales pasan: 277 tests frontend y 254 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
   253.48 MiB privados, dentro de presupuesto, ejecuta 3 ciclos sostenidos y
   confirma cleanup (`.local/validation/webview2-cdp/20260828T185215Z`). El
-  recorrido nativo aislado verifica abrir dataset, guardar/cargar receta y
-  exportar con 521.79 MiB de working set y 265.98 MiB privados, también dentro
-  de presupuesto (`.local/validation/webview2-cdp/20260828T203917Z`).
+  recorrido nativo aislado histórico verificó abrir dataset, guardar/cargar
+  receta y exportar con 521.79 MiB de working set y 265.98 MiB privados, por
+  encima del límite privado de 256 MiB (`.local/validation/webview2-cdp/20260828T203917Z`).
 - `npm run accessibility:visual`, `npm run accessibility:check` y
   `npm run perf:check` pasan; evidencia visual:
   `.local/validation/accessibility-visual/20260828T185137Z`.
@@ -173,7 +173,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `docs/reference/feature-parity.md` | Matriz de paridad verificable con `dataprepv1.1`, con entregas CSV/JSON/Parquet/SQL/Excel/SQLite, comparación por columna y visualizaciones accesibles documentadas. |
 | `tools/check-bundle.mjs` | Mide presupuestos JS/CSS e inventaría bundles de distribución nuevos o actualizados. |
 | `tools/smoke-tauri.ps1` | Arranca `npm run tauri dev`, comprueba Vite y el ejecutable debug, registra hitos monotónicos de Vite/proceso/ventana, ejecuta un preflight de contrato de `ProjectsPanel` y limpia solo su Job Object con reintento acotado. |
-| `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, perfila el árbol de procesos y aplica presupuestos observables de 512 MiB de working set, 256 MiB de memoria privada y transformaciones nativas sostenidas; admite un CSV temporal configurable para medir el recorrido grande; restaura el entorno y limpia su Job Object. |
+| `tools/probe-webview2-cdp.ps1` | Arranca el comando real con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de loopback, verifica `/json/version` y `/json/list`, conecta Playwright al WebView2, atribuye el perfil por proceso/fase y aplica presupuestos observables de 512 MiB de working set, 256 MiB de memoria privada y transformaciones nativas sostenidas solo a procesos de su Job Object; admite un CSV temporal configurable para medir el recorrido grande; restaura el entorno y limpia su Job Object. |
 | `tools/probe-webview2-restart.ps1` | Ejecuta las fases aisladas prepare/verify del reinicio real y eleva al resumen de cada fase el estado del presupuesto y el conteo/duración IPC, delegando el cleanup al probe CDP. |
 | `tools/probe-webview2-playwright.mjs` | Conecta al endpoint CDP con Playwright, espera el shell listo y separa estado funcional de presupuesto de primer render relativo al bootstrap; ambos son necesarios para aprobar el probe. |
 | `tools/probe-webview2-projects.mjs` | Conecta al endpoint CDP y verifica el contrato accesible de `ProjectsPanel`, repite transformaciones/exportaciones nativas sostenidas, y en el smoke debug guarda/abre/consulta/elimina un proyecto sintético con cleanup; registra duración por comando y total, pero no rutas ni datos del catálogo. |
@@ -576,6 +576,13 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 - 2026-08-29 M1 conserva en `migrationReport.session` los nombres estructurales acotados de operaciones aplicadas y comprobaciones de análisis cuando son tokens seguros, además de sus conteos; el proyecto importado los mantiene al persistir y reabrir su receta. No se guardan resultados, cachés ni rutas resueltas, por lo que la restauración completa de sesiones DataPrep sigue pendiente.
 - 2026-08-29 la importación de sesiones prioriza un `snapshot_path` local y compatible cuando existe, porque conserva el estado materializado exacto y no requiere inventar parámetros para `applied_ops`; sin snapshot, la fuente se valida, las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`, `cast_numeric`, `normalize_booleans`, `normalize_columns` y `add_cambios_col` se reproducen en orden fijo y la receta estructural se reaplica. Las eliminaciones de columnas conservan al menos una columna utilizable, `drop_empty_rows` solo retira filas completamente nulas, `impute_numeric` usa la mediana sobre columnas físicas `Int64`/`Float64` después de normalizar centinelas y promueve a `Float64` cuando es fraccionaria, `trim_text` recorta espacios exteriores en texto y protege `_cambios`, `cast_numeric` exige más de 90% de valores numéricos y rechaza conversiones con pérdida de precisión, `normalize_booleans` exige un vocabulario cerrado con ambos valores y `normalize_columns` resuelve nombres con la misma regla Unicode, no texto en blanco. `add_cambios_col` recupera solo la estructura reservada; el historial, las cachés y los resultados de análisis continúan fuera del contrato.
 - 2026-08-29 el preflight de sesiones clasifica bloques reconocibles de resultados, historial y cachés como `analysis_results`, `history` y `caches` no portables; conserva únicamente las categorías sanitizadas para orientar la revisión manual, sin copiar contenido ni rutas.
+- 2026-08-29 el probe CDP limita el perfil y el cleanup a procesos realmente
+  pertenecientes al `Job Object`; una réplica anterior había contado un proceso
+  externo descendiente (`DriverBooster`) y elevó artificialmente el pico a
+  332,472,320 bytes. La corrida posterior pasó con 503,644,160 bytes de working
+  set, 267,456,512 bytes privados y cleanup confirmado; la variación restante
+  del runtime WebView2 queda como señal a vigilar, no como permiso para relajar
+  el presupuesto (`.local/validation/webview2-cdp/20260829T044540Z`).
  - 2026-08-29 P1 incorpora `fix_encoding`: el perfil cuenta por columna secuencias comunes de doble codificación UTF-8 y Preparar ofrece una reparación reversible solo cuando la conversión es inequívoca; los tipos no textuales, `_cambios` y valores no decodificables quedan intactos.
  - 2026-08-29 M1 recalcula y persiste el perfil agregado durante la importación de sesiones DataPrep, de modo que el proyecto abre con caché de calidad verificable; los resultados de análisis originales, cachés reanudables e historial ausente del artefacto no se inventan.
  - 2026-08-29 P1 añade una acción confirmada para apartar como nulos los valores de texto que no coinciden con una sugerencia semántica con al menos 90% de confianza; no muestra celdas, conserva vacíos y tipos no textuales, y puede revertirse desde el historial.
