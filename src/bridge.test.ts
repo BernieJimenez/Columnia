@@ -535,6 +535,7 @@ describe("desktop bridge", () => {
     const workspace: ProjectWorkspace = {
       qualityRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
       recipeDraft: null,
+      reviewTab: "preview",
     };
     vi.mocked(invoke).mockResolvedValue({ id: "project-1", name: "Ventas" });
 

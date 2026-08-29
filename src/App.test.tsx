@@ -161,7 +161,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null },
+       { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis" },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -204,7 +204,7 @@ describe("App", () => {
     const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset,
-      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null },
+       workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview" },
       profile: { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
     });
     mockDatasetLoad(dataset);
@@ -219,14 +219,14 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null },
+       { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis" },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(project.id));
     expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Vista previa" })).toHaveAttribute("aria-selected", "true");
 
     await switchPhase("Entregar");
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("email");

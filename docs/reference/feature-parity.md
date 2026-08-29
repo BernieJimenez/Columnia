@@ -541,9 +541,11 @@ Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en
 su workspace y se restaura al abrirlo; un proyecto todavía no guardado conserva
 la actividad solo durante la sesión actual. No almacena el texto de la consulta,
-rutas ni valores del dataset. Las muestras, preferencias y caché derivada siguen
-pendientes dentro de la paridad de sesión; la apertura segura del último output
-local ya está cubierta por Entregar con revalidación en Rust.
+rutas ni valores del dataset. El workspace también conserva la vista activa de
+Revisar (`diagnosis` o `preview`); proyectos anteriores y valores inválidos
+recaen en Diagnóstico. Las muestras de análisis y otras preferencias de sesión
+siguen pendientes dentro de la paridad completa; la apertura segura del último
+output local ya está cubierta por Entregar con revalidación en Rust.
 
 ## Brecha de migración desde `dataprepv1.1`
 

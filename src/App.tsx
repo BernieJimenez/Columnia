@@ -196,6 +196,7 @@ export function App() {
       qualityRules: deliveryRules(deliveryContract),
       recipeDraft,
       ...(sqlHistory.length > 0 ? { sqlHistory } : {}),
+      reviewTab,
     },
     onActiveProjectDeleted: () => setSqlHistory([]),
     onProjectOpened: async ({ dataset, workspace, profile }) => {
@@ -213,7 +214,7 @@ export function App() {
       setRecipeDraft(workspace.recipeDraft);
       setSqlHistory(workspace.sqlHistory ?? []);
       setRecipeSession((current) => current + 1);
-      setReviewTab("diagnosis");
+       setReviewTab(workspace.reviewTab ?? "diagnosis");
       setActivePhase("review");
     },
   });

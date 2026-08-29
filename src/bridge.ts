@@ -715,7 +715,10 @@ export interface ProjectWorkspace {
   qualityRules: QualityRule[];
   recipeDraft: SavedRecipe | null;
   sqlHistory?: SqlQueryHistoryEntry[];
+  reviewTab?: ProjectReviewTab;
 }
+
+export type ProjectReviewTab = "diagnosis" | "preview";
 
 type ProgressHandler = (progress: OperationProgress) => void;
 

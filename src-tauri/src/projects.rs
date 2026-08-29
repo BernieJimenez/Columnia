@@ -22,7 +22,7 @@ use crate::dataset::{
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const ID_LENGTH: usize = 32;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
@@ -68,6 +68,8 @@ pub struct ProjectWorkspace {
     pub recipe_draft: Option<StoredTransformRecipe>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sql_history: Vec<SqlQueryHistoryEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_tab: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -138,6 +140,7 @@ struct StoredProject {
     profile_json: Option<String>,
     profile_cache_sha256: Option<String>,
     sql_history_json: String,
+    review_tab: String,
 }
 
 struct ValidatedProject {
@@ -275,10 +278,11 @@ impl ProjectStore {
                            history_manifest_json TEXT,
                            profile_json TEXT,
                            profile_cache_sha256 TEXT,
-                           sql_history_json TEXT NOT NULL DEFAULT '[]'
+                           sql_history_json TEXT NOT NULL DEFAULT '[]',
+                           review_tab TEXT NOT NULL DEFAULT 'diagnosis'
                          );
                          CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                         PRAGMA user_version = 5;",
+                          PRAGMA user_version = 6;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -296,8 +300,9 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
-                         ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
-                         PRAGMA user_version = 5;",
+                          ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
+                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                          PRAGMA user_version = 6;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -312,8 +317,9 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
-                         ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
-                         PRAGMA user_version = 5;",
+                          ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
+                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                          PRAGMA user_version = 6;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -326,7 +332,8 @@ impl ProjectStore {
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
                          ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
-                         PRAGMA user_version = 5;",
+                         ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                         PRAGMA user_version = 6;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -338,7 +345,20 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
-                         PRAGMA user_version = 5;",
+                         ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                         PRAGMA user_version = 6;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            5 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                         PRAGMA user_version = 6;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -421,6 +441,7 @@ impl ProjectStore {
             .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
         let sql_history_json = serde_json::to_string(&workspace.sql_history)
             .map_err(|_| "No se pudo validar la actividad SQL del proyecto.".to_owned())?;
+        let review_tab = review_tab_label(workspace.review_tab.as_deref())?.to_owned();
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -480,8 +501,8 @@ impl ProjectStore {
                 "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
                  column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
                  quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
-                 history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
-                 sql_history_json = ?13 WHERE id = ?14",
+                  history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
+                  sql_history_json = ?13, review_tab = ?14 WHERE id = ?15",
                 params![
                     name,
                     active.file_name,
@@ -496,6 +517,7 @@ impl ProjectStore {
                     profile_json,
                     profile_cache_sha256,
                     sql_history_json,
+                    review_tab,
                     id
                 ],
             )
@@ -504,9 +526,9 @@ impl ProjectStore {
                 "INSERT INTO projects
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
-                  generation_name, history_manifest_json, profile_json, profile_cache_sha256,
-                  sql_history_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                   generation_name, history_manifest_json, profile_json, profile_cache_sha256,
+                   sql_history_json, review_tab)
+                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     id,
                     name,
@@ -521,7 +543,8 @@ impl ProjectStore {
                     history_manifest_json,
                     profile_json,
                     profile_cache_sha256,
-                    sql_history_json
+                    sql_history_json,
+                    review_tab
                 ],
             )
         };
@@ -690,7 +713,7 @@ impl ProjectStore {
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at,
                         updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
                         generation_name, history_manifest_json, profile_json,
-                        profile_cache_sha256, sql_history_json
+                        profile_cache_sha256, sql_history_json, review_tab
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -704,6 +727,7 @@ impl ProjectStore {
                         profile_json: row.get(12)?,
                         profile_cache_sha256: row.get(13)?,
                         sql_history_json: row.get(14)?,
+                        review_tab: row.get(15)?,
                     })
                 },
             )
@@ -911,11 +935,26 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
     let sql_history: Vec<SqlQueryHistoryEntry> = serde_json::from_str(&stored.sql_history_json)
         .map_err(|_| "La actividad SQL guardada del proyecto no es válida.".to_owned())?;
     validate_sql_query_history(&sql_history)?;
+    let review_tab = parse_review_tab(&stored.review_tab)?;
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
         sql_history,
+        review_tab,
     })
+}
+
+fn review_tab_label(tab: Option<&str>) -> Result<&'static str, String> {
+    match tab {
+        Some("preview") => Ok("preview"),
+        Some("diagnosis") | None => Ok("diagnosis"),
+        Some(_) => Err("La vista guardada del proyecto no es válida.".to_owned()),
+    }
+}
+
+fn parse_review_tab(value: &str) -> Result<Option<String>, String> {
+    let label = review_tab_label(Some(value))?;
+    Ok((label == "preview").then(|| label.to_owned()))
 }
 
 fn validate_sql_query_history(entries: &[SqlQueryHistoryEntry]) -> Result<(), String> {
@@ -1296,6 +1335,7 @@ fn import_dataprep_session_project_from_path(
             quality_rules: plan.quality_rules,
             recipe_draft: Some(plan.recipe),
             sql_history: Vec::new(),
+            review_tab: Default::default(),
         },
     )
 }
@@ -1574,7 +1614,8 @@ mod tests {
                 "outcome": "success",
                 "durationMs": 42,
                 "rowCount": 2
-            }]
+            }],
+            "reviewTab": "preview"
         }))
         .expect("el workspace de prueba debe ser válido")
     }
@@ -1669,7 +1710,7 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         drop(store);
-        ProjectStore::initialize(root).expect("reabrir v5 debe ser idempotente");
+        ProjectStore::initialize(root).expect("reabrir v6 debe ser idempotente");
     }
 
     #[test]
@@ -1710,6 +1751,7 @@ mod tests {
         assert!(columns.contains(&"profile_json".to_owned()));
         assert!(columns.contains(&"profile_cache_sha256".to_owned()));
         assert!(columns.contains(&"sql_history_json".to_owned()));
+        assert!(columns.contains(&"review_tab".to_owned()));
     }
 
     #[test]
@@ -1719,7 +1761,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 6;")
+            .execute_batch("PRAGMA user_version = 7;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -1731,7 +1773,7 @@ mod tests {
             .unwrap()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, SCHEMA_VERSION + 1);
     }
 
     #[test]
@@ -2070,6 +2112,7 @@ mod tests {
                     row_count: Some(0),
                 })
                 .collect(),
+            review_tab: Default::default(),
         };
         assert!(store
             .save(
@@ -2077,6 +2120,20 @@ mod tests {
                 Some(created.id.clone()),
                 "No publicado".to_owned(),
                 oversized_sql_history,
+            )
+            .is_err());
+        let invalid_review_tab: ProjectWorkspace = serde_json::from_value(serde_json::json!({
+            "qualityRules": [],
+            "recipeDraft": null,
+            "reviewTab": "unsupported"
+        }))
+        .unwrap();
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_review_tab,
             )
             .is_err());
         assert_eq!(store.list().unwrap(), vec![created]);
