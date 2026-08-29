@@ -189,6 +189,9 @@ try {
     Invoke-ReleaseStep "WebView2 large dataset benchmark" {
         & npm.cmd run perf:webview2
     }
+    Invoke-ReleaseStep "Large dataset performance summary" {
+        & npm.cmd run perf:summary
+    }
     Invoke-ReleaseStep "Performance baseline" {
         & npm.cmd run perf:check
     }
