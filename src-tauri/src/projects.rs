@@ -1072,30 +1072,24 @@ fn import_dataprep_session_project_from_path(
             reasons.join(" y ")
         ));
     }
-    // Prefer the reproducible source and fall back to a compatible snapshot when
-    // the original input has been moved or deleted. The resolved path remains
-    // private to this native operation and never crosses the bridge.
+    // A materialized DataPrep snapshot represents the exact current session
+    // state, including cleaning operations that are only recorded as
+    // ``applied_ops`` metadata. Prefer it whenever it is available; replaying
+    // the recipe over the source cannot reproduce those operations without
+    // their original options. If no snapshot exists, the source remains a
+    // safe, reproducible fallback and the structural recipe is applied there.
+    // Resolved paths stay private to this native operation and never cross the
+    // bridge.
     let (input_path, apply_recipe) = if matches!(
-        plan.source_status,
-        dataset::SessionReferenceStatus::Available
-    ) {
-        match resolve_dataprep_source(&session_path) {
-            Ok(path) => (path, true),
-            Err(_error)
-                if matches!(
-                    plan.snapshot_status,
-                    dataset::SessionReferenceStatus::Available
-                ) =>
-            {
-                (resolve_dataprep_snapshot(&session_path)?, false)
-            }
-            Err(error) => return Err(error),
-        }
-    } else if matches!(
         plan.snapshot_status,
         dataset::SessionReferenceStatus::Available
     ) {
         (resolve_dataprep_snapshot(&session_path)?, false)
+    } else if matches!(
+        plan.source_status,
+        dataset::SessionReferenceStatus::Available
+    ) {
+        (resolve_dataprep_source(&session_path)?, true)
     } else {
         return Err("La sesión no contiene una fuente o snapshot disponible.".to_owned());
     };
@@ -1135,7 +1129,9 @@ fn import_dataprep_session_project_from_path(
         requested_sheet.as_deref(),
         requested_header,
     )
-    .map_err(|_| "La fuente de la sesión no se puede leer con el esquema registrado.".to_owned())?;
+    .map_err(|_| {
+        "El artefacto de la sesión no se puede leer con el esquema registrado.".to_owned()
+    })?;
     let imported = DatasetState::for_project_import(frame, preview.file_name.clone())?;
     if apply_recipe {
         imported
@@ -2284,6 +2280,53 @@ mod tests {
         assert_eq!(opened.dataset.columns[0].name, "value");
         assert_eq!(opened.dataset.columns[1].name, "label");
         assert_eq!(snapshot_count(&store), 1);
+    }
+
+    #[test]
+    fn dataprep_session_mapping_prefers_available_snapshot_over_source_replay() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let snapshot = directory.path().join("snapshot.parquet");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "value,label\n1,one\n2,two\n").unwrap();
+        write_snapshot(
+            &DataFrame::new(
+                2,
+                vec![
+                    Series::new("amount".into(), vec![10_i64, 20]).into_column(),
+                    Series::new("label".into(), vec!["one", "two"]).into_column(),
+                ],
+            )
+            .unwrap(),
+            &snapshot,
+        )
+        .unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Snapshot exacto",
+                "source_path": "source.csv",
+                "snapshot_path": "snapshot.parquet",
+                // The source deliberately cannot satisfy this recipe. The
+                // available snapshot already contains the materialized state.
+                "transform": {"rename_text": "missing -> renamed"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("el snapshot disponible debe conservar el estado materializado");
+        assert_eq!(imported.dataset_file_name, "snapshot.parquet");
+
+        let opened = store
+            .open(&DatasetState::default(), imported.id)
+            .expect("el proyecto importado desde snapshot debe reabrirse");
+        assert_eq!(opened.dataset.columns[0].name, "amount");
+        assert_eq!(opened.dataset.columns[1].name, "label");
     }
 
     #[test]

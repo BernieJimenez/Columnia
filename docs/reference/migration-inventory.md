@@ -94,10 +94,11 @@ etapa y conteos de operaciones, reglas y análisis se conservan en el informe
 estructurado. La capa nativa conserva una slice de mapeo segura para
 migraciones controladas: mantiene la ruta fuera del bridge, valida fuente,
 hoja, esquema y receta en un estado temporal, y solo después puede publicar un
-snapshot y abrir el proyecto resultante. Si la fuente original ya no existe,
-un `snapshot_path` local y compatible puede restaurarse como dataset temporal
-sin volver a ejecutar la receta sobre datos ya materializados. La acción no se
-expone en el panel de Proyectos; la CLI la ofrece como
+snapshot y abrir el proyecto resultante. Si existe un `snapshot_path` local y
+compatible, se restaura primero porque representa el estado materializado
+actual y evita perder operaciones de limpieza cuyos parámetros no forman parte
+del manifiesto. Cuando no hay snapshot, se usa la fuente disponible y se
+reaplica la receta estructural. La acción no se expone en el panel de Proyectos; la CLI la ofrece como
 `project-import-dataprep --store DIR --session FILE [--name NAME]` para
 migraciones autorizadas. Una cancelación o error no modifica el dataset activo
 ni reemplaza proyectos existentes.

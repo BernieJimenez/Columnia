@@ -16,6 +16,10 @@ los artefactos de validación locales.
 - La migración de sesiones DataPrep conserva en el artefacto de receta los
   identificadores estructurales acotados de operaciones aplicadas y comprobaciones
   de análisis, además de sus conteos; no guarda resultados, cachés ni rutas.
+- La importación de sesiones DataPrep prioriza un snapshot local compatible para
+  conservar el estado materializado exacto; solo reaplica la receta sobre el
+  origen cuando no existe snapshot, dejando explícito el límite de paridad de
+  operaciones cuyos parámetros no están en el manifiesto.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o
