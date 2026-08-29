@@ -845,6 +845,7 @@ export function App() {
                 onRemoveHighNullColumns={prepare.applyHighNullColumnRemoval}
                 onRemoveIdentifierColumns={prepare.applyIdentifierColumnRemoval}
                 onRemovePersonalColumns={prepare.applyPersonalColumnRemoval}
+                onMaskPersonalValues={prepare.applyPersonalValueMasking}
                 onNormalizeSentinels={prepare.applySentinelNormalization}
                 onNormalizeBooleans={prepare.applyBooleanNormalization}
                 onFixEncoding={prepare.applyEncodingFix}

@@ -210,6 +210,11 @@
       "debug": false
     },
     {
+      "name": "mask_personal_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "normalize_column_names",
       "module": "dataset",
       "debug": false
@@ -475,6 +480,10 @@
     {
       "rust": "TextCleaningResult",
       "typescript": "TextCleaningResult"
+    },
+    {
+      "rust": "PersonalDataMaskResult",
+      "typescript": "PersonalDataMaskResult"
     },
     {
       "rust": "HistoryResult",

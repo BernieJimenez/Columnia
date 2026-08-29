@@ -505,8 +505,11 @@ teléfono, dirección, identificador o nombre. Solo publica la categoría y el n
 de la columna en el perfil; no inspecciona ni devuelve muestras para esta señal.
 Preparar permite revisar y retirar únicamente las columnas clasificadas como
 identificadoras, con confirmación, historial reversible y conservación de al menos
-una columna. Email, teléfono, dirección y nombre siguen requiriendo una decisión
-explícita de protección al exportar mediante máscara o hash.
+una columna. Para email, teléfono, dirección y nombre ofrece además una acción
+confirmable que sustituye los valores no nulos por `[REDACTED]`, conserva las
+columnas y publica solo el número de celdas/columnas afectadas; no toca números,
+nulos ni `_cambios`. La acción puede deshacerse desde el historial. La privacidad
+de entrega conserva sus semánticas independientes de máscara o hash.
 
 ## Trazabilidad local por fila
 

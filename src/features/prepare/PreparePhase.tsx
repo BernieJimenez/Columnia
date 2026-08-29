@@ -25,6 +25,7 @@ interface PreparePhaseProps {
   onRemoveHighNullColumns: () => void;
   onRemoveIdentifierColumns?: () => void;
   onRemovePersonalColumns?: () => void;
+  onMaskPersonalValues?: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onFixEncoding?: () => void;
@@ -62,6 +63,7 @@ export function PreparePhase({
   onRemoveHighNullColumns,
   onRemoveIdentifierColumns = () => undefined,
   onRemovePersonalColumns = () => undefined,
+  onMaskPersonalValues = () => undefined,
   onNormalizeSentinels,
   onNormalizeBooleans,
   onFixEncoding = () => undefined,
@@ -91,6 +93,7 @@ export function PreparePhase({
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
   const [personalConfirmation, setPersonalConfirmation] = useState(false);
+  const [maskPersonalConfirmation, setMaskPersonalConfirmation] = useState(false);
   const [invalidTypeConfirmation, setInvalidTypeConfirmation] = useState(false);
   const [outlierConfirmation, setOutlierConfirmation] = useState<"cap" | "drop" | null>(null);
   const identifierColumns = profileStatus.kind === "ready"
@@ -212,6 +215,7 @@ export function PreparePhase({
               onRemoveHighNullColumns={onRemoveHighNullColumns}
               onRemoveIdentifierColumns={() => setIdentifierConfirmation(true)}
               onRemovePersonalColumns={() => setPersonalConfirmation(true)}
+              onMaskPersonalValues={() => setMaskPersonalConfirmation(true)}
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
               onFixEncoding={onFixEncoding}
@@ -495,6 +499,39 @@ export function PreparePhase({
           </div>
         </ModalDialog>
       )}
+      {maskPersonalConfirmation && personalColumns.length > 0 && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="personal-mask-confirm-title"
+          describedBy="personal-mask-confirm-description"
+          onDismiss={() => setMaskPersonalConfirmation(false)}
+        >
+          <p className="step">Confirmación requerida</p>
+          <h3 id="personal-mask-confirm-title">Proteger datos personales detectados</h3>
+          <p id="personal-mask-confirm-description">
+            Se sustituirán los valores no nulos de {personalColumns.length === 1 ? "1 columna personal" : `${personalColumns.length} columnas personales`} por <code>[REDACTED]</code>, identificadas por categorías agregadas: {personalCategories}.
+            No se mostrarán nombres de columnas, celdas ni valores del dataset. Se conservarán las columnas,
+            se excluirá _cambios y el cambio podrá revertirse desde el historial.
+            Los identificadores se gestionan con la acción separada de esta sección.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setMaskPersonalConfirmation(false)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                setMaskPersonalConfirmation(false);
+                onMaskPersonalValues();
+              }}
+              disabled={changing}
+            >
+              Proteger valores personales
+            </button>
+          </div>
+        </ModalDialog>
+      )}
       {invalidTypeConfirmation && typeDriftColumns.length > 0 && (
         <ModalDialog
           role="alertdialog"
@@ -597,6 +634,7 @@ function CleaningSignals({
   onRemoveHighNullColumns,
   onRemoveIdentifierColumns,
   onRemovePersonalColumns,
+  onMaskPersonalValues,
   onNormalizeSentinels,
   onNormalizeBooleans,
   onFixEncoding,
@@ -614,6 +652,7 @@ function CleaningSignals({
   onRemoveHighNullColumns: () => void;
   onRemoveIdentifierColumns: () => void;
   onRemovePersonalColumns: () => void;
+  onMaskPersonalValues: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onFixEncoding: () => void;
@@ -778,6 +817,9 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onRemovePersonalColumns} disabled={busy}>
                 Revisar datos personales detectados
+              </button>
+              <button type="button" onClick={onMaskPersonalValues} disabled={busy}>
+                Proteger valores personales detectados
               </button>
             </div>
           )}

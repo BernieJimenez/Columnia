@@ -16,6 +16,7 @@ import {
   normalizeSentinelValues,
   normalizeBooleanValues,
   normalizeTextValues,
+  maskPersonalValues,
   removeConstantColumns,
   removeEmptyRows,
   removeEmptyColumns,
@@ -212,6 +213,32 @@ export function usePrepareController({
         message: result.removedColumnCount === 0
           ? "No se detectaron columnas de datos personales para retirar; se conserva al menos una columna del dataset."
           : `Se retiraron ${result.removedColumnCount.toLocaleString()} columnas de datos personales. No se muestran nombres ni valores. La operación puede revertirse desde el historial.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyPersonalValueMasking() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "personal_mask" });
+    try {
+      const result = await maskPersonalValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const cells = result.changedCellCount === 1
+        ? "1 valor"
+        : `${result.changedCellCount.toLocaleString()} valores`;
+      const columns = result.changedColumnCount === 1
+        ? "1 columna"
+        : `${result.changedColumnCount.toLocaleString()} columnas`;
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se encontraron valores personales no nulos que proteger."
+          : `Se protegieron ${cells} en ${columns} con [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -557,6 +584,7 @@ export function usePrepareController({
     applyHighNullColumnRemoval,
     applyIdentifierColumnRemoval,
     applyPersonalColumnRemoval,
+    applyPersonalValueMasking,
     applySentinelNormalization,
     applyBooleanNormalization,
     applyEncodingFix,

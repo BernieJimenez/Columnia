@@ -10,7 +10,7 @@ export type ChangeStatus =
   | { kind: "idle" }
   | {
       kind: "working";
-       action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "categorical_impute" | "outlier_impute" | "outlier_cap" | "outlier_drop" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
+       action: "safe" | "duplicates" | "near_duplicates" | "empty_rows" | "constant_columns" | "empty_columns" | "high_null_columns" | "identifier_columns" | "personal_columns" | "personal_mask" | "sentinels" | "booleans" | "encoding" | "invalid_types" | "impute" | "categorical_impute" | "outlier_impute" | "outlier_cap" | "outlier_drop" | "audit" | "columns" | "trim" | "text" | "transform" | "undo" | "redo";
     }
   | { kind: "applied"; message: string }
   | { kind: "error"; message: string };
@@ -114,6 +114,7 @@ export function changeProgressMessage(action: Extract<ChangeStatus, { kind: "wor
     high_null_columns: "Eliminando columnas con alta nulidad…",
     identifier_columns: "Retirando columnas identificadoras…",
     personal_columns: "Retirando datos personales detectados…",
+    personal_mask: "Protegiendo valores personales detectados…",
     sentinels: "Normalizando valores centinela…",
     booleans: "Normalizando booleanos…",
     encoding: "Corrigiendo doble codificación UTF-8…",

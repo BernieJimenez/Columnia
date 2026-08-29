@@ -24,6 +24,7 @@ import {
   normalizeBooleanValues,
   fixEncodingValues,
   imputeCategoricalValues,
+  maskPersonalValues,
   nullifyInvalidTypeValues,
   normalizeTextValues,
   openLastExport,
@@ -356,6 +357,22 @@ describe("desktop bridge", () => {
     await imputeCategoricalValues();
 
     expect(invoke).toHaveBeenCalledWith("impute_categorical_values");
+  });
+
+  it("protege valores personales mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: {},
+      changedCellCount: 3,
+      changedColumnCount: 2,
+    });
+
+    await expect(maskPersonalValues()).resolves.toEqual({
+      dataset: {},
+      changedCellCount: 3,
+      changedColumnCount: 2,
+    });
+
+    expect(invoke).toHaveBeenCalledWith("mask_personal_values");
   });
 
   it("elimina columnas constantes mediante un comando tipado", async () => {

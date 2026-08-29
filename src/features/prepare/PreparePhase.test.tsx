@@ -409,6 +409,7 @@ describe("PreparePhase", () => {
 
   it("confirma el retiro de PII por categorías agregadas sin exponer nombres ni valores", () => {
     const onRemovePersonalColumns = vi.fn();
+    const onMaskPersonalValues = vi.fn();
     render(<PreparePhase
       dataset={dataset}
       profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
@@ -426,6 +427,7 @@ describe("PreparePhase", () => {
       onRemoveHighNullColumns={() => undefined}
       onRemoveIdentifierColumns={() => undefined}
       onRemovePersonalColumns={onRemovePersonalColumns}
+      onMaskPersonalValues={onMaskPersonalValues}
       onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
@@ -452,6 +454,19 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
     fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
     expect(onRemovePersonalColumns).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales detectados" }));
+    const maskDialog = screen.getByRole("alertdialog", { name: "Proteger datos personales detectados" });
+    expect(maskDialog).toHaveTextContent("1 columna personal");
+    expect(maskDialog).toHaveTextContent("[REDACTED]");
+    expect(maskDialog).not.toHaveTextContent("email");
+    expect(maskDialog).not.toHaveTextContent("ana@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onMaskPersonalValues).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales detectados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales" }));
+    expect(onMaskPersonalValues).toHaveBeenCalledOnce();
   });
 
   it("confirma apartar valores incompatibles sin exponer celdas", () => {
@@ -544,6 +559,11 @@ describe("PreparePhase", () => {
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" }), { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
     fireEvent.click(screen.getByRole("button", { name: "Retirar datos personales" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales detectados" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Proteger datos personales detectados" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales detectados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Proteger valores personales" }));
   });
 
   it("cubre estados de análisis, navegación de tabs y limpieza de texto seleccionada", () => {

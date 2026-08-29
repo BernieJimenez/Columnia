@@ -1187,10 +1187,15 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Completar nulos textuales con `Desconocido` como acción explícita,
   reversible y separada de la imputación conservadora por moda; excluye números
   y `_cambios` y reporta solo impacto agregado.
+- [x] Proteger con confirmación los valores no nulos de columnas personales
+  detectadas (correo, teléfono, dirección y nombre), sustituyéndolos por
+  `[REDACTED]` sin tocar identificadores, números, nulos ni `_cambios`; la
+  operación conserva las columnas, reporta solo impacto agregado y puede
+  revertirse desde el historial.
 - [ ] Completar la migración del catálogo de limpieza sugerida: las reglas
   avanzadas que aún no tengan una acción reversible. Los identificadores y el
-  PII personal (correo, teléfono, dirección y nombre) ya tienen acciones
-  explícitas y confirmadas. La
+  PII personal (correo, teléfono, dirección y nombre) ya tiene acciones de
+  retiro y protección explícitas y confirmadas. La
   eliminación difusa ya tiene una primera acción implementada: confirma el
   impacto agregado, conserva la primera fila/orden y las copias exactas, y
   permite deshacer; siguen pendientes las reglas avanzadas que aún no tengan una

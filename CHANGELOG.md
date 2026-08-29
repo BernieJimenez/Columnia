@@ -18,6 +18,11 @@ los artefactos de validación locales.
 - Preparar ofrece acciones IQR confirmables para limitar valores atípicos o
   eliminar las filas que excedan los límites, con historial reversible, impacto
   agregado y sin mostrar celdas; el inventario IPC pasa a 63 comandos de producción.
+- Preparar ofrece una acción confirmable para proteger valores no nulos de
+  correo, teléfono, dirección y nombre detectados, sustituyéndolos por
+  `[REDACTED]` sin tocar identificadores, números, nulos ni `_cambios`; conserva
+  las columnas, reporta solo conteos agregados y permite deshacer desde el
+  historial. El inventario IPC pasa a 64 comandos de producción y 58 estructuras.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
    `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers` y `drop_outliers`,

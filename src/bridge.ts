@@ -264,6 +264,12 @@ export interface TextCleaningResult {
   changedColumns: ChangedTextColumn[];
 }
 
+export interface PersonalDataMaskResult {
+  dataset: DatasetPreview;
+  changedCellCount: number;
+  changedColumnCount: number;
+}
+
 export interface HistoryEntryState {
   index: number;
   label: string;
@@ -919,6 +925,10 @@ export function removeIdentifierColumns(): Promise<ColumnRemovalResult> {
 
 export function removePersonalColumns(): Promise<ColumnRemovalResult> {
   return invoke<ColumnRemovalResult>("remove_personal_columns");
+}
+
+export function maskPersonalValues(): Promise<PersonalDataMaskResult> {
+  return invoke<PersonalDataMaskResult>("mask_personal_values");
 }
 
 export function normalizeColumnNames(): Promise<ColumnNormalizationResult> {

@@ -45,6 +45,7 @@ const sharedStructures = [
   ["ColumnNormalizationResult", "ColumnNormalizationResult"],
   ["ChangedTextColumn", "ChangedTextColumn"],
   ["TextCleaningResult", "TextCleaningResult"],
+  ["PersonalDataMaskResult", "PersonalDataMaskResult"],
   ["HistoryResult", "HistoryResult"],
   ["HistoryEntryState", "HistoryEntryState"],
   ["HistoryState", "HistoryState"],
@@ -125,7 +126,7 @@ try {
   if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
     throw new Error("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
   }
-  if (current.productionCommands.length !== 63 || current.debugCommands.length !== 4) {
+  if (current.productionCommands.length !== 64 || current.debugCommands.length !== 4) {
     throw new Error(`Conteo IPC inesperado: ${current.productionCommands.length} producción, ${current.debugCommands.length} debug.`);
   }
   console.log(`Inventario IPC aprobado: ${current.productionCommands.length} comandos producción, ${current.debugCommands.length} debug, ${current.sharedStructures.length} estructuras.`);

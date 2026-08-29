@@ -20,8 +20,8 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 281 frontend y 262 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
-| Última revisión de este documento | 2026-08-29, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers e imputación categórica explícita como `Desconocido`; el inventario IPC registra 63 comandos de producción y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
+| Pruebas observadas | 283 frontend y 264 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Última revisión de este documento | 2026-08-29, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido` y protección reversible de valores personales con `[REDACTED]`; el inventario IPC registra 64 comandos de producción y 58 estructuras, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
 
@@ -192,7 +192,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `tools/verify-experience.ps1` | Ejecuta juntos `accessibility:check` y `perf:check` para verificar los contratos visual y de rendimiento después de generar evidencias. |
 | `tools/verify-tier.ps1` | Orquesta el tier reproducible completo: tests, build, accesibilidad, benchmark sostenido, Package, smokes CLI/WebView2 y gates finales; permite omitir Package o native de forma explícita. |
 | `tools/check-toolchains.mjs` / `rust-toolchain.toml` | Rechazan Node/npm/Rust fuera de las versiones exactas del entorno de release. |
-| `tools/check-ipc-inventory.mjs` / `docs/reference/ipc-inventory.json` | Generan y verifican desde Rust el inventario de 63 comandos de producción, 4 debug y 57 estructuras compartidas; los tests de contrato consumen el inventario. |
+| `tools/check-ipc-inventory.mjs` / `docs/reference/ipc-inventory.json` | Generan y verifican desde Rust el inventario de 64 comandos de producción, 4 debug y 58 estructuras compartidas; los tests de contrato consumen el inventario. |
 | `docs/reference/legal-distribution-review.md` / `src/App.tsx` | Hacen descubribles MIT, notices y privacidad local; la revisión legal de canal/jurisdicción/contacto sigue pendiente antes de publicar. |
 | `ACCESSIBILITY_MANUAL_CHECKLIST.md` | Checklist operativa para teclado, lector de pantalla, High Contrast, zoom y evidencia manual; no declara completada la auditoría sin una sesión real. |
 | `fixtures/accessibility/visual-baseline-v1.json` | Contrato versionado de escenarios y mínimos visuales; no contiene imágenes ni datos de usuario. |
@@ -288,7 +288,7 @@ La superficie pública está centralizada en `src/bridge.ts` y registrada en `sr
 - `open_project`
 - `delete_project`
 
-Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y las 57 estructuras compartidas del inventario generado. Las subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
+Regla de mantenimiento: cualquier cambio de nombre, argumentos, serialización o respuesta en Rust debe reflejarse en `bridge.ts` y quedar cubierto por pruebas. `src/ipc-contract.test.ts` verifica automáticamente comandos registrados, argumentos serializados, tipos de retorno superiores y las 58 estructuras compartidas del inventario generado. Las subestructuras de `TransformRecipe` tienen interfaces nominales equivalentes a Rust; los alias públicos históricos se conservan para no romper consumidores.
 
 ## Capacidades implementadas
 
@@ -327,6 +327,7 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - tratamiento IQR por límite o eliminación;
 - imputación IQR reversible por mediana, con preservación de tipos numéricos y `_cambios`;
 - imputación categórica explícita de nulos textuales como `Desconocido`, sin tocar números ni `_cambios`;
+- protección confirmable de valores no nulos en columnas personales detectadas mediante `[REDACTED]`, conservando columnas, números, nulos e `_cambios` y con reversión desde el historial;
 - agrupación con agregaciones tipadas;
 - normalización de correos, teléfonos y direcciones;
 - extracciones textuales Unicode;
@@ -685,6 +686,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-29 | P1 añade protección reversible de valores personales detectados: una confirmación sustituye por `[REDACTED]` los valores no nulos de correo, teléfono, dirección y nombre, conserva columnas, números, nulos e `_cambios`, publica solo conteos agregados y deja los identificadores como acción separada. El inventario IPC queda en 64 comandos de producción y 58 estructuras. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
 | 2026-08-28 | T5-06 queda cerrado: la evidencia release se captura desde un árbol limpio, registra commit/rama/lockfiles, cubre desktop, móvil, zoom 125%, zoom 200% y forced-colors, y el checker exige que el único commit posterior sea el del baseline. | `tools/capture-release-evidence.mjs`, `tools/check-release-evidence.mjs`, `tools/capture-release-evidence.ps1`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-29 | P1/M1 liga los perfiles cacheados del catálogo a la huella SHA-256 de `current.parquet`: al reabrir un proyecto se invalida solo la caché si cambia el snapshot, se conserva compatibilidad con catálogos anteriores y SQLite migra a v5 de forma transaccional. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-28 | I6 añade un contrato updater estructural reproducible y lo integra al perfil Release/Package: un fixture temporal aprueba el par válido y falla ante truncado, firma alterada, manifiesto incompleto/corrupto y URL HTTP. La prueba no contacta la red ni sustituye la validación del canal real. | `tools/test-updater-manifest.mjs`, `tools/check.ps1`, `.local/validation/20260828T214048Z-6ec7bae-release.json` |

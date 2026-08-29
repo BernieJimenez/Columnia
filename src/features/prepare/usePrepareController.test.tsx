@@ -57,6 +57,7 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyHighNullColumnRemoval}>Alta nulidad</button>
     <button type="button" onClick={controller.applyIdentifierColumnRemoval}>Identificadores</button>
     <button type="button" onClick={controller.applyPersonalColumnRemoval}>Personales</button>
+    <button type="button" onClick={controller.applyPersonalValueMasking}>Proteger personales</button>
     <button type="button" onClick={controller.applySentinelNormalization}>Centinelas</button>
     <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
     <button type="button" onClick={controller.applyEncodingFix}>Codificación</button>
@@ -263,6 +264,28 @@ describe("usePrepareController", () => {
     ));
     expect(screen.getByRole("status")).not.toHaveTextContent("email");
     expect(bridge.removePersonalColumns).toHaveBeenCalledOnce();
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("publica la máscara de valores personales con impacto agregado y reversión", async () => {
+    vi.spyOn(bridge, "maskPersonalValues").mockResolvedValue({
+      dataset,
+      changedCellCount: 4,
+      changedColumnCount: 2,
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Proteger personales" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se protegieron 4 valores en 2 columnas con [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.",
+    ));
+    expect(bridge.maskPersonalValues).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();

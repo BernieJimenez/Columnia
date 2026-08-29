@@ -74,6 +74,7 @@ const MOJIBAKE_MARKERS: &[&str] = &[
     "Ãº", "â€”", "â€¦",
 ];
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
+const REDACTED_VALUE: &str = "[REDACTED]";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 const HISTORY_MAX_ENTRIES: usize = 12;
 const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
@@ -746,6 +747,14 @@ pub struct TextCleaningResult {
     affected_row_count: usize,
     changed_cell_count: usize,
     changed_columns: Vec<ChangedTextColumn>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalDataMaskResult {
+    dataset: DatasetPreview,
+    changed_cell_count: usize,
+    changed_column_count: usize,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -4944,6 +4953,65 @@ fn remove_personal_columns_from_frame(
         format!("No se pudieron retirar columnas con datos personales: {error}")
     })?;
     Ok((cleaned, removed_columns))
+}
+
+fn is_personal_privacy_signal(column_name: &str) -> bool {
+    matches!(
+        privacy_signal(column_name),
+        Some("email" | "phone" | "address" | "name")
+    )
+}
+
+fn mask_personal_values_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize, usize), String> {
+    let mut masked = frame.clone();
+    let mut changed_cell_count = 0;
+    let mut changed_column_count = 0;
+
+    for column in frame
+        .columns()
+        .iter()
+        .filter(|column| column.name() != "_cambios" && is_personal_privacy_signal(column.name()))
+    {
+        let mut column_changed_cell_count = 0;
+        let values = (0..column.len())
+            .map(|row_index| {
+                column
+                    .get(row_index)
+                    .map_err(|_| {
+                        "No se pudo leer una columna personal para proteger sus valores.".to_owned()
+                    })
+                    .map(|value| match value {
+                        AnyValue::Null => None,
+                        value => {
+                            let already_redacted = match &value {
+                                AnyValue::String(current) => *current == REDACTED_VALUE,
+                                AnyValue::StringOwned(current) => {
+                                    current.as_str() == REDACTED_VALUE
+                                }
+                                _ => false,
+                            };
+                            if !already_redacted {
+                                column_changed_cell_count += 1;
+                            }
+                            Some(REDACTED_VALUE.to_owned())
+                        }
+                    })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
+        if column_changed_cell_count > 0 {
+            changed_cell_count += column_changed_cell_count;
+            changed_column_count += 1;
+        }
+        masked
+            .replace(
+                column.name().as_str(),
+                Column::new(column.name().clone(), values),
+            )
+            .map_err(|_| "No se pudo proteger una columna de datos personales.".to_owned())?;
+    }
+
+    Ok((masked, changed_cell_count, changed_column_count))
 }
 
 fn normalize_column_name(name: &str) -> String {
@@ -12125,7 +12193,7 @@ fn privacy_safe_frame(
                             let value = value.to_string();
                             Some(match mode {
                                 PrivacyMode::None => value,
-                                PrivacyMode::Mask => "[REDACTED]".to_owned(),
+                                PrivacyMode::Mask => REDACTED_VALUE.to_owned(),
                                 PrivacyMode::Hash => {
                                     format!("{:x}", Sha256::digest(value.as_bytes()))
                                 }
@@ -14517,6 +14585,34 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
     .map_err(|error| {
         format!("La eliminación de columnas con datos personales se interrumpió: {error}")
     })?
+}
+
+#[tauri::command]
+pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (masked, changed_cell_count, changed_column_count) =
+            mask_personal_values_from_frame(&dataset.frame)?;
+        let preview = if changed_cell_count > 0 {
+            publish_candidate(dataset, masked, "Proteger valores personales detectados")?
+        } else {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        };
+        Ok(PersonalDataMaskResult {
+            dataset: preview,
+            changed_cell_count,
+            changed_column_count,
+        })
+    })
+    .await
+    .map_err(|error| format!("La protección de datos personales se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -20378,6 +20474,79 @@ mod tests {
         assert_eq!(removed_columns, vec!["email", "phone", "address", "name"]);
         assert_eq!(cleaned.get_column_names(), vec!["_cambios", "amount"]);
         assert_eq!(cleaned.height(), 2);
+    }
+
+    #[test]
+    fn masks_personal_values_without_touching_identifiers_or_row_audit() {
+        let frame = df![
+            "email" => &[Some("ana@example.com"), None::<&str>],
+            "phone" => &["555-0100", "555-0101"],
+            "address" => &["Calle 1", "Calle 2"],
+            "name" => &["Ana", "Luis"],
+            "customer_id" => &["a-1", "b-2"],
+            "_cambios" => &[Some(""), Some("" )],
+            "amount" => &[10_i64, 20]
+        ]
+        .unwrap();
+
+        let (masked, changed_cell_count, changed_column_count) =
+            mask_personal_values_from_frame(&frame)
+                .expect("los valores personales deben poder protegerse");
+        assert_eq!(changed_cell_count, 7);
+        assert_eq!(changed_column_count, 4);
+        assert_eq!(
+            masked.column("email").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(masked.column("email").unwrap().str().unwrap().get(1), None);
+        assert_eq!(
+            masked.column("phone").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(
+            masked.column("address").unwrap().str().unwrap().get(1),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(
+            masked.column("name").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(
+            masked.column("customer_id").unwrap().str().unwrap().get(0),
+            Some("a-1")
+        );
+        assert_eq!(
+            masked.column("_cambios").unwrap().str().unwrap().get(0),
+            Some("")
+        );
+        assert_eq!(
+            masked.column("amount").unwrap().i64().unwrap().get(0),
+            Some(10)
+        );
+    }
+
+    #[test]
+    fn masking_personal_values_is_idempotent_for_redacted_and_null_cells() {
+        let frame = df![
+            "email" => &[Some(REDACTED_VALUE), None::<&str>],
+            "name" => &[Some("Luis"), None::<&str>],
+            "amount" => &[1_i64, 2]
+        ]
+        .unwrap();
+
+        let (masked, changed_cell_count, changed_column_count) =
+            mask_personal_values_from_frame(&frame)
+                .expect("la máscara debe poder repetirse sin cambiar lo ya protegido");
+        assert_eq!(changed_cell_count, 1);
+        assert_eq!(changed_column_count, 1);
+        assert_eq!(
+            masked.column("email").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(
+            masked.column("name").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
     }
 
     #[test]
