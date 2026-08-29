@@ -52,6 +52,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     typeMatchPercentage: 100,
     invalidTypeCount: 1,
     sentinelCount: 1,
+    encodingIssueCount: 2,
     privacySignal: "email",
     standardDeviation: null,
     firstQuartile: null,
@@ -76,6 +77,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     typeMatchPercentage: null,
     invalidTypeCount: null,
     sentinelCount: null,
+    encodingIssueCount: null,
     privacySignal: null,
     standardDeviation: null,
     firstQuartile: null,
@@ -100,6 +102,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     typeMatchPercentage: null,
     invalidTypeCount: null,
     sentinelCount: null,
+    encodingIssueCount: null,
     privacySignal: null,
     standardDeviation: null,
     firstQuartile: null,
@@ -124,6 +127,7 @@ const cleaningSignalsProfile: DatasetProfile = {
     typeMatchPercentage: null,
     invalidTypeCount: null,
     sentinelCount: 0,
+    encodingIssueCount: 0,
     privacySignal: "identifier",
     standardDeviation: null,
     firstQuartile: null,
@@ -211,6 +215,7 @@ describe("PreparePhase", () => {
     const onRemoveHighNullColumns = vi.fn();
     const onNormalizeSentinels = vi.fn();
     const onNormalizeBooleans = vi.fn();
+    const onFixEncoding = vi.fn();
     const onImputeMissingValues = vi.fn();
     const onEnableRowAudit = vi.fn();
     render(<PreparePhase
@@ -229,6 +234,7 @@ describe("PreparePhase", () => {
       onRemoveHighNullColumns={onRemoveHighNullColumns}
       onNormalizeSentinels={onNormalizeSentinels}
       onNormalizeBooleans={onNormalizeBooleans}
+      onFixEncoding={onFixEncoding}
       onImputeMissingValues={onImputeMissingValues}
       onEnableRowAudit={onEnableRowAudit}
       onNormalizeColumns={() => undefined}
@@ -255,6 +261,8 @@ describe("PreparePhase", () => {
     expect(onRemoveHighNullColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Convertir centinelas a nulos" }));
     expect(onNormalizeSentinels).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Corregir codificación" }));
+    expect(onFixEncoding).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Normalizar booleanos" }));
     expect(onNormalizeBooleans).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Intentar imputación conservadora" }));
@@ -457,6 +465,7 @@ describe("PreparePhase", () => {
       onRemovePersonalColumns: vi.fn(),
       onNormalizeSentinels: vi.fn(),
       onNormalizeBooleans: vi.fn(),
+      onFixEncoding: vi.fn(),
       onImputeMissingValues: vi.fn(),
       onEnableRowAudit: vi.fn(),
       onNormalizeColumns: vi.fn(),

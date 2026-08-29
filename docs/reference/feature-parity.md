@@ -13,7 +13,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos acotados, cobertura temporal y lectura visual accesible | Parcial | Migrar análisis exploratorio, calendario completo, tendencias y series temporales |
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
-| Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación; importación del núcleo representable de pipelines DataPrep v1–v3 | Parcial | Migrar catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
+| Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, outliers y agregación; importación del núcleo representable de pipelines DataPrep v1–v3; reparación reversible de doble codificación UTF-8 | Parcial | Migrar las reglas avanzadas restantes del catálogo de limpieza sugerida, opciones de exportación y optimización no destructiva |
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura, calendario diario y tendencia temporal diaria/mensual/anual acotada y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, series temporales completas, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
@@ -401,9 +401,10 @@ impacto, excluye columnas completamente nulas, conserva el orden y deja al menos
 una columna para que el dataset siga siendo utilizable. El cambio queda registrado
 en el historial, invalida el perfil y puede deshacerse.
 
-La detección de identificadores y la eliminación automática de duplicados difusos
-siguen formando parte del catálogo pendiente; la señal agregada de duplicados
-parecidos y la imputación conservadora ya están disponibles para revisión.
+La detección y retirada explícita de identificadores ya está disponible; la
+eliminación automática de duplicados difusos sigue formando parte del catálogo
+pendiente. La señal agregada de duplicados parecidos y la imputación conservadora
+también están disponibles para revisión.
 
 ## Limpieza segura de columnas completamente vacías
 
@@ -437,6 +438,13 @@ El perfil identifica columnas de texto con una coincidencia booleana de al menos
 como `true`/`false`, conserva los valores no reconocidos y registra el cambio en el
 historial. La operación no convierte identificadores numéricos ni altera columnas
 que no sean de texto.
+
+## Reparación segura de doble codificación UTF-8
+
+El perfil cuenta por columna secuencias heredadas comunes como `Ã©` y `â€™` sin
+mostrar celdas. Preparar ofrece una acción reversible que convierte únicamente
+valores de texto cuya secuencia puede reinterpretarse y decodificarse como UTF-8
+válido; los tipos no textuales, `_cambios` y valores ambiguos permanecen intactos.
 
 ## Detección conservadora de duplicados parecidos
 

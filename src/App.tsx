@@ -818,6 +818,7 @@ export function App() {
                 onRemovePersonalColumns={prepare.applyPersonalColumnRemoval}
                 onNormalizeSentinels={prepare.applySentinelNormalization}
                 onNormalizeBooleans={prepare.applyBooleanNormalization}
+                onFixEncoding={prepare.applyEncodingFix}
                 onImputeMissingValues={prepare.applyMissingValueImputation}
                 onEnableRowAudit={prepare.applyRowAudit}
                 onNormalizeColumns={prepare.applyColumnNormalization}

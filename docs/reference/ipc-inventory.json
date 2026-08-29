@@ -230,6 +230,11 @@
       "debug": false
     },
     {
+      "name": "fix_encoding_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "impute_missing_values",
       "module": "dataset",
       "debug": false

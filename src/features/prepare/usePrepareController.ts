@@ -4,6 +4,7 @@ import {
   applySafeCorrections,
   applyTransformRecipe,
   enableRowAudit,
+  fixEncodingValues,
   getHistoryState,
   imputeMissingValues,
   normalizeColumnNames,
@@ -256,6 +257,29 @@ export function usePrepareController({
     }
   }
 
+  async function applyEncodingFix() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "encoding" });
+    try {
+      const result = await fixEncodingValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const detail = result.changedCellCount === 1
+        ? "1 celda"
+        : `${result.changedCellCount.toLocaleString()} celdas`;
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se detectaron valores con doble codificación UTF-8."
+          : `Se corrigió doble codificación UTF-8 en ${detail}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function applyMissingValueImputation() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "impute" });
@@ -436,6 +460,7 @@ export function usePrepareController({
     applyPersonalColumnRemoval,
     applySentinelNormalization,
     applyBooleanNormalization,
+    applyEncodingFix,
     applyMissingValueImputation,
     applyRowAudit,
     applyColumnNormalization,

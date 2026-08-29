@@ -209,6 +209,7 @@ export interface ColumnProfile {
   typeMatchPercentage: number | null;
   invalidTypeCount: number | null;
   sentinelCount: number | null;
+  encodingIssueCount: number | null;
   privacySignal: "email" | "phone" | "address" | "identifier" | "name" | null;
   standardDeviation: number | null;
   firstQuartile: number | null;
@@ -923,6 +924,10 @@ export function normalizeSentinelValues(): Promise<TextCleaningResult> {
 
 export function normalizeBooleanValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("normalize_boolean_values");
+}
+
+export function fixEncodingValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("fix_encoding_values");
 }
 
 export function imputeMissingValues(): Promise<TextCleaningResult> {

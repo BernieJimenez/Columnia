@@ -20,6 +20,10 @@ los artefactos de validación locales.
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
   operaciones cuyos parámetros no están en el manifiesto.
+- Preparar detecta secuencias comunes de doble codificación UTF-8 (`Ã©`, `â€™`)
+  por columna y ofrece una reparación reversible, limitada a valores de texto
+  que pueden decodificarse inequívocamente sin tocar números, `_cambios` ni
+  valores ambiguos.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o

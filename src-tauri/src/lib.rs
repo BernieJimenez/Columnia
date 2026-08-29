@@ -220,6 +220,7 @@ pub fn run() {
             dataset::normalize_text_values,
             dataset::normalize_sentinel_values,
             dataset::normalize_boolean_values,
+            dataset::fix_encoding_values,
             dataset::impute_missing_values,
             dataset::apply_safe_corrections,
             dataset::apply_transform_recipe,

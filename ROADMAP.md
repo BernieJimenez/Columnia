@@ -1172,6 +1172,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Activar una columna reservada `_cambios` para trazabilidad local por fila;
   las mutaciones posteriores conservan/añaden la etiqueta de operación y la
   columna queda protegida de la limpieza textual general.
+- [x] Detectar y reparar doble codificación UTF-8 heredada (`Ã©`, `â€™`) con
+  conteo agregado por columna, una acción reversible y una decodificación
+  cerrada que no modifica números, `_cambios` ni valores ambiguos.
 - [ ] Completar la migración del catálogo de limpieza sugerida: las reglas
   avanzadas que aún no tengan una acción reversible. Los identificadores y el
   PII personal (correo, teléfono, dirección y nombre) ya tienen acciones
@@ -1673,6 +1676,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | `perf:webview2` aprobado: 100 MiB/819,137 filas dentro de WebView2, con selector Win32, carga, paginación, transformación, exportación y cleanup; el recorrido grande queda separado del CDP normal y registra 686,817,280 bytes de working set y 456,114,176 bytes privados bajo su techo de medición 1.5 GiB/1 GiB. El presupuesto global 512/256 MiB continúa abierto. | `.local/validation/performance-webview2/20260829T010235Z/summary.json`, `.local/validation/webview2-cdp/20260829T010238Z/summary.json` |
 | 2026-08-29 | M1 conserva en `migrationReport.session` los nombres estructurales acotados de operaciones aplicadas y comprobaciones de análisis cuando son tokens seguros; sus conteos, receta, reglas y round-trip durable siguen siendo verificables, mientras resultados, cachés y snapshots históricos de DataPrep continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | M1 prioriza el snapshot local compatible de DataPrep para restaurar el estado materializado exacto; solo reaplica la receta sobre el origen cuando no hay snapshot, con regresión nativa para impedir una reproducción incompleta de `applied_ops`. | `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | P1 añade detección agregada y reparación reversible de doble codificación UTF-8 heredada; solo se aplican conversiones de texto inequívocas y se excluyen números y `_cambios`. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

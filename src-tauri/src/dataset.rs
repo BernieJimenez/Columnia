@@ -58,6 +58,10 @@ const SENTINEL_VALUES: &[&str] = &[
     "desconocido",
     "desconocida",
 ];
+const MOJIBAKE_MARKERS: &[&str] = &[
+    "â€™", "â€œ", "â€", "Ã©", "Ã¨", "Ã ", "Ã¢", "Ã®", "Ã´", "Ã³", "Ã±", "Ã¼", "Ã¡", "Ã­", "Ãº",
+    "â€”", "â€¦",
+];
 const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 const HISTORY_MAX_ENTRIES: usize = 12;
@@ -657,6 +661,8 @@ pub struct ColumnProfile {
     invalid_type_count: Option<usize>,
     #[serde(default)]
     sentinel_count: Option<usize>,
+    #[serde(default)]
+    encoding_issue_count: Option<usize>,
     #[serde(default)]
     privacy_signal: Option<String>,
     standard_deviation: Option<f64>,
@@ -3107,6 +3113,7 @@ fn numeric_statistics(
 struct TextStatistics {
     empty_count: usize,
     sentinel_count: usize,
+    encoding_issue_count: usize,
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
     average_length: Option<f64>,
@@ -3126,6 +3133,52 @@ fn is_supported_date(value: &str) -> bool {
 fn is_missing_sentinel(value: &str) -> bool {
     let normalized = normalize_text_value(value, true);
     SENTINEL_VALUES.contains(&normalized.as_str())
+}
+
+fn mojibake_byte(character: char) -> Option<u8> {
+    match character {
+        '\u{20ac}' => Some(0x80),
+        '\u{201a}' => Some(0x82),
+        '\u{192}' => Some(0x83),
+        '\u{201e}' => Some(0x84),
+        '\u{2026}' => Some(0x85),
+        '\u{2020}' => Some(0x86),
+        '\u{2021}' => Some(0x87),
+        '\u{2c6}' => Some(0x88),
+        '\u{2030}' => Some(0x89),
+        '\u{160}' => Some(0x8a),
+        '\u{2039}' => Some(0x8b),
+        '\u{152}' => Some(0x8c),
+        '\u{17d}' => Some(0x8e),
+        '\u{2018}' => Some(0x91),
+        '\u{2019}' => Some(0x92),
+        '\u{201c}' => Some(0x93),
+        '\u{201d}' => Some(0x94),
+        '\u{2022}' => Some(0x95),
+        '\u{2013}' => Some(0x96),
+        '\u{2014}' => Some(0x97),
+        '\u{2dc}' => Some(0x98),
+        '\u{2122}' => Some(0x99),
+        '\u{161}' => Some(0x9a),
+        '\u{203a}' => Some(0x9b),
+        '\u{153}' => Some(0x9c),
+        '\u{17e}' => Some(0x9e),
+        '\u{178}' => Some(0x9f),
+        character if (character as u32) <= 0xff => Some(character as u8),
+        _ => None,
+    }
+}
+
+fn repair_mojibake(value: &str) -> Option<String> {
+    if !MOJIBAKE_MARKERS.iter().any(|marker| value.contains(marker)) {
+        return None;
+    }
+    let bytes = value
+        .chars()
+        .map(mojibake_byte)
+        .collect::<Option<Vec<_>>>()?;
+    let repaired = String::from_utf8(bytes).ok()?;
+    (repaired != value && !repaired.contains('\u{fffd}')).then_some(repaired)
 }
 
 fn boolean_token(value: &str) -> Option<&'static str> {
@@ -3245,6 +3298,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         .map_err(|error| format!("No se pudo analizar la columna de texto: {error}"))?;
     let mut empty_count = 0;
     let mut sentinel_count = 0;
+    let mut encoding_issue_count = 0;
     let mut value_count: usize = 0;
     let mut boolean_count: usize = 0;
     let mut integer_count: usize = 0;
@@ -3259,6 +3313,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         let trimmed = value.trim();
         empty_count += usize::from(trimmed.is_empty());
         sentinel_count += usize::from(is_missing_sentinel(trimmed));
+        encoding_issue_count += usize::from(repair_mojibake(value).is_some());
         if !trimmed.is_empty() {
             boolean_count += usize::from(boolean_token(trimmed).is_some());
             integer_count += usize::from(
@@ -3285,6 +3340,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
     Ok(Some(TextStatistics {
         empty_count,
         sentinel_count,
+        encoding_issue_count,
         minimum_length,
         maximum_length,
         average_length,
@@ -3395,6 +3451,9 @@ where
         sentinel_count: text_statistics
             .as_ref()
             .map(|statistics| statistics.sentinel_count),
+        encoding_issue_count: text_statistics
+            .as_ref()
+            .map(|statistics| statistics.encoding_issue_count),
         privacy_signal: privacy_signal(column.name()).map(str::to_owned),
         standard_deviation: numeric_statistics
             .as_ref()
@@ -4740,6 +4799,7 @@ enum TextCleaningMode {
     Normalize { remove_accents: bool },
     Sentinels,
     Booleans,
+    FixEncoding,
 }
 
 pub(crate) fn normalize_text_value(value: &str, remove_accents: bool) -> String {
@@ -4819,6 +4879,9 @@ fn clean_text_columns(
                         TextCleaningMode::Sentinels => original.to_owned(),
                         TextCleaningMode::Booleans => {
                             boolean_token(original).unwrap_or(original).to_owned()
+                        }
+                        TextCleaningMode::FixEncoding => {
+                            repair_mojibake(original).unwrap_or_else(|| original.to_owned())
                         }
                     };
                     if next != original {
@@ -13615,6 +13678,7 @@ fn apply_text_cleaning(
         TextCleaningMode::Normalize { .. } => "Normalizar texto",
         TextCleaningMode::Sentinels => "Normalizar valores centinela",
         TextCleaningMode::Booleans => "Normalizar booleanos",
+        TextCleaningMode::FixEncoding => "Corregir codificación UTF-8",
     };
     let preview = if changed_cell_count > 0 {
         publish_candidate(dataset, cleaned, label)?
@@ -13672,6 +13736,15 @@ pub async fn normalize_boolean_values(app: AppHandle) -> Result<TextCleaningResu
     })
     .await
     .map_err(|error| format!("La normalización de booleanos se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn fix_encoding_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_text_cleaning(app, None, TextCleaningMode::FixEncoding)
+    })
+    .await
+    .map_err(|error| format!("La corrección de codificación se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -19134,6 +19207,36 @@ mod tests {
         assert_eq!(values.get(2), None);
         assert_eq!(values.get(3), None);
         assert_eq!(values.get(4), None);
+        assert_eq!(
+            cleaned.column("amount").unwrap().i64().unwrap().get(0),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn repairs_unambiguous_utf8_mojibake_without_touching_other_types() {
+        let frame = df![
+            "city" => &[Some("BogotÃ¡"), Some("â€™"), Some("Santo Domingo"), None::<&str>],
+            "amount" => &[1_i64, 2, 3, 4]
+        ]
+        .unwrap();
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        assert_eq!(profile.columns[0].encoding_issue_count, Some(2));
+        assert_eq!(profile.columns[1].encoding_issue_count, None);
+
+        let (cleaned, affected_rows, changed_cells, changed_columns) =
+            clean_text_columns(&frame, None, TextCleaningMode::FixEncoding)
+                .expect("la codificación debe poder corregirse");
+        let city = cleaned.column("city").unwrap().str().unwrap();
+
+        assert_eq!(affected_rows, 2);
+        assert_eq!(changed_cells, 2);
+        assert_eq!(changed_columns[0].name, "city");
+        assert_eq!(city.get(0), Some("Bogotá"));
+        assert_eq!(city.get(1), Some("’"));
+        assert_eq!(city.get(2), Some("Santo Domingo"));
+        assert_eq!(city.get(3), None);
         assert_eq!(
             cleaned.column("amount").unwrap().i64().unwrap().get(0),
             Some(1)

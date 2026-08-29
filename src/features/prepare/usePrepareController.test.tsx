@@ -59,6 +59,7 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyPersonalColumnRemoval}>Personales</button>
     <button type="button" onClick={controller.applySentinelNormalization}>Centinelas</button>
     <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
+    <button type="button" onClick={controller.applyEncodingFix}>Codificación</button>
     <button type="button" onClick={controller.applyMissingValueImputation}>Imputar</button>
     <button type="button" onClick={controller.applyRowAudit}>Auditoría</button>
     <button type="button" onClick={controller.applyColumnNormalization}>Columnas</button>
@@ -300,6 +301,28 @@ describe("usePrepareController", () => {
     fireEvent.click(screen.getByRole("button", { name: "Booleanos" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
       "Se normalizaron 2 valores booleanos en: activo.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("corrige doble codificación UTF-8 y publica el impacto", async () => {
+    vi.spyOn(bridge, "fixEncodingValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 2,
+      changedCellCount: 2,
+      changedColumns: [{ name: "city", changedCellCount: 2 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Codificación" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se corrigió doble codificación UTF-8 en 2 celdas.",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();

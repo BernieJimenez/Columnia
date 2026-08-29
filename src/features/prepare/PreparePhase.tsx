@@ -27,6 +27,7 @@ interface PreparePhaseProps {
   onRemovePersonalColumns?: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
+  onFixEncoding?: () => void;
   onImputeMissingValues: () => void;
   onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
@@ -58,6 +59,7 @@ export function PreparePhase({
   onRemovePersonalColumns = () => undefined,
   onNormalizeSentinels,
   onNormalizeBooleans,
+  onFixEncoding = () => undefined,
   onImputeMissingValues,
   onEnableRowAudit,
   onNormalizeColumns,
@@ -194,6 +196,7 @@ export function PreparePhase({
               onRemovePersonalColumns={() => setPersonalConfirmation(true)}
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
+              onFixEncoding={onFixEncoding}
               onImputeMissingValues={onImputeMissingValues}
         />
       )}
@@ -506,6 +509,7 @@ function CleaningSignals({
   onRemovePersonalColumns,
   onNormalizeSentinels,
   onNormalizeBooleans,
+  onFixEncoding,
   onImputeMissingValues,
 }: {
   profile: DatasetProfile;
@@ -517,6 +521,7 @@ function CleaningSignals({
   onRemovePersonalColumns: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
+  onFixEncoding: () => void;
   onImputeMissingValues: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
@@ -534,6 +539,7 @@ function CleaningSignals({
       column.nullCount * 100 >= profile.rowCount * 80,
   );
   const sentinels = profile.columns.filter((column) => (column.sentinelCount ?? 0) > 0);
+  const encoding = profile.columns.filter((column) => (column.encodingIssueCount ?? 0) > 0);
   const nearDuplicates = profile.nearDuplicateRowCount > 0;
   const booleans = profile.columns.filter(
     (column) => column.suggestedType === "boolean" && (column.typeMatchPercentage ?? 0) >= 90,
@@ -544,7 +550,7 @@ function CleaningSignals({
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
-  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || booleans.length > 0 || typeDrift.length > 0 || personal.length > 0;
+  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || typeDrift.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -576,6 +582,9 @@ function CleaningSignals({
           )}
           {sentinels.length > 0 && (
             <li><strong>Valores centinela:</strong> {sentinels.map((column) => `${column.name} (${(column.sentinelCount ?? 0).toLocaleString()})`).join(", ")} usa tokens textuales que pueden representar datos ausentes.</li>
+          )}
+          {encoding.length > 0 && (
+            <li><strong>Doble codificación UTF-8:</strong> {encoding.map((column) => `${column.name} (${(column.encodingIssueCount ?? 0).toLocaleString()})`).join(", ")} contiene texto que puede repararse de forma segura.</li>
           )}
           {booleans.length > 0 && (
             <li><strong>Booleanos:</strong> {booleans.map((column) => column.name).join(", ")} admite alias textuales que pueden canonicalizarse como `true`/`false`.</li>
@@ -652,6 +661,17 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onNormalizeSentinels} disabled={busy}>
                 Convertir centinelas a nulos
+              </button>
+            </div>
+          )}
+          {encoding.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Corrige secuencias heredadas como `Ã©` o `â€™`; solo se aplican reparaciones
+                UTF-8 inequívocas y la operación es reversible desde el historial.
+              </p>
+              <button type="button" onClick={onFixEncoding} disabled={busy}>
+                Corregir codificación
               </button>
             </div>
           )}
