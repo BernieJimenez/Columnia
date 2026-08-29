@@ -4593,6 +4593,149 @@ fn remove_null_only_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usi
     Ok((cleaned, affected_row_count))
 }
 
+fn remove_dataprep_columns_from_frame(
+    frame: &DataFrame,
+    candidates: Vec<String>,
+    error_message: &str,
+) -> Result<(DataFrame, Vec<String>), String> {
+    if frame.width() <= 1 {
+        return Ok((frame.clone(), Vec::new()));
+    }
+    let removed_columns = candidates
+        .into_iter()
+        .take(frame.width().saturating_sub(1))
+        .collect::<Vec<_>>();
+    if removed_columns.is_empty() {
+        return Ok((frame.clone(), removed_columns));
+    }
+    let remaining_columns = frame
+        .get_column_names()
+        .iter()
+        .filter(|name| {
+            !removed_columns
+                .iter()
+                .any(|removed| removed == name.as_str())
+        })
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let cleaned = frame
+        .select(&remaining_columns)
+        .map_err(|error| format!("{error_message}: {error}"))?;
+    Ok((cleaned, removed_columns))
+}
+
+fn dataprep_numeric_text(value: &str) -> bool {
+    let value = value.trim();
+    let value = value.strip_prefix('-').unwrap_or(value);
+    let mut parts = value.split('.');
+    let integer = parts.next().unwrap_or_default();
+    let fraction = parts.next();
+    !integer.is_empty()
+        && integer.chars().all(|character| character.is_ascii_digit())
+        && fraction.is_none_or(|fraction| {
+            !fraction.is_empty() && fraction.chars().all(|character| character.is_ascii_digit())
+        })
+        && parts.next().is_none()
+}
+
+fn dataprep_leading_zero_text(value: &str) -> bool {
+    let value = value.trim().trim_start_matches(['+', '-']);
+    value.starts_with('0')
+        && value
+            .chars()
+            .nth(1)
+            .is_some_and(|character| character.is_ascii_digit())
+}
+
+fn dataprep_numeric_or_date_text_column(column: &Column) -> Result<bool, String> {
+    if matches!(
+        column.dtype(),
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Date
+            | DataType::Datetime(_, _)
+    ) {
+        return Ok(true);
+    }
+    if column.dtype() != &DataType::String {
+        return Ok(false);
+    }
+    let values = column
+        .str()
+        .map_err(|error| format!("No se pudo inferir la columna '{}': {error}", column.name()))?
+        .iter()
+        .flatten()
+        .take(50)
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        return Ok(false);
+    }
+    let numeric_count = values
+        .iter()
+        .filter(|value| dataprep_numeric_text(value))
+        .count();
+    if numeric_count * 10 > values.len() * 8
+        && !values.iter().any(|value| dataprep_leading_zero_text(value))
+    {
+        return Ok(true);
+    }
+    let date_count = values
+        .iter()
+        .filter(|value| is_supported_date(value.trim()))
+        .count();
+    Ok(date_count * 10 > values.len() * 8)
+}
+
+fn remove_dataprep_high_null_columns_from_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, Vec<String>), String> {
+    let candidates = frame
+        .columns()
+        .iter()
+        .filter(|column| {
+            let null_count = column.null_count();
+            null_count > 0 && null_count.saturating_mul(100) > frame.height().saturating_mul(80)
+        })
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    remove_dataprep_columns_from_frame(
+        frame,
+        candidates,
+        "No se pudieron eliminar columnas DataPrep con alta nulidad",
+    )
+}
+
+fn remove_dataprep_identifier_columns_from_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, Vec<String>), String> {
+    let mut candidates = Vec::new();
+    for column in frame.columns() {
+        if column.null_count() != 0
+            || column.n_unique().map_err(|error| {
+                format!("No se pudo contar la columna '{}': {error}", column.name())
+            })? != frame.height()
+        {
+            continue;
+        }
+        if !dataprep_numeric_or_date_text_column(column)? {
+            candidates.push(column.name().to_string());
+        }
+    }
+    remove_dataprep_columns_from_frame(
+        frame,
+        candidates,
+        "No se pudieron eliminar columnas identificadoras de DataPrep",
+    )
+}
+
 fn remove_constant_columns_from_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, Vec<String>), String> {
@@ -17088,6 +17231,10 @@ impl DatasetState {
         // resultado cuando una sesión enumera varias operaciones.
         for operation in [
             "drop_duplicates",
+            "drop_high_null_cols",
+            "drop_id_cols",
+            "drop_empty_cols",
+            "drop_constant_cols",
             "drop_empty_rows",
             "normalize_sentinels",
             "impute_numeric",
@@ -17112,6 +17259,25 @@ impl DatasetState {
                         affected_row_count,
                         Vec::new(),
                     )
+                }
+                "drop_high_null_cols" => {
+                    let (candidate, removed_columns) =
+                        remove_dataprep_high_null_columns_from_frame(&cleaned)?;
+                    (candidate, 0, removed_columns.len(), Vec::new())
+                }
+                "drop_id_cols" => {
+                    let (candidate, removed_columns) =
+                        remove_dataprep_identifier_columns_from_frame(&cleaned)?;
+                    (candidate, 0, removed_columns.len(), Vec::new())
+                }
+                "drop_empty_cols" => {
+                    let (candidate, removed_columns) = remove_empty_columns_from_frame(&cleaned)?;
+                    (candidate, 0, removed_columns.len(), Vec::new())
+                }
+                "drop_constant_cols" => {
+                    let (candidate, removed_columns) =
+                        remove_constant_columns_from_frame(&cleaned)?;
+                    (candidate, 0, removed_columns.len(), Vec::new())
                 }
                 "drop_empty_rows" => {
                     let (candidate, affected_row_count) =

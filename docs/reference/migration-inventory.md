@@ -26,6 +26,10 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `split_column`, `merge_columns` | `splitColumn`, `mergeColumns` | Convertida |
 | `outliers` | `outlierTreatments` | Convertida para `cap`/`drop`; `impute` está disponible en recetas nativas Columnia |
 | `drop_duplicates` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con todas las columnas y conserva la primera aparición/orden; es reversible y agregada |
+| `drop_high_null_cols` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback con el umbral estricto de DataPrep (>80% nulos), conservando al menos una columna utilizable |
+| `drop_id_cols` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para columnas 100% únicas no numéricas ni temporales; conserva al menos una columna utilizable |
+| `drop_empty_cols` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para columnas completamente nulas, conservando al menos una columna utilizable |
+| `drop_constant_cols` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para columnas con un único valor no nulo, sin retirar columnas completamente nulas y conservando al menos una columna utilizable |
 | `drop_empty_rows` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente solo para filas completamente nulas, como DataPrep; es reversible y agregada |
 | `impute_numeric` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente para columnas físicas `Int64`/`Float64` seguras; usa la mediana de DataPrep, conserva `Int64` si es entera y promueve a `Float64` si es fraccionaria |
 | `normalize_sentinels` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con el vocabulario cerrado de DataPrep; convierte solo texto centinela a nulo, es reversible, agregada y no modifica números ni `_cambios` |
@@ -117,7 +121,8 @@ hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
 límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
 no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
 se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas.
-Las operaciones deterministas `drop_duplicates`, `drop_empty_rows`,
+Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
+`drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
 `fix_encoding`,
 `normalize_booleans` y `normalize_columns` se reproducen como

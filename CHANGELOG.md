@@ -16,6 +16,7 @@ los artefactos de validación locales.
   completa nulos textuales como `Desconocido`, sin tocar números ni `_cambios`,
   con impacto agregado; el inventario IPC actual pasa a 61 comandos de producción.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
+  `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
   `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`,
   `normalize_booleans` y `normalize_columns` durante el fallback a la fuente
   cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible

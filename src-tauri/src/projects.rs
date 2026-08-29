@@ -2542,6 +2542,51 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_replays_structural_cleaning_without_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(
+            &source,
+            "id,score,name,mostly_empty,empty,constant\na-1,1,A,keep,,same\nb-2,2,A,,,same\nc-3,3,B,,,same\nd-4,4,B,,,same\ne-5,5,A,,,same\nf-6,6,B,,,same\n",
+        )
+        .unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Estructura DataPrep reproducible",
+                "source_path": "source.csv",
+                "applied_ops": [
+                    "drop_constant_cols",
+                    "drop_empty_cols",
+                    "drop_id_cols",
+                    "drop_high_null_cols"
+                ],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la limpieza estructural debe poder reproducirse desde la fuente");
+        let state = DatasetState::default();
+        store
+            .open(&state, imported.id)
+            .expect("el proyecto estructural debe reabrirse");
+        let active = state
+            .active_project_snapshot()
+            .expect("el dataset estructural debe quedar activo");
+
+        assert_eq!(active.frame.get_column_names(), ["score", "name"]);
+        assert_eq!(active.frame.height(), 6);
+        assert_eq!(active.history.entries.len(), 2);
+    }
+
+    #[test]
     fn dataprep_session_replays_numeric_imputation_from_parquet_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
