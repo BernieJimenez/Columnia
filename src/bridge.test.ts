@@ -23,6 +23,7 @@ import {
   normalizeSentinelValues,
   normalizeBooleanValues,
   fixEncodingValues,
+  parseDateValues,
   imputeCategoricalValues,
   maskPersonalValues,
   nullifyInvalidTypeValues,
@@ -265,6 +266,7 @@ describe("desktop bridge", () => {
     await normalizeColumnNames();
     await trimTextValues();
     await normalizeTextValues(["city"], true);
+    await parseDateValues();
     await normalizeSentinelValues();
     await normalizeBooleanValues();
     await fixEncodingValues();
@@ -281,14 +283,15 @@ describe("desktop bridge", () => {
       columns: ["city"],
       removeAccents: true,
     });
-    expect(invoke).toHaveBeenNthCalledWith(5, "normalize_sentinel_values");
-    expect(invoke).toHaveBeenNthCalledWith(6, "normalize_boolean_values");
-    expect(invoke).toHaveBeenNthCalledWith(7, "fix_encoding_values");
-    expect(invoke).toHaveBeenNthCalledWith(8, "nullify_invalid_type_values");
-    expect(invoke).toHaveBeenNthCalledWith(9, "impute_missing_values");
-    expect(invoke).toHaveBeenNthCalledWith(10, "apply_safe_corrections");
-    expect(invoke).toHaveBeenNthCalledWith(11, "undo_last_change");
-    expect(invoke).toHaveBeenNthCalledWith(12, "redo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(5, "parse_date_values");
+    expect(invoke).toHaveBeenNthCalledWith(6, "normalize_sentinel_values");
+    expect(invoke).toHaveBeenNthCalledWith(7, "normalize_boolean_values");
+    expect(invoke).toHaveBeenNthCalledWith(8, "fix_encoding_values");
+    expect(invoke).toHaveBeenNthCalledWith(9, "nullify_invalid_type_values");
+    expect(invoke).toHaveBeenNthCalledWith(10, "impute_missing_values");
+    expect(invoke).toHaveBeenNthCalledWith(11, "apply_safe_corrections");
+    expect(invoke).toHaveBeenNthCalledWith(12, "undo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(13, "redo_last_change");
   });
 
   it("invoca la eliminación de duplicados parecidos sin enviar valores", async () => {

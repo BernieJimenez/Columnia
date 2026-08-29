@@ -16,6 +16,7 @@ import {
   normalizeSentinelValues,
   normalizeBooleanValues,
   normalizeTextValues,
+  parseDateValues,
   maskPersonalValues,
   removeConstantColumns,
   removeEmptyRows,
@@ -281,6 +282,27 @@ export function usePrepareController({
         message: result.changedCellCount === 0
           ? "No se encontraron alias booleanos que necesitaran normalización."
           : `Se normalizaron ${result.changedCellCount.toLocaleString()} valores booleanos en: ${columns}.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function applyDateParsing() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "parse_dates" });
+    try {
+      const result = await parseDateValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se detectaron columnas de texto con un formato de fecha dominante y seguro."
+          : `Se interpretaron ${result.changedCellCount.toLocaleString()} valores de fecha en: ${columns}. Las columnas ambiguas se dejaron intactas y el cambio puede revertirse desde el historial.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -587,6 +609,7 @@ export function usePrepareController({
     applyPersonalValueMasking,
     applySentinelNormalization,
     applyBooleanNormalization,
+    applyDateParsing,
     applyEncodingFix,
     applyInvalidTypeCleanup,
     applyMissingValueImputation,

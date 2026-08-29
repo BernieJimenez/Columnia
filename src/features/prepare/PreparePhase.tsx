@@ -28,6 +28,7 @@ interface PreparePhaseProps {
   onMaskPersonalValues?: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
+  onParseDates?: () => void;
   onFixEncoding?: () => void;
   onNullifyInvalidTypes?: () => void;
   onImputeMissingValues: () => void;
@@ -66,6 +67,7 @@ export function PreparePhase({
   onMaskPersonalValues = () => undefined,
   onNormalizeSentinels,
   onNormalizeBooleans,
+  onParseDates = () => undefined,
   onFixEncoding = () => undefined,
   onNullifyInvalidTypes = () => undefined,
   onImputeMissingValues,
@@ -218,6 +220,7 @@ export function PreparePhase({
               onMaskPersonalValues={() => setMaskPersonalConfirmation(true)}
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
+              onParseDates={onParseDates}
               onFixEncoding={onFixEncoding}
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
                onImputeMissingValues={onImputeMissingValues}
@@ -637,6 +640,7 @@ function CleaningSignals({
   onMaskPersonalValues,
   onNormalizeSentinels,
   onNormalizeBooleans,
+  onParseDates,
   onFixEncoding,
   onNullifyInvalidTypes,
   onImputeMissingValues,
@@ -655,6 +659,7 @@ function CleaningSignals({
   onMaskPersonalValues: () => void;
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
+  onParseDates: () => void;
   onFixEncoding: () => void;
   onNullifyInvalidTypes: () => void;
   onImputeMissingValues: () => void;
@@ -683,6 +688,9 @@ function CleaningSignals({
   const booleans = profile.columns.filter(
     (column) => column.suggestedType === "boolean" && (column.typeMatchPercentage ?? 0) >= 90,
   );
+  const dateCandidates = profile.columns.filter(
+    (column) => column.name !== "_cambios" && column.dataType === "String" && column.suggestedType === "date",
+  );
   const typeDrift = profile.columns.filter(
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
@@ -696,7 +704,7 @@ function CleaningSignals({
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
-  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
+  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -737,6 +745,9 @@ function CleaningSignals({
           )}
           {booleans.length > 0 && (
             <li><strong>Booleanos:</strong> {booleans.map((column) => column.name).join(", ")} admite alias textuales que pueden canonicalizarse como `true`/`false`.</li>
+          )}
+          {dateCandidates.length > 0 && (
+            <li><strong>Fechas detectadas:</strong> {dateCandidates.map((column) => column.name).join(", ")} coincide con un formato de fecha cerrado.</li>
           )}
           {typeDrift.length > 0 && (
             <li><strong>Tipos sugeridos:</strong> {typeDrift.map((column) => column.name).join(", ")} contiene valores que no coinciden con la sugerencia detectada.</li>
@@ -865,6 +876,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onNormalizeBooleans} disabled={busy}>
                 Normalizar booleanos
+              </button>
+            </div>
+          )}
+          {dateCandidates.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes convertir estas columnas de texto a <strong>Datetime</strong>. Solo se usa
+                un formato dominante cerrado, se omiten columnas ambiguas y la operación es
+                reversible desde el historial.
+              </p>
+              <button type="button" onClick={onParseDates} disabled={busy}>
+                Interpretar fechas detectadas
               </button>
             </div>
           )}

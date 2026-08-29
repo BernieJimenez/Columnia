@@ -5370,6 +5370,7 @@ fn parse_dataprep_date_columns(
     const MAX_EXTRA_NULL_PERCENTAGE: usize = 1;
 
     let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
     let mut changed_cell_count = 0;
     let mut changed_columns = Vec::new();
 
@@ -5434,7 +5435,14 @@ fn parse_dataprep_date_columns(
 
         let milliseconds = parsed
             .into_iter()
-            .map(|value| value.map(|value| value.and_utc().timestamp_millis()))
+            .enumerate()
+            .map(|(row_index, value)| {
+                let parsed = value.map(|value| value.and_utc().timestamp_millis());
+                if parsed.is_some() {
+                    changed_rows[row_index] = true;
+                }
+                parsed
+            })
             .collect::<Vec<_>>();
         let converted = Series::new(column.name().clone(), milliseconds)
             .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
@@ -5454,7 +5462,7 @@ fn parse_dataprep_date_columns(
 
     Ok((
         cleaned,
-        usize::from(!changed_columns.is_empty()),
+        changed_rows.into_iter().filter(|changed| *changed).count(),
         changed_cell_count,
         changed_columns,
     ))
@@ -14860,6 +14868,31 @@ fn apply_text_cleaning(
     })
 }
 
+fn apply_dataprep_date_parsing(app: AppHandle) -> Result<TextCleaningResult, String> {
+    let state = app.state::<DatasetState>();
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let (parsed, affected_row_count, changed_cell_count, changed_columns) =
+        parse_dataprep_date_columns(&dataset.frame)?;
+    let preview = if changed_cell_count > 0 {
+        publish_candidate(dataset, parsed, "Interpretar fechas detectadas")?
+    } else {
+        loaded_dataset_preview(dataset, &dataset.frame)?
+    };
+
+    Ok(TextCleaningResult {
+        dataset: preview,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    })
+}
+
 #[tauri::command]
 pub async fn trim_text_values(app: AppHandle) -> Result<TextCleaningResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -14884,6 +14917,13 @@ pub async fn normalize_text_values(
     })
     .await
     .map_err(|error| format!("La normalización de texto se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn parse_date_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || apply_dataprep_date_parsing(app))
+        .await
+        .map_err(|error| format!("La interpretación de fechas se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -21616,7 +21656,7 @@ mod tests {
             cleaned.column("ambiguous").unwrap().dtype(),
             &DataType::String
         );
-        assert_eq!(changed_rows, 1);
+        assert_eq!(changed_rows, 4);
         assert_eq!(changed_cells, 4);
         assert_eq!(changed_columns.len(), 1);
         assert_eq!(changed_columns[0].name, "safe");

@@ -848,6 +848,7 @@ export function App() {
                 onMaskPersonalValues={prepare.applyPersonalValueMasking}
                 onNormalizeSentinels={prepare.applySentinelNormalization}
                 onNormalizeBooleans={prepare.applyBooleanNormalization}
+                onParseDates={prepare.applyDateParsing}
                 onFixEncoding={prepare.applyEncodingFix}
                 onNullifyInvalidTypes={prepare.applyInvalidTypeCleanup}
                 onImputeMissingValues={prepare.applyMissingValueImputation}

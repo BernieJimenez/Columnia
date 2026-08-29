@@ -61,6 +61,31 @@ const cleaningSignalsProfile: DatasetProfile = {
     outlierCount: null,
     histogram: null,
   }, {
+    name: "fecha_alta",
+    dataType: "String",
+    nullCount: 0,
+    completenessPercentage: 100,
+    uniqueCount: 5,
+    minimum: "2025-01-01",
+    maximum: "2025-01-05",
+    mean: null,
+    emptyCount: 0,
+    minimumLength: 10,
+    maximumLength: 10,
+    averageLength: 10,
+    suggestedType: "date",
+    typeMatchPercentage: 100,
+    invalidTypeCount: 0,
+    sentinelCount: 0,
+    encodingIssueCount: 0,
+    privacySignal: null,
+    standardDeviation: null,
+    firstQuartile: null,
+    median: null,
+    thirdQuartile: null,
+    outlierCount: null,
+    histogram: null,
+  }, {
     name: "empty_column",
     dataType: "String",
     nullCount: 5,
@@ -240,6 +265,7 @@ describe("PreparePhase", () => {
     const onRemoveHighNullColumns = vi.fn();
     const onNormalizeSentinels = vi.fn();
     const onNormalizeBooleans = vi.fn();
+    const onParseDates = vi.fn();
     const onFixEncoding = vi.fn();
     const onImputeMissingValues = vi.fn();
     const onImputeCategoricalValues = vi.fn();
@@ -263,6 +289,7 @@ describe("PreparePhase", () => {
       onRemoveHighNullColumns={onRemoveHighNullColumns}
       onNormalizeSentinels={onNormalizeSentinels}
       onNormalizeBooleans={onNormalizeBooleans}
+      onParseDates={onParseDates}
       onFixEncoding={onFixEncoding}
       onImputeMissingValues={onImputeMissingValues}
       onImputeCategoricalValues={onImputeCategoricalValues}
@@ -286,6 +313,7 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("button", { name: "Revisar identificadores detectados" })).toBeInTheDocument();
     expect(screen.getByRole("list")).toHaveTextContent("Duplicados parecidos: 1");
     expect(screen.getByRole("list")).toHaveTextContent("Tipos sugeridos:");
+    expect(screen.getByRole("list")).toHaveTextContent("Fechas detectadas: fecha_alta coincide con un formato de fecha cerrado.");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas vacías" }));
@@ -298,6 +326,8 @@ describe("PreparePhase", () => {
     expect(onFixEncoding).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Normalizar booleanos" }));
     expect(onNormalizeBooleans).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Interpretar fechas detectadas" }));
+    expect(onParseDates).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Intentar imputación conservadora" }));
     expect(onImputeMissingValues).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Completar categorías desconocidas" }));
