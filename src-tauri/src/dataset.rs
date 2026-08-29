@@ -4569,6 +4569,30 @@ fn remove_empty_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize),
     Ok((cleaned, affected_row_count))
 }
 
+fn remove_null_only_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
+    let keep = (0..frame.height())
+        .map(|row_index| {
+            frame
+                .columns()
+                .iter()
+                .map(|column| {
+                    column
+                        .get(row_index)
+                        .map(|value| !matches!(value, AnyValue::Null))
+                        .map_err(|error| format!("No se pudo leer la fila vacía: {error}"))
+                })
+                .try_fold(false, |has_value, value| {
+                    value.map(|value| has_value || value)
+                })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let cleaned = frame
+        .filter(&BooleanChunked::from_slice("non_null_row".into(), &keep))
+        .map_err(|error| format!("No se pudieron eliminar las filas nulas: {error}"))?;
+    let affected_row_count = frame.height().saturating_sub(cleaned.height());
+    Ok((cleaned, affected_row_count))
+}
+
 fn remove_constant_columns_from_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, Vec<String>), String> {
@@ -16909,7 +16933,13 @@ impl DatasetState {
         // DataPrep ejecuta el registro de limpieza en un orden fijo. Mantener
         // ese orden evita que el orden accidental del manifiesto cambie el
         // resultado cuando una sesión enumera varias operaciones.
-        for operation in ["normalize_sentinels", "impute_categorical", "fix_encoding"] {
+        for operation in [
+            "drop_duplicates",
+            "drop_empty_rows",
+            "normalize_sentinels",
+            "impute_categorical",
+            "fix_encoding",
+        ] {
             if !applied_operations
                 .iter()
                 .any(|candidate| candidate == operation)
@@ -16917,6 +16947,25 @@ impl DatasetState {
                 continue;
             }
             let (candidate, _, changed_cell_count, _) = match operation {
+                "drop_duplicates" => {
+                    let (candidate, affected_row_count) = remove_duplicate_rows(&cleaned)?;
+                    (
+                        candidate,
+                        affected_row_count,
+                        affected_row_count,
+                        Vec::new(),
+                    )
+                }
+                "drop_empty_rows" => {
+                    let (candidate, affected_row_count) =
+                        remove_null_only_rows_from_frame(&cleaned)?;
+                    (
+                        candidate,
+                        affected_row_count,
+                        affected_row_count,
+                        Vec::new(),
+                    )
+                }
                 "normalize_sentinels" => {
                     clean_text_columns(&cleaned, None, TextCleaningMode::Sentinels)?
                 }

@@ -25,6 +25,8 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `calc` | `calculatedColumn` | Convertida para operaciones equivalentes |
 | `split_column`, `merge_columns` | `splitColumn`, `mergeColumns` | Convertida |
 | `outliers` | `outlierTreatments` | Convertida para `cap`/`drop`; `impute` está disponible en recetas nativas Columnia |
+| `drop_duplicates` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con todas las columnas y conserva la primera aparición/orden; es reversible y agregada |
+| `drop_empty_rows` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente solo para filas completamente nulas, como DataPrep; es reversible y agregada |
 | `normalize_sentinels` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con el vocabulario cerrado de DataPrep; convierte solo texto centinela a nulo, es reversible, agregada y no modifica números ni `_cambios` |
 | `fix_encoding` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando cada valor puede repararse inequívocamente; es reversible, agregada y no modifica números, `_cambios` ni valores ambiguos |
 | `impute_categorical` | Acción directa de Preparar e importación de sesión | Convertida/reproducida cuando la semántica es determinista: nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
@@ -111,10 +113,13 @@ hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
 límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
 no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
 se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas.
-Las operaciones deterministas `normalize_sentinels`, `impute_categorical` y
-`fix_encoding` se reproducen como parte de la importación cuando solo queda la
-fuente, en el orden fijo de limpieza de DataPrep; si existe un snapshot
-compatible, se usa ese estado materializado y las operaciones no se reaplican.
+Las operaciones deterministas `drop_duplicates`, `drop_empty_rows`,
+`normalize_sentinels`, `impute_categorical` y `fix_encoding` se reproducen como
+parte de la importación cuando solo queda la fuente, en el orden fijo de
+limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
+completamente nulas y no elimina por sí sola texto en blanco. Si existe un
+snapshot compatible, se usa ese estado materializado y las operaciones no se
+reaplican.
 Al publicar un proyecto importado, Columnia recalcula y persiste su propio
 perfil agregado para que Revisar tenga una caché verificable; esto no afirma que
 un análisis de DataPrep pueda reanudarse automáticamente.

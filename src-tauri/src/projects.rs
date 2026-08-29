@@ -2460,7 +2460,11 @@ mod tests {
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
         let source = directory.path().join("source.csv");
         let session = directory.path().join("session.json");
-        fs::write(&source, "city,label\nBogotÃ¡,?\nSanto Domingo,dos\n").unwrap();
+        fs::write(
+            &source,
+            "city,label\nBogotÃ¡,?\nSanto Domingo,dos\nSanto Domingo,dos\n,\n",
+        )
+        .unwrap();
         fs::write(
             &session,
             serde_json::to_vec(&serde_json::json!({
@@ -2469,7 +2473,13 @@ mod tests {
                 "source_path": "source.csv",
                 // Deliberately reversed: replay follows DataPrep's registry
                 // order, not the order in this manifest.
-                "applied_ops": ["fix_encoding", "impute_categorical", "normalize_sentinels"],
+                "applied_ops": [
+                    "fix_encoding",
+                    "impute_categorical",
+                    "normalize_sentinels",
+                    "drop_empty_rows",
+                    "drop_duplicates"
+                ],
                 "transform": {"rename_text": "city -> place"}
             }))
             .unwrap(),
@@ -2500,6 +2510,7 @@ mod tests {
             active.frame.column("label").unwrap().str().unwrap().get(1),
             Some("dos")
         );
+        assert_eq!(active.frame.height(), 2);
         assert_eq!(active.history.entries.len(), 3);
     }
 
