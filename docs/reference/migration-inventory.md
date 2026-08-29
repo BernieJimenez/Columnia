@@ -31,6 +31,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `fix_encoding` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando cada valor puede repararse inequívocamente; es reversible, agregada y no modifica números, `_cambios` ni valores ambiguos |
 | `impute_categorical` | Acción directa de Preparar e importación de sesión | Convertida/reproducida cuando la semántica es determinista: nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
 | `normalize_booleans` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando una columna de texto usa solo tokens booleanos conocidos y contiene ambos valores; se convierte al tipo booleano, sin modificar `_cambios` |
+| `normalize_columns` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con normalización Unicode y colisiones deterministas; se ejecuta antes de la receta estructural |
 | `group_summary` | `groupSummary` | Convertida para agregaciones conocidas |
 | `normalize_contacts` | `contactNormalizations` | Convertida |
 | `extract_text` | `textExtractions` | Convertida |
@@ -115,8 +116,8 @@ límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
 no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
 se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas.
 Las operaciones deterministas `drop_duplicates`, `drop_empty_rows`,
-`normalize_sentinels`, `impute_categorical`, `fix_encoding` y
-`normalize_booleans` se reproducen como
+`normalize_sentinels`, `impute_categorical`, `fix_encoding`,
+`normalize_booleans` y `normalize_columns` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de
 limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
 completamente nulas y no elimina por sí sola texto en blanco. Si existe un

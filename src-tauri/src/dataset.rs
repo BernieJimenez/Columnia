@@ -5045,17 +5045,19 @@ fn normalize_dataprep_boolean_columns(
             continue;
         }
 
-        let transformed = values
-            .iter()
-            .enumerate()
-            .map(|(row_index, value)| {
-                value.map(|value| {
-                    changed_rows[row_index] = true;
-                    changed_cell_count += 1;
-                    dataprep_boolean_token(value).expect("la columna booleana ya fue validada")
-                })
-            })
-            .collect::<Vec<_>>();
+        let mut transformed = Vec::with_capacity(values.len());
+        for (row_index, value) in values.iter().enumerate() {
+            let Some(value) = value else {
+                transformed.push(None);
+                continue;
+            };
+            let next = dataprep_boolean_token(value).ok_or_else(|| {
+                format!("La columna booleana '{name}' contiene un token no reconocido.")
+            })?;
+            changed_rows[row_index] = true;
+            changed_cell_count += 1;
+            transformed.push(Some(next));
+        }
         let column_changes = transformed.iter().filter(|value| value.is_some()).count();
         cleaned
             .replace(&name, Column::new(name.clone().into(), transformed))
@@ -17014,6 +17016,7 @@ impl DatasetState {
             "impute_categorical",
             "fix_encoding",
             "normalize_booleans",
+            "normalize_columns",
         ] {
             if !applied_operations
                 .iter()
@@ -17048,6 +17051,18 @@ impl DatasetState {
                     clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
                 }
                 "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
+                "normalize_columns" => {
+                    let (names, renames) = normalized_column_names(&cleaned);
+                    if renames.is_empty() {
+                        (cleaned.clone(), 0, 0, Vec::new())
+                    } else {
+                        let mut candidate = cleaned.clone();
+                        candidate.set_column_names(&names).map_err(|error| {
+                            format!("No se pudieron normalizar las columnas: {error}")
+                        })?;
+                        (candidate, 0, renames.len(), Vec::new())
+                    }
+                }
                 "impute_categorical" => impute_categorical_values_in_frame(&cleaned)?,
                 _ => unreachable!("operación determinista no registrada"),
             };

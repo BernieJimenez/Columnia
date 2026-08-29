@@ -2462,7 +2462,7 @@ mod tests {
         let session = directory.path().join("session.json");
         fs::write(
             &source,
-            "city,label,active\nBogotÃ¡,?,Sí\nSanto Domingo,dos,No\nSanto Domingo,dos,No\n,,\n",
+            "City Name,label,active\nBogotÃ¡,?,Sí\nSanto Domingo,dos,No\nSanto Domingo,dos,No\n,,\n",
         )
         .unwrap();
         fs::write(
@@ -2479,9 +2479,10 @@ mod tests {
                     "normalize_sentinels",
                     "drop_empty_rows",
                     "drop_duplicates",
-                    "normalize_booleans"
+                    "normalize_booleans",
+                    "normalize_columns"
                 ],
-                "transform": {"rename_text": "city -> place"}
+                "transform": {"rename_text": "city_name -> place"}
             }))
             .unwrap(),
         )

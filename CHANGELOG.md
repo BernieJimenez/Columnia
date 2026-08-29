@@ -17,8 +17,8 @@ los artefactos de validación locales.
   con impacto agregado; el inventario IPC actual pasa a 61 comandos de producción.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
   `drop_empty_rows`, `normalize_sentinels`, `impute_categorical`, `fix_encoding`
-  y `normalize_booleans` durante el fallback a la fuente cuando no hay snapshot
-  compatible, respetando el orden fijo de limpieza; un snapshot disponible
+  `normalize_booleans` y `normalize_columns` durante el fallback a la fuente
+  cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible
   conserva prioridad para evitar reaplicar operaciones sobre un estado
   materializado.
 - Benchmark reproducible de datasets grandes dentro de WebView2: `perf:webview2`
