@@ -115,6 +115,11 @@
       "debug": false
     },
     {
+      "name": "open_last_export",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "save_transform_recipe",
       "module": "dataset",
       "debug": false

@@ -639,7 +639,7 @@ describe("DeliveryPhase", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("carpeta no disponible"));
   });
 
-  it("presenta el progreso de exportación, permite cancelarlo y muestra resultados", () => {
+  it("presenta el progreso de exportación, permite cancelarlo y muestra resultados", async () => {
     const onCancelExport = vi.fn();
     const loading: DeliveryExportState = {
       kind: "loading",
@@ -674,6 +674,13 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Paquete Columnia exportado");
     expect(screen.getByRole("status")).toHaveTextContent("recipe.json validada");
     expect(screen.getByRole("status")).toHaveTextContent("Privacidad aplicada a 1 columnas: email");
+    const openLastExport = vi.spyOn(bridge, "openLastExport").mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta de exportación" }));
+    await waitFor(() => expect(openLastExport).toHaveBeenCalledOnce());
+    expect(screen.getByText("Carpeta de exportación abierta.")).toBeInTheDocument();
+    openLastExport.mockRejectedValueOnce(new Error("salida eliminada"));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta de exportación" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("No se pudo abrir la carpeta de exportación."));
 
     cleanup();
     render(<DeliveryHarness onExport={vi.fn()} exportState={{ kind: "error", message: "disco lleno" }} />);

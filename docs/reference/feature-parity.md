@@ -368,6 +368,13 @@ preparado y la protección se aplica solo al snapshot de salida en CSV, JSON,
 Parquet, SQL, Excel y SQLite. El catálogo completo de PII para recetas,
 manifests, reports y conectores remotos sigue pendiente.
 
+Después de una exportación local exitosa, Entregar ofrece **Abrir carpeta de
+exportación**. Rust conserva únicamente durante la sesión el destino recién
+publicado, lo vuelve a validar como archivo regular y abre su carpeta mediante
+el explorador nativo; React recibe solo éxito o error y no puede proporcionar
+una ruta arbitraria. La retención desaparece al reiniciar la aplicación o al
+comenzar una sesión nueva.
+
 ## Decimoctava entrega de paridad: conflictos paginados y privacidad visible
 
 Review ya puede resolver cada celda divergente de una clave con una decisión
@@ -516,8 +523,9 @@ Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en
 su workspace y se restaura al abrirlo; un proyecto todavía no guardado conserva
 la actividad solo durante la sesión actual. No almacena el texto de la consulta,
-rutas ni valores del dataset. Las muestras, preferencias, caché derivada y
-apertura segura de outputs siguen pendientes dentro de la paridad de sesión.
+rutas ni valores del dataset. Las muestras, preferencias y caché derivada siguen
+pendientes dentro de la paridad de sesión; la apertura segura del último output
+local ya está cubierta por Entregar con revalidación en Rust.
 
 ## Brecha de migración desde `dataprepv1.1`
 

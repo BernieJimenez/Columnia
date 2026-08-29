@@ -1434,6 +1434,7 @@ pub struct DatasetState {
     pending_selection: Mutex<Option<PendingSelection>>,
     pending_drop: Mutex<Option<PathBuf>>,
     comparison: Mutex<Option<PendingComparison>>,
+    last_export_path: Mutex<Option<PathBuf>>,
     load_generation: AtomicU64,
     profile_generation: AtomicU64,
     export_generation: AtomicU64,
@@ -1492,6 +1493,20 @@ impl DatasetState {
 
     fn query_was_cancelled(&self, generation: u64) -> bool {
         self.query_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn remember_last_export(&self, path: PathBuf) {
+        if let Ok(mut last_export_path) = self.last_export_path.lock() {
+            *last_export_path = Some(path);
+        }
+    }
+
+    fn last_export(&self) -> Result<PathBuf, String> {
+        self.last_export_path
+            .lock()
+            .map_err(|_| "La salida exportada no está disponible.".to_owned())?
+            .clone()
+            .ok_or_else(|| "Todavía no hay una exportación disponible para abrir.".to_owned())
     }
 
     fn cancel(&self, operation: &str) -> Result<(), String> {
@@ -13257,7 +13272,9 @@ pub async fn export_dataset(
         format,
     );
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let export_state = app.clone();
+    let remembered_destination = destination.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         export_frame_atomic_with_privacy_and_quality_and_recipe(
             &frame,
             &destination,
@@ -13271,7 +13288,53 @@ pub async fn export_dataset(
         .map(Some)
     })
     .await
-    .map_err(|error| format!("La exportación se interrumpió: {error}"))?
+    .map_err(|error| format!("La exportación se interrumpió: {error}"))??;
+    if result.is_some() {
+        export_state
+            .state::<DatasetState>()
+            .remember_last_export(remembered_destination);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn open_last_export(state: State<'_, DatasetState>) -> Result<(), String> {
+    let path = state.last_export()?;
+    let path = canonicalize_existing_file(&path, "la última exportación")
+        .map_err(|_| "La última exportación ya no está disponible.".to_owned())?;
+    #[cfg(target_os = "linux")]
+    let parent = path
+        .parent()
+        .ok_or_else(|| "La carpeta de la última exportación no está disponible.".to_owned())?;
+
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(format!("/select,{}", path.display()))
+            .spawn()
+            .map_err(|_| "No se pudo abrir la carpeta de la última exportación.".to_owned())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|_| "No se pudo abrir la carpeta de la última exportación.".to_owned())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|_| "No se pudo abrir la carpeta de la última exportación.".to_owned())?;
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        return Err("Este sistema no permite abrir la carpeta de la exportación.".to_owned());
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

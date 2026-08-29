@@ -193,6 +193,7 @@ pub fn run() {
             dataset::validate_quality_rules,
             dataset::cancel_operation,
             dataset::export_dataset,
+            dataset::open_last_export,
             dataset::save_transform_recipe,
             dataset::pick_transform_recipe,
             dataset::save_quality_rules_document,

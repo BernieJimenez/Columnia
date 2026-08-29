@@ -342,6 +342,9 @@ Excel o SQLite. Rust abre
 el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
 El destino se reemplaza únicamente después de completar y sincronizar la
 escritura; cancelar o fallar conserva cualquier archivo anterior.
+Después de una exportación exitosa, Entregar permite abrir la carpeta del
+output: Rust conserva temporalmente el destino, lo revalida antes de abrirlo y
+la ruta no se entrega a React.
 Antes de exportar puede definirse un **contrato de calidad** de hasta dieciséis
 reglas exactas. Incluye reglas básicas, `allowed_values`, `regex`, `dtype`,
 unicidad compuesta, comparación entre columnas, integridad referencial,

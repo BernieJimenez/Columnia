@@ -23,6 +23,7 @@ import {
   fixEncodingValues,
   nullifyInvalidTypeValues,
   normalizeTextValues,
+  openLastExport,
   openProject,
   importDataprepSessionProject,
   previewDataprepSessionMigration,
@@ -649,6 +650,13 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(1, "export_dataset", expect.objectContaining({ format: "excel", privacyMode: "none" }));
     expect(invoke).toHaveBeenNthCalledWith(2, "export_dataset", expect.objectContaining({ format: "sqlite", privacyMode: "none" }));
+  });
+
+  it("abre el último output sin recibir rutas desde React", async () => {
+    await openLastExport();
+
+    expect(invoke).toHaveBeenCalledWith("open_last_export");
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
   it("valida reglas sin enviar muestras ni valores al backend", async () => {

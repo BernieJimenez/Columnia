@@ -1122,8 +1122,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Incorporar exportación Excel `.xlsx` y destino local SQLite con publicación
   atómica, esquema/datos tipados, CLI, batch, proyectos, cancelación y pruebas
   de reapertura.
+- [x] Añadir apertura segura de la carpeta del último output local desde Entregar:
+  Rust conserva temporalmente el destino de la exportación exitosa, lo revalida
+  antes de abrirlo y React no recibe la ruta.
 - [ ] Completar la entrega compatible con DataPrep: PostgreSQL/MySQL/SQL Server,
-  prueba de conexión, políticas de tabla y apertura segura de la carpeta. La
+  prueba de conexión y políticas de tabla. La
   primera slice ya publica un bundle ZIP atómico con
   dataset CSV protegido, diccionario tipado, reporte de calidad opcional y
   manifest con hashes; cuando existe una receta validada también incluye
@@ -1284,14 +1287,15 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
 - [ ] Completar la paridad de sesión operativa: muestras, preferencias, caché
-  derivada, historial de ejecuciones y apertura segura de outputs. La primera
+  derivada e historial de ejecuciones. La primera
   slice de arrastre/soltar ya captura rutas en Rust y entrega a React únicamente
   la inspección validada. La primera slice de archivos recientes ya conserva solo nombre,
   formato, fecha e ID opaco, sin rutas, y Revisar ya muestra una actividad SQL
   acotada con estado, duración y filas. Al guardar un proyecto se conservan y
   restauran sus últimas cinco ejecuciones agregadas, sin guardar la consulta,
-  rutas ni valores; muestras, preferencias, caché derivada y outputs siguen
-  pendientes.
+  rutas ni valores; muestras, preferencias y caché derivada siguen pendientes.
+  La apertura segura del último output local ya está implementada desde Entregar
+  con revalidación en Rust y sin transportar rutas por IPC.
   El modelo durable de proyectos de Columnia se conserva como reemplazo de la
   sesión persistente original.
 
@@ -1552,7 +1556,7 @@ por el mero hecho de estar documentada aquí.
   - **Qué hacer:** detectar automáticamente comandos y estructuras compartidas,
     conservar literales/versiones y eliminar la cifra manual del threat model.
   - **Criterio de aceptación:** añadir un comando/tipo no clasificado rompe el
-    gate; los 58 comandos de producción quedan inventariados desde código.
+    gate; los 59 comandos de producción quedan inventariados desde código.
   - **Esfuerzo:** alto
   - **Depende de:** ninguna
 
@@ -1689,6 +1693,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | Nueva corrida estricta `smoke:cdp` con Playwright, ProjectsPanel, mutaciones nativas y cleanup aprobados: el working set quedó en 501,563,392 bytes dentro de 512 MiB, pero la memoria privada alcanzó 272,379,904 bytes frente al límite de 256 MiB. Corridas diagnósticas previas quedaron en 256.06–258.06 MiB; no se atribuye todavía una fuga al código y el gate privado estable sigue abierto. | `.local/validation/webview2-cdp/20260829T023923Z/summary.json`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-29 | P1 amplía el catálogo de limpieza con una acción confirmada para apartar como nulos los valores de texto que contradicen una sugerencia semántica con al menos 90% de coincidencia; la operación es reversible, no muestra celdas y conserva pendientes las reglas avanzadas restantes. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
+| 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
@@ -1716,7 +1721,8 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-27 | Añadir cancelación cooperativa a SQL local, presupuesto de agregaciones y preflight de cardinalidad para rechazar joins many-to-many antes de materializar resultados fuera de límite | Implementada en `src-tauri/src/dataset.rs`; DuckDB y ejecución incremental completa siguen en cola |
 | 2026-08-27 | Conservar hasta cinco archivos recientes sin rutas y reabrir siempre el selector nativo al elegir uno | Implementada en `src/features/load/recentFilesModel.ts` y `src/features/load/LoadPhase.tsx` |
 | 2026-08-27 | Mostrar actividad SQL de la sesión actual con las últimas cinco ejecuciones, estado, duración y filas, sin persistir texto de consulta ni valores | Implementada en `src/features/review/ReviewPhase.tsx`; la actividad se conserva además en el workspace del proyecto al guardarlo |
-| 2026-08-27 | Añadir arrastre nativo de datasets sin exponer rutas al frontend: Tauri guarda temporalmente el primer archivo soltado, notifica un evento opaco y reutiliza la inspección segura del selector | Implementada en `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts` y `src/App.tsx`; los conectores remotos y la apertura segura de outputs siguen en cola |
+| 2026-08-27 | Añadir arrastre nativo de datasets sin exponer rutas al frontend: Tauri guarda temporalmente el primer archivo soltado, notifica un evento opaco y reutiliza la inspección segura del selector | Implementada en `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts` y `src/App.tsx`; los conectores remotos siguen en cola |
+| 2026-08-29 | Retener en Rust el último destino exportado durante la sesión y abrir únicamente su carpeta tras una nueva validación de archivo regular, sin aceptar rutas arbitrarias desde React | Implementada en `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts` y `src/features/delivery/DeliveryPhase.tsx`; la retención no es durable tras reiniciar |
 | 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
 | 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |

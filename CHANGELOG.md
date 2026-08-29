@@ -61,6 +61,9 @@ los artefactos de validación locales.
   duración y filas, nunca la consulta, rutas ni valores. También mantiene la
   tendencia temporal diaria para rangos cortos, con días vacíos y tabla accesible
   equivalente.
+- Entregar ofrece abrir la carpeta del último output local después de una
+  exportación exitosa; Rust conserva y revalida temporalmente el destino, usa el
+  explorador nativo y no expone la ruta a React.
 - Preparar permite retirar columnas identificadoras de forma explícita,
   confirmada y reversible, sin publicar sus valores.
 - La CLI sanitiza reportes, recetas y manifiestos en una frontera común, y las

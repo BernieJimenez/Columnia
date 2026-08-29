@@ -855,6 +855,10 @@ export function exportDataset(
   });
 }
 
+export function openLastExport(): Promise<void> {
+  return invoke<void>("open_last_export");
+}
+
 export function validateQualityRules(
   qualityRules: QualityRule[],
 ): Promise<QualityValidationResult> {

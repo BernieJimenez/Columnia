@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import {
   QUALITY_DATASET_COLUMN,
+  openLastExport,
   pickQualityRulesMigration,
   saveQualityRulesDocument,
   validateQualityRules,
@@ -61,6 +62,9 @@ export function DeliveryPhase({
     | { kind: "ready"; document: QualityRulesDocument }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const [openOutputState, setOpenOutputState] = useState<
+    "idle" | "working" | "opened" | "error"
+  >("idle");
   const rules = contract.kind === "with_contract" ? contract.rules : [];
   const validationError = validateQualityRuleDraft(rules, dataset);
   const gatePassed = contract.gate.kind === "ready" && contract.gate.result.passed;
@@ -260,10 +264,22 @@ export function DeliveryPhase({
   }
 
   function requestExport(format: ExportFormat) {
+    setOpenOutputState("idle");
     if (contract.kind === "with_contract") {
       onExport({ format, privacyMode, validation: { kind: "contract", rules: contract.rules } });
     } else if (contract.confirmation === "confirmed") {
       onExport({ format, privacyMode, validation: { kind: "explicitly_unvalidated" } });
+    }
+  }
+
+  async function revealLastExport() {
+    if (openOutputState === "working") return;
+    setOpenOutputState("working");
+    try {
+      await openLastExport();
+      setOpenOutputState("opened");
+    } catch {
+      setOpenOutputState("error");
     }
   }
 
@@ -1059,15 +1075,33 @@ export function DeliveryPhase({
         />
       )}
       {exportState.kind === "success" && (
-        <p className="notice notice--success" role="status">
-          {exportState.result.format} exportado como {exportState.result.fileName} ({formatFileSize(exportState.result.fileSizeBytes)}).
-          {exportState.result.protectedColumnCount > 0 && (
-            <> Privacidad aplicada a {exportState.result.protectedColumnCount} columnas: {exportState.result.protectedColumns?.join(", ")}.</>
+        <>
+          <p className="notice notice--success" role="status">
+            {exportState.result.format} exportado como {exportState.result.fileName} ({formatFileSize(exportState.result.fileSizeBytes)}).
+            {exportState.result.protectedColumnCount > 0 && (
+              <> Privacidad aplicada a {exportState.result.protectedColumnCount} columnas: {exportState.result.protectedColumns?.join(", ")}.</>
+            )}
+            {exportState.result.format === "Paquete Columnia" && (
+              <> Incluye dataset.csv, dictionary.json, manifest.json{recipeDraft ? " y recipe.json validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.</>
+            )}
+          </p>
+          <div className="notice__actions">
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void revealLastExport()}
+              disabled={openOutputState === "working"}
+            >
+              {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta de exportación"}
+            </button>
+          </div>
+          {openOutputState === "opened" && (
+            <p className="notice notice--success" role="status">Carpeta de exportación abierta.</p>
           )}
-          {exportState.result.format === "Paquete Columnia" && (
-            <> Incluye dataset.csv, dictionary.json, manifest.json{recipeDraft ? " y recipe.json validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.</>
+          {openOutputState === "error" && (
+            <p className="notice notice--error" role="alert">No se pudo abrir la carpeta de exportación.</p>
           )}
-        </p>
+        </>
       )}
       {exportState.kind === "error" && (
         <p className="notice notice--error" role="alert">

@@ -310,6 +310,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .notice { margin: 24px 0 0; padding: 12px 15px; border-left: 3px solid #c98a2f; background: #fff7e8; color: #6d522a; }
 .notice--error { border-color: #b5463c; background: #fff0ed; color: #87362f; }
 .notice--success { border-color: #16847d; background: #e8f4f0; color: #28524f; }
+.notice__actions { margin-top: 10px; }
 
 .projects { margin: 28px 0; padding: 18px; border: 1px solid #ced9d5; background: #f8faf9; }
 .projects__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
