@@ -14,9 +14,10 @@ los artefactos de validación locales.
   inválidas; el flujo firmado genera `.sig`, manifiesto estático e inventario
   SHA-256 sin guardar la clave privada en el repositorio.
 - Contrato reproducible `updater:contract:test` para el gate Release/Package:
-  aprueba el par válido y confirma fallo cerrado ante artefacto truncado, firma
-  alterada, manifiesto incompleto/corrupto y URL HTTP. Este fixture estructural
-  no reemplaza la validación criptográfica ni el ejercicio contra un canal real.
+  genera una clave Ed25519 efímera, valida criptográficamente el par válido y
+  confirma fallo cerrado ante artefacto truncado, firma alterada, manifiesto
+  incompleto/corrupto y URL HTTP. Este fixture no reemplaza el ejercicio contra
+  un canal real.
 - `release:updater:dry-run` amplía el orquestador de release con configuración
   temporal de endpoint, firma local, SBOM, gates completos y verificación
   fail-closed de instalador/firma/manifiesto.

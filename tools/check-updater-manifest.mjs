@@ -3,6 +3,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { verifyMinisign } from "./updater-crypto.mjs";
+
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function fail(message) {
@@ -15,7 +17,7 @@ function parseArguments(argv) {
     const key = argv[index];
     const value = argv[index + 1];
     if (!key?.startsWith("--") || value === undefined) {
-      fail("Uso: check-updater-manifest.mjs --manifest <json> --inventory <json>.");
+      fail("Uso: check-updater-manifest.mjs --manifest <json> --inventory <json> [--public-key <base64>].");
     }
     options[key.slice(2)] = value;
   }
@@ -41,6 +43,8 @@ const manifestPath = resolve(projectRoot, required(options, "manifest"));
 const inventoryPath = resolve(projectRoot, required(options, "inventory"));
 const manifest = readJson(manifestPath);
 const inventory = readJson(inventoryPath);
+const config = readJson(resolve(projectRoot, "src-tauri/tauri.conf.json"));
+const publicKey = options["public-key"] || config.plugins?.updater?.pubkey;
 const target = inventory.target;
 const platform = manifest.platforms?.[target];
 const artifactPath = resolve(projectRoot, inventory.artifact?.path ?? "");
@@ -54,6 +58,7 @@ if (!Number.isInteger(platform.sizeBytes) || platform.sizeBytes <= 0) fail("El m
 if (!/^[a-f0-9]{64}$/.test(platform.sha256 ?? "")) fail("El manifiesto updater no tiene SHA-256 válido.");
 if (!existsSync(artifactPath) || !statSync(artifactPath).isFile()) fail("Falta el artefacto updater local.");
 if (!existsSync(signaturePath) || !statSync(signaturePath).isFile()) fail("Falta la firma updater local.");
+if (typeof publicKey !== "string" || !publicKey) fail("La compilación no declara una clave pública updater.");
 const signature = readFileSync(signaturePath, "utf8").trim();
 const decodedSignature = Buffer.from(signature, "base64").toString("utf8");
 if (signature !== platform.signature || !decodedSignature.includes("untrusted comment:")) {
@@ -62,6 +67,11 @@ if (signature !== platform.signature || !decodedSignature.includes("untrusted co
 if (statSync(artifactPath).size !== platform.sizeBytes) fail("El tamaño local no coincide con el manifiesto updater.");
 if (sha256(artifactPath) !== platform.sha256 || sha256(artifactPath) !== inventory.artifact.sha256) {
   fail("El SHA-256 local no coincide con el manifiesto y su inventario.");
+}
+try {
+  verifyMinisign(readFileSync(artifactPath), publicKey, signature);
+} catch (error) {
+  fail(`La firma updater no valida criptográficamente el artefacto: ${error.message}`);
 }
 if (sha256(signaturePath) !== inventory.artifact.signatureSha256) fail("El SHA-256 de la firma no coincide con el inventario.");
 if (sha256(manifestPath) !== inventory.manifest.sha256) fail("El SHA-256 del manifiesto no coincide con el inventario.");

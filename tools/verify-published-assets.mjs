@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, verify } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   readFileSync,
@@ -7,6 +7,8 @@ import {
 } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { verifyMinisign } from "./updater-crypto.mjs";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -48,13 +50,6 @@ function httpsUrl(value, label) {
   return parsed;
 }
 
-function strictBase64(value, label) {
-  if (typeof value !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) {
-    fail(`${label} no es Base64 estricto.`);
-  }
-  return Buffer.from(value, "base64");
-}
-
 function readJsonFile(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -77,47 +72,6 @@ function artifactName(url) {
     fail("La URL publicada no contiene un nombre de instalador seguro.");
   }
   return name;
-}
-
-function verifyMinisign(artifact, encodedPublicKey, encodedSignature) {
-  const publicKeyText = strictBase64(encodedPublicKey, "La clave pública updater").toString("utf8");
-  const publicKeyLines = publicKeyText.split(/\r?\n/).filter(Boolean);
-  const publicKeyLine = publicKeyLines.find((line) => /^[A-Za-z0-9+/]+={0,2}$/.test(line));
-  if (!publicKeyLine) fail("La clave pública updater no contiene un bloque minisign.");
-  const publicKey = strictBase64(publicKeyLine, "El bloque de clave pública updater");
-  if (publicKey.length !== 42 || publicKey.subarray(0, 2).toString("ascii") !== "Ed") {
-    fail("La clave pública updater no usa el formato Ed25519 esperado.");
-  }
-
-  const signatureText = strictBase64(encodedSignature, "La firma updater").toString("utf8");
-  const signatureLines = signatureText.split(/\r?\n/).filter(Boolean);
-  if (!signatureLines[0]?.startsWith("untrusted comment:") || !signatureLines[2]?.startsWith("trusted comment:")) {
-    fail("La firma updater no contiene los comentarios minisign esperados.");
-  }
-  const signature = strictBase64(signatureLines[1], "La firma primaria updater");
-  const trustedSignature = strictBase64(signatureLines[3], "La firma del comentario updater");
-  if (signature.length !== 74 || trustedSignature.length !== 64 || signature.subarray(0, 2).toString("ascii") !== "ED") {
-    fail("La firma updater no usa el formato Ed25519 esperado.");
-  }
-  if (!signature.subarray(2, 10).equals(publicKey.subarray(2, 10))) {
-    fail("La firma updater pertenece a una clave distinta de la clave pública embebida.");
-  }
-
-  const publicKeyDer = Buffer.concat([
-    Buffer.from("302a300506032b6570032100", "hex"),
-    publicKey.subarray(10),
-  ]);
-  const keyObject = createPublicKey({ key: publicKeyDer, format: "der", type: "spki" });
-  const digest = createHash("blake2b512").update(artifact).digest();
-  if (!verify(null, digest, keyObject, signature.subarray(10))) {
-    fail("La firma minisign no valida el contenido descargado.");
-  }
-  return {
-    algorithm: "Ed25519 over BLAKE2b-512",
-    fingerprint: publicKey.subarray(2, 10).toString("hex").toUpperCase(),
-    trustedCommentPresent: true,
-    verified: true,
-  };
 }
 
 async function fetchBytes(url, label) {
