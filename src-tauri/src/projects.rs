@@ -1448,7 +1448,7 @@ pub async fn probe_reopen_project(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polars::prelude::{DataFrame, IntoColumn, NamedFrom, Series};
+    use polars::prelude::{DataFrame, DataType, IntoColumn, NamedFrom, Series};
 
     fn frame(values: &[i64]) -> DataFrame {
         DataFrame::new(
@@ -2462,7 +2462,7 @@ mod tests {
         let session = directory.path().join("session.json");
         fs::write(
             &source,
-            "city,label\nBogotÃ¡,?\nSanto Domingo,dos\nSanto Domingo,dos\n,\n",
+            "city,label,active\nBogotÃ¡,?,Sí\nSanto Domingo,dos,No\nSanto Domingo,dos,No\n,,\n",
         )
         .unwrap();
         fs::write(
@@ -2478,7 +2478,8 @@ mod tests {
                     "impute_categorical",
                     "normalize_sentinels",
                     "drop_empty_rows",
-                    "drop_duplicates"
+                    "drop_duplicates",
+                    "normalize_booleans"
                 ],
                 "transform": {"rename_text": "city -> place"}
             }))
@@ -2511,6 +2512,30 @@ mod tests {
             Some("dos")
         );
         assert_eq!(active.frame.height(), 2);
+        assert_eq!(
+            active.frame.column("active").unwrap().dtype(),
+            &DataType::Boolean
+        );
+        assert_eq!(
+            active
+                .frame
+                .column("active")
+                .unwrap()
+                .bool()
+                .unwrap()
+                .get(0),
+            Some(true)
+        );
+        assert_eq!(
+            active
+                .frame
+                .column("active")
+                .unwrap()
+                .bool()
+                .unwrap()
+                .get(1),
+            Some(false)
+        );
         assert_eq!(active.history.entries.len(), 3);
     }
 

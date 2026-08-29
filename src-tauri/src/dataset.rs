@@ -5002,6 +5002,80 @@ fn clean_text_columns(
     ))
 }
 
+fn dataprep_boolean_token(value: &str) -> Option<bool> {
+    match value.trim().to_lowercase().as_str() {
+        "si" | "sí" | "yes" | "y" | "true" | "verdadero" | "1" => Some(true),
+        "no" | "n" | "false" | "falso" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn normalize_dataprep_boolean_columns(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios" || column.dtype() != &DataType::String {
+            continue;
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna booleana '{name}': {error}"))?;
+        let tokens = values
+            .iter()
+            .flatten()
+            .map(|value| value.trim().to_lowercase())
+            .collect::<Vec<_>>();
+        if tokens.is_empty()
+            || !tokens
+                .iter()
+                .all(|value| dataprep_boolean_token(value).is_some())
+            || !tokens
+                .iter()
+                .any(|value| dataprep_boolean_token(value) == Some(true))
+            || !tokens
+                .iter()
+                .any(|value| dataprep_boolean_token(value) == Some(false))
+        {
+            continue;
+        }
+
+        let transformed = values
+            .iter()
+            .enumerate()
+            .map(|(row_index, value)| {
+                value.map(|value| {
+                    changed_rows[row_index] = true;
+                    changed_cell_count += 1;
+                    dataprep_boolean_token(value).expect("la columna booleana ya fue validada")
+                })
+            })
+            .collect::<Vec<_>>();
+        let column_changes = transformed.iter().filter(|value| value.is_some()).count();
+        cleaned
+            .replace(&name, Column::new(name.clone().into(), transformed))
+            .map_err(|error| {
+                format!("No se pudo normalizar la columna booleana '{name}': {error}")
+            })?;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: column_changes,
+        });
+    }
+
+    Ok((
+        cleaned,
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
 fn impute_missing_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
@@ -16939,6 +17013,7 @@ impl DatasetState {
             "normalize_sentinels",
             "impute_categorical",
             "fix_encoding",
+            "normalize_booleans",
         ] {
             if !applied_operations
                 .iter()
@@ -16972,6 +17047,7 @@ impl DatasetState {
                 "fix_encoding" => {
                     clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
                 }
+                "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
                 "impute_categorical" => impute_categorical_values_in_frame(&cleaned)?,
                 _ => unreachable!("operación determinista no registrada"),
             };
