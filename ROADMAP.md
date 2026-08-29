@@ -1373,10 +1373,11 @@ del original.
   vertical actual conserva además nombres estructurales acotados de operaciones
   y comprobaciones, y regenera el perfil agregado como caché verificable al
   publicar el proyecto; ahora reproduce `drop_duplicates`, `drop_empty_rows`,
-  `normalize_sentinels`, `impute_categorical`, `fix_encoding`,
+  `impute_numeric`, `normalize_sentinels`, `impute_categorical`, `fix_encoding`,
   `normalize_booleans` y `normalize_columns` cuando falta el snapshot y la
   semántica es determinista, en el orden fijo de limpieza; `drop_empty_rows`
-  solo retira filas completamente nulas, `normalize_booleans` exige un
+  solo retira filas completamente nulas, `impute_numeric` usa la mediana de
+  columnas físicas y promueve a `Float64` si resulta fraccionaria, `normalize_booleans` exige un
   vocabulario cerrado con ambos valores y `normalize_columns` conserva la
   resolución Unicode de nombres; todavía no restaura resultados de análisis originales,
   cachés reanudables ni snapshots históricos que el artefacto no contiene.
@@ -1707,7 +1708,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | P1 amplía el catálogo de limpieza con una acción confirmada para apartar como nulos los valores de texto que contradicen una sugerencia semántica con al menos 90% de coincidencia; la operación es reversible, no muestra celdas y conserva pendientes las reglas avanzadas restantes. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
 | 2026-08-29 | P1 añade imputación reversible de outliers por mediana: el perfil muestra solo conteos agregados, Preparar ofrece la acción directa y las recetas admiten `impute`; Int64/Float64 conservan su tipo y `_cambios` queda protegido. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/TransformRecipeEditor.tsx` |
 | 2026-08-29 | P1 añade imputación categórica explícita y reversible: completa solo nulos textuales como `Desconocido`, protege números y `_cambios`, publica impacto agregado y actualiza el inventario IPC a 61 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts` |
-| 2026-08-29 | M1 reproduce durante el fallback a la fuente las operaciones DataPrep deterministas `drop_duplicates`, `drop_empty_rows`, `normalize_sentinels`, `impute_categorical`, `fix_encoding`, `normalize_booleans` y `normalize_columns`, en el orden fijo del registro y sin inventar parámetros; `drop_empty_rows` conserva la semántica de filas completamente nulas, `normalize_booleans` convierte solo vocabularios cerrados con ambos valores, `normalize_columns` aplica la resolución Unicode de nombres y los snapshots compatibles siguen teniendo prioridad y no se reaplican. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | M1 reproduce durante el fallback a la fuente las operaciones DataPrep deterministas `drop_duplicates`, `drop_empty_rows`, `impute_numeric`, `normalize_sentinels`, `impute_categorical`, `fix_encoding`, `normalize_booleans` y `normalize_columns`, en el orden fijo del registro y sin inventar parámetros; `drop_empty_rows` conserva la semántica de filas completamente nulas, `impute_numeric` usa la mediana de columnas físicas y promueve a `Float64` si resulta fraccionaria, `normalize_booleans` convierte solo vocabularios cerrados con ambos valores, `normalize_columns` aplica la resolución Unicode de nombres y los snapshots compatibles siguen teniendo prioridad y no se reaplican. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 

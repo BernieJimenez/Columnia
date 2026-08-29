@@ -2541,6 +2541,50 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_replays_numeric_imputation_from_parquet_without_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.parquet");
+        let session = directory.path().join("session.json");
+        let mut frame = DataFrame::new(
+            3,
+            vec![Series::new("amount".into(), [Some(1_i64), None, Some(4_i64)]).into_column()],
+        )
+        .unwrap();
+        ParquetWriter::new(std::fs::File::create(&source).unwrap())
+            .finish(&mut frame)
+            .unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Imputación numérica reproducible",
+                "source_path": "source.parquet",
+                "applied_ops": ["impute_numeric"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la imputación numérica debe poder reproducirse desde Parquet");
+        let state = DatasetState::default();
+        store
+            .open(&state, imported.id)
+            .expect("el proyecto importado debe reabrirse");
+        let active = state
+            .active_project_snapshot()
+            .expect("el dataset importado debe quedar activo");
+        let amount = active.frame.column("amount").unwrap();
+
+        assert_eq!(amount.dtype(), &DataType::Float64);
+        assert_eq!(amount.f64().unwrap().get(1), Some(2.5));
+        assert_eq!(active.history.entries.len(), 2);
+    }
+
+    #[test]
     fn dataprep_session_mapping_rejects_sheet_options_for_non_workbooks() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();

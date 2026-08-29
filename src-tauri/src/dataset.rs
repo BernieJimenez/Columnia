@@ -5203,6 +5203,83 @@ fn impute_missing_values_in_frame(
     ))
 }
 
+fn impute_dataprep_numeric_values_in_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios"
+            || !matches!(column.dtype(), DataType::Int64 | DataType::Float64)
+            || column.null_count() == 0
+        {
+            continue;
+        }
+
+        let values = physical_numeric_values(column)?;
+        let mut observed = values.iter().flatten().copied().collect::<Vec<_>>();
+        if observed.is_empty() {
+            continue;
+        }
+        observed.sort_by(f64::total_cmp);
+        let middle = observed.len() / 2;
+        let replacement = if observed.len() % 2 == 0 {
+            (observed[middle - 1] + observed[middle]) / 2.0
+        } else {
+            observed[middle]
+        };
+        if !replacement.is_finite() {
+            return Err(format!(
+                "La mediana de '{name}' excede el rango numérico finito."
+            ));
+        }
+
+        let mut column_changes = 0;
+        let transformed = values
+            .into_iter()
+            .enumerate()
+            .map(|(row_index, value)| match value {
+                Some(value) => Some(value),
+                None => {
+                    column_changes += 1;
+                    changed_cell_count += 1;
+                    changed_rows[row_index] = true;
+                    Some(replacement)
+                }
+            })
+            .collect::<Vec<_>>();
+        let replacement_column = Column::new(name.clone().into(), transformed);
+        let replacement_column = if column.dtype() == &DataType::Int64
+            && replacement.fract() == 0.0
+            && replacement.abs() <= (1_u64 << 53) as f64
+        {
+            replacement_column
+                .cast(&DataType::Int64)
+                .map_err(|error| format!("No se pudo conservar el tipo de '{name}': {error}"))?
+        } else {
+            replacement_column
+        };
+        cleaned
+            .replace(&name, replacement_column)
+            .map_err(|error| format!("No se pudo imputar la columna numérica '{name}': {error}"))?;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: column_changes,
+        });
+    }
+
+    Ok((
+        cleaned,
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
 fn impute_categorical_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
@@ -15070,7 +15147,7 @@ fn physical_numeric_values(column: &Column) -> Result<Vec<Option<f64>>, String> 
                     "La columna '{name}' contiene NaN o infinito en la fila {}.",
                     row + 1
                 )),
-                _ => Err(format!("La columna '{name}' debe ser Int64 o Float64 para tratar atípicos.")),
+                _ => Err(format!("La columna '{name}' debe ser Int64 o Float64 para tratar valores numéricos.")),
             }
         })
         .collect()
@@ -15100,7 +15177,7 @@ fn apply_outlier_treatments(
             polars::prelude::DataType::Int64 | polars::prelude::DataType::Float64
         ) {
             return Err(format!(
-                "La columna '{name}' debe ser Int64 o Float64 para tratar atípicos."
+                "La columna '{name}' debe ser Int64 o Float64 para tratar valores numéricos."
             ));
         }
         let values = physical_numeric_values(column)?;
@@ -17012,6 +17089,7 @@ impl DatasetState {
         for operation in [
             "drop_duplicates",
             "drop_empty_rows",
+            "impute_numeric",
             "normalize_sentinels",
             "impute_categorical",
             "fix_encoding",
@@ -17044,6 +17122,7 @@ impl DatasetState {
                         Vec::new(),
                     )
                 }
+                "impute_numeric" => impute_dataprep_numeric_values_in_frame(&cleaned)?,
                 "normalize_sentinels" => {
                     clean_text_columns(&cleaned, None, TextCleaningMode::Sentinels)?
                 }
