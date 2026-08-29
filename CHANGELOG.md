@@ -47,6 +47,9 @@ los artefactos de validación locales.
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
   operaciones cuyos parámetros no están en el manifiesto.
+- La fixture de round-trip de sesiones cubre fuente, hoja/etapa, operaciones
+  deterministas, reglas y análisis/historial/caché no portables; la prueba importa
+  y reabre el proyecto sin copiar valores privados ni artefactos operativos.
 - Preparar detecta secuencias comunes de doble codificación UTF-8 (`Ã©`, `â€™`)
   por columna y ofrece una reparación reversible, limitada a valores de texto
   que pueden decodificarse inequívocamente sin tocar números, `_cambios` ni

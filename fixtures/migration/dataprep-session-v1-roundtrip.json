@@ -20,5 +20,12 @@
   "analysis_checks": {
     "completeness": true,
     "duplicates": true
-  }
+  },
+  "analysis_results": {
+    "private_fixture_value": "no se debe copiar"
+  },
+  "execution_history": [
+    { "query": "no se debe copiar" }
+  ],
+  "cachePath": "derived-cache.json"
 }

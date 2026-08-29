@@ -564,8 +564,11 @@ La migración tiene dos capas distintas:
    JSON de reglas de calidad de DataPrep v1–v3, guarda el documento canónico
    Columnia v1 y produce una conversión segura con informe de omitidas. Los
    manifiestos de sesión dejan un resumen estructural sin rutas ni snapshots
-   activables; la restauración completa de sesiones y la verificación de round-trip
-   con hojas/historiales representativos siguen pendientes en la Fase M1 del roadmap.
+   activables. Una fixture representativa ya verifica fallback a fuente,
+   metadatos de hoja/etapa, operaciones deterministas, reglas y artefactos no
+   portables sin copiar valores; la restauración completa de sesiones y el
+   round-trip con snapshots de libro e historiales representativos siguen
+   pendientes en la Fase M1 del roadmap.
 
 Columnia ya tiene una representación nativa distinta —Tauri/Rust/Polars,
 proyectos SQLite/Parquet y comandos estrechos—, por lo que la migración no

@@ -522,14 +522,16 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
   siguen pendientes el análisis exploratorio amplio, políticas sin equivalencia
   segura, conectores remotos, bundles auditables, escala fuera de memoria y
   privacidad de artefactos operativos.
-- M1 conserva en el informe de migración un resumen estructural de los manifiestos
-  de sesión DataPrep: hoja, etapa, conteos de operaciones/reglas/análisis y
-  presencia de referencias de origen/snapshot sin copiar rutas. Proyectos puede
-  restaurar un `snapshot_path` local y compatible como dataset temporal cuando
-  falta la fuente original; la restauración histórica completa sigue siendo
-  explícitamente manual. El bridge nativo ofrece un preflight local sanitizado
-  antes de importar, sin crear proyectos ni modificar el dataset activo; la
-  superficie visual de Proyectos permanece enfocada en el catálogo.
+ - M1 conserva en el informe de migración un resumen estructural de los manifiestos
+   de sesión DataPrep: hoja, etapa, conteos de operaciones/reglas/análisis y
+   presencia de referencias de origen/snapshot sin copiar rutas. Proyectos puede
+   restaurar un `snapshot_path` local y compatible como dataset temporal cuando
+   falta la fuente original; la restauración histórica completa sigue siendo
+   explícitamente manual. El bridge nativo ofrece un preflight local sanitizado
+   antes de importar, sin crear proyectos ni modificar el dataset activo; la
+   superficie visual de Proyectos permanece enfocada en el catálogo. La fixture
+   representativa de round-trip cubre además fallback a fuente, hoja/etapa,
+   operaciones deterministas, reglas y artefactos operativos redactados.
 - La migración de reglas reconoce aliases snake/camel, severidades históricas,
   tolerancias y condiciones heredadas; referencias externas, políticas no
   equivalentes y contradicciones se conservan como omisiones explícitas.

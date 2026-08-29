@@ -1429,7 +1429,10 @@ del original.
   los casos de importación parcial conservan la regresión que impide reemplazar un
   proyecto válido.
 - [ ] Completar el round-trip con fixtures representativas de sesiones, hojas,
-  historial y artefactos que todavía requieran restauración manual.
+  historial y artefactos que todavía requieran restauración manual. Ya existe una
+  fixture de round-trip que verifica el fallback a fuente, metadatos de hoja/etapa,
+  operaciones deterministas, reglas y redacción de análisis/historial/caché no
+  portables; faltan snapshots reales de libro y restauraciones históricas.
 
 #### Límites de alcance de M1
 

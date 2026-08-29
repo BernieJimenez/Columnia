@@ -1801,6 +1801,47 @@ mod tests {
     }
 
     #[test]
+    fn representative_dataprep_session_fixture_roundtrips_dataset_and_sanitized_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio")
+            .join("fixtures/migration/dataprep-session-v1-roundtrip.json");
+
+        let project = import_dataprep_session_project_from_path(&store, &fixture, None, None, None)
+            .expect("la fixture representativa debe importarse");
+        let opened = store
+            .open(&DatasetState::default(), project.id)
+            .expect("el proyecto importado debe reabrirse");
+
+        assert_eq!(
+            opened
+                .dataset
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["new_name", "amount"]
+        );
+        assert_eq!(opened.dataset.row_count, 2);
+        assert_eq!(opened.workspace.quality_rules.len(), 1);
+        let workspace = serde_json::to_value(&opened.workspace).unwrap();
+        assert_eq!(
+            workspace["recipeDraft"]["migrationReport"]["session"]["stageLabel"],
+            "Entregar"
+        );
+        assert_eq!(
+            workspace["recipeDraft"]["migrationReport"]["session"]["nonPortableArtifacts"],
+            serde_json::json!(["analysis_results", "caches", "history"])
+        );
+        let serialized = workspace.to_string();
+        assert!(!serialized.contains("private_fixture_value"));
+        assert!(!serialized.contains("no se debe copiar"));
+        assert!(!serialized.contains("derived-cache.json"));
+    }
+
+    #[test]
     fn profile_and_history_cursor_roundtrip_across_restart_with_working_undo_redo() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("data");
