@@ -25,7 +25,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `calc` | `calculatedColumn` | Convertida para operaciones equivalentes |
 | `split_column`, `merge_columns` | `splitColumn`, `mergeColumns` | Convertida |
 | `outliers` | `outlierTreatments` | Convertida para `cap`/`drop`; `impute` está disponible en recetas nativas Columnia |
-| `impute_categorical` | Acción directa de Preparar | Convertida como imputación explícita de nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
+| `impute_categorical` | Acción directa de Preparar e importación de sesión | Convertida/reproducida cuando la semántica es determinista: nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
 | `group_summary` | `groupSummary` | Convertida para agregaciones conocidas |
 | `normalize_contacts` | `contactNormalizations` | Convertida |
 | `extract_text` | `textExtractions` | Convertida |
@@ -109,6 +109,9 @@ hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
 límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
 no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
 se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas.
+La operación determinista `impute_categorical` se reproduce como parte de la
+importación cuando solo queda la fuente; si existe un snapshot compatible, se
+usa ese estado materializado y la operación no se reaplica.
 Al publicar un proyecto importado, Columnia recalcula y persiste su propio
 perfil agregado para que Revisar tenga una caché verificable; esto no afirma que
 un análisis de DataPrep pueda reanudarse automáticamente.

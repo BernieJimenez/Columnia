@@ -1129,6 +1129,20 @@ pub struct StoredTransformRecipe {
     pub migration_report: Option<RecipeMigrationReport>,
 }
 
+impl StoredTransformRecipe {
+    pub(crate) fn has_session_applied_operation(&self, operation: &str) -> bool {
+        self.migration_report
+            .as_ref()
+            .and_then(|report| report.session.as_ref())
+            .is_some_and(|session| {
+                session
+                    .applied_operations
+                    .iter()
+                    .any(|candidate| candidate == operation)
+            })
+    }
+}
+
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TransformRecipeResult {
@@ -16869,6 +16883,22 @@ impl DatasetState {
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
         apply_recipe_to_dataset(dataset, recipe).map(|result| result.changed)
+    }
+
+    pub(crate) fn apply_project_import_categorical_imputation(&self) -> Result<bool, String> {
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
+        let dataset = current
+            .as_mut()
+            .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
+        let (cleaned, _, changed_cell_count, _) =
+            impute_categorical_values_in_frame(&dataset.frame)?;
+        if changed_cell_count == 0 {
+            return Ok(false);
+        }
+        publish_candidate(dataset, cleaned, "Imputación categórica").map(|_| true)
     }
 
     pub(crate) fn cache_project_import_profile(&self) -> Result<DatasetProfile, String> {

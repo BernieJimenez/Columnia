@@ -1156,6 +1156,10 @@ fn import_dataprep_session_project_from_path(
     } else {
         return Err("La sesión no contiene una fuente o snapshot disponible.".to_owned());
     };
+    let replay_categorical_imputation = apply_recipe
+        && plan
+            .recipe
+            .has_session_applied_operation("impute_categorical");
     let extension = input_path
         .extension()
         .and_then(|value| value.to_str())
@@ -1196,6 +1200,14 @@ fn import_dataprep_session_project_from_path(
         "El artefacto de la sesión no se puede leer con el esquema registrado.".to_owned()
     })?;
     let imported = DatasetState::for_project_import(frame, preview.file_name.clone())?;
+    if replay_categorical_imputation {
+        imported
+            .apply_project_import_categorical_imputation()
+            .map_err(|_| {
+                "La imputación categórica de la sesión no se pudo reproducir de forma segura."
+                    .to_owned()
+            })?;
+    }
     if apply_recipe {
         imported
             .apply_project_import_recipe(&plan.recipe.recipe)
@@ -2439,6 +2451,49 @@ mod tests {
         assert_eq!(opened.dataset.columns[0].name, "amount");
         assert_eq!(opened.dataset.columns[1].name, "label");
         assert!(opened.profile.is_some());
+    }
+
+    #[test]
+    fn dataprep_session_replays_deterministic_categorical_imputation_without_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "value,label\n1,\n2,dos\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Categorías reproducibles",
+                "source_path": "source.csv",
+                "applied_ops": ["impute_categorical"],
+                "transform": {"rename_text": "value -> amount"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported = import_dataprep_session_project_from_path(
+            &store, &session, None, None, None,
+        )
+        .expect("la operación categórica determinista debe poder reproducirse desde la fuente");
+        let state = DatasetState::default();
+        store
+            .open(&state, imported.id)
+            .expect("el proyecto importado debe reabrirse");
+        let active = state
+            .active_project_snapshot()
+            .expect("el dataset importado debe quedar activo");
+
+        assert_eq!(
+            active.frame.column("label").unwrap().str().unwrap().get(0),
+            Some("Desconocido")
+        );
+        assert_eq!(
+            active.frame.column("label").unwrap().str().unwrap().get(1),
+            Some("dos")
+        );
+        assert_eq!(active.history.entries.len(), 3);
     }
 
     #[test]
