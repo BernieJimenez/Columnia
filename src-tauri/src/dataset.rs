@@ -3189,6 +3189,17 @@ fn boolean_token(value: &str) -> Option<&'static str> {
     }
 }
 
+fn is_valid_suggested_type(value: &str, suggested_type: &str) -> bool {
+    let value = value.trim();
+    match suggested_type {
+        "boolean" => boolean_token(value).is_some(),
+        "integer" => value.parse::<i64>().is_ok() && semantic_numeric_value(value).is_some(),
+        "decimal" => semantic_numeric_value(value).is_some(),
+        "date" => is_supported_date(value),
+        _ => false,
+    }
+}
+
 fn is_boolean_candidate(column: &Column) -> Result<bool, String> {
     if column.dtype() != &DataType::String {
         return Ok(false);
@@ -4800,6 +4811,7 @@ enum TextCleaningMode {
     Sentinels,
     Booleans,
     FixEncoding,
+    NullifyInvalidTypes,
 }
 
 pub(crate) fn normalize_text_value(value: &str, remove_accents: bool) -> String {
@@ -4857,12 +4869,27 @@ fn clean_text_columns(
         let values = column
             .str()
             .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let suggested_type = if matches!(mode, TextCleaningMode::NullifyInvalidTypes) {
+            text_statistics(column)?.and_then(|statistics| statistics.suggested_type)
+        } else {
+            None
+        };
         let mut column_changes = 0;
         let transformed: Vec<Option<String>> = values
             .iter()
             .enumerate()
             .map(|(row_index, value)| {
                 value.and_then(|original| {
+                    if matches!(mode, TextCleaningMode::NullifyInvalidTypes)
+                        && suggested_type.is_some_and(|kind| {
+                            !original.trim().is_empty() && !is_valid_suggested_type(original, kind)
+                        })
+                    {
+                        column_changes += 1;
+                        changed_cell_count += 1;
+                        changed_rows[row_index] = true;
+                        return None;
+                    }
                     if matches!(mode, TextCleaningMode::Sentinels) && is_missing_sentinel(original)
                     {
                         column_changes += 1;
@@ -4883,6 +4910,7 @@ fn clean_text_columns(
                         TextCleaningMode::FixEncoding => {
                             repair_mojibake(original).unwrap_or_else(|| original.to_owned())
                         }
+                        TextCleaningMode::NullifyInvalidTypes => original.to_owned(),
                     };
                     if next != original {
                         column_changes += 1;
@@ -13679,6 +13707,7 @@ fn apply_text_cleaning(
         TextCleaningMode::Sentinels => "Normalizar valores centinela",
         TextCleaningMode::Booleans => "Normalizar booleanos",
         TextCleaningMode::FixEncoding => "Corregir codificación UTF-8",
+        TextCleaningMode::NullifyInvalidTypes => "Apartar tipos incompatibles",
     };
     let preview = if changed_cell_count > 0 {
         publish_candidate(dataset, cleaned, label)?
@@ -13745,6 +13774,15 @@ pub async fn fix_encoding_values(app: AppHandle) -> Result<TextCleaningResult, S
     })
     .await
     .map_err(|error| format!("La corrección de codificación se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn nullify_invalid_type_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_text_cleaning(app, None, TextCleaningMode::NullifyInvalidTypes)
+    })
+    .await
+    .map_err(|error| format!("La corrección de tipos incompatibles se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -19241,6 +19279,37 @@ mod tests {
             cleaned.column("amount").unwrap().i64().unwrap().get(0),
             Some(1)
         );
+    }
+
+    #[test]
+    fn nullifies_invalid_values_for_a_confident_suggested_type() {
+        let frame = df![
+            "created_at" => &[
+                Some("2024-01-01"), Some("2024-01-02"), Some("2024-01-03"),
+                Some("2024-01-04"), Some("2024-01-05"), Some("2024-01-06"),
+                Some("2024-01-07"), Some("2024-01-08"), Some("2024-01-09"),
+                Some("sin fecha"),
+            ],
+            "note" => &[Some("keep"), Some("keep"), Some("leave"), Some("leave"), Some("leave"), Some("leave"), Some("leave"), Some("leave"), Some("leave"), Some("leave")]
+        ]
+        .unwrap();
+
+        let profile = profile_dataset(&frame).expect("el perfil debe calcularse");
+        assert_eq!(profile.columns[0].suggested_type, Some("date".to_owned()));
+        assert_eq!(profile.columns[0].invalid_type_count, Some(1));
+
+        let (cleaned, affected_rows, changed_cells, changed_columns) =
+            clean_text_columns(&frame, None, TextCleaningMode::NullifyInvalidTypes)
+                .expect("los tipos incompatibles deben poder apartarse");
+        let dates = cleaned.column("created_at").unwrap().str().unwrap();
+        let notes = cleaned.column("note").unwrap().str().unwrap();
+
+        assert_eq!(affected_rows, 1);
+        assert_eq!(changed_cells, 1);
+        assert_eq!(changed_columns[0].name, "created_at");
+        assert_eq!(dates.get(0), Some("2024-01-01"));
+        assert_eq!(dates.get(9), None);
+        assert_eq!(notes.get(0), Some("keep"));
     }
 
     #[test]

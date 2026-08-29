@@ -406,6 +406,53 @@ describe("PreparePhase", () => {
     expect(onRemovePersonalColumns).toHaveBeenCalledOnce();
   });
 
+  it("confirma apartar valores incompatibles sin exponer celdas", () => {
+    const onNullifyInvalidTypes = vi.fn();
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+      onAnalyzeQuality={() => undefined}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveNearDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onRemoveIdentifierColumns={() => undefined}
+      onRemovePersonalColumns={() => undefined}
+      onNormalizeSentinels={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onFixEncoding={() => undefined}
+      onNullifyInvalidTypes={onNullifyInvalidTypes}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar tipos incompatibles" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Apartar valores incompatibles" });
+    expect(dialog).toHaveTextContent("1 columna");
+    expect(dialog).not.toHaveTextContent("Ana");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onNullifyInvalidTypes).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar tipos incompatibles" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apartar valores incompatibles" }));
+    expect(onNullifyInvalidTypes).toHaveBeenCalledOnce();
+  });
+
   it("ejecuta callbacks opcionales y cierra confirmaciones con Escape", () => {
     render(<PreparePhase
       dataset={dataset}

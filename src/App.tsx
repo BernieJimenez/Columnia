@@ -819,6 +819,7 @@ export function App() {
                 onNormalizeSentinels={prepare.applySentinelNormalization}
                 onNormalizeBooleans={prepare.applyBooleanNormalization}
                 onFixEncoding={prepare.applyEncodingFix}
+                onNullifyInvalidTypes={prepare.applyInvalidTypeCleanup}
                 onImputeMissingValues={prepare.applyMissingValueImputation}
                 onEnableRowAudit={prepare.applyRowAudit}
                 onNormalizeColumns={prepare.applyColumnNormalization}

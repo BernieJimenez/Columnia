@@ -60,6 +60,7 @@ function ControllerHarness({
     <button type="button" onClick={controller.applySentinelNormalization}>Centinelas</button>
     <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
     <button type="button" onClick={controller.applyEncodingFix}>Codificación</button>
+    <button type="button" onClick={controller.applyInvalidTypeCleanup}>Tipos incompatibles</button>
     <button type="button" onClick={controller.applyMissingValueImputation}>Imputar</button>
     <button type="button" onClick={controller.applyRowAudit}>Auditoría</button>
     <button type="button" onClick={controller.applyColumnNormalization}>Columnas</button>
@@ -323,6 +324,28 @@ describe("usePrepareController", () => {
     fireEvent.click(screen.getByRole("button", { name: "Codificación" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
       "Se corrigió doble codificación UTF-8 en 2 celdas.",
+    ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("aparta valores incompatibles como nulos y publica el impacto", async () => {
+    vi.spyOn(bridge, "nullifyInvalidTypeValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "fecha", changedCellCount: 1 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Tipos incompatibles" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se apartó 1 valor incompatible como nulo",
     ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();

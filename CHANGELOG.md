@@ -24,6 +24,9 @@ los artefactos de validación locales.
   por columna y ofrece una reparación reversible, limitada a valores de texto
   que pueden decodificarse inequívocamente sin tocar números, `_cambios` ni
   valores ambiguos.
+- Preparar permite confirmar y apartar como nulos los valores de texto que no
+  coincidan con una sugerencia semántica con al menos 90% de confianza; no muestra
+  celdas, conserva tipos no textuales y ofrece reversión desde el historial.
 - La importación de sesiones DataPrep recalcula y persiste el perfil agregado
   del dataset importado antes de publicar el proyecto, para que Revisar abra
   con una caché de calidad válida sin conservar filas, celdas, rutas ni muestras.
@@ -114,7 +117,7 @@ los artefactos de validación locales.
   `outputRoot` del manifiesto por defecto y `--force` es obligatorio para
   destinos externos o existentes.
 - Tier 5 añade inventario IPC generado desde `generate_handler!`, contrato de
-  56 comandos de producción, 4 debug y 56 estructuras compartidas, toolchains
+  58 comandos de producción, 4 debug y 56 estructuras compartidas, toolchains
   exactas Node/npm/Rust, notices offline sin `UNKNOWN` y una revisión legal de
   distribución pendiente de completar por canal/jurisdicción.
 - Tier 5 hace durable la recuperación del catálogo: los fallos de inicialización

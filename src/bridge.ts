@@ -930,6 +930,10 @@ export function fixEncodingValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("fix_encoding_values");
 }
 
+export function nullifyInvalidTypeValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("nullify_invalid_type_values");
+}
+
 export function imputeMissingValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("impute_missing_values");
 }

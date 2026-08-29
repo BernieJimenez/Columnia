@@ -7,6 +7,7 @@ import {
   fixEncodingValues,
   getHistoryState,
   imputeMissingValues,
+  nullifyInvalidTypeValues,
   normalizeColumnNames,
   normalizeSentinelValues,
   normalizeBooleanValues,
@@ -280,6 +281,31 @@ export function usePrepareController({
     }
   }
 
+  async function applyInvalidTypeCleanup() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "invalid_types" });
+    try {
+      const result = await nullifyInvalidTypeValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const detail = result.changedCellCount === 1
+        ? "1 valor"
+        : `${result.changedCellCount.toLocaleString()} valores`;
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se encontraron valores incompatibles con un tipo sugerido con confianza."
+          : result.changedCellCount === 1
+            ? `Se apartó ${detail} incompatible como nulo; el cambio puede revertirse desde el historial.`
+            : `Se apartaron ${detail} incompatibles como nulos; el cambio puede revertirse desde el historial.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function applyMissingValueImputation() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "impute" });
@@ -461,6 +487,7 @@ export function usePrepareController({
     applySentinelNormalization,
     applyBooleanNormalization,
     applyEncodingFix,
+    applyInvalidTypeCleanup,
     applyMissingValueImputation,
     applyRowAudit,
     applyColumnNormalization,

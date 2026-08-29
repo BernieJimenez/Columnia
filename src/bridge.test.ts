@@ -21,6 +21,7 @@ import {
   normalizeSentinelValues,
   normalizeBooleanValues,
   fixEncodingValues,
+  nullifyInvalidTypeValues,
   normalizeTextValues,
   openProject,
   importDataprepSessionProject,
@@ -261,6 +262,7 @@ describe("desktop bridge", () => {
     await normalizeSentinelValues();
     await normalizeBooleanValues();
     await fixEncodingValues();
+    await nullifyInvalidTypeValues();
     await imputeMissingValues();
     await applySafeCorrections();
     await undoLastChange();
@@ -276,10 +278,11 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(5, "normalize_sentinel_values");
     expect(invoke).toHaveBeenNthCalledWith(6, "normalize_boolean_values");
     expect(invoke).toHaveBeenNthCalledWith(7, "fix_encoding_values");
-    expect(invoke).toHaveBeenNthCalledWith(8, "impute_missing_values");
-    expect(invoke).toHaveBeenNthCalledWith(9, "apply_safe_corrections");
-    expect(invoke).toHaveBeenNthCalledWith(10, "undo_last_change");
-    expect(invoke).toHaveBeenNthCalledWith(11, "redo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(8, "nullify_invalid_type_values");
+    expect(invoke).toHaveBeenNthCalledWith(9, "impute_missing_values");
+    expect(invoke).toHaveBeenNthCalledWith(10, "apply_safe_corrections");
+    expect(invoke).toHaveBeenNthCalledWith(11, "undo_last_change");
+    expect(invoke).toHaveBeenNthCalledWith(12, "redo_last_change");
   });
 
   it("invoca la eliminación de duplicados parecidos sin enviar valores", async () => {

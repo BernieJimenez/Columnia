@@ -28,6 +28,7 @@ interface PreparePhaseProps {
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onFixEncoding?: () => void;
+  onNullifyInvalidTypes?: () => void;
   onImputeMissingValues: () => void;
   onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
@@ -60,6 +61,7 @@ export function PreparePhase({
   onNormalizeSentinels,
   onNormalizeBooleans,
   onFixEncoding = () => undefined,
+  onNullifyInvalidTypes = () => undefined,
   onImputeMissingValues,
   onEnableRowAudit,
   onNormalizeColumns,
@@ -81,11 +83,15 @@ export function PreparePhase({
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
   const [personalConfirmation, setPersonalConfirmation] = useState(false);
+  const [invalidTypeConfirmation, setInvalidTypeConfirmation] = useState(false);
   const identifierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
     : [];
   const personalColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios")
+    : [];
+  const typeDriftColumns = profileStatus.kind === "ready"
+    ? profileStatus.profile.columns.filter((column) => (column.invalidTypeCount ?? 0) > 0)
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
 
@@ -197,6 +203,7 @@ export function PreparePhase({
               onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
               onFixEncoding={onFixEncoding}
+              onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
               onImputeMissingValues={onImputeMissingValues}
         />
       )}
@@ -472,6 +479,36 @@ export function PreparePhase({
           </div>
         </ModalDialog>
       )}
+      {invalidTypeConfirmation && typeDriftColumns.length > 0 && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="invalid-types-confirm-title"
+          describedBy="invalid-types-confirm-description"
+          onDismiss={() => setInvalidTypeConfirmation(false)}
+        >
+          <p className="step">Confirmación requerida</p>
+          <h3 id="invalid-types-confirm-title">Apartar valores incompatibles</h3>
+          <p id="invalid-types-confirm-description">
+            Se convertirán en nulos los valores que no coincidan con un tipo sugerido con al menos 90% de coincidencia en {typeDriftColumns.length === 1 ? "1 columna" : `${typeDriftColumns.length} columnas`}. Las celdas no se mostrarán y el cambio podrá revertirse desde el historial.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setInvalidTypeConfirmation(false)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                setInvalidTypeConfirmation(false);
+                onNullifyInvalidTypes();
+              }}
+              disabled={changing}
+            >
+              Apartar valores incompatibles
+            </button>
+          </div>
+        </ModalDialog>
+      )}
     </>
   );
 }
@@ -510,6 +547,7 @@ function CleaningSignals({
   onNormalizeSentinels,
   onNormalizeBooleans,
   onFixEncoding,
+  onNullifyInvalidTypes,
   onImputeMissingValues,
 }: {
   profile: DatasetProfile;
@@ -522,6 +560,7 @@ function CleaningSignals({
   onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onFixEncoding: () => void;
+  onNullifyInvalidTypes: () => void;
   onImputeMissingValues: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
@@ -547,6 +586,7 @@ function CleaningSignals({
   const typeDrift = profile.columns.filter(
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
+  const typeDriftColumns = typeDrift;
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
@@ -672,6 +712,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onFixEncoding} disabled={busy}>
                 Corregir codificación
+              </button>
+            </div>
+          )}
+          {typeDrift.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes apartar como nulos los valores que no coincidan con una sugerencia con al
+                menos 90% de confianza. La acción no muestra celdas, requiere confirmación y es
+                reversible desde el historial.
+              </p>
+              <button type="button" onClick={onNullifyInvalidTypes} disabled={busy}>
+                Revisar tipos incompatibles
               </button>
             </div>
           )}

@@ -70,7 +70,7 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
 | `npm run notices:check` | Aprobado; 960 identidades de dependencia sin `UNKNOWN` | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas o contradictorias |
 | `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
-| `npm run ipc:check` | Aprobado; 56 comandos de producción, 4 debug y 56 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
+| `npm run ipc:check` | Aprobado; 58 comandos de producción, 4 debug y 56 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y

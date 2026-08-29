@@ -235,6 +235,11 @@
       "debug": false
     },
     {
+      "name": "nullify_invalid_type_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "impute_missing_values",
       "module": "dataset",
       "debug": false
