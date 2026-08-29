@@ -1130,16 +1130,12 @@ pub struct StoredTransformRecipe {
 }
 
 impl StoredTransformRecipe {
-    pub(crate) fn has_session_applied_operation(&self, operation: &str) -> bool {
+    pub(crate) fn session_applied_operations(&self) -> Vec<String> {
         self.migration_report
             .as_ref()
             .and_then(|report| report.session.as_ref())
-            .is_some_and(|session| {
-                session
-                    .applied_operations
-                    .iter()
-                    .any(|candidate| candidate == operation)
-            })
+            .map(|session| session.applied_operations.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -16885,7 +16881,10 @@ impl DatasetState {
         apply_recipe_to_dataset(dataset, recipe).map(|result| result.changed)
     }
 
-    pub(crate) fn apply_project_import_categorical_imputation(&self) -> Result<bool, String> {
+    pub(crate) fn apply_project_import_deterministic_cleaning(
+        &self,
+        applied_operations: &[String],
+    ) -> Result<bool, String> {
         let mut current = self
             .current
             .lock()
@@ -16893,12 +16892,36 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        let (cleaned, _, changed_cell_count, _) =
-            impute_categorical_values_in_frame(&dataset.frame)?;
-        if changed_cell_count == 0 {
+        let mut cleaned = dataset.frame.clone();
+        let mut changed = false;
+
+        // DataPrep ejecuta el registro de limpieza en un orden fijo. Mantener
+        // ese orden evita que el orden accidental del manifiesto cambie el
+        // resultado cuando una sesión enumera varias operaciones.
+        for operation in ["impute_categorical", "fix_encoding"] {
+            if !applied_operations
+                .iter()
+                .any(|candidate| candidate == operation)
+            {
+                continue;
+            }
+            let (candidate, _, changed_cell_count, _) = match operation {
+                "fix_encoding" => {
+                    clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
+                }
+                "impute_categorical" => impute_categorical_values_in_frame(&cleaned)?,
+                _ => unreachable!("operación determinista no registrada"),
+            };
+            if changed_cell_count > 0 {
+                cleaned = candidate;
+                changed = true;
+            }
+        }
+
+        if !changed {
             return Ok(false);
         }
-        publish_candidate(dataset, cleaned, "Imputación categórica").map(|_| true)
+        publish_candidate(dataset, cleaned, "Limpieza DataPrep").map(|_| true)
     }
 
     pub(crate) fn cache_project_import_profile(&self) -> Result<DatasetProfile, String> {

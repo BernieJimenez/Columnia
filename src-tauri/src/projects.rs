@@ -1156,10 +1156,11 @@ fn import_dataprep_session_project_from_path(
     } else {
         return Err("La sesión no contiene una fuente o snapshot disponible.".to_owned());
     };
-    let replay_categorical_imputation = apply_recipe
-        && plan
-            .recipe
-            .has_session_applied_operation("impute_categorical");
+    let replayable_cleaning = if apply_recipe {
+        plan.recipe.session_applied_operations()
+    } else {
+        Vec::new()
+    };
     let extension = input_path
         .extension()
         .and_then(|value| value.to_str())
@@ -1200,11 +1201,11 @@ fn import_dataprep_session_project_from_path(
         "El artefacto de la sesión no se puede leer con el esquema registrado.".to_owned()
     })?;
     let imported = DatasetState::for_project_import(frame, preview.file_name.clone())?;
-    if replay_categorical_imputation {
+    if !replayable_cleaning.is_empty() {
         imported
-            .apply_project_import_categorical_imputation()
+            .apply_project_import_deterministic_cleaning(&replayable_cleaning)
             .map_err(|_| {
-                "La imputación categórica de la sesión no se pudo reproducir de forma segura."
+                "La limpieza determinista de la sesión no se pudo reproducir de forma segura."
                     .to_owned()
             })?;
     }
@@ -2454,20 +2455,22 @@ mod tests {
     }
 
     #[test]
-    fn dataprep_session_replays_deterministic_categorical_imputation_without_snapshot() {
+    fn dataprep_session_replays_deterministic_cleaning_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
         let source = directory.path().join("source.csv");
         let session = directory.path().join("session.json");
-        fs::write(&source, "value,label\n1,\n2,dos\n").unwrap();
+        fs::write(&source, "city,label\nBogotÃ¡,\nSanto Domingo,dos\n").unwrap();
         fs::write(
             &session,
             serde_json::to_vec(&serde_json::json!({
                 "version": 1,
-                "name": "Categorías reproducibles",
+                "name": "Limpieza determinista reproducible",
                 "source_path": "source.csv",
-                "applied_ops": ["impute_categorical"],
-                "transform": {"rename_text": "value -> amount"}
+                // Deliberately reversed: replay follows DataPrep's registry
+                // order, not the order in this manifest.
+                "applied_ops": ["impute_categorical", "fix_encoding"],
+                "transform": {"rename_text": "city -> place"}
             }))
             .unwrap(),
         )
@@ -2485,6 +2488,10 @@ mod tests {
             .active_project_snapshot()
             .expect("el dataset importado debe quedar activo");
 
+        assert_eq!(
+            active.frame.column("place").unwrap().str().unwrap().get(0),
+            Some("Bogotá")
+        );
         assert_eq!(
             active.frame.column("label").unwrap().str().unwrap().get(0),
             Some("Desconocido")
