@@ -62,6 +62,7 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyEncodingFix}>Codificación</button>
     <button type="button" onClick={controller.applyInvalidTypeCleanup}>Tipos incompatibles</button>
     <button type="button" onClick={controller.applyMissingValueImputation}>Imputar</button>
+    <button type="button" onClick={controller.applyOutlierImputation}>Outliers</button>
     <button type="button" onClick={controller.applyRowAudit}>Auditoría</button>
     <button type="button" onClick={controller.applyColumnNormalization}>Columnas</button>
     <button type="button" onClick={() => controller.trimText()}>Recortar</button>
@@ -369,6 +370,29 @@ describe("usePrepareController", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
       "Se imputaron 2 valores nulos en: estado.",
     ));
+    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
+    expect(onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("imputa outliers por mediana y publica el impacto reversible", async () => {
+    vi.spyOn(bridge, "imputeOutlierValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "total", changedCellCount: 1 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const onDatasetChanged = vi.fn();
+    const onProfileInvalidated = vi.fn();
+    const onDeliveryInvalidated = vi.fn();
+    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Outliers" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se reemplazaron 1 outliers por la mediana en: total. El cambio puede revertirse desde el historial.",
+    ));
+    expect(bridge.imputeOutlierValues).toHaveBeenCalledOnce();
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();

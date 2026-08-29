@@ -7,6 +7,7 @@ import {
   fixEncodingValues,
   getHistoryState,
   imputeMissingValues,
+  imputeOutlierValues,
   nullifyInvalidTypeValues,
   normalizeColumnNames,
   normalizeSentinelValues,
@@ -327,6 +328,27 @@ export function usePrepareController({
     }
   }
 
+  async function applyOutlierImputation() {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: "outlier_impute" });
+    try {
+      const result = await imputeOutlierValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: result.changedCellCount === 0
+          ? "No se detectaron outliers que necesitaran imputación."
+          : `Se reemplazaron ${result.changedCellCount.toLocaleString()} outliers por la mediana en: ${columns}. El cambio puede revertirse desde el historial.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function applyRowAudit() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "audit" });
@@ -489,6 +511,7 @@ export function usePrepareController({
     applyEncodingFix,
     applyInvalidTypeCleanup,
     applyMissingValueImputation,
+    applyOutlierImputation,
     applyRowAudit,
     applyColumnNormalization,
     applyRecommendedCorrections,

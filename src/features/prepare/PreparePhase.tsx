@@ -30,6 +30,7 @@ interface PreparePhaseProps {
   onFixEncoding?: () => void;
   onNullifyInvalidTypes?: () => void;
   onImputeMissingValues: () => void;
+  onImputeOutliers?: () => void;
   onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
   onApplyRecommended: () => void;
@@ -63,6 +64,7 @@ export function PreparePhase({
   onFixEncoding = () => undefined,
   onNullifyInvalidTypes = () => undefined,
   onImputeMissingValues,
+  onImputeOutliers = () => undefined,
   onEnableRowAudit,
   onNormalizeColumns,
   onApplyRecommended,
@@ -205,6 +207,7 @@ export function PreparePhase({
               onFixEncoding={onFixEncoding}
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
               onImputeMissingValues={onImputeMissingValues}
+              onImputeOutliers={onImputeOutliers}
         />
       )}
       <section className="prepare-card" aria-labelledby="row-audit-title">
@@ -549,6 +552,7 @@ function CleaningSignals({
   onFixEncoding,
   onNullifyInvalidTypes,
   onImputeMissingValues,
+  onImputeOutliers,
 }: {
   profile: DatasetProfile;
   busy: boolean;
@@ -562,6 +566,7 @@ function CleaningSignals({
   onFixEncoding: () => void;
   onNullifyInvalidTypes: () => void;
   onImputeMissingValues: () => void;
+  onImputeOutliers: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
   const imputable = incomplete.filter(
@@ -587,10 +592,13 @@ function CleaningSignals({
     (column) => (column.invalidTypeCount ?? 0) > 0,
   );
   const typeDriftColumns = typeDrift;
+  const outliers = profile.columns.filter(
+    (column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios",
+  );
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
-  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || typeDrift.length > 0 || personal.length > 0;
+  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -619,6 +627,9 @@ function CleaningSignals({
           )}
           {highNull.length > 0 && (
             <li><strong>Alta nulidad:</strong> {highNull.map((column) => column.name).join(", ")} tiene al menos 80% de valores nulos.</li>
+          )}
+          {outliers.length > 0 && (
+            <li><strong>Valores atípicos:</strong> {outliers.map((column) => `${column.name} (${(column.outlierCount ?? 0).toLocaleString()})`).join(", ")} supera los límites IQR de 1.5.</li>
           )}
           {sentinels.length > 0 && (
             <li><strong>Valores centinela:</strong> {sentinels.map((column) => `${column.name} (${(column.sentinelCount ?? 0).toLocaleString()})`).join(", ")} usa tokens textuales que pueden representar datos ausentes.</li>
@@ -666,6 +677,18 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onRemoveHighNullColumns} disabled={busy}>
                 Eliminar columnas con alta nulidad
+              </button>
+            </div>
+          )}
+          {outliers.length > 0 && (
+            <div className="cleaning-signals__action">
+              <p>
+                Puedes reemplazar los valores atípicos por la mediana de cada columna usando
+                límites IQR de 1.5. La operación conserva el tipo numérico, no muestra celdas y
+                es reversible desde el historial.
+              </p>
+              <button type="button" onClick={onImputeOutliers} disabled={busy}>
+                Imputar outliers con mediana
               </button>
             </div>
           )}

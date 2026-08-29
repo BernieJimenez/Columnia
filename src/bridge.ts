@@ -308,7 +308,7 @@ export type CalculatedOperation =
   | "year" | "month" | "day";
 export type CalculatedOperandKind = "literal" | "column";
 export type FindReplaceScope = "column" | "all_text_columns";
-export type OutlierAction = "cap" | "drop";
+export type OutlierAction = "cap" | "drop" | "impute";
 export type SummaryOperation = "sum" | "mean" | "min" | "max" | "count" | "count_unique";
 export type ContactKind = "email" | "phone" | "address";
 export type ExtractionKind =
@@ -948,6 +948,10 @@ export function nullifyInvalidTypeValues(): Promise<TextCleaningResult> {
 
 export function imputeMissingValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("impute_missing_values");
+}
+
+export function imputeOutlierValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("impute_outlier_values");
 }
 
 export function applySafeCorrections(): Promise<SafeCorrectionsResult> {

@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Preparar detecta outliers numéricos mediante IQR y permite reemplazarlos de
+  forma reversible por la mediana observada, conservando tipos `Int64`/`Float64`,
+  `_cambios` y un impacto agregado. La misma regla está disponible en recetas
+  como `impute`; el inventario IPC pasa a 60 comandos de producción.
 - Benchmark reproducible de datasets grandes dentro de WebView2: `perf:webview2`
   genera un CSV temporal de 100 MiB y verifica selección nativa, carga,
   paginación, transformación y exportación con evidencia agregada de duración,

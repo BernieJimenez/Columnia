@@ -24,7 +24,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `keep_columns` | `keepColumns` | Convertida |
 | `calc` | `calculatedColumn` | Convertida para operaciones equivalentes |
 | `split_column`, `merge_columns` | `splitColumn`, `mergeColumns` | Convertida |
-| `outliers` | `outlierTreatments` | Convertida para `cap`/`drop` |
+| `outliers` | `outlierTreatments` | Convertida para `cap`/`drop`; `impute` está disponible en recetas nativas Columnia |
 | `group_summary` | `groupSummary` | Convertida para agregaciones conocidas |
 | `normalize_contacts` | `contactNormalizations` | Convertida |
 | `extract_text` | `textExtractions` | Convertida |

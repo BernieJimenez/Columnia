@@ -925,6 +925,7 @@ pub struct MergeColumnsRecipe {
 pub enum OutlierAction {
     Cap,
     Drop,
+    Impute,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -5067,6 +5068,81 @@ fn impute_missing_values_in_frame(
         cleaned
             .replace(&name, replacement_column)
             .map_err(|error| format!("No se pudo imputar la columna '{name}': {error}"))?;
+        changed_columns.push(ChangedTextColumn {
+            name,
+            changed_cell_count: column_changes,
+        });
+    }
+
+    Ok((
+        cleaned,
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
+fn impute_outlier_values_in_frame(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios" || !matches!(column.dtype(), DataType::Int64 | DataType::Float64) {
+            continue;
+        }
+
+        let values = physical_numeric_values(column)?;
+        let mut observed = values.iter().flatten().copied().collect::<Vec<_>>();
+        if observed.len() < 4 {
+            continue;
+        }
+        observed.sort_by(f64::total_cmp);
+        let q1 = outlier_linear_quantile(&observed, 0.25);
+        let q3 = outlier_linear_quantile(&observed, 0.75);
+        let lower = q1 - 1.5 * (q3 - q1);
+        let upper = q3 + 1.5 * (q3 - q1);
+        if ![q1, q3, lower, upper].into_iter().all(f64::is_finite) {
+            return Err(format!(
+                "Los umbrales IQR de '{name}' exceden el rango numérico finito."
+            ));
+        }
+        let replacement = if column.dtype() == &DataType::Int64 {
+            observed[(observed.len() - 1) / 2]
+        } else {
+            outlier_linear_quantile(&observed, 0.5)
+        };
+        let mut column_changes = 0;
+        let transformed = values
+            .into_iter()
+            .enumerate()
+            .map(|(row_index, value)| {
+                value.map(|value| {
+                    if value < lower || value > upper {
+                        column_changes += 1;
+                        changed_cell_count += 1;
+                        changed_rows[row_index] = true;
+                        replacement
+                    } else {
+                        value
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        if column_changes == 0 {
+            continue;
+        }
+
+        let replacement_column = Column::new(name.clone().into(), transformed)
+            .cast(column.dtype())
+            .map_err(|error| format!("No se pudo imputar outliers en '{name}': {error}"))?;
+        cleaned
+            .replace(&name, replacement_column)
+            .map_err(|error| format!("No se pudo actualizar la columna '{name}': {error}"))?;
         changed_columns.push(ChangedTextColumn {
             name,
             changed_cell_count: column_changes,
@@ -13878,6 +13954,35 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
 }
 
 #[tauri::command]
+pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
+            impute_outlier_values_in_frame(&dataset.frame)?;
+        let preview = if changed_cell_count > 0 {
+            publish_candidate(dataset, cleaned, "Imputación de outliers")?
+        } else {
+            loaded_dataset_preview(dataset, &dataset.frame)?
+        };
+        Ok(TextCleaningResult {
+            dataset: preview,
+            affected_row_count,
+            changed_cell_count,
+            changed_columns,
+        })
+    })
+    .await
+    .map_err(|error| format!("La imputación de outliers se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn apply_safe_corrections(app: AppHandle) -> Result<SafeCorrectionsResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -14819,13 +14924,26 @@ fn apply_outlier_treatments(
                 "Los umbrales IQR de '{name}' exceden el rango numérico finito."
             ));
         }
-        prepared.push((name, treatment.action, values, lower, upper));
+        let median = if column.dtype() == &DataType::Int64 {
+            valid[(valid.len() - 1) / 2]
+        } else {
+            outlier_linear_quantile(&valid, 0.5)
+        };
+        prepared.push((
+            name,
+            treatment.action,
+            values,
+            lower,
+            upper,
+            median,
+            column.dtype().clone(),
+        ));
     }
 
     let baseline_height = frame.height();
     let mut drop_mask = vec![false; baseline_height];
     let mut adjusted = 0;
-    for (name, action, values, lower, upper) in prepared {
+    for (name, action, values, lower, upper, median, dtype) in prepared {
         match action {
             OutlierAction::Cap => {
                 let capped = values
@@ -14866,6 +14984,27 @@ fn apply_outlier_treatments(
                         drop_mask[row] = true;
                     }
                 }
+            }
+            OutlierAction::Impute => {
+                let imputed = values
+                    .into_iter()
+                    .map(|value| {
+                        value.map(|value| {
+                            if value < lower || value > upper {
+                                adjusted += 1;
+                                median
+                            } else {
+                                value
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let replacement_column = Column::new(name.clone().into(), imputed)
+                    .cast(&dtype)
+                    .map_err(|error| format!("No se pudo imputar '{name}': {error}"))?;
+                frame
+                    .replace(&name, replacement_column)
+                    .map_err(|error| format!("No se pudo actualizar '{name}': {error}"))?;
             }
         }
     }
@@ -21020,6 +21159,93 @@ mod tests {
         )
         .unwrap();
         assert_eq!(apply_recipe_to_frame(&zero_iqr, &recipe).unwrap().12, 0);
+
+        let imputed = apply_recipe_to_frame(
+            &frame,
+            &TransformRecipe {
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "value".into(),
+                    action: OutlierAction::Impute,
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!((imputed.12, imputed.13, imputed.14), (1, 0, 1));
+        assert_eq!(
+            imputed.0.column("value").unwrap().dtype(),
+            &polars::prelude::DataType::Int64
+        );
+        assert_eq!(
+            imputed.0.column("value").unwrap().i64().unwrap().get(4),
+            Some(3)
+        );
+        assert_eq!(
+            imputed.0.column("value").unwrap().i64().unwrap().get(5),
+            None
+        );
+    }
+
+    #[test]
+    fn direct_outlier_imputation_preserves_numeric_types_and_audit_column() {
+        let frame = DataFrame::new(
+            6,
+            vec![
+                Series::new(
+                    "amount".into(),
+                    [Some(1_i64), Some(2), Some(3), Some(4), Some(100), None],
+                )
+                .into_column(),
+                Series::new(
+                    "ratio".into(),
+                    [
+                        Some(1.0),
+                        Some(2.0),
+                        Some(3.0),
+                        Some(4.0),
+                        Some(100.0),
+                        None,
+                    ],
+                )
+                .into_column(),
+                Series::new(
+                    "_cambios".into(),
+                    [Some(""), Some(""), Some(""), Some(""), Some("manual"), None],
+                )
+                .into_column(),
+            ],
+        )
+        .unwrap();
+
+        let (cleaned, affected_rows, changed_cells, changed_columns) =
+            impute_outlier_values_in_frame(&frame).unwrap();
+        assert_eq!(affected_rows, 1);
+        assert_eq!(changed_cells, 2);
+        assert_eq!(changed_columns.len(), 2);
+        assert_eq!(
+            cleaned.column("amount").unwrap().dtype(),
+            &polars::prelude::DataType::Int64
+        );
+        assert_eq!(
+            cleaned.column("ratio").unwrap().dtype(),
+            &polars::prelude::DataType::Float64
+        );
+        assert_eq!(
+            cleaned.column("amount").unwrap().i64().unwrap().get(4),
+            Some(3)
+        );
+        assert_eq!(
+            cleaned.column("ratio").unwrap().f64().unwrap().get(4),
+            Some(3.0)
+        );
+        assert_eq!(
+            cleaned.column("_cambios").unwrap().str().unwrap().get(4),
+            Some("manual")
+        );
+        assert_eq!(
+            cleaned.column("amount").unwrap().i64().unwrap().get(5),
+            None
+        );
     }
 
     #[test]

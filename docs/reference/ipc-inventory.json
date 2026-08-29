@@ -250,6 +250,11 @@
       "debug": false
     },
     {
+      "name": "impute_outlier_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "apply_safe_corrections",
       "module": "dataset",
       "debug": false

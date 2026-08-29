@@ -1181,13 +1181,17 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Apartar con confirmación los valores de texto incompatibles con una sugerencia
   semántica que alcance al menos 90% de coincidencia, convirtiéndolos en nulos sin
   mostrar celdas y conservando la reversión desde el historial.
+- [x] Imputar outliers detectados por IQR con la mediana observada, preservando el
+  tipo numérico y `_cambios`, con acción directa y tratamiento seleccionable en
+  recetas, impacto agregado y reversión desde el historial.
 - [ ] Completar la migración del catálogo de limpieza sugerida: las reglas
   avanzadas que aún no tengan una acción reversible. Los identificadores y el
   PII personal (correo, teléfono, dirección y nombre) ya tienen acciones
   explícitas y confirmadas. La
   eliminación difusa ya tiene una primera acción implementada: confirma el
   impacto agregado, conserva la primera fila/orden y las copias exactas, y
-  permite deshacer; siguen pendientes las reglas restantes.
+  permite deshacer; siguen pendientes las reglas avanzadas que aún no tengan una
+  acción reversible.
   También están cubiertos como señal vacíos, constantes,
   alta nulidad, centinelas, imputación conservadora, booleanos y auditoría
   `_cambios`.
@@ -1556,7 +1560,7 @@ por el mero hecho de estar documentada aquí.
   - **Qué hacer:** detectar automáticamente comandos y estructuras compartidas,
     conservar literales/versiones y eliminar la cifra manual del threat model.
   - **Criterio de aceptación:** añadir un comando/tipo no clasificado rompe el
-    gate; los 59 comandos de producción quedan inventariados desde código.
+    gate; los 60 comandos de producción quedan inventariados desde código.
   - **Esfuerzo:** alto
   - **Depende de:** ninguna
 
@@ -1692,6 +1696,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | M1 regenera y persiste el perfil agregado al importar una sesión DataPrep; el proyecto abre con caché de calidad válida, mientras resultados originales, cachés reanudables e historial que no estén en el artefacto siguen pendientes. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | Nueva corrida estricta `smoke:cdp` con Playwright, ProjectsPanel, mutaciones nativas y cleanup aprobados: el working set quedó en 501,563,392 bytes dentro de 512 MiB, pero la memoria privada alcanzó 272,379,904 bytes frente al límite de 256 MiB. Corridas diagnósticas previas quedaron en 256.06–258.06 MiB; no se atribuye todavía una fuga al código y el gate privado estable sigue abierto. | `.local/validation/webview2-cdp/20260829T023923Z/summary.json`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-29 | P1 amplía el catálogo de limpieza con una acción confirmada para apartar como nulos los valores de texto que contradicen una sugerencia semántica con al menos 90% de coincidencia; la operación es reversible, no muestra celdas y conserva pendientes las reglas avanzadas restantes. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
+| 2026-08-29 | P1 añade imputación reversible de outliers por mediana: el perfil muestra solo conteos agregados, Preparar ofrece la acción directa y las recetas admiten `impute`; Int64/Float64 conservan su tipo y `_cambios` queda protegido. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/TransformRecipeEditor.tsx` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 

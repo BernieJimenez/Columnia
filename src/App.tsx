@@ -836,6 +836,7 @@ export function App() {
                 onFixEncoding={prepare.applyEncodingFix}
                 onNullifyInvalidTypes={prepare.applyInvalidTypeCleanup}
                 onImputeMissingValues={prepare.applyMissingValueImputation}
+                onImputeOutliers={prepare.applyOutlierImputation}
                 onEnableRowAudit={prepare.applyRowAudit}
                 onNormalizeColumns={prepare.applyColumnNormalization}
                 onApplyRecommended={prepare.applyRecommendedCorrections}

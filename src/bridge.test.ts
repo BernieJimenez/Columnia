@@ -17,6 +17,7 @@ import {
   getHistoryState,
   enableRowAudit,
   imputeMissingValues,
+  imputeOutlierValues,
   normalizeColumnNames,
   normalizeSentinelValues,
   normalizeBooleanValues,
@@ -300,6 +301,19 @@ describe("desktop bridge", () => {
     await enableRowAudit();
 
     expect(invoke).toHaveBeenCalledWith("enable_row_audit");
+  });
+
+  it("imputa outliers mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: {},
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "amount", changedCellCount: 1 }],
+    });
+
+    await imputeOutlierValues();
+
+    expect(invoke).toHaveBeenCalledWith("impute_outlier_values");
   });
 
   it("elimina columnas constantes mediante un comando tipado", async () => {

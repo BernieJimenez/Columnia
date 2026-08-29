@@ -135,6 +135,31 @@ const cleaningSignalsProfile: DatasetProfile = {
     thirdQuartile: null,
     outlierCount: null,
     histogram: null,
+  }, {
+    name: "amount",
+    dataType: "Int64",
+    nullCount: 0,
+    completenessPercentage: 100,
+    uniqueCount: 5,
+    minimum: "1",
+    maximum: "100",
+    mean: 22,
+    emptyCount: 0,
+    minimumLength: null,
+    maximumLength: null,
+    averageLength: null,
+    suggestedType: null,
+    typeMatchPercentage: null,
+    invalidTypeCount: null,
+    sentinelCount: null,
+    encodingIssueCount: null,
+    privacySignal: null,
+    standardDeviation: 40,
+    firstQuartile: 2,
+    median: 3,
+    thirdQuartile: 4,
+    outlierCount: 1,
+    histogram: null,
   }],
 };
 
@@ -217,6 +242,7 @@ describe("PreparePhase", () => {
     const onNormalizeBooleans = vi.fn();
     const onFixEncoding = vi.fn();
     const onImputeMissingValues = vi.fn();
+    const onImputeOutliers = vi.fn();
     const onEnableRowAudit = vi.fn();
     render(<PreparePhase
       dataset={dataset}
@@ -236,6 +262,7 @@ describe("PreparePhase", () => {
       onNormalizeBooleans={onNormalizeBooleans}
       onFixEncoding={onFixEncoding}
       onImputeMissingValues={onImputeMissingValues}
+      onImputeOutliers={onImputeOutliers}
       onEnableRowAudit={onEnableRowAudit}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
@@ -267,6 +294,9 @@ describe("PreparePhase", () => {
     expect(onNormalizeBooleans).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Intentar imputación conservadora" }));
     expect(onImputeMissingValues).toHaveBeenCalledOnce();
+    expect(screen.getByRole("list")).toHaveTextContent("Valores atípicos: amount (1) supera los límites IQR de 1.5.");
+    fireEvent.click(screen.getByRole("button", { name: "Imputar outliers con mediana" }));
+    expect(onImputeOutliers).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Activar trazabilidad" }));
     expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });
@@ -686,6 +716,34 @@ describe("TransformRecipeEditor", () => {
     expect(save).toHaveBeenCalledWith(expect.objectContaining({
       renames: [{ from: "nombre", to: "cliente" }],
     }), "Mi receta");
+  });
+
+  it("expone la imputación de outliers en recetas y solicita confirmación", () => {
+    const onApply = vi.fn();
+    const initialDraft: LoadedRecipe = {
+      version: 1,
+      name: "Imputación IQR",
+      savedAt: "2026-08-29T00:00:00Z",
+      recipe: {
+        ...emptyRecipe,
+        outlierTreatments: [{ column: "total", action: "impute" }],
+      },
+    };
+    render(<TransformRecipeEditor
+      dataset={dataset}
+      busy={false}
+      initialDraft={initialDraft}
+      onApply={onApply}
+      onDraftChange={() => undefined}
+    />);
+
+    expect(screen.getByRole("combobox", { name: "Acción de outliers 1" })).toHaveValue("impute");
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("reemplazarán valores atípicos por la mediana");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      outlierTreatments: [{ column: "total", action: "impute" }],
+    }));
   });
 
   it("interpone el alertdialog antes de aplicar filtros destructivos", () => {

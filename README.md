@@ -444,8 +444,9 @@ con cadenas vacías. La eliminación opcional de las columnas fuente requiere
 confirmación y permanece incluida en la misma operación reversible.
 
 El tratamiento de **outliers** utiliza Q1, Q3 e IQR × 1.5 sobre un mismo estado
-previo. Puedes limitar valores o eliminar filas en columnas diferentes; los
-nulos se conservan y cualquier acción requiere confirmación. Para evitar pérdida
+previo. Puedes limitar valores, reemplazarlos por la mediana observada o eliminar
+filas en columnas diferentes; la imputación conserva `Int64`/`Float64`, los nulos
+se conservan y cualquier acción requiere confirmación. Para evitar pérdida
 silenciosa, el motor rechaza infinitos, NaN y enteros fuera del rango exacto que
 puede representar durante el cálculo.
 
