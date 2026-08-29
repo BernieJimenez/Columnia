@@ -107,13 +107,15 @@ Cuando el manifiesto aporta identificadores estructurales, el informe conserva
 hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
 límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
 no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
-se guardan resultados, celdas, cachés ni rutas resueltas; por eso esta mejora no
-afirma que un análisis de DataPrep pueda reanudarse automáticamente.
+se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas.
+Al publicar un proyecto importado, Columnia recalcula y persiste su propio
+perfil agregado para que Revisar tenga una caché verificable; esto no afirma que
+un análisis de DataPrep pueda reanudarse automáticamente.
 
 ## Límites pendientes
 
-La restauración completa de sesiones, historial de ejecuciones, caché, artefactos
-de análisis y round-trip hacia proyectos requiere contratos separados. La slice
-actual conserva la receta y las reglas representables en el workspace nuevo, pero
-no reconstruye snapshots históricos ni afirma que los análisis originales puedan
-reanudarse automáticamente.
+La restauración completa de sesiones, historial de ejecuciones, cachés reanudables,
+artefactos de análisis originales y round-trip hacia proyectos requiere contratos
+separados. La slice actual conserva la receta, las reglas representables y un
+perfil agregado recalculado en el workspace nuevo, pero no reconstruye snapshots
+históricos ni afirma que los análisis originales puedan reanudarse automáticamente.

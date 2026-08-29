@@ -1140,6 +1140,13 @@ fn import_dataprep_session_project_from_path(
                 "La receta de la sesión no coincide con el esquema de la fuente.".to_owned()
             })?;
     }
+    // DataPrep sessions persist a materialized current snapshot but do not
+    // carry a portable profile cache. Recompute the aggregate profile before
+    // publishing the project so Review opens with a truthful cache, without
+    // storing rows, cells, paths or private analysis samples.
+    imported
+        .cache_project_import_profile()
+        .map_err(|_| "No se pudo preparar el perfil agregado de la sesión.".to_owned())?;
     store.save(
         &imported,
         None,
@@ -2327,6 +2334,7 @@ mod tests {
             .expect("el proyecto importado desde snapshot debe reabrirse");
         assert_eq!(opened.dataset.columns[0].name, "amount");
         assert_eq!(opened.dataset.columns[1].name, "label");
+        assert!(opened.profile.is_some());
     }
 
     #[test]
@@ -2407,6 +2415,7 @@ mod tests {
         assert_eq!(opened.dataset.columns[0].data_type, "str");
         assert_eq!(opened.workspace.quality_rules.len(), 1);
         assert!(opened.workspace.recipe_draft.is_some());
+        assert!(opened.profile.is_some());
         let active = reopened_state
             .active_project_snapshot()
             .expect("el estado reabierto debe conservar el frame activo");

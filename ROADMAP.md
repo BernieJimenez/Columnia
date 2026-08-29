@@ -1354,7 +1354,9 @@ del original.
   operaciones aplicadas, receta, reglas y análisis; cuando no sea seguro guardar
   un snapshot, conservar solo una referencia reproducible y explicarlo. La
   vertical actual conserva además nombres estructurales acotados de operaciones
-  y comprobaciones, pero no resultados de análisis ni cachés reanudables.
+  y comprobaciones, y regenera el perfil agregado como caché verificable al
+  publicar el proyecto; todavía no restaura resultados de análisis originales,
+  cachés reanudables ni snapshots históricos que el artefacto no contiene.
 - [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
   con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
   colisiones de nombres antes de escribir cualquier snapshot.
@@ -1677,6 +1679,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | M1 conserva en `migrationReport.session` los nombres estructurales acotados de operaciones aplicadas y comprobaciones de análisis cuando son tokens seguros; sus conteos, receta, reglas y round-trip durable siguen siendo verificables, mientras resultados, cachés y snapshots históricos de DataPrep continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | M1 prioriza el snapshot local compatible de DataPrep para restaurar el estado materializado exacto; solo reaplica la receta sobre el origen cuando no hay snapshot, con regresión nativa para impedir una reproducción incompleta de `applied_ops`. | `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | P1 añade detección agregada y reparación reversible de doble codificación UTF-8 heredada; solo se aplican conversiones de texto inequívocas y se excluyen números y `_cambios`. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
+| 2026-08-29 | M1 regenera y persiste el perfil agregado al importar una sesión DataPrep; el proyecto abre con caché de calidad válida, mientras resultados originales, cachés reanudables e historial que no estén en el artefacto siguen pendientes. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

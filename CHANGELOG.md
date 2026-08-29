@@ -24,6 +24,9 @@ los artefactos de validación locales.
   por columna y ofrece una reparación reversible, limitada a valores de texto
   que pueden decodificarse inequívocamente sin tocar números, `_cambios` ni
   valores ambiguos.
+- La importación de sesiones DataPrep recalcula y persiste el perfil agregado
+  del dataset importado antes de publicar el proyecto, para que Revisar abra
+  con una caché de calidad válida sin conservar filas, celdas, rutas ni muestras.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o
