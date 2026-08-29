@@ -26,6 +26,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `split_column`, `merge_columns` | `splitColumn`, `mergeColumns` | Convertida |
 | `outliers` | `outlierTreatments` | Convertida para `cap`/`drop`; `impute` está disponible en recetas nativas Columnia |
 | `drop_duplicates` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con todas las columnas y conserva la primera aparición/orden; es reversible y agregada |
+| `drop_fuzzy_duplicates` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback hasta 5.000 filas con el fingerprint normalizado de la fila completa de Columnia; conserva la primera fila y las copias exactas, es reversible y agregada; por encima de ese límite se conserva la protección de rendimiento de DataPrep |
 | `drop_high_null_cols` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback con el umbral estricto de DataPrep (>80% nulos), conservando al menos una columna utilizable |
 | `drop_id_cols` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para columnas 100% únicas no numéricas ni temporales; conserva al menos una columna utilizable |
 | `drop_empty_cols` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para columnas completamente nulas, conservando al menos una columna utilizable |
@@ -138,7 +139,7 @@ Si el manifiesto trae bloques reconocibles de resultados, historial o caché,
 el informe los clasifica como `analysis_results`, `history` o `caches` no
 portables; solo conserva esos nombres de categoría y una acción manual, nunca
 su contenido ni la referencia de archivo.
-Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
+Las operaciones deterministas `drop_duplicates`, `drop_fuzzy_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
 `normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`,

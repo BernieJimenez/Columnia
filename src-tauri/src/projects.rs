@@ -3017,6 +3017,47 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_replays_fuzzy_duplicate_cleaning_without_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "name,amount\nAna Pérez,1\nAna Perez,1\nLuis,2\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Casi duplicados reproducibles",
+                "source_path": "source.csv",
+                "selected_cleaning_operations": ["drop_fuzzy_duplicates"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("los casi duplicados deben poder reproducirse desde la fuente");
+        let state = DatasetState::default();
+        store.open(&state, imported.id).unwrap();
+        let active = state
+            .active_project_snapshot()
+            .expect("el proyecto de casi duplicados debe quedar activo");
+
+        assert_eq!(active.frame.height(), 2);
+        assert_eq!(
+            active.frame.column("name").unwrap().str().unwrap().get(0),
+            Some("Ana Pérez")
+        );
+        assert_eq!(
+            active.frame.column("name").unwrap().str().unwrap().get(1),
+            Some("Luis")
+        );
+        assert_eq!(active.history.entries.len(), 2);
+    }
+
+    #[test]
     fn dataprep_session_replays_outlier_modes_with_dataprep_iqr_semantics() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();

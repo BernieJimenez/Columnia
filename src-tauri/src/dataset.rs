@@ -7086,6 +7086,9 @@ fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
         "drop_outliers" | "remove_outliers" => Some("drop_outliers"),
         "normalize_booleans" | "normalize_boolean_values" => Some("normalize_booleans"),
         "mask_pii" | "mask_personal_data" | "mask_personal_values" => Some("mask_pii"),
+        "drop_fuzzy_duplicates" | "remove_near_duplicates" | "deduplicate_fuzzy" => {
+            Some("drop_fuzzy_duplicates")
+        }
         "normalize_columns" | "normalize_column_names" => Some("normalize_columns"),
         "add_cambios_col" | "enable_row_audit" => Some("add_cambios_col"),
         _ => None,
@@ -17731,6 +17734,7 @@ impl DatasetState {
             "drop_outliers",
             "normalize_booleans",
             "mask_pii",
+            "drop_fuzzy_duplicates",
             "normalize_columns",
             "add_cambios_col",
         ] {
@@ -17810,6 +17814,23 @@ impl DatasetState {
                     let (candidate, _, changed_cell_count) =
                         mask_personal_values_from_frame(&cleaned)?;
                     (candidate, 0, changed_cell_count, Vec::new())
+                }
+                "drop_fuzzy_duplicates" => {
+                    // DataPrep deliberately skips fuzzy deduplication above
+                    // 5,000 rows. Keep that guard in the source fallback and
+                    // use Columnia's normalized full-row fingerprint, which
+                    // preserves exact repeats and the earliest row.
+                    if cleaned.height() > 5_000 {
+                        (cleaned.clone(), 0, 0, Vec::new())
+                    } else {
+                        let (candidate, affected_row_count) = remove_near_duplicate_rows(&cleaned)?;
+                        (
+                            candidate,
+                            affected_row_count,
+                            affected_row_count,
+                            Vec::new(),
+                        )
+                    }
                 }
                 "normalize_columns" => {
                     let (names, renames) = normalized_column_names(&cleaned);

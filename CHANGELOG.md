@@ -24,6 +24,7 @@ los artefactos de validación locales.
   las columnas, reporta solo conteos agregados y permite deshacer desde el
   historial. El inventario IPC pasa a 64 comandos de producción y 58 estructuras.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
+   `drop_fuzzy_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
    `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers` y `drop_outliers`,
    `normalize_text`, `normalize_booleans`, `mask_pii`, `normalize_columns` y `add_cambios_col` durante el fallback a la fuente
