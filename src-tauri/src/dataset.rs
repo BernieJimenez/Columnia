@@ -5411,17 +5411,11 @@ fn parse_dataprep_date_columns(
                     .iter()
                     .all(|value| (1900..=2100).contains(&value.year()))
         });
-
-        let parse_value = |value: &str| {
-            inferred_format
-                .and_then(|format| parse_dataprep_datetime(value, format))
-                .or_else(|| {
-                    DATAPREP_DATE_FORMATS
-                        .iter()
-                        .copied()
-                        .find_map(|format| parse_dataprep_datetime(value, format))
-                })
+        let Some(inferred_format) = inferred_format else {
+            continue;
         };
+
+        let parse_value = |value: &str| parse_dataprep_datetime(value, inferred_format);
         let parsed = values
             .iter()
             .map(|value| value.as_deref().and_then(parse_value))
@@ -21606,8 +21600,8 @@ mod tests {
     #[test]
     fn dataprep_date_cleaning_skips_ambiguous_columns_instead_of_creating_nulls() {
         let frame = df![
-            "safe" => &["2025-01-02", "2025-01-03", "2025-01-04"],
-            "ambiguous" => &["01/02/2025", "02/03/2025", "not-a-date"]
+            "safe" => &["2025-01-02", "2025-01-03", "2025-01-04", "2025-01-05"],
+            "ambiguous" => &["01/02/2025", "02/03/2025", "2025/04/05", "May 6, 2025"]
         ]
         .expect("la fixture de fechas debe construirse");
 
@@ -21623,7 +21617,7 @@ mod tests {
             &DataType::String
         );
         assert_eq!(changed_rows, 1);
-        assert_eq!(changed_cells, 3);
+        assert_eq!(changed_cells, 4);
         assert_eq!(changed_columns.len(), 1);
         assert_eq!(changed_columns[0].name, "safe");
     }
