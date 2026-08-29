@@ -260,6 +260,16 @@
       "debug": false
     },
     {
+      "name": "cap_outlier_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "drop_outlier_values",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "apply_safe_corrections",
       "module": "dataset",
       "debug": false

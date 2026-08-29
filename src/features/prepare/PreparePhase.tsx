@@ -32,6 +32,8 @@ interface PreparePhaseProps {
   onImputeMissingValues: () => void;
   onImputeCategoricalValues?: () => void;
   onImputeOutliers?: () => void;
+  onCapOutliers?: () => void;
+  onDropOutliers?: () => void;
   onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
   onApplyRecommended: () => void;
@@ -67,6 +69,8 @@ export function PreparePhase({
   onImputeMissingValues,
   onImputeCategoricalValues = () => undefined,
   onImputeOutliers = () => undefined,
+  onCapOutliers = () => undefined,
+  onDropOutliers = () => undefined,
   onEnableRowAudit,
   onNormalizeColumns,
   onApplyRecommended,
@@ -88,6 +92,7 @@ export function PreparePhase({
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
   const [personalConfirmation, setPersonalConfirmation] = useState(false);
   const [invalidTypeConfirmation, setInvalidTypeConfirmation] = useState(false);
+  const [outlierConfirmation, setOutlierConfirmation] = useState<"cap" | "drop" | null>(null);
   const identifierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => column.privacySignal === "identifier")
     : [];
@@ -96,6 +101,9 @@ export function PreparePhase({
     : [];
   const typeDriftColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.invalidTypeCount ?? 0) > 0)
+    : [];
+  const outlierColumns = profileStatus.kind === "ready"
+    ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios")
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
 
@@ -208,10 +216,12 @@ export function PreparePhase({
               onNormalizeBooleans={onNormalizeBooleans}
               onFixEncoding={onFixEncoding}
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
-              onImputeMissingValues={onImputeMissingValues}
-              onImputeCategoricalValues={onImputeCategoricalValues}
-              onImputeOutliers={onImputeOutliers}
-        />
+               onImputeMissingValues={onImputeMissingValues}
+               onImputeCategoricalValues={onImputeCategoricalValues}
+               onImputeOutliers={onImputeOutliers}
+               onCapOutliers={() => setOutlierConfirmation("cap")}
+               onDropOutliers={() => setOutlierConfirmation("drop")}
+         />
       )}
       <section className="prepare-card" aria-labelledby="row-audit-title">
         <div>
@@ -515,6 +525,43 @@ export function PreparePhase({
           </div>
         </ModalDialog>
       )}
+      {outlierConfirmation !== null && outlierColumns.length > 0 && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="outliers-confirm-title"
+          describedBy="outliers-confirm-description"
+          onDismiss={() => setOutlierConfirmation(null)}
+        >
+          <p className="step">Confirmación requerida</p>
+          <h3 id="outliers-confirm-title">
+            {outlierConfirmation === "cap" ? "Limitar valores atípicos" : "Eliminar filas atípicas"}
+          </h3>
+          <p id="outliers-confirm-description">
+            {outlierConfirmation === "cap"
+              ? "Se limitarán los valores que excedan los límites IQR de 1.5 al límite correspondiente."
+              : "Se eliminará cualquier fila que contenga un valor que exceda los límites IQR de 1.5."}
+            {" "}No se mostrarán celdas ni valores del dataset. La operación será reversible desde el historial.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setOutlierConfirmation(null)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => {
+                const action = outlierConfirmation;
+                setOutlierConfirmation(null);
+                if (action === "cap") onCapOutliers();
+                else onDropOutliers();
+              }}
+              disabled={changing}
+            >
+              {outlierConfirmation === "cap" ? "Limitar outliers" : "Eliminar filas atípicas"}
+            </button>
+          </div>
+        </ModalDialog>
+      )}
     </>
   );
 }
@@ -557,6 +604,8 @@ function CleaningSignals({
   onImputeMissingValues,
   onImputeCategoricalValues,
   onImputeOutliers,
+  onCapOutliers,
+  onDropOutliers,
 }: {
   profile: DatasetProfile;
   busy: boolean;
@@ -572,6 +621,8 @@ function CleaningSignals({
   onImputeMissingValues: () => void;
   onImputeCategoricalValues: () => void;
   onImputeOutliers: () => void;
+  onCapOutliers: () => void;
+  onDropOutliers: () => void;
 }) {
   const incomplete = profile.columns.filter((column) => column.completenessPercentage < 100);
   const imputable = incomplete.filter(
@@ -697,6 +748,12 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onImputeOutliers} disabled={busy}>
                 Imputar outliers con mediana
+              </button>
+              <button type="button" onClick={onCapOutliers} disabled={busy}>
+                Limitar outliers con IQR
+              </button>
+              <button type="button" className="danger-action" onClick={onDropOutliers} disabled={busy}>
+                Eliminar filas atípicas
               </button>
             </div>
           )}

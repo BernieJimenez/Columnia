@@ -3,6 +3,8 @@ import { useState } from "react";
 import {
   applySafeCorrections,
   applyTransformRecipe,
+  capOutlierValues,
+  dropOutlierValues,
   enableRowAudit,
   fixEncodingValues,
   getHistoryState,
@@ -350,6 +352,33 @@ export function usePrepareController({
     }
   }
 
+  async function applyOutlierTreatment(action: "cap" | "drop") {
+    if (activeDataset === null) return;
+    setChangeStatus({ kind: "working", action: action === "cap" ? "outlier_cap" : "outlier_drop" });
+    try {
+      const result = action === "cap"
+        ? await capOutlierValues()
+        : await dropOutlierValues();
+      onDatasetChanged(result.dataset);
+      onProfileInvalidated();
+      const columns = result.changedColumns.map((column) => column.name).join(", ");
+      setChangeStatus({
+        kind: "applied",
+        message: action === "cap"
+          ? result.changedCellCount === 0
+            ? "No se detectaron outliers que necesitaran limitación."
+            : `Se limitaron ${result.changedCellCount.toLocaleString()} outliers a los límites IQR en: ${columns}. El cambio puede revertirse desde el historial.`
+          : result.affectedRowCount === 0
+            ? "No se detectaron filas atípicas para eliminar."
+            : `Se eliminaron ${result.affectedRowCount.toLocaleString()} filas atípicas según los límites IQR. El cambio puede revertirse desde el historial.`,
+      });
+      await refreshHistory();
+      onDeliveryInvalidated();
+    } catch (error: unknown) {
+      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async function applyCategoricalImputation() {
     if (activeDataset === null) return;
     setChangeStatus({ kind: "working", action: "categorical_impute" });
@@ -535,6 +564,8 @@ export function usePrepareController({
     applyMissingValueImputation,
     applyCategoricalImputation,
     applyOutlierImputation,
+    applyOutlierCapping: () => applyOutlierTreatment("cap"),
+    applyOutlierRemoval: () => applyOutlierTreatment("drop"),
     applyRowAudit,
     applyColumnNormalization,
     applyRecommendedCorrections,

@@ -9,6 +9,7 @@ import {
   joinDataset,
   applySafeCorrections,
   applyTransformRecipe,
+  capOutlierValues,
   exportDataset,
   getAppInfo,
   getDatasetConflictPage,
@@ -30,6 +31,7 @@ import {
   importDataprepSessionProject,
   previewDataprepSessionMigration,
   discardDatasetSelection,
+  dropOutlierValues,
   inspectDroppedDataset,
   loadDatasetSelection,
   pickDatasetSource,
@@ -315,6 +317,32 @@ describe("desktop bridge", () => {
     await imputeOutlierValues();
 
     expect(invoke).toHaveBeenCalledWith("impute_outlier_values");
+  });
+
+  it("limita outliers mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: {},
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "amount", changedCellCount: 1 }],
+    });
+
+    await capOutlierValues();
+
+    expect(invoke).toHaveBeenCalledWith("cap_outlier_values");
+  });
+
+  it("elimina filas atípicas mediante un comando tipado", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dataset: {},
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "amount", changedCellCount: 1 }],
+    });
+
+    await dropOutlierValues();
+
+    expect(invoke).toHaveBeenCalledWith("drop_outlier_values");
   });
 
   it("imputa categorías mediante un comando tipado", async () => {

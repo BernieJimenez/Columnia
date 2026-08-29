@@ -958,6 +958,14 @@ export function imputeOutlierValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("impute_outlier_values");
 }
 
+export function capOutlierValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("cap_outlier_values");
+}
+
+export function dropOutlierValues(): Promise<TextCleaningResult> {
+  return invoke<TextCleaningResult>("drop_outlier_values");
+}
+
 export function applySafeCorrections(): Promise<SafeCorrectionsResult> {
   return invoke<SafeCorrectionsResult>("apply_safe_corrections");
 }

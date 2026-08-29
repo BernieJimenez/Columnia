@@ -64,6 +64,8 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyMissingValueImputation}>Imputar</button>
     <button type="button" onClick={controller.applyCategoricalImputation}>Categorías</button>
     <button type="button" onClick={controller.applyOutlierImputation}>Outliers</button>
+    <button type="button" onClick={controller.applyOutlierCapping}>Capear</button>
+    <button type="button" onClick={controller.applyOutlierRemoval}>Eliminar atípicos</button>
     <button type="button" onClick={controller.applyRowAudit}>Auditoría</button>
     <button type="button" onClick={controller.applyColumnNormalization}>Columnas</button>
     <button type="button" onClick={() => controller.trimText()}>Recortar</button>
@@ -397,6 +399,54 @@ describe("usePrepareController", () => {
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("limita outliers con IQR y publica el impacto reversible", async () => {
+    vi.spyOn(bridge, "capOutlierValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 1,
+      changedCellCount: 1,
+      changedColumns: [{ name: "total", changedCellCount: 1 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const callbacks = {
+      onDatasetChanged: vi.fn(),
+      onProfileInvalidated: vi.fn(),
+      onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capear" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se limitaron 1 outliers a los límites IQR en: total. El cambio puede revertirse desde el historial.",
+    ));
+    expect(bridge.capOutlierValues).toHaveBeenCalledOnce();
+    expect(callbacks.onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(callbacks.onDeliveryInvalidated).toHaveBeenCalledOnce();
+  });
+
+  it("elimina filas atípicas con IQR y publica el impacto reversible", async () => {
+    vi.spyOn(bridge, "dropOutlierValues").mockResolvedValue({
+      dataset,
+      affectedRowCount: 2,
+      changedCellCount: 2,
+      changedColumns: [{ name: "total", changedCellCount: 2 }],
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const callbacks = {
+      onDatasetChanged: vi.fn(),
+      onProfileInvalidated: vi.fn(),
+      onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar atípicos" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se eliminaron 2 filas atípicas según los límites IQR. El cambio puede revertirse desde el historial.",
+    ));
+    expect(bridge.dropOutlierValues).toHaveBeenCalledOnce();
+    expect(callbacks.onProfileInvalidated).toHaveBeenCalledOnce();
+    expect(callbacks.onDeliveryInvalidated).toHaveBeenCalledOnce();
   });
 
   it("completa nulos textuales como Desconocido y publica el impacto reversible", async () => {

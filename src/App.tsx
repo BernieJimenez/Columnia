@@ -838,6 +838,8 @@ export function App() {
                 onImputeMissingValues={prepare.applyMissingValueImputation}
                 onImputeCategoricalValues={prepare.applyCategoricalImputation}
                 onImputeOutliers={prepare.applyOutlierImputation}
+                onCapOutliers={prepare.applyOutlierCapping}
+                onDropOutliers={prepare.applyOutlierRemoval}
                 onEnableRowAudit={prepare.applyRowAudit}
                 onNormalizeColumns={prepare.applyColumnNormalization}
                 onApplyRecommended={prepare.applyRecommendedCorrections}

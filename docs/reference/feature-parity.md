@@ -480,14 +480,15 @@ físico. No modifica blancos, centinelas, columnas sin evidencia suficiente ni
 la columna reservada `_cambios`, y reporta celdas/filas afectadas antes de
 invalidar el perfil y las compuertas de entrega.
 
-## Imputación reversible de outliers
+## Tratamiento reversible de outliers
 
 Preparar muestra únicamente el conteo agregado de columnas con outliers según la
-regla IQR × 1.5. La acción directa reemplaza cada valor atípico por la mediana
-observada de su columna, conserva los nulos y los tipos `Int64`/`Float64`, excluye
-`_cambios` y publica una sola revisión en el historial. Las recetas ofrecen la
-misma semántica como acción `impute` y solicitan confirmación junto con los demás
-tratamientos de outliers.
+regla IQR × 1.5. Las acciones directas confirmables pueden limitar cada valor al
+límite correspondiente o eliminar filas con al menos un valor fuera de rango;
+conservan los nulos, excluyen `_cambios` y publican una sola revisión reversible en
+el historial. La acción directa de imputación reemplaza cada valor atípico por la
+mediana observada de su columna y conserva los tipos `Int64`/`Float64`. Las recetas
+ofrecen las tres semánticas como acciones `cap`, `drop` e `impute`.
 
 ## Imputación categórica explícita
 

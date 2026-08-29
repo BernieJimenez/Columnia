@@ -5652,6 +5652,7 @@ fn apply_dataprep_outlier_mode(
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     let mut candidate = frame.clone();
     let mut drop_mask = vec![false; frame.height()];
+    let mut changed_rows = vec![false; frame.height()];
     let mut affected_row_count = 0;
     let mut changed_cell_count = 0;
     let mut changed_columns = Vec::new();
@@ -5684,12 +5685,14 @@ fn apply_dataprep_outlier_mode(
             DataprepOutlierMode::Cap => {
                 let transformed = values
                     .into_iter()
-                    .map(|value| {
+                    .enumerate()
+                    .map(|(row_index, value)| {
                         value.map(|value| {
                             let capped = value.clamp(lower, upper);
                             if capped != value {
                                 column_changes += 1;
                                 changed_cell_count += 1;
+                                changed_rows[row_index] = true;
                             }
                             capped
                         })
@@ -5705,6 +5708,7 @@ fn apply_dataprep_outlier_mode(
                 for (row, value) in values.into_iter().enumerate() {
                     if value.is_some_and(|value| value < lower || value > upper) {
                         drop_mask[row] = true;
+                        changed_rows[row] = true;
                         column_changes += 1;
                     }
                 }
@@ -5727,6 +5731,9 @@ fn apply_dataprep_outlier_mode(
                 .filter(&BooleanChunked::from_slice("outliers".into(), &keep))
                 .map_err(|error| format!("No se pudieron retirar filas atípicas: {error}"))?;
         }
+    }
+    if matches!(mode, DataprepOutlierMode::Cap) {
+        affected_row_count = changed_rows.iter().filter(|changed| **changed).count();
     }
 
     Ok((
@@ -14732,6 +14739,52 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
     .map_err(|error| format!("La imputación de outliers se interrumpió: {error}"))?
 }
 
+fn apply_direct_outlier_mode(
+    app: AppHandle,
+    mode: DataprepOutlierMode,
+    label: &'static str,
+) -> Result<TextCleaningResult, String> {
+    let state = app.state::<DatasetState>();
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
+        apply_dataprep_outlier_mode(&dataset.frame, mode)?;
+    let preview = if changed_cell_count > 0 || affected_row_count > 0 {
+        publish_candidate(dataset, cleaned, label)?
+    } else {
+        loaded_dataset_preview(dataset, &dataset.frame)?
+    };
+    Ok(TextCleaningResult {
+        dataset: preview,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    })
+}
+
+#[tauri::command]
+pub async fn cap_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_direct_outlier_mode(app, DataprepOutlierMode::Cap, "Limitar outliers con IQR")
+    })
+    .await
+    .map_err(|error| format!("La limitación de outliers se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_direct_outlier_mode(app, DataprepOutlierMode::Drop, "Eliminar filas atípicas")
+    })
+    .await
+    .map_err(|error| format!("La eliminación de outliers se interrumpió: {error}"))?
+}
+
 #[tauri::command]
 pub async fn apply_safe_corrections(app: AppHandle) -> Result<SafeCorrectionsResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -22135,6 +22188,34 @@ mod tests {
             imputed.0.column("value").unwrap().i64().unwrap().get(5),
             None
         );
+    }
+
+    #[test]
+    fn direct_outlier_modes_report_affected_rows_and_preserve_nulls() {
+        let frame = DataFrame::new(
+            6,
+            vec![Series::new(
+                "amount".into(),
+                [Some(1_i64), Some(2), Some(3), Some(4), Some(100), None],
+            )
+            .into_column()],
+        )
+        .unwrap();
+
+        let (capped, cap_rows, cap_cells, cap_columns) =
+            apply_dataprep_outlier_mode(&frame, DataprepOutlierMode::Cap).unwrap();
+        assert_eq!((cap_rows, cap_cells, cap_columns.len()), (1, 1, 1));
+        assert_eq!(capped.column("amount").unwrap().dtype(), &DataType::Float64);
+        assert_eq!(
+            capped.column("amount").unwrap().f64().unwrap().get(4),
+            Some(7.0)
+        );
+        assert_eq!(capped.column("amount").unwrap().f64().unwrap().get(5), None);
+
+        let (dropped, drop_rows, drop_cells, drop_columns) =
+            apply_dataprep_outlier_mode(&frame, DataprepOutlierMode::Drop).unwrap();
+        assert_eq!((drop_rows, drop_cells, drop_columns.len()), (1, 1, 1));
+        assert_eq!(dropped.height(), 5);
     }
 
     #[test]

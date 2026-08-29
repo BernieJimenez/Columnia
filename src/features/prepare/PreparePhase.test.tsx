@@ -244,6 +244,8 @@ describe("PreparePhase", () => {
     const onImputeMissingValues = vi.fn();
     const onImputeCategoricalValues = vi.fn();
     const onImputeOutliers = vi.fn();
+    const onCapOutliers = vi.fn();
+    const onDropOutliers = vi.fn();
     const onEnableRowAudit = vi.fn();
     render(<PreparePhase
       dataset={dataset}
@@ -265,6 +267,8 @@ describe("PreparePhase", () => {
       onImputeMissingValues={onImputeMissingValues}
       onImputeCategoricalValues={onImputeCategoricalValues}
       onImputeOutliers={onImputeOutliers}
+      onCapOutliers={onCapOutliers}
+      onDropOutliers={onDropOutliers}
       onEnableRowAudit={onEnableRowAudit}
       onNormalizeColumns={() => undefined}
       onApplyRecommended={() => undefined}
@@ -301,6 +305,12 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("list")).toHaveTextContent("Valores atípicos: amount (1) supera los límites IQR de 1.5.");
     fireEvent.click(screen.getByRole("button", { name: "Imputar outliers con mediana" }));
     expect(onImputeOutliers).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Limitar outliers con IQR" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Eliminar filas atípicas" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Limitar outliers con IQR" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Limitar valores atípicos");
+    fireEvent.click(screen.getByRole("button", { name: "Limitar outliers" }));
+    expect(onCapOutliers).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Activar trazabilidad" }));
     expect(onEnableRowAudit).toHaveBeenCalledOnce();
   });
