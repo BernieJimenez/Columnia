@@ -177,6 +177,13 @@ los artefactos de validación locales.
   confirmó cleanup. El smoke nativo aislado aprobó abrir dataset, guardar/cargar
   receta y exportar sin exponer rutas; Playwright y selectores se ejecutan como
   gates separados para no mezclar sus perfiles de memoria.
+- La nueva corrida estricta de `smoke:cdp` aprobó Playwright, ProjectsPanel,
+  mutaciones IPC, persistencia, reapertura y cleanup, con 501,563,392 bytes de
+  working set dentro de 512 MiB, pero 272,379,904 bytes de memoria privada sobre
+  el límite de 256 MiB. Las corridas diagnósticas previas quedaron en 256.06–258.06
+  MiB sin crecimiento monotónico; el gate privado estable sigue pendiente y no se
+  presenta esta señal como una fuga confirmada. Evidencia:
+  `.local/validation/webview2-cdp/20260829T023923Z/summary.json`.
 - Las pruebas Rust del updater cubren versiones estables, downgrade, igualdad,
   prerelease e inputs inválidos; el ejercicio contra un canal real sigue siendo
   una validación de I6 pendiente.
