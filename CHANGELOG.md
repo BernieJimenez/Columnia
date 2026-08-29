@@ -36,6 +36,10 @@ los artefactos de validación locales.
   se reproducen desde la fuente y se conservan en el informe de sesión. Los modos
   hash/clave explícita no se inventan y las operaciones sin equivalente quedan como
   advertencias accionables, sin descartarse silenciosamente.
+- La importación de sesiones DataPrep convierte etiquetas de etapa conocidas
+  (`Cargar`, `Revisar`, `Preparar`, `Entregar` y equivalentes de análisis,
+  transformación o exportación) en la etapa activa del workspace; etiquetas
+  desconocidas conservan el fallback seguro a Revisar.
 - El preflight de sesiones DataPrep clasifica bloques reconocibles de resultados,
   historial y cachés como artefactos no portables, conservando solo sus categorías
   sanitizadas y una acción manual; no copia contenido ni rutas de esos artefactos.

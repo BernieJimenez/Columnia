@@ -1398,8 +1398,8 @@ del original.
   publicar el proyecto; ahora reproduce `drop_duplicates`, `drop_high_null_cols`,
   `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
   `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
-  `fix_encoding`, `cast_numeric`,
-  `normalize_booleans`, `normalize_columns` y `add_cambios_col` cuando falta el snapshot y la
+  `fix_encoding`, `cast_numeric`, `normalize_booleans`, `mask_pii`,
+  `drop_fuzzy_duplicates`, `normalize_columns` y `add_cambios_col` cuando falta el snapshot y la
   semántica es determinista, en el orden fijo de limpieza; las eliminaciones
   de columnas conservan al menos una columna utilizable, `drop_empty_rows`
   solo retira filas completamente nulas, `impute_numeric` usa la mediana de
@@ -1409,6 +1409,8 @@ del original.
   vocabulario cerrado con ambos valores y `normalize_columns` conserva la
   resolución Unicode de nombres; el preflight clasifica como no portables los
   bloques reconocibles de resultados, historial y cachés sin copiar su contenido;
+  las etiquetas de etapa conocidas se restauran como etapa activa del workspace
+  y las desconocidas vuelven a Revisar;
   todavía no restaura resultados de análisis originales, cachés reanudables ni
   snapshots históricos que el artefacto no contiene.
 - [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,

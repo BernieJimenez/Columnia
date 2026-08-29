@@ -124,7 +124,9 @@ hoja, esquema y receta en un estado temporal, y solo después puede publicar un
 snapshot y abrir el proyecto resultante. Si existe un `snapshot_path` local y
 compatible, se restaura primero porque representa el estado materializado
 actual y evita perder operaciones de limpieza cuyos parámetros no forman parte
-del manifiesto. Cuando no hay snapshot, se usa la fuente disponible y se
+del manifiesto. En el proyecto importado, las etiquetas de etapa conocidas se
+convierten a la etapa activa de Columnia; una etiqueta desconocida conserva el
+fallback a Revisar. Cuando no hay snapshot, se usa la fuente disponible y se
 reaplica la receta estructural. La acción no se expone en el panel de Proyectos; la CLI la ofrece como
 `project-import-dataprep --store DIR --session FILE [--name NAME]` para
 migraciones autorizadas. Una cancelación o error no modifica el dataset activo
@@ -139,12 +141,12 @@ Si el manifiesto trae bloques reconocibles de resultados, historial o caché,
 el informe los clasifica como `analysis_results`, `history` o `caches` no
 portables; solo conserva esos nombres de categoría y una acción manual, nunca
 su contenido ni la referencia de archivo.
-Las operaciones deterministas `drop_duplicates`, `drop_fuzzy_duplicates`, `drop_high_null_cols`,
+Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
 `normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`,
-`impute_outliers`, `drop_outliers`, `normalize_booleans`, `normalize_columns` y
-`mask_pii` y `add_cambios_col` se reproducen como
+`impute_outliers`, `drop_outliers`, `normalize_booleans`, `mask_pii`,
+`drop_fuzzy_duplicates`, `normalize_columns` y `add_cambios_col` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de
 limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
 completamente nulas y no elimina por sí sola texto en blanco. Si existe un

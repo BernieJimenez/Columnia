@@ -1033,6 +1033,22 @@ fn parse_active_phase(value: &str) -> Result<Option<String>, String> {
     Ok((label != "review").then(|| label.to_owned()))
 }
 
+fn dataprep_stage_active_phase(stage: Option<&str>) -> Option<String> {
+    let stage = stage?.trim().to_lowercase();
+    let phase = match stage.as_str() {
+        "cargar" | "load" | "loading" | "importar" | "importación" | "importacion" => "load",
+        "revisar" | "review" | "calidad" | "quality" | "análisis" | "analisis" | "analysis"
+        | "diagnóstico" | "diagnostico" => "review",
+        "preparar" | "prepare" | "limpieza" | "cleaning" | "transformación" | "transformacion"
+        | "transformaciones" => "prepare",
+        "entregar" | "deliver" | "exportar" | "exportación" | "exportacion" | "export" => {
+            "deliver"
+        }
+        _ => return None,
+    };
+    (phase != "review").then(|| phase.to_owned())
+}
+
 fn validate_preview_offset(offset: Option<usize>, row_count: usize) -> Result<usize, String> {
     let offset = offset.unwrap_or(0);
     if offset == 0 {
@@ -1431,7 +1447,7 @@ fn import_dataprep_session_project_from_path(
             sql_history: Vec::new(),
             review_tab: Default::default(),
             preview_offset: Default::default(),
-            active_phase: Default::default(),
+            active_phase: dataprep_stage_active_phase(plan.stage_label.as_deref()),
         },
     )
 }
@@ -3329,6 +3345,7 @@ mod tests {
         assert_eq!(opened.dataset.columns[0].data_type, "str");
         assert_eq!(opened.workspace.quality_rules.len(), 1);
         assert!(opened.workspace.recipe_draft.is_some());
+        assert_eq!(opened.workspace.active_phase.as_deref(), Some("prepare"));
         assert!(opened.profile.is_some());
         let active = reopened_state
             .active_project_snapshot()
@@ -3362,6 +3379,24 @@ mod tests {
             .unwrap();
         assert_eq!(inspect.summary.row_count, 2);
         assert_eq!(inspect.summary.column_count, 2);
+    }
+
+    #[test]
+    fn maps_known_dataprep_stages_and_falls_back_for_unknown_labels() {
+        assert_eq!(
+            dataprep_stage_active_phase(Some("Cargar")),
+            Some("load".to_owned())
+        );
+        assert_eq!(
+            dataprep_stage_active_phase(Some("Transformación")),
+            Some("prepare".to_owned())
+        );
+        assert_eq!(
+            dataprep_stage_active_phase(Some("Exportación")),
+            Some("deliver".to_owned())
+        );
+        assert_eq!(dataprep_stage_active_phase(Some("Revisar")), None);
+        assert_eq!(dataprep_stage_active_phase(Some("estado inventado")), None);
     }
 
     #[test]
