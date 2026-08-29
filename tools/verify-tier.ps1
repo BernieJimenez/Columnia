@@ -50,6 +50,7 @@ try {
     Invoke-NpmStage "Evidencia visual" @("run", "accessibility:visual")
     Invoke-NpmStage "Baseline visual" @("run", "accessibility:check")
     Invoke-NpmStage "Benchmark sostenido y proyecto durable" @("run", "perf:benchmark")
+    Invoke-NpmStage "Benchmark WebView2 de dataset grande" @("run", "perf:webview2")
     Invoke-NpmStage "Resumen de rendimiento" @("run", "perf:summary")
 
     # SkipPackage only skips the expensive MSI/NSIS bundling. Release still

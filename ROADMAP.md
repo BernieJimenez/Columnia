@@ -883,8 +883,10 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
 - [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; el
   perfil contractual de 100 MiB, el gate CDP y el bundle ya pasan. El escenario
   CLI de 256 MiB también completa transformaciones y ciclo durable, pero alcanza
-  aproximadamente 1.12 GiB de working set y aún falta medir el mismo caso dentro
-  de WebView2.
+  aproximadamente 1.12 GiB de working set. Ya existe `perf:webview2` para medir
+  el mismo caso dentro de WebView2 con carga, paginación, transformación,
+  exportación, memoria agregada y cleanup; falta usar la evidencia aprobada para
+  cerrar el presupuesto final y decidir la optimización lazy/incremental.
 - [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
 - [x] Reducir el trabajo crítico del arranque: el bundle inicial separa las
@@ -1666,6 +1668,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-28 | Política de rotación updater versionada y comprobada por fingerprint: rotación normal mediante release puente; compromiso de clave mediante congelación del canal y recuperación fuera de banda, sin firmar otra release con la clave comprometida. | `fixtures/updater/key-policy-v1.json`, `tools/check-updater-key-policy.mjs`, `npm run updater:key:check` |
 | 2026-08-28 | Perfil `Release` completo aprobado después de integrar el contrato updater: documentación, IPC, toolchains, cobertura, build web, Clippy, 244 tests Rust, SBOM, supply chain, instalador, fixture updater y binario Tauri sin bundle. La evidencia release posterior fue capturada desde un commit limpio, revisada visualmente en los cinco escenarios y ligada al baseline; la ruta local se valida con `npm run accessibility:release:check`. | `.local/validation/20260828T214048Z-6ec7bae-release.json`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-28 | Smoke nativo aislado aprobado desde `npm run smoke:native-selectors`: los cuatro diálogos Win32 de abrir/guardar pasan con filtrado por proceso, outputs verificados, cleanup confirmado y presupuesto de 512 MiB working set / 256 MiB privado respetado. El smoke Playwright se mantiene separado para no mezclar su retención de WebView2 con la medición nativa. | `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
+| 2026-08-29 | `perf:webview2` aprobado: 100 MiB/819,137 filas dentro de WebView2, con selector Win32, carga, paginación, transformación, exportación y cleanup; el recorrido grande queda separado del CDP normal y registra 686,817,280 bytes de working set y 456,114,176 bytes privados bajo su techo de medición 1.5 GiB/1 GiB. El presupuesto global 512/256 MiB continúa abierto. | `.local/validation/performance-webview2/20260829T010235Z/summary.json`, `.local/validation/webview2-cdp/20260829T010238Z/summary.json` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

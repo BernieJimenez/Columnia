@@ -148,6 +148,11 @@ presupuestos de `fixtures/performance/performance-baseline-v1.json`. Para lanzar
 ambos gates juntos usa `npm run verify:experience` después de generar las
 evidencias; el comando no inicia Tauri ni conserva datasets.
 
+`npm run perf:webview2` genera un CSV temporal de 100 MiB y ejecuta dentro de
+WebView2 la selección nativa, carga, paginación, transformación y exportación.
+El resumen conserva solo dimensiones, duraciones, memoria agregada y cleanup;
+`perf:check` exige esta evidencia además del benchmark CLI.
+
 El gate de rendimiento también limita la duración máxima de transformaciones,
 guardado, inspección y exportación dentro del benchmark sostenido.
 

@@ -117,6 +117,62 @@ try {
             -Message $NativeMessage
     }
 
+    $LargeDatasetFile = Get-ChildItem -LiteralPath (Join-Path $ValidationRoot "performance-webview2") -Recurse -File -Filter "summary.json" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    $LargeDatasetBudget = $Baseline.budgets.cdp.largeDataset
+    if ($null -eq $LargeDatasetFile -or $null -eq $LargeDatasetBudget) {
+        Add-Check -Id "cdp-large-dataset" -State "unavailable" -Observed $null -Budget $LargeDatasetBudget -Source $null -Message "Falta ejecutar perf:webview2 con un dataset grande dentro de WebView2."
+    }
+    else {
+        $LargeDataset = Read-Json -Path $LargeDatasetFile.FullName
+        $LargeEvidence = $LargeDataset.cdp.datasetBenchmark
+        $LargeOperations = @($LargeEvidence.interactions | ForEach-Object { [string]$_ })
+        $MissingLargeOperations = @($LargeDatasetBudget.requiredOperations | Where-Object { $_ -notin $LargeOperations })
+        $LargeDurationsPresent = $null -ne $LargeEvidence.loadDurationMs -and
+            $null -ne $LargeEvidence.pageDurationMs -and
+            $null -ne $LargeEvidence.transformDurationMs -and
+            $null -ne $LargeEvidence.exportDurationMs
+        $LargeMemory = $LargeDataset.cdp.performanceBudget
+        $LargeMemoryWithinBudget = $null -ne $LargeMemory -and
+            [int64]$LargeMemory.peakWorkingSetBytes -le [int64]$LargeDatasetBudget.maxWorkingSetBytes -and
+            [int64]$LargeMemory.peakPrivateMemoryBytes -le [int64]$LargeDatasetBudget.maxPrivateMemoryBytes
+        $LargeDatasetPassed = $LargeDataset.status -eq "passed" -and
+            $LargeDataset.cleanupConfirmed -eq $true -and
+            $LargeDataset.cdp.status -eq "supported" -and
+            $LargeDataset.cdp.nativeSelectorsStatus -eq "passed" -and
+            [int]$LargeDataset.targetMiB -ge [int]$LargeDatasetBudget.minTargetMiB -and
+            [int64]$LargeEvidence.sizeBytes -ge ([int64]$LargeDataset.targetMiB * 1MB) -and
+            [int64]$LargeEvidence.rowCount -gt 0 -and
+            [int]$LargeEvidence.columnCount -eq 4 -and
+            $MissingLargeOperations.Count -eq 0 -and
+            $LargeDurationsPresent -and
+            $LargeMemoryWithinBudget
+        $LargeDatasetState = if ($LargeDatasetPassed) { "passed" } else { "failed" }
+        $LargeDatasetMessage = if ($LargeDatasetPassed) { "Dataset grande medido dentro de WebView2 y de su presupuesto contractual." } else { "Benchmark de dataset grande en WebView2 incompleto o fuera del presupuesto." }
+        Add-Check -Id "cdp-large-dataset" -State $LargeDatasetState `
+            -Observed ([ordered]@{
+                status = $LargeDataset.status
+                targetMiB = [int]$LargeDataset.targetMiB
+                sizeBytes = [int64]$LargeEvidence.sizeBytes
+                rowCount = [int64]$LargeEvidence.rowCount
+                columnCount = [int]$LargeEvidence.columnCount
+                interactions = $LargeOperations
+                missingOperations = $MissingLargeOperations
+                durationsMs = [ordered]@{
+                    load = [double]$LargeEvidence.loadDurationMs
+                    page = [double]$LargeEvidence.pageDurationMs
+                    transform = [double]$LargeEvidence.transformDurationMs
+                    export = [double]$LargeEvidence.exportDurationMs
+                }
+                peakWorkingSetBytes = [int64]$LargeMemory.peakWorkingSetBytes
+                peakPrivateMemoryBytes = [int64]$LargeMemory.peakPrivateMemoryBytes
+                memoryWithinBudget = $LargeMemoryWithinBudget
+                cleanupConfirmed = [bool]$LargeDataset.cleanupConfirmed
+            }) -Budget $LargeDatasetBudget -Source (Get-RelativePath $LargeDatasetFile.FullName) `
+            -Message $LargeDatasetMessage
+    }
+
     $BenchmarkFile = Get-ChildItem -LiteralPath (Join-Path $ValidationRoot "performance-benchmark") -Recurse -File -Filter "summary.json" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTimeUtc -Descending |
         Select-Object -First 1

@@ -47,6 +47,7 @@
     "perf:summary": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/summarize-performance.ps1",
     "perf:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-performance-baseline.ps1",
     "perf:benchmark": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-datasets.ps1",
+    "perf:webview2": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-webview2-dataset.ps1",
     "perf:i1": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-i1.ps1",
     "perf:i1:check": "node tools/check-i1-benchmark.mjs",
     "verify:experience": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-experience.ps1",

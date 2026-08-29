@@ -1,7 +1,7 @@
 import { chromium } from "@playwright/test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const portArgumentIndex = process.argv.indexOf("--port");
@@ -9,7 +9,18 @@ const port = portArgumentIndex >= 0 ? Number(process.argv[portArgumentIndex + 1]
 const requestFileArgumentIndex = process.argv.indexOf("--request-file");
 const requestFile = requestFileArgumentIndex >= 0 ? resolve(process.argv[requestFileArgumentIndex + 1]) : null;
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourcePath = resolve(projectRoot, "fixtures", "automation", "input.csv");
+const datasetPathArgumentIndex = process.argv.indexOf("--dataset-path");
+const requestedDatasetPath = datasetPathArgumentIndex >= 0
+  ? process.argv[datasetPathArgumentIndex + 1]
+  : null;
+const expectedRowCountArgumentIndex = process.argv.indexOf("--expected-row-count");
+const expectedRowCount = expectedRowCountArgumentIndex >= 0
+  ? Number(process.argv[expectedRowCountArgumentIndex + 1])
+  : null;
+const sourcePath = requestedDatasetPath
+  ? resolve(requestedDatasetPath)
+  : resolve(projectRoot, "fixtures", "automation", "input.csv");
+const sourceFileName = basename(sourcePath);
 const helperTimeoutMs = 100_000;
 const probeTimeoutMs = 150_000;
 
@@ -70,7 +81,8 @@ async function invoke(page, command, args = {}) {
       throw new Error("tauri_ipc_unavailable");
     }
     const invokeArgs = { ...currentArgs };
-    if (currentCommand === "export_dataset" && invokeArgs.onProgress === null) {
+    if ((currentCommand === "export_dataset" || currentCommand === "load_dataset_selection")
+      && invokeArgs.onProgress === null) {
       const callbackId = internals.transformCallback(() => {}, false);
       invokeArgs.onProgress = `__CHANNEL__:${callbackId}`;
     }
@@ -98,12 +110,28 @@ function forbiddenFields(value) {
 function validSource(source) {
   return Boolean(source)
     && source.format === "csv"
-    && source.fileName === "input.csv"
+    && source.fileName === sourceFileName
     && Number.isInteger(source.fileSizeBytes)
     && source.fileSizeBytes > 0
     && Array.isArray(source.sheets)
     && source.sheets.length === 0
     && forbiddenFields(source).length === 0;
+}
+
+function validDatasetPreview(preview, source) {
+  return Boolean(preview)
+    && preview.fileName === source.fileName
+    && preview.fileSizeBytes === source.fileSizeBytes
+    && Number.isInteger(preview.rowCount)
+    && preview.rowCount > 0
+    && (expectedRowCount === null || preview.rowCount === expectedRowCount)
+    && Number.isInteger(preview.columnCount)
+    && preview.columnCount === 4
+    && Array.isArray(preview.columns)
+    && preview.columns.length === preview.columnCount
+    && Array.isArray(preview.rows)
+    && preview.rows.length > 0
+    && forbiddenFields(preview).length === 0;
 }
 
 function validRecipe(recipe) {
@@ -136,6 +164,95 @@ async function findPage() {
   throw new Error("native_selectors_page_timeout");
 }
 
+async function runLargeDatasetBenchmark(page, source) {
+  const recipe = {
+    renames: [{ from: "amount", to: "total" }],
+    casts: [],
+    dateParses: [],
+    filters: [],
+    calculatedColumn: null,
+    findReplace: null,
+    keepColumns: null,
+    splitColumn: null,
+    mergeColumns: null,
+    outlierTreatments: [],
+    groupSummary: null,
+    contactNormalizations: [],
+    textExtractions: [],
+  };
+  const timedInvoke = async (command, args) => {
+    const startedAt = performance.now();
+    const result = await invoke(page, command, args);
+    return {
+      result,
+      durationMs: Number((performance.now() - startedAt).toFixed(2)),
+    };
+  };
+
+  const loaded = await timedInvoke("load_dataset_selection", {
+    selectionId: source.selectionId,
+    sheetId: null,
+    headerMode: null,
+    onProgress: null,
+  });
+  if (!validDatasetPreview(loaded.result, source)) throw new Error("large_dataset_load_invalid");
+
+  const paged = await timedInvoke("get_dataset_page", { offset: 0, limit: 50 });
+  if (!paged.result
+    || paged.result.offset !== 0
+    || !Array.isArray(paged.result.rows)
+    || paged.result.rows.length === 0
+    || paged.result.rows.length > 50
+    || paged.result.rows.some((row) => !Array.isArray(row) || row.length !== loaded.result.columnCount)
+    || forbiddenFields(paged.result).length > 0) {
+    throw new Error("large_dataset_page_invalid");
+  }
+
+  const transformed = await timedInvoke("apply_transform_recipe", { recipe });
+  if (!transformed.result
+    || transformed.result.changed !== true
+    || transformed.result.dataset?.rowCount !== loaded.result.rowCount
+    || transformed.result.dataset?.columnCount !== loaded.result.columnCount
+    || transformed.result.dataset?.columns?.some((column) => column.name === "amount")
+    || !transformed.result.dataset?.columns?.some((column) => column.name === "total")
+    || forbiddenFields(transformed.result).length > 0) {
+    throw new Error("large_dataset_transform_invalid");
+  }
+
+  const exported = await timedInvoke("probe_export_dataset", {
+    format: "csv",
+    qualityRules: [],
+    allowUnvalidated: true,
+  });
+  if (!exported.result
+    || exported.result.format !== "CSV"
+    || !Number.isInteger(exported.result.fileSizeBytes)
+    || exported.result.fileSizeBytes <= 0
+    || forbiddenFields(exported.result).length > 0) {
+    throw new Error("large_dataset_export_invalid");
+  }
+
+  return {
+    requested: true,
+    fileName: source.fileName,
+    sizeBytes: source.fileSizeBytes,
+    rowCount: loaded.result.rowCount,
+    columnCount: loaded.result.columnCount,
+    loadDurationMs: loaded.durationMs,
+    pageDurationMs: paged.durationMs,
+    transformDurationMs: transformed.durationMs,
+    exportDurationMs: exported.durationMs,
+    exportedSizeBytes: exported.result.fileSizeBytes,
+    interactions: [
+      "pick_dataset_source",
+      "load_dataset_selection",
+      "get_dataset_page",
+      "apply_transform_recipe",
+      "probe_export_dataset",
+    ],
+  };
+}
+
 async function run() {
   temporaryDirectory = mkdtempSync(join(tmpdir(), "columnia-native-selectors-"));
   const recipePath = join(temporaryDirectory, "native-selector-probe.json");
@@ -145,6 +262,21 @@ async function run() {
 
   const source = await invokeWithNativeDialog(page, "pick_dataset_source", {}, "open", sourcePath);
   if (!validSource(source)) throw new Error("dataset_picker_invalid");
+
+  if (requestedDatasetPath) {
+    if (extname(sourcePath).toLowerCase() !== ".csv") throw new Error("large_dataset_format_invalid");
+    const benchmark = await runLargeDatasetBenchmark(page, source);
+    return {
+      status: "passed",
+      phase: "native_large_dataset",
+      dialogs: ["open_dataset"],
+      sourcePickerVerified: true,
+      outputsVerified: true,
+      forbiddenPathFields: false,
+      datasetBenchmark: benchmark,
+    };
+  }
+
   await invoke(page, "discard_dataset_selection", { selectionId: source.selectionId });
 
   const emptyRecipe = {

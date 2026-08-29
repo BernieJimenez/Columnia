@@ -9,6 +9,17 @@
         "minRuns": 3,
         "maxTransformDurationMs": 5000,
         "maxExportDurationMs": 5000
+      },
+      "largeDataset": {
+        "minTargetMiB": 100,
+        "requiredOperations": [
+          "load_dataset_selection",
+          "get_dataset_page",
+          "apply_transform_recipe",
+          "probe_export_dataset"
+        ],
+        "maxWorkingSetBytes": 1610612736,
+        "maxPrivateMemoryBytes": 1073741824
       }
     },
     "benchmark": {

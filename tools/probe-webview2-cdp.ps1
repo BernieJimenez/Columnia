@@ -14,7 +14,9 @@ param(
     [ValidateRange(64, 4096)]
     [int]$MemoryWorkingSetBudgetMiB = 512,
     [ValidateRange(64, 4096)]
-    [int]$MemoryPrivateBudgetMiB = 256
+    [int]$MemoryPrivateBudgetMiB = 256,
+    [string]$NativeDatasetPath = "",
+    [Nullable[int]]$NativeDatasetExpectedRowCount = $null
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,6 +84,7 @@ $ProcessProfile = [ordered]@{
     peakPrivateMemoryBytes = 0L
 }
 $PerformanceBudget = $null
+$NativeDatasetAbsolutePath = $null
 $StartedAt = [DateTimeOffset]::UtcNow
 $Timer = [System.Diagnostics.Stopwatch]::StartNew()
 $PreviousWebViewArguments = $null
@@ -393,15 +396,22 @@ function Invoke-NativeSelectorsProbe {
     $RunnerStdoutPath = Join-Path $EvidenceDirectory "native-selectors.stdout.log"
     $RunnerStderrPath = Join-Path $EvidenceDirectory "native-selectors.stderr.log"
     Remove-Item -LiteralPath $RequestPath -Force -ErrorAction SilentlyContinue
+    $RunnerArguments = @(
+        "`"$RunnerPath`"",
+        "--port",
+        $Port,
+        "--request-file",
+        "`"$RequestPath`""
+    )
+    if (-not [string]::IsNullOrWhiteSpace($NativeDatasetPath)) {
+        $RunnerArguments += @("--dataset-path", "`"$NativeDatasetAbsolutePath`"")
+        if ($null -ne $NativeDatasetExpectedRowCount) {
+            $RunnerArguments += @("--expected-row-count", [string]$NativeDatasetExpectedRowCount)
+        }
+    }
     $RunnerProcess = Start-Process `
         -FilePath $NodeCommand `
-        -ArgumentList @(
-            "`"$RunnerPath`"",
-            "--port",
-            $Port,
-            "--request-file",
-            "`"$RequestPath`""
-        ) `
+        -ArgumentList $RunnerArguments `
         -WorkingDirectory $ProjectRoot `
         -WindowStyle Hidden `
         -RedirectStandardOutput $RunnerStdoutPath `
@@ -573,6 +583,18 @@ try {
     }
     if (@(Get-DebugAppProcesses).Count -gt 0) {
         throw "Preflight falló: la aplicación debug de Columnia ya está activa."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($NativeDatasetPath)) {
+        $NativeDatasetAbsolutePath = [System.IO.Path]::GetFullPath($NativeDatasetPath)
+        if (-not (Test-Path -LiteralPath $NativeDatasetAbsolutePath -PathType Leaf)) {
+            throw "El dataset nativo configurado no existe."
+        }
+        if ([System.IO.Path]::GetExtension($NativeDatasetAbsolutePath).ToLowerInvariant() -ne ".csv") {
+            throw "El benchmark nativo configurable solo admite CSV en esta versión."
+        }
+        if ($null -ne $NativeDatasetExpectedRowCount -and $NativeDatasetExpectedRowCount -le 0) {
+            throw "NativeDatasetExpectedRowCount debe ser positivo."
+        }
     }
 
     $NpmCommand = (Get-Command npm.cmd -ErrorAction Stop).Source
@@ -766,6 +788,7 @@ finally {
         projectsStatus = $ProjectsStatus
         projects = $ProjectsPayload
         nativeSelectorsRequested = [bool]$RunNativeSelectors
+        nativeDatasetBenchmarkRequested = -not [string]::IsNullOrWhiteSpace($NativeDatasetPath)
         nativeSelectorsStatus = $NativeSelectorsStatus
         nativeSelectors = $NativeSelectorsPayload
         cdpListenerObserved = $CdpListenerObserved

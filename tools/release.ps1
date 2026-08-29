@@ -186,6 +186,9 @@ try {
     Invoke-ReleaseStep "Release accessibility baseline" {
         & npm.cmd run accessibility:release:check
     }
+    Invoke-ReleaseStep "WebView2 large dataset benchmark" {
+        & npm.cmd run perf:webview2
+    }
     Invoke-ReleaseStep "Performance baseline" {
         & npm.cmd run perf:check
     }

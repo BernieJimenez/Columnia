@@ -97,7 +97,8 @@ function New-Sample {
         [object[]]$Metrics,
         [object]$ProcessProfile = $null,
         [object]$PerformanceBudget = $null,
-        [object]$NativeSustained = $null
+        [object]$NativeSustained = $null,
+        [object]$LargeDatasetBenchmark = $null
     )
 
     [ordered]@{
@@ -109,6 +110,7 @@ function New-Sample {
         processProfile = $ProcessProfile
         performanceBudget = $PerformanceBudget
         nativeSustained = $NativeSustained
+        largeDatasetBenchmark = $LargeDatasetBenchmark
     }
 }
 
@@ -155,12 +157,14 @@ function Get-CdpNativeSample {
         [string]$EvidenceName
     )
 
-    if ($null -eq $Document.playwright -or @($Document.playwright.pages).Count -eq 0) {
+    $LargeDatasetBenchmark = if ($null -eq $Document.nativeSelectors) { $null } else { $Document.nativeSelectors.datasetBenchmark }
+    $HasPlaywrightPage = $null -ne $Document.playwright -and @($Document.playwright.pages).Count -gt 0
+    if (-not $HasPlaywrightPage -and $null -eq $LargeDatasetBenchmark) {
         return $null
     }
 
-    $Page = @($Document.playwright.pages)[0]
-    $FirstRender = $Page.firstRender
+    $Page = if ($HasPlaywrightPage) { @($Document.playwright.pages)[0] } else { $null }
+    $FirstRender = if ($null -eq $Page) { $null } else { $Page.firstRender }
     $FirstRenderMs = if ($null -eq $FirstRender) { $null } else { Get-Number $FirstRender.startTime }
     $Metrics = [System.Collections.Generic.List[object]]::new()
     if ($null -ne $FirstRenderMs) {
@@ -193,7 +197,7 @@ function Get-CdpNativeSample {
         return $null
     }
 
-    $Status = if ($Document.playwrightStatus -eq "passed" -and $Document.status -eq "supported") { "observed" } else { "unavailable" }
+    $Status = if (($Document.playwrightStatus -eq "passed" -or $Document.nativeSelectorsStatus -eq "passed") -and $Document.status -eq "supported") { "observed" } else { "unavailable" }
     $ObservedAt = Get-ObservedAt -Document $Document -EvidenceName $EvidenceName
     $NativeSustained = if ($null -eq $NativeEvidence) { $null } else {
         [ordered]@{
@@ -202,7 +206,8 @@ function Get-CdpNativeSample {
             maxExportDurationMs = if ($null -eq $MaxExportDurationMs) { $null } else { [math]::Round($MaxExportDurationMs, 2) }
         }
     }
-    return New-Sample -Category "cdp-native" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile -PerformanceBudget $Document.performanceBudget -NativeSustained $NativeSustained
+    $Category = if ($null -ne $LargeDatasetBenchmark) { "cdp-large-dataset" } else { "cdp-native" }
+    return New-Sample -Category $Category -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile -PerformanceBudget $Document.performanceBudget -NativeSustained $NativeSustained -LargeDatasetBenchmark $LargeDatasetBenchmark
 }
 
 function Get-DesktopSmokeSample {
@@ -240,6 +245,7 @@ function Get-DesktopSmokeSample {
 $CategorySamples = [ordered]@{
     "shell-web" = [System.Collections.Generic.List[object]]::new()
     "cdp-native" = [System.Collections.Generic.List[object]]::new()
+    "cdp-large-dataset" = [System.Collections.Generic.List[object]]::new()
     "desktop-smoke" = [System.Collections.Generic.List[object]]::new()
 }
 
