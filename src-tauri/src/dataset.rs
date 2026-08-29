@@ -39,12 +39,20 @@ const MAX_QUERY_CHARS: usize = 2 * 1024;
 const MAX_CONFLICT_PREVIEW: usize = 50;
 const HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE: usize = 80;
 const SENTINEL_VALUES: &[&str] = &[
+    "",
     "na",
     "n/a",
+    "nan",
     "n.a.",
+    "n.a",
     "null",
+    "(null)",
     "none",
     "nil",
+    "-",
+    "--",
+    "?",
+    "??",
     "unknown",
     "unk",
     "missing",
@@ -57,6 +65,9 @@ const SENTINEL_VALUES: &[&str] = &[
     "no disponible",
     "desconocido",
     "desconocida",
+    "#n/a",
+    "(blank)",
+    "(vacio)",
 ];
 const MOJIBAKE_MARKERS: &[&str] = &[
     "â€™", "â€œ", "â€", "Ã©", "Ã¨", "Ã ", "Ã¢", "Ã®", "Ã´", "Ã³", "Ã±", "Ã¼", "Ã¡", "Ã­", "Ãº",
@@ -16898,7 +16909,7 @@ impl DatasetState {
         // DataPrep ejecuta el registro de limpieza en un orden fijo. Mantener
         // ese orden evita que el orden accidental del manifiesto cambie el
         // resultado cuando una sesión enumera varias operaciones.
-        for operation in ["impute_categorical", "fix_encoding"] {
+        for operation in ["normalize_sentinels", "impute_categorical", "fix_encoding"] {
             if !applied_operations
                 .iter()
                 .any(|candidate| candidate == operation)
@@ -16906,6 +16917,9 @@ impl DatasetState {
                 continue;
             }
             let (candidate, _, changed_cell_count, _) = match operation {
+                "normalize_sentinels" => {
+                    clean_text_columns(&cleaned, None, TextCleaningMode::Sentinels)?
+                }
                 "fix_encoding" => {
                     clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
                 }

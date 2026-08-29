@@ -15,11 +15,11 @@ los artefactos de validación locales.
 - Preparar ofrece además una imputación categórica explícita y reversible que
   completa nulos textuales como `Desconocido`, sin tocar números ni `_cambios`,
   con impacto agregado; el inventario IPC actual pasa a 61 comandos de producción.
-- La importación de sesiones DataPrep reproduce `fix_encoding` e
-  `impute_categorical` durante el fallback a la fuente cuando no hay snapshot
-  compatible, respetando el orden fijo de limpieza; un snapshot disponible
-  conserva prioridad para evitar reaplicar operaciones sobre un estado
-  materializado.
+- La importación de sesiones DataPrep reproduce `normalize_sentinels`,
+  `impute_categorical` y `fix_encoding` durante el fallback a la fuente cuando
+  no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot
+  disponible conserva prioridad para evitar reaplicar operaciones sobre un
+  estado materializado.
 - Benchmark reproducible de datasets grandes dentro de WebView2: `perf:webview2`
   genera un CSV temporal de 100 MiB y verifica selección nativa, carga,
   paginación, transformación y exportación con evidencia agregada de duración,
