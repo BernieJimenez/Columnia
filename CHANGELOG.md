@@ -56,8 +56,11 @@ los artefactos de validación locales.
 - Cargar admite arrastrar un dataset a la ventana sin entregar su ruta a React
   y mantiene hasta cinco referencias recientes sanitizadas que vuelven a abrir
   el selector nativo.
-- Revisar incorpora actividad SQL efímera y tendencia temporal diaria para
-  rangos cortos, con días vacíos y tabla accesible equivalente.
+- Revisar incorpora actividad SQL agregada para las últimas cinco ejecuciones y
+  la conserva en el workspace del proyecto al guardarlo; se restauran estado,
+  duración y filas, nunca la consulta, rutas ni valores. También mantiene la
+  tendencia temporal diaria para rangos cortos, con días vacíos y tabla accesible
+  equivalente.
 - Preparar permite retirar columnas identificadoras de forma explícita,
   confirmada y reversible, sin publicar sus valores.
 - La CLI sanitiza reportes, recetas y manifiestos en una frontera común, y las

@@ -20,8 +20,10 @@ use crate::dataset::{
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const ID_LENGTH: usize = 32;
+const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
+const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +64,17 @@ pub struct NativeProjectReopen {
 pub struct ProjectWorkspace {
     pub quality_rules: Vec<QualityRule>,
     pub recipe_draft: Option<StoredTransformRecipe>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sql_history: Vec<SqlQueryHistoryEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SqlQueryHistoryEntry {
+    pub id: u64,
+    pub outcome: String,
+    pub duration_ms: u64,
+    pub row_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -121,6 +134,7 @@ struct StoredProject {
     generation_name: Option<String>,
     history_manifest_json: Option<String>,
     profile_json: Option<String>,
+    sql_history_json: String,
 }
 
 struct ValidatedProject {
@@ -256,10 +270,11 @@ impl ProjectStore {
                            recipe_draft_json TEXT,
                            generation_name TEXT,
                            history_manifest_json TEXT,
-                           profile_json TEXT
+                           profile_json TEXT,
+                           sql_history_json TEXT NOT NULL DEFAULT '[]'
                          );
                          CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                         PRAGMA user_version = 3;",
+                         PRAGMA user_version = 4;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -276,7 +291,8 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN generation_name TEXT;
                          ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
-                         PRAGMA user_version = 3;",
+                         ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
+                         PRAGMA user_version = 4;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -290,7 +306,20 @@ impl ProjectStore {
                         "ALTER TABLE projects ADD COLUMN generation_name TEXT;
                          ALTER TABLE projects ADD COLUMN history_manifest_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
-                         PRAGMA user_version = 3;",
+                         ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
+                         PRAGMA user_version = 4;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            3 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
+                         PRAGMA user_version = 4;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -359,6 +388,7 @@ impl ProjectStore {
             &workspace.quality_rules,
             workspace.recipe_draft.as_ref(),
         )?;
+        validate_sql_query_history(&workspace.sql_history)?;
         if let Some(profile) = active.profile.as_ref() {
             validate_project_profile(&active.frame, profile)?;
         }
@@ -370,6 +400,8 @@ impl ProjectStore {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
+        let sql_history_json = serde_json::to_string(&workspace.sql_history)
+            .map_err(|_| "No se pudo validar la actividad SQL del proyecto.".to_owned())?;
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -424,7 +456,7 @@ impl ProjectStore {
                 "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
                  column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
                  quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
-                 history_manifest_json = ?10, profile_json = ?11 WHERE id = ?12",
+                 history_manifest_json = ?10, profile_json = ?11, sql_history_json = ?12 WHERE id = ?13",
                 params![
                     name,
                     active.file_name,
@@ -437,6 +469,7 @@ impl ProjectStore {
                     generation_name,
                     history_manifest_json,
                     profile_json,
+                    sql_history_json,
                     id
                 ],
             )
@@ -445,8 +478,8 @@ impl ProjectStore {
                 "INSERT INTO projects
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
-                  generation_name, history_manifest_json, profile_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12)",
+                  generation_name, history_manifest_json, profile_json, sql_history_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     id,
                     name,
@@ -459,7 +492,8 @@ impl ProjectStore {
                     recipe_draft_json,
                     generation_name,
                     history_manifest_json,
-                    profile_json
+                    profile_json,
+                    sql_history_json
                 ],
             )
         };
@@ -619,7 +653,7 @@ impl ProjectStore {
             .query_row(
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at,
                         updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
-                        generation_name, history_manifest_json, profile_json
+                        generation_name, history_manifest_json, profile_json, sql_history_json
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -631,6 +665,7 @@ impl ProjectStore {
                         generation_name: row.get(10)?,
                         history_manifest_json: row.get(11)?,
                         profile_json: row.get(12)?,
+                        sql_history_json: row.get(13)?,
                     })
                 },
             )
@@ -835,10 +870,38 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         .map(serde_json::from_str)
         .transpose()
         .map_err(|_| "La configuración guardada del proyecto no es válida.".to_owned())?;
+    let sql_history: Vec<SqlQueryHistoryEntry> = serde_json::from_str(&stored.sql_history_json)
+        .map_err(|_| "La actividad SQL guardada del proyecto no es válida.".to_owned())?;
+    validate_sql_query_history(&sql_history)?;
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
+        sql_history,
     })
+}
+
+fn validate_sql_query_history(entries: &[SqlQueryHistoryEntry]) -> Result<(), String> {
+    if entries.len() > MAX_SQL_QUERY_HISTORY_ENTRIES {
+        return Err(format!(
+            "La actividad SQL del proyecto supera el límite de {MAX_SQL_QUERY_HISTORY_ENTRIES} entradas."
+        ));
+    }
+
+    let mut ids = HashSet::with_capacity(entries.len());
+    for entry in entries {
+        if entry.id == 0 || !ids.insert(entry.id) {
+            return Err(
+                "La actividad SQL del proyecto contiene identificadores no válidos.".to_owned(),
+            );
+        }
+        if !matches!(entry.outcome.as_str(), "success" | "error" | "cancelled") {
+            return Err("La actividad SQL del proyecto contiene un estado no válido.".to_owned());
+        }
+        if entry.duration_ms > MAX_SQL_QUERY_DURATION_MS {
+            return Err("La duración de una consulta SQL guardada no es válida.".to_owned());
+        }
+    }
+    Ok(())
 }
 
 fn decode_profile(stored: &StoredProject) -> Result<Option<DatasetProfile>, String> {
@@ -1154,6 +1217,7 @@ fn import_dataprep_session_project_from_path(
         ProjectWorkspace {
             quality_rules: plan.quality_rules,
             recipe_draft: Some(plan.recipe),
+            sql_history: Vec::new(),
         },
     )
 }
@@ -1365,7 +1429,7 @@ pub async fn probe_reopen_project(
     .map_err(|error| format!("La reapertura nativa del proyecto se interrumpió: {error}"))?
 }
 
-// Los proyectos v3 persisten el historial, pero cada apertura lo copia a un TempDir nuevo:
+// Los proyectos v4 persisten el historial y la actividad SQL agregada, pero cada apertura lo copia a un TempDir nuevo:
 // undo/redo posteriores nunca modifican la generación durable hasta el próximo guardado.
 
 #[cfg(test)]
@@ -1426,7 +1490,13 @@ mod tests {
                 "name": "Borrador seguro",
                 "savedAt": "2026-08-21T12:00:00Z",
                 "recipe": {}
-            }
+            },
+            "sqlHistory": [{
+                "id": 7,
+                "outcome": "success",
+                "durationMs": 42,
+                "rowCount": 2
+            }]
         }))
         .expect("el workspace de prueba debe ser válido")
     }
@@ -1521,7 +1591,7 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         drop(store);
-        ProjectStore::initialize(root).expect("reabrir v3 debe ser idempotente");
+        ProjectStore::initialize(root).expect("reabrir v4 debe ser idempotente");
     }
 
     #[test]
@@ -1560,6 +1630,7 @@ mod tests {
         assert!(columns.contains(&"generation_name".to_owned()));
         assert!(columns.contains(&"history_manifest_json".to_owned()));
         assert!(columns.contains(&"profile_json".to_owned()));
+        assert!(columns.contains(&"sql_history_json".to_owned()));
     }
 
     #[test]
@@ -1569,7 +1640,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 4;")
+            .execute_batch("PRAGMA user_version = 5;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -1581,7 +1652,7 @@ mod tests {
             .unwrap()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -1866,6 +1937,26 @@ mod tests {
                 unknown_column,
             )
             .is_err());
+        let oversized_sql_history = ProjectWorkspace {
+            quality_rules: Vec::new(),
+            recipe_draft: None,
+            sql_history: (1..=6)
+                .map(|id| SqlQueryHistoryEntry {
+                    id,
+                    outcome: "success".to_owned(),
+                    duration_ms: 0,
+                    row_count: Some(0),
+                })
+                .collect(),
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                oversized_sql_history,
+            )
+            .is_err());
         assert_eq!(store.list().unwrap(), vec![created]);
         assert_eq!(snapshot_count(&store), 1);
     }
@@ -1902,7 +1993,20 @@ mod tests {
                 ],
             )
             .unwrap();
-        assert!(store.open(&target_state, project.id).is_err());
+        assert!(store.open(&target_state, project.id.clone()).is_err());
+        assert_eq!(
+            target_state.active_project_snapshot().unwrap().file_name,
+            "active.csv"
+        );
+
+        connection
+            .execute(
+                "UPDATE projects SET quality_rules_json = '[]', recipe_draft_json = NULL,
+                 sql_history_json = ?1 WHERE id = ?2",
+                params!["{not-json", project.id],
+            )
+            .unwrap();
+        assert!(store.open(&target_state, project.id.clone()).is_err());
         assert_eq!(
             target_state.active_project_snapshot().unwrap().file_name,
             "active.csv"

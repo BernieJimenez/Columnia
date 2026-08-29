@@ -68,6 +68,7 @@ const sharedStructures = [
   ["TransformRecipeResult", "TransformRecipeResult"],
   ["ProjectSummary", "ProjectSummary"],
   ["ProjectOpenResult", "ProjectOpenResult"],
+  ["SqlQueryHistoryEntry", "SqlQueryHistoryEntry"],
   ["ProjectWorkspace", "ProjectWorkspace"],
 ];
 

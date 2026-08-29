@@ -15,6 +15,7 @@ import type {
   NumericCorrelationMatrix,
   CategoricalGroupSummary,
   TemporalSeriesSummary,
+  SqlQueryHistoryEntry,
 } from "../../bridge";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
@@ -50,6 +51,8 @@ interface ReviewPhaseProps {
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
+  sqlHistory?: SqlQueryHistoryEntry[];
+  onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
 }
 
 export function ReviewPhase({
@@ -73,6 +76,8 @@ export function ReviewPhase({
   joinType,
   onJoinTypeChange,
   onJoin,
+  sqlHistory = [],
+  onSqlHistoryChange = () => undefined,
 }: ReviewPhaseProps) {
   const comparisonActive = comparisonStatus.kind !== "idle" || joinStatus.kind !== "idle";
   const [comparisonOpen, setComparisonOpen] = useState(comparisonActive);
@@ -101,6 +106,8 @@ export function ReviewPhase({
             onAnalyze={onAnalyzeQuality}
             onCancel={onCancelProfile}
             comparisonAvailable={comparisonStatus.kind === "ready"}
+            sqlHistory={sqlHistory}
+            onSqlHistoryChange={onSqlHistoryChange}
           />
         </div>
       ) : (
@@ -465,12 +472,16 @@ function QualitySection({
   onAnalyze,
   onCancel,
   comparisonAvailable,
+  sqlHistory,
+  onSqlHistoryChange,
 }: {
   dataset: DatasetPreview;
   status: ProfileStatus;
   onAnalyze: () => void;
   onCancel: () => void;
   comparisonAvailable: boolean;
+  sqlHistory: SqlQueryHistoryEntry[];
+  onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
 }) {
   return (
     <section className="phase-section" aria-labelledby="quality-title">
@@ -500,19 +511,24 @@ function QualitySection({
         </p>
       )}
       {status.kind === "ready" && <QualityProfile profile={status.profile} />}
-      <LocalQueryPanel comparisonAvailable={comparisonAvailable} />
+      <LocalQueryPanel
+        comparisonAvailable={comparisonAvailable}
+        queryHistory={sqlHistory}
+        onQueryHistoryChange={onSqlHistoryChange}
+      />
     </section>
   );
 }
 
-function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean }) {
-  type QueryHistoryOutcome = "success" | "error" | "cancelled";
-  type QueryHistoryEntry = {
-    id: number;
-    outcome: QueryHistoryOutcome;
-    durationMs: number;
-    rowCount: number | null;
-  };
+function LocalQueryPanel({
+  comparisonAvailable,
+  queryHistory: persistedQueryHistory,
+  onQueryHistoryChange,
+}: {
+  comparisonAvailable: boolean;
+  queryHistory: SqlQueryHistoryEntry[];
+  onQueryHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
+}) {
 
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
   const [state, setState] = useState<
@@ -523,11 +539,30 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [queryOpen, setQueryOpen] = useState(false);
-  const [queryHistory, setQueryHistory] = useState<QueryHistoryEntry[]>([]);
+  const [queryHistory, setQueryHistory] = useState<SqlQueryHistoryEntry[]>(persistedQueryHistory);
   const activeQueryRef = useRef(0);
   const cancelledQueryRef = useRef<number | null>(null);
   const queryStartedAtRef = useRef(new Map<number, number>());
   const recordedQueryIdsRef = useRef<number[]>([]);
+  const queryHistoryRef = useRef(queryHistory);
+
+  useEffect(() => {
+    if (queryHistoryRef.current === persistedQueryHistory) {
+      activeQueryRef.current = Math.max(
+        activeQueryRef.current,
+        ...persistedQueryHistory.map((entry) => entry.id),
+        0,
+      );
+      return;
+    }
+    queryHistoryRef.current = persistedQueryHistory;
+    setQueryHistory(persistedQueryHistory);
+    activeQueryRef.current = Math.max(
+      activeQueryRef.current,
+      ...persistedQueryHistory.map((entry) => entry.id),
+      0,
+    );
+  }, [persistedQueryHistory]);
 
   useEffect(() => {
     if (state.kind !== "idle") setQueryOpen(true);
@@ -535,17 +570,20 @@ function LocalQueryPanel({ comparisonAvailable }: { comparisonAvailable: boolean
 
   function recordQueryHistory(
     requestId: number,
-    outcome: QueryHistoryOutcome,
+    outcome: SqlQueryHistoryEntry["outcome"],
     rowCount: number | null = null,
   ) {
     if (recordedQueryIdsRef.current.includes(requestId)) return;
     recordedQueryIdsRef.current = [...recordedQueryIdsRef.current.slice(-31), requestId];
     const startedAt = queryStartedAtRef.current.get(requestId) ?? Date.now();
     queryStartedAtRef.current.delete(requestId);
-    setQueryHistory((current) => [
+    const nextHistory = [
       { id: requestId, outcome, durationMs: Math.max(0, Date.now() - startedAt), rowCount },
-      ...current,
-    ].slice(0, 5));
+      ...queryHistoryRef.current,
+    ].slice(0, 5);
+    queryHistoryRef.current = nextHistory;
+    setQueryHistory(nextHistory);
+    onQueryHistoryChange(nextHistory);
   }
 
   async function runQuery() {

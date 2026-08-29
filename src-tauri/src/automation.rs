@@ -1549,6 +1549,7 @@ pub fn project_save(
         ProjectWorkspace {
             quality_rules,
             recipe_draft,
+            sql_history: Vec::new(),
         },
     )
     .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;

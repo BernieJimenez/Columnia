@@ -89,6 +89,7 @@ import {
   type DatasetSourceInspection,
   type OperationProgress,
   type SavedRecipe,
+  type SqlQueryHistoryEntry,
   type SpreadsheetHeaderMode,
 } from "./bridge";
 
@@ -163,12 +164,14 @@ export function App() {
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
+  const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
   const [recipeSession, setRecipeSession] = useState(0);
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) => {
       setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
+      setSqlHistory([]);
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -189,7 +192,12 @@ export function App() {
     connected: status.kind === "ready",
     blocked: coreOperationBusy,
     hasDataset: datasetStatus.kind === "ready",
-    workspace: { qualityRules: deliveryRules(deliveryContract), recipeDraft },
+    workspace: {
+      qualityRules: deliveryRules(deliveryContract),
+      recipeDraft,
+      ...(sqlHistory.length > 0 ? { sqlHistory } : {}),
+    },
+    onActiveProjectDeleted: () => setSqlHistory([]),
     onProjectOpened: async ({ dataset, workspace, profile }) => {
       setDatasetStatus(createReadyDatasetStatus(dataset));
       setLoadInspection({ kind: "idle" });
@@ -203,6 +211,7 @@ export function App() {
       setJoinStatus(clearJoin());
       await clearDatasetComparison().catch(() => undefined);
       setRecipeDraft(workspace.recipeDraft);
+      setSqlHistory(workspace.sqlHistory ?? []);
       setRecipeSession((current) => current + 1);
       setReviewTab("diagnosis");
       setActivePhase("review");
@@ -303,6 +312,7 @@ export function App() {
       }));
       setDatasetStatus(createReadyDatasetStatus(dataset));
       projects.unlinkActiveProject();
+      setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
       setRecipeSession((current) => current + 1);
@@ -455,6 +465,7 @@ export function App() {
       setJoinStatus(clearJoin());
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
+      setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
       setRecipeSession((current) => current + 1);
@@ -476,6 +487,7 @@ export function App() {
       setJoinStatus(clearJoin());
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
+      setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
       setRecipeSession((current) => current + 1);
@@ -505,6 +517,7 @@ export function App() {
       setJoinStatus(clearJoin());
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
+      setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
       setRecipeSession((current) => current + 1);
@@ -795,6 +808,8 @@ export function App() {
                 onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}
                 onConflictPageChange={(offset) => void changeConflictPage(offset)}
                 onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
+                sqlHistory={sqlHistory}
+                onSqlHistoryChange={setSqlHistory}
               />
             )}
 

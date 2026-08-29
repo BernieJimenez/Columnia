@@ -65,10 +65,12 @@ catálogo usa SQLite y cada versión se publica como un snapshot Parquet privado
 en el directorio de datos de la aplicación. React recibe únicamente IDs opacos y
 metadatos; nunca las rutas internas.
 
-El esquema SQLite v3 conserva exactamente el dataset y su nombre visible aunque
+El esquema SQLite v4 conserva exactamente el dataset y su nombre visible aunque
 la fuente original haya desaparecido, además de las reglas de calidad, el
 borrador opcional de receta, el perfil cacheado y el historial Deshacer/Rehacer
-con su cursor. Los catálogos v1 y v2 se migran de forma compatible al abrirse.
+con su cursor y la actividad SQL agregada del proyecto. Los catálogos v1, v2 y v3
+se migran de forma compatible al abrirse. La actividad SQL se limita a cinco
+entradas de estado, duración y filas; no guarda consultas, rutas ni valores.
 Los contratos de calidad intercambiados como archivos usan el formato canónico
 `columnia-quality-rules` v1 y conservan compatibilidad con DataPrep v1–v3 y el
 documento legado v1.

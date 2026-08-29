@@ -326,6 +326,7 @@ describe("ReviewPhase", () => {
   });
 
   it("ejecuta la consulta SQL segura y muestra el resultado accesible", async () => {
+    const onSqlHistoryChange = vi.fn();
     vi.spyOn(bridge, "queryDataset").mockResolvedValue({
       columns: [{ name: "id", dataType: "Int64" }],
       rowCount: 2,
@@ -355,6 +356,8 @@ describe("ReviewPhase", () => {
         joinType="inner"
         onJoinTypeChange={() => undefined}
         onJoin={() => undefined}
+        sqlHistory={[{ id: 9, outcome: "error", durationMs: 18, rowCount: null }]}
+        onSqlHistoryChange={onSqlHistoryChange}
       />,
     );
 
@@ -367,6 +370,16 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
     expect(screen.getByRole("heading", { name: "Actividad reciente" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Completada");
+    expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Error");
+    expect(onSqlHistoryChange).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 10,
+        outcome: "success",
+        durationMs: expect.any(Number),
+        rowCount: 2,
+      }),
+      { id: 9, outcome: "error", durationMs: 18, rowCount: null },
+    ]);
     expect(bridge.queryDataset).toHaveBeenCalledWith("SELECT id FROM dataset LIMIT 1");
   });
 

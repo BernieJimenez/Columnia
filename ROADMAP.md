@@ -1288,7 +1288,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   slice de arrastre/soltar ya captura rutas en Rust y entrega a React únicamente
   la inspección validada. La primera slice de archivos recientes ya conserva solo nombre,
   formato, fecha e ID opaco, sin rutas, y Revisar ya muestra una actividad SQL
-  acotada a la sesión con estado, duración y filas, sin guardar la consulta.
+  acotada con estado, duración y filas. Al guardar un proyecto se conservan y
+  restauran sus últimas cinco ejecuciones agregadas, sin guardar la consulta,
+  rutas ni valores; muestras, preferencias, caché derivada y outputs siguen
+  pendientes.
   El modelo durable de proyectos de Columnia se conserva como reemplazo de la
   sesión persistente original.
 
@@ -1685,6 +1688,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | M1 regenera y persiste el perfil agregado al importar una sesión DataPrep; el proyecto abre con caché de calidad válida, mientras resultados originales, cachés reanudables e historial que no estén en el artefacto siguen pendientes. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | Nueva corrida estricta `smoke:cdp` con Playwright, ProjectsPanel, mutaciones nativas y cleanup aprobados: el working set quedó en 501,563,392 bytes dentro de 512 MiB, pero la memoria privada alcanzó 272,379,904 bytes frente al límite de 256 MiB. Corridas diagnósticas previas quedaron en 256.06–258.06 MiB; no se atribuye todavía una fuga al código y el gate privado estable sigue abierto. | `.local/validation/webview2-cdp/20260829T023923Z/summary.json`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-29 | P1 amplía el catálogo de limpieza con una acción confirmada para apartar como nulos los valores de texto que contradicen una sugerencia semántica con al menos 90% de coincidencia; la operación es reversible, no muestra celdas y conserva pendientes las reglas avanzadas restantes. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
+| 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
@@ -1711,7 +1715,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-27 | Sanitizar en una frontera común los JSON públicos de la CLI para eliminar rutas, nombres de archivo, valores, emails, secretos y referencias privadas en reportes, recetas y manifiestos, conservando identificadores, estados y conteos | Implementada; futuros conectores remotos y artefactos adicionales requieren ampliar el contrato |
 | 2026-08-27 | Añadir cancelación cooperativa a SQL local, presupuesto de agregaciones y preflight de cardinalidad para rechazar joins many-to-many antes de materializar resultados fuera de límite | Implementada en `src-tauri/src/dataset.rs`; DuckDB y ejecución incremental completa siguen en cola |
 | 2026-08-27 | Conservar hasta cinco archivos recientes sin rutas y reabrir siempre el selector nativo al elegir uno | Implementada en `src/features/load/recentFilesModel.ts` y `src/features/load/LoadPhase.tsx` |
-| 2026-08-27 | Mostrar actividad SQL de la sesión actual con las últimas cinco ejecuciones, estado, duración y filas, sin persistir texto de consulta ni valores | Implementada en `src/features/review/ReviewPhase.tsx`; el historial durable de ejecuciones sigue en cola |
+| 2026-08-27 | Mostrar actividad SQL de la sesión actual con las últimas cinco ejecuciones, estado, duración y filas, sin persistir texto de consulta ni valores | Implementada en `src/features/review/ReviewPhase.tsx`; la actividad se conserva además en el workspace del proyecto al guardarlo |
 | 2026-08-27 | Añadir arrastre nativo de datasets sin exponer rutas al frontend: Tauri guarda temporalmente el primer archivo soltado, notifica un evento opaco y reutiliza la inspección segura del selector | Implementada en `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts` y `src/App.tsx`; los conectores remotos y la apertura segura de outputs siguen en cola |
 | 2026-08-26 | Retirar el límite provisional de 500 MiB para datasets; la capacidad efectiva depende de la RAM, el espacio en disco y los demás recursos disponibles | Implementada |
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |

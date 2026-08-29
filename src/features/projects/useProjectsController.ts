@@ -25,6 +25,7 @@ interface ProjectsControllerOptions {
   hasDataset: boolean;
   workspace: ProjectWorkspace;
   onProjectOpened: (result: ProjectOpenResult) => Promise<void> | void;
+  onActiveProjectDeleted?: () => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -48,6 +49,7 @@ export function useProjectsController({
   hasDataset,
   workspace,
   onProjectOpened,
+  onActiveProjectDeleted,
 }: ProjectsControllerOptions) {
   const [catalog, setCatalog] = useState<ProjectCatalogState>({ kind: "unavailable" });
   const [operation, setOperation] = useState<ProjectOperationState>({ kind: "idle" });
@@ -158,12 +160,15 @@ export function useProjectsController({
       async () => {
         await deleteProject(target.id);
         setDeletion({ kind: "idle" });
-        if (activeProject?.id === target.id) setActiveProject(null);
+        if (activeProject?.id === target.id) {
+          setActiveProject(null);
+          onActiveProjectDeleted?.();
+        }
         setOperation({ kind: "success", message: `Proyecto “${target.name}” eliminado. El dataset abierto se conserva.` });
         await refresh();
       },
     );
-  }, [activeProject, deletion, refresh, runExclusive]);
+  }, [activeProject, deletion, onActiveProjectDeleted, refresh, runExclusive]);
 
   return {
     catalog,

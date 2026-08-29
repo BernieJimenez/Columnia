@@ -697,16 +697,24 @@ export interface ProjectSummary {
   updatedAt: string;
 }
 
-export interface ProjectWorkspace {
-  qualityRules: QualityRule[];
-  recipeDraft: SavedRecipe | null;
-}
-
 export interface ProjectOpenResult {
   project: ProjectSummary;
   dataset: DatasetPreview;
   workspace: ProjectWorkspace;
   profile: DatasetProfile | null;
+}
+
+export interface SqlQueryHistoryEntry {
+  id: number;
+  outcome: "success" | "error" | "cancelled";
+  durationMs: number;
+  rowCount: number | null;
+}
+
+export interface ProjectWorkspace {
+  qualityRules: QualityRule[];
+  recipeDraft: SavedRecipe | null;
+  sqlHistory?: SqlQueryHistoryEntry[];
 }
 
 type ProgressHandler = (progress: OperationProgress) => void;

@@ -544,6 +544,10 @@
       "typescript": "ProjectOpenResult"
     },
     {
+      "rust": "SqlQueryHistoryEntry",
+      "typescript": "SqlQueryHistoryEntry"
+    },
+    {
       "rust": "ProjectWorkspace",
       "typescript": "ProjectWorkspace"
     }

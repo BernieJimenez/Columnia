@@ -260,16 +260,21 @@ function rustStructFieldTypes(
   if (!declaration) throw new Error(`No se encontró la estructura Rust ${structName}.`);
 
   const openingIndex = declaration.index + declaration[0].lastIndexOf("{");
-  const body = balancedBraces(source, openingIndex)
-    .replace(/#\[[^\]]*\]\s*/g, "")
-    .replace(/\/\/.*$/gm, "");
+  const body = balancedBraces(source, openingIndex).replace(/\/\/.*$/gm, "");
 
   return Object.fromEntries(
     splitTopLevel(body).flatMap((field) => {
-      const match = field.match(
+      const omitsEmptyValue = /#\[serde\([^\]]*skip_serializing_if/.test(field);
+      const fieldSource = field.replace(/#\[[^\]]*\]\s*/g, "");
+      const match = fieldSource.match(
         /^(?:pub(?:\([^)]*\))?\s+)?([a-z][a-z0-9_]*)\s*:\s*([\s\S]+)$/,
       );
-      return match ? [[camelCase(match[1]), normalizeRustFieldType(match[2])]] : [];
+      if (!match) return [];
+      const normalized = normalizeRustFieldType(match[2]);
+      const wireType = omitsEmptyValue && !normalized.startsWith("optional<")
+        ? `optional<${normalized}>`
+        : normalized;
+      return [[camelCase(match[1]), wireType]];
     }),
   );
 }
