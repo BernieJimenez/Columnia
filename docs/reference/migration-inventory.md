@@ -42,6 +42,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `impute_outliers` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback con IQR ×1.5 y mediana observada, conservando el tipo numérico cuando la mediana es representable |
 | `drop_outliers` | Acción directa de Preparar, receta de Transformaciones e importación de sesión | Reproducida en Preparar y en el fallback después de `cast_numeric`, eliminando una fila si alguna columna numérica excede sus límites IQR ×1.5 y conservando nulos |
 | `normalize_booleans` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando una columna de texto usa solo tokens booleanos conocidos y contiene ambos valores; se convierte al tipo booleano, sin modificar `_cambios` |
+| `mask_pii` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback con el modo `mask` conservador: sustituye valores no nulos de columnas personales detectadas por encabezado (`email`, `phone`, `address`, `name`) con `[REDACTED]`, preserva nulos, columnas no detectadas y `_cambios`; los snapshots compatibles conservan prioridad y los modos hash/clave explícita requieren revisión manual |
 | `normalize_columns` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con normalización Unicode y colisiones deterministas; se ejecuta antes de la receta estructural |
 | `add_cambios_col` | Acción directa de Preparar e importación de sesión | Reproduce la estructura reservada `_cambios` con estado inicial nulo; no reconstruye anotaciones históricas que no formen parte del snapshot |
 | `group_summary` | `groupSummary` | Convertida para agregaciones conocidas |
@@ -95,9 +96,11 @@ selector de Entregar; quedan señalados para revisión antes de exportar.
 
 También se informa cuando el pipeline trae operaciones de limpieza,
 análisis o calidad incrustadas. `selected_cleaning_operations` reconoce aliases
-de las limpiezas deterministas y los normaliza a nombres canónicos; una operación
-sin equivalente reversible conserva una advertencia específica para revisión
-manual y no se ejecuta como si fuera equivalente.
+de las limpiezas deterministas y los normaliza a nombres canónicos. `mask_pii`
+se reproduce únicamente como la máscara local predeterminada y conservadora;
+los modos hash o con clave explícita no se inventan y requieren revisión manual.
+Una operación sin equivalente reversible conserva una advertencia específica
+para revisión manual y no se ejecuta como si fuera equivalente.
 
 ## Fixtures y formatos auditados
 
@@ -140,7 +143,7 @@ Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
 `normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`,
 `impute_outliers`, `drop_outliers`, `normalize_booleans`, `normalize_columns` y
-`add_cambios_col` se reproducen como
+`mask_pii` y `add_cambios_col` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de
 limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
 completamente nulas y no elimina por sí sola texto en blanco. Si existe un

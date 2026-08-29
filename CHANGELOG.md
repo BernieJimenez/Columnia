@@ -26,14 +26,15 @@ los artefactos de validación locales.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
    `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers` y `drop_outliers`,
-   `normalize_text`, `normalize_booleans`, `normalize_columns` y `add_cambios_col` durante el fallback a la fuente
+   `normalize_text`, `normalize_booleans`, `mask_pii`, `normalize_columns` y `add_cambios_col` durante el fallback a la fuente
    cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible
    conserva prioridad para evitar reaplicar operaciones sobre un estado
    materializado.
 - El catálogo DataPrep `selected_cleaning_operations` se migra por aliases canónicos:
-  las limpiezas deterministas se reproducen desde la fuente, se conservan en el
-  informe de sesión y las operaciones sin equivalente (por ejemplo `mask_pii`)
-  quedan como advertencias accionables, sin descartarse silenciosamente.
+  las limpiezas deterministas, incluido `mask_pii` en su modo `mask` predeterminado,
+  se reproducen desde la fuente y se conservan en el informe de sesión. Los modos
+  hash/clave explícita no se inventan y las operaciones sin equivalente quedan como
+  advertencias accionables, sin descartarse silenciosamente.
 - El preflight de sesiones DataPrep clasifica bloques reconocibles de resultados,
   historial y cachés como artefactos no portables, conservando solo sus categorías
   sanitizadas y una acción manual; no copia contenido ni rutas de esos artefactos.

@@ -2964,14 +2964,18 @@ mod tests {
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
         let source = directory.path().join("source.csv");
         let session = directory.path().join("session.json");
-        fs::write(&source, "name\n  María  \n").unwrap();
+        fs::write(
+            &source,
+            "email,name,amount,city\nperson@example.com, María ,10,  Santo   Domingo  \n,Ana,11,Santo\n",
+        )
+        .unwrap();
         fs::write(
             &session,
             serde_json::to_vec(&serde_json::json!({
                 "version": 1,
                 "name": "Catálogo seleccionado reproducible",
                 "source_path": "source.csv",
-                "selected_cleaning_operations": ["normalize_text_values"],
+                "selected_cleaning_operations": ["normalize_text_values", "mask_pii"],
                 "transform": {"rename_text": ""}
             }))
             .unwrap(),
@@ -2990,8 +2994,24 @@ mod tests {
             .expect("el dataset seleccionado debe quedar activo");
 
         assert_eq!(
+            active.frame.column("email").unwrap().str().unwrap().get(0),
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            active.frame.column("email").unwrap().str().unwrap().get(1),
+            None
+        );
+        assert_eq!(
             active.frame.column("name").unwrap().str().unwrap().get(0),
-            Some("maria")
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            active.frame.column("amount").unwrap().str().unwrap().get(0),
+            Some("10")
+        );
+        assert_eq!(
+            active.frame.column("city").unwrap().str().unwrap().get(0),
+            Some("santo domingo")
         );
         assert_eq!(active.history.entries.len(), 2);
     }

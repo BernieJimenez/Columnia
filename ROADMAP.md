@@ -1194,7 +1194,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   revertirse desde el historial.
 - [ ] Completar la migración del catálogo de limpieza sugerida: las reglas
   avanzadas que aún no tengan una acción reversible. Los identificadores y el
-  PII personal (correo, teléfono, dirección y nombre) ya tiene acciones de
+  PII personal (correo, teléfono, dirección y nombre) ya tienen acciones de
   retiro y protección explícitas y confirmadas. La
   eliminación difusa ya tiene una primera acción implementada: confirma el
   impacto agregado, conserva la primera fila/orden y las copias exactas, y
@@ -1209,8 +1209,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Migrar `selected_cleaning_operations` para que los aliases de las limpiezas
   deterministas se normalicen, se conserven en el informe de sesión y se
   reproduzcan desde la fuente en el orden fijo, incluyendo las estrategias IQR
-  `cap_outliers`, `impute_outliers` y `drop_outliers`; las operaciones sin equivalente
-  reversible permanecen como advertencias específicas para revisión manual.
+  `cap_outliers`, `impute_outliers`, `drop_outliers` y `mask_pii` en su modo
+  `mask` conservador; los modos hash/clave explícita y las operaciones sin
+  equivalente reversible permanecen como advertencias específicas para revisión manual.
 - [x] Añadir una visualización accesible de distribución numérica tipo boxplot
   usando mínimo, cuartiles, mediana y máximo, con tabla exacta equivalente.
 - [x] Añadir una primera visualización de histogramas numéricos por intervalos,
@@ -1743,7 +1744,8 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | P1 añade acciones IQR confirmables para limitar valores atípicos o eliminar las filas que excedan los límites, con historial reversible, impacto agregado y sin mostrar celdas; el inventario IPC pasa a 63 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts` |
 | 2026-08-29 | P1/M1 liga los perfiles cacheados del catálogo a la huella SHA-256 de `current.parquet`: al reabrir un proyecto se invalida solo la caché si cambia el snapshot, se conserva compatibilidad con catálogos anteriores y SQLite migra a v5 de forma transaccional. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `CONTEXTO.md` |
 | 2026-08-29 | M1 reproduce durante el fallback a la fuente las operaciones DataPrep deterministas `drop_duplicates`, `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`, `normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers`, `drop_outliers`, `normalize_booleans`, `normalize_columns` y `add_cambios_col`, en el orden fijo del registro y sin inventar parámetros; las eliminaciones de columnas conservan al menos una columna utilizable, `drop_empty_rows` conserva la semántica de filas completamente nulas, `impute_numeric` usa la mediana de columnas físicas después de normalizar centinelas y promueve a `Float64` si resulta fraccionaria, `trim_text` recorta espacios exteriores y protege `_cambios`, `normalize_text` colapsa espacios, pasa a minúsculas y retira acentos, `cast_numeric` exige más de 90% de valores numéricos y rechaza conversiones con pérdida de precisión, las estrategias IQR cap/impute/drop usan al menos cuatro valores numéricos válidos y `drop_outliers` elimina una fila si cualquier columna numérica excede sus límites, `normalize_booleans` convierte solo vocabularios cerrados con ambos valores, `normalize_columns` aplica la resolución Unicode de nombres, `add_cambios_col` recupera la estructura reservada sin inventar anotaciones históricas y los snapshots compatibles siguen teniendo prioridad y no se reaplican. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
-| 2026-08-29 | M1/P1 migra `selected_cleaning_operations` mediante aliases canónicos: `normalize_text` y las demás limpiezas deterministas entran al replay desde la fuente y al informe de sesión; una operación sin equivalente reversible, como `mask_pii`, conserva una advertencia específica y no se ejecuta silenciosamente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | M1/P1 migra `selected_cleaning_operations` mediante aliases canónicos: `normalize_text` y las demás limpiezas deterministas entran al replay desde la fuente y al informe de sesión; las operaciones avanzadas sin equivalente reversible conservan una advertencia específica y no se ejecutan silenciosamente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | M1/P1 incorpora `mask_pii` al replay seguro de sesiones DataPrep: sin snapshot compatible se aplica solo la máscara predeterminada y conservadora `[REDACTED]` sobre columnas personales detectadas, preservando nulos, columnas no personales y `_cambios`; los snapshots mantienen prioridad y los modos hash/clave explícita no se inventan. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 

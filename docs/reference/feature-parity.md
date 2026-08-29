@@ -557,7 +557,7 @@ del último output local ya está cubierta por Entregar con revalidación en Rus
 La migración tiene dos capas distintas:
 
 1. **Paridad funcional:** ya existe una primera slice de calidad v3, pero todavía
-   faltan el catálogo completo de limpieza
+   faltan reglas avanzadas del catálogo de limpieza
    sugerida, la optimización global del plan y el análisis exploratorio
    (distribuciones, correlaciones, grupos, nulos, centinelas, casi duplicados,
    series temporales completas), la severidad y las políticas de calidad que
@@ -569,7 +569,9 @@ La migración tiene dos capas distintas:
    JSON de reglas de calidad de DataPrep v1–v3, guarda el documento canónico
    Columnia v1 y produce una conversión segura con informe de omitidas. Los
    manifiestos de sesión dejan un resumen estructural sin rutas ni snapshots
-   activables. Una fixture representativa ya verifica fallback a fuente,
+   activables. `mask_pii` ya se representa y se reproduce en fallback como
+   máscara local predeterminada y conservadora; los modos hash/clave explícita
+   siguen requiriendo revisión. Una fixture representativa ya verifica fallback a fuente,
    metadatos de hoja/etapa, operaciones deterministas, reglas y artefactos no
    portables sin copiar valores; la restauración completa de sesiones y el
    round-trip con snapshots de libro e historiales representativos siguen

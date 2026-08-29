@@ -7085,6 +7085,7 @@ fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
         "impute_outliers" | "impute_outlier_values" => Some("impute_outliers"),
         "drop_outliers" | "remove_outliers" => Some("drop_outliers"),
         "normalize_booleans" | "normalize_boolean_values" => Some("normalize_booleans"),
+        "mask_pii" | "mask_personal_data" | "mask_personal_values" => Some("mask_pii"),
         "normalize_columns" | "normalize_column_names" => Some("normalize_columns"),
         "add_cambios_col" | "enable_row_audit" => Some("add_cambios_col"),
         _ => None,
@@ -17729,6 +17730,7 @@ impl DatasetState {
             "impute_outliers",
             "drop_outliers",
             "normalize_booleans",
+            "mask_pii",
             "normalize_columns",
             "add_cambios_col",
         ] {
@@ -17799,6 +17801,16 @@ impl DatasetState {
                     apply_dataprep_outlier_mode(&cleaned, DataprepOutlierMode::Drop)?
                 }
                 "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
+                "mask_pii" => {
+                    // DataPrep's default mode is ``mask``. The session
+                    // manifest does not carry a portable HMAC key, so only
+                    // the conservative local mask is replayed here; a
+                    // materialized snapshot remains the exact source of
+                    // truth whenever one is available.
+                    let (candidate, _, changed_cell_count) =
+                        mask_personal_values_from_frame(&cleaned)?;
+                    (candidate, 0, changed_cell_count, Vec::new())
+                }
                 "normalize_columns" => {
                     let (names, renames) = normalized_column_names(&cleaned);
                     if renames.is_empty() {
@@ -18264,14 +18276,14 @@ mod tests {
         assert_eq!(json["exportOptions"]["privacyMode"], "mask");
         assert_eq!(
             json["migrationReport"]["session"]["appliedOperations"],
-            serde_json::json!(["normalize_text"])
+            serde_json::json!(["normalize_text", "mask_pii"])
         );
         assert!(json["migrationReport"]["convertedOperations"]
             .as_array()
             .unwrap()
             .iter()
             .any(|value| value == "selected_cleaning_operations.normalize_text"));
-        assert!(json["migrationReport"]["omittedOperations"]
+        assert!(!json["migrationReport"]["omittedOperations"]
             .as_array()
             .unwrap()
             .iter()
