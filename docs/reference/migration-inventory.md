@@ -39,6 +39,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `cast_numeric` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para texto con más de 90% de valores numéricos; convierte a `Int64`/`Float64`, conserva nulos no convertibles y rechaza conversiones inseguras |
 | `normalize_booleans` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente cuando una columna de texto usa solo tokens booleanos conocidos y contiene ambos valores; se convierte al tipo booleano, sin modificar `_cambios` |
 | `normalize_columns` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con normalización Unicode y colisiones deterministas; se ejecuta antes de la receta estructural |
+| `add_cambios_col` | Acción directa de Preparar e importación de sesión | Reproduce la estructura reservada `_cambios` con estado inicial nulo; no reconstruye anotaciones históricas que no formen parte del snapshot |
 | `group_summary` | `groupSummary` | Convertida para agregaciones conocidas |
 | `normalize_contacts` | `contactNormalizations` | Convertida |
 | `extract_text` | `textExtractions` | Convertida |
@@ -126,7 +127,7 @@ Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,
 `fix_encoding`, `cast_numeric`,
-`normalize_booleans` y `normalize_columns` se reproducen como
+`normalize_booleans`, `normalize_columns` y `add_cambios_col` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de
 limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
 completamente nulas y no elimina por sí sola texto en blanco. Si existe un

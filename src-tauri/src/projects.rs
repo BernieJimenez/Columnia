@@ -2562,7 +2562,8 @@ mod tests {
                     "drop_constant_cols",
                     "drop_empty_cols",
                     "drop_id_cols",
-                    "drop_high_null_cols"
+                    "drop_high_null_cols",
+                    "add_cambios_col"
                 ],
                 "transform": {"rename_text": ""}
             }))
@@ -2581,7 +2582,10 @@ mod tests {
             .active_project_snapshot()
             .expect("el dataset estructural debe quedar activo");
 
-        assert_eq!(active.frame.get_column_names(), ["score", "name"]);
+        assert_eq!(
+            active.frame.get_column_names(),
+            ["score", "name", "_cambios"]
+        );
         assert_eq!(active.frame.height(), 6);
         assert_eq!(active.history.entries.len(), 2);
     }

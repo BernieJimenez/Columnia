@@ -17337,6 +17337,7 @@ impl DatasetState {
             "cast_numeric",
             "normalize_booleans",
             "normalize_columns",
+            "add_cambios_col",
         ] {
             if !applied_operations
                 .iter()
@@ -17404,6 +17405,10 @@ impl DatasetState {
                         })?;
                         (candidate, 0, renames.len(), Vec::new())
                     }
+                }
+                "add_cambios_col" => {
+                    let (candidate, added) = add_audit_column_to_frame(&cleaned)?;
+                    (candidate, 0, usize::from(added), Vec::new())
                 }
                 "impute_categorical" => impute_categorical_values_in_frame(&cleaned)?,
                 _ => unreachable!("operación determinista no registrada"),
