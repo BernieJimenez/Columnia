@@ -161,7 +161,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-       { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis" },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0 },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -186,7 +186,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.49.0", platform: "windows" });
 
     const dataset: DatasetPreview = {
-      fileName: "clientes.csv", fileSizeBytes: 96, rowCount: 1, columnCount: 1,
+      fileName: "clientes.csv", fileSizeBytes: 96, rowCount: 75, columnCount: 1,
       columns: [{ name: "email", dataType: "String" }], rows: [["ana@example.com"]],
     };
     const project: ProjectSummary = {
@@ -204,8 +204,12 @@ describe("App", () => {
     const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset,
-       workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview" },
+      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50 },
       profile: { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
+    });
+    const pageSpy = vi.spyOn(bridge, "getDatasetPage").mockResolvedValue({
+      offset: 50,
+      rows: [["lucia@example.com"]],
     });
     mockDatasetLoad(dataset);
 
@@ -219,7 +223,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-       { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis" },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0 },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
@@ -227,6 +231,9 @@ describe("App", () => {
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith(project.id));
     expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Vista previa" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("cell", { name: "lucia@example.com" })).toBeInTheDocument();
+    expect(screen.getByText(/Filas 51–51 de 75/)).toBeInTheDocument();
+    expect(pageSpy).toHaveBeenCalledWith(50, 50);
 
     await switchPhase("Entregar");
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("email");

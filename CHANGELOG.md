@@ -67,7 +67,9 @@ los artefactos de validación locales.
 - El workspace durable conserva la última vista de Revisar (`diagnosis` o
   `preview`) y la restaura al abrir el proyecto; los catálogos anteriores usan
   Diagnóstico por defecto y las vistas inválidas se rechazan sin reemplazar la
-  sesión activa. La migración SQLite pasa a v6.
+  sesión activa. También conserva el desplazamiento de la página visible de la
+  muestra, normaliza offsets inválidos y vuelve a la primera página si la página
+  guardada ya no está disponible. La migración SQLite pasa a v7.
 - Updater autenticado de Tauri 2 con consulta explícita, metadatos visibles,
   descarga con progreso/cancelación, instalación nativa y clave pública
   embebida; la frontera Rust rechaza versiones semver iguales, anteriores o

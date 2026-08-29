@@ -62,6 +62,14 @@ export function nextPageOffset(pageOffset: number): number {
   return pageOffset + PAGE_SIZE;
 }
 
+export function normalizePageOffset(pageOffset: number, rowCount: number): number {
+  if (!Number.isSafeInteger(pageOffset) || !Number.isSafeInteger(rowCount) || pageOffset <= 0 || rowCount <= 0) {
+    return 0;
+  }
+  const lastPageOffset = Math.floor((rowCount - 1) / PAGE_SIZE) * PAGE_SIZE;
+  return Math.min(Math.floor(pageOffset / PAGE_SIZE) * PAGE_SIZE, lastPageOffset);
+}
+
 export function pageRange(dataset: DatasetPreview, pageOffset: number) {
   const end = pageOffset + dataset.rows.length;
   return {

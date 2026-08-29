@@ -57,6 +57,7 @@ import {
   beginProfileAnalysis,
   completePageLoad,
   failPageLoad,
+  normalizePageOffset,
   requestProfileCancellation,
   updateProfileProgress,
   type ProfileStatus,
@@ -197,10 +198,21 @@ export function App() {
       recipeDraft,
       ...(sqlHistory.length > 0 ? { sqlHistory } : {}),
       reviewTab,
+      previewOffset: datasetStatus.kind === "ready" ? datasetStatus.pageOffset : 0,
     },
     onActiveProjectDeleted: () => setSqlHistory([]),
     onProjectOpened: async ({ dataset, workspace, profile }) => {
-      setDatasetStatus(createReadyDatasetStatus(dataset));
+      const initialDataset = createReadyDatasetStatus(dataset);
+      setDatasetStatus(initialDataset);
+      const previewOffset = normalizePageOffset(workspace.previewOffset ?? 0, dataset.rowCount);
+      if (previewOffset > 0) {
+        try {
+          const page = await getDatasetPage(previewOffset, PAGE_SIZE);
+          setDatasetStatus(completePageLoad(initialDataset, page));
+        } catch {
+          // El snapshot sigue siendo válido; la muestra vuelve a su primera página.
+        }
+      }
       setLoadInspection({ kind: "idle" });
       setProfileStatus(profile ? { kind: "ready", profile } : { kind: "idle" });
       prepare.resetChangeStatus();

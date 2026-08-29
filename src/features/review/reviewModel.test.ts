@@ -9,6 +9,7 @@ import {
   completePageLoad,
   failPageLoad,
   nextPageOffset,
+  normalizePageOffset,
   pageRange,
   previousPageOffset,
   requestProfileCancellation,
@@ -30,6 +31,10 @@ describe("reviewModel", () => {
     expect(previousPageOffset(50)).toBe(0);
     expect(previousPageOffset(25)).toBe(0);
     expect(nextPageOffset(50)).toBe(100);
+    expect(normalizePageOffset(75, 120)).toBe(50);
+    expect(normalizePageOffset(999, 120)).toBe(100);
+    expect(normalizePageOffset(-1, 120)).toBe(0);
+    expect(normalizePageOffset(50, 50)).toBe(0);
     expect(pageRange(dataset, 50)).toEqual({ end: 52, hasPrevious: true, hasNext: true });
   });
 

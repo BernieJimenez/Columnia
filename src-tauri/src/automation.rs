@@ -1554,6 +1554,7 @@ pub fn project_save(
             recipe_draft,
             sql_history: Vec::new(),
             review_tab: Default::default(),
+            preview_offset: Default::default(),
         },
     )
     .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;

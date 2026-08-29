@@ -22,10 +22,11 @@ use crate::dataset::{
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const ID_LENGTH: usize = 32;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
+const PREVIEW_PAGE_SIZE: usize = 50;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +71,8 @@ pub struct ProjectWorkspace {
     pub sql_history: Vec<SqlQueryHistoryEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_offset: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -141,6 +144,7 @@ struct StoredProject {
     profile_cache_sha256: Option<String>,
     sql_history_json: String,
     review_tab: String,
+    preview_offset: i64,
 }
 
 struct ValidatedProject {
@@ -279,10 +283,11 @@ impl ProjectStore {
                            profile_json TEXT,
                            profile_cache_sha256 TEXT,
                            sql_history_json TEXT NOT NULL DEFAULT '[]',
-                           review_tab TEXT NOT NULL DEFAULT 'diagnosis'
+                            review_tab TEXT NOT NULL DEFAULT 'diagnosis',
+                            preview_offset INTEGER NOT NULL DEFAULT 0
                          );
-                         CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                          PRAGMA user_version = 6;",
+                          CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
+                          PRAGMA user_version = 7;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -301,8 +306,9 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
                           ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
-                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
-                          PRAGMA user_version = 6;",
+                           ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                           ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
+                           PRAGMA user_version = 7;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -318,8 +324,9 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN profile_json TEXT;
                          ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
                           ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
-                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
-                          PRAGMA user_version = 6;",
+                           ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                           ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
+                           PRAGMA user_version = 7;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -333,7 +340,8 @@ impl ProjectStore {
                         "ALTER TABLE projects ADD COLUMN sql_history_json TEXT NOT NULL DEFAULT '[]';
                          ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
-                         PRAGMA user_version = 6;",
+                         ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
+                         PRAGMA user_version = 7;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -345,8 +353,9 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN profile_cache_sha256 TEXT;
-                         ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
-                         PRAGMA user_version = 6;",
+                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
+                          ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
+                          PRAGMA user_version = 7;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -358,7 +367,20 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
-                         PRAGMA user_version = 6;",
+                         ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
+                         PRAGMA user_version = 7;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            6 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
+                         PRAGMA user_version = 7;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -442,6 +464,10 @@ impl ProjectStore {
         let sql_history_json = serde_json::to_string(&workspace.sql_history)
             .map_err(|_| "No se pudo validar la actividad SQL del proyecto.".to_owned())?;
         let review_tab = review_tab_label(workspace.review_tab.as_deref())?.to_owned();
+        let preview_offset = usize_to_i64(validate_preview_offset(
+            workspace.preview_offset,
+            active.row_count,
+        )?)?;
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -502,7 +528,7 @@ impl ProjectStore {
                  column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
                  quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
                   history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
-                  sql_history_json = ?13, review_tab = ?14 WHERE id = ?15",
+                   sql_history_json = ?13, review_tab = ?14, preview_offset = ?15 WHERE id = ?16",
                 params![
                     name,
                     active.file_name,
@@ -518,6 +544,7 @@ impl ProjectStore {
                     profile_cache_sha256,
                     sql_history_json,
                     review_tab,
+                    preview_offset,
                     id
                 ],
             )
@@ -527,8 +554,8 @@ impl ProjectStore {
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
                    generation_name, history_manifest_json, profile_json, profile_cache_sha256,
-                   sql_history_json, review_tab)
-                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                    sql_history_json, review_tab, preview_offset)
+                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     id,
                     name,
@@ -544,7 +571,8 @@ impl ProjectStore {
                     profile_json,
                     profile_cache_sha256,
                     sql_history_json,
-                    review_tab
+                    review_tab,
+                    preview_offset
                 ],
             )
         };
@@ -713,7 +741,7 @@ impl ProjectStore {
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at,
                         updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
                         generation_name, history_manifest_json, profile_json,
-                        profile_cache_sha256, sql_history_json, review_tab
+                         profile_cache_sha256, sql_history_json, review_tab, preview_offset
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -728,6 +756,7 @@ impl ProjectStore {
                         profile_cache_sha256: row.get(13)?,
                         sql_history_json: row.get(14)?,
                         review_tab: row.get(15)?,
+                        preview_offset: row.get(16)?,
                     })
                 },
             )
@@ -936,11 +965,13 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         .map_err(|_| "La actividad SQL guardada del proyecto no es válida.".to_owned())?;
     validate_sql_query_history(&sql_history)?;
     let review_tab = parse_review_tab(&stored.review_tab)?;
+    let preview_offset = parse_preview_offset(stored.preview_offset, stored.summary.row_count);
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
         sql_history,
         review_tab,
+        preview_offset,
     })
 }
 
@@ -955,6 +986,24 @@ fn review_tab_label(tab: Option<&str>) -> Result<&'static str, String> {
 fn parse_review_tab(value: &str) -> Result<Option<String>, String> {
     let label = review_tab_label(Some(value))?;
     Ok((label == "preview").then(|| label.to_owned()))
+}
+
+fn validate_preview_offset(offset: Option<usize>, row_count: usize) -> Result<usize, String> {
+    let offset = offset.unwrap_or(0);
+    if offset == 0 {
+        return Ok(0);
+    }
+    if row_count == 0 || !offset.is_multiple_of(PREVIEW_PAGE_SIZE) || offset >= row_count {
+        return Err("La página guardada de la vista previa no es válida.".to_owned());
+    }
+    Ok(offset)
+}
+
+fn parse_preview_offset(value: i64, row_count: usize) -> Option<usize> {
+    let offset = usize::try_from(value).ok()?;
+    validate_preview_offset(Some(offset), row_count)
+        .ok()
+        .filter(|offset| *offset > 0)
 }
 
 fn validate_sql_query_history(entries: &[SqlQueryHistoryEntry]) -> Result<(), String> {
@@ -1336,6 +1385,7 @@ fn import_dataprep_session_project_from_path(
             recipe_draft: Some(plan.recipe),
             sql_history: Vec::new(),
             review_tab: Default::default(),
+            preview_offset: Default::default(),
         },
     )
 }
@@ -1710,7 +1760,7 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         drop(store);
-        ProjectStore::initialize(root).expect("reabrir v6 debe ser idempotente");
+        ProjectStore::initialize(root).expect("reabrir v7 debe ser idempotente");
     }
 
     #[test]
@@ -1752,6 +1802,36 @@ mod tests {
         assert!(columns.contains(&"profile_cache_sha256".to_owned()));
         assert!(columns.contains(&"sql_history_json".to_owned()));
         assert!(columns.contains(&"review_tab".to_owned()));
+        assert!(columns.contains(&"preview_offset".to_owned()));
+    }
+
+    #[test]
+    fn migration_from_v6_adds_preview_offset_without_requiring_dataset_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data-v6");
+        fs::create_dir_all(&root).unwrap();
+        Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                 PRAGMA user_version = 6;",
+            )
+            .unwrap();
+
+        let store = ProjectStore::initialize(root).unwrap();
+        let connection = store.connection().unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let columns = connection
+            .prepare("PRAGMA table_info(projects)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"preview_offset".to_owned()));
     }
 
     #[test]
@@ -1761,7 +1841,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 7;")
+            .execute_batch("PRAGMA user_version = 8;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -1798,6 +1878,30 @@ mod tests {
         let result = reopened.open(&DatasetState::default(), project.id).unwrap();
         assert_eq!(result.workspace, expected);
         assert_eq!(result.dataset.file_name, "input.csv");
+    }
+
+    #[test]
+    fn preview_page_offset_roundtrips_only_when_it_matches_a_real_page() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let values = (0..100).collect::<Vec<_>>();
+        let (state, _) = active_state(directory.path(), &values, "paged.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Dataset paginado".to_owned(),
+                ProjectWorkspace {
+                    preview_offset: Some(50),
+                    ..ProjectWorkspace::default()
+                },
+            )
+            .unwrap();
+
+        let opened = store
+            .open(&DatasetState::default(), project.id)
+            .expect("el proyecto paginado debe reabrirse");
+        assert_eq!(opened.workspace.preview_offset, Some(50));
     }
 
     #[test]
@@ -2154,6 +2258,7 @@ mod tests {
                 })
                 .collect(),
             review_tab: Default::default(),
+            preview_offset: Default::default(),
         };
         assert!(store
             .save(
@@ -2175,6 +2280,18 @@ mod tests {
                 Some(created.id.clone()),
                 "No publicado".to_owned(),
                 invalid_review_tab,
+            )
+            .is_err());
+        let invalid_preview_offset = ProjectWorkspace {
+            preview_offset: Some(50),
+            ..ProjectWorkspace::default()
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_preview_offset,
             )
             .is_err());
         assert_eq!(store.list().unwrap(), vec![created]);

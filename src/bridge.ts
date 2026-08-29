@@ -716,6 +716,7 @@ export interface ProjectWorkspace {
   recipeDraft: SavedRecipe | null;
   sqlHistory?: SqlQueryHistoryEntry[];
   reviewTab?: ProjectReviewTab;
+  previewOffset?: number;
 }
 
 export type ProjectReviewTab = "diagnosis" | "preview";

@@ -1310,9 +1310,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   restauran sus últimas cinco ejecuciones agregadas, sin guardar la consulta,
   rutas ni valores; la caché derivada del perfil queda ligada por SHA-256 al
   `current.parquet` durable y se invalida si cambia el snapshot. La vista activa
-  de Revisar (`diagnosis`/`preview`) ya se conserva en el workspace durable con
-  fallback seguro para catálogos anteriores; las muestras de análisis y otras
-  preferencias de sesión siguen pendientes.
+  de Revisar (`diagnosis`/`preview`) y el desplazamiento de la página visible de
+  la muestra ya se conservan en el workspace durable con fallback seguro para
+  catálogos anteriores; las muestras de análisis y otras preferencias de sesión
+  siguen pendientes.
   La apertura segura del último output local ya está implementada desde Entregar
   con revalidación en Rust y sin transportar rutas por IPC.
   El modelo durable de proyectos de Columnia se conserva como reemplazo de la

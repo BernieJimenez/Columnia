@@ -536,6 +536,7 @@ describe("desktop bridge", () => {
       qualityRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
       recipeDraft: null,
       reviewTab: "preview",
+      previewOffset: 50,
     };
     vi.mocked(invoke).mockResolvedValue({ id: "project-1", name: "Ventas" });
 
