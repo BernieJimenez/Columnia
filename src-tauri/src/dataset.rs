@@ -5640,6 +5640,103 @@ fn impute_outlier_values_in_frame(
     ))
 }
 
+#[derive(Clone, Copy)]
+enum DataprepOutlierMode {
+    Cap,
+    Drop,
+}
+
+fn apply_dataprep_outlier_mode(
+    frame: &DataFrame,
+    mode: DataprepOutlierMode,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut candidate = frame.clone();
+    let mut drop_mask = vec![false; frame.height()];
+    let mut affected_row_count = 0;
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios" || !matches!(column.dtype(), DataType::Int64 | DataType::Float64) {
+            continue;
+        }
+
+        let values = physical_numeric_values(column)?;
+        let mut observed = values.iter().flatten().copied().collect::<Vec<_>>();
+        if observed.len() < 4 {
+            continue;
+        }
+        observed.sort_by(f64::total_cmp);
+        let q1 = outlier_linear_quantile(&observed, 0.25);
+        let q3 = outlier_linear_quantile(&observed, 0.75);
+        let iqr = q3 - q1;
+        let lower = q1 - 1.5 * iqr;
+        let upper = q3 + 1.5 * iqr;
+        if ![q1, q3, iqr, lower, upper].into_iter().all(f64::is_finite) {
+            return Err(format!(
+                "Los umbrales IQR de '{name}' exceden el rango numérico finito."
+            ));
+        }
+
+        let mut column_changes = 0;
+        match mode {
+            DataprepOutlierMode::Cap => {
+                let transformed = values
+                    .into_iter()
+                    .map(|value| {
+                        value.map(|value| {
+                            let capped = value.clamp(lower, upper);
+                            if capped != value {
+                                column_changes += 1;
+                                changed_cell_count += 1;
+                            }
+                            capped
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if column_changes > 0 {
+                    candidate
+                        .replace(&name, Column::new(name.clone().into(), transformed))
+                        .map_err(|error| format!("No se pudo limitar '{name}': {error}"))?;
+                }
+            }
+            DataprepOutlierMode::Drop => {
+                for (row, value) in values.into_iter().enumerate() {
+                    if value.is_some_and(|value| value < lower || value > upper) {
+                        drop_mask[row] = true;
+                        column_changes += 1;
+                    }
+                }
+                changed_cell_count += column_changes;
+            }
+        }
+        if column_changes > 0 {
+            changed_columns.push(ChangedTextColumn {
+                name,
+                changed_cell_count: column_changes,
+            });
+        }
+    }
+
+    if matches!(mode, DataprepOutlierMode::Drop) {
+        affected_row_count = drop_mask.iter().filter(|drop| **drop).count();
+        if affected_row_count > 0 {
+            let keep = drop_mask.iter().map(|drop| !drop).collect::<Vec<_>>();
+            candidate = candidate
+                .filter(&BooleanChunked::from_slice("outliers".into(), &keep))
+                .map_err(|error| format!("No se pudieron retirar filas atípicas: {error}"))?;
+        }
+    }
+
+    Ok((
+        candidate,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
 fn safe_corrected_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ColumnRename>), String> {
@@ -6909,6 +7006,9 @@ fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
         "normalize_text" | "normalize_text_values" => Some("normalize_text"),
         "fix_encoding" | "repair_encoding" => Some("fix_encoding"),
         "cast_numeric" | "cast_numeric_columns" => Some("cast_numeric"),
+        "cap_outliers" | "cap_outlier_values" => Some("cap_outliers"),
+        "impute_outliers" | "impute_outlier_values" => Some("impute_outliers"),
+        "drop_outliers" | "remove_outliers" => Some("drop_outliers"),
         "normalize_booleans" | "normalize_boolean_values" => Some("normalize_booleans"),
         "normalize_columns" | "normalize_column_names" => Some("normalize_columns"),
         "add_cambios_col" | "enable_row_audit" => Some("add_cambios_col"),
@@ -17476,6 +17576,9 @@ impl DatasetState {
             "normalize_text",
             "fix_encoding",
             "cast_numeric",
+            "cap_outliers",
+            "impute_outliers",
+            "drop_outliers",
             "normalize_booleans",
             "normalize_columns",
             "add_cambios_col",
@@ -17541,6 +17644,11 @@ impl DatasetState {
                     },
                 )?,
                 "cast_numeric" => cast_dataprep_numeric_columns(&cleaned)?,
+                "cap_outliers" => apply_dataprep_outlier_mode(&cleaned, DataprepOutlierMode::Cap)?,
+                "impute_outliers" => impute_outlier_values_in_frame(&cleaned)?,
+                "drop_outliers" => {
+                    apply_dataprep_outlier_mode(&cleaned, DataprepOutlierMode::Drop)?
+                }
                 "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
                 "normalize_columns" => {
                     let (names, renames) = normalized_column_names(&cleaned);

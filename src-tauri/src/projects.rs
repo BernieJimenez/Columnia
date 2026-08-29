@@ -2580,6 +2580,70 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_replays_outlier_modes_with_dataprep_iqr_semantics() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "amount\n1\n2\n3\n4\n100\n").unwrap();
+
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Cap de outliers reproducible",
+                "source_path": "source.csv",
+                "selected_cleaning_operations": ["cast_numeric", "cap_outlier_values"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let capped = import_dataprep_session_project_from_path(&store, &session, None, None, None)
+            .expect("el cap de outliers debe poder reproducirse desde la fuente");
+        let capped_state = DatasetState::default();
+        store.open(&capped_state, capped.id).unwrap();
+        let capped_frame = capped_state.active_project_snapshot().unwrap().frame;
+        assert_eq!(capped_frame.height(), 5);
+        assert_eq!(
+            capped_frame.column("amount").unwrap().dtype(),
+            &DataType::Float64
+        );
+        assert_eq!(
+            capped_frame.column("amount").unwrap().f64().unwrap().get(4),
+            Some(7.0)
+        );
+
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Drop de outliers reproducible",
+                "source_path": "source.csv",
+                "applied_ops": ["cast_numeric", "remove_outliers"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let dropped = import_dataprep_session_project_from_path(&store, &session, None, None, None)
+            .expect("el drop de outliers debe poder reproducirse desde la fuente");
+        let dropped_state = DatasetState::default();
+        store.open(&dropped_state, dropped.id).unwrap();
+        let dropped_frame = dropped_state.active_project_snapshot().unwrap().frame;
+        assert_eq!(dropped_frame.height(), 4);
+        assert_eq!(
+            dropped_frame
+                .column("amount")
+                .unwrap()
+                .i64()
+                .unwrap()
+                .get(3),
+            Some(4)
+        );
+    }
+
+    #[test]
     fn dataprep_session_replays_structural_cleaning_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
