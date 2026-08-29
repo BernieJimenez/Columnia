@@ -1080,6 +1080,8 @@ pub struct SessionMigrationMetadata {
     applied_operations: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     analysis_checks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    non_portable_artifacts: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -6885,9 +6887,57 @@ fn migration_session_field<'a>(
         })
 }
 
+fn migration_session_artifact_names(root: &JsonMap<String, JsonValue>) -> Vec<String> {
+    let session = root.get("session").and_then(JsonValue::as_object);
+    let fields: [(&str, &[&str]); 3] = [
+        (
+            "analysis_results",
+            &[
+                "analysis_results",
+                "analysisResults",
+                "analysis_result",
+                "analysisResult",
+            ],
+        ),
+        (
+            "history",
+            &["history", "execution_history", "executionHistory"],
+        ),
+        (
+            "caches",
+            &[
+                "cache",
+                "cache_path",
+                "cachePath",
+                "cache_dir",
+                "cacheDir",
+                "cached_derived",
+                "cachedDerived",
+            ],
+        ),
+    ];
+    let mut artifacts = fields
+        .iter()
+        .filter_map(|(name, aliases)| {
+            aliases
+                .iter()
+                .any(|key| {
+                    root.get(*key)
+                        .or_else(|| session.and_then(|map| map.get(*key)))
+                        .is_some_and(|value| !value.is_null())
+                })
+                .then_some((*name).to_owned())
+        })
+        .collect::<Vec<_>>();
+    artifacts.sort();
+    artifacts.dedup();
+    artifacts
+}
+
 fn migration_session_metadata(
     root: &JsonMap<String, JsonValue>,
 ) -> Result<Option<SessionMigrationMetadata>, String> {
+    let non_portable_artifacts = migration_session_artifact_names(root);
     let has_session_fields = [
         "source_path",
         "snapshot_path",
@@ -6898,7 +6948,8 @@ fn migration_session_metadata(
         "analysis_checks",
     ]
     .iter()
-    .any(|key| migration_session_field(root, key).is_some_and(|value| !value.is_null()));
+    .any(|key| migration_session_field(root, key).is_some_and(|value| !value.is_null()))
+        || !non_portable_artifacts.is_empty();
     if !has_session_fields {
         return Ok(None);
     }
@@ -6991,6 +7042,7 @@ fn migration_session_metadata(
         analysis_check_count,
         applied_operations: metadata_names("applied_ops")?,
         analysis_checks: metadata_names("analysis_checks")?,
+        non_portable_artifacts,
     }))
 }
 
@@ -7482,6 +7534,15 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
                 "El metadato de sesión requiere revisión manual y no se aplica automáticamente a la receta Columnia.",
             ));
         }
+    }
+    for artifact in migration_session_artifact_names(root) {
+        let path = format!("session.{artifact}");
+        push_migration_operation(&mut omitted_operations, &path);
+        warnings.push(recipe_migration_warning(
+            &path,
+            "omitted",
+            "El artefacto de sesión no forma parte del contrato portable y debe regenerarse en Columnia.",
+        ));
     }
     if let Some(applied_ops) = migration_session_field(root, "applied_ops") {
         let count = applied_ops
@@ -17927,6 +17988,47 @@ mod tests {
         assert!(!json.to_string().contains("fixture://"));
         assert!(!json.to_string().contains("ventas-sinteticas.csv"));
         assert_eq!(json["recipe"]["renames"][0]["to"], "new_name");
+    }
+
+    #[test]
+    fn reports_non_portable_dataprep_artifacts_without_copying_their_contents() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("session-artifacts.json");
+        let source = serde_json::json!({
+            "version": 1,
+            "name": "Sesión con artefactos externos",
+            "analysis_results": {"private_column": ["no debe copiarse"]},
+            "executionHistory": [{"query": "no debe copiarse"}],
+            "cachePath": "profile-cache.json",
+            "transform": {"rename_text": ""}
+        });
+        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
+
+        let loaded = load_recipe_file(&path).expect("la sesión debe poder inspeccionarse");
+        let json = serde_json::to_value(&loaded).expect("la sesión debe serializarse");
+        assert_eq!(
+            json["migrationReport"]["session"]["nonPortableArtifacts"],
+            serde_json::json!(["analysis_results", "caches", "history"])
+        );
+        assert!(json["migrationReport"]["omittedOperations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "session.analysis_results"));
+        assert!(json["migrationReport"]["omittedOperations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "session.history"));
+        assert!(json["migrationReport"]["omittedOperations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "session.caches"));
+        let serialized = json.to_string();
+        assert!(!serialized.contains("private_column"));
+        assert!(!serialized.contains("no debe copiarse"));
+        assert!(!serialized.contains("profile-cache.json"));
     }
 
     #[test]

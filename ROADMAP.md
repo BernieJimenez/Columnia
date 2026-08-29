@@ -1384,8 +1384,10 @@ del original.
   resulta fraccionaria, `trim_text` recorta
   espacios exteriores y protege `_cambios`, `normalize_booleans` exige un
   vocabulario cerrado con ambos valores y `normalize_columns` conserva la
-  resolución Unicode de nombres; todavía no restaura resultados de análisis originales,
-  cachés reanudables ni snapshots históricos que el artefacto no contiene.
+  resolución Unicode de nombres; el preflight clasifica como no portables los
+  bloques reconocibles de resultados, historial y cachés sin copiar su contenido;
+  todavía no restaura resultados de análisis originales, cachés reanudables ni
+  snapshots históricos que el artefacto no contiene.
 - [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
   con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
   colisiones de nombres antes de escribir cualquier snapshot.

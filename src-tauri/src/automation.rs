@@ -301,6 +301,8 @@ pub struct SessionMigrationSessionOutput {
     applied_operations: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     analysis_checks: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    non_portable_artifacts: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -1086,6 +1088,7 @@ pub fn session_migration_report(
             analysis_check_count: serialized_usize(session_metadata, "analysisCheckCount"),
             applied_operations: serialized_strings(session_metadata, "appliedOperations"),
             analysis_checks: serialized_strings(session_metadata, "analysisChecks"),
+            non_portable_artifacts: serialized_strings(session_metadata, "nonPortableArtifacts"),
         },
         recipe_summary,
         quality: quality_summary,
@@ -3080,6 +3083,9 @@ mod tests {
                 "applied_ops": [{"kind": "filter"}],
                 "quality_rules": [{"kind": "not_null", "column": "private-email"}],
                 "analysis_checks": {"duplicates": {}, "outliers": {}},
+                "analysis_results": {"private-value": "secret"},
+                "history": [{"command": "secret-history"}],
+                "cache_dir": "private-cache",
                 "transform": {
                     "rename_text": "value -> amount",
                     "filters": [{"col": "amount", "op": ">", "val": "0"}]
@@ -3108,6 +3114,10 @@ mod tests {
             report.session.analysis_checks,
             vec!["duplicates", "outliers"]
         );
+        assert_eq!(
+            report.session.non_portable_artifacts,
+            vec!["analysis_results", "caches", "history"]
+        );
         assert_eq!(report.recipe_summary.operation_count, 2);
         assert_eq!(report.quality.total_rules, 1);
         assert_eq!(report.quality.converted_rules, 1);
@@ -3118,6 +3128,9 @@ mod tests {
         assert!(!serde_json::to_string(&report)
             .unwrap()
             .contains(session.to_string_lossy().as_ref()));
+        assert!(!serde_json::to_string(&report)
+            .unwrap()
+            .contains("secret-history"));
 
         let sanitized = sanitized_output(&report);
         assert_eq!(sanitized["command"], "session-migration-report");
@@ -3129,6 +3142,7 @@ mod tests {
         assert!(!sanitized.to_string().contains("source.csv"));
         assert!(!sanitized.to_string().contains("snapshot.csv"));
         assert!(!sanitized.to_string().contains("private-email"));
+        assert!(!sanitized.to_string().contains("secret-history"));
         assert!(!sanitized
             .to_string()
             .contains(session.to_string_lossy().as_ref()));

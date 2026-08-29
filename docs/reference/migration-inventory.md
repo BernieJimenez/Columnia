@@ -123,6 +123,10 @@ hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
 límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
 no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
 se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas.
+Si el manifiesto trae bloques reconocibles de resultados, historial o caché,
+el informe los clasifica como `analysis_results`, `history` o `caches` no
+portables; solo conserva esos nombres de categoría y una acción manual, nunca
+su contenido ni la referencia de archivo.
 Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `trim_text`,

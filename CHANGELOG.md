@@ -22,6 +22,9 @@ los artefactos de validación locales.
   cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible
   conserva prioridad para evitar reaplicar operaciones sobre un estado
   materializado.
+- El preflight de sesiones DataPrep clasifica bloques reconocibles de resultados,
+  historial y cachés como artefactos no portables, conservando solo sus categorías
+  sanitizadas y una acción manual; no copia contenido ni rutas de esos artefactos.
 - Benchmark reproducible de datasets grandes dentro de WebView2: `perf:webview2`
   genera un CSV temporal de 100 MiB y verifica selección nativa, carga,
   paginación, transformación y exportación con evidencia agregada de duración,
