@@ -37,8 +37,9 @@ los artefactos de validación locales.
   nulos y objetivos `Date`/`Datetime`; `Iso8601`, zonas horarias y operaciones
   avanzadas conservan el fallback eager seguro.
 - Los tratamientos IQR aislados de recetas (`cap`, `impute` y `drop`) ahora
-  pueden ejecutarse en lazy/streaming con conteos exactos de celdas y filas;
-  las recetas que alteran datos antes del cálculo conservan fallback eager.
+  pueden ejecutarse en lazy/streaming con conteos exactos de celdas y filas,
+  calculando sus umbrales después de filtros previos; las etapas que alteran
+  valores antes del cálculo conservan fallback eager.
 - Las recetas lazy pueden combinar parseos de fecha con conversiones en columnas
   distintas, y también dividir y combinar columnas en la misma ejecución; las
   dependencias incompatibles, como descartar antes una fuente que aún necesita
