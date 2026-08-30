@@ -435,7 +435,7 @@ impl QualityValidationResult {
     }
 }
 
-fn send_progress(
+pub(crate) fn send_progress(
     channel: &Channel<OperationProgress>,
     operation: &'static str,
     stage: &'static str,
@@ -1327,11 +1327,18 @@ impl HistoryManager {
         Ok(manager)
     }
 
-    fn from_imported_frames(
+    fn from_imported_frames_with_progress<F, C>(
         entries: &[(String, DataFrame)],
         cursor: usize,
         current_frame: &DataFrame,
-    ) -> Result<Self, String> {
+        mut report: F,
+        is_cancelled: C,
+    ) -> Result<Self, String>
+    where
+        F: FnMut(&'static str, u8),
+        C: Fn() -> bool,
+    {
+        ensure_not_cancelled(is_cancelled())?;
         if entries.is_empty() || entries.len() > HISTORY_MAX_ENTRIES || cursor >= entries.len() {
             return Err("El historial importado supera los límites admitidos.".to_owned());
         }
@@ -1345,6 +1352,11 @@ impl HistoryManager {
         let mut history_entries = Vec::with_capacity(entries.len());
         let mut total_bytes = 0_u64;
         for (index, (label, frame)) in entries.iter().enumerate() {
+            ensure_not_cancelled(is_cancelled())?;
+            report(
+                "Restaurando historial",
+                ((index + 1) * 100 / entries.len()) as u8,
+            );
             validate_history_label(label)?;
             let temporary = tempfile::NamedTempFile::new_in(directory.path()).map_err(|_| {
                 "No se pudo preparar un snapshot del historial importado.".to_owned()
@@ -1383,6 +1395,7 @@ impl HistoryManager {
                 bytes,
             });
         }
+        ensure_not_cancelled(is_cancelled())?;
         Ok(Self {
             directory,
             entries: history_entries,
@@ -1620,6 +1633,7 @@ pub struct DatasetState {
     profile_generation: AtomicU64,
     export_generation: AtomicU64,
     query_generation: AtomicU64,
+    migration_generation: AtomicU64,
 }
 
 impl DatasetState {
@@ -1660,6 +1674,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    pub(crate) fn begin_migration(&self) -> u64 {
+        self.migration_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn load_was_cancelled(&self, generation: u64) -> bool {
         self.load_generation.load(Ordering::SeqCst) != generation
     }
@@ -1674,6 +1694,10 @@ impl DatasetState {
 
     fn query_was_cancelled(&self, generation: u64) -> bool {
         self.query_generation.load(Ordering::SeqCst) != generation
+    }
+
+    pub(crate) fn migration_was_cancelled(&self, generation: u64) -> bool {
+        self.migration_generation.load(Ordering::SeqCst) != generation
     }
 
     fn remember_last_export(&self, path: PathBuf) {
@@ -1696,6 +1720,7 @@ impl DatasetState {
             "profile" => &self.profile_generation,
             "export" => &self.export_generation,
             "query" => &self.query_generation,
+            "migration" => &self.migration_generation,
             _ => return Err("La operación indicada no admite cancelación.".to_owned()),
         };
         generation.fetch_add(1, Ordering::SeqCst);
@@ -15177,6 +15202,39 @@ where
     C: Fn() -> bool + Sync,
 {
     ensure_not_cancelled(is_cancelled())?;
+    let current_order_column = (0..)
+        .map(|suffix| {
+            if suffix == 0 {
+                "__columnia_join_current_order".to_owned()
+            } else {
+                format!("__columnia_join_current_order_{suffix}")
+            }
+        })
+        .find(|candidate| {
+            current.get_column_index(candidate).is_none()
+                && compared.get_column_index(candidate).is_none()
+        })
+        .ok_or_else(|| "No se pudo preparar el orden interno del JOIN local.".to_owned())?;
+    let compared_order_column = (0..)
+        .map(|suffix| {
+            if suffix == 0 {
+                "__columnia_join_compared_order".to_owned()
+            } else {
+                format!("__columnia_join_compared_order_{suffix}")
+            }
+        })
+        .find(|candidate| {
+            candidate != &current_order_column
+                && current.get_column_index(candidate).is_none()
+                && compared.get_column_index(candidate).is_none()
+        })
+        .ok_or_else(|| "No se pudo preparar el orden interno del JOIN local.".to_owned())?;
+    let current = current
+        .with_row_index(current_order_column.clone().into(), None)
+        .map_err(|error| format!("No se pudo preparar el orden del JOIN local: {error}"))?;
+    let compared = compared
+        .with_row_index(compared_order_column.clone().into(), None)
+        .map_err(|error| format!("No se pudo preparar el orden del JOIN local: {error}"))?;
     let left_on = current_keys.iter().map(col).collect::<Vec<_>>();
     let right_on = compared_keys.iter().map(col).collect::<Vec<_>>();
     let mut join_args =
@@ -15185,8 +15243,22 @@ where
     let plan = current
         .clone()
         .lazy()
-        .join(compared.clone().lazy(), left_on, right_on, join_args);
-    let joined = collect_lazy_frame_streaming(plan, "No se pudieron unir los datasets por clave")?;
+        .join(compared.clone().lazy(), left_on, right_on, join_args)
+        .sort(
+            [
+                current_order_column.as_str(),
+                compared_order_column.as_str(),
+            ],
+            SortMultipleOptions::default(),
+        );
+    let mut joined =
+        collect_lazy_frame_streaming(plan, "No se pudieron unir los datasets por clave")?;
+    joined
+        .drop_in_place(current_order_column.as_str())
+        .map_err(|error| format!("No se pudo retirar el orden interno del JOIN local: {error}"))?;
+    joined
+        .drop_in_place(compared_order_column.as_str())
+        .map_err(|error| format!("No se pudo retirar el orden interno del JOIN local: {error}"))?;
     ensure_not_cancelled(is_cancelled())?;
     if joined.height() > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
         return Err(format!(
@@ -20487,6 +20559,21 @@ pub(crate) fn load_dataset_for_automation(
     sheet_name: Option<&str>,
     header_mode: Option<SpreadsheetHeaderMode>,
 ) -> Result<(DataFrame, DatasetPreview), String> {
+    load_dataset_for_automation_with_progress(input, sheet_name, header_mode, |_, _| {}, || false)
+}
+
+pub(crate) fn load_dataset_for_automation_with_progress<F, C>(
+    input: &Path,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview), String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let (canonical, _, extension) = validate_dataset_file(input)?;
     if spreadsheet_extensions(&extension) {
         let sheet_name = sheet_name.ok_or_else(|| "Selecciona una hoja del libro.".to_owned())?;
@@ -20495,6 +20582,9 @@ pub(crate) fn load_dataset_for_automation(
         if sheet_name.is_empty() {
             return Err("La hoja seleccionada no es válida.".to_owned());
         }
+        report("Validando archivo", 10);
+        ensure_not_cancelled(is_cancelled())?;
+        report("Leyendo y detectando columnas", 25);
         let available_sheets = inspect_workbook(&canonical)?;
         if available_sheets
             .iter()
@@ -20505,13 +20595,16 @@ pub(crate) fn load_dataset_for_automation(
             return Err("La hoja seleccionada no existe de forma única en el libro.".to_owned());
         }
         let frame = load_spreadsheet_sheet(&canonical, sheet_name, header_mode)?;
+        ensure_not_cancelled(is_cancelled())?;
+        report("Preparando vista previa", 85);
         let preview = dataset_preview(&canonical, &frame)?;
+        report("Preparando sesión", 95);
         Ok((frame, preview))
     } else {
         if sheet_name.is_some() || header_mode.is_some() {
             return Err("Este formato no utiliza selección de hoja ni encabezado.".to_owned());
         }
-        load_dataset_with_progress(&canonical, |_, _| {}, || false)
+        load_dataset_with_progress(&canonical, report, is_cancelled)
     }
 }
 
@@ -20981,11 +21074,17 @@ impl DatasetState {
         })
     }
 
-    pub(crate) fn install_project_import_history(
+    pub(crate) fn install_project_import_history_with_progress<F, C>(
         &self,
         entries: &[(String, DataFrame)],
         cursor: usize,
-    ) -> Result<(), String> {
+        report: F,
+        is_cancelled: C,
+    ) -> Result<(), String>
+    where
+        F: FnMut(&'static str, u8),
+        C: Fn() -> bool,
+    {
         let mut current = self
             .current
             .lock()
@@ -20993,7 +21092,13 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        dataset.history = HistoryManager::from_imported_frames(entries, cursor, &dataset.frame)?;
+        dataset.history = HistoryManager::from_imported_frames_with_progress(
+            entries,
+            cursor,
+            &dataset.frame,
+            report,
+            is_cancelled,
+        )?;
         Ok(())
     }
 
@@ -21011,10 +21116,17 @@ impl DatasetState {
         apply_recipe_to_dataset(dataset, recipe).map(|result| result.changed)
     }
 
-    pub(crate) fn apply_project_import_deterministic_cleaning(
+    pub(crate) fn apply_project_import_deterministic_cleaning_with_progress<F, C>(
         &self,
         applied_operations: &[String],
-    ) -> Result<bool, String> {
+        mut report: F,
+        is_cancelled: C,
+    ) -> Result<bool, String>
+    where
+        F: FnMut(&'static str, u8),
+        C: Fn() -> bool + Sync,
+    {
+        ensure_not_cancelled(is_cancelled())?;
         let mut current = self
             .current
             .lock()
@@ -21042,7 +21154,7 @@ impl DatasetState {
         // DataPrep ejecuta el registro de limpieza en un orden fijo. Mantener
         // ese orden evita que el orden accidental del manifiesto cambie el
         // resultado cuando una sesión enumera varias operaciones.
-        for operation in [
+        let operations = [
             "drop_duplicates",
             "drop_high_null_cols",
             "drop_id_cols",
@@ -21065,13 +21177,20 @@ impl DatasetState {
             "drop_fuzzy_duplicates",
             "normalize_columns",
             "add_cambios_col",
-        ] {
+        ];
+        let operation_count = operations.len();
+        for (operation_index, operation) in operations.into_iter().enumerate() {
+            ensure_not_cancelled(is_cancelled())?;
             if !applied_operations
                 .iter()
                 .any(|candidate| candidate == operation)
             {
                 continue;
             }
+            report(
+                "Reproduciendo limpieza",
+                35 + ((operation_index + 1) * 30 / operation_count) as u8,
+            );
             let (candidate, _, changed_cell_count, _) = match operation {
                 "drop_duplicates" => {
                     let (candidate, affected_row_count) = remove_duplicate_rows(&cleaned)?;
@@ -21186,6 +21305,7 @@ impl DatasetState {
             }
         }
 
+        ensure_not_cancelled(is_cancelled())?;
         if !changed {
             return Ok(false);
         }
@@ -21193,6 +21313,18 @@ impl DatasetState {
     }
 
     pub(crate) fn cache_project_import_profile(&self) -> Result<DatasetProfile, String> {
+        self.cache_project_import_profile_with_progress(|_, _| {}, || false)
+    }
+
+    pub(crate) fn cache_project_import_profile_with_progress<F, C>(
+        &self,
+        report: F,
+        is_cancelled: C,
+    ) -> Result<DatasetProfile, String>
+    where
+        F: FnMut(&'static str, u8),
+        C: Fn() -> bool + Sync,
+    {
         let mut current = self
             .current
             .lock()
@@ -21200,7 +21332,7 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        let profile = profile_dataset_with_progress(&dataset.frame, |_, _| {}, || false)?;
+        let profile = profile_dataset_with_progress(&dataset.frame, report, is_cancelled)?;
         dataset.profile = Some(profile.clone());
         Ok(profile)
     }
@@ -23480,6 +23612,7 @@ mod tests {
         let profile_generation = state.begin_profile();
         let export_generation = state.begin_export();
         let query_generation = state.begin_query();
+        let migration_generation = state.begin_migration();
 
         state
             .cancel("profile")
@@ -23487,11 +23620,15 @@ mod tests {
         state
             .cancel("query")
             .expect("la consulta debe poder cancelarse");
+        state
+            .cancel("migration")
+            .expect("la migración debe poder cancelarse");
 
         assert!(!state.load_was_cancelled(load_generation));
         assert!(state.profile_was_cancelled(profile_generation));
         assert!(!state.export_was_cancelled(export_generation));
         assert!(state.query_was_cancelled(query_generation));
+        assert!(state.migration_was_cancelled(migration_generation));
         assert!(state.cancel("unknown").is_err());
     }
 

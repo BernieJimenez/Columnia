@@ -57,6 +57,7 @@ import {
   validateQualityRules,
   type QualityRule,
   type ProjectWorkspace,
+  type OperationProgress,
   type RecipeExportOptions,
   type RecipeMigrationReport,
   type SessionMigrationReport,
@@ -588,14 +589,21 @@ describe("desktop bridge", () => {
 
   it("importa sesiones DataPrep mediante selector nativo sin argumentos de ruta", async () => {
     vi.mocked(invoke).mockResolvedValue({ id: "project-2", name: "Sesión" });
+    const updates: OperationProgress[] = [];
 
-    await expect(importDataprepSessionProject()).resolves.toEqual({ id: "project-2", name: "Sesión" });
+    await expect(importDataprepSessionProject(null, null, null, (progress) => updates.push(progress)))
+      .resolves.toEqual({ id: "project-2", name: "Sesión" });
 
     expect(invoke).toHaveBeenCalledWith("import_dataprep_session_project", {
       name: null,
       sheetName: null,
       headerMode: null,
+      onProgress: expect.any(Channel),
     });
+    const channel = vi.mocked(invoke).mock.calls[0][1] as { onProgress: Channel<OperationProgress> };
+    const progress = { operation: "migration" as const, stage: "Restaurando historial", percent: 75 };
+    channel.onProgress.onmessage(progress);
+    expect(updates).toEqual([progress]);
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("sessionPath");
   });
 

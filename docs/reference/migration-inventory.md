@@ -181,6 +181,14 @@ perfil agregado junto con la huella SHA-256 de `current.parquet`, para que
 Revisar tenga una caché verificable y pueda invalidarla si el snapshot cambia;
 esto no afirma que un análisis de DataPrep pueda reanudarse automáticamente.
 
+La importación nativa de sesiones expone un canal Tauri `OperationProgress` con
+la operación `migration`. Informa validación, carga, replay, restauración de
+historial, perfil y publicación, y admite cancelación cooperativa por generación.
+La comprobación ocurre entre fases y entre snapshots; una
+cancelación antes de `store.save` descarta el estado temporal y no publica un
+proyecto parcial. El wrapper de CLI mantiene el contrato síncrono y no transporta
+este canal.
+
 ## Límites pendientes
 
 Si `execution_history` contiene únicamente estado (`success`, `error` o

@@ -21,6 +21,10 @@ los artefactos de validación locales.
   `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de
   disco y cursor contra el dataset actual, y publica las revisiones dentro de
   la generación durable del proyecto sin exponer rutas.
+- La importación nativa de sesiones DataPrep publica progreso por etapas de
+  validación, carga, replay, restauración de historial, perfil y publicación;
+  la operación `migration` admite cancelación cooperativa aislada y nunca
+  publica un proyecto parcial cuando se cancela antes del commit atómico.
 - Los `JOIN` locales `INNER` y `LEFT` sin agregación procesan el lado `dataset`
   por bloques y conservan el conteo, orden y `OFFSET`/`LIMIT` globales sin
   acumular el `DataFrame` unido completo.

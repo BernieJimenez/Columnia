@@ -662,6 +662,15 @@ describe("usePrepareController", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("error"));
     fireEvent.click(screen.getByRole("button", { name: "Limpiar estado" }));
     expect(screen.getByRole("status")).toHaveTextContent("idle");
+
+    cleanup();
+    vi.spyOn(bridge, "applySafeCorrections").mockRejectedValue(new Error("correcciones no disponibles"));
+    vi.spyOn(bridge, "undoLastChange").mockRejectedValue(new Error("historial no disponible"));
+    render(<ControllerHarness {...callbacks} />);
+    fireEvent.click(screen.getByRole("button", { name: "Recomendadas" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("error"));
+    fireEvent.click(screen.getByRole("button", { name: "Deshacer controlador" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("error"));
   });
 
   it("ignora todas las mutaciones y cambios de historial sin dataset activo", () => {

@@ -1505,6 +1505,9 @@ del original.
   doce snapshots Parquet locales, valida el cursor contra el estado actual y los
   publica como historial durable del proyecto; los historiales ambiguos o
   incompatibles siguen requiriendo revisión manual.
+  La importación nativa informa las etapas de validación, carga, replay,
+  restauración de historial, perfil y publicación mediante el canal Tauri;
+  admite cancelación cooperativa y conserva la publicación atómica del catálogo.
 - [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
   con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
   colisiones de nombres antes de escribir cualquier snapshot.
@@ -1527,8 +1530,10 @@ del original.
 - [x] Añadir la primera compatibilidad de bridge necesaria para la migración:
   contrato versionado, selector nativo, lectura fuera del hilo de UI, errores
   sanitizados y compatibilidad con el informe de sesiones; no se expone la
-  allowlist Python completa. La cancelación/progreso de importaciones largas
-  sigue pendiente como ampliación separada.
+  allowlist Python completa. La operación nativa de importación de sesiones
+  expone progreso por etapas y cancelación cooperativa aislada como operación
+  `migration`; la cancelación antes de publicar no crea proyectos ni reemplaza
+  el dataset activo.
 - [x] Verificar una primera vertical de round-trip con una sesión sintética:
   importar → reabrir → validar → exportar, comparando conteos, columnas y tipos;
   los casos de importación parcial conservan la regresión que impide reemplazar un

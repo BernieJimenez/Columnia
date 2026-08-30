@@ -581,7 +581,7 @@ export interface TransformRecipeResult {
 }
 
 export interface OperationProgress {
-  operation: "load" | "profile" | "export";
+  operation: "load" | "profile" | "export" | "migration";
   stage: string;
   percent: number;
 }
@@ -1087,11 +1087,13 @@ export function importDataprepSessionProject(
   name: string | null = null,
   sheetName: string | null = null,
   headerMode: SpreadsheetHeaderMode | null = null,
+  onProgress?: ProgressHandler,
 ): Promise<ProjectSummary> {
   return invoke<ProjectSummary>("import_dataprep_session_project", {
     name,
     sheetName,
     headerMode,
+    onProgress: progressChannel(onProgress),
   });
 }
 

@@ -570,7 +570,7 @@ export function App() {
       setDatasetStatus(requestDatasetLoadCancellation);
     } else if (operation === "profile") {
       setProfileStatus(requestProfileCancellation);
-    } else {
+    } else if (operation === "export") {
       setExportStatus((current) =>
         current.kind === "loading" ? { ...current, cancellation: "requested" } : current,
       );
@@ -584,7 +584,7 @@ export function App() {
         setDatasetStatus({ kind: "error", message });
       } else if (operation === "profile") {
         setProfileStatus({ kind: "error", message });
-      } else {
+      } else if (operation === "export") {
         setExportStatus({ kind: "error", message });
       }
     }

@@ -11,7 +11,7 @@ use chrono::{SecondsFormat, Utc};
 use polars::prelude::{DataFrame, ParquetWriter};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{ipc::Channel, AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::dataset::{
@@ -1333,8 +1333,55 @@ fn import_dataprep_session_project_from_path(
     sheet_name: Option<String>,
     header_mode: Option<SpreadsheetHeaderMode>,
 ) -> Result<ProjectSummary, String> {
+    import_dataprep_session_project_from_path_with_progress(
+        store,
+        session_path,
+        name,
+        sheet_name,
+        header_mode,
+        |_, _| {},
+        || false,
+    )
+}
+
+fn ensure_import_not_cancelled<C>(is_cancelled: &C) -> Result<(), String>
+where
+    C: Fn() -> bool,
+{
+    if is_cancelled() {
+        Err(dataset::OPERATION_CANCELLED_MESSAGE.to_owned())
+    } else {
+        Ok(())
+    }
+}
+
+fn preserve_import_cancellation(error: String, fallback: &str) -> String {
+    if error == dataset::OPERATION_CANCELLED_MESSAGE {
+        error
+    } else {
+        fallback.to_owned()
+    }
+}
+
+fn import_dataprep_session_project_from_path_with_progress<F, C>(
+    store: &ProjectStore,
+    session_path: &Path,
+    name: Option<String>,
+    sheet_name: Option<String>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ProjectSummary, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Sync,
+{
+    ensure_import_not_cancelled(&is_cancelled)?;
+    report("Validando sesión", 5);
     let session_path = dataset::canonicalize_file_for_automation(session_path)
         .map_err(|_| "La sesión DataPrep seleccionada no está disponible.".to_owned())?;
+    ensure_import_not_cancelled(&is_cancelled)?;
+    report("Validando referencias", 10);
     let plan = dataset::load_dataprep_session_migration_plan(&session_path)?;
     if !plan.can_create_project {
         let mut reasons = Vec::new();
@@ -1349,6 +1396,7 @@ fn import_dataprep_session_project_from_path(
             reasons.join(" y ")
         ));
     }
+    ensure_import_not_cancelled(&is_cancelled)?;
     let imported_history = dataset::load_dataprep_session_history(&session_path).map_err(|_| {
         "El historial de snapshots de la sesión no se puede restaurar de forma segura.".to_owned()
     })?;
@@ -1373,6 +1421,8 @@ fn import_dataprep_session_project_from_path(
     } else {
         return Err("La sesión no contiene una fuente o snapshot disponible.".to_owned());
     };
+    ensure_import_not_cancelled(&is_cancelled)?;
+    report("Preparando dataset", 15);
     let execution_history = dataset::load_dataprep_session_execution_history(&session_path);
     let replayable_cleaning = if apply_recipe {
         plan.recipe.session_applied_operations()
@@ -1410,54 +1460,121 @@ fn import_dataprep_session_project_from_path(
         }
         (None, None)
     };
-    let (frame, preview) = dataset::load_dataset_for_automation(
+    let (frame, preview) = dataset::load_dataset_for_automation_with_progress(
         &input_path,
         requested_sheet.as_deref(),
         requested_header,
+        |stage, percent| report(stage, 15 + (u16::from(percent) * 20 / 100) as u8),
+        &is_cancelled,
     )
-    .map_err(|_| {
-        "El artefacto de la sesión no se puede leer con el esquema registrado.".to_owned()
+    .map_err(|error| {
+        preserve_import_cancellation(
+            error,
+            "El artefacto de la sesión no se puede leer con el esquema registrado.",
+        )
     })?;
+    ensure_import_not_cancelled(&is_cancelled)?;
+    report("Dataset preparado", 35);
     let imported = DatasetState::for_project_import(frame, preview.file_name.clone())?;
     if !replayable_cleaning.is_empty() {
         imported
-            .apply_project_import_deterministic_cleaning(&replayable_cleaning)
-            .map_err(|_| {
-                "La limpieza determinista de la sesión no se pudo reproducir de forma segura."
-                    .to_owned()
+            .apply_project_import_deterministic_cleaning_with_progress(
+                &replayable_cleaning,
+                &mut report,
+                &is_cancelled,
+            )
+            .map_err(|error| {
+                preserve_import_cancellation(
+                    error,
+                    "La limpieza determinista de la sesión no se pudo reproducir de forma segura.",
+                )
             })?;
     }
     if apply_recipe {
+        ensure_import_not_cancelled(&is_cancelled)?;
+        report("Aplicando receta", 66);
         imported
             .apply_project_import_recipe(&plan.recipe.recipe)
-            .map_err(|_| {
-                "La receta de la sesión no coincide con el esquema de la fuente.".to_owned()
+            .map_err(|error| {
+                preserve_import_cancellation(
+                    error,
+                    "La receta de la sesión no coincide con el esquema de la fuente.",
+                )
             })?;
+        ensure_import_not_cancelled(&is_cancelled)?;
+        report("Receta aplicada", 70);
     }
     if let Some(history) = imported_history {
+        ensure_import_not_cancelled(&is_cancelled)?;
+        report("Restaurando historial", 70);
         let cursor = history.cursor;
+        let history_count = history.entries.len();
+        if history_count == 0 {
+            return Err("El historial de snapshots de la sesión no contiene entradas.".to_owned());
+        }
         let entries = history
             .entries
             .into_iter()
-            .map(|entry| {
-                let (frame, _) = dataset::load_dataset_for_automation(&entry.path, None, None)
-                    .map_err(|_| {
-                        "Un snapshot del historial de la sesión no se puede leer como Parquet."
-                            .to_owned()
-                    })?;
+            .enumerate()
+            .map(|(index, entry)| {
+                ensure_import_not_cancelled(&is_cancelled)?;
+                let start = 70 + (index * 10 / history_count) as u8;
+                let end = 70 + ((index + 1) * 10 / history_count) as u8;
+                let (frame, _) = dataset::load_dataset_for_automation_with_progress(
+                    &entry.path,
+                    None,
+                    None,
+                    |_, percent| {
+                        report(
+                            "Restaurando historial",
+                            start + ((u16::from(percent) * u16::from(end - start)) / 100) as u8,
+                        )
+                    },
+                    &is_cancelled,
+                )
+                .map_err(|error| {
+                    preserve_import_cancellation(
+                        error,
+                        "Un snapshot del historial de la sesión no se puede leer como Parquet.",
+                    )
+                })?;
+                ensure_import_not_cancelled(&is_cancelled)?;
                 Ok((entry.label, frame))
             })
             .collect::<Result<Vec<_>, String>>()?;
-        imported.install_project_import_history(&entries, cursor)?;
+        imported.install_project_import_history_with_progress(
+            &entries,
+            cursor,
+            |_, percent| {
+                report(
+                    "Restaurando historial",
+                    78 + (u16::from(percent) * 4 / 100) as u8,
+                )
+            },
+            &is_cancelled,
+        )?;
     }
     // DataPrep sessions persist a materialized current snapshot but do not
     // carry a portable profile cache. Recompute the aggregate profile before
     // publishing the project so Review opens with a truthful cache, without
     // storing rows, cells, paths or private analysis samples.
+    ensure_import_not_cancelled(&is_cancelled)?;
+    report("Calculando perfil", 82);
     imported
-        .cache_project_import_profile()
-        .map_err(|_| "No se pudo preparar el perfil agregado de la sesión.".to_owned())?;
-    store.save(
+        .cache_project_import_profile_with_progress(
+            |stage, percent| report(stage, 82 + (u16::from(percent) * 13 / 100) as u8),
+            &is_cancelled,
+        )
+        .map_err(|error| {
+            preserve_import_cancellation(
+                error,
+                "No se pudo preparar el perfil agregado de la sesión.",
+            )
+        })?;
+    ensure_import_not_cancelled(&is_cancelled)?;
+    report("Publicando proyecto", 96);
+    ensure_import_not_cancelled(&is_cancelled)?;
+    let project = store.save(
         &imported,
         None,
         name.unwrap_or(plan.name),
@@ -1478,7 +1595,9 @@ fn import_dataprep_session_project_from_path(
             preview_offset: Default::default(),
             active_phase: dataprep_stage_active_phase(plan.stage_label.as_deref()),
         },
-    )
+    )?;
+    report("Proyecto importado", 100);
+    Ok(project)
 }
 
 fn write_snapshot(frame: &DataFrame, destination: &Path) -> Result<(), String> {
@@ -1634,6 +1753,7 @@ pub async fn import_dataprep_session_project(
     name: Option<String>,
     sheet_name: Option<String>,
     header_mode: Option<SpreadsheetHeaderMode>,
+    on_progress: Channel<dataset::OperationProgress>,
 ) -> Result<ProjectSummary, String> {
     let selection = app
         .dialog()
@@ -1646,13 +1766,21 @@ pub async fn import_dataprep_session_project(
     let session_path = selection
         .into_path()
         .map_err(|_| "No se pudo resolver la sesión DataPrep seleccionada.".to_owned())?;
+    let generation = app.state::<DatasetState>().begin_migration();
+    let cancellation_app = app.clone();
     run_project_operation(app, move |store, _| {
-        import_dataprep_session_project_from_path(
+        import_dataprep_session_project_from_path_with_progress(
             store,
             &session_path,
             name,
             sheet_name,
             header_mode,
+            |stage, percent| dataset::send_progress(&on_progress, "migration", stage, percent),
+            || {
+                cancellation_app
+                    .state::<DatasetState>()
+                    .migration_was_cancelled(generation)
+            },
         )
     })
     .await
@@ -2819,6 +2947,87 @@ mod tests {
         )
         .unwrap();
         session_path
+    }
+
+    #[test]
+    fn dataprep_session_import_reports_progress_until_atomic_publication() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let session = write_session(directory.path(), "source.csv", serde_json::json!({}));
+        let mut updates = Vec::new();
+
+        let imported = import_dataprep_session_project_from_path_with_progress(
+            &store,
+            &session,
+            None,
+            None,
+            None,
+            |stage, percent| updates.push((stage, percent)),
+            || false,
+        )
+        .expect("la importación debe completar su recorrido con progreso");
+
+        assert_eq!(updates.first(), Some(&("Validando sesión", 5)));
+        assert_eq!(updates.last(), Some(&("Proyecto importado", 100)));
+        assert!(updates.windows(2).all(|pair| pair[0].1 <= pair[1].1));
+        assert!(updates
+            .iter()
+            .any(|(stage, _)| *stage == "Calculando perfil"));
+        assert_eq!(store.list().unwrap(), vec![imported]);
+    }
+
+    #[test]
+    fn dataprep_session_import_cancellation_does_not_publish_catalog_entry() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let initial = directory.path().join("initial.parquet");
+        let current = directory.path().join("current.parquet");
+        write_snapshot(&frame(&[1]), &initial).unwrap();
+        write_snapshot(&frame(&[1, 2]), &current).unwrap();
+        let session = directory.path().join("session.json");
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Sesión cancelable",
+                "snapshot_path": "current.parquet",
+                "transform_config": {},
+                "history_snapshots": {
+                    "version": 1,
+                    "cursor": 1,
+                    "entries": [
+                        {"label": "Dataset original", "snapshot_path": "initial.parquet"},
+                        {"label": "Estado actual", "snapshot_path": "current.parquet"}
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let cancelled = AtomicBool::new(false);
+        let result = import_dataprep_session_project_from_path_with_progress(
+            &store,
+            &session,
+            None,
+            None,
+            None,
+            |stage, percent| {
+                if stage == "Restaurando historial" && percent >= 75 {
+                    cancelled.store(true, Ordering::SeqCst);
+                }
+            },
+            || cancelled.load(Ordering::SeqCst),
+        );
+
+        assert_eq!(
+            result.unwrap_err(),
+            dataset::OPERATION_CANCELLED_MESSAGE.to_owned()
+        );
+        assert!(store.list().unwrap().is_empty());
+        assert_eq!(snapshot_count(&store), 0);
     }
 
     #[test]
