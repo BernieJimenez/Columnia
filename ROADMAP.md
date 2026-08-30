@@ -1317,8 +1317,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   presupuestos explícitos sin materialización silenciosa. La carga de CSV/TSV/TXT,
   Parquet y la primera familia de recetas compatibles ya comparten colección
   Polars con motor `streaming`; la apertura y validación de snapshots Parquet
-  durables también reutiliza esa frontera. El dataset activo sigue materializado
-  para conservar la compatibilidad de transformaciones, perfil e historial.
+  durables también reutiliza esa frontera, y el historial se restaura entrada por
+  entrada sin retener todos sus frames simultáneamente. El dataset activo sigue
+  materializado para conservar la compatibilidad de transformaciones, perfil e
+  historial.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -1809,6 +1811,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-26 | Extender la lectura streaming a Parquet mediante `scan_parquet`, conservando `parallel: None`, baja memoria y `rechunk` desactivado para evitar picos innecesarios | Implementada en la carga inicial; cacheado, joins, comparación e historial incremental siguen en cola |
 | 2026-08-29 | Centralizar la colección Polars de lectores delimitados, Parquet y recetas lazy compatibles en el motor `streaming`, manteniendo fallback eager solo para operaciones no compatibles | Implementada como primera expansión de operaciones; el `DataFrame` activo, cacheado Parquet, joins/comparación e historial incremental siguen en cola |
 | 2026-08-29 | Reutilizar la lectura `scan_parquet` con motor `streaming` al abrir y validar snapshots de proyectos e historial temporal, sin cambiar el contrato durable | Implementada como segunda expansión; el frame activo aún se materializa y joins/comparación, operaciones eager e historial degradado siguen en cola |
+| 2026-08-29 | Restaurar el historial durable de forma incremental, reteniendo solo el frame del cursor para validar consistencia mientras las demás entradas se procesan una por una | Implementada como tercera expansión; el frame activo, joins/comparación, operaciones eager e historial degradado siguen en cola |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

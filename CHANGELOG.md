@@ -88,6 +88,10 @@ los artefactos de validación locales.
   temporal reutiliza la misma frontera streaming de baja memoria, sin cambiar
   el formato durable ni exponer rutas; el `DataFrame` activo continúa siendo
   materializado para preservar el contrato actual de sesión.
+- La restauración del historial ya valida y copia cada snapshot de forma
+  incremental: conserva en memoria solo el frame del cursor mientras procesa
+  las entradas restantes una por una, reduciendo el pico de RAM al reabrir
+  proyectos con varias revisiones.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de

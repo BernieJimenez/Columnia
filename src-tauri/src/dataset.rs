@@ -18135,7 +18135,7 @@ fn restore_project_history(
     let directory = tempfile::tempdir()
         .map_err(|_| "No se pudo preparar el historial restaurado.".to_owned())?;
     let mut entries = Vec::with_capacity(history.entries.len());
-    let mut restored_frames = Vec::with_capacity(history.entries.len());
+    let mut cursor_matches = !history.snapshots_enabled;
     let mut total_bytes = 0_u64;
     for (index, entry) in history.entries.into_iter().enumerate() {
         validate_history_label(&entry.label)?;
@@ -18161,16 +18161,19 @@ fn restore_project_history(
         if copied != entry.bytes {
             return Err("Un snapshot del historial cambió durante la apertura.".to_owned());
         }
-        restored_frames.push(frame);
+        if index == history.cursor {
+            cursor_matches = frame.equals_missing(current_frame);
+        }
         entries.push(HistoryEntry {
             label: entry.label,
             path: destination,
             bytes: copied,
         });
     }
-    if history.snapshots_enabled && !restored_frames[history.cursor].equals_missing(current_frame) {
+    if !cursor_matches {
         return Err("El cursor del historial no coincide con el dataset actual.".to_owned());
     }
+    let next_id = entries.len() as u64;
     Ok(HistoryManager {
         directory,
         entries,
@@ -18178,7 +18181,7 @@ fn restore_project_history(
         snapshots_enabled: history.snapshots_enabled,
         degraded_reason: history.degraded_reason,
         current_label: history.current_label,
-        next_id: restored_frames.len() as u64,
+        next_id,
         max_entries: history.max_entries,
         disk_budget_bytes: history.disk_budget_bytes,
     })
