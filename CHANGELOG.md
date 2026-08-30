@@ -22,6 +22,11 @@ los artefactos de validación locales.
   las columnas auxiliares de orden nunca se publican; el fallback a snapshot
   temporal se mantiene para historiales degradados. Esta ruta aún no completa
   la carga inicial ni la ejecución incremental fuera de memoria.
+- La comparación local conserva la segunda fuente en un snapshot Parquet
+  temporal mientras está activa: conflictos y consolidación lo leen bajo
+  demanda, DuckDB puede registrar directamente ambos snapshots en un JOIN y
+  el directorio se elimina al descartar la comparación. La primera lectura y
+  el resultado final de comparación siguen teniendo sus límites actuales.
 - La migración M1 de sesiones DataPrep restaura un historial explícito de hasta
   doce snapshots Parquet locales mediante el contrato versionado
   `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de

@@ -1320,9 +1320,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   materializar joins many-to-many fuera de presupuesto.
 - [x] Añadir una primera ruta DuckDB opcional para la consulta local restringida:
   el bridge selecciona el motor, Rust valida el contrato existente, reutiliza
-  el snapshot Parquet administrado de la revisión actual cuando existe y usa
-  snapshots temporales como fallback, conservando conteo exacto, paginación,
-  orden estable, agregaciones y JOIN `INNER`/`LEFT`/`FULL` con claves coalescidas.
+  los snapshots Parquet administrados de la revisión actual y la comparación
+  cuando existen y usa snapshots temporales como fallback, conservando conteo
+  exacto, paginación, orden estable, agregaciones y JOIN `INNER`/`LEFT`/`FULL`
+  con claves coalescidas.
 - [ ] Completar consulta con joins y DuckDB para datasets que excedan la RAM,
   después de validar el benchmark y ampliar los límites de forma explícita.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
@@ -1874,6 +1875,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | M1 restaura el historial portable `history_snapshots` v1: hasta doce Parquet locales, etiquetas/cursor validados, presupuesto durable de 1 GiB y reanudación de Deshacer/Rehacer tras reabrir el proyecto; historiales ambiguos y artefactos de análisis siguen fuera de alcance. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `docs/reference/migration-inventory.md` |
 | 2026-08-30 | P1 incorpora la primera ruta DuckDB opcional para SQL local: valida el contrato restringido, reutiliza el snapshot Parquet administrado de la revisión actual cuando existe y usa snapshots temporales como fallback, conserva conteo/paginación/orden estable y reproduce el esquema coalescido de JOIN `INNER`/`LEFT`/`FULL`; el `DataFrame` activo y la ejecución incremental fuera de RAM permanecen como límites explícitos. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 hace que DuckDB reutilice el snapshot Parquet administrado de la revisión actual, añadiendo la columna de orden solo en la vista temporal y evitando serializar otra vez el `DataFrame`; la ruta conserva fallback para historiales degradados y no afirma todavía ejecución fuera de RAM. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 conserva la fuente comparada en un snapshot Parquet temporal mientras la comparación está activa: conflictos y consolidación leen bajo demanda, los JOIN DuckDB pueden registrar ambos snapshots sin reserializar el frame comparado y el dueño temporal garantiza cleanup al descartar la comparación. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva

@@ -30,7 +30,7 @@ pub(crate) struct DuckDbQuerySpec {
 }
 
 #[derive(Clone, Copy)]
-enum CurrentDatasetSource<'a> {
+enum DatasetSource<'a> {
     Frame(&'a DataFrame),
     Parquet(&'a Path),
 }
@@ -45,8 +45,8 @@ where
     C: Fn() -> bool + Send + 'static,
 {
     execute_duckdb_query_with_source(
-        CurrentDatasetSource::Frame(current),
-        compared,
+        DatasetSource::Frame(current),
+        compared.map(DatasetSource::Frame),
         spec,
         is_cancelled,
     )
@@ -62,16 +62,33 @@ where
     C: Fn() -> bool + Send + 'static,
 {
     execute_duckdb_query_with_source(
-        CurrentDatasetSource::Parquet(current_path),
-        compared,
+        DatasetSource::Parquet(current_path),
+        compared.map(DatasetSource::Frame),
+        spec,
+        is_cancelled,
+    )
+}
+
+pub(crate) fn execute_duckdb_query_from_parquet_sources<C>(
+    current_path: &Path,
+    compared_path: Option<&Path>,
+    spec: &DuckDbQuerySpec,
+    is_cancelled: C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_query_with_source(
+        DatasetSource::Parquet(current_path),
+        compared_path.map(DatasetSource::Parquet),
         spec,
         is_cancelled,
     )
 }
 
 fn execute_duckdb_query_with_source<C>(
-    current: CurrentDatasetSource<'_>,
-    compared: Option<&DataFrame>,
+    current: DatasetSource<'_>,
+    compared: Option<DatasetSource<'_>>,
     spec: &DuckDbQuerySpec,
     is_cancelled: C,
 ) -> Result<DatasetQueryResult, String>
@@ -114,8 +131,8 @@ where
 
 fn execute_query_with_connection(
     connection: &Connection,
-    current: CurrentDatasetSource<'_>,
-    compared: Option<&DataFrame>,
+    current: DatasetSource<'_>,
+    compared: Option<DatasetSource<'_>>,
     spec: &DuckDbQuerySpec,
 ) -> Result<DatasetQueryResult, String> {
     let directory = tempfile::tempdir()
@@ -126,36 +143,34 @@ fn execute_query_with_connection(
             "La consulta DuckDB requiere un dataset comparado para construir el JOIN.".to_owned()
         })?;
         let compared_path = directory.path().join("compared.parquet");
-        register_current_view(
+        register_dataset_view(
             connection,
             "__columnia_current",
             current,
             &current_path,
+            "activo",
             spec.current_order_column.as_deref(),
         )?;
-        write_frame_snapshot(
+        register_dataset_view(
+            connection,
+            "__columnia_compared",
             compared,
             &compared_path,
             "comparado",
             spec.compared_order_column.as_deref(),
         )?;
-        register_parquet_view(connection, "__columnia_compared", &compared_path)?;
         connection
             .execute_batch(dataset_view_query)
             .map_err(|error| format!("DuckDB no pudo preparar la vista del JOIN: {error}"))?;
     } else {
-        register_current_view(
+        register_dataset_view(
             connection,
             "dataset",
             current,
             &current_path,
+            "activo",
             spec.current_order_column.as_deref(),
         )?;
-        if let Some(compared) = compared {
-            let compared_path = directory.path().join("compared.parquet");
-            write_frame_snapshot(compared, &compared_path, "comparado", None)?;
-            register_parquet_view(connection, "compared", &compared_path)?;
-        }
     }
 
     let total_i64 = connection
@@ -250,19 +265,20 @@ fn register_parquet_view(
     Ok(())
 }
 
-fn register_current_view(
+fn register_dataset_view(
     connection: &Connection,
     name: &str,
-    current: CurrentDatasetSource<'_>,
+    source: DatasetSource<'_>,
     frame_path: &Path,
+    label: &str,
     order_column: Option<&str>,
 ) -> Result<(), String> {
-    match current {
-        CurrentDatasetSource::Frame(frame) => {
-            write_frame_snapshot(frame, frame_path, "activo", order_column)?;
+    match source {
+        DatasetSource::Frame(frame) => {
+            write_frame_snapshot(frame, frame_path, label, order_column)?;
             register_parquet_view(connection, name, frame_path)
         }
-        CurrentDatasetSource::Parquet(path) => {
+        DatasetSource::Parquet(path) => {
             let escaped_path = path
                 .to_string_lossy()
                 .replace('\\', "/")
@@ -419,6 +435,67 @@ mod tests {
             vec![vec![Some("Santiago".to_owned()), Some("20".to_owned())]]
         );
         assert!(path.is_file());
+    }
+
+    #[test]
+    fn joins_two_existing_parquet_snapshots_without_reencoding_them() {
+        let current = df![
+            "id" => &[1_i64, 2, 3],
+            "name" => &["A", "B", "C"]
+        ]
+        .expect("el dataset activo debe construirse");
+        let compared = df![
+            "id" => &[2_i64, 3],
+            "amount" => &[200_i64, 300]
+        ]
+        .expect("el dataset comparado debe construirse");
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let current_path = directory.path().join("current.parquet");
+        let compared_path = directory.path().join("compared.parquet");
+        write_frame_snapshot(&current, &current_path, "activo", None)
+            .expect("el snapshot activo debe escribirse");
+        write_frame_snapshot(&compared, &compared_path, "comparado", None)
+            .expect("el snapshot comparado debe escribirse");
+        let spec = DuckDbQuerySpec {
+            bounded_query: "SELECT id, name, amount FROM joined ORDER BY \"__columnia_order\" LIMIT 10"
+                .to_owned(),
+            count_query: "SELECT COUNT(*) FROM joined".to_owned(),
+            offset: 0,
+            limit: 10,
+            dataset_view_query: Some(
+                "CREATE VIEW joined AS SELECT current.id, current.name, compared.amount, current.\"__columnia_order\" FROM __columnia_current AS current INNER JOIN __columnia_compared AS compared ON current.id = compared.id"
+                    .to_owned(),
+            ),
+            current_order_column: Some("__columnia_order".to_owned()),
+            compared_order_column: None,
+        };
+
+        let result = execute_duckdb_query_from_parquet_sources(
+            &current_path,
+            Some(&compared_path),
+            &spec,
+            || false,
+        )
+        .expect("DuckDB debe unir los snapshots existentes");
+
+        assert_eq!(result.row_count, 2);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![
+                    Some("2".to_owned()),
+                    Some("B".to_owned()),
+                    Some("200".to_owned())
+                ],
+                vec![
+                    Some("3".to_owned()),
+                    Some("C".to_owned()),
+                    Some("300".to_owned())
+                ]
+            ]
+        );
+        assert!(current_path.is_file());
+        assert!(compared_path.is_file());
     }
 
     #[test]

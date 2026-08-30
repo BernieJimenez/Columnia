@@ -1625,7 +1625,8 @@ struct PendingSelection {
 struct PendingComparison {
     file_name: String,
     file_size_bytes: u64,
-    frame: DataFrame,
+    _directory: tempfile::TempDir,
+    snapshot_path: PathBuf,
     key_columns: Vec<String>,
 }
 
@@ -14444,6 +14445,26 @@ fn load_compare_frame(path: &Path, extension: &str) -> Result<DataFrame, String>
     }
 }
 
+fn persist_comparison_snapshot(frame: &DataFrame) -> Result<(tempfile::TempDir, PathBuf), String> {
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = tempfile::NamedTempFile::new_in(directory.path())
+        .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
+    let mut snapshot = frame.clone();
+    ParquetWriter::new(temporary.as_file())
+        .finish(&mut snapshot)
+        .map_err(|error| format!("No se pudo escribir el snapshot comparado: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el snapshot comparado: {error}"))?;
+    let destination = directory.path().join("compared.parquet");
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {}", error.error))?;
+    Ok((directory, destination))
+}
+
 fn row_signature(
     frame: &DataFrame,
     columns: &[String],
@@ -15440,6 +15461,7 @@ pub async fn compare_dataset(
             &compared_file_name,
             &key_columns,
         )?;
+        let (directory, snapshot_path) = persist_comparison_snapshot(&compared_frame)?;
         let state = app.state::<DatasetState>();
         *state
             .comparison
@@ -15448,7 +15470,8 @@ pub async fn compare_dataset(
             Some(PendingComparison {
                 file_name: compared_file_name,
                 file_size_bytes,
-                frame: compared_frame,
+                _directory: directory,
+                snapshot_path,
                 key_columns,
             });
         Ok(Some(comparison))
@@ -15491,7 +15514,10 @@ pub async fn get_dataset_conflict_page(
             let pending = comparison
                 .as_ref()
                 .ok_or_else(|| "No hay una comparación activa para paginar.".to_owned())?;
-            (pending.frame.clone(), pending.key_columns.clone())
+            (
+                read_parquet_frame(&pending.snapshot_path)?,
+                pending.key_columns.clone(),
+            )
         };
         let current_columns = current_frame
             .get_column_names()
@@ -15777,7 +15803,7 @@ pub async fn resolve_dataset_conflicts(
             (
                 pending.file_name.clone(),
                 pending.file_size_bytes,
-                pending.frame.clone(),
+                read_parquet_frame(&pending.snapshot_path)?,
                 pending.key_columns.clone(),
             )
         };
@@ -15834,7 +15860,7 @@ pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<Datase
         (
             pending.file_name.clone(),
             pending.file_size_bytes,
-            pending.frame.clone(),
+            read_parquet_frame(&pending.snapshot_path)?,
             pending.key_columns.clone(),
         )
     };
@@ -16172,7 +16198,11 @@ pub async fn query_dataset(
                 .comparison
                 .lock()
                 .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
-            let compared = comparison.as_ref().map(|pending| &pending.frame);
+            let compared_frame = comparison
+                .as_ref()
+                .map(|pending| read_parquet_frame(&pending.snapshot_path))
+                .transpose()?;
+            let compared = compared_frame.as_ref();
             execute_local_query_with_comparison_and_cancel(
                 &dataset.frame,
                 compared,
@@ -16193,8 +16223,15 @@ pub async fn query_dataset(
                 .comparison
                 .lock()
                 .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
-            let compared = comparison.as_ref().map(|pending| &pending.frame);
+            let compared_frame = comparison
+                .as_ref()
+                .map(|pending| read_parquet_frame(&pending.snapshot_path))
+                .transpose()?;
+            let compared = compared_frame.as_ref();
             let spec = prepare_duckdb_query(&query, &dataset.frame, compared)?;
+            let compared_snapshot = comparison
+                .as_ref()
+                .map(|pending| pending.snapshot_path.as_path());
             let current_snapshot = dataset
                 .history
                 .snapshots_enabled
@@ -16204,16 +16241,29 @@ pub async fn query_dataset(
             let cancellation_app = query_app.clone();
             let fallback_cancellation_app = query_app.clone();
             if let Some(path) = current_snapshot {
-                crate::duckdb_query::execute_duckdb_query_from_parquet(
-                    &path,
-                    compared,
-                    &spec,
-                    move || {
-                        cancellation_app
-                            .state::<DatasetState>()
-                            .query_was_cancelled(generation)
-                    },
-                )
+                if let Some(compared_path) = compared_snapshot {
+                    crate::duckdb_query::execute_duckdb_query_from_parquet_sources(
+                        &path,
+                        Some(compared_path),
+                        &spec,
+                        move || {
+                            cancellation_app
+                                .state::<DatasetState>()
+                                .query_was_cancelled(generation)
+                        },
+                    )
+                } else {
+                    crate::duckdb_query::execute_duckdb_query_from_parquet(
+                        &path,
+                        None,
+                        &spec,
+                        move || {
+                            cancellation_app
+                                .state::<DatasetState>()
+                                .query_was_cancelled(generation)
+                        },
+                    )
+                }
             } else {
                 crate::duckdb_query::execute_duckdb_query(
                     &dataset.frame,
@@ -24197,6 +24247,24 @@ mod tests {
         fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
         fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
         fs::remove_file(duplicate_path).expect("se debe limpiar el CSV duplicado");
+    }
+
+    #[test]
+    fn comparison_snapshot_round_trips_and_cleans_up_with_its_owner() {
+        let frame = df![
+            "id" => &[1_i64, 2],
+            "label" => &[Some("uno"), None::<&str>]
+        ]
+        .expect("el frame comparado debe ser válido");
+        let (directory, path) =
+            persist_comparison_snapshot(&frame).expect("el snapshot comparado debe persistirse");
+
+        assert!(path.is_file());
+        let restored = read_parquet_frame(&path).expect("el snapshot debe poder restaurarse");
+        assert!(restored.equals_missing(&frame));
+
+        drop(directory);
+        assert!(!path.exists());
     }
 
     #[test]
