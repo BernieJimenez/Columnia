@@ -539,9 +539,10 @@ coincidentes antes de retenerlas y rechazan consultas fuera de presupuesto.
 Toda la ejecución comprueba cancelación por bloques, incluida la ordenación y
 la unión. No se aceptan rutas, tablas externas, escrituras ni consultas contra
 una comparación no cargada. DuckDB ofrece ahora una alternativa explícita sobre
-snapshots Parquet temporales y conserva el mismo contrato restringido; no se
-habilita SQL arbitrario, tablas externas ni escritura, y la ejecución fuera de
-la RAM permanece pendiente.
+snapshots Parquet temporales y conserva el mismo contrato restringido; durante
+la preparación de un JOIN administrado solo lee el esquema de la comparación y
+no se habilita SQL arbitrario, tablas externas ni escritura. El `DataFrame`
+activo y la ejecución completa fuera de la RAM permanecen pendientes.
 
 Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en

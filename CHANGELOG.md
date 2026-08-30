@@ -27,6 +27,11 @@ los artefactos de validación locales.
   demanda, DuckDB puede registrar directamente ambos snapshots en un JOIN y
   el directorio se elimina al descartar la comparación. La primera lectura y
   el resultado final de comparación siguen teniendo sus límites actuales.
+- La preparación de JOIN para DuckDB ya lee solo el esquema del snapshot
+  comparado cuando existe un snapshot activo administrado, y no vuelve a
+  materializar sus filas para validar el contrato. La ruta DuckDB tampoco
+  hereda el límite de entradas del plan Polars; el `DataFrame` activo y la
+  ejecución incremental completa fuera de RAM siguen siendo límites abiertos.
 - Las recetas compatibles con Polars lazy/streaming también convierten fechas
   con formatos explícitos `Ymd`, `Dmy` y `Mdy`, respetando espacios exteriores,
   nulos y objetivos `Date`/`Datetime`; `Iso8601`, zonas horarias y operaciones

@@ -178,8 +178,11 @@ cubeta a la vez. La consulta SQL local ya ofrece DuckDB como motor opcional
 sobre los snapshots Parquet administrados de la revisión activa y de la
 comparación cuando están disponibles, con fallback temporal para estados
 degradados y el mismo contrato restringido y seguro;
-los joins grandes, la ejecución incremental completa y el procesamiento fuera
-de la RAM del dataset siguen siendo trabajo pendiente. La
+para un JOIN con snapshot administrado solo lee el esquema de la comparación
+durante la preparación y no vuelve a materializar sus filas. La preparación
+DuckDB tampoco aplica el límite de entradas del camino Polars; el `DataFrame`
+activo, los joins con ambas fuentes todavía no materializadas y la ejecución
+incremental completa fuera de la RAM siguen siendo trabajo pendiente. La
 comparación completa de filas calcula sus conteos de multiconjunto por las mismas
 cubetas temporales, sin mapas globales de firmas.
 sesión actual muestra las últimas cinco ejecuciones con estado,

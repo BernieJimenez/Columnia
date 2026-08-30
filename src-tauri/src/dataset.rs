@@ -2476,6 +2476,23 @@ fn parse_local_join_query_spec(
     current: &DataFrame,
     compared: Option<&DataFrame>,
 ) -> Result<Option<LocalJoinQuerySpec>, String> {
+    parse_local_join_query_spec_with_input_limit(query, current, compared, true)
+}
+
+fn parse_local_join_query_spec_for_duckdb(
+    query: &str,
+    current: &DataFrame,
+    compared: Option<&DataFrame>,
+) -> Result<Option<LocalJoinQuerySpec>, String> {
+    parse_local_join_query_spec_with_input_limit(query, current, compared, false)
+}
+
+fn parse_local_join_query_spec_with_input_limit(
+    query: &str,
+    current: &DataFrame,
+    compared: Option<&DataFrame>,
+    enforce_input_limit: bool,
+) -> Result<Option<LocalJoinQuerySpec>, String> {
     let pattern = Regex::new(
         r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+(.+)$"#,
     )
@@ -2493,7 +2510,9 @@ fn parse_local_join_query_spec(
         "No hay un dataset comparado cargado. Selecciona una fuente en Comparar datasets antes de usar JOIN."
             .to_owned()
     })?;
-    if current.height().saturating_add(compared.height()) > LOCAL_QUERY_JOIN_MAX_INPUT_ROWS {
+    if enforce_input_limit
+        && current.height().saturating_add(compared.height()) > LOCAL_QUERY_JOIN_MAX_INPUT_ROWS
+    {
         return Err(format!(
             "El JOIN local limita las entradas a {LOCAL_QUERY_JOIN_MAX_INPUT_ROWS} filas para proteger la memoria."
         ));
@@ -2727,7 +2746,7 @@ fn prepare_duckdb_query(
     compared: Option<&DataFrame>,
 ) -> Result<crate::duckdb_query::DuckDbQuerySpec, String> {
     let (plan, query_for_duckdb, dataset_view_query, current_order_column, compared_order_column) =
-        if let Some(spec) = parse_local_join_query_spec(query, current, compared)? {
+        if let Some(spec) = parse_local_join_query_spec_for_duckdb(query, current, compared)? {
             let compared = compared.expect("la especificación JOIN ya validó compared");
             let empty_current = current.slice(0, 0);
             let empty_compared = compared.slice(0, 0);
@@ -7755,6 +7774,23 @@ fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
     let plan = LazyFrame::scan_parquet(source, options)
         .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
     collect_lazy_frame_streaming(plan, "No se pudo interpretar el Parquet")
+}
+
+fn read_parquet_schema_frame(path: &Path) -> Result<DataFrame, String> {
+    let source = PlRefPath::try_from_path(path)
+        .map_err(|error| format!("No se pudo preparar el lector Parquet: {error}"))?;
+    let options = ScanArgsParquet {
+        parallel: ParallelStrategy::None,
+        low_memory: true,
+        rechunk: false,
+        ..Default::default()
+    };
+    let mut plan = LazyFrame::scan_parquet(source, options)
+        .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
+    let schema = plan
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el esquema Parquet: {error}"))?;
+    Ok(DataFrame::empty_with_schema(&schema))
 }
 
 #[cfg(test)]
@@ -16223,12 +16259,6 @@ pub async fn query_dataset(
                 .comparison
                 .lock()
                 .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
-            let compared_frame = comparison
-                .as_ref()
-                .map(|pending| read_parquet_frame(&pending.snapshot_path))
-                .transpose()?;
-            let compared = compared_frame.as_ref();
-            let spec = prepare_duckdb_query(&query, &dataset.frame, compared)?;
             let compared_snapshot = comparison
                 .as_ref()
                 .map(|pending| pending.snapshot_path.as_path());
@@ -16238,6 +16268,18 @@ pub async fn query_dataset(
                 .then(|| dataset.history.entries.get(dataset.history.cursor))
                 .flatten()
                 .map(|entry| entry.path.clone());
+            let compared_frame = comparison
+                .as_ref()
+                .map(|pending| {
+                    if current_snapshot.is_some() {
+                        read_parquet_schema_frame(&pending.snapshot_path)
+                    } else {
+                        read_parquet_frame(&pending.snapshot_path)
+                    }
+                })
+                .transpose()?;
+            let compared = compared_frame.as_ref();
+            let spec = prepare_duckdb_query(&query, &dataset.frame, compared)?;
             let cancellation_app = query_app.clone();
             let fallback_cancellation_app = query_app.clone();
             if let Some(path) = current_snapshot {
@@ -22729,6 +22771,24 @@ mod tests {
     }
 
     #[test]
+    fn reads_only_the_schema_for_parquet_query_validation() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("source.parquet");
+        let mut frame = df!["id" => &[1_i64, 2], "name" => &["A", "B"]]
+            .expect("el frame Parquet debe ser válido");
+        let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
+        ParquetWriter::new(&mut file)
+            .finish(&mut frame)
+            .expect("se debe escribir el Parquet temporal");
+
+        let schema = read_parquet_schema_frame(&path).expect("se debe leer el esquema Parquet");
+
+        assert_eq!(schema.height(), 0);
+        assert_eq!(schema.column("id").unwrap().dtype(), &DataType::Int64);
+        assert_eq!(schema.column("name").unwrap().dtype(), &DataType::String);
+    }
+
+    #[test]
     fn rejects_oversized_pages() {
         let frame = DataFrame::empty();
 
@@ -22795,6 +22855,27 @@ mod tests {
             vec![Some("2".to_owned()), Some("B".to_owned())]
         );
         assert!(result.truncated);
+    }
+
+    #[test]
+    fn duckdb_join_preparation_does_not_apply_the_polars_input_row_limit() {
+        let current = DataFrame::new(
+            LOCAL_QUERY_JOIN_MAX_INPUT_ROWS + 1,
+            vec![Column::full_null(
+                "id".into(),
+                LOCAL_QUERY_JOIN_MAX_INPUT_ROWS + 1,
+                &DataType::Int64,
+            )],
+        )
+        .expect("el esquema grande debe ser válido");
+        let compared = df!["id" => &[1_i64]].unwrap();
+        let query = "SELECT id FROM dataset JOIN compared ON dataset.id = compared.id LIMIT 1";
+
+        assert!(parse_local_join_query_spec(query, &current, Some(&compared)).is_err());
+        let spec = prepare_duckdb_query(query, &current, Some(&compared))
+            .expect("DuckDB debe preparar el JOIN sin limitar la entrada por filas");
+        assert_eq!(spec.limit, 1);
+        assert!(spec.dataset_view_query.is_some());
     }
 
     #[test]
