@@ -37,6 +37,8 @@ use crate::dataset_fingerprints::{
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
+const LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX: &str =
+    "No se pudo usar el snapshot Parquet para la consulta local:";
 const MAX_CONFLICT_PREVIEW: usize = 50;
 const HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE: usize = 80;
 const SENTINEL_VALUES: &[&str] = &[
@@ -3608,6 +3610,234 @@ where
 {
     let plan = parse_local_query(query, frame)?;
     execute_local_query_plan_with_cancel(frame, &plan, is_cancelled)
+}
+
+fn read_parquet_query_block(path: &Path, start: usize, length: usize) -> Result<DataFrame, String> {
+    let slice_offset = i64::try_from(start).map_err(|_| {
+        format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el bloque solicitado excede la capacidad del lector."
+        )
+    })?;
+    let plan = parquet_scan(path)
+        .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))?
+        .slice(slice_offset, length as IdxSize);
+    collect_lazy_frame_streaming(
+        plan,
+        "No se pudo leer el bloque Parquet de la consulta local",
+    )
+    .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))
+}
+
+fn local_query_has_join(query: &str) -> bool {
+    query
+        .split_whitespace()
+        .any(|token| token.eq_ignore_ascii_case("join"))
+}
+
+fn execute_local_query_from_parquet_with_cancel<C>(
+    path: &Path,
+    row_count: usize,
+    query: &str,
+    is_cancelled: &C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let schema = read_parquet_schema_frame(path)
+        .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))?;
+    let plan = parse_local_query(query, &schema)?;
+    let columns = local_query_columns(&schema, &plan)?;
+    let block_count = row_count.div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    let mut block_counts = Vec::with_capacity(block_count);
+
+    for block_index in 0..block_count {
+        ensure_not_cancelled(is_cancelled())?;
+        let start = block_index
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad del lector."
+                )
+            })?;
+        let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
+        let block = read_parquet_query_block(path, start, length)?;
+        if block.height() != length {
+            return Err(format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
+            ));
+        }
+        block_counts.push(local_query_block_match_count_with_cancel(
+            &block,
+            &plan.predicates,
+            0,
+            block.height(),
+            is_cancelled,
+        )?);
+    }
+    let trailing_block = read_parquet_query_block(path, row_count, 1)?;
+    if trailing_block.height() != 0 {
+        return Err(format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
+        ));
+    }
+
+    let matching_count = block_counts.iter().try_fold(0usize, |total, count| {
+        total
+            .checked_add(*count)
+            .ok_or_else(|| "La consulta local supera la capacidad de conteo.".to_owned())
+    })?;
+    if plan.aggregate && matching_count > LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS {
+        return Err(format!(
+            "La agregación local limita las filas coincidentes a {LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS} para proteger la memoria."
+        ));
+    }
+    ensure_not_cancelled(is_cancelled())?;
+
+    if plan.aggregate {
+        let mut execution = LocalAggregateExecution {
+            matching_count: 0,
+            global: plan
+                .group_by
+                .is_none()
+                .then_some(LocalAggregateAccumulator::new(&schema, &plan.projections)?),
+            groups: Vec::new(),
+        };
+        let mut positions = HashMap::new();
+        let context = LocalAggregateQueryContext {
+            projections: &plan.projections,
+            predicates: &plan.predicates,
+            group_by: plan.group_by.as_deref(),
+            is_cancelled,
+        };
+        for block_index in 0..block_count {
+            ensure_not_cancelled(is_cancelled())?;
+            let start = block_index
+                .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+                .ok_or_else(|| {
+                    format!(
+                        "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad del lector."
+                    )
+                })?;
+            let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
+            let block = read_parquet_query_block(path, start, length)?;
+            if block.height() != length {
+                return Err(format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
+                ));
+            }
+            aggregate_local_query_into_execution_with_cancel(
+                &block,
+                1,
+                &mut execution,
+                &mut positions,
+                &context,
+            )?;
+        }
+        if execution.matching_count != matching_count {
+            return Err(format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} cambió durante la consulta."
+            ));
+        }
+        let aggregate_rows = finish_local_aggregate_execution(
+            execution,
+            &plan.projections,
+            plan.group_by.as_deref(),
+        )?;
+        let row_count = aggregate_rows.len();
+        if plan.offset > row_count {
+            return Err("La página solicitada está fuera del resultado agregado.".to_owned());
+        }
+        let end = plan.offset.saturating_add(plan.limit).min(row_count);
+        return Ok(DatasetQueryResult {
+            columns,
+            row_count,
+            offset: plan.offset,
+            rows: aggregate_rows[plan.offset..end].to_vec(),
+            truncated: plan.offset.saturating_add(plan.limit) < row_count,
+        });
+    }
+
+    if plan.offset > matching_count {
+        return Err("La página solicitada está fuera del resultado filtrado.".to_owned());
+    }
+    let mut offset_in_matches = plan.offset;
+    let mut remaining = plan.limit;
+    let mut rows = Vec::with_capacity(plan.limit.min(matching_count));
+    for (block_index, block_match_count) in block_counts.iter().copied().enumerate() {
+        if remaining == 0 {
+            break;
+        }
+        if offset_in_matches >= block_match_count {
+            offset_in_matches -= block_match_count;
+            continue;
+        }
+
+        ensure_not_cancelled(is_cancelled())?;
+        let start = block_index
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad del lector."
+                )
+            })?;
+        let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
+        let block = read_parquet_query_block(path, start, length)?;
+        if block.height() != length {
+            return Err(format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} su número de filas no coincide con el dataset activo."
+            ));
+        }
+        let block_rows = local_query_block_rows_with_cancel(
+            &block,
+            &plan.predicates,
+            0,
+            block.height(),
+            is_cancelled,
+        )?;
+        let take = remaining.min(block_match_count - offset_in_matches);
+        rows.extend(
+            block_rows
+                .iter()
+                .skip(offset_in_matches)
+                .take(take)
+                .map(|row_index| {
+                    plan.projections
+                        .iter()
+                        .map(|projection| {
+                            let LocalProjection::Column { name, .. } = projection else {
+                                return Ok(None);
+                            };
+                            block
+                                .column(name)
+                                .map_err(|error| {
+                                    format!(
+                                        "No se pudo preparar la consulta local desde Parquet: {error}"
+                                    )
+                                })?
+                                .get(*row_index)
+                                .map_err(|error| {
+                                    format!(
+                                        "No se pudo preparar la consulta local desde Parquet: {error}"
+                                    )
+                                })
+                                .map(preview_value)
+                        })
+                        .collect::<Result<Vec<_>, String>>()
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        );
+        remaining -= take;
+        offset_in_matches = 0;
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(DatasetQueryResult {
+        columns,
+        row_count: matching_count,
+        offset: plan.offset,
+        rows,
+        truncated: plan.offset.saturating_add(plan.limit) < matching_count,
+    })
 }
 
 fn execute_local_query_plan_with_cancel<C>(
@@ -16433,6 +16663,26 @@ pub async fn query_dataset(
                 .comparison
                 .lock()
                 .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let current_snapshot = dataset
+                .history
+                .snapshots_enabled
+                .then(|| dataset.history.entries.get(dataset.history.cursor))
+                .flatten()
+                .map(|entry| entry.path.clone());
+            if comparison.is_none() && !local_query_has_join(&query) {
+                if let Some(path) = current_snapshot {
+                    match execute_local_query_from_parquet_with_cancel(
+                        &path,
+                        dataset.frame.height(),
+                        &query,
+                        &|| state.query_was_cancelled(generation),
+                    ) {
+                        Ok(result) => return Ok(result),
+                        Err(error) if error.starts_with(LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX) => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
             let compared_frame = comparison
                 .as_ref()
                 .map(|pending| read_parquet_frame(&pending.snapshot_path))
@@ -23265,6 +23515,91 @@ mod tests {
         assert!(execute_local_query(&frame, "DELETE FROM dataset").is_err());
         assert!(execute_local_query(&frame, "SELECT * FROM dataset LIMIT 201").is_err());
         assert!(execute_local_query(&frame, "SELECT missing FROM dataset").is_err());
+    }
+
+    #[test]
+    fn parquet_backed_local_queries_match_materialized_results_across_blocks() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("source.parquet");
+        let row_count = LOCAL_QUERY_BLOCK_ROWS + 3;
+        let ids = (0..row_count as i64).collect::<Vec<_>>();
+        let groups = (0..row_count)
+            .map(|index| {
+                if index.is_multiple_of(2) {
+                    "even".to_owned()
+                } else {
+                    "odd".to_owned()
+                }
+            })
+            .collect::<Vec<_>>();
+        let frame = DataFrame::new(
+            row_count,
+            vec![
+                Column::new("id".into(), ids),
+                Column::new("group".into(), groups),
+            ],
+        )
+        .expect("el frame de consulta debe ser válido");
+        {
+            let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
+            let mut snapshot = frame.clone();
+            ParquetWriter::new(&mut file)
+                .finish(&mut snapshot)
+                .expect("se debe escribir el Parquet temporal");
+        }
+
+        for query in [
+            "SELECT id, group FROM dataset WHERE id >= 16382 LIMIT 7",
+            "SELECT group, COUNT(*) AS total FROM dataset GROUP BY group LIMIT 10",
+        ] {
+            let eager = execute_local_query(&frame, query)
+                .expect("la consulta materializada debe ejecutarse");
+            let parquet =
+                execute_local_query_from_parquet_with_cancel(&path, frame.height(), query, &|| {
+                    false
+                })
+                .expect("la consulta respaldada por Parquet debe ejecutarse");
+            assert_eq!(parquet, eager, "la consulta debe conservar su paridad");
+        }
+    }
+
+    #[test]
+    fn parquet_backed_local_query_honors_cancellation_and_rejects_stale_row_count() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("source.parquet");
+        let mut frame = df!["id" => &[1_i64, 2, 3]].expect("el frame debe ser válido");
+        let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
+        ParquetWriter::new(&mut file)
+            .finish(&mut frame)
+            .expect("se debe escribir el Parquet temporal");
+        drop(file);
+
+        let cancelled = execute_local_query_from_parquet_with_cancel(
+            &path,
+            frame.height(),
+            "SELECT * FROM dataset",
+            &|| true,
+        )
+        .expect_err("una consulta cancelada no debe leer el snapshot");
+        assert_eq!(cancelled, OPERATION_CANCELLED_MESSAGE);
+
+        let stale = execute_local_query_from_parquet_with_cancel(
+            &path,
+            frame.height() + 1,
+            "SELECT * FROM dataset",
+            &|| false,
+        )
+        .expect_err("un snapshot con conteo obsoleto debe fallar cerrado");
+        assert!(stale.starts_with(LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX));
+
+        let short = execute_local_query_from_parquet_with_cancel(
+            &path,
+            frame.height() - 1,
+            "SELECT * FROM dataset",
+            &|| false,
+        )
+        .expect_err("un snapshot con filas sobrantes debe fallar cerrado");
+        assert!(short.starts_with(LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX));
     }
 
     #[test]

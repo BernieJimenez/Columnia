@@ -1330,8 +1330,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   después de validar el benchmark y ampliar los límites de forma explícita. La
   ruta parcial actual prepara el contrato DuckDB desde el esquema del snapshot
   comparado sin cargar sus filas otra vez y no hereda el límite de entradas del
-  plan Polars; el `DataFrame` activo y la ejecución completa fuera de RAM aún
-  requieren esta expansión.
+  plan Polars; las consultas Polars simples sin comparación ya recorren por
+  bloques el snapshot Parquet del cursor y conservan fallback ante snapshots
+  degradados o inconsistentes. Los `JOIN`, la comparación y el `DataFrame`
+  activo todavía no constituyen una ejecución completa fuera de RAM y requieren
+  esta expansión.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
   para columnas personales detectadas durante la exportación.
 - [x] Extender detección, enmascarado/hash y modos de privacidad visibles a los
@@ -1367,7 +1370,12 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   conservar el resultado unido completo. `FULL` recorre el lado activo por
   bloques y añade bloques de filas derechas no emparejadas mediante un anti-join
   estable; ese frame derecho acotado todavía se materializa y no equivale a
-  ejecución fuera de memoria general.
+  ejecución fuera de memoria general. La consulta Polars simple sin comparación
+  también lee el snapshot Parquet del cursor por bloques de 16K filas, cuenta
+  coincidencias y conserva solo la página o los acumuladores; si el snapshot
+  falla vuelve al frame activo. Quedan fuera de esta slice los `JOIN`, la
+  comparación, las operaciones generales y el presupuesto integral fuera de
+  RAM.
   `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
@@ -1921,6 +1929,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 reduce la materialización de JOIN DuckDB: cuando existe snapshot administrado, la preparación lee solo el esquema Parquet de la comparación y evita volver a cargar sus filas; la preparación DuckDB tampoco aplica el límite de entradas Polars, mientras el `DataFrame` activo y la ejecución completa fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 sirve la paginación de la muestra activa desde el snapshot Parquet del cursor actual con `slice` y colección streaming, conservando el fallback al `DataFrame` cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 evita una segunda clonación completa al guardar proyectos: la copia aislada del dataset se entrega directamente al escritor Parquet, conservando la publicación atómica y la recuperación ante fallos; el benchmark fija el perfil de compilación reproducible y restaura el entorno del proceso. | `src-tauri/src/projects.rs`, `tools/benchmark-datasets.ps1`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 añade consultas Polars simples respaldadas por el snapshot Parquet del cursor: valida el esquema sin filas, cuenta coincidencias por bloques de 16K y relee solo la ventana o los bloques necesarios para agregaciones; comprueba el conteo exacto, respeta cancelación y vuelve al `DataFrame` activo ante snapshot inválido. `JOIN`, comparación, historial degradado y ejecución integral fuera de RAM conservan sus límites explícitos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`, y a `Iso8601` sin offset o con sufijo UTC `Z`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras offsets distintos de UTC y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, calculando umbrales y conteos después de filtros compatibles; las etapas que alteran valores mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 amplía la receta lazy/streaming para combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` y `merge` en una misma receta cuando se conservan sus dependencias; los conflictos de fuentes mantienen rechazo o fallback eager explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |

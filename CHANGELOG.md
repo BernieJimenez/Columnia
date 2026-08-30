@@ -60,6 +60,14 @@ los artefactos de validación locales.
   las columnas auxiliares de orden nunca se publican; el fallback a snapshot
   temporal se mantiene para historiales degradados. Esta ruta aún no completa
   la carga inicial ni la ejecución incremental fuera de memoria.
+- La ruta Polars de consultas simples sin comparación puede leer el snapshot
+  Parquet del cursor actual por bloques de 16K filas: cuenta coincidencias sin
+  materializar una segunda copia del dataset y solo relee los bloques que
+  contienen la página solicitada o el estado agregado. Verifica que el
+  snapshot conserve exactamente el conteo activo, respeta cancelación y hace
+  fallback al `DataFrame` materializado ante un snapshot inválido; `JOIN`,
+  comparación, historial degradado y ejecución integral fuera de RAM conservan
+  sus límites explícitos.
 - La comparación local conserva la segunda fuente en un snapshot Parquet
   temporal mientras está activa: conflictos y consolidación lo leen bajo
   demanda, DuckDB puede registrar directamente ambos snapshots en un JOIN y
