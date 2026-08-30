@@ -13103,46 +13103,67 @@ fn row_signature(
 }
 
 fn row_signatures(frame: &DataFrame, columns: &[String]) -> Result<HashMap<String, usize>, String> {
-    (0..frame.height())
-        .into_par_iter()
-        .try_fold(HashMap::new, |mut counts, row_index| {
-            let signature = row_signature(frame, columns, row_index)?;
-            *counts.entry(signature).or_insert(0) += 1;
-            Ok(counts)
-        })
-        .try_reduce(HashMap::new, |mut left, right| {
-            for (signature, count) in right {
-                *left.entry(signature).or_insert(0) += count;
-            }
-            Ok(left)
-        })
+    let mut counts = HashMap::new();
+    for start in (0..frame.height()).step_by(LOCAL_QUERY_BLOCK_ROWS) {
+        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+        let partial = (start..end)
+            .into_par_iter()
+            .try_fold(
+                HashMap::<String, usize>::new,
+                |mut partial, row_index| -> Result<HashMap<String, usize>, String> {
+                    let signature = row_signature(frame, columns, row_index)?;
+                    *partial.entry(signature).or_insert(0) += 1;
+                    Ok(partial)
+                },
+            )
+            .try_reduce(HashMap::new, |mut left, right| {
+                for (signature, count) in right {
+                    *left.entry(signature).or_insert(0) += count;
+                }
+                Ok(left)
+            })?;
+        for (signature, count) in partial {
+            *counts.entry(signature).or_insert(0) += count;
+        }
+    }
+    Ok(counts)
 }
 
 fn key_rows(
     frame: &DataFrame,
     key_columns: &[String],
 ) -> Result<HashMap<String, Vec<usize>>, String> {
-    let mut rows_by_key = (0..frame.height())
-        .into_par_iter()
-        .try_fold(
-            HashMap::new,
-            |mut rows_by_key, row_index| -> Result<_, String> {
-                let signature = row_signature(frame, key_columns, row_index)?;
-                rows_by_key
-                    .entry(signature)
-                    .or_insert_with(Vec::new)
-                    .push(row_index);
-                Ok(rows_by_key)
-            },
-        )
-        .try_reduce(HashMap::new, |mut left, right| -> Result<_, String> {
-            for (signature, mut rows) in right {
-                left.entry(signature)
-                    .or_insert_with(Vec::new)
-                    .append(&mut rows);
-            }
-            Ok(left)
-        })?;
+    let mut rows_by_key = HashMap::new();
+    for start in (0..frame.height()).step_by(LOCAL_QUERY_BLOCK_ROWS) {
+        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+        let partial = (start..end)
+            .into_par_iter()
+            .try_fold(
+                HashMap::new,
+                |mut partial, row_index| -> Result<_, String> {
+                    let signature = row_signature(frame, key_columns, row_index)?;
+                    partial
+                        .entry(signature)
+                        .or_insert_with(Vec::new)
+                        .push(row_index);
+                    Ok(partial)
+                },
+            )
+            .try_reduce(HashMap::new, |mut left, right| -> Result<_, String> {
+                for (signature, mut rows) in right {
+                    left.entry(signature)
+                        .or_insert_with(Vec::new)
+                        .append(&mut rows);
+                }
+                Ok(left)
+            })?;
+        for (signature, mut rows) in partial {
+            rows_by_key
+                .entry(signature)
+                .or_insert_with(Vec::new)
+                .append(&mut rows);
+        }
+    }
     for rows in rows_by_key.values_mut() {
         rows.sort_unstable();
     }
@@ -13192,40 +13213,51 @@ fn compare_keyed_frames(
 
     let current_rows = key_rows(current, key_columns)?;
     let compared_rows = key_rows(compared, key_columns)?;
-    let current_keys = current_rows.keys().collect::<HashSet<_>>();
-    let compared_keys = compared_rows.keys().collect::<HashSet<_>>();
     let shared_payload_columns = shared_columns
         .iter()
         .filter(|column| !key_columns.contains(column))
         .cloned()
         .collect::<Vec<_>>();
-    let duplicate_keys = current_rows
+    let duplicate_key_count = current_rows
         .iter()
         .filter(|(_, rows)| rows.len() > 1)
-        .map(|(key, _)| key.clone())
-        .chain(
-            compared_rows
-                .iter()
-                .filter(|(_, rows)| rows.len() > 1)
-                .map(|(key, _)| key.clone()),
-        )
-        .collect::<HashSet<_>>();
+        .count()
+        + compared_rows
+            .iter()
+            .filter(|(key, rows)| {
+                rows.len() > 1
+                    && current_rows
+                        .get(*key)
+                        .is_none_or(|current_rows| current_rows.len() <= 1)
+            })
+            .count();
     let mut summary = KeyComparisonSummary {
-        matched_key_count: current_keys.intersection(&compared_keys).count(),
-        current_only_key_count: current_keys.difference(&compared_keys).count(),
-        compared_only_key_count: compared_keys.difference(&current_keys).count(),
-        duplicate_key_count: duplicate_keys.len(),
+        matched_key_count: current_rows
+            .keys()
+            .filter(|key| compared_rows.contains_key(*key))
+            .count(),
+        current_only_key_count: current_rows
+            .keys()
+            .filter(|key| !compared_rows.contains_key(*key))
+            .count(),
+        compared_only_key_count: compared_rows
+            .keys()
+            .filter(|key| !current_rows.contains_key(*key))
+            .count(),
+        duplicate_key_count,
         ..Default::default()
     };
 
-    for key in current_keys.intersection(&compared_keys) {
-        let current_rows = &current_rows[*key];
-        let compared_rows = &compared_rows[*key];
-        if current_rows.len() != 1 || compared_rows.len() != 1 {
+    for (key, current_key_rows) in &current_rows {
+        let Some(compared_key_rows) = compared_rows.get(key) else {
+            continue;
+        };
+        if current_key_rows.len() != 1 || compared_key_rows.len() != 1 {
             continue;
         }
-        let current_payload = row_signature(current, &shared_payload_columns, current_rows[0])?;
-        let compared_payload = row_signature(compared, &shared_payload_columns, compared_rows[0])?;
+        let current_payload = row_signature(current, &shared_payload_columns, current_key_rows[0])?;
+        let compared_payload =
+            row_signature(compared, &shared_payload_columns, compared_key_rows[0])?;
         if current_payload != compared_payload {
             summary.conflicting_key_count += 1;
         }
@@ -20664,6 +20696,25 @@ mod tests {
         fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
         fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
         fs::remove_file(duplicate_path).expect("se debe limpiar el CSV duplicado");
+    }
+
+    #[test]
+    fn comparison_signatures_merge_fixed_blocks_without_changing_counts() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS * 2 + 3;
+        let ids = (0..row_count)
+            .map(|index| (index % 7) as i64)
+            .collect::<Vec<_>>();
+        let frame = DataFrame::new(row_count, vec![Series::new("id".into(), ids).into_column()])
+            .expect("el frame grande de comparación debe ser válido");
+        let columns = vec!["id".to_owned()];
+
+        let signatures = row_signatures(&frame, &columns).expect("las firmas deben fusionarse");
+        let keys = key_rows(&frame, &columns).expect("las claves deben fusionarse");
+
+        assert_eq!(signatures.len(), 7);
+        assert_eq!(keys.len(), 7);
+        assert_eq!(signatures.values().sum::<usize>(), row_count);
+        assert_eq!(keys.values().map(Vec::len).sum::<usize>(), row_count);
     }
 
     #[test]
