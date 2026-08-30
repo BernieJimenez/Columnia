@@ -83,6 +83,8 @@ const RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_SESSION_METADATA_NAMES: usize = 64;
 const MAX_SESSION_METADATA_NAME_CHARS: usize = 96;
+const MAX_SESSION_EXECUTION_HISTORY_ENTRIES: usize = 5;
+const MAX_SESSION_EXECUTION_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
@@ -1119,6 +1121,13 @@ pub(crate) struct DataprepSessionMigrationPlan {
     pub(crate) missing_references: Vec<String>,
     pub(crate) collisions: Vec<String>,
     pub(crate) can_create_project: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SessionExecutionHistoryEntry {
+    pub(crate) outcome: String,
+    pub(crate) duration_ms: u64,
+    pub(crate) row_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -7237,6 +7246,7 @@ fn migration_session_field<'a>(
         "selected_cleaning_operations" => "selectedCleaningOperations",
         "quality_rules" => "qualityRules",
         "analysis_checks" => "analysisChecks",
+        "execution_history" => "executionHistory",
         "file_name" => "fileName",
         _ => return root.get(key),
     };
@@ -7469,6 +7479,86 @@ fn migration_session_metadata(
         analysis_checks: metadata_names("analysis_checks")?,
         non_portable_artifacts,
     }))
+}
+
+fn session_execution_history(
+    root: &JsonMap<String, JsonValue>,
+) -> Vec<SessionExecutionHistoryEntry> {
+    let Some(JsonValue::Array(entries)) = migration_session_field(root, "execution_history") else {
+        return Vec::new();
+    };
+
+    entries
+        .iter()
+        .rev()
+        .filter_map(|entry| {
+            let object = entry.as_object()?;
+            let outcome = object
+                .get("outcome")
+                .or_else(|| object.get("status"))
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .and_then(|value| match value.as_str() {
+                    "success" => Some("success".to_owned()),
+                    "error" => Some("error".to_owned()),
+                    "cancelled" | "canceled" => Some("cancelled".to_owned()),
+                    _ => None,
+                })?;
+            let duration_ms = object
+                .get("duration_ms")
+                .or_else(|| object.get("durationMs"))
+                .and_then(|value| {
+                    value
+                        .as_u64()
+                        .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
+                })
+                .filter(|duration| *duration <= MAX_SESSION_EXECUTION_DURATION_MS)?;
+            let row_count = object
+                .get("row_count")
+                .or_else(|| object.get("rowCount"))
+                .and_then(|value| {
+                    value
+                        .as_u64()
+                        .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
+                })
+                .and_then(|value| usize::try_from(value).ok());
+
+            Some(SessionExecutionHistoryEntry {
+                outcome,
+                duration_ms,
+                row_count,
+            })
+        })
+        .take(MAX_SESSION_EXECUTION_HISTORY_ENTRIES)
+        .collect()
+}
+
+pub(crate) fn load_dataprep_session_execution_history(
+    path: &Path,
+) -> Vec<SessionExecutionHistoryEntry> {
+    let Ok(file) = File::open(path) else {
+        return Vec::new();
+    };
+    let Ok(size) = file.metadata().map(|metadata| metadata.len()) else {
+        return Vec::new();
+    };
+    if size > RECIPE_FILE_LIMIT_BYTES {
+        return Vec::new();
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    if file
+        .take(RECIPE_FILE_LIMIT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > RECIPE_FILE_LIMIT_BYTES
+    {
+        return Vec::new();
+    }
+    let Ok(JsonValue::Object(root)) = serde_json::from_slice::<JsonValue>(&bytes) else {
+        return Vec::new();
+    };
+    session_execution_history(&root)
 }
 
 fn session_source_reference(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {

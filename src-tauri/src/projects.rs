@@ -1370,6 +1370,7 @@ fn import_dataprep_session_project_from_path(
     } else {
         return Err("La sesión no contiene una fuente o snapshot disponible.".to_owned());
     };
+    let execution_history = dataset::load_dataprep_session_execution_history(&session_path);
     let replayable_cleaning = if apply_recipe {
         plan.recipe.session_applied_operations()
     } else {
@@ -1444,7 +1445,16 @@ fn import_dataprep_session_project_from_path(
         ProjectWorkspace {
             quality_rules: plan.quality_rules,
             recipe_draft: Some(plan.recipe),
-            sql_history: Vec::new(),
+            sql_history: execution_history
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| SqlQueryHistoryEntry {
+                    id: (index + 1) as u64,
+                    outcome: entry.outcome.clone(),
+                    duration_ms: entry.duration_ms,
+                    row_count: entry.row_count,
+                })
+                .collect(),
             review_tab: Default::default(),
             preview_offset: Default::default(),
             active_phase: dataprep_stage_active_phase(plan.stage_label.as_deref()),
@@ -2846,6 +2856,59 @@ mod tests {
                 .project,
             existing
         );
+    }
+
+    #[test]
+    fn dataprep_session_imports_only_safe_aggregate_execution_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "value,label\n1,one\n2,two\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Historial agregado",
+                "source_path": "source.csv",
+                "transform": {"rename_text": ""},
+                "execution_history": [
+                    {"outcome": "success", "duration_ms": 42, "row_count": 2, "query": "SELECT secret FROM dataset"},
+                    {"status": "cancelled", "durationMs": "18", "query": "no debe copiarse"},
+                    {"status": "unknown", "duration_ms": 9, "query": "se omite"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("el historial agregado válido debe importarse");
+        let opened = store
+            .open(&DatasetState::default(), imported.id)
+            .expect("el proyecto debe reabrirse");
+
+        assert_eq!(
+            opened.workspace.sql_history,
+            vec![
+                SqlQueryHistoryEntry {
+                    id: 1,
+                    outcome: "cancelled".to_owned(),
+                    duration_ms: 18,
+                    row_count: None,
+                },
+                SqlQueryHistoryEntry {
+                    id: 2,
+                    outcome: "success".to_owned(),
+                    duration_ms: 42,
+                    row_count: Some(2),
+                },
+            ]
+        );
+        let serialized = serde_json::to_string(&opened.workspace).unwrap();
+        assert!(!serialized.contains("SELECT secret"));
+        assert!(!serialized.contains("no debe copiarse"));
     }
 
     #[test]

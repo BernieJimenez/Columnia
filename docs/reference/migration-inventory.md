@@ -163,6 +163,13 @@ esto no afirma que un análisis de DataPrep pueda reanudarse automáticamente.
 
 ## Límites pendientes
 
+Si `execution_history` contiene únicamente estado (`success`, `error` o
+`cancelled`), duración acotada y filas opcionales, la importación de proyecto
+conserva como máximo cinco entradas agregadas en la actividad SQL, con IDs
+locales. Las consultas, rutas, valores, estados desconocidos y entradas fuera
+de presupuesto se descartan; el artefacto `history` continúa marcado para
+revisión manual porque su contenido completo no es portable.
+
 La restauración completa de sesiones, historial de ejecuciones, cachés reanudables,
 artefactos de análisis originales y round-trip hacia proyectos requiere contratos
 separados. La slice actual conserva la receta, las reglas representables y un

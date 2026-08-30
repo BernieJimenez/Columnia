@@ -1330,7 +1330,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   la muestra ya se conservan en el workspace durable con fallback seguro para
   catálogos anteriores. La etapa activa del flujo también se conserva con
   fallback a Revisar y validación cerrada; las muestras de análisis y otras
-  preferencias de sesión siguen pendientes.
+  preferencias de sesión siguen pendientes. La importación M1 conserva además
+  hasta cinco entradas de historial de ejecución cuando solo contienen estado,
+  duración y filas; asigna IDs locales y nunca copia consultas, rutas ni valores.
   La apertura segura del último output local ya está implementada desde Entregar
   con revalidación en Rust y sin transportar rutas por IPC.
   El modelo durable de proyectos de Columnia se conserva como reemplazo de la
@@ -1761,6 +1763,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | P1 cierra la brecha de acción directa para `parse_dates`: Preparar ofrece interpretar columnas de texto con un formato de fecha dominante cerrado, omite mezclas ambiguas, conserva nulos y publica el cambio en el historial reversible con impacto agregado; el inventario IPC pasa a 65 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
 | 2026-08-29 | P1 cierra la brecha de acción directa para `cast_numeric`: Preparar convierte texto con más de 90% de coincidencia numérica, rechaza pérdida de precisión, conserva identificadores/códigos con ceros iniciales y publica una mutación reversible con impacto agregado; el inventario IPC pasa a 66 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
 | 2026-08-29 | M1 amplía el round-trip de sesiones con un `.xlsx` real generado por el exportador nativo: la hoja registrada se valida, la receta se aplica y el proyecto se reabre comprobando esquema, conteos y etapa activa; la restauración completa de artefactos históricos sigue pendiente. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `fixtures/migration/dataprep-session-v1-roundtrip.json` |
+| 2026-08-29 | M1 importa hasta cinco entradas de historial de ejecución solo cuando sus metadatos agregados son seguros (estado, duración y filas), las persiste en la actividad SQL del proyecto con IDs locales y descarta consultas, rutas, valores y entradas inválidas. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 

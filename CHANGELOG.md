@@ -34,6 +34,9 @@ los artefactos de validación locales.
 - La cobertura M1 añade un round-trip de sesión contra un libro `.xlsx` real:
   genera el libro con el exportador nativo, valida la hoja registrada, importa
   la receta, reabre el proyecto y comprueba esquema, conteos y etapa activa.
+- La importación M1 conserva hasta cinco entradas de historial de ejecución solo
+  cuando contienen estado, duración y filas agregadas; asigna IDs locales y no
+  copia consultas, rutas, valores ni entradas inválidas.
 - La importación de sesiones DataPrep reproduce `drop_duplicates`,
    `drop_fuzzy_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
