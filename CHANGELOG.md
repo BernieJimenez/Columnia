@@ -31,6 +31,9 @@ los artefactos de validación locales.
   con formatos explícitos `Ymd`, `Dmy` y `Mdy`, respetando espacios exteriores,
   nulos y objetivos `Date`/`Datetime`; `Iso8601`, zonas horarias y operaciones
   avanzadas conservan el fallback eager seguro.
+- Los tratamientos IQR aislados de recetas (`cap`, `impute` y `drop`) ahora
+  pueden ejecutarse en lazy/streaming con conteos exactos de celdas y filas;
+  las recetas que alteran datos antes del cálculo conservan fallback eager.
 - La migración M1 de sesiones DataPrep restaura un historial explícito de hasta
   doce snapshots Parquet locales mediante el contrato versionado
   `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de

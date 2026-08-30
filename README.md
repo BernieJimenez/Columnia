@@ -453,6 +453,9 @@ Las operaciones que necesitan
 validaciones o materialización completa conservan el camino eager explícito;
 los parseos explícitos `Ymd`, `Dmy` y `Mdy` de fechas también se ejecutan dentro
 del plan, mientras `Iso8601` y las zonas horarias mantienen fallback eager.
+Los tratamientos IQR aislados (`cap`, `impute` y `drop`) sobre columnas numéricas
+también usan este plan; si la receta altera filas o valores antes del IQR, conserva
+el fallback eager para mantener los umbrales exactos.
 la extracción de año, mes y día usa la ruta lazy para `Date` y `Datetime` sin
 zona horaria cuando no hay filtros previos, y mantiene fallback eager en los
 demás casos. Las columnas calculadas numéricas y concatenadas también pueden

@@ -18221,11 +18221,21 @@ fn physical_numeric_values(column: &Column) -> Result<Vec<Option<f64>>, String> 
         .collect()
 }
 
-fn apply_outlier_treatments(
-    mut frame: DataFrame,
+type PreparedOutlierTreatment = (
+    String,
+    OutlierAction,
+    Vec<Option<f64>>,
+    f64,
+    f64,
+    f64,
+    DataType,
+);
+
+fn prepare_outlier_treatments(
+    frame: &DataFrame,
     treatments: &[OutlierTreatment],
     renames: &HashMap<&str, &str>,
-) -> Result<(DataFrame, usize, usize, usize), String> {
+) -> Result<Vec<PreparedOutlierTreatment>, String> {
     if treatments.len() > 16 {
         return Err("La receta admite como máximo 16 tratamientos de atípicos.".into());
     }
@@ -18239,7 +18249,7 @@ fn apply_outlier_treatments(
             ));
         }
         let name = remapped_name(&treatment.column, renames).to_owned();
-        let column = recipe_column(&frame, &name)?;
+        let column = recipe_column(frame, &name)?;
         if !matches!(
             column.dtype(),
             polars::prelude::DataType::Int64 | polars::prelude::DataType::Float64
@@ -18281,6 +18291,15 @@ fn apply_outlier_treatments(
             column.dtype().clone(),
         ));
     }
+    Ok(prepared)
+}
+
+fn apply_outlier_treatments(
+    mut frame: DataFrame,
+    treatments: &[OutlierTreatment],
+    renames: &HashMap<&str, &str>,
+) -> Result<(DataFrame, usize, usize, usize), String> {
+    let prepared = prepare_outlier_treatments(&frame, treatments, renames)?;
 
     let baseline_height = frame.height();
     let mut drop_mask = vec![false; baseline_height];
@@ -18934,7 +18953,23 @@ fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
         })
         && (recipe.date_parses.is_empty() || recipe.casts.is_empty())
         && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
-        && recipe.outlier_treatments.is_empty()
+        && (recipe.outlier_treatments.is_empty()
+            || (recipe.casts.is_empty()
+                && recipe.date_parses.is_empty()
+                && recipe.filters.is_empty()
+                && recipe.find_replace.is_none()
+                && recipe.keep_columns.is_none()
+                && recipe.calculated_column.is_none()
+                && recipe.split_column.is_none()
+                && recipe.merge_columns.is_none()
+                && recipe.group_summary.is_none()
+                && recipe.contact_normalizations.is_empty()
+                && recipe.text_extractions.is_empty()
+                && recipe.outlier_treatments.iter().all(|treatment| {
+                    recipe_column(source, &treatment.column).is_ok_and(|column| {
+                        matches!(column.dtype(), DataType::Int64 | DataType::Float64)
+                    })
+                })))
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
             matches!(
                 calculation.operation,
@@ -20105,6 +20140,80 @@ fn apply_lazy_recipe_to_frame(
         (0, 0)
     };
 
+    let (adjusted_outlier_cell_count, outlier_removed_row_count, outlier_column_count) =
+        if recipe.outlier_treatments.is_empty() {
+            (0, 0, 0)
+        } else {
+            let prepared =
+                prepare_outlier_treatments(source, &recipe.outlier_treatments, &rename_map)?;
+            let mut drop_mask = vec![false; source.height()];
+            let mut drop_expression: Option<Expr> = None;
+            let mut replacement_expressions = Vec::new();
+            let mut adjusted = 0;
+
+            for (name, action, values, lower, upper, median, dtype) in prepared {
+                let outlier_rows = values
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(row, value)| {
+                        value.and_then(|value| (value < lower || value > upper).then_some(row))
+                    })
+                    .collect::<Vec<_>>();
+                let value = col(name.as_str());
+                let outlier = value.clone().is_not_null().and(
+                    value
+                        .clone()
+                        .lt(lit(lower))
+                        .or(value.clone().gt(lit(upper))),
+                );
+                match action {
+                    OutlierAction::Cap => {
+                        adjusted += outlier_rows.len();
+                        if !outlier_rows.is_empty() {
+                            replacement_expressions.push(
+                                when(value.clone().lt(lit(lower)))
+                                    .then(lit(lower))
+                                    .when(value.clone().gt(lit(upper)))
+                                    .then(lit(upper))
+                                    .otherwise(value)
+                                    .alias(name),
+                            );
+                        }
+                    }
+                    OutlierAction::Drop => {
+                        for row in outlier_rows {
+                            drop_mask[row] = true;
+                        }
+                        drop_expression = Some(match drop_expression {
+                            Some(existing) => existing.or(outlier),
+                            None => outlier,
+                        });
+                    }
+                    OutlierAction::Impute => {
+                        adjusted += outlier_rows.len();
+                        replacement_expressions.push(
+                            when(outlier)
+                                .then(lit(median))
+                                .otherwise(value)
+                                .cast(dtype)
+                                .alias(name),
+                        );
+                    }
+                }
+            }
+            if !replacement_expressions.is_empty() {
+                plan = plan.with_columns(replacement_expressions);
+            }
+            if let Some(drop_expression) = drop_expression {
+                plan = plan.filter(drop_expression.not());
+            }
+            (
+                adjusted,
+                drop_mask.iter().filter(|drop| **drop).count(),
+                recipe.outlier_treatments.len(),
+            )
+        };
+
     let (normalized_contact_cell_count, normalized_contact_column_count) = if recipe
         .contact_normalizations
         .is_empty()
@@ -20368,9 +20477,9 @@ fn apply_lazy_recipe_to_frame(
         split_column_count,
         merged_column_count,
         split_dropped_source_count + dropped_source_column_count,
-        0,
-        0,
-        0,
+        adjusted_outlier_cell_count,
+        outlier_removed_row_count,
+        outlier_column_count,
         group_count,
         summary_aggregations.as_ref().map_or(0, Vec::len),
         collapsed_row_count,
@@ -25895,6 +26004,61 @@ mod tests {
             outcome.0.column("when").unwrap().get(2),
             Ok(AnyValue::Null)
         ));
+    }
+
+    #[test]
+    fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
+        let frame = DataFrame::new(
+            5,
+            vec![Series::new("value".into(), [1_i64, 2, 3, 4, 100]).into_column()],
+        )
+        .expect("el frame numérico debe ser válido");
+
+        let cap = TransformRecipe {
+            outlier_treatments: vec![OutlierTreatment {
+                column: "value".into(),
+                action: OutlierAction::Cap,
+            }],
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&frame, &cap));
+        let capped = apply_recipe_to_frame(&frame, &cap).expect("el cap lazy debe completarse");
+        assert_eq!((capped.12, capped.13, capped.14), (1, 0, 1));
+        assert!(matches!(
+            capped.0.column("value").unwrap().get(4),
+            Ok(AnyValue::Float64(7.0))
+        ));
+
+        let impute = TransformRecipe {
+            outlier_treatments: vec![OutlierTreatment {
+                column: "value".into(),
+                action: OutlierAction::Impute,
+            }],
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&frame, &impute));
+        let imputed =
+            apply_recipe_to_frame(&frame, &impute).expect("la imputación lazy debe completarse");
+        assert_eq!((imputed.12, imputed.13, imputed.14), (1, 0, 1));
+        assert!(matches!(
+            imputed.0.column("value").unwrap().get(4),
+            Ok(AnyValue::Int64(3))
+        ));
+
+        let drop = TransformRecipe {
+            outlier_treatments: vec![OutlierTreatment {
+                column: "value".into(),
+                action: OutlierAction::Drop,
+            }],
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&frame, &drop));
+        let dropped = apply_recipe_to_frame(&frame, &drop).expect("el drop lazy debe completarse");
+        assert_eq!(
+            (dropped.4, dropped.12, dropped.13, dropped.14),
+            (1, 0, 1, 1)
+        );
+        assert_eq!(dropped.0.height(), 4);
     }
 
     #[test]

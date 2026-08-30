@@ -1397,6 +1397,9 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   mantienen fallback eager. Los parseos explícitos `Ymd`, `Dmy` y `Mdy` ya se
   ejecutan dentro del plan lazy/streaming, conservando trim, nulos y objetivos
   `Date`/`Datetime`; `Iso8601` y zonas horarias siguen en fallback eager.
+  Los tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas
+  numéricas también se ejecutan en streaming con conteos exactos; las recetas
+  que alteran filas o valores antes del IQR mantienen fallback eager.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -1879,6 +1882,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 hace que DuckDB reutilice el snapshot Parquet administrado de la revisión actual, añadiendo la columna de orden solo en la vista temporal y evitando serializar otra vez el `DataFrame`; la ruta conserva fallback para historiales degradados y no afirma todavía ejecución fuera de RAM. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 conserva la fuente comparada en un snapshot Parquet temporal mientras la comparación está activa: conflictos y consolidación leen bajo demanda, los JOIN DuckDB pueden registrar ambos snapshots sin reserializar el frame comparado y el dueño temporal garantiza cleanup al descartar la comparación. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras `Iso8601` y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 expande la receta lazy/streaming a tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, con conteos exactos y fallback eager cuando existen etapas previas que alteran filas o valores. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
