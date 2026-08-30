@@ -129,6 +129,9 @@ los artefactos de validación locales.
   lazy/streaming y alimentar resúmenes agrupados: tokens, runs Unicode y
   búsquedas antes/después de delimitadores literales preservan nulos,
   coincidencias ausentes y el límite de 16 columnas.
+- Las columnas calculadas numéricas y concatenadas también pueden alimentar
+  claves y fuentes de agregación de resúmenes dentro del plan lazy/streaming;
+  se conservan tipos, nulos, orden estable y validaciones previas.
 - Las columnas calculadas de suma, resta, multiplicación, división, concatenación
   y extracción de año, mes o día sobre fechas sin zona horaria también pueden
   ejecutarse dentro del plan lazy/streaming; los operandos y rangos se validan

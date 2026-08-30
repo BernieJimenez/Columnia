@@ -18343,18 +18343,21 @@ fn apply_lazy_recipe_to_frame(
     let (group_summary_input_rows, summary_aggregations) = if let Some(summary) =
         &recipe.group_summary
     {
-        let extracted_names = recipe
+        let mut derived_names = recipe
             .text_extractions
             .iter()
             .map(|extraction| extraction.name.as_str())
             .collect::<HashSet<_>>();
+        if let Some(calculation) = &recipe.calculated_column {
+            derived_names.insert(calculation.name.as_str());
+        }
         for name in summary.group_by.iter().chain(
             summary
                 .aggregations
                 .iter()
                 .map(|aggregation| &aggregation.column),
         ) {
-            if !extracted_names.contains(name.as_str()) {
+            if !derived_names.contains(name.as_str()) {
                 recipe_column(source, name)?;
             }
         }
@@ -18382,6 +18385,7 @@ fn apply_lazy_recipe_to_frame(
         let validation = if recipe.filters.is_empty()
             && recipe.contact_normalizations.is_empty()
             && recipe.text_extractions.is_empty()
+            && recipe.calculated_column.is_none()
         {
             None
         } else {
@@ -18561,18 +18565,21 @@ fn apply_eager_recipe_to_frame(
         recipe_column(source, &treatment.column)?;
     }
     if let Some(summary) = &recipe.group_summary {
-        let extracted_names = recipe
+        let mut derived_names = recipe
             .text_extractions
             .iter()
             .map(|extraction| extraction.name.as_str())
             .collect::<HashSet<_>>();
+        if let Some(calculation) = &recipe.calculated_column {
+            derived_names.insert(calculation.name.as_str());
+        }
         for name in &summary.group_by {
-            if !extracted_names.contains(name.as_str()) {
+            if !derived_names.contains(name.as_str()) {
                 recipe_column(source, name)?;
             }
         }
         for aggregation in &summary.aggregations {
-            if !extracted_names.contains(aggregation.column.as_str()) {
+            if !derived_names.contains(aggregation.column.as_str()) {
                 recipe_column(source, &aggregation.column)?;
             }
         }
@@ -23836,6 +23843,94 @@ mod tests {
                 (expected_groups, 2, 5 - expected_groups, 1)
             );
         }
+    }
+
+    #[test]
+    fn lazy_group_summary_uses_calculated_columns_before_grouping() {
+        let numeric_frame = DataFrame::new(
+            4,
+            vec![
+                Series::new("region".into(), ["A", "A", "B", "B"]).into_column(),
+                Series::new("amount".into(), [10_i64, 20, 5, 15]).into_column(),
+                Series::new("adjustment".into(), [1_i64, 2, 5, 0]).into_column(),
+            ],
+        )
+        .unwrap();
+        let numeric_recipe = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "total".into(),
+                source: "amount".into(),
+                operation: CalculatedOperation::Add,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Column,
+                    value: "adjustment".into(),
+                }),
+            }),
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["region".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "total".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&numeric_frame, &numeric_recipe));
+        let numeric_outcome = apply_recipe_to_frame(&numeric_frame, &numeric_recipe).unwrap();
+        assert_eq!(
+            (
+                numeric_outcome.5,
+                numeric_outcome.15,
+                numeric_outcome.16,
+                numeric_outcome.17
+            ),
+            (1, 2, 1, 2)
+        );
+        let numeric_rows = dataset_page(&numeric_outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(numeric_rows[0][0].as_deref(), Some("A"));
+        assert_eq!(numeric_rows[0][1].as_deref(), Some("33.0"));
+        assert_eq!(numeric_rows[1][0].as_deref(), Some("B"));
+        assert_eq!(numeric_rows[1][1].as_deref(), Some("25.0"));
+
+        let text_frame = DataFrame::new(
+            4,
+            vec![
+                Series::new(
+                    "city".into(),
+                    [Some("Santo"), Some("Santo"), Some("Santiago"), None],
+                )
+                .into_column(),
+                Series::new("code".into(), [Some("1"), Some("2"), Some("1"), Some("3")])
+                    .into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4]).into_column(),
+            ],
+        )
+        .unwrap();
+        let text_recipe = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "label".into(),
+                source: "city".into(),
+                operation: CalculatedOperation::Concat,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Column,
+                    value: "code".into(),
+                }),
+            }),
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["label".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&text_frame, &text_recipe));
+        let text_outcome = apply_recipe_to_frame(&text_frame, &text_recipe).unwrap();
+        assert_eq!(
+            (text_outcome.5, text_outcome.15, text_outcome.17),
+            (1, 4, 0)
+        );
     }
 
     #[test]

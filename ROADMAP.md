@@ -1347,7 +1347,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   sus columnas derivadas pueden alimentar claves y agregaciones agrupadas.
   Las calculadas de suma, resta, multiplicación, división y concatenación también
   se ejecutan en streaming, con validación previa de operandos, nulos, división
-  por cero e infinitos. La extracción de año, mes y día también se ejecuta en
+  por cero e infinitos; sus columnas derivadas también pueden alimentar claves
+  y agregaciones agrupadas. La extracción de año, mes y día también se ejecuta en
   streaming sobre `Date` y `Datetime` sin zona horaria cuando no hay filtros
   previos, con preflight de fechas no representables; las demás fechas mantienen
   fallback eager.
@@ -1857,6 +1858,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Extender agrupación y resúmenes lazy a filtros previos, con preflight streaming de las columnas necesarias, conteo correcto de filas retiradas y validación exacta de sumas supervivientes | Implementada como decimosexta expansión; la entrada y el candidato activo siguen materializados |
 | 2026-08-30 | Permitir normalización lazy de contactos antes de agrupación, validando sobre la proyección posterior a la normalización y preservando los contadores de cambios | Implementada como decimoséptima expansión; la entrada y el candidato activo siguen materializados |
 | 2026-08-30 | Permitir extracciones textuales lazy antes de agrupación, usando columnas derivadas como claves o fuentes de agregación y conservando nulos, orden y preflight | Implementada como decimoctava expansión; la entrada y el candidato activo siguen materializados |
+| 2026-08-30 | Permitir columnas calculadas lazy numéricas y concatenadas antes de agrupación, usando sus resultados como claves o fuentes de agregación con preflight posterior | Implementada como decimonovena expansión; partes temporales, split/merge derivados, la entrada y el candidato activo mantienen sus límites actuales |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
