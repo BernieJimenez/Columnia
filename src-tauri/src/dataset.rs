@@ -16151,13 +16151,13 @@ fn apply_find_replace(
     Ok(count)
 }
 
-fn apply_keep_columns(
-    frame: DataFrame,
+fn resolve_keep_column_names(
+    frame: &DataFrame,
     keep_columns: Option<&[String]>,
     renames: &HashMap<&str, &str>,
-) -> Result<(DataFrame, usize, bool), String> {
+) -> Result<(Vec<String>, usize, bool), String> {
     let Some(keep_columns) = keep_columns else {
-        return Ok((frame, 0, false));
+        return Ok((Vec::new(), 0, false));
     };
     if keep_columns.is_empty() {
         return Err("Debes conservar al menos una columna.".into());
@@ -16172,24 +16172,36 @@ fn apply_keep_columns(
                 ));
             }
             let effective = remapped_name(name, renames).to_owned();
-            recipe_column(&frame, &effective)?;
+            recipe_column(frame, &effective)?;
             Ok(effective)
         })
         .collect::<Result<Vec<_>, String>>()?;
-    let original_width = frame.width();
     let order_changed = frame
         .get_column_names()
         .iter()
         .map(|name| name.as_str())
         .ne(names.iter().map(String::as_str));
+    Ok((
+        names,
+        frame.width().saturating_sub(keep_columns.len()),
+        order_changed,
+    ))
+}
+
+fn apply_keep_columns(
+    frame: DataFrame,
+    keep_columns: Option<&[String]>,
+    renames: &HashMap<&str, &str>,
+) -> Result<(DataFrame, usize, bool), String> {
+    let (names, dropped_count, order_changed) =
+        resolve_keep_column_names(&frame, keep_columns, renames)?;
+    if keep_columns.is_none() {
+        return Ok((frame, 0, false));
+    }
     let selected = frame
         .select(&names)
         .map_err(|error| format!("No se pudieron conservar las columnas seleccionadas: {error}"))?;
-    Ok((
-        selected,
-        original_width.saturating_sub(names.len()),
-        order_changed,
-    ))
+    Ok((selected, dropped_count, order_changed))
 }
 
 fn apply_split_column(
@@ -17042,7 +17054,6 @@ type RecipeFrameOutcome = (
 fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
         && recipe.find_replace.is_none()
-        && recipe.keep_columns.is_none()
         && recipe.split_column.is_none()
         && recipe.merge_columns.is_none()
         && recipe.outlier_treatments.is_empty()
@@ -17344,8 +17355,29 @@ fn apply_lazy_recipe_to_frame(
         plan = plan.filter(lazy_filter_expression(source, filter, effective_name)?);
     }
 
+    let renamed_source = if recipe.keep_columns.is_some() {
+        let mut frame = source.clone();
+        frame
+            .set_column_names(&final_names)
+            .map_err(|error| format!("No se pudieron validar las columnas conservadas: {error}"))?;
+        Some(frame)
+    } else {
+        None
+    };
+    let keep_frame = renamed_source.as_ref().unwrap_or(source);
+    let (keep_names, dropped_column_count, kept_order_changed) =
+        resolve_keep_column_names(keep_frame, recipe.keep_columns.as_deref(), &rename_map)?;
+    if recipe.keep_columns.is_some() {
+        plan = plan.select(keep_names.iter().map(col).collect::<Vec<_>>());
+    }
+
     let calculated_column_count = if let Some(calculation) = &recipe.calculated_column {
         let source_name = remapped_name(&calculation.source, &rename_map);
+        if recipe.keep_columns.is_some() && !keep_names.iter().any(|name| name == source_name) {
+            return Err(format!(
+                "La columna fuente calculada '{source_name}' fue descartada por keepColumns."
+            ));
+        }
         let source_column = recipe_column(source, &calculation.source)?;
         let left = col(source_name).strict_cast(DataType::Float64);
         let operand = calculation.operand.as_ref().ok_or_else(|| {
@@ -17396,8 +17428,8 @@ fn apply_lazy_recipe_to_frame(
         removed_row_count,
         calculated_column_count,
         0,
-        0,
-        false,
+        dropped_column_count,
+        kept_order_changed,
         0,
         0,
         0,

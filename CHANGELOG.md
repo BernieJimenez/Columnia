@@ -100,6 +100,10 @@ los artefactos de validación locales.
   motor `streaming` después del preflight de cardinalidad; se mantienen el
   límite de entradas, el límite de resultado y la comprobación posterior antes
   de publicar cualquier cambio.
+- La selección y reordenación `keep_columns` se incorpora a la familia de
+  recetas lazy: la proyección ocurre dentro del plan `streaming`, conserva el
+  conteo de columnas descartadas y valida dependencias de columnas calculadas
+  antes de materializar el candidato.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
