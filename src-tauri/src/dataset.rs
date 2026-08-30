@@ -16,7 +16,7 @@ use ::zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use polars::io::json::{JsonFormat, JsonWriter};
-use polars::lazy::dsl::{col, lit};
+use polars::lazy::dsl::{col, len, lit};
 use polars::prelude::*;
 use rayon::prelude::*;
 use regex::Regex;
@@ -17051,11 +17051,17 @@ type RecipeFrameOutcome = (
     usize,
 );
 
+type LazySummaryAggregation = (String, String, SummaryOperation);
+type LazySummaryPlan = (Vec<String>, Vec<LazySummaryAggregation>);
+
 fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
         && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
         && recipe.outlier_treatments.is_empty()
-        && recipe.group_summary.is_none()
+        && recipe
+            .group_summary
+            .as_ref()
+            .is_none_or(|_| recipe.filters.is_empty() && recipe.find_replace.is_none())
         && recipe.contact_normalizations.is_empty()
         && recipe.text_extractions.is_empty()
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
@@ -17270,6 +17276,194 @@ fn lazy_find_replace_targets(
                 .collect())
         }
     }
+}
+
+fn lazy_summary_column(
+    source: &DataFrame,
+    name: &str,
+    renames: &HashMap<&str, &str>,
+    casts: &[RecipeCast],
+) -> Result<Column, String> {
+    let column = recipe_column(source, name)?;
+    let effective_name = remapped_name(name, renames);
+    let Some(cast) = casts
+        .iter()
+        .find(|cast| remapped_name(&cast.column, renames) == effective_name)
+    else {
+        return Ok(column.clone());
+    };
+    let already_target = matches!(
+        (column.dtype(), cast.target),
+        (DataType::String, RecipeCastTarget::String)
+            | (DataType::Int64, RecipeCastTarget::Integer)
+            | (DataType::Float64, RecipeCastTarget::Decimal)
+            | (DataType::Boolean, RecipeCastTarget::Boolean)
+    );
+    if already_target {
+        Ok(column.clone())
+    } else {
+        strict_cast_column(column, cast.target)
+    }
+}
+
+fn lazy_summary_group_key(
+    column: &Column,
+    row: usize,
+    name: &str,
+) -> Result<Option<String>, String> {
+    match column
+        .get(row)
+        .map_err(|error| format!("No se pudo leer la clave de grupo '{name}': {error}"))?
+    {
+        AnyValue::Null => Ok(None),
+        AnyValue::Float64(value) if !value.is_finite() => Err(format!(
+            "La clave de grupo '{name}' contiene NaN o infinito."
+        )),
+        AnyValue::Float64(0.0) => Ok(Some("0".into())),
+        value => Ok(Some(value.to_string())),
+    }
+}
+
+fn validate_lazy_group_summary(
+    source: &DataFrame,
+    summary: &GroupSummaryRecipe,
+    renames: &HashMap<&str, &str>,
+    casts: &[RecipeCast],
+) -> Result<LazySummaryPlan, String> {
+    if summary.group_by.is_empty() || summary.group_by.len() > 8 {
+        return Err("Agrupar requiere entre 1 y 8 columnas clave.".into());
+    }
+    if summary.aggregations.is_empty() || summary.aggregations.len() > 32 {
+        return Err("Resumir requiere entre 1 y 32 agregaciones.".into());
+    }
+
+    let groups = summary
+        .group_by
+        .iter()
+        .map(|name| remapped_name(name, renames).to_owned())
+        .collect::<Vec<_>>();
+    let mut group_unique = HashSet::new();
+    let group_columns = groups
+        .iter()
+        .zip(&summary.group_by)
+        .map(|(effective_name, source_name)| {
+            if !group_unique.insert(effective_name.clone()) {
+                return Err(format!(
+                    "La clave de grupo '{effective_name}' está duplicada."
+                ));
+            }
+            let column = lazy_summary_column(source, source_name, renames, casts)?;
+            for row in 0..column.len() {
+                lazy_summary_group_key(&column, row, effective_name)?;
+            }
+            Ok(column)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let mut aggregation_unique = HashSet::new();
+    let mut output_names = HashSet::new();
+    let mut aggregations = Vec::with_capacity(summary.aggregations.len());
+    let mut integer_sum_columns = Vec::new();
+    for aggregation in &summary.aggregations {
+        let name = remapped_name(&aggregation.column, renames).to_owned();
+        if !aggregation_unique.insert((name.clone(), aggregation.operation)) {
+            return Err(format!(
+                "La agregación '{}_{}' está duplicada.",
+                name,
+                aggregation.operation.suffix()
+            ));
+        }
+        let output = format!("{}_{}", name, aggregation.operation.suffix());
+        if group_unique.contains(&output) || !output_names.insert(output.clone()) {
+            return Err(format!(
+                "El nombre de salida '{output}' colisiona con otra columna."
+            ));
+        }
+        let column = lazy_summary_column(source, &aggregation.column, renames, casts)?;
+        match aggregation.operation {
+            SummaryOperation::Sum | SummaryOperation::Mean
+                if !matches!(column.dtype(), DataType::Int64 | DataType::Float64) =>
+            {
+                return Err(format!(
+                    "La agregación {} requiere que '{name}' sea Int64 o Float64.",
+                    aggregation.operation.suffix()
+                ));
+            }
+            SummaryOperation::Min | SummaryOperation::Max
+                if !matches!(
+                    column.dtype(),
+                    DataType::Int64
+                        | DataType::Float64
+                        | DataType::String
+                        | DataType::Date
+                        | DataType::Datetime(_, _)
+                ) =>
+            {
+                return Err(format!(
+                    "La agregación {} no admite el tipo de '{name}'.",
+                    aggregation.operation.suffix()
+                ));
+            }
+            _ => {}
+        }
+
+        if matches!(
+            aggregation.operation,
+            SummaryOperation::Sum
+                | SummaryOperation::Mean
+                | SummaryOperation::Min
+                | SummaryOperation::Max
+                | SummaryOperation::CountUnique
+        ) {
+            for row in 0..column.len() {
+                match column.get(row).map_err(|error| error.to_string())? {
+                    AnyValue::Float64(value) if !value.is_finite() => {
+                        return Err(format!("La columna '{name}' contiene NaN o infinito."));
+                    }
+                    AnyValue::Int64(value)
+                        if aggregation.operation == SummaryOperation::Mean
+                            && value.unsigned_abs() > (1_u64 << 53) =>
+                    {
+                        return Err(format!("La media de '{name}' excede la precisión segura."));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if aggregation.operation == SummaryOperation::Sum && column.dtype() == &DataType::Int64 {
+            integer_sum_columns.push((name.clone(), column.clone()));
+        }
+        aggregations.push((name, output, aggregation.operation));
+    }
+
+    if !integer_sum_columns.is_empty() {
+        let mut sums = vec![HashMap::<Vec<Option<String>>, i64>::new(); integer_sum_columns.len()];
+        for row in 0..source.height() {
+            let key = group_columns
+                .iter()
+                .zip(&groups)
+                .map(|(column, name)| lazy_summary_group_key(column, row, name))
+                .collect::<Result<Vec<_>, String>>()?;
+            for (index, (name, column)) in integer_sum_columns.iter().enumerate() {
+                let Some(value) = (match column
+                    .get(row)
+                    .map_err(|error| format!("No se pudo leer '{name}': {error}"))?
+                {
+                    AnyValue::Null => None,
+                    AnyValue::Int64(value) => Some(value),
+                    _ => unreachable!("la validación de tipo garantiza Int64"),
+                }) else {
+                    continue;
+                };
+                let total = sums[index].entry(key.clone()).or_insert(0);
+                *total = total
+                    .checked_add(value)
+                    .ok_or_else(|| format!("La suma de '{name}' desbordó Int64."))?;
+            }
+        }
+    }
+
+    Ok((groups, aggregations))
 }
 
 fn apply_lazy_recipe_to_frame(
@@ -17716,8 +17910,86 @@ fn apply_lazy_recipe_to_frame(
         (0, 0)
     };
 
+    let (group_summary_input_rows, summary_aggregations) = if let Some(summary) =
+        &recipe.group_summary
+    {
+        let schema = plan
+            .collect_schema()
+            .map_err(|error| format!("No se pudo validar el esquema del resumen: {error}"))?;
+        let (groups, aggregations) =
+            validate_lazy_group_summary(source, summary, &rename_map, &recipe.casts)?;
+        for name in groups
+            .iter()
+            .chain(aggregations.iter().map(|(name, _, _)| name))
+        {
+            if schema.get(name).is_none() {
+                return Err(format!(
+                        "La columna '{name}' requerida por agrupar/resumir no sobrevivió las etapas anteriores."
+                    ));
+            }
+        }
+        let group_expressions = groups.iter().map(col).collect::<Vec<_>>();
+        let aggregate_expressions = aggregations
+            .iter()
+            .map(|(name, output, operation)| {
+                let expression = match operation {
+                    SummaryOperation::Sum => col(name).sum(),
+                    SummaryOperation::Mean => col(name).mean(),
+                    SummaryOperation::Min => col(name).min(),
+                    SummaryOperation::Max => col(name).max(),
+                    SummaryOperation::Count => len().cast(DataType::Int64),
+                    SummaryOperation::CountUnique => {
+                        col(name).drop_nulls().n_unique().cast(DataType::Int64)
+                    }
+                };
+                expression.alias(output)
+            })
+            .collect::<Vec<_>>();
+        plan = plan
+            .group_by_stable(group_expressions)
+            .agg(aggregate_expressions);
+        (Some(source.height()), Some(aggregations))
+    } else {
+        (None, None)
+    };
+
     let candidate = collect_lazy_frame_streaming(plan, "No se pudo ejecutar la receta lazy")?;
-    let removed_row_count = source.height().saturating_sub(candidate.height());
+    if let Some(aggregations) = &summary_aggregations {
+        for (name, output, operation) in aggregations {
+            if !matches!(
+                operation,
+                SummaryOperation::Sum
+                    | SummaryOperation::Mean
+                    | SummaryOperation::Min
+                    | SummaryOperation::Max
+            ) {
+                continue;
+            }
+            let column = candidate
+                .column(output)
+                .map_err(|error| format!("No se pudo leer '{output}': {error}"))?;
+            if column.dtype() == &DataType::Float64
+                && (0..column.len()).any(|row| {
+                    matches!(
+                        column.get(row),
+                        Ok(AnyValue::Float64(value)) if !value.is_finite()
+                    )
+                })
+            {
+                return Err(format!(
+                    "La agregación de '{name}' produjo un valor no finito."
+                ));
+            }
+        }
+    }
+    let removed_row_count = group_summary_input_rows
+        .map(|input_rows| source.height().saturating_sub(input_rows))
+        .unwrap_or_else(|| source.height().saturating_sub(candidate.height()));
+    let group_count = summary_aggregations
+        .as_ref()
+        .map_or(0, |_| candidate.height());
+    let collapsed_row_count =
+        group_summary_input_rows.map_or(0, |input_rows| input_rows.saturating_sub(group_count));
     Ok((
         candidate,
         renamed_count,
@@ -17734,9 +18006,9 @@ fn apply_lazy_recipe_to_frame(
         0,
         0,
         0,
-        0,
-        0,
-        0,
+        group_count,
+        summary_aggregations.as_ref().map_or(0, Vec::len),
+        collapsed_row_count,
         0,
         0,
         0,
@@ -22805,6 +23077,99 @@ mod tests {
             dataset_page(&result, 0, 10).unwrap().rows[1][2].as_deref(),
             Some("40.0")
         );
+    }
+
+    #[test]
+    fn lazy_group_summary_preserves_stable_groups_nulls_and_counts() {
+        let frame = DataFrame::new(
+            5,
+            vec![
+                Series::new(
+                    "group".into(),
+                    [Some("B"), None, Some("B"), None, Some("A")],
+                )
+                .into_column(),
+                Series::new(
+                    "value".into(),
+                    [Some("2"), None, Some("4"), Some("8"), None],
+                )
+                .into_column(),
+                Series::new(
+                    "label".into(),
+                    [Some("z"), Some("x"), Some("a"), Some("x"), None],
+                )
+                .into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "value".into(),
+                target: RecipeCastTarget::Integer,
+            }],
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["group".into()],
+                aggregations: vec![
+                    SummaryAggregation {
+                        column: "value".into(),
+                        operation: SummaryOperation::Sum,
+                    },
+                    SummaryAggregation {
+                        column: "value".into(),
+                        operation: SummaryOperation::Mean,
+                    },
+                    SummaryAggregation {
+                        column: "value".into(),
+                        operation: SummaryOperation::Count,
+                    },
+                    SummaryAggregation {
+                        column: "label".into(),
+                        operation: SummaryOperation::CountUnique,
+                    },
+                    SummaryAggregation {
+                        column: "label".into(),
+                        operation: SummaryOperation::Min,
+                    },
+                ],
+            }),
+            ..Default::default()
+        };
+        let (
+            result,
+            _,
+            cast_count,
+            _,
+            removed,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            groups,
+            aggregations,
+            collapsed,
+            _,
+            _,
+            _,
+        ) = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(
+            (cast_count, removed, groups, aggregations, collapsed),
+            (1, 0, 3, 5, 2)
+        );
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("B"));
+        assert_eq!(rows[1][0], None);
+        assert_eq!(rows[0][1].as_deref(), Some("6"));
+        assert_eq!(rows[1][1].as_deref(), Some("8"));
+        assert_eq!(rows[2][1].as_deref(), Some("0"));
+        assert_eq!(rows[1][3].as_deref(), Some("2"));
+        assert_eq!(rows[1][4].as_deref(), Some("1"));
+        assert_eq!(rows[2][5], None);
     }
 
     #[test]

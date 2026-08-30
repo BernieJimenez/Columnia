@@ -334,8 +334,9 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - recetas JSON versión 1 guardables y cargables;
 - historial multinivel Deshacer/Rehacer.
 - ejecución Polars lazy para renombres, casts, filtros, búsqueda/reemplazo
-  literal, selección, unión y división de columnas y columnas calculadas
-  numéricas compatibles; las operaciones restantes usan fallback eager atómico.
+  literal, selección, unión y división de columnas, columnas calculadas
+  numéricas compatibles y resúmenes agrupados sin filtros ni búsqueda/reemplazo
+  previos; las operaciones restantes usan fallback eager atómico.
 
 Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, pérdida de precisión, división por cero o conflicto entre pasos revierte el lote completo.
 
@@ -718,6 +719,7 @@ Al actualizarlo:
 | 2026-08-27 | SQL local añade cancelación cooperativa por bloques, presupuesto de filas coincidentes para agregaciones y preflight de cardinalidad para rechazar joins many-to-many peligrosos antes de materializar Polars; Revisar muestra además una actividad de las últimas cinco ejecuciones sin persistir consultas; DuckDB y lazy/incremental completo siguen pendientes. | `src-tauri/src/dataset.rs`, `src/features/review/ReviewPhase.tsx`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-29 | La comparación por filas y claves fusiona firmas en bloques de 16K filas, conserva determinismo y evita `HashSet` auxiliares redundantes; el mapa global exacto sigue limitado por la memoria disponible y los límites de JOIN/comparación continúan vigentes. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-29 | Los JOIN locales por claves ejecutan el plan Polars con motor `streaming` después del preflight de cardinalidad; el resultado sigue materializándose solo dentro de los límites explícitos de entradas y filas, con comprobación posterior antes de publicar. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-08-29 | La agrupación y los resúmenes tipados pueden ejecutarse mediante `group_by_stable` en el plan streaming cuando no hay filtros ni búsqueda/reemplazo previos; se conservan orden de primera aparición, claves nulas, conteo de filas, `count_unique` y validaciones numéricas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-26 | Parquet se incorpora al mismo camino de lectura streaming mediante `scan_parquet`, con `parallel: None`, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | CSV, TSV y TXT delimitado usan `LazyCsvReader` con el motor streaming de Polars, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener compatibilidad con el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | El perfilado de datasets grandes distribuye las columnas entre hasta cuatro trabajadores, conserva el orden de resultados y emite progreso ponderado para que la interfaz no parezca detenida entre el 40 % y el 100 %. La optimización reduce presión temporal de memoria, pero no sustituye todavía la materialización inicial del `DataFrame`. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |

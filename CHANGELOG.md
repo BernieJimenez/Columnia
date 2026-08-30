@@ -114,6 +114,11 @@ los artefactos de validación locales.
   el resto en la última columna, rellena destinos ausentes con nulos y mantiene
   las validaciones de nombres, colisiones, casts a texto y descarte reversible
   de la fuente.
+- La agrupación y los resúmenes tipados pueden ejecutarse dentro del plan
+  lazy/streaming cuando no dependen de filtros ni búsqueda/reemplazo previos:
+  conserva el orden estable de primera aparición, claves nulas, conteos de
+  filas, `count_unique`, tipos numéricos/temporales y validaciones de finitos,
+  precisión y desbordamiento antes de publicar el candidato.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
