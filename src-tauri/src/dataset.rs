@@ -1955,8 +1955,6 @@ struct LocalQueryPlan {
     aggregate: bool,
 }
 
-type LocalGroupRows = Vec<(Vec<Option<String>>, Vec<usize>)>;
-
 fn local_identifier(value: &str) -> Result<String, String> {
     let value = value.trim();
     if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
@@ -2697,176 +2695,314 @@ where
     )
 }
 
-fn aggregate_result_with_cancel<C>(
-    frame: &DataFrame,
-    projection: &LocalProjection,
-    rows: &[usize],
-    is_cancelled: &C,
-) -> Result<Option<String>, String>
-where
-    C: Fn() -> bool + Sync,
-{
-    let LocalProjection::Aggregate {
-        function, column, ..
-    } = projection
-    else {
-        return Ok(None);
-    };
-    if matches!(function, LocalAggregate::Count) && column.is_none() {
-        ensure_not_cancelled(is_cancelled())?;
-        return Ok(Some(rows.len().to_string()));
-    }
-    let column_name = column
-        .as_deref()
-        .ok_or_else(|| "La agregación necesita una columna válida.".to_owned())?;
-    let series = frame
-        .column(column_name)
-        .map_err(|_| format!("La columna '{column_name}' no existe en el dataset activo."))?;
-    if matches!(function, LocalAggregate::Count) {
-        let mut count = 0usize;
-        for (position, row) in rows.iter().enumerate() {
-            if position % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
-                ensure_not_cancelled(is_cancelled())?;
-            }
-            if series
-                .get(*row)
-                .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?
-                != AnyValue::Null
-            {
-                count += 1;
-            }
-        }
-        ensure_not_cancelled(is_cancelled())?;
-        return Ok(Some(count.to_string()));
-    }
-    let mut values = Vec::with_capacity(rows.len());
-    for (position, row) in rows.iter().enumerate() {
-        if position % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
-            ensure_not_cancelled(is_cancelled())?;
-        }
-        if let Some(value) = preview_value(
-            series
-                .get(*row)
-                .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?,
-        ) {
-            values.push(value);
-        }
-    }
-    ensure_not_cancelled(is_cancelled())?;
-    if values.is_empty() {
-        return Ok(None);
-    }
-    match function {
-        LocalAggregate::Sum | LocalAggregate::Average => {
-            let numbers = values
-                .iter()
-                .filter_map(|value| value.parse::<f64>().ok())
-                .collect::<Vec<_>>();
-            if numbers.len() != values.len() {
-                return Err(format!(
-                    "La columna '{column_name}' debe ser numérica para SUM/AVG."
-                ));
-            }
-            let total = numbers.iter().sum::<f64>();
-            if matches!(function, LocalAggregate::Average) {
-                Ok(Some((total / numbers.len() as f64).to_string()))
-            } else {
-                Ok(Some(total.to_string()))
-            }
-        }
-        LocalAggregate::Minimum | LocalAggregate::Maximum => {
-            let numbers = values
-                .iter()
-                .map(|value| value.parse::<f64>())
-                .collect::<Result<Vec<_>, _>>();
-            if let Ok(numbers) = numbers {
-                let value = if matches!(function, LocalAggregate::Minimum) {
-                    numbers.iter().copied().fold(f64::INFINITY, f64::min)
-                } else {
-                    numbers.iter().copied().fold(f64::NEG_INFINITY, f64::max)
-                };
-                Ok(Some(value.to_string()))
-            } else {
-                let value = if matches!(function, LocalAggregate::Minimum) {
-                    values.iter().min()
-                } else {
-                    values.iter().max()
-                };
-                Ok(value.cloned())
-            }
-        }
-        LocalAggregate::Count => unreachable!("COUNT se resuelve antes"),
-    }
+#[derive(Clone)]
+struct LocalAggregateState<'a> {
+    function: LocalAggregate,
+    column: Option<&'a Column>,
+    column_name: Option<String>,
+    count: usize,
+    total: f64,
+    numeric_extreme: Option<f64>,
+    text_extreme: Option<String>,
+    all_numeric: bool,
 }
 
-fn grouped_local_rows_with_cancel<C>(
-    frame: &DataFrame,
-    rows: &[usize],
-    group_by: &[String],
-    is_cancelled: &C,
-) -> Result<LocalGroupRows, String>
-where
-    C: Fn() -> bool + Sync,
-{
-    let group_columns = group_by
-        .iter()
-        .map(|name| {
-            frame
-                .column(name)
-                .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut groups = LocalGroupRows::new();
-    let mut positions = HashMap::<Vec<Option<String>>, usize>::new();
-    for (position, row_index) in rows.iter().enumerate() {
-        if position % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
-            ensure_not_cancelled(is_cancelled())?;
-        }
-        let key = group_columns
-            .iter()
-            .map(|column| {
-                column
-                    .get(*row_index)
-                    .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))
-                    .map(preview_value)
+impl<'a> LocalAggregateState<'a> {
+    fn from_projection(
+        frame: &'a DataFrame,
+        projection: &LocalProjection,
+    ) -> Result<Option<Self>, String> {
+        let LocalProjection::Aggregate {
+            function, column, ..
+        } = projection
+        else {
+            return Ok(None);
+        };
+        let source = column
+            .as_deref()
+            .map(|name| {
+                frame
+                    .column(name)
+                    .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
             })
-            .collect::<Result<Vec<_>, _>>()?;
-        if let Some(position) = positions.get(&key) {
-            groups[*position].1.push(*row_index);
-        } else {
-            positions.insert(key.clone(), groups.len());
-            groups.push((key, vec![*row_index]));
+            .transpose()?;
+        Ok(Some(Self {
+            function: *function,
+            column: source,
+            column_name: column.clone(),
+            count: 0,
+            total: 0.0,
+            numeric_extreme: match function {
+                LocalAggregate::Minimum => Some(f64::INFINITY),
+                LocalAggregate::Maximum => Some(f64::NEG_INFINITY),
+                _ => None,
+            },
+            text_extreme: None,
+            all_numeric: true,
+        }))
+    }
+
+    fn add_row(&mut self, row_index: usize) -> Result<(), String> {
+        if matches!(self.function, LocalAggregate::Count) {
+            let include = match self.column {
+                Some(column) => {
+                    column
+                        .get(row_index)
+                        .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?
+                        != AnyValue::Null
+                }
+                None => true,
+            };
+            if include {
+                self.count = self.count.checked_add(1).ok_or_else(|| {
+                    "La agregación local supera la capacidad de conteo.".to_owned()
+                })?;
+            }
+            return Ok(());
+        }
+
+        let column_name = self
+            .column_name
+            .as_deref()
+            .ok_or_else(|| "La agregación necesita una columna válida.".to_owned())?;
+        let column = self
+            .column
+            .ok_or_else(|| "La agregación necesita una columna válida.".to_owned())?;
+        let Some(value) = preview_value(
+            column
+                .get(row_index)
+                .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?,
+        ) else {
+            return Ok(());
+        };
+
+        self.count = self
+            .count
+            .checked_add(1)
+            .ok_or_else(|| "La agregación local supera la capacidad de conteo.".to_owned())?;
+        match self.function {
+            LocalAggregate::Sum | LocalAggregate::Average => {
+                let number = value.parse::<f64>().map_err(|_| {
+                    format!("La columna '{column_name}' debe ser numérica para SUM/AVG.")
+                })?;
+                self.total += number;
+            }
+            LocalAggregate::Minimum | LocalAggregate::Maximum => {
+                match self.text_extreme.as_mut() {
+                    Some(current) => {
+                        let replace = if matches!(self.function, LocalAggregate::Minimum) {
+                            value.as_str() < current.as_str()
+                        } else {
+                            value.as_str() > current.as_str()
+                        };
+                        if replace {
+                            *current = value.clone();
+                        }
+                    }
+                    None => self.text_extreme = Some(value.clone()),
+                }
+                if let Ok(number) = value.parse::<f64>() {
+                    let current = self
+                        .numeric_extreme
+                        .expect("MIN/MAX numérico debe iniciar con un extremo");
+                    self.numeric_extreme =
+                        Some(if matches!(self.function, LocalAggregate::Minimum) {
+                            f64::min(current, number)
+                        } else {
+                            f64::max(current, number)
+                        });
+                } else {
+                    self.all_numeric = false;
+                }
+            }
+            LocalAggregate::Count => unreachable!("COUNT se resuelve antes"),
+        }
+        Ok(())
+    }
+
+    fn finish(&self) -> Option<String> {
+        match self.function {
+            LocalAggregate::Count => Some(self.count.to_string()),
+            LocalAggregate::Sum => (self.count > 0).then(|| self.total.to_string()),
+            LocalAggregate::Average => {
+                (self.count > 0).then(|| (self.total / self.count as f64).to_string())
+            }
+            LocalAggregate::Minimum | LocalAggregate::Maximum => {
+                if self.count == 0 {
+                    None
+                } else if self.all_numeric {
+                    Some(
+                        self.numeric_extreme
+                            .expect("MIN/MAX numérico debe tener valores")
+                            .to_string(),
+                    )
+                } else {
+                    self.text_extreme.clone()
+                }
+            }
         }
     }
-    ensure_not_cancelled(is_cancelled())?;
-    Ok(groups)
 }
 
-fn local_query_row_with_cancel<C>(
-    frame: &DataFrame,
+#[derive(Clone)]
+struct LocalAggregateAccumulator<'a> {
+    states: Vec<LocalAggregateState<'a>>,
+}
+
+impl<'a> LocalAggregateAccumulator<'a> {
+    fn new(frame: &'a DataFrame, projections: &[LocalProjection]) -> Result<Self, String> {
+        let mut states = Vec::new();
+        for projection in projections {
+            if let Some(state) = LocalAggregateState::from_projection(frame, projection)? {
+                states.push(state);
+            }
+        }
+        Ok(Self { states })
+    }
+
+    fn add_row(&mut self, row_index: usize) -> Result<(), String> {
+        for state in &mut self.states {
+            state.add_row(row_index)?;
+        }
+        Ok(())
+    }
+
+    fn finish(&self) -> Vec<Option<String>> {
+        self.states
+            .iter()
+            .map(LocalAggregateState::finish)
+            .collect()
+    }
+}
+
+struct LocalAggregateGroup<'a> {
+    key: Vec<Option<String>>,
+    accumulator: LocalAggregateAccumulator<'a>,
+}
+
+fn local_query_aggregate_row(
     projections: &[LocalProjection],
-    rows: &[usize],
     group_by: Option<&[String]>,
     group_values: Option<&[Option<String>]>,
-    is_cancelled: &C,
-) -> Result<Vec<Option<String>>, String>
-where
-    C: Fn() -> bool + Sync,
-{
+    aggregate_values: &[Option<String>],
+) -> Result<Vec<Option<String>>, String> {
+    let mut aggregate_index = 0usize;
     projections
         .iter()
         .map(|projection| match projection {
             LocalProjection::Column { name, .. } => {
-                let group_index =
-                    group_by.and_then(|groups| groups.iter().position(|group| group == name));
-                Ok(group_index
-                    .and_then(|index| group_values.and_then(|values| values.get(index)))
+                let group_index = group_by
+                    .and_then(|groups| groups.iter().position(|group| group == name))
+                    .ok_or_else(|| format!("La columna '{name}' no es una clave GROUP BY."))?;
+                Ok(group_values
+                    .and_then(|values| values.get(group_index))
                     .cloned()
                     .flatten())
             }
             LocalProjection::Aggregate { .. } => {
-                aggregate_result_with_cancel(frame, projection, rows, is_cancelled)
+                let value = aggregate_values
+                    .get(aggregate_index)
+                    .cloned()
+                    .ok_or_else(|| "Falta un resultado de agregación local.".to_owned())?;
+                aggregate_index += 1;
+                Ok(value)
             }
+        })
+        .collect()
+}
+
+fn aggregate_local_query_with_cancel<C>(
+    frame: &DataFrame,
+    projections: &[LocalProjection],
+    predicates: &[LocalPredicate],
+    group_by: Option<&[String]>,
+    block_count: usize,
+    is_cancelled: &C,
+) -> Result<Vec<Vec<Option<String>>>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let template = LocalAggregateAccumulator::new(frame, projections)?;
+    let group_columns = group_by
+        .map(|groups| {
+            groups
+                .iter()
+                .map(|name| {
+                    frame
+                        .column(name)
+                        .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
+    let mut global = group_by.is_none().then_some(template.clone());
+    let mut groups = Vec::<LocalAggregateGroup<'_>>::new();
+    let mut positions = HashMap::<Vec<Option<String>>, usize>::new();
+    let mut matching_position = 0usize;
+
+    for block_index in 0..block_count {
+        let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+        let flags =
+            local_query_block_flags_with_cancel(frame, predicates, start, end, is_cancelled)?;
+        for (offset, matches) in flags.into_iter().enumerate() {
+            if !matches {
+                continue;
+            }
+            if matching_position.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let row_index = start + offset;
+            if let Some(accumulator) = global.as_mut() {
+                accumulator.add_row(row_index)?;
+            } else {
+                let columns = group_columns
+                    .as_ref()
+                    .ok_or_else(|| "GROUP BY requiere columnas válidas.".to_owned())?;
+                let key = columns
+                    .iter()
+                    .map(|column| {
+                        column
+                            .get(row_index)
+                            .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))
+                            .map(preview_value)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let group_index = if let Some(position) = positions.get(&key) {
+                    *position
+                } else {
+                    let position = groups.len();
+                    positions.insert(key.clone(), position);
+                    groups.push(LocalAggregateGroup {
+                        key,
+                        accumulator: template.clone(),
+                    });
+                    position
+                };
+                groups[group_index].accumulator.add_row(row_index)?;
+            }
+            matching_position = matching_position
+                .checked_add(1)
+                .ok_or_else(|| "La agregación local supera la capacidad de conteo.".to_owned())?;
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
+
+    if let Some(accumulator) = global {
+        let aggregate_values = accumulator.finish();
+        return Ok(vec![local_query_aggregate_row(
+            projections,
+            None,
+            None,
+            &aggregate_values,
+        )?]);
+    }
+
+    groups
+        .into_iter()
+        .map(|group| {
+            let aggregate_values = group.accumulator.finish();
+            local_query_aggregate_row(projections, group_by, Some(&group.key), &aggregate_values)
         })
         .collect()
 }
@@ -2889,8 +3025,8 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let block_count = frame.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
     let (matching_count, matching_rows) = if plan.aggregate {
-        // Count first so aggregate queries never collect matching row indexes
-        // beyond the local materialization budget.
+        // Count first so aggregate queries validate their row budget before the
+        // second pass updates bounded aggregate/group state by block.
         let block_counts = (0..block_count)
             .into_par_iter()
             .map(|block_index| {
@@ -2912,22 +3048,7 @@ where
             ));
         }
         ensure_not_cancelled(is_cancelled())?;
-        let block_rows = (0..block_count)
-            .into_par_iter()
-            .map(|block_index| {
-                let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
-                let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
-                local_query_block_rows_with_cancel(
-                    frame,
-                    &plan.predicates,
-                    start,
-                    end,
-                    is_cancelled,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let matching_rows = block_rows.into_iter().flatten().collect();
-        (matching_count, matching_rows)
+        (matching_count, Vec::new())
     } else {
         // A paged query first counts each block in parallel. Only the block(s)
         // containing the requested window are scanned a second time, so a
@@ -3011,30 +3132,14 @@ where
         })
         .collect::<Result<Vec<_>, _>>()?;
     let (row_count, rows, offset, truncated) = if plan.aggregate {
-        let aggregate_rows = if let Some(group_by) = &plan.group_by {
-            grouped_local_rows_with_cancel(frame, &matching_rows, group_by, is_cancelled)?
-                .iter()
-                .map(|(group_values, group_rows)| {
-                    local_query_row_with_cancel(
-                        frame,
-                        &plan.projections,
-                        group_rows,
-                        Some(group_by),
-                        Some(group_values),
-                        is_cancelled,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            vec![local_query_row_with_cancel(
-                frame,
-                &plan.projections,
-                &matching_rows,
-                None,
-                None,
-                is_cancelled,
-            )?]
-        };
+        let aggregate_rows = aggregate_local_query_with_cancel(
+            frame,
+            &plan.projections,
+            &plan.predicates,
+            plan.group_by.as_deref(),
+            block_count,
+            is_cancelled,
+        )?;
         ensure_not_cancelled(is_cancelled())?;
         let row_count = aggregate_rows.len();
         if plan.offset > row_count {
@@ -21213,11 +21318,13 @@ mod tests {
         let row_count = LOCAL_QUERY_BLOCK_ROWS * 2 + 37;
         let ids = (0..row_count as i64).collect::<Vec<_>>();
         let values = ids.iter().map(|value| value * 2).collect::<Vec<_>>();
+        let buckets = ids.iter().map(|value| value % 2).collect::<Vec<_>>();
         let frame = DataFrame::new(
             row_count,
             vec![
                 Series::new("id".into(), ids).into_column(),
                 Series::new("value".into(), values).into_column(),
+                Series::new("bucket".into(), buckets).into_column(),
             ],
         )
         .expect("el dataset de prueba debe construirse");
@@ -21255,6 +21362,32 @@ mod tests {
                 Some("0".to_owned()),
                 Some(((row_count as i64 - 1) * 2).to_string()),
             ]]
+        );
+
+        let grouped = execute_local_query(
+            &frame,
+            "SELECT bucket, COUNT(*) AS total, SUM(value) AS total_value FROM dataset GROUP BY bucket LIMIT 10",
+        )
+        .expect("la agrupación por bloques debe ejecutarse");
+        let even_count = (0..row_count as i64).filter(|id| id % 2 == 0).count();
+        let even_sum = (0..row_count as i64)
+            .filter(|id| id % 2 == 0)
+            .map(|id| id * 2)
+            .sum::<i64>();
+        assert_eq!(
+            grouped.rows,
+            vec![
+                vec![
+                    Some("0".to_owned()),
+                    Some(even_count.to_string()),
+                    Some(even_sum.to_string())
+                ],
+                vec![
+                    Some("1".to_owned()),
+                    Some((row_count - even_count).to_string()),
+                    Some(((row_count as i64 * (row_count as i64 - 1)) - even_sum).to_string())
+                ],
+            ]
         );
     }
 

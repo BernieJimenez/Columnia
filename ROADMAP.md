@@ -1297,6 +1297,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   orden estable, claves nulas, validación de duplicados y presupuesto de filas.
 - [x] Extender los `JOIN` locales a hasta ocho pares de columnas clave, con
   validación de duplicados, tipos compatibles, cardinalidad y orden estable.
+- [x] Procesar las agregaciones SQL locales por bloques, conservando solo estados
+  de agregación y grupos en la segunda pasada, sin retener índices de filas
+  coincidentes fuera del presupuesto explícito.
 - [x] Endurecer la consulta SQL local con cancelación cooperativa, límite de
   filas coincidentes para agregaciones y preflight de cardinalidad para evitar
   materializar joins many-to-many fuera de presupuesto.
@@ -1346,6 +1349,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   plan streaming, conservando nulos y espacios Unicode junto con conteos exactos; su combinación
   con agrupación también se ejecuta dentro del plan, validando el resumen sobre
   los valores normalizados.
+  Las agregaciones SQL locales procesan su segunda pasada por bloques y conservan
+  solo estados de agregación y grupos, sin retener índices de todas las filas
+  coincidentes; el presupuesto explícito de coincidencias sigue vigente.
   Las extracciones textuales de tokens, runs Unicode y delimitadores literales
   también se ejecutan en streaming, conservando nulos y coincidencias ausentes;
   sus columnas derivadas pueden alimentar claves y agregaciones agrupadas.
@@ -1816,6 +1822,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 | 2026-08-30 | P1 amplía la consulta SQL local a `GROUP BY` compuesto de hasta ocho columnas, con orden de primera aparición, combinaciones nulas, rechazo de claves duplicadas y presupuesto de agregación conservado; DuckDB, joins más amplios y ejecución incremental siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 amplía los `JOIN` SQL locales a hasta ocho pares de claves entre `dataset` y `compared`, con validación de duplicados, tipos compatibles, preflight de cardinalidad y orden izquierdo; DuckDB y joins fuera de memoria siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 procesa la segunda pasada de agregaciones SQL locales por bloques: conserva estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos, no índices de todas las coincidencias, sin cambiar el presupuesto ni el resultado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
@@ -1872,6 +1879,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Permitir partes temporales calculadas lazy de año/mes/día como claves de agrupación sobre `Date` y `Datetime` sin zona horaria, con preflight de rango | Implementada como vigésimo primera expansión; filtros previos y zonas horarias mantienen fallback eager, y la entrada/candidato activo siguen materializados |
 | 2026-08-30 | Extender la consulta SQL local restringida a claves compuestas de hasta ocho columnas, formando grupos en orden estable y conservando claves nulas sin superar el presupuesto de filas | Implementada como vigésimo segunda expansión; la consulta sigue siendo solo lectura sobre el `DataFrame` activo y DuckDB/ejecución fuera de memoria continúan en cola |
 | 2026-08-30 | Extender el parser SQL local para JOINs compuestos de hasta ocho pares, reutilizando el preflight existente de tipos/cardinalidad y el plan streaming con orden izquierdo | Implementada como vigésimo tercera expansión; no amplía aún el motor a DuckDB ni la ejecución fuera de memoria |
+| 2026-08-30 | Procesar agregaciones SQL locales en una segunda pasada por bloques, con acumuladores por grupo y sin guardar índices de filas coincidentes | Implementada como vigésimo cuarta expansión; el `DataFrame` activo, el límite de coincidencias y los resultados paginados siguen siendo el contrato actual |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

@@ -163,7 +163,8 @@ admite `GROUP BY` compuesto de hasta ocho columnas y `JOIN` de hasta ocho pares
 de claves, con orden estable y claves nulas. Las agregaciones rechazan conjuntos
 coincidentes que exceden su presupuesto y los joins ejecutan el plan Polars con
 motor streaming después de un preflight de tipos y cardinalidad antes de
-materializar resultados dentro de los límites locales.
+materializar resultados dentro de los límites locales; su segunda pasada acumula
+por bloques sin conservar índices de todas las filas coincidentes.
 DuckDB y la ejecución incremental completa siguen siendo trabajo pendiente. La
 sesión actual muestra las últimas cinco ejecuciones con estado,
 duración y filas afectadas, pero nunca conserva el texto de la consulta ni sus

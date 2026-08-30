@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Las agregaciones SQL locales procesan su segunda pasada por bloques y conservan
+  solo estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos, sin retener índices de
+  todas las filas coincidentes; el presupuesto explícito y los resultados exactos
+  se mantienen.
 - Los `JOIN` de la consulta SQL local admiten hasta ocho pares de columnas clave
   entre `dataset` y `compared`; rechazan claves repetidas, conservan el preflight
   de tipos/cardinalidad y mantienen el orden estable y los límites de materialización.
