@@ -26009,8 +26009,12 @@ mod tests {
     #[test]
     fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
         let frame = DataFrame::new(
-            5,
-            vec![Series::new("value".into(), [1_i64, 2, 3, 4, 100]).into_column()],
+            6,
+            vec![Series::new(
+                "value".into(),
+                [Some(1_i64), Some(2), Some(3), Some(4), Some(100), None],
+            )
+            .into_column()],
         )
         .expect("el frame numérico debe ser válido");
 
@@ -26058,7 +26062,11 @@ mod tests {
             (dropped.4, dropped.12, dropped.13, dropped.14),
             (1, 0, 1, 1)
         );
-        assert_eq!(dropped.0.height(), 4);
+        assert_eq!(dropped.0.height(), 5);
+        assert!(matches!(
+            dropped.0.column("value").unwrap().get(4),
+            Ok(AnyValue::Null)
+        ));
     }
 
     #[test]
