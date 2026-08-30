@@ -1350,7 +1350,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   por cero e infinitos; sus columnas derivadas también pueden alimentar claves
   y agregaciones agrupadas. La extracción de año, mes y día también se ejecuta en
   streaming sobre `Date` y `Datetime` sin zona horaria cuando no hay filtros
-  previos, con preflight de fechas no representables; las columnas derivadas por
+  previos, con preflight de fechas no representables, y sus columnas derivadas
+  también pueden alimentar claves de agrupación; las columnas derivadas por
   `split` y `merge` también pueden alimentar claves y agregaciones agrupadas,
   validando la proyección posterior a las etapas estructurales; las demás fechas
   mantienen fallback eager.
@@ -1862,6 +1863,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Permitir extracciones textuales lazy antes de agrupación, usando columnas derivadas como claves o fuentes de agregación y conservando nulos, orden y preflight | Implementada como decimoctava expansión; la entrada y el candidato activo siguen materializados |
 | 2026-08-30 | Permitir columnas calculadas lazy numéricas y concatenadas antes de agrupación, usando sus resultados como claves o fuentes de agregación con preflight posterior | Implementada como decimonovena expansión; partes temporales, split/merge derivados, la entrada y el candidato activo mantienen sus límites actuales |
 | 2026-08-30 | Permitir columnas derivadas lazy de split/merge antes de agrupación, usando sus resultados como claves o fuentes de agregación con preflight posterior a las etapas estructurales | Implementada como vigésima expansión; partes temporales derivadas, la entrada y el candidato activo mantienen sus límites actuales |
+| 2026-08-30 | Permitir partes temporales calculadas lazy de año/mes/día como claves de agrupación sobre `Date` y `Datetime` sin zona horaria, con preflight de rango | Implementada como vigésimo primera expansión; filtros previos y zonas horarias mantienen fallback eager, y la entrada/candidato activo siguen materializados |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

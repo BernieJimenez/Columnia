@@ -24062,6 +24062,116 @@ mod tests {
     }
 
     #[test]
+    fn lazy_group_summary_uses_date_parts_before_grouping() {
+        let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+        let days_since_epoch = |year: i32, month: u32, day: u32| {
+            (NaiveDate::from_ymd_opt(year, month, day).unwrap() - epoch).num_days() as i32
+        };
+        let millis = |value: &str| {
+            NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+                .unwrap()
+                .and_utc()
+                .timestamp_millis()
+        };
+        let frame = DataFrame::new(
+            4,
+            vec![
+                Series::new(
+                    "when_date".into(),
+                    [
+                        Some(days_since_epoch(2024, 1, 2)),
+                        Some(days_since_epoch(2024, 2, 3)),
+                        Some(days_since_epoch(2025, 1, 2)),
+                        None,
+                    ],
+                )
+                .cast(&DataType::Date)
+                .unwrap()
+                .into_column(),
+                Series::new(
+                    "when_datetime".into(),
+                    [
+                        Some(millis("2024-01-02 00:00:00")),
+                        Some(millis("2024-02-03 00:00:00")),
+                        Some(millis("2025-01-02 00:00:00")),
+                        None,
+                    ],
+                )
+                .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+                .unwrap()
+                .into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4]).into_column(),
+            ],
+        )
+        .unwrap();
+
+        let year_recipe = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "year".into(),
+                source: "when_date".into(),
+                operation: CalculatedOperation::Year,
+                operand: None,
+            }),
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["year".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&frame, &year_recipe));
+        let year_outcome = apply_recipe_to_frame(&frame, &year_recipe).unwrap();
+        assert_eq!(
+            (
+                year_outcome.5,
+                year_outcome.15,
+                year_outcome.16,
+                year_outcome.17
+            ),
+            (1, 3, 1, 1)
+        );
+        let year_rows = dataset_page(&year_outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(year_rows[0][0].as_deref(), Some("2024"));
+        assert_eq!(year_rows[0][1].as_deref(), Some("3"));
+        assert_eq!(year_rows[1][0].as_deref(), Some("2025"));
+        assert_eq!(year_rows[1][1].as_deref(), Some("3"));
+        assert_eq!(year_rows[2][0], None);
+        assert_eq!(year_rows[2][1].as_deref(), Some("4"));
+
+        let month_recipe = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "month".into(),
+                source: "when_datetime".into(),
+                operation: CalculatedOperation::Month,
+                operand: None,
+            }),
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["month".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&frame, &month_recipe));
+        let month_outcome = apply_recipe_to_frame(&frame, &month_recipe).unwrap();
+        assert_eq!(
+            (month_outcome.5, month_outcome.15, month_outcome.17),
+            (1, 3, 1)
+        );
+        let month_rows = dataset_page(&month_outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(month_rows[0][0].as_deref(), Some("1"));
+        assert_eq!(month_rows[0][1].as_deref(), Some("4"));
+        assert_eq!(month_rows[1][0].as_deref(), Some("2"));
+        assert_eq!(month_rows[1][1].as_deref(), Some("2"));
+        assert_eq!(month_rows[2][0], None);
+        assert_eq!(month_rows[2][1].as_deref(), Some("4"));
+    }
+
+    #[test]
     fn lazy_contact_normalization_preserves_nulls_and_counts_changes() {
         let frame = DataFrame::new(
             2,

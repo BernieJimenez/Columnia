@@ -335,7 +335,8 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - historial multinivel Deshacer/Rehacer.
 - ejecución Polars lazy para renombres, casts, filtros, búsqueda/reemplazo
   literal, selección, unión y división de columnas, columnas calculadas
-  numéricas compatibles, partes temporales lazy sin filtros previos, resúmenes
+  numéricas compatibles, partes temporales lazy sin filtros previos y como claves
+  de agrupación, resúmenes
   agrupados incluso con filtros previos (la búsqueda y reemplazo literal se
   aplica antes dentro del plan y el preflight proyecta solo las columnas
   necesarias), normalizaciones de contactos y extracciones textuales incluso
@@ -731,7 +732,7 @@ Al actualizarlo:
 | 2026-08-30 | Las extracciones textuales lazy pueden preceder a la agrupación; tokens, runs y delimitadores literales se validan en la proyección posterior y sus columnas derivadas pueden ser claves o fuentes de agregación sin perder nulos ni orden. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | Las columnas calculadas numéricas y concatenadas pueden preceder a la agrupación; el preflight valida la proyección posterior al cálculo y conserva tipos, nulos, orden y conteos de agregación. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | Las columnas derivadas por split y merge pueden preceder a la agrupación; el preflight valida la proyección posterior a las etapas estructurales y conserva nulos, orden y conteos de columnas descartadas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
-| 2026-08-30 | La extracción calculada de año, mes y día usa las funciones temporales del plan streaming para `Date` y `Datetime` sin zona horaria cuando no hay filtros; el preflight conserva el rechazo de fechas fuera de rango y deja fallback eager para zonas horarias o filtros. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-08-30 | La extracción calculada de año, mes y día usa las funciones temporales del plan streaming para `Date` y `Datetime` sin zona horaria y sus columnas pueden ser claves de agrupación cuando no hay filtros; el preflight conserva el rechazo de fechas fuera de rango y deja fallback eager para zonas horarias o filtros. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-26 | Parquet se incorpora al mismo camino de lectura streaming mediante `scan_parquet`, con `parallel: None`, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | CSV, TSV y TXT delimitado usan `LazyCsvReader` con el motor streaming de Polars, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener compatibilidad con el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | El perfilado de datasets grandes distribuye las columnas entre hasta cuatro trabajadores, conserva el orden de resultados y emite progreso ponderado para que la interfaz no parezca detenida entre el 40 % y el 100 %. La optimización reduce presión temporal de memoria, pero no sustituye todavía la materialización inicial del `DataFrame`. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
