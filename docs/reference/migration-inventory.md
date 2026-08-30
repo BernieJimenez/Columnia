@@ -217,12 +217,15 @@ este canal.
 
 ## Límites pendientes
 
-Si `execution_history` contiene únicamente estado (`success`, `error` o
-`cancelled`), duración acotada y filas opcionales, la importación de proyecto
-conserva como máximo cinco entradas agregadas en la actividad SQL, con IDs
-locales. Las consultas, rutas, valores, estados desconocidos y entradas fuera
-de presupuesto se descartan; el artefacto `history` continúa marcado para
-revisión manual porque su contenido completo no es portable.
+Si `execution_history` contiene únicamente estado (`completed`/`success`,
+`failed`/`error` o `cancelled`), duración acotada y filas opcionales, la
+importación de proyecto conserva como máximo cinco entradas agregadas en la
+actividad SQL, con IDs locales. `rows_out`/`rowsOut` se interpreta como el
+conteo de filas cuando DataPrep usa su contrato nativo y las duraciones
+decimales se redondean al milisegundo más cercano. Las consultas, rutas, valores,
+estados desconocidos y entradas fuera de presupuesto se descartan; el artefacto
+`history` continúa marcado para revisión manual porque su contenido completo no
+es portable.
 
 La restauración completa de sesiones, historial de ejecuciones, cachés reanudables
 y artefactos de análisis originales requiere contratos separados. La slice

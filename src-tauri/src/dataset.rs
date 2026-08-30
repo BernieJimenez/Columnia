@@ -9140,8 +9140,8 @@ fn session_execution_history(
                 .map(str::trim)
                 .map(str::to_ascii_lowercase)
                 .and_then(|value| match value.as_str() {
-                    "success" => Some("success".to_owned()),
-                    "error" => Some("error".to_owned()),
+                    "success" | "completed" | "ok" => Some("success".to_owned()),
+                    "error" | "failed" | "failure" => Some("error".to_owned()),
                     "cancelled" | "canceled" => Some("cancelled".to_owned()),
                     _ => None,
                 })?;
@@ -9151,12 +9151,28 @@ fn session_execution_history(
                 .and_then(|value| {
                     value
                         .as_u64()
-                        .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
+                        .or_else(|| {
+                            value.as_f64().and_then(|number| {
+                                (number.is_finite() && number >= 0.0)
+                                    .then_some(number.round() as u64)
+                            })
+                        })
+                        .or_else(|| {
+                            value
+                                .as_str()?
+                                .trim()
+                                .parse::<f64>()
+                                .ok()
+                                .filter(|number| number.is_finite() && *number >= 0.0)
+                                .map(|number| number.round() as u64)
+                        })
                 })
                 .filter(|duration| *duration <= MAX_SESSION_EXECUTION_DURATION_MS)?;
             let row_count = object
                 .get("row_count")
                 .or_else(|| object.get("rowCount"))
+                .or_else(|| object.get("rows_out"))
+                .or_else(|| object.get("rowsOut"))
                 .and_then(|value| {
                     value
                         .as_u64()

@@ -3169,6 +3169,87 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_imports_native_execution_history_statuses_and_output_rows() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "value,label\n1,one\n2,two\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 3,
+                "name": "Historial nativo DataPrep",
+                "source_path": "source.csv",
+                "transform_config": {},
+                "execution_history": [
+                    {
+                        "operation": "load_dataset",
+                        "status": "completed",
+                        "duration_ms": 42.5,
+                        "rows_in": 2,
+                        "rows_out": 2,
+                        "input_name": "source.csv",
+                        "query": "no debe copiarse"
+                    },
+                    {
+                        "operation": "clean_dataset",
+                        "status": "failed",
+                        "durationMs": "18.4",
+                        "rows_out": "1",
+                        "error": "no debe copiarse"
+                    },
+                    {
+                        "operation": "profile_dataset",
+                        "status": "cancelled",
+                        "duration_ms": 4.0
+                    },
+                    {
+                        "operation": "running_dataset",
+                        "status": "running",
+                        "duration_ms": 1
+                    }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("el historial nativo de DataPrep debe importarse");
+        let opened = store
+            .open(&DatasetState::default(), imported.id)
+            .expect("el proyecto debe reabrirse");
+
+        assert_eq!(
+            opened.workspace.sql_history,
+            vec![
+                SqlQueryHistoryEntry {
+                    id: 1,
+                    outcome: "cancelled".to_owned(),
+                    duration_ms: 4,
+                    row_count: None,
+                },
+                SqlQueryHistoryEntry {
+                    id: 2,
+                    outcome: "error".to_owned(),
+                    duration_ms: 18,
+                    row_count: Some(1),
+                },
+                SqlQueryHistoryEntry {
+                    id: 3,
+                    outcome: "success".to_owned(),
+                    duration_ms: 43,
+                    row_count: Some(2),
+                },
+            ]
+        );
+        let serialized = serde_json::to_string(&opened.workspace).unwrap();
+        assert!(!serialized.contains("no debe copiarse"));
+    }
+
+    #[test]
     fn dataprep_session_mapping_restores_available_snapshot_when_source_is_missing() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();

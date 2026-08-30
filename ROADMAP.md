@@ -1442,7 +1442,9 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   fallback a Revisar y validación cerrada; las muestras de análisis y otras
   preferencias de sesión siguen pendientes. La importación M1 conserva además
   hasta cinco entradas de historial de ejecución cuando solo contienen estado,
-  duración y filas; asigna IDs locales y nunca copia consultas, rutas ni valores.
+  duración y filas; normaliza los estados reales `completed`/`failed` de
+  DataPrep y sus aliases, interpreta `rows_out` como filas de salida, asigna IDs
+  locales y nunca copia consultas, rutas ni valores.
   La apertura segura del último output local ya está implementada desde Entregar
   con revalidación en Rust y sin transportar rutas por IPC.
   El modelo durable de proyectos de Columnia se conserva como reemplazo de la
@@ -1926,6 +1928,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | M1 corrige la migración de pipelines DataPrep persistidos: el campo real `selected` ahora se reconoce junto a sus aliases de sesión, normaliza las operaciones deterministas y conserva la selección al importar la receta. | `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-30 | M1 completa el mapeo de pipelines al catálogo mediante `project-save --recipe`: valida el `--input`, reproduce las limpiezas deterministas seleccionadas y aplica la receta estructural antes de publicar el snapshot; una regresión verifica el proyecto reabierto. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `ROADMAP.md` |
 | 2026-08-30 | P1/M1 cierra el catálogo de limpieza sugerida: las 22 operaciones de `dataprepv1.1` comparten una lista canónica con el replay de sesiones, y una prueba evita que una operación registrada quede sin mapping migrable. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | M1 corrige la paridad de la actividad de sesiones con el `ExecutionHistory` real de DataPrep: `completed`/`failed`, duraciones decimales y `rows_out`/`rowsOut` se normalizan a la actividad agregada segura de Columnia; consultas, rutas y valores siguen descartados. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
