@@ -1512,47 +1512,24 @@ where
         if history_count == 0 {
             return Err("El historial de snapshots de la sesión no contiene entradas.".to_owned());
         }
-        let entries = history
-            .entries
-            .into_iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                ensure_import_not_cancelled(&is_cancelled)?;
-                let start = 70 + (index * 10 / history_count) as u8;
-                let end = 70 + ((index + 1) * 10 / history_count) as u8;
-                let (frame, _) = dataset::load_dataset_for_automation_with_progress(
-                    &entry.path,
-                    None,
-                    None,
-                    |_, percent| {
-                        report(
-                            "Restaurando historial",
-                            start + ((u16::from(percent) * u16::from(end - start)) / 100) as u8,
-                        )
-                    },
-                    &is_cancelled,
-                )
-                .map_err(|error| {
-                    preserve_import_cancellation(
-                        error,
-                        "Un snapshot del historial de la sesión no se puede leer como Parquet.",
+        imported
+            .install_project_import_history_with_progress(
+                &history.entries,
+                cursor,
+                |_, percent| {
+                    report(
+                        "Restaurando historial",
+                        70 + (u16::from(percent) * 10 / 100) as u8,
                     )
-                })?;
-                ensure_import_not_cancelled(&is_cancelled)?;
-                Ok((entry.label, frame))
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        imported.install_project_import_history_with_progress(
-            &entries,
-            cursor,
-            |_, percent| {
-                report(
-                    "Restaurando historial",
-                    78 + (u16::from(percent) * 4 / 100) as u8,
+                },
+                &is_cancelled,
+            )
+            .map_err(|error| {
+                preserve_import_cancellation(
+                    error,
+                    "Un snapshot del historial de la sesión no se puede leer como Parquet.",
                 )
-            },
-            &is_cancelled,
-        )?;
+            })?;
     }
     // DataPrep sessions persist a materialized current snapshot but do not
     // carry a portable profile cache. Recompute the aggregate profile before

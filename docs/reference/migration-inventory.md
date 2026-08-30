@@ -174,6 +174,13 @@ publicar el proyecto, las entradas se copian a la generación administrada como
 `history-*.parquet`, por lo que Deshacer/Rehacer queda disponible tras reabrirlo.
 Un `history` ambiguo, `execution_history` o una referencia que no cumpla este
 contrato continúa siendo no portable y requiere revisión manual.
+
+La restauración de las entradas `history_snapshots` se realiza de forma
+secuencial: Rust lee una referencia Parquet, valida el frame del cursor cuando
+corresponde y publica esa revisión administrada antes de avanzar a la siguiente.
+Así no se acumula en memoria una colección de todos los `DataFrame` históricos;
+el dataset activo y los límites de disco siguen siendo explícitos y la carga
+lazy general del dataset continúa pendiente.
 Las estrategias IQR `cap_outliers`, `impute_outliers` y `drop_outliers` son
 mutuamente excluyentes: si una sesión selecciona más de una, el replay se
 rechaza antes de publicar el proyecto y no combina sus efectos.

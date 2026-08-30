@@ -1327,8 +1327,8 @@ impl HistoryManager {
         Ok(manager)
     }
 
-    fn from_imported_frames_with_progress<F, C>(
-        entries: &[(String, DataFrame)],
+    fn from_imported_paths_with_progress<F, C>(
+        entries: &[DataprepSessionHistoryEntry],
         cursor: usize,
         current_frame: &DataFrame,
         mut report: F,
@@ -1342,22 +1342,24 @@ impl HistoryManager {
         if entries.is_empty() || entries.len() > HISTORY_MAX_ENTRIES || cursor >= entries.len() {
             return Err("El historial importado supera los límites admitidos.".to_owned());
         }
-        if !entries[cursor].1.equals_missing(current_frame) {
-            return Err(
-                "El cursor del historial importado no coincide con el dataset actual.".to_owned(),
-            );
-        }
         let directory = tempfile::tempdir()
             .map_err(|_| "No se pudo preparar el historial importado.".to_owned())?;
         let mut history_entries = Vec::with_capacity(entries.len());
         let mut total_bytes = 0_u64;
-        for (index, (label, frame)) in entries.iter().enumerate() {
+        let mut cursor_matches = false;
+        for (index, entry) in entries.iter().enumerate() {
             ensure_not_cancelled(is_cancelled())?;
             report(
                 "Restaurando historial",
                 ((index + 1) * 100 / entries.len()) as u8,
             );
-            validate_history_label(label)?;
+            validate_history_label(&entry.label)?;
+            let frame = read_parquet_frame(&entry.path).map_err(|_| {
+                "Un snapshot del historial de la sesión no se puede leer como Parquet.".to_owned()
+            })?;
+            if index == cursor {
+                cursor_matches = frame.equals_missing(current_frame);
+            }
             let temporary = tempfile::NamedTempFile::new_in(directory.path()).map_err(|_| {
                 "No se pudo preparar un snapshot del historial importado.".to_owned()
             })?;
@@ -1390,19 +1392,24 @@ impl HistoryManager {
                 "No se pudo publicar un snapshot del historial importado.".to_owned()
             })?;
             history_entries.push(HistoryEntry {
-                label: label.clone(),
+                label: entry.label.clone(),
                 path: destination,
                 bytes,
             });
         }
         ensure_not_cancelled(is_cancelled())?;
+        if !cursor_matches {
+            return Err(
+                "El cursor del historial importado no coincide con el dataset actual.".to_owned(),
+            );
+        }
         Ok(Self {
             directory,
             entries: history_entries,
             cursor,
             snapshots_enabled: true,
             degraded_reason: None,
-            current_label: entries[cursor].0.clone(),
+            current_label: entries[cursor].label.clone(),
             next_id: entries.len() as u64,
             max_entries: HISTORY_MAX_ENTRIES,
             disk_budget_bytes: HISTORY_DISK_BUDGET_BYTES,
@@ -21076,7 +21083,7 @@ impl DatasetState {
 
     pub(crate) fn install_project_import_history_with_progress<F, C>(
         &self,
-        entries: &[(String, DataFrame)],
+        entries: &[DataprepSessionHistoryEntry],
         cursor: usize,
         report: F,
         is_cancelled: C,
@@ -21092,7 +21099,7 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        dataset.history = HistoryManager::from_imported_frames_with_progress(
+        dataset.history = HistoryManager::from_imported_paths_with_progress(
             entries,
             cursor,
             &dataset.frame,
