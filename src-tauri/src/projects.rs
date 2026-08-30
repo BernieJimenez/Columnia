@@ -465,7 +465,7 @@ impl ProjectStore {
         if let Some(id) = project_id.as_deref() {
             validate_id(id)?;
         }
-        let active = dataset_state.active_project_snapshot()?;
+        let mut active = dataset_state.active_project_snapshot()?;
         validate_project_workspace(
             &active.frame,
             &workspace.quality_rules,
@@ -516,7 +516,8 @@ impl ProjectStore {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|_| "No se pudo validar el perfil del proyecto.".to_owned())?;
-        write_generation(&active.frame, &active.history, &generation_path)?;
+        let frame = std::mem::replace(&mut active.frame, DataFrame::empty());
+        write_generation(frame, &active.history, &generation_path)?;
         let profile_cache_sha256 = active
             .profile
             .as_ref()
@@ -1577,15 +1578,19 @@ where
     Ok(project)
 }
 
+#[cfg(test)]
 fn write_snapshot(frame: &DataFrame, destination: &Path) -> Result<(), String> {
+    write_snapshot_owned(frame.clone(), destination)
+}
+
+fn write_snapshot_owned(mut frame: DataFrame, destination: &Path) -> Result<(), String> {
     if destination.exists() {
         return Err(storage_error());
     }
     let parent = destination.parent().ok_or_else(storage_error)?;
     let temporary = tempfile::NamedTempFile::new_in(parent).map_err(|_| storage_error())?;
-    let mut snapshot = frame.clone();
     ParquetWriter::new(temporary.as_file())
-        .finish(&mut snapshot)
+        .finish(&mut frame)
         .map_err(|_| storage_error())?;
     temporary
         .as_file()
@@ -1602,7 +1607,7 @@ fn write_snapshot(frame: &DataFrame, destination: &Path) -> Result<(), String> {
 }
 
 fn write_generation(
-    frame: &DataFrame,
+    frame: DataFrame,
     history: &ProjectHistoryCapture,
     destination: &Path,
 ) -> Result<(), String> {
@@ -1611,7 +1616,7 @@ fn write_generation(
     }
     let parent = destination.parent().ok_or_else(storage_error)?;
     let staging = tempfile::tempdir_in(parent).map_err(|_| storage_error())?;
-    write_snapshot(frame, &staging.path().join("current.parquet"))?;
+    write_snapshot_owned(frame, &staging.path().join("current.parquet"))?;
     for (index, entry) in history.entries.iter().enumerate() {
         let target = staging.path().join(format!("history-{index:03}.parquet"));
         let copied = fs::copy(&entry.path, &target).map_err(|_| storage_error())?;

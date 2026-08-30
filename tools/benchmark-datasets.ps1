@@ -259,6 +259,8 @@ try {
     $BuildTimer = [System.Diagnostics.Stopwatch]::StartNew()
     Push-Location $TauriRoot
     try {
+        $PreviousCargoProfileDevDebug = $env:CARGO_PROFILE_DEV_DEBUG
+        $env:CARGO_PROFILE_DEV_DEBUG = "0"
         $BuildStdout = Join-Path $EvidenceDirectory "build.stdout.log"
         $BuildStderr = Join-Path $EvidenceDirectory "build.stderr.log"
         $PreviousErrorActionPreference = $ErrorActionPreference
@@ -276,6 +278,12 @@ try {
         }
         finally {
             $ErrorActionPreference = $PreviousErrorActionPreference
+            if ($null -eq $PreviousCargoProfileDevDebug) {
+                Remove-Item Env:CARGO_PROFILE_DEV_DEBUG -ErrorAction SilentlyContinue
+            }
+            else {
+                $env:CARGO_PROFILE_DEV_DEBUG = $PreviousCargoProfileDevDebug
+            }
         }
     }
     finally {

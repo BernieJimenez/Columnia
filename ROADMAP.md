@@ -1418,6 +1418,9 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   La muestra paginada también puede leerse desde el snapshot Parquet del cursor
   actual con `slice`, sin volver a construirla desde todas las filas; si el
   historial está degradado, se conserva la ruta de `DataFrame`.
+  La publicación durable de proyectos entrega al escritor Parquet la copia ya
+  aislada del dataset y evita una segunda clonación completa durante el guardado;
+  la interfaz sigue manteniendo un `DataFrame` activo como contrato.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -1901,6 +1904,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 conserva la fuente comparada en un snapshot Parquet temporal mientras la comparación está activa: conflictos y consolidación leen bajo demanda, los JOIN DuckDB pueden registrar ambos snapshots sin reserializar el frame comparado y el dueño temporal garantiza cleanup al descartar la comparación. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 reduce la materialización de JOIN DuckDB: cuando existe snapshot administrado, la preparación lee solo el esquema Parquet de la comparación y evita volver a cargar sus filas; la preparación DuckDB tampoco aplica el límite de entradas Polars, mientras el `DataFrame` activo y la ejecución completa fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 sirve la paginación de la muestra activa desde el snapshot Parquet del cursor actual con `slice` y colección streaming, conservando el fallback al `DataFrame` cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 evita una segunda clonación completa al guardar proyectos: la copia aislada del dataset se entrega directamente al escritor Parquet, conservando la publicación atómica y la recuperación ante fallos; el benchmark fija el perfil de compilación reproducible y restaura el entorno del proceso. | `src-tauri/src/projects.rs`, `tools/benchmark-datasets.ps1`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras `Iso8601` y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, calculando umbrales y conteos después de filtros compatibles; las etapas que alteran valores mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 amplía la receta lazy/streaming para combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` y `merge` en una misma receta cuando se conservan sus dependencias; los conflictos de fuentes mantienen rechazo o fallback eager explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |

@@ -35,6 +35,12 @@ los artefactos de validación locales.
 - La paginación de la muestra activa reutiliza el snapshot Parquet del cursor
   actual con `slice` y colección streaming cuando el historial está disponible;
   los estados degradados conservan el fallback al `DataFrame` activo.
+- Guardar un proyecto entrega la copia ya aislada del dataset directamente al
+  escritor Parquet, eliminando una segunda clonación completa del `DataFrame`
+  durante la publicación durable.
+- El benchmark de datasets compila el CLI con el perfil debug sin símbolos y
+  restaura la configuración del proceso, evitando el fallo de enlace MSVC
+  `LNK1140` sin alterar las mediciones de runtime.
 - Las recetas compatibles con Polars lazy/streaming también convierten fechas
   con formatos explícitos `Ymd`, `Dmy` y `Mdy`, respetando espacios exteriores,
   nulos y objetivos `Date`/`Datetime`; `Iso8601`, zonas horarias y operaciones
