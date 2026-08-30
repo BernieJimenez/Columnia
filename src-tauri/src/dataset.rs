@@ -2250,6 +2250,92 @@ fn parse_local_join_condition(
     Ok((left, right))
 }
 
+fn split_local_join_tail(value: &str) -> Result<(&str, &str), String> {
+    let characters = value.char_indices().collect::<Vec<_>>();
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut index = 0usize;
+    while index < characters.len() {
+        let (byte_index, character) = characters[index];
+        if character == '\'' && !double_quoted {
+            if single_quoted
+                && characters
+                    .get(index + 1)
+                    .is_some_and(|(_, next)| *next == '\'')
+            {
+                index += 2;
+                continue;
+            }
+            single_quoted = !single_quoted;
+            index += 1;
+            continue;
+        }
+        if character == '"' && !single_quoted {
+            if double_quoted
+                && characters
+                    .get(index + 1)
+                    .is_some_and(|(_, next)| *next == '"')
+            {
+                index += 2;
+                continue;
+            }
+            double_quoted = !double_quoted;
+            index += 1;
+            continue;
+        }
+        if !single_quoted
+            && !double_quoted
+            && character.is_ascii_alphabetic()
+            && (index == 0 || characters[index - 1].1.is_whitespace())
+        {
+            let token_end = (index..characters.len())
+                .find(|candidate| {
+                    !characters[*candidate].1.is_ascii_alphanumeric()
+                        && characters[*candidate].1 != '_'
+                })
+                .unwrap_or(characters.len());
+            let token = value[byte_index
+                ..characters
+                    .get(token_end)
+                    .map(|(byte_index, _)| *byte_index)
+                    .unwrap_or(value.len())]
+                .to_ascii_lowercase();
+            let is_tail_keyword = matches!(token.as_str(), "where" | "limit" | "offset");
+            let is_group_by = if token == "group" {
+                let mut by_start = token_end;
+                while by_start < characters.len() && characters[by_start].1.is_whitespace() {
+                    by_start += 1;
+                }
+                let by_end = (by_start..characters.len())
+                    .find(|candidate| {
+                        !characters[*candidate].1.is_ascii_alphanumeric()
+                            && characters[*candidate].1 != '_'
+                    })
+                    .unwrap_or(characters.len());
+                by_end > by_start
+                    && value[characters[by_start].0
+                        ..characters
+                            .get(by_end)
+                            .map(|(byte_index, _)| *byte_index)
+                            .unwrap_or(value.len())]
+                        .eq_ignore_ascii_case("by")
+            } else {
+                false
+            };
+            if is_tail_keyword || is_group_by {
+                return Ok((&value[..byte_index], &value[byte_index..]));
+            }
+            index = token_end;
+            continue;
+        }
+        index += 1;
+    }
+    if single_quoted || double_quoted {
+        return Err("El JOIN contiene comillas desbalanceadas.".to_owned());
+    }
+    Ok((value, ""))
+}
+
 fn parse_local_join_query_with_cancel<C>(
     query: &str,
     current: &DataFrame,
@@ -2261,7 +2347,7 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     let pattern = Regex::new(
-        r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+(.+?)(\s+(?:limit\s+\d+(?:\s+offset\s+\d+)?|offset\s+\d+))?\s*$"#,
+        r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+(.+)$"#,
     )
     .expect("el patrón de JOIN local debe ser válido");
     let Some(captures) = pattern.captures(query) else {
@@ -2283,12 +2369,13 @@ where
         ));
     }
 
-    let conditions = split_local_predicates(
+    let (join_clause, query_tail) = split_local_join_tail(
         captures
             .get(3)
             .expect("las condiciones deben existir")
             .as_str(),
     )?;
+    let conditions = split_local_predicates(join_clause)?;
     if conditions.is_empty() || conditions.len() > LOCAL_QUERY_MAX_JOIN_COLUMNS {
         return Err(format!(
             "El JOIN requiere entre 1 y {LOCAL_QUERY_MAX_JOIN_COLUMNS} pares de columnas clave."
@@ -2335,17 +2422,15 @@ where
         is_cancelled,
     )?;
     ensure_not_cancelled(is_cancelled())?;
-    let normalized_query = format!(
-        "SELECT {} FROM dataset{}",
-        captures
-            .get(1)
-            .expect("la proyección debe existir")
-            .as_str(),
-        captures
-            .get(4)
-            .map(|value| value.as_str())
-            .unwrap_or_default()
-    );
+    let projection = captures
+        .get(1)
+        .expect("la proyección debe existir")
+        .as_str();
+    let normalized_query = if query_tail.trim().is_empty() {
+        format!("SELECT {projection} FROM dataset")
+    } else {
+        format!("SELECT {projection} FROM dataset {}", query_tail.trim())
+    };
     Ok(Some((joined, normalized_query)))
 }
 
@@ -20872,6 +20957,20 @@ mod tests {
                     Some("south".to_owned()),
                     Some("C".to_owned())
                 ],
+            ]
+        );
+
+        let filtered_grouped = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT region, COUNT(*) AS total FROM dataset LEFT JOIN compared ON dataset.id = compared.id AND dataset.region = compared.region WHERE segment IS NOT NULL GROUP BY region LIMIT 10",
+        )
+        .expect("la consulta posterior al JOIN debe conservar WHERE y GROUP BY");
+        assert_eq!(
+            filtered_grouped.rows,
+            vec![
+                vec![Some("north".to_owned()), Some("1".to_owned())],
+                vec![Some("south".to_owned()), Some("2".to_owned())],
             ]
         );
 
