@@ -161,6 +161,18 @@ limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
 completamente nulas y no elimina por sí sola texto en blanco. Si existe un
 snapshot compatible, se usa ese estado materializado y las operaciones no se
 reaplican.
+Cuando una sesión necesita conservar revisiones históricas, Columnia acepta el
+contrato local explícito `history_snapshots` (o `historySnapshots`): un objeto
+de versión `1` con `entries` y `cursor`. Cada entrada debe aportar una etiqueta
+imprimible y una referencia local a un archivo `.parquet`; se aceptan hasta doce
+entradas y el tamaño total queda sujeto al presupuesto de 1 GiB del historial
+durable. El cursor debe apuntar a una entrada cuyo frame sea idéntico al dataset
+actual importado después del replay. Las referencias se resuelven y validan solo
+en Rust, se rechazan enlaces simbólicos/reparse points y no cruzan el bridge. Al
+publicar el proyecto, las entradas se copian a la generación administrada como
+`history-*.parquet`, por lo que Deshacer/Rehacer queda disponible tras reabrirlo.
+Un `history` ambiguo, `execution_history` o una referencia que no cumpla este
+contrato continúa siendo no portable y requiere revisión manual.
 Las estrategias IQR `cap_outliers`, `impute_outliers` y `drop_outliers` son
 mutuamente excluyentes: si una sesión selecciona más de una, el replay se
 rechaza antes de publicar el proyecto y no combina sus efectos.
@@ -178,8 +190,8 @@ locales. Las consultas, rutas, valores, estados desconocidos y entradas fuera
 de presupuesto se descartan; el artefacto `history` continúa marcado para
 revisión manual porque su contenido completo no es portable.
 
-La restauración completa de sesiones, historial de ejecuciones, cachés reanudables,
-artefactos de análisis originales y round-trip hacia proyectos requiere contratos
-separados. La slice actual conserva la receta, las reglas representables y un
-perfil agregado recalculado en el workspace nuevo, pero no reconstruye snapshots
-históricos ni afirma que los análisis originales puedan reanudarse automáticamente.
+La restauración completa de sesiones, historial de ejecuciones, cachés reanudables
+y artefactos de análisis originales requiere contratos separados. La slice
+`history_snapshots` reconstruye únicamente revisiones Parquet explícitamente
+referenciadas y compatibles con el cursor; no convierte resultados de análisis,
+cachés reanudables ni una historia ambigua en estado operativo automáticamente.

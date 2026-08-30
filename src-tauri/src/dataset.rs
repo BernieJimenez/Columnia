@@ -1142,6 +1142,10 @@ pub struct SessionMigrationMetadata {
     analysis_sample_row_count: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     analysis_total_row_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    history_snapshot_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    history_cursor: Option<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     non_portable_artifacts: Vec<String>,
 }
@@ -1181,6 +1185,16 @@ pub(crate) struct SessionExecutionHistoryEntry {
     pub(crate) outcome: String,
     pub(crate) duration_ms: u64,
     pub(crate) row_count: Option<usize>,
+}
+
+pub(crate) struct DataprepSessionHistoryEntry {
+    pub(crate) label: String,
+    pub(crate) path: PathBuf,
+}
+
+pub(crate) struct DataprepSessionHistory {
+    pub(crate) entries: Vec<DataprepSessionHistoryEntry>,
+    pub(crate) cursor: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1303,6 +1317,75 @@ impl HistoryManager {
         };
         manager.record(frame, "Dataset original")?;
         Ok(manager)
+    }
+
+    fn from_imported_frames(
+        entries: &[(String, DataFrame)],
+        cursor: usize,
+        current_frame: &DataFrame,
+    ) -> Result<Self, String> {
+        if entries.is_empty() || entries.len() > HISTORY_MAX_ENTRIES || cursor >= entries.len() {
+            return Err("El historial importado supera los límites admitidos.".to_owned());
+        }
+        if !entries[cursor].1.equals_missing(current_frame) {
+            return Err(
+                "El cursor del historial importado no coincide con el dataset actual.".to_owned(),
+            );
+        }
+        let directory = tempfile::tempdir()
+            .map_err(|_| "No se pudo preparar el historial importado.".to_owned())?;
+        let mut history_entries = Vec::with_capacity(entries.len());
+        let mut total_bytes = 0_u64;
+        for (index, (label, frame)) in entries.iter().enumerate() {
+            validate_history_label(label)?;
+            let temporary = tempfile::NamedTempFile::new_in(directory.path()).map_err(|_| {
+                "No se pudo preparar un snapshot del historial importado.".to_owned()
+            })?;
+            let mut snapshot = frame.clone();
+            ParquetWriter::new(temporary.as_file())
+                .finish(&mut snapshot)
+                .map_err(|_| {
+                    "No se pudo escribir un snapshot del historial importado.".to_owned()
+                })?;
+            temporary.as_file().sync_all().map_err(|_| {
+                "No se pudo sincronizar un snapshot del historial importado.".to_owned()
+            })?;
+            let bytes = temporary
+                .as_file()
+                .metadata()
+                .map_err(|_| {
+                    "No se pudo verificar un snapshot del historial importado.".to_owned()
+                })?
+                .len();
+            total_bytes = total_bytes.checked_add(bytes).ok_or_else(|| {
+                "El historial importado supera su presupuesto de disco.".to_owned()
+            })?;
+            if total_bytes > HISTORY_DISK_BUDGET_BYTES {
+                return Err("El historial importado supera su presupuesto de disco.".to_owned());
+            }
+            let destination = directory
+                .path()
+                .join(format!("snapshot-{index:020}.parquet"));
+            temporary.persist(&destination).map_err(|_| {
+                "No se pudo publicar un snapshot del historial importado.".to_owned()
+            })?;
+            history_entries.push(HistoryEntry {
+                label: label.clone(),
+                path: destination,
+                bytes,
+            });
+        }
+        Ok(Self {
+            directory,
+            entries: history_entries,
+            cursor,
+            snapshots_enabled: true,
+            degraded_reason: None,
+            current_label: entries[cursor].0.clone(),
+            next_id: entries.len() as u64,
+            max_entries: HISTORY_MAX_ENTRIES,
+            disk_budget_bytes: HISTORY_DISK_BUDGET_BYTES,
+        })
     }
 
     fn disk_bytes(&self) -> u64 {
@@ -8002,6 +8085,7 @@ fn migration_session_field<'a>(
         "quality_rules" => "qualityRules",
         "analysis_checks" => "analysisChecks",
         "execution_history" => "executionHistory",
+        "history_snapshots" => "historySnapshots",
         "file_name" => "fileName",
         _ => return root.get(key),
     };
@@ -8077,6 +8161,113 @@ fn migration_metadata_name(value: &JsonValue) -> Option<String> {
     Some(candidate.to_owned())
 }
 
+fn migration_session_history_value(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
+    let session = root.get("session").and_then(JsonValue::as_object);
+    let explicit_keys = [
+        "history_snapshots",
+        "historySnapshots",
+        "snapshot_history",
+        "snapshotHistory",
+    ];
+    explicit_keys
+        .iter()
+        .find_map(|key| {
+            root.get(*key)
+                .or_else(|| session.and_then(|map| map.get(*key)))
+                .filter(|value| !value.is_null())
+        })
+        .or_else(|| {
+            [
+                root.get("history"),
+                session.and_then(|map| map.get("history")),
+            ]
+            .into_iter()
+            .flatten()
+            .find(|value| {
+                value
+                    .as_object()
+                    .and_then(|map| map.get("entries"))
+                    .is_some()
+            })
+        })
+}
+
+fn migration_session_history_metadata(
+    root: &JsonMap<String, JsonValue>,
+) -> Result<Option<(usize, usize)>, String> {
+    let Some(value) = migration_session_history_value(root) else {
+        return Ok(None);
+    };
+    let object = value.as_object().ok_or_else(|| {
+        "El historial de snapshots de la sesión DataPrep debe ser un objeto.".to_owned()
+    })?;
+    let version = object
+        .get("version")
+        .and_then(JsonValue::as_u64)
+        .ok_or_else(|| {
+            "El historial de snapshots de la sesión necesita una versión explícita.".to_owned()
+        })?;
+    if version != 1 {
+        return Err(
+            "La versión del historial de snapshots de la sesión no es compatible.".to_owned(),
+        );
+    }
+    let cursor = object
+        .get("cursor")
+        .and_then(JsonValue::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| {
+            "El cursor del historial de snapshots de la sesión no es válido.".to_owned()
+        })?;
+    let entries = object
+        .get("entries")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| {
+            "El historial de snapshots de la sesión necesita una lista de entradas.".to_owned()
+        })?;
+    if entries.is_empty() || entries.len() > HISTORY_MAX_ENTRIES {
+        return Err(format!(
+            "El historial de snapshots de la sesión debe tener entre 1 y {HISTORY_MAX_ENTRIES} entradas."
+        ));
+    }
+    if cursor >= entries.len() {
+        return Err(
+            "El cursor del historial de snapshots de la sesión está fuera de rango.".to_owned(),
+        );
+    }
+    for entry in entries {
+        let entry = entry.as_object().ok_or_else(|| {
+            "Cada entrada del historial de snapshots debe ser un objeto.".to_owned()
+        })?;
+        if entry
+            .get("label")
+            .or_else(|| entry.get("name"))
+            .and_then(migration_metadata_name)
+            .is_none()
+        {
+            return Err(
+                "Cada snapshot del historial de la sesión necesita una etiqueta válida.".to_owned(),
+            );
+        }
+        let reference = entry
+            .get("snapshot_path")
+            .or_else(|| entry.get("snapshotPath"))
+            .or_else(|| entry.get("path"))
+            .or_else(|| entry.get("file_path"))
+            .or_else(|| entry.get("filePath"))
+            .and_then(JsonValue::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.contains("://"));
+        if reference.is_none() {
+            return Err(
+                "Cada snapshot del historial de la sesión necesita una referencia local válida."
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(Some((entries.len(), cursor)))
+}
+
 fn migration_session_artifact_names(root: &JsonMap<String, JsonValue>) -> Vec<String> {
     let session = root.get("session").and_then(JsonValue::as_object);
     let fields: [(&str, &[&str]); 3] = [
@@ -8109,6 +8300,9 @@ fn migration_session_artifact_names(root: &JsonMap<String, JsonValue>) -> Vec<St
     let mut artifacts = fields
         .iter()
         .filter_map(|(name, aliases)| {
+            if *name == "history" && migration_session_history_value(root).is_some() {
+                return None;
+            }
             aliases
                 .iter()
                 .any(|key| {
@@ -8278,7 +8472,8 @@ fn migration_session_metadata(
     ]
     .iter()
     .any(|key| migration_session_field(root, key).is_some_and(|value| !value.is_null()))
-        || !non_portable_artifacts.is_empty();
+        || !non_portable_artifacts.is_empty()
+        || migration_session_history_value(root).is_some();
     if !has_session_fields {
         return Ok(None);
     }
@@ -8320,6 +8515,8 @@ fn migration_session_metadata(
     };
     let (analysis_sampled, analysis_sample_row_count, analysis_total_row_count) =
         migration_session_sample_metadata(root)?.unwrap_or_default();
+    let (history_snapshot_count, history_cursor) = migration_session_history_metadata(root)?
+        .map_or((None, None), |(count, cursor)| (Some(count), Some(cursor)));
 
     let metadata_names = |key: &str| -> Result<Vec<String>, String> {
         let Some(value) = migration_session_field(root, key) else {
@@ -8375,6 +8572,8 @@ fn migration_session_metadata(
         analysis_sampled,
         analysis_sample_row_count,
         analysis_total_row_count,
+        history_snapshot_count,
+        history_cursor,
         non_portable_artifacts,
     }))
 }
@@ -8457,6 +8656,119 @@ pub(crate) fn load_dataprep_session_execution_history(
         return Vec::new();
     };
     session_execution_history(&root)
+}
+
+pub(crate) fn load_dataprep_session_history(
+    path: &Path,
+) -> Result<Option<DataprepSessionHistory>, String> {
+    let path = canonicalize_existing_file(path, "la sesión DataPrep seleccionada")?;
+    let file = File::open(&path)
+        .map_err(|_| "No se pudo leer el historial de la sesión DataPrep.".to_owned())?;
+    let size = file
+        .metadata()
+        .map_err(|_| "No se pudo verificar el historial de la sesión DataPrep.".to_owned())?
+        .len();
+    if size > RECIPE_FILE_LIMIT_BYTES {
+        return Err("La sesión DataPrep supera el límite local de tamaño.".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(RECIPE_FILE_LIMIT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "No se pudo leer el historial de la sesión DataPrep.".to_owned())?;
+    if bytes.len() as u64 > RECIPE_FILE_LIMIT_BYTES {
+        return Err("La sesión DataPrep supera el límite local de tamaño.".to_owned());
+    }
+    let raw = serde_json::from_slice::<JsonValue>(&bytes)
+        .map_err(|_| "La sesión DataPrep no es JSON válido.".to_owned())?;
+    let root = raw
+        .as_object()
+        .ok_or_else(|| "La sesión DataPrep debe ser un objeto JSON.".to_owned())?;
+    let Some(value) = migration_session_history_value(root) else {
+        return Ok(None);
+    };
+    let (expected_count, cursor) = migration_session_history_metadata(root)?
+        .ok_or_else(|| "El historial de snapshots de la sesión no es válido.".to_owned())?;
+    let object = value.as_object().ok_or_else(|| {
+        "El historial de snapshots de la sesión DataPrep debe ser un objeto.".to_owned()
+    })?;
+    let entries = object
+        .get("entries")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| {
+            "El historial de snapshots de la sesión necesita una lista de entradas.".to_owned()
+        })?;
+    if entries.len() != expected_count {
+        return Err("El historial de snapshots de la sesión cambió durante la lectura.".to_owned());
+    }
+
+    let mut resolved_entries = Vec::with_capacity(entries.len());
+    let mut total_bytes = 0_u64;
+    for entry in entries {
+        let entry = entry.as_object().ok_or_else(|| {
+            "Cada entrada del historial de snapshots debe ser un objeto.".to_owned()
+        })?;
+        let label = entry
+            .get("label")
+            .or_else(|| entry.get("name"))
+            .and_then(migration_metadata_name)
+            .ok_or_else(|| {
+                "Cada snapshot del historial necesita una etiqueta válida.".to_owned()
+            })?;
+        let reference = entry
+            .get("snapshot_path")
+            .or_else(|| entry.get("snapshotPath"))
+            .or_else(|| entry.get("path"))
+            .or_else(|| entry.get("file_path"))
+            .or_else(|| entry.get("filePath"))
+            .and_then(JsonValue::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.contains("://"))
+            .ok_or_else(|| {
+                "Cada snapshot del historial necesita una referencia local válida.".to_owned()
+            })?;
+        let reference_path = Path::new(reference);
+        let candidate = if reference_path.is_absolute() {
+            reference_path.to_owned()
+        } else {
+            path.parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(reference_path)
+        };
+        let metadata = fs::symlink_metadata(&candidate)
+            .map_err(|_| "Un snapshot del historial de la sesión no está disponible.".to_owned())?;
+        if is_symbolic_link_or_reparse_point(&metadata) || !metadata.is_file() {
+            return Err(
+                "Un snapshot del historial de la sesión no es un archivo regular.".to_owned(),
+            );
+        }
+        let canonical =
+            canonicalize_existing_file(&candidate, "un snapshot del historial de la sesión")?;
+        if !canonical
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("parquet"))
+        {
+            return Err("El historial de la sesión solo admite snapshots Parquet.".to_owned());
+        }
+        let bytes = fs::metadata(&canonical)
+            .map_err(|_| "No se pudo verificar un snapshot del historial de la sesión.".to_owned())?
+            .len();
+        total_bytes = total_bytes.checked_add(bytes).ok_or_else(|| {
+            "El historial de la sesión supera su presupuesto de disco.".to_owned()
+        })?;
+        if total_bytes > HISTORY_DISK_BUDGET_BYTES {
+            return Err("El historial de la sesión supera su presupuesto de disco.".to_owned());
+        }
+        resolved_entries.push(DataprepSessionHistoryEntry {
+            label,
+            path: canonical,
+        });
+    }
+
+    Ok(Some(DataprepSessionHistory {
+        entries: resolved_entries,
+        cursor,
+    }))
 }
 
 fn session_source_reference(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
@@ -8635,6 +8947,13 @@ pub(crate) fn load_dataprep_session_migration_plan(
     } else if matches!(snapshot_status, SessionReferenceStatus::Unsupported) {
         missing_references.push("snapshot.unsupported".to_owned());
     }
+    let history_references_available = match load_dataprep_session_history(&path) {
+        Ok(_) => true,
+        Err(_) => {
+            missing_references.push("history".to_owned());
+            false
+        }
+    };
 
     let mut collisions = session_recipe_collisions(&recipe.recipe);
     if let (Some(source_path), Some(snapshot_path)) = (&source_path, &snapshot_path) {
@@ -8656,7 +8975,8 @@ pub(crate) fn load_dataprep_session_migration_plan(
     // an available compatible snapshot is still a valid temporal dataset to import.
     let has_usable_input = matches!(source_status, SessionReferenceStatus::Available)
         || matches!(snapshot_status, SessionReferenceStatus::Available);
-    let can_create_project = has_usable_input && collisions.is_empty();
+    let can_create_project =
+        has_usable_input && history_references_available && collisions.is_empty();
     Ok(DataprepSessionMigrationPlan {
         name,
         source_file_name,
@@ -8973,6 +9293,14 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
             &path,
             "omitted",
             "El artefacto de sesión no forma parte del contrato portable y debe regenerarse en Columnia.",
+        ));
+    }
+    if migration_session_history_value(root).is_some() {
+        push_migration_operation(&mut omitted_operations, "session.history_snapshots");
+        warnings.push(recipe_migration_warning(
+            "session.history_snapshots",
+            "warning",
+            "El historial Parquet solo se restaura al importar la sesión como proyecto; una receta aislada conserva únicamente sus metadatos.",
         ));
     }
     if let Some(applied_ops) = migration_session_field(root, "applied_ops") {
@@ -20334,6 +20662,22 @@ impl DatasetState {
             })),
             ..Self::default()
         })
+    }
+
+    pub(crate) fn install_project_import_history(
+        &self,
+        entries: &[(String, DataFrame)],
+        cursor: usize,
+    ) -> Result<(), String> {
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
+        let dataset = current
+            .as_mut()
+            .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
+        dataset.history = HistoryManager::from_imported_frames(entries, cursor, &dataset.frame)?;
+        Ok(())
     }
 
     pub(crate) fn apply_project_import_recipe(

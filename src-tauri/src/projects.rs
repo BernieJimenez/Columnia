@@ -1349,6 +1349,9 @@ fn import_dataprep_session_project_from_path(
             reasons.join(" y ")
         ));
     }
+    let imported_history = dataset::load_dataprep_session_history(&session_path).map_err(|_| {
+        "El historial de snapshots de la sesión no se puede restaurar de forma segura.".to_owned()
+    })?;
     // A materialized DataPrep snapshot represents the exact current session
     // state, including cleaning operations that are only recorded as
     // ``applied_ops`` metadata. Prefer it whenever it is available; replaying
@@ -1430,6 +1433,22 @@ fn import_dataprep_session_project_from_path(
             .map_err(|_| {
                 "La receta de la sesión no coincide con el esquema de la fuente.".to_owned()
             })?;
+    }
+    if let Some(history) = imported_history {
+        let cursor = history.cursor;
+        let entries = history
+            .entries
+            .into_iter()
+            .map(|entry| {
+                let (frame, _) = dataset::load_dataset_for_automation(&entry.path, None, None)
+                    .map_err(|_| {
+                        "Un snapshot del historial de la sesión no se puede leer como Parquet."
+                            .to_owned()
+                    })?;
+                Ok((entry.label, frame))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        imported.install_project_import_history(&entries, cursor)?;
     }
     // DataPrep sessions persist a materialized current snapshot but do not
     // carry a portable profile cache. Recompute the aggregate profile before
@@ -3703,6 +3722,112 @@ mod tests {
             .project_test_redo()
             .unwrap()
             .equals_missing(&revised_frame));
+    }
+
+    #[test]
+    fn dataprep_session_restores_explicit_parquet_history_with_cursor() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("session-history.json");
+        let initial = directory.path().join("initial.parquet");
+        let current = directory.path().join("current.parquet");
+        write_snapshot(&frame(&[1, 2]), &initial).unwrap();
+        write_snapshot(&frame(&[1, 2, 3]), &current).unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Sesión con historial",
+                "snapshot_path": "current.parquet",
+                "transform_config": {},
+                "history_snapshots": {
+                    "version": 1,
+                    "cursor": 1,
+                    "entries": [
+                        {"label": "Dataset original", "snapshot_path": "initial.parquet"},
+                        {"label": "Agregar fila", "snapshot_path": "current.parquet"}
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let store = ProjectStore::initialize(directory.path().join("projects")).unwrap();
+        let plan = dataset::load_dataprep_session_migration_plan(&session).unwrap();
+        assert!(plan.can_create_project);
+        let recipe_json = serde_json::to_value(&plan.recipe).unwrap();
+        assert_eq!(
+            recipe_json["migrationReport"]["session"]["historySnapshotCount"],
+            2
+        );
+        assert_eq!(
+            recipe_json["migrationReport"]["session"]["historyCursor"],
+            1
+        );
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("el historial Parquet explícito debe importarse");
+        let state = DatasetState::default();
+        store.open(&state, imported.id.clone()).unwrap();
+        let restored = state.active_project_snapshot().unwrap();
+        assert_eq!(restored.history.entries.len(), 2);
+        assert_eq!(restored.history.cursor, 1);
+        assert!(restored.frame.equals_missing(&frame(&[1, 2, 3])));
+        assert!(state
+            .project_test_undo()
+            .unwrap()
+            .equals_missing(&frame(&[1, 2])));
+        assert!(state
+            .project_test_redo()
+            .unwrap()
+            .equals_missing(&frame(&[1, 2, 3])));
+
+        let stored = store
+            .stored_project(&store.connection().unwrap(), &imported.id)
+            .unwrap()
+            .unwrap();
+        let generation = store
+            .generation_path(&imported.id, stored.generation_name.as_deref().unwrap())
+            .unwrap();
+        assert!(generation.join("history-000.parquet").is_file());
+        assert!(generation.join("history-001.parquet").is_file());
+    }
+
+    #[test]
+    fn dataprep_session_history_missing_reference_blocks_publication_without_path_leak() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("session-history-missing.json");
+        let current = directory.path().join("current.parquet");
+        write_snapshot(&frame(&[1]), &current).unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Sesión incompleta",
+                "snapshot_path": "current.parquet",
+                "transform_config": {},
+                "history_snapshots": {
+                    "version": 1,
+                    "cursor": 0,
+                    "entries": [
+                        {"label": "Dataset original", "snapshot_path": "missing.parquet"}
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let store = ProjectStore::initialize(directory.path().join("projects")).unwrap();
+        let plan = dataset::load_dataprep_session_migration_plan(&session).unwrap();
+        assert!(!plan.can_create_project);
+        assert_eq!(plan.missing_references, vec!["history"]);
+        let error = import_dataprep_session_project_from_path(&store, &session, None, None, None)
+            .unwrap_err();
+        assert!(error.contains("faltan archivos vinculados"));
+        assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+        assert!(store.list().unwrap().is_empty());
     }
 
     #[test]

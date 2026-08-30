@@ -198,6 +198,17 @@ function RecipeMigrationReportPanel({
                 </strong>
               </li>
             )}
+            {session?.historySnapshotCount !== undefined && (
+              <li>
+                <span>Snapshots históricos</span>
+                <strong>
+                  {safeMigrationCount(session.historySnapshotCount).toLocaleString()}
+                  {session.historyCursor !== undefined
+                    ? ` · cursor ${safeMigrationCount(session.historyCursor).toLocaleString()}`
+                    : ""}
+                </strong>
+              </li>
+            )}
           </ul>
           <p>
             {session.hasSourceReference || session.hasSnapshotReference

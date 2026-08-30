@@ -8,6 +8,11 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- La migración M1 de sesiones DataPrep restaura un historial explícito de hasta
+  doce snapshots Parquet locales mediante el contrato versionado
+  `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de
+  disco y cursor contra el dataset actual, y publica las revisiones dentro de
+  la generación durable del proyecto sin exponer rutas.
 - Los `JOIN` locales `INNER` y `LEFT` sin agregación procesan el lado `dataset`
   por bloques y conservan el conteo, orden y `OFFSET`/`LIMIT` globales sin
   acumular el `DataFrame` unido completo.

@@ -307,6 +307,10 @@ pub struct SessionMigrationSessionOutput {
     analysis_sample_row_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     analysis_total_row_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    history_snapshot_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    history_cursor: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     non_portable_artifacts: Vec<String>,
 }
@@ -1113,6 +1117,11 @@ pub fn session_migration_report(
                 session_metadata,
                 "analysisTotalRowCount",
             ),
+            history_snapshot_count: serialized_usize_optional(
+                session_metadata,
+                "historySnapshotCount",
+            ),
+            history_cursor: serialized_usize_optional(session_metadata, "historyCursor"),
             non_portable_artifacts: serialized_strings(session_metadata, "nonPortableArtifacts"),
         },
         recipe_summary,

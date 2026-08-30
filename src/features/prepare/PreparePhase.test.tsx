@@ -910,6 +910,8 @@ describe("TransformRecipeEditor", () => {
           analysisSampled: true,
           analysisSampleRowCount: 200,
           analysisTotalRowCount: 1200,
+          historySnapshotCount: 2,
+          historyCursor: 1,
         },
       },
     };
@@ -930,6 +932,8 @@ describe("TransformRecipeEditor", () => {
     expect(report).toHaveTextContent("Comprobaciones");
     expect(report).toHaveTextContent("Muestra de análisis");
     expect(report).toHaveTextContent("acotada · 200 filas de 1,200");
+    expect(report).toHaveTextContent("Snapshots históricos");
+    expect(report).toHaveTextContent("2 · cursor 1");
     expect(report).toHaveTextContent("Se detectaron referencias de origen o snapshot");
     expect(report).not.toHaveTextContent("Transformación");
     expect(report).not.toHaveTextContent("Datos");

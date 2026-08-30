@@ -470,6 +470,8 @@ export interface SessionMigrationMetadata {
   analysisSampled?: boolean;
   analysisSampleRowCount?: number;
   analysisTotalRowCount?: number;
+  historySnapshotCount?: number;
+  historyCursor?: number;
 }
 
 export type SessionReferenceStatus = "not_provided" | "available" | "missing" | "unsupported";
@@ -499,6 +501,8 @@ export interface SessionMigrationReport {
     analysisSampled?: boolean;
     analysisSampleRowCount?: number;
     analysisTotalRowCount?: number;
+    historySnapshotCount?: number;
+    historyCursor?: number;
   };
   recipeSummary: {
     operationCount: number;

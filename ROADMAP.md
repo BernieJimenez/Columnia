@@ -1494,7 +1494,11 @@ del original.
   las etiquetas de etapa conocidas se restauran como etapa activa del workspace
   y las desconocidas vuelven a Revisar;
   todavía no restaura resultados de análisis originales, cachés reanudables ni
-  snapshots históricos que el artefacto no contiene.
+  snapshots históricos que el artefacto no contiene. Cuando el manifiesto aporta
+  el contrato explícito `history_snapshots` v1, la importación sí restaura hasta
+  doce snapshots Parquet locales, valida el cursor contra el estado actual y los
+  publica como historial durable del proyecto; los historiales ambiguos o
+  incompatibles siguen requiriendo revisión manual.
 - [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
   con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
   colisiones de nombres antes de escribir cualquier snapshot.
@@ -1527,7 +1531,9 @@ del original.
   historial y artefactos que todavía requieran restauración manual. Ya existe una
   fixture de round-trip que verifica el fallback a fuente, metadatos de hoja/etapa,
   operaciones deterministas, reglas y redacción de análisis/historial/caché no
-  portables; faltan snapshots reales de libro y restauraciones históricas.
+  portables; la slice `history_snapshots` ya restaura revisiones Parquet locales
+  con cursor validado, pero aún faltan fixtures históricas del formato real de
+  DataPrep, cachés reanudables y artefactos de análisis originales.
 
 #### Límites de alcance de M1
 
@@ -1851,6 +1857,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 procesa consultas SQL locales `INNER`/`LEFT` sin agregación por bloques del lado `dataset`: conserva el orden y la paginación globales, cuenta todas las coincidencias y evita acumular el `DataFrame` unido completo. `FULL` y agregaciones mantienen la ruta eager acotada mientras se define su estrategia incremental. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 extiende el procesamiento por bloques a las agregaciones SQL locales `INNER`/`LEFT`: fusiona estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos en orden estable, sin acumular el `DataFrame` unido completo. `FULL` y DuckDB permanecen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 extiende la ruta por bloques a consultas SQL locales `FULL`: procesa el lado `dataset` como `LEFT` y añade por bloques las filas derechas no emparejadas con anti-join estable; paginación y agregaciones incluyen ambos lados sin acumular el resultado unido completo, aunque el frame anti-join derecho sigue acotado por los límites actuales. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | M1 restaura el historial portable `history_snapshots` v1: hasta doce Parquet locales, etiquetas/cursor validados, presupuesto durable de 1 GiB y reanudación de Deshacer/Rehacer tras reabrir el proyecto; historiales ambiguos y artefactos de análisis siguen fuera de alcance. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `docs/reference/migration-inventory.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
