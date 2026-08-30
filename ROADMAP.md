@@ -1515,7 +1515,9 @@ del original.
   selector nativo, validación de referencias, esquema, formato, hoja y receta
   en un estado temporal, publicación únicamente después de validar, fallback a
   `snapshot_path` compatible cuando falta la fuente y errores sin rutas
-  administradas en el bridge.
+  administradas en el bridge. El panel de Proyectos ofrece ahora esa acción con
+  progreso por etapas y cancelación cooperativa; la ruta CLI conserva el
+  contrato síncrono.
 - [x] Crear un informe de migración con operaciones convertidas, omitidas,
   advertencias, acciones manuales y hash de los artefactos; el preflight CLI
   session-migration-report lee manifiestos DataPrep v1–v3, resume origen,

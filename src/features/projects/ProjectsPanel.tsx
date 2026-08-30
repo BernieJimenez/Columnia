@@ -23,6 +23,8 @@ interface ProjectsPanelProps {
   onDeleteRequest: (project: ProjectSummary) => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
+  onImportSession: () => void;
+  onCancelImport: () => void;
   onRetry: () => void;
   onClearFeedback: () => void;
 }
@@ -47,6 +49,8 @@ export function ProjectsPanel({
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
+  onImportSession,
+  onCancelImport,
   onRetry,
   onClearFeedback,
 }: ProjectsPanelProps) {
@@ -70,11 +74,14 @@ export function ProjectsPanel({
           <h3 id="projects-title">Proyectos</h3>
           <p>Un proyecto conserva el dataset, las reglas, el borrador, el perfil calculado y el historial reversible.</p>
         </div>
-        {catalog.kind === "error" && (
-          <div className="projects__heading-actions">
+        <div className="projects__heading-actions">
+          <button type="button" className="secondary-action" onClick={onImportSession} disabled={disabled}>
+            Importar sesión DataPrep
+          </button>
+          {catalog.kind === "error" && (
             <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {catalog.kind === "loading" && <p className="notice" role="status">Cargando proyectos locales…</p>}
@@ -111,8 +118,24 @@ export function ProjectsPanel({
         <small id="project-name-help">Entre 1 y {MAX_PROJECT_NAME_LENGTH} caracteres; se recortan espacios al guardar.</small>
       </form>
 
-      {operation.kind === "working" && <p className="notice" role="status">
-        {operation.operation === "import" ? "Importando sesión DataPrep y preparando proyecto…" : "Procesando proyecto…"}
+      {operation.kind === "working" && operation.operation === "import" && (
+        <div className="notice" role="status" aria-live="polite">
+          <span>
+            Importando sesión DataPrep y preparando proyecto…
+            {operation.progress?.stage ? ` ${operation.progress.stage}.` : ""}
+          </span>
+          <progress
+            value={operation.progress?.percent ?? 0}
+            max={100}
+            aria-label="Progreso de importación de sesión DataPrep"
+          />
+          <button type="button" className="secondary-action" onClick={onCancelImport}>
+            Cancelar importación
+          </button>
+        </div>
+      )}
+      {operation.kind === "working" && operation.operation !== "import" && <p className="notice" role="status">
+        Procesando proyecto…
       </p>}
       {operation.kind === "success" && <p className="notice notice--success" role="status">{operation.message}</p>}
       {operation.kind === "error" && <p className="notice notice--error" role="alert">{operation.message}</p>}

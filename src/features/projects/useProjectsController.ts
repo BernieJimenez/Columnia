@@ -7,6 +7,7 @@ import {
   listProjects,
   openProject,
   saveProject,
+  type OperationProgress,
   type ProjectOpenResult,
   type ProjectSummary,
   type ProjectWorkspace,
@@ -132,10 +133,22 @@ export function useProjectsController({
 
   const importSession = useCallback(async () => {
     await runExclusive(
-      { kind: "working", operation: "import", projectId: null },
+      {
+        kind: "working",
+        operation: "import",
+        projectId: null,
+        progress: { operation: "migration", stage: "Esperando sesión", percent: 0 },
+      },
       async () => {
         try {
-          const imported = await importDataprepSessionProject();
+          const onProgress = (progress: OperationProgress) => {
+            setOperation((current) =>
+              current.kind === "working" && current.operation === "import"
+                ? { ...current, progress }
+                : current,
+            );
+          };
+          const imported = await importDataprepSessionProject(null, null, null, onProgress);
           const result = await openProject(imported.id);
           await onProjectOpened(result);
           setActiveProject(result.project);

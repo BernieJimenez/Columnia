@@ -181,6 +181,30 @@ describe("App", () => {
     expect(screen.getByText("Todavía no hay proyectos guardados.")).toBeInTheDocument();
   });
 
+  it("expone la importación de sesiones DataPrep y permite cancelarla", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    vi.spyOn(bridge, "listProjects").mockResolvedValue([]);
+    vi.spyOn(bridge, "getRecoveryCandidate").mockResolvedValue(null);
+
+    let rejectImport!: (reason: unknown) => void;
+    const importPromise = new Promise<ProjectSummary>((_resolve, reject) => {
+      rejectImport = reject;
+    });
+    const importSpy = vi.spyOn(bridge, "importDataprepSessionProject").mockReturnValue(importPromise);
+    const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Importar sesión DataPrep" }));
+
+    expect(importSpy).toHaveBeenCalledWith(null, null, null, expect.any(Function));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar importación" }));
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith("migration"));
+
+    rejectImport("Operación cancelada por el usuario.");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancelar importación" })).not.toBeInTheDocument());
+  });
+
   it("abre desde el catálogo el proyecto recién guardado y restaura su workspace", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.49.0", platform: "windows" });

@@ -25,6 +25,8 @@ los artefactos de validación locales.
   validación, carga, replay, restauración de historial, perfil y publicación;
   la operación `migration` admite cancelación cooperativa aislada y nunca
   publica un proyecto parcial cuando se cancela antes del commit atómico.
+- Proyectos expone la importación de sesiones DataPrep con progreso visible y
+  cancelación desde la interfaz, además del selector nativo y la CLI existentes.
 - Los `JOIN` locales `INNER` y `LEFT` sin agregación procesan el lado `dataset`
   por bloques y conservan el conteo, orden y `OFFSET`/`LIMIT` globales sin
   acumular el `DataFrame` unido completo.

@@ -1,4 +1,4 @@
-import type { ProjectSummary } from "../../bridge";
+import type { OperationProgress, ProjectSummary } from "../../bridge";
 
 export const MAX_PROJECT_NAME_LENGTH = 128;
 
@@ -14,7 +14,12 @@ export type ProjectCatalogState =
 
 export type ProjectOperationState =
   | { kind: "idle" }
-  | { kind: "working"; operation: "save" | "open" | "import" | "delete"; projectId: string | null }
+  | {
+      kind: "working";
+      operation: "save" | "open" | "import" | "delete";
+      projectId: string | null;
+      progress?: OperationProgress;
+    }
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
 

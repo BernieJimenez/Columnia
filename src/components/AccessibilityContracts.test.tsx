@@ -46,6 +46,8 @@ describe("contratos de accesibilidad de la interfaz", () => {
         onDeleteRequest={vi.fn()}
         onDeleteCancel={vi.fn()}
         onDeleteConfirm={vi.fn()}
+        onImportSession={vi.fn()}
+        onCancelImport={vi.fn()}
         onRetry={vi.fn()}
         onClearFeedback={vi.fn()}
       />,

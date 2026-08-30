@@ -131,8 +131,9 @@ actual y evita perder operaciones de limpieza cuyos parámetros no forman parte
 del manifiesto. En el proyecto importado, las etiquetas de etapa conocidas se
 convierten a la etapa activa de Columnia; una etiqueta desconocida conserva el
 fallback a Revisar. Cuando no hay snapshot, se usa la fuente disponible y se
-reaplica la receta estructural. La acción no se expone en el panel de Proyectos; la CLI la ofrece como
-`project-import-dataprep --store DIR --session FILE [--name NAME]` para
+reaplica la receta estructural. El panel de Proyectos ofrece la acción mediante
+el selector nativo y muestra el progreso por etapas; la CLI también la ofrece
+como `project-import-dataprep --store DIR --session FILE [--name NAME]` para
 migraciones autorizadas. Una cancelación o error no modifica el dataset activo
 ni reemplaza proyectos existentes.
 

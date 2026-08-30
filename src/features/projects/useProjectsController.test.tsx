@@ -88,7 +88,12 @@ describe("useProjectsController", () => {
     await act(async () => result.current.importSession());
 
     expect(bridge.importDataprepSessionProject).toHaveBeenCalledOnce();
-    expect(bridge.importDataprepSessionProject).toHaveBeenCalledWith();
+    expect(bridge.importDataprepSessionProject).toHaveBeenCalledWith(
+      null,
+      null,
+      null,
+      expect.any(Function),
+    );
     expect(bridge.openProject).toHaveBeenCalledWith(summary.id);
     expect(onProjectOpened).toHaveBeenCalledWith({ project: summary, dataset, workspace, profile: null });
     expect(result.current.activeProject).toEqual(summary);

@@ -815,6 +815,8 @@ export function App() {
                   onDeleteRequest={projects.requestDelete}
                   onDeleteCancel={projects.cancelDelete}
                   onDeleteConfirm={() => void projects.confirmDelete()}
+                  onImportSession={() => void projects.importSession()}
+                  onCancelImport={() => void cancelActiveOperation("migration")}
                   onRetry={() => void projects.refresh()}
                   onClearFeedback={projects.clearFeedback}
                 />

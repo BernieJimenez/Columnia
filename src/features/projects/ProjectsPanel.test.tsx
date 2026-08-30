@@ -30,6 +30,8 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ProjectsPanel>> = 
     onDeleteRequest: vi.fn(),
     onDeleteCancel: vi.fn(),
     onDeleteConfirm: vi.fn(),
+    onImportSession: vi.fn(),
+    onCancelImport: vi.fn(),
     onRetry: vi.fn(),
     onClearFeedback: vi.fn(),
     ...overrides,
@@ -57,13 +59,25 @@ describe("ProjectsPanel", () => {
   });
 
   it("explica la operación de importación mientras está en curso", () => {
-    renderPanel({ operation: { kind: "working", operation: "import", projectId: null }, disabled: true });
+    const props = renderPanel({
+      operation: {
+        kind: "working",
+        operation: "import",
+        projectId: null,
+        progress: { operation: "migration", stage: "Restaurando historial", percent: 76 },
+      },
+      disabled: true,
+    });
     expect(screen.getByRole("status")).toHaveTextContent("Importando sesión DataPrep y preparando proyecto");
+    expect(screen.getByRole("progressbar", { name: "Progreso de importación de sesión DataPrep" })).toHaveValue(76);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar importación" }));
+    expect(props.onCancelImport).toHaveBeenCalledOnce();
   });
 
-  it("mantiene la migración DataPrep fuera del panel de proyectos", () => {
-    renderPanel();
-    expect(screen.queryByRole("button", { name: "Importar sesión DataPrep" })).not.toBeInTheDocument();
+  it("ofrece importar una sesión DataPrep desde el catálogo", () => {
+    const props = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Importar sesión DataPrep" }));
+    expect(props.onImportSession).toHaveBeenCalledOnce();
   });
 
   it("presenta la eliminación como alertdialog y conserva el dataset en memoria", () => {
