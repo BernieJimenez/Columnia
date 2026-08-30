@@ -17063,7 +17063,7 @@ fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
         && recipe
             .group_summary
             .as_ref()
-            .is_none_or(|_| recipe.filters.is_empty() && recipe.find_replace.is_none())
+            .is_none_or(|_| recipe.filters.is_empty())
         && (recipe.contact_normalizations.is_empty() || recipe.group_summary.is_none())
         && (recipe.text_extractions.is_empty() || recipe.group_summary.is_none())
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
@@ -23502,6 +23502,48 @@ mod tests {
         assert_eq!(rows[1][3].as_deref(), Some("2"));
         assert_eq!(rows[1][4].as_deref(), Some("1"));
         assert_eq!(rows[2][5], None);
+    }
+
+    #[test]
+    fn lazy_group_summary_applies_literal_replacement_before_grouping() {
+        let frame = DataFrame::new(
+            4,
+            vec![
+                Series::new("group".into(), ["A", "A", "B", "B"]).into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4]).into_column(),
+                Series::new("label".into(), ["x", "x", "x", "y"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("group".into()),
+                find: "A".into(),
+                replace: "B".into(),
+            }),
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["group".into()],
+                aggregations: vec![
+                    SummaryAggregation {
+                        column: "value".into(),
+                        operation: SummaryOperation::Sum,
+                    },
+                    SummaryAggregation {
+                        column: "label".into(),
+                        operation: SummaryOperation::CountUnique,
+                    },
+                ],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!((outcome.6, outcome.15, outcome.17), (2, 1, 3));
+        let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("B"));
+        assert_eq!(rows[0][1].as_deref(), Some("10"));
+        assert_eq!(rows[0][2].as_deref(), Some("2"));
     }
 
     #[test]
