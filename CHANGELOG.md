@@ -25,6 +25,10 @@ los artefactos de validación locales.
   `failed`, además de sus aliases compatibles, y convierte `rows_out`/`rowsOut`
   en el conteo agregado de filas; las duraciones decimales se redondean de forma
   segura y nunca se conservan consultas, rutas ni valores.
+- Se añade una fixture v3 con la forma emitida por `SessionRecipe` de DataPrep
+  y una regresión de proyecto que verifica metadatos agregados de muestreo,
+  etapa, reglas y actividad `ExecutionHistory` tras reabrir; los resultados,
+  cachés, consultas y rutas privadas siguen descartándose.
 - El replay de limpiezas DataPrep dependientes del perfil (`drop_high_null_cols`
   y `drop_id_cols`) conserva las métricas del dataset inicial aunque antes se
   ejecute `drop_duplicates`; evita eliminar columnas solo porque la deduplicación

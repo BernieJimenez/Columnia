@@ -30,6 +30,7 @@
     "migration/dataprep-session-v1.json",
     "migration/dataprep-session-v1-camel.json",
     "migration/dataprep-session-v1-roundtrip.json",
+    "migration/dataprep-session-v3-real.json",
     "migration/ventas-hoja.csv",
     "migration/legacy-recipe-v1.json",
     "performance/i1-benchmark-baseline-v1.json",

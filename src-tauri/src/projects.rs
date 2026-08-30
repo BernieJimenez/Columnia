@@ -4087,6 +4087,67 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_v3_session_fixture_roundtrips_sample_metadata_and_safe_execution_history() {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio");
+        let fixture_directory = repository.join("fixtures/migration");
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("session-v3.json");
+        let source = directory.path().join("ventas-hoja.csv");
+        fs::copy(
+            fixture_directory.join("dataprep-session-v3-real.json"),
+            &session,
+        )
+        .unwrap();
+        fs::copy(fixture_directory.join("ventas-hoja.csv"), &source).unwrap();
+
+        let store = ProjectStore::initialize(directory.path().join("projects")).unwrap();
+        let plan = dataset::load_dataprep_session_migration_plan(&session)
+            .expect("la sesión v3 real debe producir un plan válido");
+        assert!(plan.can_create_project);
+        assert_eq!(plan.source_file_name.as_deref(), Some("ventas-hoja.csv"));
+        assert_eq!(plan.stage_label.as_deref(), Some("Entregar"));
+        assert_eq!(plan.quality_rules.len(), 1);
+
+        let recipe_json = serde_json::to_value(&plan.recipe).unwrap();
+        let session_metadata = &recipe_json["migrationReport"]["session"];
+        assert_eq!(session_metadata["analysisSampled"], true);
+        assert_eq!(session_metadata["analysisSampleRowCount"], 2);
+        assert_eq!(session_metadata["analysisTotalRowCount"], 2);
+        assert_eq!(
+            session_metadata["nonPortableArtifacts"],
+            serde_json::json!(["analysis_results", "caches", "history"])
+        );
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la sesión v3 debe convertirse en un proyecto durable");
+        let state = DatasetState::default();
+        let opened = store
+            .open(&state, imported.id)
+            .expect("el proyecto v3 debe reabrirse");
+
+        assert_eq!(opened.dataset.row_count, 2);
+        assert_eq!(opened.dataset.column_count, 2);
+        assert_eq!(opened.workspace.active_phase.as_deref(), Some("deliver"));
+        assert_eq!(opened.workspace.sql_history.len(), 3);
+        assert_eq!(opened.workspace.sql_history[0].outcome, "cancelled");
+        assert_eq!(opened.workspace.sql_history[0].duration_ms, 1);
+        assert_eq!(opened.workspace.sql_history[1].outcome, "error");
+        assert_eq!(opened.workspace.sql_history[1].duration_ms, 4);
+        assert_eq!(opened.workspace.sql_history[2].outcome, "success");
+        assert_eq!(opened.workspace.sql_history[2].duration_ms, 14);
+        assert_eq!(opened.workspace.sql_history[2].row_count, Some(2));
+
+        let serialized = serde_json::to_string(&opened.workspace).unwrap();
+        assert!(!serialized.contains("private_analysis_value"));
+        assert!(!serialized.contains("private_value"));
+        assert!(!serialized.contains("C:\\\\Users"));
+        assert!(!serialized.contains("derived-cache.json"));
+    }
+
+    #[test]
     fn dataprep_session_restores_explicit_parquet_history_with_cursor() {
         let directory = tempfile::tempdir().unwrap();
         let session = directory.path().join("session-history.json");

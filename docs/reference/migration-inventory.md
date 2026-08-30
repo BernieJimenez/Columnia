@@ -14,6 +14,12 @@ resultado siempre se normaliza a una receta Columnia v1 antes de mostrarla.
 Desde Proyectos existe además una acción separada para mapear una sesión guardada
 al catálogo cuando su fuente local puede validarse de forma segura.
 
+La fixture `fixtures/migration/dataprep-session-v3-real.json` cubre la forma
+v3 que emite `SessionRecipe`: origen y hoja, `transform_config`, reglas v3,
+comprobaciones, un bloque de resultados con solo metadatos de muestreo y
+actividad de ejecución con estados/duraciones/filas. La prueba de proyecto la
+reabre y verifica que solo los agregados seguros llegan al workspace.
+
 | Semántica DataPrep | Receta Columnia | Estado |
 | --- | --- | --- |
 | `rename_text` | `renames` | Convertida |

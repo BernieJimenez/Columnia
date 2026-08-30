@@ -1586,9 +1586,11 @@ del original.
   historial y artefactos que todavía requieran restauración manual. Ya existe una
   fixture de round-trip que verifica el fallback a fuente, metadatos de hoja/etapa,
   operaciones deterministas, reglas y redacción de análisis/historial/caché no
-  portables; la slice `history_snapshots` ya restaura revisiones Parquet locales
-  con cursor validado, pero aún faltan fixtures históricas del formato real de
-  DataPrep, cachés reanudables y artefactos de análisis originales.
+  portables; la fixture v3 `dataprep-session-v3-real.json` añade la forma real de
+  `SessionRecipe`, metadatos agregados de muestra y actividad de ejecución segura.
+  La slice `history_snapshots` ya restaura revisiones Parquet locales con cursor
+  validado, pero aún faltan fixtures históricas de snapshots reales, cachés
+  reanudables y artefactos de análisis originales.
 
 #### Límites de alcance de M1
 
@@ -1929,6 +1931,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | M1 completa el mapeo de pipelines al catálogo mediante `project-save --recipe`: valida el `--input`, reproduce las limpiezas deterministas seleccionadas y aplica la receta estructural antes de publicar el snapshot; una regresión verifica el proyecto reabierto. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `ROADMAP.md` |
 | 2026-08-30 | P1/M1 cierra el catálogo de limpieza sugerida: las 22 operaciones de `dataprepv1.1` comparten una lista canónica con el replay de sesiones, y una prueba evita que una operación registrada quede sin mapping migrable. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | M1 corrige la paridad de la actividad de sesiones con el `ExecutionHistory` real de DataPrep: `completed`/`failed`, duraciones decimales y `rows_out`/`rowsOut` se normalizan a la actividad agregada segura de Columnia; consultas, rutas y valores siguen descartados. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-30 | M1 añade la fixture `dataprep-session-v3-real.json`, basada en la forma v3 de `SessionRecipe`, y verifica importar → reabrir con etapa, reglas, muestreo agregado y tres entradas de actividad normalizadas; resultados, cachés, consultas y rutas privadas no cruzan al workspace. | `fixtures/migration/dataprep-session-v3-real.json`, `fixtures/manifest.json`, `src-tauri/src/projects.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
