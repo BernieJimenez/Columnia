@@ -1416,12 +1416,7 @@ impl HistoryManager {
             .entries
             .get(index)
             .ok_or_else(|| "La revisión solicitada ya no está disponible.".to_owned())?;
-        let file = File::open(&entry.path)
-            .map_err(|error| format!("No se pudo abrir el snapshot del historial: {error}"))?;
-        ParquetReader::new(file)
-            .set_low_memory(true)
-            .read_parallel(ParallelStrategy::None)
-            .finish()
+        read_parquet_frame(&entry.path)
             .map_err(|error| format!("No se pudo restaurar el snapshot del historial: {error}"))
     }
 }
@@ -18082,14 +18077,8 @@ fn capture_project_history(
         if copied != entry.bytes {
             return Err("El historial activo cambió mientras se guardaba.".to_owned());
         }
-        let staged_frame = ParquetReader::new(
-            File::open(&destination)
-                .map_err(|_| "No se pudo validar el historial activo.".to_owned())?,
-        )
-        .set_low_memory(true)
-        .read_parallel(ParallelStrategy::None)
-        .finish()
-        .map_err(|_| "El historial activo contiene un snapshot corrupto.".to_owned())?;
+        let staged_frame = read_parquet_frame(&destination)
+            .map_err(|_| "El historial activo contiene un snapshot corrupto.".to_owned())?;
         if index == history.cursor {
             cursor_matches = staged_frame.equals_missing(current_frame);
         }
@@ -18162,14 +18151,8 @@ fn restore_project_history(
         if total_bytes > history.disk_budget_bytes {
             return Err("El historial guardado supera su presupuesto.".to_owned());
         }
-        let frame = ParquetReader::new(
-            File::open(&entry.path)
-                .map_err(|_| "No se pudo abrir un snapshot del historial.".to_owned())?,
-        )
-        .set_low_memory(true)
-        .read_parallel(ParallelStrategy::None)
-        .finish()
-        .map_err(|_| "Un snapshot del historial no contiene un Parquet válido.".to_owned())?;
+        let frame = read_parquet_frame(&entry.path)
+            .map_err(|_| "Un snapshot del historial no contiene un Parquet válido.".to_owned())?;
         let destination = directory
             .path()
             .join(format!("snapshot-{index:020}.parquet"));
@@ -18464,12 +18447,7 @@ impl DatasetState {
         profile: Option<DatasetProfile>,
         history: Option<ProjectHistoryRestore>,
     ) -> Result<ProjectDatasetCandidate, String> {
-        let file = File::open(&snapshot_path)
-            .map_err(|_| "No se pudo abrir el snapshot del proyecto.".to_owned())?;
-        let frame = ParquetReader::new(file)
-            .set_low_memory(true)
-            .read_parallel(ParallelStrategy::None)
-            .finish()
+        let frame = read_parquet_frame(&snapshot_path)
             .map_err(|_| "No se pudo restaurar el dataset del proyecto.".to_owned())?;
         let file_size_bytes = fs::metadata(&snapshot_path)
             .map_err(|_| "No se pudo verificar el snapshot del proyecto.".to_owned())?
