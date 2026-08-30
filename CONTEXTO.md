@@ -340,8 +340,10 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
   aplica antes dentro del plan y el preflight proyecta solo las columnas
   necesarias), normalizaciones de contactos y extracciones textuales incluso
   antes de resumir grupos; las columnas calculadas numéricas y concatenadas
-  también pueden alimentar sus claves y fuentes de agregación; las
-  operaciones restantes usan fallback eager atómico.
+  también pueden alimentar sus claves y fuentes de agregación; las columnas
+  derivadas por split y merge también pueden alimentar la agrupación, con
+  preflight posterior a las etapas estructurales; las operaciones restantes
+  usan fallback eager atómico.
 
 Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, pérdida de precisión, división por cero o conflicto entre pasos revierte el lote completo.
 
@@ -728,6 +730,7 @@ Al actualizarlo:
 | 2026-08-30 | La normalización lazy de correo, teléfono y dirección puede preceder a la agrupación; el preflight valida claves y agregaciones sobre los valores ya normalizados y conserva los conteos de celdas modificadas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | Las extracciones textuales lazy pueden preceder a la agrupación; tokens, runs y delimitadores literales se validan en la proyección posterior y sus columnas derivadas pueden ser claves o fuentes de agregación sin perder nulos ni orden. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | Las columnas calculadas numéricas y concatenadas pueden preceder a la agrupación; el preflight valida la proyección posterior al cálculo y conserva tipos, nulos, orden y conteos de agregación. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-08-30 | Las columnas derivadas por split y merge pueden preceder a la agrupación; el preflight valida la proyección posterior a las etapas estructurales y conserva nulos, orden y conteos de columnas descartadas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La extracción calculada de año, mes y día usa las funciones temporales del plan streaming para `Date` y `Datetime` sin zona horaria cuando no hay filtros; el preflight conserva el rechazo de fechas fuera de rango y deja fallback eager para zonas horarias o filtros. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-26 | Parquet se incorpora al mismo camino de lectura streaming mediante `scan_parquet`, con `parallel: None`, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-26 | CSV, TSV y TXT delimitado usan `LazyCsvReader` con el motor streaming de Polars, baja memoria y `rechunk` desactivado. La carga sigue publicando un `DataFrame` activo para mantener compatibilidad con el perfilado, las transformaciones y el historial actuales. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |

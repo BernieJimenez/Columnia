@@ -435,7 +435,9 @@ validaciones o materialización completa conservan el camino eager explícito;
 la extracción de año, mes y día usa la ruta lazy para `Date` y `Datetime` sin
 zona horaria cuando no hay filtros previos, y mantiene fallback eager en los
 demás casos. Las columnas calculadas numéricas y concatenadas también pueden
-alimentar claves y fuentes de agregación de resúmenes.
+alimentar claves y fuentes de agregación de resúmenes; las columnas derivadas por
+`split` y `merge` también pueden usarse como claves o fuentes de agregación,
+validando el esquema después de las etapas estructurales.
 
 La receta también admite hasta tres **filtros AND** y una **columna calculada**.
 Como los filtros pueden eliminar filas, Columnia muestra una confirmación antes

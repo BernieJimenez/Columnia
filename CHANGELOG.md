@@ -132,6 +132,10 @@ los artefactos de validación locales.
 - Las columnas calculadas numéricas y concatenadas también pueden alimentar
   claves y fuentes de agregación de resúmenes dentro del plan lazy/streaming;
   se conservan tipos, nulos, orden estable y validaciones previas.
+- Las columnas derivadas por `split` y `merge` también pueden alimentar claves y
+  fuentes de agregación de resúmenes dentro del plan lazy/streaming; el preflight
+  valida la proyección posterior a las etapas estructurales y conserva nulos,
+  orden estable y conteos de columnas descartadas.
 - Las columnas calculadas de suma, resta, multiplicación, división, concatenación
   y extracción de año, mes o día sobre fechas sin zona horaria también pueden
   ejecutarse dentro del plan lazy/streaming; los operandos y rangos se validan

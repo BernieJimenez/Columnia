@@ -18351,6 +18351,12 @@ fn apply_lazy_recipe_to_frame(
         if let Some(calculation) = &recipe.calculated_column {
             derived_names.insert(calculation.name.as_str());
         }
+        if let Some(split) = &recipe.split_column {
+            derived_names.extend(split.names.iter().map(String::as_str));
+        }
+        if let Some(merge) = &recipe.merge_columns {
+            derived_names.insert(merge.name.as_str());
+        }
         for name in summary.group_by.iter().chain(
             summary
                 .aggregations
@@ -18386,13 +18392,15 @@ fn apply_lazy_recipe_to_frame(
             && recipe.contact_normalizations.is_empty()
             && recipe.text_extractions.is_empty()
             && recipe.calculated_column.is_none()
+            && recipe.split_column.is_none()
+            && recipe.merge_columns.is_none()
         {
             None
         } else {
             Some(collect_lazy_frame_streaming(
                 plan.clone()
                     .select(summary_names.iter().map(col).collect::<Vec<_>>()),
-                "No se pudo validar el resumen después de los filtros/contactos",
+                "No se pudo validar el resumen después de las etapas previas",
             )?)
         };
         let (groups, aggregations) = validate_lazy_group_summary(
@@ -18572,6 +18580,12 @@ fn apply_eager_recipe_to_frame(
             .collect::<HashSet<_>>();
         if let Some(calculation) = &recipe.calculated_column {
             derived_names.insert(calculation.name.as_str());
+        }
+        if let Some(split) = &recipe.split_column {
+            derived_names.extend(split.names.iter().map(String::as_str));
+        }
+        if let Some(merge) = &recipe.merge_columns {
+            derived_names.insert(merge.name.as_str());
         }
         for name in &summary.group_by {
             if !derived_names.contains(name.as_str()) {
@@ -23931,6 +23945,120 @@ mod tests {
             (text_outcome.5, text_outcome.15, text_outcome.17),
             (1, 4, 0)
         );
+    }
+
+    #[test]
+    fn lazy_group_summary_uses_split_and_merge_columns_before_grouping() {
+        let split_frame = DataFrame::new(
+            5,
+            vec![
+                Series::new(
+                    "location".into(),
+                    [
+                        Some("north|A"),
+                        Some("north|B"),
+                        Some("south|A"),
+                        None,
+                        Some("south|B"),
+                    ],
+                )
+                .into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4, 5]).into_column(),
+            ],
+        )
+        .unwrap();
+        let split_recipe = TransformRecipe {
+            split_column: Some(SplitColumnRecipe {
+                source: "location".into(),
+                delimiter: "|".into(),
+                names: vec!["region".into(), "branch".into()],
+                drop_source: true,
+            }),
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["region".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&split_frame, &split_recipe));
+        let split_outcome = apply_recipe_to_frame(&split_frame, &split_recipe).unwrap();
+        assert_eq!(
+            (
+                split_outcome.9,
+                split_outcome.11,
+                split_outcome.15,
+                split_outcome.16,
+                split_outcome.17
+            ),
+            (2, 1, 3, 1, 2)
+        );
+        let split_rows = dataset_page(&split_outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(split_rows[0][0].as_deref(), Some("north"));
+        assert_eq!(split_rows[0][1].as_deref(), Some("3"));
+        assert_eq!(split_rows[1][0].as_deref(), Some("south"));
+        assert_eq!(split_rows[1][1].as_deref(), Some("8"));
+        assert_eq!(split_rows[2][0], None);
+        assert_eq!(split_rows[2][1].as_deref(), Some("4"));
+
+        let eager_outcome = apply_eager_recipe_to_frame(&split_frame, &split_recipe).unwrap();
+        assert_eq!(
+            (
+                eager_outcome.9,
+                eager_outcome.11,
+                eager_outcome.15,
+                eager_outcome.16,
+                eager_outcome.17
+            ),
+            (2, 1, 3, 1, 2)
+        );
+
+        let merge_frame = DataFrame::new(
+            4,
+            vec![
+                Series::new("first".into(), [Some("A"), Some("A"), None, None]).into_column(),
+                Series::new("last".into(), [Some("x"), Some("x"), Some("z"), None]).into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4]).into_column(),
+            ],
+        )
+        .unwrap();
+        let merge_recipe = TransformRecipe {
+            merge_columns: Some(MergeColumnsRecipe {
+                sources: vec!["first".into(), "last".into()],
+                name: "full_name".into(),
+                separator: " ".into(),
+                drop_sources: true,
+            }),
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["full_name".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&merge_frame, &merge_recipe));
+        let merge_outcome = apply_recipe_to_frame(&merge_frame, &merge_recipe).unwrap();
+        assert_eq!(
+            (
+                merge_outcome.10,
+                merge_outcome.11,
+                merge_outcome.15,
+                merge_outcome.16,
+                merge_outcome.17
+            ),
+            (1, 2, 3, 1, 1)
+        );
+        let merge_rows = dataset_page(&merge_outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(merge_rows[0][0].as_deref(), Some("A x"));
+        assert_eq!(merge_rows[0][1].as_deref(), Some("3"));
+        assert_eq!(merge_rows[1][0].as_deref(), Some("z"));
+        assert_eq!(merge_rows[1][1].as_deref(), Some("3"));
+        assert_eq!(merge_rows[2][0], None);
+        assert_eq!(merge_rows[2][1].as_deref(), Some("4"));
     }
 
     #[test]
