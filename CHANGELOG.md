@@ -79,6 +79,11 @@ los artefactos de validación locales.
   análisis —estado muestreado y conteos de filas— cuando están disponibles, sin
   copiar filas, valores ni resultados originales; el informe los muestra como
   contexto de compatibilidad.
+- La ruta lazy de recetas compatibles y los lectores CSV/TSV/TXT delimitados y
+  Parquet comparten una colección Polars con el motor `streaming`; así las
+  operaciones de carga y transformación compatibles no vuelven a una
+  colección eager silenciosa, mientras las recetas no compatibles conservan su
+  fallback eager explícito.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de

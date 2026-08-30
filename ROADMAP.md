@@ -1314,7 +1314,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   privacidad equivalentes.
 - [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
   Parquet cacheado, chunks, comparación/joins grandes, historial degradado y
-  presupuestos explícitos sin materialización silenciosa.
+  presupuestos explícitos sin materialización silenciosa. La carga de CSV/TSV/TXT,
+  Parquet y la primera familia de recetas compatibles ya comparten colección
+  Polars con motor `streaming`; el dataset activo sigue materializado para
+  conservar la compatibilidad de transformaciones, perfil e historial.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -1803,6 +1806,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-26 | Paralelizar el perfilado por columna con una cola acotada de hasta cuatro trabajadores, mantener el orden de resultados y publicar progreso ponderado por sub-etapa para datasets grandes | Implementada en `src-tauri/src/dataset.rs`; la lectura lazy/incremental completa sigue en cola |
 | 2026-08-26 | Usar `LazyCsvReader` con motor streaming, baja memoria y `rechunk` desactivado para CSV, TSV y TXT delimitado; se conserva un `DataFrame` activo para mantener la compatibilidad actual | Implementada; extender el mismo límite a Parquet cacheado, joins, comparación e historial sigue en cola |
 | 2026-08-26 | Extender la lectura streaming a Parquet mediante `scan_parquet`, conservando `parallel: None`, baja memoria y `rechunk` desactivado para evitar picos innecesarios | Implementada en la carga inicial; cacheado, joins, comparación e historial incremental siguen en cola |
+| 2026-08-29 | Centralizar la colección Polars de lectores delimitados, Parquet y recetas lazy compatibles en el motor `streaming`, manteniendo fallback eager solo para operaciones no compatibles | Implementada como primera expansión de operaciones; el `DataFrame` activo, cacheado Parquet, joins/comparación e historial incremental siguen en cola |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

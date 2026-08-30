@@ -6602,23 +6602,28 @@ fn detect_delimiter(path: &Path, extension: &str) -> Result<u8, String> {
     }
 }
 
+fn collect_lazy_frame_streaming(plan: LazyFrame, context: &str) -> Result<DataFrame, String> {
+    plan.collect_with_engine(Engine::Streaming)
+        .map(|result| result.unwrap_single())
+        .map_err(|error| format!("{context}: {error}"))
+}
+
 fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
     let separator = detect_delimiter(path, extension)?;
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector delimitado: {error}"))?;
-    LazyCsvReader::new(source)
+    let plan = LazyCsvReader::new(source)
         .with_has_header(true)
         .with_infer_schema_length(Some(0))
         .with_low_memory(true)
         .with_rechunk(false)
         .with_separator(separator)
         .finish()
-        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?
-        .collect_with_engine(Engine::Streaming)
-        .map(|result| result.unwrap_single())
-        .map_err(|error| {
-            format!("No se pudo interpretar el archivo delimitado como UTF-8: {error}")
-        })
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?;
+    collect_lazy_frame_streaming(
+        plan,
+        "No se pudo interpretar el archivo delimitado como UTF-8",
+    )
 }
 
 fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
@@ -6630,11 +6635,9 @@ fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
         rechunk: false,
         ..Default::default()
     };
-    LazyFrame::scan_parquet(source, options)
-        .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?
-        .collect_with_engine(Engine::Streaming)
-        .map(|result| result.unwrap_single())
-        .map_err(|error| format!("No se pudo interpretar el Parquet: {error}"))
+    let plan = LazyFrame::scan_parquet(source, options)
+        .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
+    collect_lazy_frame_streaming(plan, "No se pudo interpretar el Parquet")
 }
 
 #[cfg(test)]
@@ -17355,9 +17358,7 @@ fn apply_lazy_recipe_to_frame(
         0
     };
 
-    let candidate = plan
-        .collect()
-        .map_err(|error| format!("No se pudo ejecutar la receta lazy: {error}"))?;
+    let candidate = collect_lazy_frame_streaming(plan, "No se pudo ejecutar la receta lazy")?;
     let removed_row_count = source.height().saturating_sub(candidate.height());
     Ok((
         candidate,

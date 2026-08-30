@@ -422,7 +422,10 @@ son estrictas —un valor inválido cancela el lote completo—, los nulos se pr
 y un resultado correcto ocupa una única revisión de Deshacer/Rehacer. El borrador
 puede guardarse y cargarse como una receta JSON v1 mediante selectores nativos;
 la ruta nunca llega a React y una receta cargada no se aplica automáticamente.
-La ejecución sigue siendo inmediata y no lazy.
+Las recetas compatibles con renombres, conversiones, filtros y columnas
+calculadas se ejecutan mediante un plan Polars lazy con el motor streaming;
+las operaciones que necesitan validaciones o materialización completa conservan
+el camino eager explícito.
 
 La receta también admite hasta tres **filtros AND** y una **columna calculada**.
 Como los filtros pueden eliminar filas, Columnia muestra una confirmación antes
