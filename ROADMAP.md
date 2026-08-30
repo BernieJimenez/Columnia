@@ -1202,24 +1202,18 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Convertir como números las columnas de texto con más de 90% de coincidencia
   numérica, rechazando pérdida de precisión y preservando identificadores o
   códigos con ceros iniciales mediante una acción directa reversible.
-- [ ] Completar la migración del catálogo de limpieza sugerida: las reglas
-  avanzadas que aún no tengan una acción reversible. Los identificadores y el
-  PII personal (correo, teléfono, dirección y nombre) ya tienen acciones de
-  retiro y protección explícitas y confirmadas. La
-  eliminación difusa ya tiene una primera acción implementada: confirma el
-  impacto agregado, conserva la primera fila/orden y las copias exactas, y
-  permite deshacer; siguen pendientes las reglas avanzadas que aún no tengan una
-  acción reversible. El fallback de sesiones también reproduce
-  `drop_fuzzy_duplicates` hasta 5.000 filas con el fingerprint normalizado local;
-  por encima de ese límite conserva el guard de rendimiento de DataPrep.
-   También están cubiertos como señal vacíos, constantes,
-   alta nulidad, centinelas, imputación conservadora, booleanos, fechas con
-   formato dominante cerrado y auditoría
-   `_cambios`. El fallback de sesiones ya reproduce además las tres estrategias
-   IQR (`cap_outliers`, `impute_outliers`, `drop_outliers`) cuando la secuencia
-   incluye `cast_numeric`; las estrategias IQR se validan como mutuamente
-   excluyentes antes del replay; la acción directa de Limpieza ofrece ahora
-   capear y eliminar outliers con confirmación y reversión desde el historial.
+ - [x] Completar la migración del catálogo de limpieza sugerida: las 22
+   operaciones registradas por DataPrep tienen acción directa reversible o replay
+   determinista seguro en Columnia. Los identificadores y el PII personal
+   (correo, teléfono, dirección y nombre) tienen retiro/protección explícitos;
+   la eliminación difusa confirma el impacto, conserva la primera fila/orden y
+   las copias exactas, y mantiene el límite de 5.000 filas de DataPrep. También
+   están cubiertos vacíos, constantes, alta nulidad, centinelas, imputación
+   conservadora, booleanos, fechas con formato dominante cerrado, auditoría
+   `_cambios` y las tres estrategias IQR (`cap_outliers`, `impute_outliers`,
+   `drop_outliers`), que se validan como mutuamente excluyentes. Las operaciones
+   desconocidas o modos hash/clave explícita de PII siguen siendo advertencias
+   específicas y no se aproximan silenciosamente.
 - [x] Migrar `selected_cleaning_operations` para que los aliases de las limpiezas
   deterministas se normalicen, se conserven en el informe de sesión y se
   reproduzcan desde la fuente en el orden fijo, incluyendo las estrategias IQR
@@ -1931,6 +1925,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 amplía las recetas IQR lazy/streaming para convivir con `keep_columns` cuando se conservan todas las columnas tratadas; si una proyección elimina una dependencia, se mantiene el fallback eager y el rechazo explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1 corrige la migración de pipelines DataPrep persistidos: el campo real `selected` ahora se reconoce junto a sus aliases de sesión, normaliza las operaciones deterministas y conserva la selección al importar la receta. | `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-30 | M1 completa el mapeo de pipelines al catálogo mediante `project-save --recipe`: valida el `--input`, reproduce las limpiezas deterministas seleccionadas y aplica la receta estructural antes de publicar el snapshot; una regresión verifica el proyecto reabierto. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `ROADMAP.md` |
+| 2026-08-30 | P1/M1 cierra el catálogo de limpieza sugerida: las 22 operaciones de `dataprepv1.1` comparten una lista canónica con el replay de sesiones, y una prueba evita que una operación registrada quede sin mapping migrable. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

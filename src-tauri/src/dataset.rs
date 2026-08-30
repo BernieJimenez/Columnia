@@ -8660,6 +8660,31 @@ fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
     }
 }
 
+const DATAPREP_CLEANING_OPERATIONS: [&str; 22] = [
+    "drop_duplicates",
+    "drop_high_null_cols",
+    "drop_id_cols",
+    "drop_empty_cols",
+    "drop_constant_cols",
+    "drop_empty_rows",
+    "normalize_sentinels",
+    "impute_numeric",
+    "impute_categorical",
+    "parse_dates",
+    "trim_text",
+    "normalize_text",
+    "fix_encoding",
+    "cast_numeric",
+    "cap_outliers",
+    "impute_outliers",
+    "drop_outliers",
+    "normalize_booleans",
+    "mask_pii",
+    "drop_fuzzy_duplicates",
+    "normalize_columns",
+    "add_cambios_col",
+];
+
 fn migration_metadata_name(value: &JsonValue) -> Option<String> {
     let candidate = value.as_str().or_else(|| {
         value.as_object().and_then(|map| {
@@ -21800,30 +21825,7 @@ impl DatasetState {
         // DataPrep ejecuta el registro de limpieza en un orden fijo. Mantener
         // ese orden evita que el orden accidental del manifiesto cambie el
         // resultado cuando una sesión enumera varias operaciones.
-        let operations = [
-            "drop_duplicates",
-            "drop_high_null_cols",
-            "drop_id_cols",
-            "drop_empty_cols",
-            "drop_constant_cols",
-            "drop_empty_rows",
-            "normalize_sentinels",
-            "impute_numeric",
-            "impute_categorical",
-            "parse_dates",
-            "trim_text",
-            "normalize_text",
-            "fix_encoding",
-            "cast_numeric",
-            "cap_outliers",
-            "impute_outliers",
-            "drop_outliers",
-            "normalize_booleans",
-            "mask_pii",
-            "drop_fuzzy_duplicates",
-            "normalize_columns",
-            "add_cambios_col",
-        ];
+        let operations = DATAPREP_CLEANING_OPERATIONS;
         let operation_count = operations.len();
         for (operation_index, operation) in operations.into_iter().enumerate() {
             ensure_not_cancelled(is_cancelled())?;
@@ -22577,6 +22579,18 @@ mod tests {
             .iter()
             .any(|value| value == "selected_cleaning_operations.drop_duplicates"));
         assert_eq!(json["migrationReport"]["omittedItems"], 0);
+    }
+
+    #[test]
+    fn dataprep_cleaning_registry_has_a_migration_mapping_for_every_operation() {
+        assert_eq!(DATAPREP_CLEANING_OPERATIONS.len(), 22);
+        for operation in DATAPREP_CLEANING_OPERATIONS {
+            assert_eq!(
+                migration_cleaning_operation(operation),
+                Some(operation),
+                "la operación registrada debe tener un alias canónico: {operation}"
+            );
+        }
     }
 
     #[test]

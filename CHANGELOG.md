@@ -15,6 +15,9 @@ los artefactos de validación locales.
 - `project-save --recipe` reproduce ahora las limpiezas deterministas
   seleccionadas en un pipeline DataPrep antes de aplicar su receta estructural,
   validando el resultado completo antes de publicar el snapshot del proyecto.
+- El catálogo de limpieza sugerida queda alineado con las 22 operaciones
+  registradas por `dataprepv1.1`; la lista canónica comparte el orden del replay
+  de sesiones y una regresión evita que futuras operaciones queden sin mapping.
 - La importación de sesiones DataPrep reconoce también el campo real `filename`
   como referencia local reproducible cuando el manifiesto no incluye
   `source_path`, incluyendo su validación nativa y el nombre seguro del dataset.
