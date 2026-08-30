@@ -17054,6 +17054,7 @@ type RecipeFrameOutcome = (
 type LazySummaryAggregation = (String, String, SummaryOperation);
 type LazySummaryPlan = (Vec<String>, Vec<LazySummaryAggregation>);
 type LazyContactTarget = (String, ContactKind);
+type LazyTextExtractionTarget = (String, ExtractionKind, Option<String>);
 
 fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
@@ -17064,7 +17065,7 @@ fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
             .as_ref()
             .is_none_or(|_| recipe.filters.is_empty() && recipe.find_replace.is_none())
         && (recipe.contact_normalizations.is_empty() || recipe.group_summary.is_none())
-        && recipe.text_extractions.is_empty()
+        && (recipe.text_extractions.is_empty() || recipe.group_summary.is_none())
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
             matches!(
                 calculation.operation,
@@ -17355,6 +17356,92 @@ fn lazy_contact_expression(name: &str, kind: ContactKind) -> Expr {
             .str()
             .strip_chars(lit(NULL)),
     }
+}
+
+fn lazy_text_extraction_targets(
+    source: &DataFrame,
+    extractions: &[TextExtraction],
+    renames: &HashMap<&str, &str>,
+    casts: &[RecipeCast],
+) -> Result<Vec<LazyTextExtractionTarget>, String> {
+    if extractions.len() > 16 {
+        return Err("La receta admite como máximo 16 extracciones de texto.".into());
+    }
+    let mut names = HashSet::new();
+    extractions
+        .iter()
+        .map(|extraction| {
+            if extraction.name.trim().is_empty() || extraction.name != extraction.name.trim() {
+                return Err(
+                    "El nombre extraído no puede estar vacío ni tener espacios exteriores.".into(),
+                );
+            }
+            if !names.insert(extraction.name.as_str()) {
+                return Err(format!(
+                    "La columna extraída '{}' está duplicada.",
+                    extraction.name
+                ));
+            }
+            let delimiter_based = matches!(
+                extraction.kind,
+                ExtractionKind::Before | ExtractionKind::After
+            );
+            if delimiter_based != extraction.delimiter.is_some() {
+                return Err(format!(
+                    "La extracción '{}' {} delimitador.",
+                    extraction.name,
+                    if delimiter_based {
+                        "requiere"
+                    } else {
+                        "no acepta"
+                    }
+                ));
+            }
+            if extraction.delimiter.as_deref().is_some_and(str::is_empty) {
+                return Err("El delimitador de extracción no puede estar vacío.".into());
+            }
+            let effective_source = remapped_name(&extraction.source, renames).to_owned();
+            let source_column = lazy_summary_column(source, &extraction.source, renames, casts)?;
+            if source_column.dtype() != &DataType::String {
+                return Err(format!(
+                    "La columna '{effective_source}' debe ser de texto para extraerse."
+                ));
+            }
+            Ok((
+                effective_source,
+                extraction.kind,
+                extraction.delimiter.clone(),
+            ))
+        })
+        .collect()
+}
+
+fn lazy_text_extraction_expression(
+    name: &str,
+    kind: ExtractionKind,
+    delimiter: Option<&str>,
+) -> Result<Expr, String> {
+    let pattern = match kind {
+        ExtractionKind::FirstToken => r"(?u)^\s*(\S+)".to_owned(),
+        ExtractionKind::LastToken => r"(?u)(\S+)\s*$".to_owned(),
+        ExtractionKind::Digits => r"([0-9]+)".to_owned(),
+        ExtractionKind::Letters => r"(?u)(\p{Alphabetic}+)".to_owned(),
+        ExtractionKind::Before => format!(
+            r"(?us)^(.*?){}",
+            regex::escape(delimiter.ok_or_else(|| {
+                "La extracción antes del delimitador requiere delimitador.".to_owned()
+            })?)
+        ),
+        ExtractionKind::After => format!(
+            r"(?us)^.*?{}(.*)$",
+            regex::escape(delimiter.ok_or_else(|| {
+                "La extracción después del delimitador requiere delimitador.".to_owned()
+            })?)
+        ),
+    };
+    Regex::new(&pattern)
+        .map_err(|error| format!("No se pudo preparar la extracción de texto: {error}"))?;
+    Ok(col(name).str().extract(lit(pattern), 1))
 }
 
 fn lazy_summary_group_key(
@@ -18035,6 +18122,43 @@ fn apply_lazy_recipe_to_frame(
         (changed_cells, targets.len())
     };
 
+    let extracted_column_count = if recipe.text_extractions.is_empty() {
+        0
+    } else {
+        let schema = plan.collect_schema().map_err(|error| {
+            format!("No se pudo validar el esquema de extracción de texto: {error}")
+        })?;
+        let targets = lazy_text_extraction_targets(
+            source,
+            &recipe.text_extractions,
+            &rename_map,
+            &recipe.casts,
+        )?;
+        for ((source_name, _, _), extraction) in targets.iter().zip(&recipe.text_extractions) {
+            if schema.get(source_name).is_none() {
+                return Err(format!(
+                    "La columna '{source_name}' para extracción no sobrevivió las etapas estructurales."
+                ));
+            }
+            if schema.get(&extraction.name).is_some() {
+                return Err(format!(
+                    "La columna extraída '{}' ya existe.",
+                    extraction.name
+                ));
+            }
+        }
+        let expressions = targets
+            .iter()
+            .zip(&recipe.text_extractions)
+            .map(|((source_name, kind, delimiter), extraction)| {
+                lazy_text_extraction_expression(source_name, *kind, delimiter.as_deref())
+                    .map(|expression| expression.alias(&extraction.name))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        plan = plan.with_columns(expressions);
+        targets.len()
+    };
+
     let (group_summary_input_rows, summary_aggregations) = if let Some(summary) =
         &recipe.group_summary
     {
@@ -18136,7 +18260,7 @@ fn apply_lazy_recipe_to_frame(
         collapsed_row_count,
         normalized_contact_cell_count,
         normalized_contact_column_count,
-        0,
+        extracted_column_count,
     ))
 }
 
@@ -23336,6 +23460,75 @@ mod tests {
         assert_eq!(rows[0][2].as_deref(), Some("Calle Uno Norte"));
         assert_eq!(rows[1][2].as_deref(), Some("ok"));
         assert_eq!(rows[1][0], None);
+    }
+
+    #[test]
+    fn lazy_text_extraction_preserves_unicode_tokens_runs_and_missing_matches() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("text".into(), [Some("  José Pérez 123🙂resto"), None]).into_column(),
+                Series::new("arabic".into(), [Some("١٢ abc 45"), None]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            text_extractions: vec![
+                TextExtraction {
+                    source: "text".into(),
+                    kind: ExtractionKind::FirstToken,
+                    name: "first".into(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "text".into(),
+                    kind: ExtractionKind::LastToken,
+                    name: "last".into(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "text".into(),
+                    kind: ExtractionKind::Letters,
+                    name: "letters".into(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "arabic".into(),
+                    kind: ExtractionKind::Digits,
+                    name: "digits".into(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "text".into(),
+                    kind: ExtractionKind::Before,
+                    name: "before".into(),
+                    delimiter: Some("🙂".into()),
+                },
+                TextExtraction {
+                    source: "text".into(),
+                    kind: ExtractionKind::After,
+                    name: "after".into(),
+                    delimiter: Some("🙂".into()),
+                },
+                TextExtraction {
+                    source: "text".into(),
+                    kind: ExtractionKind::Before,
+                    name: "missing".into(),
+                    delimiter: Some("NO".into()),
+                },
+            ],
+            ..Default::default()
+        };
+        let (result, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, extracted) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(extracted, 7);
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][2].as_deref(), Some("José"));
+        assert_eq!(rows[0][4].as_deref(), Some("José"));
+        assert_eq!(rows[0][5].as_deref(), Some("45"));
+        assert_eq!(rows[0][7].as_deref(), Some("resto"));
+        assert_eq!(rows[0][8], None);
+        assert_eq!(rows[1][8], None);
     }
 
     #[test]

@@ -1338,6 +1338,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   historial. Las normalizaciones de contactos también pueden ejecutarse en el
   plan streaming, conservando nulos y espacios Unicode junto con conteos exactos; su combinación
   con agrupación mantiene fallback eager hasta cerrar esa dependencia de orden.
+  Las extracciones textuales de tokens, runs Unicode y delimitadores literales
+  también se ejecutan en streaming, conservando nulos y coincidencias ausentes.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -1836,7 +1838,8 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | Incorporar unión de columnas de texto a la familia lazy mediante `concat_str`, preservando orden, nulos y casts numérico→texto validados | Implementada como octava expansión; la entrada y el candidato activo siguen siendo `DataFrame` y `split_columns`/operaciones avanzadas continúan en cola |
 | 2026-08-29 | Incorporar división literal de texto a la familia lazy mediante `splitn`, conservando el resto, nulos, validaciones y descarte de la fuente | Implementada como novena expansión; la entrada y el candidato activo siguen siendo `DataFrame` y las operaciones avanzadas continúan en cola |
 | 2026-08-29 | Incorporar agrupación y resúmenes tipados al plan lazy con orden estable, claves nulas, conteo de filas, `count_unique` y preflight de finitos, precisión y desbordamiento | Implementada como décima expansión; filtros/búsqueda previos, la entrada y el candidato activo siguen limitando la ejecución fuera de memoria |
-| 2026-08-29 | Incorporar normalización lazy de contactos para correo, teléfono y dirección, preservando nulos Unicode y conteos exactos de celdas modificadas | Implementada como undécima expansión; la combinación con agrupación y la entrada/candidato materializados siguen en cola |
+| 2026-08-29 | Incorporar normalización lazy de contactos para correo, teléfono y dirección, preservando nulos, espacios Unicode y conteos exactos de celdas modificadas | Implementada como undécima expansión; la combinación con agrupación y la entrada/candidato materializados siguen en cola |
+| 2026-08-29 | Incorporar extracción lazy de tokens, runs Unicode y segmentos antes/después de delimitadores literales, preservando nulos y coincidencias ausentes | Implementada como duodécima expansión; agrupación con extracciones y la entrada/candidato materializados siguen en cola |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

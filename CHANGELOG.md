@@ -123,6 +123,9 @@ los artefactos de validación locales.
   correo, teléfono y dirección conservan nulos, espacios Unicode, prefijos y
   conteos exactos de celdas modificadas; las recetas que además resumen grupos
   mantienen fallback eager hasta cubrir esa dependencia de orden.
+- Las extracciones textuales también pueden ejecutarse dentro del plan
+  lazy/streaming: tokens, runs Unicode y búsquedas antes/después de delimitadores
+  literales preservan nulos, coincidencias ausentes y el límite de 16 columnas.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
