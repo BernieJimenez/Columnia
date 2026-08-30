@@ -39,6 +39,10 @@ los artefactos de validación locales.
 - Los tratamientos IQR aislados de recetas (`cap`, `impute` y `drop`) ahora
   pueden ejecutarse en lazy/streaming con conteos exactos de celdas y filas;
   las recetas que alteran datos antes del cálculo conservan fallback eager.
+- Las recetas lazy pueden combinar parseos de fecha con conversiones en columnas
+  distintas, y también dividir y combinar columnas en la misma ejecución; las
+  dependencias incompatibles, como descartar antes una fuente que aún necesita
+  un `merge`, conservan el fallback o rechazo explícito.
 - La migración M1 de sesiones DataPrep restaura un historial explícito de hasta
   doce snapshots Parquet locales mediante el contrato versionado
   `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de

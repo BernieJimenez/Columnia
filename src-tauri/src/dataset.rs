@@ -18973,28 +18973,50 @@ type LazySummaryPlan = (Vec<String>, Vec<LazySummaryAggregation>);
 type LazyContactTarget = (String, ContactKind);
 type LazyTextExtractionTarget = (String, ExtractionKind, Option<String>);
 
-fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
-    recipe
-        .date_parses
-        .iter()
-        .all(|parse| match recipe_column(source, &parse.column) {
-            Ok(column)
-                if matches!(
-                    parse.format,
-                    RecipeDateFormat::Ymd | RecipeDateFormat::Dmy | RecipeDateFormat::Mdy
-                ) =>
-            {
-                matches!(column.dtype(), DataType::String)
-                    || matches!(
-                        (column.dtype(), parse.target),
-                        (DataType::Date, RecipeDateTarget::Date)
-                            | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
-                    )
+fn lazy_renames_have_no_cycles(recipe: &TransformRecipe) -> bool {
+    recipe.renames.iter().all(|rename| {
+        let mut current = rename.from.as_str();
+        let mut visited = HashSet::new();
+        while let Some(next) = recipe
+            .renames
+            .iter()
+            .find(|candidate| candidate.from == current)
+            .map(|candidate| candidate.to.as_str())
+        {
+            if !visited.insert(current) {
+                return false;
             }
-            _ => false,
-        })
-        && (recipe.date_parses.is_empty() || recipe.casts.is_empty())
-        && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
+            current = next;
+        }
+        true
+    })
+}
+
+fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
+    lazy_renames_have_no_cycles(recipe)
+        && recipe
+            .date_parses
+            .iter()
+            .all(|parse| match recipe_column(source, &parse.column) {
+                Ok(column)
+                    if matches!(
+                        parse.format,
+                        RecipeDateFormat::Ymd | RecipeDateFormat::Dmy | RecipeDateFormat::Mdy
+                    ) =>
+                {
+                    matches!(column.dtype(), DataType::String)
+                        || matches!(
+                            (column.dtype(), parse.target),
+                            (DataType::Date, RecipeDateTarget::Date)
+                                | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
+                        )
+                }
+                _ => false,
+            })
+        && !recipe
+            .date_parses
+            .iter()
+            .any(|parse| recipe.casts.iter().any(|cast| cast.column == parse.column))
         && (recipe.outlier_treatments.is_empty()
             || (recipe.casts.is_empty()
                 && recipe.date_parses.is_empty()
@@ -20118,6 +20140,18 @@ fn apply_lazy_recipe_to_frame(
         };
         if let Some(calculation) = &recipe.calculated_column {
             output_names.push(calculation.name.clone());
+        }
+        if let Some(split) = &recipe.split_column {
+            let split_source = remapped_name(&split.source, &rename_map);
+            if split.drop_source && merge.sources.contains(&split.source) {
+                return Err(format!(
+                    "La unión necesita '{split_source}', pero la división la descartaría."
+                ));
+            }
+            if split.drop_source {
+                output_names.retain(|name| name != split_source);
+            }
+            output_names.extend(split.names.iter().cloned());
         }
         if output_names.iter().any(|name| name == &merge.name) {
             return Err(format!("La columna unida '{}' ya existe.", merge.name));
@@ -26088,6 +26122,42 @@ mod tests {
     }
 
     #[test]
+    fn lazy_recipe_combines_date_parsing_and_casts_on_separate_columns() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("when".into(), [Some("31/12/2025"), Some("01/01/2026")]).into_column(),
+                Series::new("amount".into(), [Some("5"), Some("12")]).into_column(),
+            ],
+        )
+        .expect("el frame mixto debe ser válido");
+        let recipe = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "amount".into(),
+                target: RecipeCastTarget::Decimal,
+            }],
+            date_parses: vec![RecipeDateParse {
+                column: "when".into(),
+                format: RecipeDateFormat::Dmy,
+                target: RecipeDateTarget::Date,
+            }],
+            ..Default::default()
+        };
+
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe)
+            .expect("las etapas independientes deben compartir el plan lazy");
+
+        assert_eq!(outcome.2, 1);
+        assert_eq!(outcome.3, 1);
+        assert_eq!(outcome.0.column("when").unwrap().dtype(), &DataType::Date);
+        assert_eq!(
+            outcome.0.column("amount").unwrap().dtype(),
+            &DataType::Float64
+        );
+    }
+
+    #[test]
     fn lazy_recipe_applies_isolated_outlier_treatments_with_exact_counts() {
         let frame = DataFrame::new(
             6,
@@ -26148,6 +26218,41 @@ mod tests {
             dropped.0.column("value").unwrap().get(4),
             Ok(AnyValue::Null)
         ));
+    }
+
+    #[test]
+    fn lazy_recipe_combines_split_and_merge_columns() {
+        let frame = df![
+            "full_name" => ["Ada Lovelace", "Grace Hopper"],
+            "team" => ["Math", "Navy"]
+        ]
+        .expect("el frame de texto debe ser válido");
+        let recipe = TransformRecipe {
+            split_column: Some(SplitColumnRecipe {
+                source: "full_name".into(),
+                delimiter: " ".into(),
+                names: vec!["first".into(), "last".into()],
+                drop_source: false,
+            }),
+            merge_columns: Some(MergeColumnsRecipe {
+                sources: vec!["full_name".into(), "team".into()],
+                name: "label".into(),
+                separator: " — ".into(),
+                drop_sources: false,
+            }),
+            ..Default::default()
+        };
+
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe)
+            .expect("split y merge deben compartir el plan lazy");
+
+        assert_eq!(outcome.9, 2);
+        assert_eq!(outcome.10, 1);
+        let page = dataset_page(&outcome.0, 0, 10).expect("la página debe ser válida");
+        assert_eq!(page.rows[0][2].as_deref(), Some("Ada"));
+        assert_eq!(page.rows[0][3].as_deref(), Some("Lovelace"));
+        assert_eq!(page.rows[0][4].as_deref(), Some("Ada Lovelace — Math"));
     }
 
     #[test]

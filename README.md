@@ -456,6 +456,9 @@ Las operaciones que necesitan
 validaciones o materialización completa conservan el camino eager explícito;
 los parseos explícitos `Ymd`, `Dmy` y `Mdy` de fechas también se ejecutan dentro
 del plan, mientras `Iso8601` y las zonas horarias mantienen fallback eager.
+Los parseos de fecha y las conversiones pueden convivir en columnas distintas
+dentro del mismo plan; una misma receta también puede dividir y combinar
+columnas, siempre que no descarte una fuente que todavía necesita otra etapa.
 Los tratamientos IQR aislados (`cap`, `impute` y `drop`) sobre columnas numéricas
 también usan este plan; si la receta altera filas o valores antes del IQR, conserva
 el fallback eager para mantener los umbrales exactos.

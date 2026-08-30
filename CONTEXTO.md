@@ -87,7 +87,7 @@ Usa esta prioridad cuando dos documentos parezcan contradecirse:
 3. `README.md` explica el producto y su uso actual.
 4. `ROADMAP.md` registra decisiones históricas, arquitectura objetivo y trabajo pendiente.
 
-No presentes como implementada una tecnología solo porque aparece en el roadmap. DuckDB ya forma parte de las dependencias de Cargo y ofrece la primera ruta opcional de consulta SQL local: reutiliza snapshots Parquet administrados de la revisión activa y de la comparación cuando existen, lee solo el esquema del snapshot comparado durante la preparación y conserva fallbacks temporales para estados degradados; el `DataFrame` activo, la ejecución incremental general y el procesamiento completo fuera de la RAM del dataset siguen pendientes.
+No presentes como implementada una tecnología solo porque aparece en el roadmap. DuckDB ya forma parte de las dependencias de Cargo y ofrece la primera ruta opcional de consulta SQL local: reutiliza snapshots Parquet administrados de la revisión activa y de la comparación cuando existen, lee solo el esquema del snapshot comparado durante la preparación y conserva fallbacks temporales para estados degradados; el `DataFrame` activo, la ejecución incremental general y el procesamiento completo fuera de la RAM del dataset siguen pendientes. Las recetas lazy también combinan parseos de fecha con conversiones en columnas distintas y `split` con `merge` cuando las dependencias se conservan; los conflictos siguen en fallback eager o rechazo explícito.
 
 ## Modelo mental del sistema
 
@@ -346,7 +346,9 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
   también pueden alimentar sus claves y fuentes de agregación; las columnas
   derivadas por split y merge también pueden alimentar la agrupación, con
   preflight posterior a las etapas estructurales; las operaciones restantes
-  usan fallback eager atómico.
+  usan fallback eager atómico. Las recetas pueden combinar parseos de fecha con
+  conversiones en columnas distintas y ejecutar split y merge juntos si ninguna
+  etapa descarta una fuente todavía necesaria.
 
 Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, pérdida de precisión, división por cero o conflicto entre pasos revierte el lote completo.
 
@@ -754,6 +756,7 @@ Al actualizarlo:
 | 2026-08-30 | P1 reduce la materialización de JOIN DuckDB: la preparación lee solo el esquema Parquet del snapshot comparado administrado y evita volver a cargar sus filas; la preparación DuckDB tampoco aplica el límite de entradas Polars, mientras el `DataFrame` activo y la ejecución completa fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-08-30 | La receta lazy/streaming incorpora parseos explícitos `Ymd`, `Dmy` y `Mdy` para objetivos `Date`/`Datetime`, con trim y nulos preservados; `Iso8601`, zonas horarias y operaciones avanzadas mantienen fallback eager. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La receta lazy/streaming incorpora tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, con conteos exactos y preservación de nulos; las etapas previas que alteran filas o valores mantienen fallback eager. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-08-30 | La receta lazy/streaming combina parseos de fecha con conversiones en columnas distintas y permite `split` junto con `merge` cuando se conservan las fuentes; dependencias incompatibles mantienen rechazo o fallback eager. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | La comparación por claves particiona el índice exacto en 256 cubetas temporales y procesa resumen, nuevas claves y conflictos por cubeta; conserva el orden de conflictos, duplicados y resultados sin retener todos los índices de ambos datasets en memoria. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La comparación completa calcula el multiconjunto de filas comunes procesando las firmas por cubetas temporales y conserva los conteos exactos sin mapas globales de firmas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |

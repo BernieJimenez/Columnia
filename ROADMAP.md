@@ -1324,6 +1324,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   cuando existen y usa snapshots temporales como fallback, conservando conteo
   exacto, paginación, orden estable, agregaciones y JOIN `INNER`/`LEFT`/`FULL`
   con claves coalescidas.
+- [x] Ampliar la familia de recetas lazy para combinar parseos de fecha y
+  conversiones en columnas distintas, y para ejecutar `split` y `merge` en una
+  misma receta cuando sus dependencias se conservan; los conflictos de fuentes
+  siguen produciendo un rechazo explícito o fallback eager seguro.
 - [ ] Completar consulta con joins y DuckDB para datasets que excedan la RAM,
   después de validar el benchmark y ampliar los límites de forma explícita. La
   ruta parcial actual prepara el contrato DuckDB desde el esquema del snapshot
@@ -1404,6 +1408,9 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   Los tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas
   numéricas también se ejecutan en streaming con conteos exactos; las recetas
   que alteran filas o valores antes del IQR mantienen fallback eager.
+  Las recetas pueden combinar parseos de fecha con conversiones en columnas
+  distintas, y `split` con `merge` cuando ninguna etapa descarta una fuente aún
+  necesaria; las dependencias incompatibles conservan rechazo o fallback eager.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -1888,6 +1895,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 reduce la materialización de JOIN DuckDB: cuando existe snapshot administrado, la preparación lee solo el esquema Parquet de la comparación y evita volver a cargar sus filas; la preparación DuckDB tampoco aplica el límite de entradas Polars, mientras el `DataFrame` activo y la ejecución completa fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras `Iso8601` y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, con conteos exactos y fallback eager cuando existen etapas previas que alteran filas o valores. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 amplía la receta lazy/streaming para combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` y `merge` en una misma receta cuando se conservan sus dependencias; los conflictos de fuentes mantienen rechazo o fallback eager explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
@@ -1949,6 +1957,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Particionar el índice exacto de comparación por claves en cubetas temporales y procesar cada cubeta de forma independiente | Implementada como vigésimo quinta expansión; la comparación de filas completas, el `DataFrame` activo y los joins fuera de memoria siguen pendientes |
 | 2026-08-30 | Particionar también las firmas completas de filas y calcular la intersección de multiconjuntos por cubeta | Implementada como vigésimo sexta expansión; el `DataFrame` activo, las operaciones eager restantes y los joins fuera de memoria siguen pendientes |
 | 2026-08-30 | Particionar el preflight de cardinalidad de JOIN y calcular duplicidades por cubeta antes de materializar el resultado | Implementada como vigésimo séptima expansión; la materialización final del JOIN, DuckDB y los joins fuera de memoria siguen pendientes |
+| 2026-08-30 | Combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` con `merge` dentro de una misma receta lazy | Implementada como vigésimo octava expansión; las dependencias que descartan una fuente necesaria conservan rechazo o fallback eager, y la entrada/candidato activo siguen materializados |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
