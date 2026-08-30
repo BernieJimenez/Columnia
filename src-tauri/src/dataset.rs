@@ -13588,15 +13588,16 @@ where
         ));
     }
     ensure_not_cancelled(is_cancelled())?;
-    let joined = current
-        .join(
-            compared,
-            current_keys.iter(),
-            compared_keys.iter(),
-            JoinArgs::new(join_type.polars_type()).with_coalesce(JoinCoalesce::CoalesceColumns),
-            None,
-        )
-        .map_err(|error| format!("No se pudieron unir los datasets por clave: {error}"))?;
+    let left_on = current_keys.iter().map(col).collect::<Vec<_>>();
+    let right_on = compared_keys.iter().map(col).collect::<Vec<_>>();
+    let mut join_args =
+        JoinArgs::new(join_type.polars_type()).with_coalesce(JoinCoalesce::CoalesceColumns);
+    join_args.maintain_order = MaintainOrderJoin::Left;
+    let plan = current
+        .clone()
+        .lazy()
+        .join(compared.clone().lazy(), left_on, right_on, join_args);
+    let joined = collect_lazy_frame_streaming(plan, "No se pudieron unir los datasets por clave")?;
     ensure_not_cancelled(is_cancelled())?;
     if joined.height() > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
         return Err(format!(

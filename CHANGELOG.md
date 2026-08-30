@@ -96,6 +96,10 @@ los artefactos de validación locales.
   conjuntos auxiliares duplicados durante el resumen de claves; conserva los
   conteos exactos, el orden estable de los conflictos y los límites actuales
   de JOIN/comparación.
+- Los JOIN locales por claves ejecutan ahora el plan de unión de Polars con el
+  motor `streaming` después del preflight de cardinalidad; se mantienen el
+  límite de entradas, el límite de resultado y la comprobación posterior antes
+  de publicar cualquier cambio.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
