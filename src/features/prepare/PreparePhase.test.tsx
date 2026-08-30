@@ -907,6 +907,9 @@ describe("TransformRecipeEditor", () => {
           appliedOperationCount: 1,
           qualityRuleCount: 2,
           analysisCheckCount: 3,
+          analysisSampled: true,
+          analysisSampleRowCount: 200,
+          analysisTotalRowCount: 1200,
         },
       },
     };
@@ -925,6 +928,8 @@ describe("TransformRecipeEditor", () => {
     expect(report).toHaveTextContent("Operaciones aplicadas");
     expect(report).toHaveTextContent("Reglas de calidad");
     expect(report).toHaveTextContent("Comprobaciones");
+    expect(report).toHaveTextContent("Muestra de análisis");
+    expect(report).toHaveTextContent("acotada · 200 filas de 1,200");
     expect(report).toHaveTextContent("Se detectaron referencias de origen o snapshot");
     expect(report).not.toHaveTextContent("Transformación");
     expect(report).not.toHaveTextContent("Datos");

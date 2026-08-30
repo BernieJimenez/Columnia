@@ -141,6 +141,11 @@ hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
 límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que
 no cumplen ese contrato se omiten, pero sus conteos originales permanecen. No
 se guardan resultados originales, celdas, cachés reanudables ni rutas resueltas.
+Si un bloque de análisis aporta solo metadatos agregados de muestreo, se pueden
+conservar el estado muestreado y los conteos de filas de muestra/total bajo
+`migrationReport.session`; se descartan sus filas, valores y resultados. Los
+conteos se validan contra un límite local y una muestra nunca puede superar el
+total registrado.
 Si el manifiesto trae bloques reconocibles de resultados, historial o caché,
 el informe los clasifica como `analysis_results`, `history` o `caches` no
 portables; solo conserva esos nombres de categoría y una acción manual, nunca

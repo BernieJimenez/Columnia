@@ -467,6 +467,9 @@ export interface SessionMigrationMetadata {
   analysisCheckCount: number;
   appliedOperations?: string[];
   analysisChecks?: string[];
+  analysisSampled?: boolean;
+  analysisSampleRowCount?: number;
+  analysisTotalRowCount?: number;
 }
 
 export type SessionReferenceStatus = "not_provided" | "available" | "missing" | "unsupported";
@@ -493,6 +496,9 @@ export interface SessionMigrationReport {
     analysisCheckCount: number;
     appliedOperations?: string[];
     analysisChecks?: string[];
+    analysisSampled?: boolean;
+    analysisSampleRowCount?: number;
+    analysisTotalRowCount?: number;
   };
   recipeSummary: {
     operationCount: number;

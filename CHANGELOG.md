@@ -75,6 +75,10 @@ los artefactos de validación locales.
   y series temporales sin descargar datos ni exponer rutas; la selección usa un
   identificador opaco y el inventario IPC queda en 68 comandos de producción y
   59 estructuras.
+- La migración de sesiones DataPrep conserva metadatos agregados de muestras de
+  análisis —estado muestreado y conteos de filas— cuando están disponibles, sin
+  copiar filas, valores ni resultados originales; el informe los muestra como
+  contexto de compatibilidad.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de

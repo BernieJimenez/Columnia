@@ -116,6 +116,16 @@ function RecipeMigrationReportPanel({
   const conversionPercent = totalItems === 0 ? 0 : Math.round((convertedItems / totalItems) * 100);
   const statusLabel = omittedItems > 0 ? "Revisión necesaria" : warningCount > 0 ? "Revisar" : "Lista para validar";
   const session = report.session;
+  const hasAnalysisSampleMetadata = session && (
+    session.analysisSampled !== undefined
+    || session.analysisSampleRowCount !== undefined
+    || session.analysisTotalRowCount !== undefined
+  );
+  const analysisSampleLabel = session?.analysisSampled === true
+    ? "acotada"
+    : session?.analysisSampled === false
+      ? "exacta"
+      : "registrada";
 
   return (
     <section
@@ -174,6 +184,20 @@ function RecipeMigrationReportPanel({
             <li><span>Operaciones aplicadas</span><strong>{safeMigrationCount(session.appliedOperationCount).toLocaleString()}</strong></li>
             <li><span>Reglas de calidad</span><strong>{safeMigrationCount(session.qualityRuleCount).toLocaleString()}</strong></li>
             <li><span>Comprobaciones</span><strong>{safeMigrationCount(session.analysisCheckCount).toLocaleString()}</strong></li>
+            {hasAnalysisSampleMetadata && (
+              <li>
+                <span>Muestra de análisis</span>
+                <strong>
+                  {analysisSampleLabel}
+                  {session.analysisSampleRowCount !== undefined
+                    ? ` · ${safeMigrationCount(session.analysisSampleRowCount).toLocaleString()} filas`
+                    : ""}
+                  {session.analysisTotalRowCount !== undefined
+                    ? ` de ${safeMigrationCount(session.analysisTotalRowCount).toLocaleString()}`
+                    : ""}
+                </strong>
+              </li>
+            )}
           </ul>
           <p>
             {session.hasSourceReference || session.hasSnapshotReference

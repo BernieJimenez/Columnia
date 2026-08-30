@@ -83,6 +83,7 @@ const RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_SESSION_METADATA_NAMES: usize = 64;
 const MAX_SESSION_METADATA_NAME_CHARS: usize = 96;
+const MAX_SESSION_SAMPLE_ROWS: usize = 3_000_000;
 const MAX_SESSION_EXECUTION_HISTORY_ENTRIES: usize = 5;
 const MAX_SESSION_EXECUTION_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
@@ -1128,9 +1129,17 @@ pub struct SessionMigrationMetadata {
     applied_operations: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     analysis_checks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    analysis_sampled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    analysis_sample_row_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    analysis_total_row_count: Option<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     non_portable_artifacts: Vec<String>,
 }
+
+type SessionSampleMetadataValues = (Option<bool>, Option<usize>, Option<usize>);
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -7406,6 +7415,144 @@ fn migration_session_artifact_names(root: &JsonMap<String, JsonValue>) -> Vec<St
     artifacts
 }
 
+fn migration_sample_metadata_map(
+    root: &JsonMap<String, JsonValue>,
+) -> Option<&JsonMap<String, JsonValue>> {
+    let session = root.get("session").and_then(JsonValue::as_object);
+    let mut containers = vec![root];
+    if let Some(session) = session {
+        containers.push(session);
+    }
+    let container_keys = [
+        "analysis_results",
+        "analysisResults",
+        "analysis_result",
+        "analysisResult",
+        "analysis",
+        "resource_info",
+        "resourceInfo",
+    ];
+    let direct_keys = [
+        "is_sampled",
+        "isSampled",
+        "sampled",
+        "profile_sampled",
+        "profileSampled",
+        "sample_rows",
+        "sampleRows",
+        "sample_rows_count",
+        "sampleRowsCount",
+        "profile_sample_rows",
+        "profileSampleRows",
+    ];
+    let nested_keys = [
+        "sample",
+        "analysis_sample",
+        "analysisSample",
+        "sample_metadata",
+        "sampleMetadata",
+        "profile",
+        "profile_metadata",
+        "profileMetadata",
+    ];
+
+    for container in containers {
+        if direct_keys.iter().any(|key| container.contains_key(*key)) {
+            return Some(container);
+        }
+        for key in container_keys {
+            let Some(object) = container.get(key).and_then(JsonValue::as_object) else {
+                continue;
+            };
+            if direct_keys.iter().any(|key| object.contains_key(*key)) {
+                return Some(object);
+            }
+            if let Some(nested) = nested_keys
+                .iter()
+                .find_map(|key| object.get(*key).and_then(JsonValue::as_object))
+            {
+                return Some(nested);
+            }
+        }
+    }
+    None
+}
+
+fn migration_bool_field(
+    map: &JsonMap<String, JsonValue>,
+    keys: &[&str],
+) -> Result<Option<bool>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| map.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(None);
+    };
+    value
+        .as_bool()
+        .map(Some)
+        .ok_or_else(|| format!("El campo '{key}' debe ser booleano."))
+}
+
+fn migration_session_sample_metadata(
+    root: &JsonMap<String, JsonValue>,
+) -> Result<Option<SessionSampleMetadataValues>, String> {
+    let Some(map) = migration_sample_metadata_map(root) else {
+        return Ok(None);
+    };
+    let sampled = migration_bool_field(
+        map,
+        &[
+            "is_sampled",
+            "isSampled",
+            "sampled",
+            "profile_sampled",
+            "profileSampled",
+        ],
+    )?;
+    let sample_row_count = migration_usize_field(
+        map,
+        &[
+            "sample_rows",
+            "sampleRows",
+            "sample_rows_count",
+            "sampleRowsCount",
+            "profile_sample_rows",
+            "profileSampleRows",
+        ],
+    )?;
+    let total_row_count = migration_usize_field(
+        map,
+        &[
+            "n_total_rows",
+            "nTotalRows",
+            "total_rows",
+            "totalRows",
+            "row_count",
+            "rowCount",
+        ],
+    )?;
+    if sampled.is_none() && sample_row_count.is_none() && total_row_count.is_none() {
+        return Ok(None);
+    }
+    if let Some(sample_row_count) = sample_row_count {
+        if sample_row_count > MAX_SESSION_SAMPLE_ROWS {
+            return Err(format!(
+                "La muestra de análisis supera el límite local de {MAX_SESSION_SAMPLE_ROWS} filas."
+            ));
+        }
+        if let Some(total_row_count) = total_row_count {
+            if sample_row_count > total_row_count {
+                return Err(
+                    "La muestra de análisis no puede superar el total de filas registrado."
+                        .to_owned(),
+                );
+            }
+        }
+    }
+    Ok(Some((sampled, sample_row_count, total_row_count)))
+}
+
 fn migration_session_metadata(
     root: &JsonMap<String, JsonValue>,
 ) -> Result<Option<SessionMigrationMetadata>, String> {
@@ -7462,6 +7609,8 @@ fn migration_session_metadata(
                 "El metadato de sesión 'analysis_checks' debe ser un objeto o arreglo.".to_owned()
             })?,
     };
+    let (analysis_sampled, analysis_sample_row_count, analysis_total_row_count) =
+        migration_session_sample_metadata(root)?.unwrap_or_default();
 
     let metadata_names = |key: &str| -> Result<Vec<String>, String> {
         let Some(value) = migration_session_field(root, key) else {
@@ -7514,6 +7663,9 @@ fn migration_session_metadata(
         analysis_check_count,
         applied_operations,
         analysis_checks: metadata_names("analysis_checks")?,
+        analysis_sampled,
+        analysis_sample_row_count,
+        analysis_total_row_count,
         non_portable_artifacts,
     }))
 }
@@ -18946,6 +19098,36 @@ mod tests {
         assert!(!serialized.contains("private_column"));
         assert!(!serialized.contains("no debe copiarse"));
         assert!(!serialized.contains("profile-cache.json"));
+    }
+
+    #[test]
+    fn imports_only_aggregate_analysis_sample_metadata_without_rows_or_values() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("session-sample-metadata.json");
+        let source = serde_json::json!({
+            "version": 3,
+            "name": "Sesión con muestra agregada",
+            "analysis_results": {
+                "is_sampled": true,
+                "sample_rows": 200,
+                "n_total_rows": 1200,
+                "rows": [{"email": "no debe copiarse"}],
+                "private_result": "no debe copiarse"
+            },
+            "transform": {"rename_text": ""}
+        });
+        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
+
+        let loaded = load_recipe_file(&path).expect("la sesión debe poder inspeccionarse");
+        let json = serde_json::to_value(&loaded).expect("la sesión debe serializarse");
+        let session = &json["migrationReport"]["session"];
+        assert_eq!(session["analysisSampled"], true);
+        assert_eq!(session["analysisSampleRowCount"], 200);
+        assert_eq!(session["analysisTotalRowCount"], 1200);
+        let serialized = json.to_string();
+        assert!(!serialized.contains("no debe copiarse"));
+        assert!(!serialized.contains("private_result"));
+        assert!(serialized.contains("analysis_results"));
     }
 
     #[test]

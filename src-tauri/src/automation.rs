@@ -301,6 +301,12 @@ pub struct SessionMigrationSessionOutput {
     applied_operations: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     analysis_checks: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    analysis_sampled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    analysis_sample_row_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    analysis_total_row_count: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     non_portable_artifacts: Vec<String>,
 }
@@ -900,12 +906,22 @@ fn session_reference_status_label(status: dataset::SessionReferenceStatus) -> &'
 }
 
 fn serialized_usize(value: Option<&JsonValue>, key: &str) -> usize {
+    serialized_usize_optional(value, key).unwrap_or_default()
+}
+
+fn serialized_usize_optional(value: Option<&JsonValue>, key: &str) -> Option<usize> {
     value
         .and_then(JsonValue::as_object)
         .and_then(|map| map.get(key))
         .and_then(JsonValue::as_u64)
         .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or_default()
+}
+
+fn serialized_bool(value: Option<&JsonValue>, key: &str) -> Option<bool> {
+    value
+        .and_then(JsonValue::as_object)
+        .and_then(|map| map.get(key))
+        .and_then(JsonValue::as_bool)
 }
 
 fn serialized_string(value: Option<&JsonValue>, key: &str) -> Option<String> {
@@ -1088,6 +1104,15 @@ pub fn session_migration_report(
             analysis_check_count: serialized_usize(session_metadata, "analysisCheckCount"),
             applied_operations: serialized_strings(session_metadata, "appliedOperations"),
             analysis_checks: serialized_strings(session_metadata, "analysisChecks"),
+            analysis_sampled: serialized_bool(session_metadata, "analysisSampled"),
+            analysis_sample_row_count: serialized_usize_optional(
+                session_metadata,
+                "analysisSampleRowCount",
+            ),
+            analysis_total_row_count: serialized_usize_optional(
+                session_metadata,
+                "analysisTotalRowCount",
+            ),
             non_portable_artifacts: serialized_strings(session_metadata, "nonPortableArtifacts"),
         },
         recipe_summary,
@@ -3086,7 +3111,13 @@ mod tests {
                 "applied_ops": [{"kind": "filter"}],
                 "quality_rules": [{"kind": "not_null", "column": "private-email"}],
                 "analysis_checks": {"duplicates": {}, "outliers": {}},
-                "analysis_results": {"private-value": "secret"},
+                "analysis_results": {
+                    "is_sampled": true,
+                    "sample_rows": 200,
+                    "n_total_rows": 1200,
+                    "rows": [{"private-value": "secret"}],
+                    "private-value": "secret"
+                },
                 "history": [{"command": "secret-history"}],
                 "cache_dir": "private-cache",
                 "transform": {
@@ -3112,6 +3143,9 @@ mod tests {
         assert_eq!(report.session.stage_label.as_deref(), Some("Preparar"));
         assert_eq!(report.session.applied_operation_count, 1);
         assert_eq!(report.session.analysis_check_count, 2);
+        assert_eq!(report.session.analysis_sampled, Some(true));
+        assert_eq!(report.session.analysis_sample_row_count, Some(200));
+        assert_eq!(report.session.analysis_total_row_count, Some(1200));
         assert_eq!(report.session.applied_operations, vec!["filter"]);
         assert_eq!(
             report.session.analysis_checks,
