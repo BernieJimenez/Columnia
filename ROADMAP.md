@@ -1551,9 +1551,12 @@ del original.
   La importación nativa informa las etapas de validación, carga, replay,
   restauración de historial, perfil y publicación mediante el canal Tauri;
   admite cancelación cooperativa y conserva la publicación atómica del catálogo.
-- [ ] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
+- [x] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
   con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
-  colisiones de nombres antes de escribir cualquier snapshot.
+  colisiones de nombres antes de escribir cualquier snapshot. Las sesiones
+  usan su importador dedicado y los pipelines, que no contienen una fuente,
+  entran mediante `project-save --recipe` junto a un `--input` explícito;
+  las limpiezas seleccionadas se reproducen antes de la receta estructural.
 - [x] Implementar la primera slice de mapeo de sesiones DataPrep al catálogo:
   selector nativo, validación de referencias, esquema, formato, hoja y receta
   en un estado temporal, publicación únicamente después de validar, fallback a
@@ -1927,6 +1930,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | M1 reconoce el campo `filename` que emite DataPrep como referencia local reproducible cuando falta `source_path`: lo resuelve junto al manifiesto, valida que sea un archivo regular y conserva nombre/estado sin filtrar la ruta al bridge. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-30 | P1 amplía las recetas IQR lazy/streaming para convivir con `keep_columns` cuando se conservan todas las columnas tratadas; si una proyección elimina una dependencia, se mantiene el fallback eager y el rechazo explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1 corrige la migración de pipelines DataPrep persistidos: el campo real `selected` ahora se reconoce junto a sus aliases de sesión, normaliza las operaciones deterministas y conserva la selección al importar la receta. | `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-30 | M1 completa el mapeo de pipelines al catálogo mediante `project-save --recipe`: valida el `--input`, reproduce las limpiezas deterministas seleccionadas y aplica la receta estructural antes de publicar el snapshot; una regresión verifica el proyecto reabierto. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `ROADMAP.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

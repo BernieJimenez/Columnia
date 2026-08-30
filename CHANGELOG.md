@@ -12,6 +12,9 @@ los artefactos de validación locales.
   pipelines persistidos, además de `selected_cleaning_operations` y su alias
   camelCase; las operaciones se normalizan al catálogo determinista canónico y
   no se pierden al importar un pipeline real.
+- `project-save --recipe` reproduce ahora las limpiezas deterministas
+  seleccionadas en un pipeline DataPrep antes de aplicar su receta estructural,
+  validando el resultado completo antes de publicar el snapshot del proyecto.
 - La importación de sesiones DataPrep reconoce también el campo real `filename`
   como referencia local reproducible cuando el manifiesto no incluye
   `source_path`, incluyendo su validación nativa y el nombre seguro del dataset.

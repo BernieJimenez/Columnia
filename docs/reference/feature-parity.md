@@ -317,8 +317,10 @@ una contradicción entre `severity` y `blocking` queda omitida con warning. Una
 regla sin tolerancia se importa como bloqueante con máximo de inválidos igual a
 cero; nunca se convierte silenciosamente una política no equivalente en una
 aprobación.
-Los pipelines JSON todavía no se convierten automáticamente en proyectos. Las
-sesiones guardadas ya se reconocen y dejan un resumen estructural sanitizado; el
+Los pipelines JSON no contienen una fuente propia y por eso requieren que el
+usuario proporcione explícitamente `--input` al usar `project-save --recipe`;
+esa ruta valida el dataset, reproduce las limpiezas seleccionadas y guarda la
+receta migrada en el catálogo. Las sesiones guardadas ya se reconocen y dejan un resumen estructural sanitizado; el
 bridge nativo dispone de un preflight que puede revisarse antes de crear un
 proyecto sin modificar el dataset activo. La primera vertical también importa
 una sesión sintética, la reabre, la valida y la exporta sin publicar rutas. La

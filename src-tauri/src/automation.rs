@@ -23,7 +23,7 @@ const QUALITY_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli quality-migrat
 const SESSION_MIGRATION_REPORT_HELP: &str = "USO:\n  columnia-cli session-migration-report --session <ruta.json>\n\nHace un preflight sanitizado de una sesión DataPrep v1–v3. Resume referencias de origen y snapshot, hoja, etapa, operaciones, receta, calidad y análisis; detecta referencias ausentes y colisiones sin escribir proyectos. Devuelve código 2 si requiere revisión manual.\n";
 const BATCH_HELP: &str = "USO:\n  columnia-cli batch --manifest <ruta.json> [--force]\n\nEjecuta de 1 a 64 transformaciones declaradas en un manifiesto JSON v1 estricto. Las rutas relativas se resuelven desde la carpeta del manifiesto o outputRoot. Por defecto las salidas quedan confinadas a ese root, no pueden usar rutas absolutas, traversal ni reemplazar archivos existentes. --force permite un destino externo o existente, pero no permite colisionar con el manifiesto, inputs o recetas. El preflight valida todos los trabajos antes de escribir. Cada trabajo publica su salida atómicamente, pero el lote no es una transacción global: si un trabajo falla, conserva las salidas anteriores y termina con código 2. Un manifiesto o uso inválido termina con código 1.\n";
 const PROJECT_LIST_HELP: &str = "USO:\n  columnia-cli project-list --store <directorio>\n\nLista resúmenes de proyectos persistidos y emite JSON v1 sin rutas ni muestras.\n";
-const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales.\n";
+const PROJECT_SAVE_HELP: &str = "USO:\n  columnia-cli project-save --store <directorio> --name <nombre> --input <ruta> [--id <id>] [--sheet <nombre> --header first-row|generated] [--recipe <ruta>] [--rules <ruta>] [--profile]\n\nCrea o actualiza un proyecto. La receta, las reglas y el perfil son opcionales. --recipe acepta recetas Columnia y pipelines DataPrep v1–v3; las operaciones de limpieza seleccionadas del pipeline se reproducen antes de la transformación estructural.\n";
 const PROJECT_IMPORT_DATAPREP_HELP: &str = "USO:\n  columnia-cli project-import-dataprep --store <directorio> --session <ruta.json> [--name <nombre>]\n\nMigra una sesión DataPrep como un proyecto nuevo. La sesión y sus referencias se validan antes de escribir el almacén; si falta la fuente se usa un snapshot compatible cuando está disponible. Emite solo el resumen opaco del proyecto.\n";
 const PROJECT_INSPECT_HELP: &str = "USO:\n  columnia-cli project-inspect --store <directorio> --id <id>\n\nEmite metadatos, flags y conteos del proyecto sin abrir una sesión de escritorio.\n";
 const PROJECT_EXPORT_HELP: &str = "USO:\n  columnia-cli project-export --store <directorio> --id <id> --output <ruta> --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]\n\nLas reglas guardadas siempre deben pasar. --allow-unvalidated solo permite exportar proyectos sin reglas. La publicación es atómica; un bundle incluye la receta validada del proyecto cuando existe.\n";
@@ -1559,6 +1559,20 @@ pub fn project_save(
         })
         .transpose()?;
     if let Some(recipe) = recipe_draft.as_ref() {
+        let applied_operations = recipe.session_applied_operations();
+        if !applied_operations.is_empty() {
+            dataset
+                .apply_project_import_deterministic_cleaning_with_progress(
+                    &applied_operations,
+                    |_, _| {},
+                    || false,
+                )
+                .map_err(|_| {
+                    AutomationError::new(
+                        "La limpieza determinista de la receta no es válida para el dataset de entrada.",
+                    )
+                })?;
+        }
         dataset
             .apply_project_import_recipe(&recipe.recipe)
             .map_err(|_| {
@@ -2877,6 +2891,50 @@ mod tests {
             4
         );
         assert!(project_list(&store).unwrap().projects.is_empty());
+    }
+
+    #[test]
+    fn project_save_applies_selected_dataprep_cleaning_before_publishing() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = directory.path().join("store");
+        let input = directory.path().join("source.csv");
+        let recipe = directory.path().join("pipeline.json");
+        fs::write(&input, "name,amount\nAna,1\nAna,1\nLuis,2\n").unwrap();
+        fs::write(
+            &recipe,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 3,
+                "name": "Pipeline DataPrep con limpieza",
+                "saved_at": "2026-08-30T00:00:00Z",
+                "selected": ["remove_duplicates"],
+                "transform": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let saved = project_save(
+            &store,
+            "Pipeline importado".to_owned(),
+            &input,
+            None,
+            None,
+            None,
+            Some(&recipe),
+            None,
+            false,
+        )
+        .expect("el pipeline DataPrep debe publicarse como proyecto");
+        assert_eq!(saved.project.row_count, 2);
+
+        let opened = projects::automation_open_project(&store, &saved.project.id)
+            .expect("el proyecto con limpieza DataPrep debe reabrirse");
+        assert_eq!(opened.frame.height(), 2);
+        let workspace = serde_json::to_value(opened.workspace).unwrap();
+        assert_eq!(
+            workspace["recipeDraft"]["migrationReport"]["session"]["appliedOperations"],
+            serde_json::json!(["drop_duplicates"])
+        );
     }
 
     #[test]
