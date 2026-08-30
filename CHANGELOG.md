@@ -32,6 +32,9 @@ los artefactos de validación locales.
   materializar sus filas para validar el contrato. La ruta DuckDB tampoco
   hereda el límite de entradas del plan Polars; el `DataFrame` activo y la
   ejecución incremental completa fuera de RAM siguen siendo límites abiertos.
+- La paginación de la muestra activa reutiliza el snapshot Parquet del cursor
+  actual con `slice` y colección streaming cuando el historial está disponible;
+  los estados degradados conservan el fallback al `DataFrame` activo.
 - Las recetas compatibles con Polars lazy/streaming también convierten fechas
   con formatos explícitos `Ymd`, `Dmy` y `Mdy`, respetando espacios exteriores,
   nulos y objetivos `Date`/`Datetime`; `Iso8601`, zonas horarias y operaciones

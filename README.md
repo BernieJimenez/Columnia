@@ -36,6 +36,9 @@ una frontera de sanitización que elimina rutas, valores de datos, emails y
 secretos antes de serializarse.
 Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,
 nulos y texto Unicode, y se lee con una configuración conservadora de memoria.
+La paginación de la muestra activa reutiliza el snapshot Parquet del cursor
+actual con lectura acotada; si el historial está degradado, vuelve al frame
+activo en memoria.
 
 ## Plataformas objetivo
 

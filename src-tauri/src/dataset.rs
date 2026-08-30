@@ -2003,16 +2003,25 @@ pub(crate) fn preview_value(value: AnyValue<'_>) -> Option<String> {
     }
 }
 
-fn dataset_page(frame: &DataFrame, offset: usize, limit: usize) -> Result<DatasetPage, String> {
+fn validate_dataset_page_request(
+    row_count: usize,
+    offset: usize,
+    limit: usize,
+) -> Result<(), String> {
     if limit == 0 || limit > MAX_PAGE_SIZE {
         return Err(format!(
             "El tamaño de página debe estar entre 1 y {MAX_PAGE_SIZE} filas."
         ));
     }
 
-    if offset > frame.height() {
+    if offset > row_count {
         return Err("La página solicitada está fuera del dataset activo.".into());
     }
+    Ok(())
+}
+
+fn dataset_page(frame: &DataFrame, offset: usize, limit: usize) -> Result<DatasetPage, String> {
+    validate_dataset_page_request(frame.height(), offset, limit)?;
 
     let end = offset.saturating_add(limit).min(frame.height());
     let rows = (offset..end)
@@ -2031,6 +2040,22 @@ fn dataset_page(frame: &DataFrame, offset: usize, limit: usize) -> Result<Datase
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(DatasetPage { offset, rows })
+}
+
+fn dataset_page_from_parquet(
+    path: &Path,
+    row_count: usize,
+    offset: usize,
+    limit: usize,
+) -> Result<DatasetPage, String> {
+    validate_dataset_page_request(row_count, offset, limit)?;
+    let slice_offset = i64::try_from(offset)
+        .map_err(|_| "La página solicitada excede la capacidad del lector Parquet.".to_owned())?;
+    let plan = parquet_scan(path)?.slice(slice_offset, limit as IdxSize);
+    let page_frame = collect_lazy_frame_streaming(plan, "No se pudo leer la página Parquet")?;
+    let mut page = dataset_page(&page_frame, 0, limit)?;
+    page.offset = offset;
+    Ok(page)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -7762,7 +7787,7 @@ fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, Strin
     )
 }
 
-fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
+fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector Parquet: {error}"))?;
     let options = ScanArgsParquet {
@@ -7771,22 +7796,17 @@ fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
         rechunk: false,
         ..Default::default()
     };
-    let plan = LazyFrame::scan_parquet(source, options)
-        .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
+    LazyFrame::scan_parquet(source, options)
+        .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))
+}
+
+fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
+    let plan = parquet_scan(path)?;
     collect_lazy_frame_streaming(plan, "No se pudo interpretar el Parquet")
 }
 
 fn read_parquet_schema_frame(path: &Path) -> Result<DataFrame, String> {
-    let source = PlRefPath::try_from_path(path)
-        .map_err(|error| format!("No se pudo preparar el lector Parquet: {error}"))?;
-    let options = ScanArgsParquet {
-        parallel: ParallelStrategy::None,
-        low_memory: true,
-        rechunk: false,
-        ..Default::default()
-    };
-    let mut plan = LazyFrame::scan_parquet(source, options)
-        .map_err(|error| format!("No se pudo abrir el Parquet: {error}"))?;
+    let mut plan = parquet_scan(path)?;
     let schema = plan
         .collect_schema()
         .map_err(|error| format!("No se pudo leer el esquema Parquet: {error}"))?;
@@ -16208,6 +16228,12 @@ pub fn get_dataset_page(
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
 
+    if dataset.history.snapshots_enabled {
+        if let Some(entry) = dataset.history.entries.get(dataset.history.cursor) {
+            return dataset_page_from_parquet(&entry.path, dataset.frame.height(), offset, limit);
+        }
+    }
+
     dataset_page(&dataset.frame, offset, limit)
 }
 
@@ -16268,6 +16294,11 @@ pub async fn query_dataset(
                 .then(|| dataset.history.entries.get(dataset.history.cursor))
                 .flatten()
                 .map(|entry| entry.path.clone());
+            let current_validation_frame = current_snapshot
+                .as_deref()
+                .map(read_parquet_schema_frame)
+                .transpose()?;
+            let current_frame = current_validation_frame.as_ref().unwrap_or(&dataset.frame);
             let compared_frame = comparison
                 .as_ref()
                 .map(|pending| {
@@ -16279,7 +16310,7 @@ pub async fn query_dataset(
                 })
                 .transpose()?;
             let compared = compared_frame.as_ref();
-            let spec = prepare_duckdb_query(&query, &dataset.frame, compared)?;
+            let spec = prepare_duckdb_query(&query, current_frame, compared)?;
             let cancellation_app = query_app.clone();
             let fallback_cancellation_app = query_app.clone();
             if let Some(path) = current_snapshot {
@@ -22836,6 +22867,29 @@ mod tests {
         assert_eq!(schema.height(), 0);
         assert_eq!(schema.column("id").unwrap().dtype(), &DataType::Int64);
         assert_eq!(schema.column("name").unwrap().dtype(), &DataType::String);
+    }
+
+    #[test]
+    fn reads_a_page_from_the_parquet_snapshot_with_slice_pushdown() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("source.parquet");
+        let mut frame = df![
+            "id" => &[1_i64, 2, 3, 4],
+            "name" => &["A", "B", "C", "D"]
+        ]
+        .expect("el frame Parquet debe ser válido");
+        let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
+        ParquetWriter::new(&mut file)
+            .finish(&mut frame)
+            .expect("se debe escribir el Parquet temporal");
+
+        let page = dataset_page_from_parquet(&path, frame.height(), 1, 2)
+            .expect("la página debe leerse desde el snapshot");
+
+        assert_eq!(page.offset, 1);
+        assert_eq!(page.rows.len(), 2);
+        assert_eq!(page.rows[0][0].as_deref(), Some("2"));
+        assert_eq!(page.rows[1][1].as_deref(), Some("C"));
     }
 
     #[test]
