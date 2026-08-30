@@ -17053,7 +17053,7 @@ type RecipeFrameOutcome = (
 
 fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
-        && recipe.split_column.is_none()
+        && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
         && recipe.outlier_treatments.is_empty()
         && recipe.group_summary.is_none()
         && recipe.contact_normalizations.is_empty()
@@ -17547,6 +17547,92 @@ fn apply_lazy_recipe_to_frame(
         0
     };
 
+    let (split_column_count, split_dropped_source_count) = if let Some(split) = &recipe.split_column
+    {
+        if split.delimiter.is_empty() {
+            return Err("El delimitador de división no puede estar vacío.".into());
+        }
+        if !(2..=16).contains(&split.names.len()) {
+            return Err("La división requiere entre 2 y 16 columnas de destino.".into());
+        }
+        let source_name = remapped_name(&split.source, &rename_map).to_owned();
+        let mut output_names = if recipe.keep_columns.is_some() {
+            keep_names.clone()
+        } else {
+            final_names.clone()
+        };
+        if let Some(calculation) = &recipe.calculated_column {
+            output_names.push(calculation.name.clone());
+        }
+        if !output_names.iter().any(|name| name == &source_name) {
+            return Err(format!(
+                "La columna '{source_name}' requerida por split fue descartada por keepColumns."
+            ));
+        }
+        let source_column = recipe_column(source, &split.source)?;
+        let cast_target = recipe
+            .casts
+            .iter()
+            .find(|cast| remapped_name(&cast.column, &rename_map) == source_name)
+            .map(|cast| cast.target);
+        let is_text = cast_target
+            .map(|target| target == RecipeCastTarget::String)
+            .unwrap_or(source_column.dtype() == &DataType::String);
+        if !is_text {
+            return Err(format!(
+                "La columna '{source_name}' debe ser de texto para dividirse."
+            ));
+        }
+        let mut unique = HashSet::new();
+        for name in &split.names {
+            let trimmed = name.trim();
+            if trimmed.is_empty() || trimmed != name {
+                return Err(
+                    "Los nombres divididos no pueden estar vacíos ni tener espacios exteriores."
+                        .into(),
+                );
+            }
+            if !unique.insert(trimmed) {
+                return Err(format!("El nombre dividido '{trimmed}' está duplicado."));
+            }
+            if output_names.iter().any(|existing| existing == trimmed) {
+                return Err(format!("La columna dividida '{trimmed}' ya existe."));
+            }
+        }
+        let split_expression = col(source_name.as_str())
+            .str()
+            .splitn(lit(split.delimiter.clone()), split.names.len());
+        let split_expressions = split
+            .names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                split_expression
+                    .clone()
+                    .struct_()
+                    .field_by_name(&format!("field_{index}"))
+                    .alias(name.clone())
+            })
+            .collect::<Vec<_>>();
+        plan = plan.with_columns(split_expressions);
+        output_names.extend(split.names.iter().cloned());
+        let split_dropped_source_count = if split.drop_source {
+            plan = plan.select(
+                output_names
+                    .iter()
+                    .filter(|name| name.as_str() != source_name)
+                    .map(col)
+                    .collect::<Vec<_>>(),
+            );
+            1
+        } else {
+            0
+        };
+        (split.names.len(), split_dropped_source_count)
+    } else {
+        (0, 0)
+    };
+
     let (merged_column_count, dropped_source_column_count) = if let Some(merge) =
         &recipe.merge_columns
     {
@@ -17642,9 +17728,9 @@ fn apply_lazy_recipe_to_frame(
         replaced_cell_count,
         dropped_column_count,
         kept_order_changed,
-        0,
+        split_column_count,
         merged_column_count,
-        dropped_source_column_count,
+        split_dropped_source_count + dropped_source_column_count,
         0,
         0,
         0,

@@ -110,6 +110,10 @@ los artefactos de validación locales.
 - La unión de columnas de texto puede ejecutarse dentro del plan lazy/streaming,
   conserva el orden de las fuentes, omite nulos como antes y vuelve a nulo una
   fila sin ningún valor; los casts numérico→texto se validan antes de publicar.
+- La división de texto literal también puede ejecutarse de forma lazy: conserva
+  el resto en la última columna, rellena destinos ausentes con nulos y mantiene
+  las validaciones de nombres, colisiones, casts a texto y descarte reversible
+  de la fuente.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
