@@ -430,7 +430,9 @@ filtros previos se ejecutan mediante un plan Polars lazy
 con el motor streaming; las normalizaciones de contactos y extracciones
 textuales también se planifican allí. Las operaciones que necesitan
 validaciones o materialización completa conservan el camino eager explícito;
-los cálculos de año, mes y día pertenecen a ese fallback.
+la extracción de año, mes y día usa la ruta lazy para `Date` y `Datetime` sin
+zona horaria cuando no hay filtros previos, y mantiene fallback eager en los
+demás casos.
 
 La receta también admite hasta tres **filtros AND** y una **columna calculada**.
 Como los filtros pueden eliminar filas, Columnia muestra una confirmación antes

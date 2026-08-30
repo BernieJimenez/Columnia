@@ -15968,6 +15968,69 @@ fn date_parts(column: &Column, operation: CalculatedOperation) -> Result<Vec<Opt
     }
 }
 
+fn validate_date_parts_column(column: &Column) -> Result<(), String> {
+    let name = column.name();
+    match column.dtype() {
+        polars::prelude::DataType::Date => {
+            let physical = column
+                .cast(&polars::prelude::DataType::Int32)
+                .map_err(|error| error.to_string())?;
+            let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+            for row in 0..physical.len() {
+                let value = physical.get(row).map_err(|error| error.to_string())?;
+                let AnyValue::Int32(days) = value else {
+                    if matches!(value, AnyValue::Null) {
+                        continue;
+                    }
+                    return Err("La fecha no tiene una representación física válida.".into());
+                };
+                epoch
+                    .checked_add_signed(chrono::Duration::days(days.into()))
+                    .ok_or_else(|| {
+                        format!(
+                            "La fecha de la fila {} está fuera del rango admitido.",
+                            row + 1
+                        )
+                    })?;
+            }
+            Ok(())
+        }
+        polars::prelude::DataType::Datetime(unit, None) => {
+            let physical = column
+                .cast(&polars::prelude::DataType::Int64)
+                .map_err(|error| error.to_string())?;
+            let divisor = match unit {
+                TimeUnit::Nanoseconds => 1_000_000_000,
+                TimeUnit::Microseconds => 1_000_000,
+                TimeUnit::Milliseconds => 1_000,
+            };
+            for row in 0..physical.len() {
+                let value = physical.get(row).map_err(|error| error.to_string())?;
+                let AnyValue::Int64(raw) = value else {
+                    if matches!(value, AnyValue::Null) {
+                        continue;
+                    }
+                    return Err("La fecha y hora no tiene una representación física válida.".into());
+                };
+                DateTime::from_timestamp(
+                    raw.div_euclid(divisor),
+                    (raw.rem_euclid(divisor) as u64 * (1_000_000_000 / divisor as u64)) as u32,
+                )
+                .ok_or_else(|| {
+                    format!(
+                        "La fecha y hora de la fila {} está fuera del rango admitido.",
+                        row + 1
+                    )
+                })?;
+            }
+            Ok(())
+        }
+        _ => Err(format!(
+            "La columna '{name}' debe ser date o datetime para extraer componentes."
+        )),
+    }
+}
+
 fn add_calculated_column(
     frame: &mut DataFrame,
     calculation: &CalculatedColumnRecipe,
@@ -17056,7 +17119,7 @@ type LazySummaryPlan = (Vec<String>, Vec<LazySummaryAggregation>);
 type LazyContactTarget = (String, ContactKind);
 type LazyTextExtractionTarget = (String, ExtractionKind, Option<String>);
 
-fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
+fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
         && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
         && recipe.outlier_treatments.is_empty()
@@ -17074,7 +17137,17 @@ fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
                     | CalculatedOperation::Multiply
                     | CalculatedOperation::Divide
                     | CalculatedOperation::Concat
-            )
+            ) || (matches!(
+                calculation.operation,
+                CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day
+            ) && recipe.filters.is_empty()
+                && recipe
+                    .casts
+                    .iter()
+                    .all(|cast| cast.column != calculation.source)
+                && recipe_column(source, &calculation.source).is_ok_and(|column| {
+                    matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None))
+                }))
         })
 }
 
@@ -17126,6 +17199,9 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
             } else {
                 "La operación calculada requiere un operando.".into()
             });
+        }
+        if unary {
+            validate_date_parts_column(recipe_column(source, &calculation.source)?)?;
         }
         if matches!(
             calculation.operation,
@@ -17948,7 +18024,9 @@ fn apply_lazy_recipe_to_frame(
                     false,
                 )
             }
-            _ => return Err("La operación calculada no está soportada por el plan lazy.".into()),
+            CalculatedOperation::Year => col(source_name).dt().year(),
+            CalculatedOperation::Month => col(source_name).dt().month(),
+            CalculatedOperation::Day => col(source_name).dt().day(),
         };
         if recipe_column(source, &calculation.name).is_ok() {
             return Err(format!(
@@ -18351,7 +18429,7 @@ fn apply_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
 ) -> Result<RecipeFrameOutcome, String> {
-    if lazy_recipe_supported(recipe) {
+    if lazy_recipe_supported(source, recipe) {
         return apply_lazy_recipe_to_frame(source, recipe);
     }
     apply_eager_recipe_to_frame(source, recipe)
@@ -23537,7 +23615,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(lazy_recipe_supported(&recipe));
+        assert!(lazy_recipe_supported(&frame, &recipe));
         let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
         assert_eq!((outcome.6, outcome.15, outcome.17), (2, 1, 3));
         let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
@@ -23842,11 +23920,54 @@ mod tests {
             }),
             ..Default::default()
         };
+        assert!(lazy_recipe_supported(&frame, &recipe));
         let result = apply_recipe_to_frame(&frame, &recipe).unwrap().0;
         assert_eq!(
             dataset_page(&result, 0, 1).unwrap().rows[0][1].as_deref(),
             Some("1969")
         );
+
+        for (operation, expected) in [
+            (CalculatedOperation::Month, "12"),
+            (CalculatedOperation::Day, "31"),
+        ] {
+            let recipe = TransformRecipe {
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: "part".into(),
+                    source: "when".into(),
+                    operation,
+                    operand: None,
+                }),
+                ..Default::default()
+            };
+            assert!(lazy_recipe_supported(&frame, &recipe));
+            let result = apply_recipe_to_frame(&frame, &recipe).unwrap().0;
+            assert_eq!(
+                dataset_page(&result, 0, 1).unwrap().rows[0][1].as_deref(),
+                Some(expected)
+            );
+        }
+
+        let date = Series::new("when".into(), [Some(0_i32), None, Some(31)])
+            .cast(&polars::prelude::DataType::Date)
+            .unwrap()
+            .into_column();
+        let date_frame = DataFrame::new(3, vec![date]).unwrap();
+        let date_recipe = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "day".into(),
+                source: "when".into(),
+                operation: CalculatedOperation::Day,
+                operand: None,
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&date_frame, &date_recipe));
+        let result = apply_recipe_to_frame(&date_frame, &date_recipe).unwrap().0;
+        let rows = dataset_page(&result, 0, 3).unwrap().rows;
+        assert_eq!(rows[0][1].as_deref(), Some("1"));
+        assert_eq!(rows[1][1], None);
+        assert_eq!(rows[2][1].as_deref(), Some("1"));
 
         let extreme = Series::new("when".into(), [Some(i64::MAX)])
             .cast(&polars::prelude::DataType::Datetime(

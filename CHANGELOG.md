@@ -127,11 +127,12 @@ los artefactos de validación locales.
 - Las extracciones textuales también pueden ejecutarse dentro del plan
   lazy/streaming: tokens, runs Unicode y búsquedas antes/después de delimitadores
   literales preservan nulos, coincidencias ausentes y el límite de 16 columnas.
-- Las columnas calculadas de suma, resta, multiplicación, división y concatenación
-  también pueden ejecutarse dentro del plan lazy/streaming; los operandos
-  numéricos se validan antes de publicar, se preservan nulos y se rechazan
-  división por cero, infinitos y resultados no representables. Año, mes y día
-  mantienen el fallback eager hasta cerrar la paridad de fechas.
+- Las columnas calculadas de suma, resta, multiplicación, división, concatenación
+  y extracción de año, mes o día sobre fechas sin zona horaria también pueden
+  ejecutarse dentro del plan lazy/streaming; los operandos y rangos se validan
+  antes de publicar, se preservan nulos y se rechazan división por cero, infinitos
+  y fechas no representables. Fechas con zona horaria o filtros previos mantienen
+  el fallback eager.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
