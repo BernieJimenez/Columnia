@@ -74,7 +74,7 @@ const MOJIBAKE_MARKERS: &[&str] = &[
     "â€™", "â€œ", "â€", "Ã©", "Ã¨", "Ã ", "Ã¢", "Ã®", "Ã´", "Ã³", "Ã±", "Ã¼", "Ã¡", "Ã\u{AD}",
     "Ãº", "â€”", "â€¦",
 ];
-const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
+pub(crate) const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const REDACTED_VALUE: &str = "[REDACTED]";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 const HISTORY_MAX_ENTRIES: usize = 12;
@@ -469,11 +469,19 @@ pub struct DatasetPreview {
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetQueryResult {
-    columns: Vec<DatasetColumn>,
-    row_count: usize,
-    offset: usize,
-    rows: Vec<Vec<Option<String>>>,
-    truncated: bool,
+    pub(crate) columns: Vec<DatasetColumn>,
+    pub(crate) row_count: usize,
+    pub(crate) offset: usize,
+    pub(crate) rows: Vec<Vec<Option<String>>>,
+    pub(crate) truncated: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum DatasetQueryEngine {
+    #[default]
+    Polars,
+    Duckdb,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -2658,6 +2666,293 @@ fn parse_local_query(query: &str, frame: &DataFrame) -> Result<LocalQueryPlan, S
         limit,
         aggregate,
     })
+}
+
+fn local_query_without_window(query: &str) -> String {
+    let limit_pattern = Regex::new(r"(?is)^\s*(.+)\s+limit\s+\d+(?:\s+offset\s+\d+)?\s*$")
+        .expect("el patrón LIMIT local debe ser válido");
+    if let Some(captures) = limit_pattern.captures(query) {
+        return captures
+            .get(1)
+            .expect("la consulta base debe existir")
+            .as_str()
+            .trim()
+            .to_owned();
+    }
+    let offset_pattern = Regex::new(r"(?is)^\s*(.+)\s+offset\s+\d+\s*$")
+        .expect("el patrón OFFSET local debe ser válido");
+    offset_pattern
+        .captures(query)
+        .and_then(|captures| captures.get(1))
+        .map(|value| value.as_str().trim().to_owned())
+        .unwrap_or_else(|| query.trim().to_owned())
+}
+
+fn prepare_duckdb_query(
+    query: &str,
+    current: &DataFrame,
+    compared: Option<&DataFrame>,
+) -> Result<crate::duckdb_query::DuckDbQuerySpec, String> {
+    let (plan, query_for_duckdb, dataset_view_query, current_order_column, compared_order_column) =
+        if let Some(spec) = parse_local_join_query_spec(query, current, compared)? {
+            let compared = compared.expect("la especificación JOIN ya validó compared");
+            let empty_current = current.slice(0, 0);
+            let empty_compared = compared.slice(0, 0);
+            let empty_joined = join_frames_on_keys_with_cancel(
+                &empty_current,
+                &empty_compared,
+                &spec.current_keys,
+                &spec.compared_keys,
+                spec.join_type,
+                &|| false,
+            )?;
+            let plan = parse_local_query(&spec.normalized_query, &empty_joined)?;
+            let mut used_names = current
+                .get_column_names()
+                .iter()
+                .chain(compared.get_column_names().iter())
+                .map(|name| name.to_string())
+                .collect::<HashSet<_>>();
+            let current_order_column =
+                unique_duckdb_internal_name(&mut used_names, "__columnia_duckdb_join_order");
+            let compared_order_column =
+                unique_duckdb_internal_name(&mut used_names, "__columnia_duckdb_join_right_order");
+            let dataset_view_query = build_duckdb_join_view_query(
+                current,
+                compared,
+                &spec,
+                &empty_joined,
+                &current_order_column,
+                &compared_order_column,
+            )?;
+            (
+                plan,
+                spec.normalized_query,
+                Some(dataset_view_query),
+                Some(current_order_column),
+                Some(compared_order_column),
+            )
+        } else {
+            let mut used_names = current
+                .get_column_names()
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<HashSet<_>>();
+            let current_order_column =
+                unique_duckdb_internal_name(&mut used_names, "__columnia_duckdb_order");
+            (
+                parse_local_query(query, current)?,
+                query.to_owned(),
+                None,
+                Some(current_order_column),
+                None,
+            )
+        };
+    let query_for_duckdb = canonicalize_duckdb_query(&query_for_duckdb, &plan)?;
+    let base_query = local_query_without_window(&query_for_duckdb);
+    if base_query.is_empty() {
+        return Err("La consulta local no contiene una sentencia SELECT válida.".to_owned());
+    }
+    let order_by = if plan.aggregate {
+        let mut columns = current_order_column
+            .as_deref()
+            .map(|column| format!("MIN({})", duckdb_identifier(column)))
+            .into_iter()
+            .collect::<Vec<_>>();
+        if let Some(column) = compared_order_column.as_deref() {
+            columns.push(format!("MIN({})", duckdb_identifier(column)));
+        }
+        format!(" ORDER BY {}", columns.join(", "))
+    } else {
+        let mut columns = current_order_column
+            .as_deref()
+            .map(duckdb_identifier)
+            .into_iter()
+            .collect::<Vec<_>>();
+        if let Some(column) = compared_order_column.as_deref() {
+            columns.push(duckdb_identifier(column));
+        }
+        format!(" ORDER BY {}", columns.join(", "))
+    };
+    Ok(crate::duckdb_query::DuckDbQuerySpec {
+        bounded_query: format!(
+            "{base_query}{order_by} LIMIT {} OFFSET {}",
+            plan.limit, plan.offset
+        ),
+        count_query: format!("SELECT COUNT(*) FROM ({base_query}) AS __columnia_count"),
+        offset: plan.offset,
+        limit: plan.limit,
+        dataset_view_query,
+        current_order_column,
+        compared_order_column,
+    })
+}
+
+fn duckdb_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn unique_duckdb_internal_name(used_names: &mut HashSet<String>, base: &str) -> String {
+    if used_names.insert(base.to_owned()) {
+        return base.to_owned();
+    }
+    for suffix in 1.. {
+        let candidate = format!("{base}_{suffix}");
+        if used_names.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+    unreachable!("el nombre interno DuckDB debe poder acotarse")
+}
+
+fn canonicalize_duckdb_query(query: &str, plan: &LocalQueryPlan) -> Result<String, String> {
+    let pattern = Regex::new(r"(?is)^\s*select\s+.+?\s+from\s+dataset(?P<tail>.*)$")
+        .expect("el patrón de canonicalización DuckDB debe ser válido");
+    let captures = pattern.captures(query).ok_or_else(|| {
+        "La consulta local no contiene una sentencia SELECT válida para DuckDB.".to_owned()
+    })?;
+    let projection = plan
+        .projections
+        .iter()
+        .map(|projection| match projection {
+            LocalProjection::Column { name, output_name } => {
+                if name == output_name {
+                    duckdb_identifier(name)
+                } else {
+                    format!(
+                        "{} AS {}",
+                        duckdb_identifier(name),
+                        duckdb_identifier(output_name)
+                    )
+                }
+            }
+            LocalProjection::Aggregate {
+                function,
+                column,
+                output_name,
+            } => {
+                let function = match function {
+                    LocalAggregate::Count => "COUNT",
+                    LocalAggregate::Sum => "SUM",
+                    LocalAggregate::Average => "AVG",
+                    LocalAggregate::Minimum => "MIN",
+                    LocalAggregate::Maximum => "MAX",
+                };
+                let argument = column
+                    .as_deref()
+                    .map(duckdb_identifier)
+                    .unwrap_or_else(|| "*".to_owned());
+                format!(
+                    "{function}({argument}) AS {}",
+                    duckdb_identifier(output_name)
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tail = captures
+        .name("tail")
+        .map(|value| value.as_str())
+        .unwrap_or_default();
+    Ok(format!("SELECT {projection} FROM dataset{tail}"))
+}
+
+fn build_duckdb_join_view_query(
+    current: &DataFrame,
+    compared: &DataFrame,
+    spec: &LocalJoinQuerySpec,
+    joined_schema: &DataFrame,
+    current_order_column: &str,
+    compared_order_column: &str,
+) -> Result<String, String> {
+    let current_names = current
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<HashSet<_>>();
+    let compared_names = compared
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<HashSet<_>>();
+    let mut projections = joined_schema
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let output_name = name.to_string();
+            let expression = if current_names.contains(&output_name) {
+                if let Some(key_index) =
+                    spec.current_keys.iter().position(|key| key == &output_name)
+                {
+                    let compared_key = spec
+                        .compared_keys
+                        .get(key_index)
+                        .ok_or_else(|| "Falta una clave derecha para el JOIN DuckDB.".to_owned())?;
+                    if spec.join_type == DatasetJoinType::Full {
+                        format!(
+                            "COALESCE(c.{}, r.{})",
+                            duckdb_identifier(&output_name),
+                            duckdb_identifier(compared_key)
+                        )
+                    } else {
+                        format!("c.{}", duckdb_identifier(&output_name))
+                    }
+                } else {
+                    format!("c.{}", duckdb_identifier(&output_name))
+                }
+            } else if compared_names.contains(&output_name) {
+                format!("r.{}", duckdb_identifier(&output_name))
+            } else if let Some(compared_name) = output_name.strip_suffix("_right") {
+                if compared_names.contains(compared_name) {
+                    format!("r.{}", duckdb_identifier(compared_name))
+                } else {
+                    return Err(format!(
+                        "No se pudo mapear la columna duplicada '{output_name}' del JOIN DuckDB."
+                    ));
+                }
+            } else {
+                return Err(format!(
+                    "No se pudo mapear la columna '{output_name}' del JOIN DuckDB."
+                ));
+            };
+            Ok(format!(
+                "{expression} AS {}",
+                duckdb_identifier(&output_name)
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let join_keyword = match spec.join_type {
+        DatasetJoinType::Inner => "INNER JOIN",
+        DatasetJoinType::Left => "LEFT JOIN",
+        DatasetJoinType::Full => "FULL OUTER JOIN",
+    };
+    let conditions = spec
+        .current_keys
+        .iter()
+        .zip(&spec.compared_keys)
+        .map(|(current_key, compared_key)| {
+            format!(
+                "c.{} = r.{}",
+                duckdb_identifier(current_key),
+                duckdb_identifier(compared_key)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    projections.push(format!(
+        "CASE WHEN c.{current_order} IS NULL THEN {} + r.{compared_order} ELSE c.{current_order} END AS {current_order}",
+        current.height(),
+        current_order = duckdb_identifier(current_order_column),
+        compared_order = duckdb_identifier(compared_order_column),
+    ));
+    projections.push(format!(
+        "r.{compared_order} AS {compared_order}",
+        compared_order = duckdb_identifier(compared_order_column),
+    ));
+    Ok(format!(
+        "CREATE VIEW dataset AS SELECT {} FROM __columnia_current AS c {join_keyword} __columnia_compared AS r ON {conditions}",
+        projections.join(", ")
+    ))
 }
 
 fn local_compare(left: AnyValue<'_>, right: &str, operator: LocalPredicateOperator) -> bool {
@@ -15776,8 +16071,13 @@ pub fn get_dataset_page(
 }
 
 #[tauri::command]
-pub async fn query_dataset(app: AppHandle, query: String) -> Result<DatasetQueryResult, String> {
+pub async fn query_dataset(
+    app: AppHandle,
+    query: String,
+    engine: Option<DatasetQueryEngine>,
+) -> Result<DatasetQueryResult, String> {
     let generation = app.state::<DatasetState>().begin_query();
+    let engine = engine.unwrap_or_default();
     let (frame, compared) = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -15797,10 +16097,27 @@ pub async fn query_dataset(app: AppHandle, query: String) -> Result<DatasetQuery
             .map(|pending| pending.frame.clone());
         (frame, compared)
     };
-    tauri::async_runtime::spawn_blocking(move || {
-        execute_local_query_with_comparison_and_cancel(&frame, compared.as_ref(), &query, &|| {
-            app.state::<DatasetState>().query_was_cancelled(generation)
-        })
+    let cancellation_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || match engine {
+        DatasetQueryEngine::Polars => execute_local_query_with_comparison_and_cancel(
+            &frame,
+            compared.as_ref(),
+            &query,
+            &|| {
+                cancellation_app
+                    .state::<DatasetState>()
+                    .query_was_cancelled(generation)
+            },
+        ),
+        DatasetQueryEngine::Duckdb => {
+            let spec = prepare_duckdb_query(&query, &frame, compared.as_ref())?;
+            let cancellation_app = cancellation_app.clone();
+            crate::duckdb_query::execute_duckdb_query(&frame, compared.as_ref(), &spec, move || {
+                cancellation_app
+                    .state::<DatasetState>()
+                    .query_was_cancelled(generation)
+            })
+        }
     })
     .await
     .map_err(|error| format!("La consulta local se interrumpió: {error}"))?
@@ -22038,6 +22355,96 @@ mod tests {
         assert!(execute_local_query(&frame, "DELETE FROM dataset").is_err());
         assert!(execute_local_query(&frame, "SELECT * FROM dataset LIMIT 201").is_err());
         assert!(execute_local_query(&frame, "SELECT missing FROM dataset").is_err());
+    }
+
+    #[test]
+    fn duckdb_query_uses_the_same_safe_contract_and_join_page() {
+        let current = df![
+            "id" => &[1_i64, 2, 3],
+            "city" => &["Santo Domingo", "Santiago", "La Vega"]
+        ]
+        .unwrap();
+        let compared = df!["id" => &[2_i64, 3], "segment" => &["B", "C"]].unwrap();
+        let spec = prepare_duckdb_query(
+            "SELECT id, segment FROM dataset LEFT JOIN compared ON dataset.id = compared.id LIMIT 2",
+            &current,
+            Some(&compared),
+        )
+        .expect("la consulta DuckDB debe validar el JOIN local");
+
+        let result =
+            crate::duckdb_query::execute_duckdb_query(&current, Some(&compared), &spec, || false)
+                .expect("DuckDB debe ejecutar el JOIN local");
+
+        assert_eq!(result.row_count, 3);
+        assert_eq!(result.offset, 0);
+        assert_eq!(result.rows[0], vec![Some("1".to_owned()), None]);
+        assert_eq!(
+            result.rows[1],
+            vec![Some("2".to_owned()), Some("B".to_owned())]
+        );
+        assert!(result.truncated);
+    }
+
+    #[test]
+    fn duckdb_query_preserves_active_row_order_without_leaking_internal_columns() {
+        let current = df![
+            "id" => &[3_i64, 1, 2],
+            "city" => &["La Vega", "Santo Domingo", "Santiago"]
+        ]
+        .unwrap();
+        let spec = prepare_duckdb_query("SELECT * FROM dataset LIMIT 2", &current, None)
+            .expect("la consulta DuckDB debe validar el dataset activo");
+
+        let result = crate::duckdb_query::execute_duckdb_query(&current, None, &spec, || false)
+            .expect("DuckDB debe ejecutar la consulta paginada");
+
+        assert_eq!(
+            result
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "city"]
+        );
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("3".to_owned()), Some("La Vega".to_owned())],
+                vec![Some("1".to_owned()), Some("Santo Domingo".to_owned())],
+            ]
+        );
+    }
+
+    #[test]
+    fn duckdb_query_keeps_full_join_keys_and_group_order() {
+        let current = df![
+            "id" => &[1_i64, 2],
+            "region" => &["north", "south"]
+        ]
+        .unwrap();
+        let compared = df!["id" => &[2_i64, 3], "segment" => &["B", "C"]].unwrap();
+        let spec = prepare_duckdb_query(
+            "SELECT id, COUNT(*) AS total FROM dataset FULL JOIN compared ON dataset.id = compared.id GROUP BY id LIMIT 10",
+            &current,
+            Some(&compared),
+        )
+        .expect("la consulta agregada DuckDB debe validar el JOIN local");
+
+        let result =
+            crate::duckdb_query::execute_duckdb_query(&current, Some(&compared), &spec, || false)
+                .expect("DuckDB debe ejecutar la agregación del JOIN");
+
+        assert_eq!(result.row_count, 3);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("1".to_owned()), Some("1".to_owned())],
+                vec![Some("2".to_owned()), Some("1".to_owned())],
+                vec![Some("3".to_owned()), Some("1".to_owned())],
+            ]
+        );
+        assert!(!result.truncated);
     }
 
     #[test]

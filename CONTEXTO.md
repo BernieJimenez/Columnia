@@ -87,7 +87,7 @@ Usa esta prioridad cuando dos documentos parezcan contradecirse:
 3. `README.md` explica el producto y su uso actual.
 4. `ROADMAP.md` registra decisiones históricas, arquitectura objetivo y trabajo pendiente.
 
-No presentes como implementada una tecnología solo porque aparece en el roadmap. Por ejemplo, DuckDB forma parte de la arquitectura objetivo, pero no está entre las dependencias actuales de Cargo.
+No presentes como implementada una tecnología solo porque aparece en el roadmap. DuckDB ya forma parte de las dependencias de Cargo y ofrece la primera ruta opcional de consulta SQL local sobre snapshots Parquet temporales; la ejecución incremental general y el procesamiento fuera de la RAM del dataset siguen pendientes.
 
 ## Modelo mental del sistema
 
@@ -329,7 +329,7 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - imputación categórica explícita de nulos textuales como `Desconocido`, sin tocar números ni `_cambios`;
 - protección confirmable de valores no nulos en columnas personales detectadas mediante `[REDACTED]`, conservando columnas, números, nulos e `_cambios` y con reversión desde el historial;
 - agrupación con agregaciones tipadas;
-- consulta SQL local de solo lectura con filtros, agregaciones por bloques, `GROUP BY` compuesto de hasta ocho columnas y `JOIN` de hasta ocho pares de claves, con paginación, orden estable, claves nulas y límites de cardinalidad; el preflight de `JOIN` cuenta duplicidades por cubetas temporales y los `INNER`/`LEFT`/`FULL` procesan el lado `dataset` por bloques, con anti-join acotado para las filas derechas no emparejadas de `FULL`;
+- consulta SQL local de solo lectura con motor Polars predeterminado o DuckDB opcional sobre snapshots Parquet temporales; ambos conservan filtros, agregaciones por bloques, `GROUP BY` compuesto de hasta ocho columnas y `JOIN` de hasta ocho pares de claves, con conteo exacto, paginación, orden estable, claves nulas, límites de cardinalidad y esquema de claves coalescidas;
 - comparación completa de filas y por claves con índices temporales particionados, conflictos paginados y consolidación de nuevas claves sin retener mapas globales de firmas en memoria;
 - normalización de correos, teléfonos y direcciones;
 - extracciones textuales Unicode;
@@ -603,6 +603,7 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
   el presupuesto (`.local/validation/webview2-cdp/20260829T044540Z`).
  - 2026-08-29 P1 incorpora `fix_encoding`: el perfil cuenta por columna secuencias comunes de doble codificación UTF-8 y Preparar ofrece una reparación reversible solo cuando la conversión es inequívoca; los tipos no textuales, `_cambios` y valores no decodificables quedan intactos.
  - 2026-08-29 M1 recalcula y persiste el perfil agregado durante la importación de sesiones DataPrep, de modo que el proyecto abre con caché de calidad verificable; los resultados de análisis originales y cachés reanudables no se inventan.
+ - 2026-08-30 P1 incorpora un motor DuckDB opcional para la consulta SQL local restringida: el bridge selecciona el motor, Rust conserva el contrato de solo lectura, ejecuta sobre snapshots Parquet temporales, interrumpe la consulta nativa al cancelar y mantiene conteo, paginación y orden estable sin publicar columnas auxiliares. La primera ruta sigue limitada al `DataFrame` activo; la ejecución incremental general queda pendiente.
  - 2026-08-30 M1 restaura el historial portable `history_snapshots` v1 cuando la sesión aporta hasta doce referencias locales Parquet, etiquetas y cursor: Rust valida cada archivo regular, comprueba que el cursor coincide con el estado actual, copia las revisiones a la generación administrada y conserva Deshacer/Rehacer tras reiniciar. Los historiales ambiguos, referencias ausentes y cachés/resultados de análisis continúan requiriendo revisión manual.
  - 2026-08-29 P1 añade una acción confirmada para apartar como nulos los valores de texto que no coinciden con una sugerencia semántica con al menos 90% de confianza; no muestra celdas, conserva vacíos y tipos no textuales, y puede revertirse desde el historial.
   - 2026-08-29 P1 persiste en el workspace de cada proyecto las últimas cinco ejecuciones SQL como estado, duración y filas; las restaura al abrir y rechaza entradas corruptas o sobredimensionadas, sin guardar consultas, rutas ni valores.
@@ -623,7 +624,8 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 
 - ampliar la ejecución lazy/incremental a datasets mayores que la memoria y a
   operaciones que todavía requieren el camino eager;
-- DuckDB embebido para ampliar consultas sobre datasets grandes;
+- DuckDB embebido para ampliar esta primera ruta a datasets que excedan la RAM,
+  consultas SQL más amplias y un presupuesto incremental integral;
 - conectores remotos y destinos de bases de datos adicionales; los joins,
   comparación de datasets y destinos locales Excel/SQLite ya están cubiertos;
 - auditoría manual con lector de pantalla y validación en hardware de Windows High Contrast; `npm run accessibility:visual` ya cubre capturas reproducibles de desktop, móvil, escala 125% y `forced-colors` sin reemplazar una sesión manual de asistencia;
@@ -744,6 +746,7 @@ Al actualizarlo:
 | 2026-08-30 | Los `JOIN` SQL locales admiten hasta ocho pares de claves entre `dataset` y `compared`; cada par debe cruzar ambos lados, no repetir columnas y conservar tipos compatibles. El preflight de cardinalidad, el orden izquierdo y los límites de materialización siguen vigentes; DuckDB y joins fuera de memoria permanecen pendientes. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | Las agregaciones SQL locales recorren los bloques coincidentes en una segunda pasada y conservan solo estados de agregación y grupos; ya no retienen todos los índices de filas, pero mantienen el límite explícito de coincidencias, el orden estable y los resultados exactos. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La consulta SQL local `FULL` procesa el lado activo por bloques y añade por bloques las filas derechas no emparejadas mediante anti-join estable; conserva paginación, agregaciones y orden lógico sin acumular el resultado unido completo, pero el frame derecho anti-join mantiene los límites de materialización actuales. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-08-30 | P1 incorpora la primera ruta DuckDB opcional para SQL local: valida el contrato restringido, ejecuta sobre snapshots Parquet temporales, conserva conteo/paginación/orden estable y reproduce el esquema coalescido de JOIN `INNER`/`LEFT`/`FULL`; el `DataFrame` activo y la ejecución incremental fuera de RAM permanecen como límites explícitos. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | La comparación por claves particiona el índice exacto en 256 cubetas temporales y procesa resumen, nuevas claves y conflictos por cubeta; conserva el orden de conflictos, duplicados y resultados sin retener todos los índices de ambos datasets en memoria. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La comparación completa calcula el multiconjunto de filas comunes procesando las firmas por cubetas temporales y conserva los conteos exactos sin mapas globales de firmas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | El preflight de cardinalidad de los `JOIN` locales derrama las claves de ambos datasets y calcula los productos de duplicidad por cubeta con cancelación cooperativa, sin cambiar los límites ni el rechazo many-to-many. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |

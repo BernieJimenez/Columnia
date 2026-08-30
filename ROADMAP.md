@@ -1097,9 +1097,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    con `scan_parquet`; ambos usan el motor streaming de Polars, baja memoria y
    sin `rechunk` paralelo. Ampliar después a datasets mayores y a operaciones
    que todavía requieren el camino eager.
-7. **DuckDB y operaciones multidataset:** incorporar DuckDB solo después del
-   benchmark; los joins, la comparación y la consolidación local ya tienen una
-   primera entrega; quedan destinos de base de datos y consultas más amplias.
+7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
+   valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
+   temporales, con paginación, orden estable, agregaciones y joins seguros;
+   quedan el benchmark del motor, los datasets que excedan la RAM, consultas
+   más amplias y destinos de base de datos.
 8. **Migración M1 desde `dataprepv1.1`:** la vertical de contratos de calidad
    ya produce en v0.55.0 un informe con conteos, advertencias, acciones manuales
    y hash del artefacto; v0.56.0 conserva las opciones de entrega compatibles de
@@ -1316,8 +1318,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Endurecer la consulta SQL local con cancelación cooperativa, límite de
   filas coincidentes para agregaciones y preflight de cardinalidad para evitar
   materializar joins many-to-many fuera de presupuesto.
-- [ ] Completar consulta con joins y DuckDB después de validar el benchmark y
-  ampliar los límites de forma explícita.
+- [x] Añadir una primera ruta DuckDB opcional para la consulta local restringida:
+  el bridge selecciona el motor, Rust valida el contrato existente, usa
+  snapshots Parquet temporales y conserva conteo exacto, paginación, orden
+  estable, agregaciones y JOIN `INNER`/`LEFT`/`FULL` con claves coalescidas.
+- [ ] Completar consulta con joins y DuckDB para datasets que excedan la RAM,
+  después de validar el benchmark y ampliar los límites de forma explícita.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
   para columnas personales detectadas durante la exportación.
 - [x] Extender detección, enmascarado/hash y modos de privacidad visibles a los
@@ -1858,6 +1864,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 extiende el procesamiento por bloques a las agregaciones SQL locales `INNER`/`LEFT`: fusiona estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos en orden estable, sin acumular el `DataFrame` unido completo. `FULL` y DuckDB permanecen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 extiende la ruta por bloques a consultas SQL locales `FULL`: procesa el lado `dataset` como `LEFT` y añade por bloques las filas derechas no emparejadas con anti-join estable; paginación y agregaciones incluyen ambos lados sin acumular el resultado unido completo, aunque el frame anti-join derecho sigue acotado por los límites actuales. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1 restaura el historial portable `history_snapshots` v1: hasta doce Parquet locales, etiquetas/cursor validados, presupuesto durable de 1 GiB y reanudación de Deshacer/Rehacer tras reabrir el proyecto; historiales ambiguos y artefactos de análisis siguen fuera de alcance. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `docs/reference/migration-inventory.md` |
+| 2026-08-30 | P1 incorpora la primera ruta DuckDB opcional para SQL local: valida el contrato restringido, ejecuta sobre snapshots Parquet temporales, conserva conteo/paginación/orden estable y reproduce el esquema coalescido de JOIN `INNER`/`LEFT`/`FULL`; el `DataFrame` activo y la ejecución incremental fuera de RAM permanecen como límites explícitos. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

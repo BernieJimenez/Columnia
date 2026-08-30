@@ -5,6 +5,7 @@ import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
 import { cancelOperation, queryDataset } from "../../bridge";
 import type {
   DatasetColumn,
+  DatasetQueryEngine,
   DatasetJoinType,
   DatasetPreview,
   DatasetProfile,
@@ -531,6 +532,7 @@ function LocalQueryPanel({
 }) {
 
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
+  const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>("polars");
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "loading"; cancelRequested: boolean }
@@ -593,7 +595,7 @@ function LocalQueryPanel({
     queryStartedAtRef.current.set(requestId, Date.now());
     setState({ kind: "loading", cancelRequested: false });
     try {
-      const result = await queryDataset(query);
+      const result = await queryDataset(query, queryEngine);
       if (activeQueryRef.current !== requestId) return;
       if (cancelledQueryRef.current === requestId) {
         recordQueryHistory(requestId, "cancelled");
@@ -677,6 +679,20 @@ function LocalQueryPanel({
             spellCheck={false}
           />
         </label>
+        <label className="local-query__field">
+          Motor de consulta
+          <select
+            aria-label="Motor de consulta"
+            value={queryEngine}
+            onChange={(event) => setQueryEngine(event.target.value as DatasetQueryEngine)}
+          >
+            <option value="polars">Polars · predeterminado</option>
+            <option value="duckdb">DuckDB · SQL local</option>
+          </select>
+        </label>
+        <p className="local-query__engine-note">
+          DuckDB ejecuta la consulta sobre snapshots Parquet temporales y mantiene el mismo límite seguro de 200 filas.
+        </p>
         <div className="local-query__actions">
           <button type="button" onClick={() => void runQuery()} disabled={state.kind === "loading" || !query.trim()}>
             {state.kind === "loading" ? "Consultando…" : "Ejecutar consulta"}

@@ -19,7 +19,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
 | Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes locales sin rutas, arrastre nativo sin rutas en React y primera importación segura de sesiones DataPrep con validación previa | Parcial | Completar restauración de sesiones, round-trip, caché y actividad |
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales, sanitización de recetas/reports/manifests y confirmación visible de columnas protegidas | Parcial | Extender contratos equivalentes a conectores remotos |
-| Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles; benchmark CLI validado hasta 256 MiB; perfiles Rayon persistentes; SQL local con cancelación cooperativa, presupuesto de agregación y preflight de cardinalidad JOIN | Parcial | Ejecución incremental real, DuckDB y presupuesto integral |
+| Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles; benchmark CLI validado hasta 256 MiB; perfiles Rayon persistentes; SQL local con Polars predeterminado o DuckDB opcional sobre snapshots Parquet temporales, cancelación cooperativa, presupuesto de agregación y preflight de cardinalidad JOIN | Parcial | Ejecución incremental real fuera de RAM y presupuesto integral |
 
 ## Primera entrega de paridad
 
@@ -538,7 +538,10 @@ para evitar materializaciones accidentales. Las agregaciones cuentan las filas
 coincidentes antes de retenerlas y rechazan consultas fuera de presupuesto.
 Toda la ejecución comprueba cancelación por bloques, incluida la ordenación y
 la unión. No se aceptan rutas, tablas externas, escrituras ni consultas contra
-una comparación no cargada. DuckDB sigue fuera de esta vertical.
+una comparación no cargada. DuckDB ofrece ahora una alternativa explícita sobre
+snapshots Parquet temporales y conserva el mismo contrato restringido; no se
+habilita SQL arbitrario, tablas externas ni escritura, y la ejecución fuera de
+la RAM permanece pendiente.
 
 Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en

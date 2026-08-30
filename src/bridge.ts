@@ -150,6 +150,8 @@ export interface DatasetQueryResult {
   truncated: boolean;
 }
 
+export type DatasetQueryEngine = "polars" | "duckdb";
+
 export interface HistogramBucket {
   lower: number;
   upper: number;
@@ -858,10 +860,14 @@ export function getDatasetPage(offset: number, limit: number): Promise<DatasetPa
 
 /**
  * Runs the bounded local SELECT contract. JOIN can read only the comparison
- * already loaded by Review through the logical table `compared`.
+ * already loaded by Review through the logical table `compared`. Polars is
+ * the default engine; DuckDB is an explicit local alternative.
  */
-export function queryDataset(query: string): Promise<DatasetQueryResult> {
-  return invoke<DatasetQueryResult>("query_dataset", { query });
+export function queryDataset(
+  query: string,
+  engine: DatasetQueryEngine = "polars",
+): Promise<DatasetQueryResult> {
+  return invoke<DatasetQueryResult>("query_dataset", { query, engine });
 }
 
 export function getDatasetProfile(onProgress?: ProgressHandler): Promise<DatasetProfile> {

@@ -380,7 +380,7 @@ describe("ReviewPhase", () => {
       }),
       { id: 9, outcome: "error", durationMs: 18, rowCount: null },
     ]);
-    expect(bridge.queryDataset).toHaveBeenCalledWith("SELECT id FROM dataset LIMIT 1");
+    expect(bridge.queryDataset).toHaveBeenCalledWith("SELECT id FROM dataset LIMIT 1", "polars");
   });
 
   it("permite cancelar una consulta y no pinta una respuesta tardía", async () => {

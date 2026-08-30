@@ -235,6 +235,7 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenCalledWith("query_dataset", {
       query: "SELECT city FROM dataset LIMIT 1 OFFSET 1",
+      engine: "polars",
     });
   });
 

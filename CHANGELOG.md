@@ -8,6 +8,14 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- La consulta SQL local ofrece un motor DuckDB explícito además de Polars:
+  ejecuta el contrato restringido de solo lectura sobre snapshots Parquet
+  temporales, conserva conteo exacto, paginación de hasta 200 filas, orden
+  estable, agregaciones y JOIN `INNER`/`LEFT`/`FULL` con el mismo esquema
+  coalescido; la cancelación interrumpe la consulta nativa y las columnas
+  auxiliares de orden nunca se publican. Esta primera ruta sigue limitada al
+  `DataFrame` activo y no completa todavía la ejecución incremental fuera de
+  memoria.
 - La migración M1 de sesiones DataPrep restaura un historial explícito de hasta
   doce snapshots Parquet locales mediante el contrato versionado
   `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de

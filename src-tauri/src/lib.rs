@@ -6,6 +6,7 @@ use tauri_plugin_dialog::DialogExt;
 pub mod automation;
 mod dataset;
 mod dataset_fingerprints;
+mod duckdb_query;
 pub mod privacy;
 mod project_recovery;
 mod projects;
