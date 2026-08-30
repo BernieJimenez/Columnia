@@ -335,8 +335,9 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - historial multinivel Deshacer/Rehacer.
 - ejecución Polars lazy para renombres, casts, filtros, búsqueda/reemplazo
   literal, selección, unión y división de columnas, columnas calculadas
-  numéricas compatibles y resúmenes agrupados sin filtros ni búsqueda/reemplazo
-  previos; las operaciones restantes usan fallback eager atómico.
+  numéricas compatibles, resúmenes agrupados sin filtros ni búsqueda/reemplazo
+  previos y normalizaciones de contactos; las operaciones restantes usan
+  fallback eager atómico.
 
 Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, pérdida de precisión, división por cero o conflicto entre pasos revierte el lote completo.
 

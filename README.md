@@ -426,9 +426,9 @@ la ruta nunca llega a React y una receta cargada no se aplica automáticamente.
 Las recetas compatibles con renombres, conversiones, filtros, búsqueda y
 reemplazo literal, selección, unión y división de columnas y columnas
 calculadas y resúmenes agrupados sin filtros ni búsqueda/reemplazo previos se
-ejecutan mediante un plan Polars lazy con el motor streaming; las operaciones que
-necesitan validaciones o materialización completa conservan el camino eager
-explícito.
+ejecutan mediante un plan Polars lazy con el motor streaming; las normalizaciones
+de contactos también se planifican allí, y las operaciones que necesitan
+validaciones o materialización completa conservan el camino eager explícito.
 
 La receta también admite hasta tres **filtros AND** y una **columna calculada**.
 Como los filtros pueden eliminar filas, Columnia muestra una confirmación antes

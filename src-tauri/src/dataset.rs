@@ -17053,6 +17053,7 @@ type RecipeFrameOutcome = (
 
 type LazySummaryAggregation = (String, String, SummaryOperation);
 type LazySummaryPlan = (Vec<String>, Vec<LazySummaryAggregation>);
+type LazyContactTarget = (String, ContactKind);
 
 fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
@@ -17062,7 +17063,7 @@ fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
             .group_summary
             .as_ref()
             .is_none_or(|_| recipe.filters.is_empty() && recipe.find_replace.is_none())
-        && recipe.contact_normalizations.is_empty()
+        && (recipe.contact_normalizations.is_empty() || recipe.group_summary.is_none())
         && recipe.text_extractions.is_empty()
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
             matches!(
@@ -17303,6 +17304,56 @@ fn lazy_summary_column(
         Ok(column.clone())
     } else {
         strict_cast_column(column, cast.target)
+    }
+}
+
+fn lazy_contact_targets(
+    source: &DataFrame,
+    treatments: &[ContactNormalization],
+    renames: &HashMap<&str, &str>,
+    casts: &[RecipeCast],
+) -> Result<Vec<LazyContactTarget>, String> {
+    if treatments.len() > 16 {
+        return Err("La receta admite como máximo 16 normalizaciones de contacto.".into());
+    }
+    let mut unique = HashSet::new();
+    treatments
+        .iter()
+        .map(|treatment| {
+            if !unique.insert(treatment.column.as_str()) {
+                return Err(format!(
+                    "La columna '{}' tiene más de una normalización de contacto.",
+                    treatment.column
+                ));
+            }
+            let effective_name = remapped_name(&treatment.column, renames).to_owned();
+            let column = lazy_summary_column(source, &treatment.column, renames, casts)?;
+            if column.dtype() != &DataType::String {
+                return Err(format!(
+                    "La columna '{effective_name}' debe ser de texto para normalizar contactos."
+                ));
+            }
+            Ok((effective_name, treatment.kind))
+        })
+        .collect()
+}
+
+fn lazy_contact_expression(name: &str, kind: ContactKind) -> Expr {
+    let value = col(name);
+    match kind {
+        ContactKind::Email => value.str().strip_chars(lit(NULL)).str().to_lowercase(),
+        ContactKind::Phone => {
+            let trimmed = value.clone().str().strip_chars(lit(NULL));
+            let digits = value.str().replace_all(lit(r"[^0-9]+"), lit(""), false);
+            when(trimmed.str().starts_with(lit("+")))
+                .then(concat_str(vec![lit("+"), digits.clone()], "", false))
+                .otherwise(digits)
+        }
+        ContactKind::Address => value
+            .str()
+            .replace_all(lit(r"(?u)\s+"), lit(" "), false)
+            .str()
+            .strip_chars(lit(NULL)),
     }
 }
 
@@ -17910,6 +17961,80 @@ fn apply_lazy_recipe_to_frame(
         (0, 0)
     };
 
+    let (normalized_contact_cell_count, normalized_contact_column_count) = if recipe
+        .contact_normalizations
+        .is_empty()
+    {
+        (0, 0)
+    } else {
+        let schema = plan.collect_schema().map_err(|error| {
+            format!("No se pudo validar el esquema de normalización de contactos: {error}")
+        })?;
+        let targets = lazy_contact_targets(
+            source,
+            &recipe.contact_normalizations,
+            &rename_map,
+            &recipe.casts,
+        )?;
+        for (name, _) in &targets {
+            if schema.get(name).is_none() {
+                return Err(format!(
+                    "La columna '{name}' para contactos no sobrevivió las etapas estructurales."
+                ));
+            }
+        }
+        let count_aliases = targets
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("__columnia_contact_changed_{index}"))
+            .collect::<Vec<_>>();
+        let count_expressions = targets
+            .iter()
+            .zip(&count_aliases)
+            .map(|((name, kind), alias)| {
+                lazy_contact_expression(name, *kind)
+                    .neq_missing(col(name))
+                    .cast(DataType::UInt64)
+                    .sum()
+                    .alias(alias)
+            })
+            .collect::<Vec<_>>();
+        let count_frame = collect_lazy_frame_streaming(
+            plan.clone().select(count_expressions),
+            "No se pudo contar la normalización de contactos",
+        )?;
+        let changed_cells = count_aliases
+            .iter()
+            .map(|alias| {
+                let value = count_frame
+                    .column(alias)
+                    .map_err(|error| format!("No se pudo leer el conteo de contactos: {error}"))?
+                    .get(0)
+                    .map_err(|error| format!("No se pudo leer el conteo de contactos: {error}"))?;
+                match value {
+                    AnyValue::UInt64(value) => usize::try_from(value).map_err(|_| {
+                        "El conteo de normalizaciones excede el límite de memoria.".to_owned()
+                    }),
+                    AnyValue::Int64(value) if value >= 0 => {
+                        usize::try_from(value as u64).map_err(|_| {
+                            "El conteo de normalizaciones excede el límite de memoria.".to_owned()
+                        })
+                    }
+                    AnyValue::Null => Ok(0),
+                    _ => Err("El conteo de contactos devolvió un tipo inválido.".to_owned()),
+                }
+            })
+            .collect::<Result<Vec<_>, String>>()?
+            .into_iter()
+            .sum();
+        let expressions = targets
+            .iter()
+            .map(|(name, kind)| lazy_contact_expression(name, *kind).alias(name))
+            .collect::<Vec<_>>();
+        plan = plan.with_columns(expressions);
+        (changed_cells, targets.len())
+    };
+
     let (group_summary_input_rows, summary_aggregations) = if let Some(summary) =
         &recipe.group_summary
     {
@@ -18009,8 +18134,8 @@ fn apply_lazy_recipe_to_frame(
         group_count,
         summary_aggregations.as_ref().map_or(0, Vec::len),
         collapsed_row_count,
-        0,
-        0,
+        normalized_contact_cell_count,
+        normalized_contact_column_count,
         0,
     ))
 }
@@ -23170,6 +23295,47 @@ mod tests {
         assert_eq!(rows[1][3].as_deref(), Some("2"));
         assert_eq!(rows[1][4].as_deref(), Some("1"));
         assert_eq!(rows[2][5], None);
+    }
+
+    #[test]
+    fn lazy_contact_normalization_preserves_nulls_and_counts_changes() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("email".into(), [Some(" İ@EXAMPLE.COM "), None]).into_column(),
+                Series::new("phone".into(), [" +1 (809) 555-01 ", "1+2"]).into_column(),
+                Series::new("address".into(), ["  Calle\u{a0}Uno\u{2003}Norte ", "ok"])
+                    .into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            contact_normalizations: vec![
+                ContactNormalization {
+                    column: "email".into(),
+                    kind: ContactKind::Email,
+                },
+                ContactNormalization {
+                    column: "phone".into(),
+                    kind: ContactKind::Phone,
+                },
+                ContactNormalization {
+                    column: "address".into(),
+                    kind: ContactKind::Address,
+                },
+            ],
+            ..Default::default()
+        };
+        let (result, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, changed, columns, _) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!((changed, columns), (4, 3));
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("i\u{307}@example.com"));
+        assert_eq!(rows[0][1].as_deref(), Some("+180955501"));
+        assert_eq!(rows[1][1].as_deref(), Some("12"));
+        assert_eq!(rows[0][2].as_deref(), Some("Calle Uno Norte"));
+        assert_eq!(rows[1][2].as_deref(), Some("ok"));
+        assert_eq!(rows[1][0], None);
     }
 
     #[test]

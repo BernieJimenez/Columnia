@@ -119,6 +119,10 @@ los artefactos de validación locales.
   conserva el orden estable de primera aparición, claves nulas, conteos de
   filas, `count_unique`, tipos numéricos/temporales y validaciones de finitos,
   precisión y desbordamiento antes de publicar el candidato.
+- La normalización de contactos puede ejecutarse dentro del plan lazy/streaming:
+  correo, teléfono y dirección conservan nulos, espacios Unicode, prefijos y
+  conteos exactos de celdas modificadas; las recetas que además resumen grupos
+  mantienen fallback eager hasta cubrir esa dependencia de orden.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
