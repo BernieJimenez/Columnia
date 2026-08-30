@@ -17123,10 +17123,6 @@ fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
         && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
         && recipe.outlier_treatments.is_empty()
-        && recipe
-            .group_summary
-            .as_ref()
-            .is_none_or(|_| recipe.filters.is_empty())
         && (recipe.contact_normalizations.is_empty() || recipe.group_summary.is_none())
         && (recipe.text_extractions.is_empty() || recipe.group_summary.is_none())
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
@@ -17434,6 +17430,23 @@ fn lazy_summary_column(
     }
 }
 
+fn lazy_summary_validation_column(
+    source: &DataFrame,
+    validation: Option<&DataFrame>,
+    name: &str,
+    renames: &HashMap<&str, &str>,
+    casts: &[RecipeCast],
+) -> Result<Column, String> {
+    if let Some(validation) = validation {
+        let effective_name = remapped_name(name, renames);
+        return validation
+            .column(effective_name)
+            .cloned()
+            .map_err(|_| format!("La columna '{effective_name}' no existe en el preflight."));
+    }
+    lazy_summary_column(source, name, renames, casts)
+}
+
 fn lazy_contact_targets(
     source: &DataFrame,
     treatments: &[ContactNormalization],
@@ -17593,6 +17606,7 @@ fn validate_lazy_group_summary(
     summary: &GroupSummaryRecipe,
     renames: &HashMap<&str, &str>,
     casts: &[RecipeCast],
+    validation: Option<&DataFrame>,
 ) -> Result<LazySummaryPlan, String> {
     if summary.group_by.is_empty() || summary.group_by.len() > 8 {
         return Err("Agrupar requiere entre 1 y 8 columnas clave.".into());
@@ -17616,7 +17630,8 @@ fn validate_lazy_group_summary(
                     "La clave de grupo '{effective_name}' está duplicada."
                 ));
             }
-            let column = lazy_summary_column(source, source_name, renames, casts)?;
+            let column =
+                lazy_summary_validation_column(source, validation, source_name, renames, casts)?;
             for row in 0..column.len() {
                 lazy_summary_group_key(&column, row, effective_name)?;
             }
@@ -17643,7 +17658,13 @@ fn validate_lazy_group_summary(
                 "El nombre de salida '{output}' colisiona con otra columna."
             ));
         }
-        let column = lazy_summary_column(source, &aggregation.column, renames, casts)?;
+        let column = lazy_summary_validation_column(
+            source,
+            validation,
+            &aggregation.column,
+            renames,
+            casts,
+        )?;
         match aggregation.operation {
             SummaryOperation::Sum | SummaryOperation::Mean
                 if !matches!(column.dtype(), DataType::Int64 | DataType::Float64) =>
@@ -17702,7 +17723,8 @@ fn validate_lazy_group_summary(
 
     if !integer_sum_columns.is_empty() {
         let mut sums = vec![HashMap::<Vec<Option<String>>, i64>::new(); integer_sum_columns.len()];
-        for row in 0..source.height() {
+        let validation_height = validation.map_or(source.height(), DataFrame::height);
+        for row in 0..validation_height {
             let key = group_columns
                 .iter()
                 .zip(&groups)
@@ -18323,21 +18345,51 @@ fn apply_lazy_recipe_to_frame(
     let (group_summary_input_rows, summary_aggregations) = if let Some(summary) =
         &recipe.group_summary
     {
+        for name in summary.group_by.iter().chain(
+            summary
+                .aggregations
+                .iter()
+                .map(|aggregation| &aggregation.column),
+        ) {
+            recipe_column(source, name)?;
+        }
         let schema = plan
             .collect_schema()
             .map_err(|error| format!("No se pudo validar el esquema del resumen: {error}"))?;
-        let (groups, aggregations) =
-            validate_lazy_group_summary(source, summary, &rename_map, &recipe.casts)?;
-        for name in groups
+        let summary_names = summary
+            .group_by
             .iter()
-            .chain(aggregations.iter().map(|(name, _, _)| name))
-        {
+            .chain(
+                summary
+                    .aggregations
+                    .iter()
+                    .map(|aggregation| &aggregation.column),
+            )
+            .map(|name| remapped_name(name, &rename_map).to_owned())
+            .collect::<HashSet<_>>();
+        for name in &summary_names {
             if schema.get(name).is_none() {
                 return Err(format!(
-                        "La columna '{name}' requerida por agrupar/resumir no sobrevivió las etapas anteriores."
-                    ));
+                    "La columna '{name}' requerida por agrupar/resumir no sobrevivió las etapas anteriores."
+                ));
             }
         }
+        let validation = if recipe.filters.is_empty() {
+            None
+        } else {
+            Some(collect_lazy_frame_streaming(
+                plan.clone()
+                    .select(summary_names.iter().map(col).collect::<Vec<_>>()),
+                "No se pudo validar el resumen después de los filtros",
+            )?)
+        };
+        let (groups, aggregations) = validate_lazy_group_summary(
+            source,
+            summary,
+            &rename_map,
+            &recipe.casts,
+            validation.as_ref(),
+        )?;
         let group_expressions = groups.iter().map(col).collect::<Vec<_>>();
         let aggregate_expressions = aggregations
             .iter()
@@ -18358,7 +18410,14 @@ fn apply_lazy_recipe_to_frame(
         plan = plan
             .group_by_stable(group_expressions)
             .agg(aggregate_expressions);
-        (Some(source.height()), Some(aggregations))
+        (
+            Some(
+                validation
+                    .as_ref()
+                    .map_or(source.height(), DataFrame::height),
+            ),
+            Some(aggregations),
+        )
     } else {
         (None, None)
     };
@@ -23622,6 +23681,42 @@ mod tests {
         assert_eq!(rows[0][0].as_deref(), Some("B"));
         assert_eq!(rows[0][1].as_deref(), Some("10"));
         assert_eq!(rows[0][2].as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn lazy_group_summary_filters_before_grouping_and_validates_surviving_rows() {
+        let frame = DataFrame::new(
+            4,
+            vec![
+                Series::new("group".into(), ["A", "A", "B", "B"]).into_column(),
+                Series::new("keep".into(), ["yes", "no", "yes", "no"]).into_column(),
+                Series::new("value".into(), [i64::MAX, 1, 2, 20]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            filters: vec![RecipeFilter {
+                column: "keep".into(),
+                operator: RecipeFilterOperator::Eq,
+                value: Some("yes".into()),
+            }],
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["group".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!((outcome.4, outcome.15, outcome.17), (2, 2, 0));
+        let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("A"));
+        assert_eq!(rows[0][1].as_deref(), Some("9223372036854775807"));
+        assert_eq!(rows[1][0].as_deref(), Some("B"));
+        assert_eq!(rows[1][1].as_deref(), Some("2"));
     }
 
     #[test]

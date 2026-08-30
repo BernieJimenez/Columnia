@@ -115,8 +115,9 @@ los artefactos de validación locales.
   las validaciones de nombres, colisiones, casts a texto y descarte reversible
   de la fuente.
 - La agrupación y los resúmenes tipados pueden ejecutarse dentro del plan
-  lazy/streaming cuando no dependen de filtros previos; la búsqueda/reemplazo
-  literal se aplica antes de agrupar dentro del mismo plan:
+  lazy/streaming incluso con filtros previos; la búsqueda/reemplazo literal se
+  aplica antes de agrupar dentro del mismo plan y el preflight proyecta solo las
+  columnas necesarias:
   conserva el orden estable de primera aparición, claves nulas, conteos de
   filas, `count_unique`, tipos numéricos/temporales y validaciones de finitos,
   precisión y desbordamiento antes de publicar el candidato.

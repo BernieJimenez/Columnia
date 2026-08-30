@@ -1331,8 +1331,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   validados antes de publicar. La división literal conserva el resto en el
   último destino y rellena destinos ausentes con nulos dentro del plan
   streaming. La agrupación y los resúmenes tipados también pueden ejecutarse
-  dentro del plan lazy cuando no hay filtros previos; la búsqueda/reemplazo
-  literal se aplica antes de agrupar dentro del mismo plan:
+  dentro del plan lazy incluso con filtros previos; la búsqueda/reemplazo
+  literal se aplica antes de agrupar dentro del mismo plan y el preflight
+  proyecta solo las columnas necesarias:
   preservan orden estable, claves nulas, conteo de filas, `count_unique`, tipos
   y validaciones de finitos, precisión y desbordamiento. El dataset activo sigue
   materializado para conservar la compatibilidad de transformaciones, perfil e
@@ -1844,12 +1845,13 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | Incorporar búsqueda/reemplazo literal sobre texto a la familia lazy, con conteo streaming de celdas modificadas y semántica estable para nulos, renombres y casts a texto | Implementada como séptima expansión; el dataset activo y las operaciones estructurales restantes siguen requiriendo materialización |
 | 2026-08-29 | Incorporar unión de columnas de texto a la familia lazy mediante `concat_str`, preservando orden, nulos y casts numérico→texto validados | Implementada como octava expansión; la entrada y el candidato activo siguen siendo `DataFrame` y `split_columns`/operaciones avanzadas continúan en cola |
 | 2026-08-29 | Incorporar división literal de texto a la familia lazy mediante `splitn`, conservando el resto, nulos, validaciones y descarte de la fuente | Implementada como novena expansión; la entrada y el candidato activo siguen siendo `DataFrame` y las operaciones avanzadas continúan en cola |
-| 2026-08-29 | Incorporar agrupación y resúmenes tipados al plan lazy con orden estable, claves nulas, conteo de filas, `count_unique` y preflight de finitos, precisión y desbordamiento | Implementada como décima expansión; filtros previos, la entrada y el candidato activo siguen limitando la ejecución fuera de memoria |
+| 2026-08-29 | Incorporar agrupación y resúmenes tipados al plan lazy con orden estable, claves nulas, conteo de filas, `count_unique` y preflight de finitos, precisión y desbordamiento | Implementada como décima expansión; la entrada y el candidato activo siguen limitando la ejecución fuera de memoria |
 | 2026-08-29 | Incorporar normalización lazy de contactos para correo, teléfono y dirección, preservando nulos, espacios Unicode y conteos exactos de celdas modificadas | Implementada como undécima expansión; la combinación con agrupación y la entrada/candidato materializados siguen en cola |
 | 2026-08-29 | Incorporar extracción lazy de tokens, runs Unicode y segmentos antes/después de delimitadores literales, preservando nulos y coincidencias ausentes | Implementada como duodécima expansión; agrupación con extracciones y la entrada/candidato materializados siguen en cola |
 | 2026-08-30 | Incorporar cálculos lazy de suma, resta, multiplicación, división y concatenación, con validación previa de operandos, nulos, división por cero e infinitos | Implementada como decimotercera expansión; año/mes/día, agrupación con extracciones/contactos y la entrada/candidato materializados siguen en cola |
 | 2026-08-30 | Ejecutar búsqueda/reemplazo literal antes de agrupación y resúmenes dentro del mismo plan lazy, preservando conteos y la semántica de claves transformadas | Implementada como decimocuarta expansión; filtros previos, agrupación con extracciones/contactos y la entrada/candidato materializados siguen en cola |
 | 2026-08-30 | Incorporar extracción lazy de año, mes y día sobre `Date`/`Datetime` sin zona horaria, con preflight de rango y fallback explícito para filtros o zonas horarias | Implementada como decimoquinta expansión; filtros previos, fechas con zona horaria, agrupación con extracciones/contactos y la entrada/candidato materializados siguen en cola |
+| 2026-08-30 | Extender agrupación y resúmenes lazy a filtros previos, con preflight streaming de las columnas necesarias, conteo correcto de filas retiradas y validación exacta de sumas supervivientes | Implementada como decimosexta expansión; agrupación con extracciones/contactos y la entrada/candidato materializados siguen en cola |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

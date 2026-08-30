@@ -425,8 +425,8 @@ puede guardarse y cargarse como una receta JSON v1 mediante selectores nativos;
 la ruta nunca llega a React y una receta cargada no se aplica automáticamente.
 Las recetas compatibles con renombres, conversiones, filtros, búsqueda y
 reemplazo literal, selección, unión y división de columnas, cálculos de suma,
-resta, multiplicación, división y concatenación, y resúmenes agrupados sin
-filtros previos se ejecutan mediante un plan Polars lazy
+resta, multiplicación, división y concatenación, y resúmenes agrupados incluso
+con filtros previos se ejecutan mediante un plan Polars lazy
 con el motor streaming; las normalizaciones de contactos y extracciones
 textuales también se planifican allí. Las operaciones que necesitan
 validaciones o materialización completa conservan el camino eager explícito;
