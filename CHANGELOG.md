@@ -123,8 +123,8 @@ los artefactos de validación locales.
   precisión y desbordamiento antes de publicar el candidato.
 - La normalización de contactos puede ejecutarse dentro del plan lazy/streaming:
   correo, teléfono y dirección conservan nulos, espacios Unicode, prefijos y
-  conteos exactos de celdas modificadas; las recetas que además resumen grupos
-  mantienen fallback eager hasta cubrir esa dependencia de orden.
+  conteos exactos de celdas modificadas; también puede ejecutarse antes de
+  resumir grupos, con validación sobre los valores ya normalizados.
 - Las extracciones textuales también pueden ejecutarse dentro del plan
   lazy/streaming: tokens, runs Unicode y búsquedas antes/después de delimitadores
   literales preservan nulos, coincidencias ausentes y el límite de 16 columnas.

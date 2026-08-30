@@ -17123,7 +17123,6 @@ fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
         && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
         && recipe.outlier_treatments.is_empty()
-        && (recipe.contact_normalizations.is_empty() || recipe.group_summary.is_none())
         && (recipe.text_extractions.is_empty() || recipe.group_summary.is_none())
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
             matches!(
@@ -18374,13 +18373,13 @@ fn apply_lazy_recipe_to_frame(
                 ));
             }
         }
-        let validation = if recipe.filters.is_empty() {
+        let validation = if recipe.filters.is_empty() && recipe.contact_normalizations.is_empty() {
             None
         } else {
             Some(collect_lazy_frame_streaming(
                 plan.clone()
                     .select(summary_names.iter().map(col).collect::<Vec<_>>()),
-                "No se pudo validar el resumen después de los filtros",
+                "No se pudo validar el resumen después de los filtros/contactos",
             )?)
         };
         let (groups, aggregations) = validate_lazy_group_summary(
@@ -23717,6 +23716,54 @@ mod tests {
         assert_eq!(rows[0][1].as_deref(), Some("9223372036854775807"));
         assert_eq!(rows[1][0].as_deref(), Some("B"));
         assert_eq!(rows[1][1].as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn lazy_group_summary_uses_normalized_contacts_before_grouping() {
+        let frame = DataFrame::new(
+            4,
+            vec![
+                Series::new(
+                    "email".into(),
+                    [
+                        Some(" A@EXAMPLE.COM "),
+                        Some("a@example.com"),
+                        None,
+                        Some("b@example.com"),
+                    ],
+                )
+                .into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            contact_normalizations: vec![ContactNormalization {
+                column: "email".into(),
+                kind: ContactKind::Email,
+            }],
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["email".into()],
+                aggregations: vec![SummaryAggregation {
+                    column: "value".into(),
+                    operation: SummaryOperation::Sum,
+                }],
+            }),
+            ..Default::default()
+        };
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(
+            (outcome.15, outcome.17, outcome.18, outcome.19),
+            (3, 1, 1, 1)
+        );
+        let rows = dataset_page(&outcome.0, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][0].as_deref(), Some("a@example.com"));
+        assert_eq!(rows[0][1].as_deref(), Some("3"));
+        assert_eq!(rows[1][0], None);
+        assert_eq!(rows[1][1].as_deref(), Some("3"));
+        assert_eq!(rows[2][0].as_deref(), Some("b@example.com"));
+        assert_eq!(rows[2][1].as_deref(), Some("4"));
     }
 
     #[test]
