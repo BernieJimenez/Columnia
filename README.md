@@ -175,7 +175,9 @@ El preflight de cardinalidad de los joins también procesa índices de claves po
 cubetas temporales antes de materializar el resultado.
 La comparación por claves también particiona su índice temporal y procesa una
 cubeta a la vez. La consulta SQL local ya ofrece DuckDB como motor opcional
-sobre snapshots Parquet temporales, con el mismo contrato restringido y seguro;
+sobre el snapshot Parquet administrado de la revisión activa cuando está
+disponible, con fallback temporal para historiales degradados y el mismo
+contrato restringido y seguro;
 los joins grandes, la ejecución incremental completa y el procesamiento fuera
 de la RAM del dataset siguen siendo trabajo pendiente. La
 comparación completa de filas calcula sus conteos de multiconjunto por las mismas

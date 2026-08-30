@@ -58,8 +58,11 @@ conexiones remotas y la capability de la ventana solo concede `core:default`.
   la frontera de confianza y haría obligatoria la red.
 - **Filesystem controlado directamente por React:** descartado porque permite
   que una UI tenga más autoridad de la necesaria sobre rutas y datos.
-- **DuckDB desde el scaffold:** diferido hasta medir Polars con datasets grandes
-  y justificar operaciones multidataset.
+- **DuckDB opcional:** se incorpora para la consulta SQL local restringida y
+  reutiliza el snapshot Parquet administrado de la revisión activa cuando está
+  disponible; conserva un snapshot temporal como fallback para historiales
+  degradados. La ejecución incremental general y el procesamiento fuera de la
+  RAM siguen pendientes.
 
 Para ver los contratos exactos de la frontera y sus decisiones, consulta
 [ADR-0001](../adr/0001-contratos-del-repositorio.md) y la
