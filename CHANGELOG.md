@@ -8,6 +8,9 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- La comparación completa de filas calcula el multiconjunto de filas comunes por
+  cubetas temporales, conservando los conteos exactos sin retener mapas globales
+  de firmas de ambos datasets.
 - La comparación por claves particiona su índice exacto en 256 cubetas temporales
   y procesa una cubeta a la vez para el resumen, las nuevas claves y los
   conflictos paginados, conservando orden, duplicados y resultados sin retener

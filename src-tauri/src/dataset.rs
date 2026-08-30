@@ -13381,33 +13381,6 @@ fn row_signature(
     Ok(signature)
 }
 
-fn row_signatures(frame: &DataFrame, columns: &[String]) -> Result<HashMap<String, usize>, String> {
-    let mut counts = HashMap::new();
-    for start in (0..frame.height()).step_by(LOCAL_QUERY_BLOCK_ROWS) {
-        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
-        let partial = (start..end)
-            .into_par_iter()
-            .try_fold(
-                HashMap::<String, usize>::new,
-                |mut partial, row_index| -> Result<HashMap<String, usize>, String> {
-                    let signature = row_signature(frame, columns, row_index)?;
-                    *partial.entry(signature).or_insert(0) += 1;
-                    Ok(partial)
-                },
-            )
-            .try_reduce(HashMap::new, |mut left, right| {
-                for (signature, count) in right {
-                    *left.entry(signature).or_insert(0) += count;
-                }
-                Ok(left)
-            })?;
-        for (signature, count) in partial {
-            *counts.entry(signature).or_insert(0) += count;
-        }
-    }
-    Ok(counts)
-}
-
 struct SpilledKeyRows {
     _directory: tempfile::TempDir,
     bucket_paths: Vec<PathBuf>,
@@ -13547,6 +13520,33 @@ fn read_spilled_key_bucket(
     Ok(rows_by_key)
 }
 
+fn common_row_count_from_spilled_signatures(
+    current: &DataFrame,
+    compared: &DataFrame,
+    shared_columns: &[String],
+) -> Result<usize, String> {
+    let current_signatures = spill_key_rows(current, shared_columns)?;
+    let compared_signatures = spill_key_rows(compared, shared_columns)?;
+    let mut common = 0usize;
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let current_bucket = read_spilled_key_bucket(&current_signatures, bucket)?;
+        let compared_bucket = read_spilled_key_bucket(&compared_signatures, bucket)?;
+        let bucket_common = current_bucket
+            .iter()
+            .fold(0usize, |total, (signature, group)| {
+                total.saturating_add(
+                    group.count.min(
+                        compared_bucket
+                            .get(signature)
+                            .map_or(0, |other| other.count),
+                    ),
+                )
+            });
+        common = common.saturating_add(bucket_common);
+    }
+    Ok(common)
+}
+
 #[cfg(test)]
 fn collect_spilled_key_rows(spill: &SpilledKeyRows) -> Result<HashMap<String, Vec<usize>>, String> {
     let mut rows_by_key = HashMap::new();
@@ -13560,6 +13560,19 @@ fn collect_spilled_key_rows(spill: &SpilledKeyRows) -> Result<HashMap<String, Ve
         })?;
     }
     Ok(rows_by_key)
+}
+
+#[cfg(test)]
+fn collect_spilled_signature_counts(
+    spill: &SpilledKeyRows,
+) -> Result<HashMap<String, usize>, String> {
+    let mut counts = HashMap::new();
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        for (signature, group) in read_spilled_key_bucket(spill, bucket)? {
+            counts.insert(signature, group.count);
+        }
+    }
+    Ok(counts)
 }
 
 #[derive(Default)]
@@ -14146,24 +14159,18 @@ fn compare_frames(
             .iter()
             .zip(compared.columns())
             .all(|(left, right)| left.dtype() == right.dtype());
-    let (common_row_count, current_only_row_count, compared_only_row_count) =
-        if shared_columns.is_empty() {
-            (0, current.height(), compared.height())
-        } else {
-            let current_rows = row_signatures(current, &shared_columns)?;
-            let compared_rows = row_signatures(compared, &shared_columns)?;
-            let common = current_rows
-                .iter()
-                .map(|(signature, count)| {
-                    (*count).min(compared_rows.get(signature).copied().unwrap_or(0))
-                })
-                .sum::<usize>();
-            (
-                common,
-                current.height().saturating_sub(common),
-                compared.height().saturating_sub(common),
-            )
-        };
+    let (common_row_count, current_only_row_count, compared_only_row_count) = if shared_columns
+        .is_empty()
+    {
+        (0, current.height(), compared.height())
+    } else {
+        let common = common_row_count_from_spilled_signatures(current, compared, &shared_columns)?;
+        (
+            common,
+            current.height().saturating_sub(common),
+            compared.height().saturating_sub(common),
+        )
+    };
     let (key_summary, conflicts, conflicts_truncated) = if key_columns.is_empty() {
         (KeyComparisonSummary::default(), Vec::new(), false)
     } else {
@@ -22420,6 +22427,53 @@ mod tests {
     }
 
     #[test]
+    fn compares_full_row_multisets_by_partitioned_signatures() {
+        let current_count = LOCAL_QUERY_BLOCK_ROWS * 2 + 3;
+        let compared_count = LOCAL_QUERY_BLOCK_ROWS + 11;
+        let current_ids = (0..current_count)
+            .map(|index| (index % 11) as i64)
+            .collect::<Vec<_>>();
+        let compared_ids = (0..compared_count)
+            .map(|index| ((index + 3) % 11) as i64)
+            .collect::<Vec<_>>();
+        let current = DataFrame::new(
+            current_count,
+            vec![Series::new("id".into(), current_ids.clone()).into_column()],
+        )
+        .expect("el frame activo debe ser válido");
+        let compared = DataFrame::new(
+            compared_count,
+            vec![Series::new("id".into(), compared_ids.clone()).into_column()],
+        )
+        .expect("el frame comparado debe ser válido");
+
+        let mut current_frequencies = HashMap::<i64, usize>::new();
+        for id in current_ids {
+            *current_frequencies.entry(id).or_default() += 1;
+        }
+        let mut compared_frequencies = HashMap::<i64, usize>::new();
+        for id in compared_ids {
+            *compared_frequencies.entry(id).or_default() += 1;
+        }
+        let expected_common = current_frequencies
+            .iter()
+            .map(|(id, count)| (*count).min(compared_frequencies.get(id).copied().unwrap_or(0)))
+            .sum::<usize>();
+
+        let comparison = compare_frames(&current, "activo.csv", &compared, "comparado.csv", &[])
+            .expect("la comparación completa por cubetas debe calcularse");
+        assert_eq!(comparison.common_row_count, expected_common);
+        assert_eq!(
+            comparison.current_only_row_count,
+            current_count - expected_common
+        );
+        assert_eq!(
+            comparison.compared_only_row_count,
+            compared_count - expected_common
+        );
+    }
+
+    #[test]
     fn compares_explicit_keys_and_reports_conflicts_and_duplicate_keys() {
         let current_path = temporary_csv("id,city,total\n1,Santo Domingo,10\n2,Santiago,20\n");
         let compared_path = temporary_csv("id,city,total\n2,Santiago,25\n3,La Vega,30\n");
@@ -22476,7 +22530,10 @@ mod tests {
             .expect("el frame grande de comparación debe ser válido");
         let columns = vec!["id".to_owned()];
 
-        let signatures = row_signatures(&frame, &columns).expect("las firmas deben fusionarse");
+        let signature_spill =
+            spill_key_rows(&frame, &columns).expect("las firmas deben derramarse");
+        let signatures = collect_spilled_signature_counts(&signature_spill)
+            .expect("las firmas deben fusionarse");
         let key_spill = spill_key_rows(&frame, &columns).expect("las claves deben derramarse");
         let keys = collect_spilled_key_rows(&key_spill).expect("las claves deben fusionarse");
 

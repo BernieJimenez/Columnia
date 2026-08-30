@@ -1300,9 +1300,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Procesar las agregaciones SQL locales por bloques, conservando solo estados
   de agregación y grupos en la segunda pasada, sin retener índices de filas
   coincidentes fuera del presupuesto explícito.
-- [x] Particionar el índice exacto de comparación por claves en cubetas temporales,
-  procesando resumen, nuevas claves y conflictos paginados por una cubeta a la vez
-  sin retener todos los índices de ambos datasets en memoria.
+- [x] Particionar los índices exactos de comparación por claves y de firmas completas
+  de filas en cubetas temporales, procesando resumen, multiconjuntos, nuevas claves
+  y conflictos paginados por una cubeta a la vez sin retener mapas globales en memoria.
 - [x] Endurecer la consulta SQL local con cancelación cooperativa, límite de
   filas coincidentes para agregaciones y preflight de cardinalidad para evitar
   materializar joins many-to-many fuera de presupuesto.
@@ -1329,11 +1329,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   Parquet y la primera familia de recetas compatibles ya comparten colección
   Polars con motor `streaming`; la apertura y validación de snapshots Parquet
   durables también reutiliza esa frontera, y el historial se restaura entrada por
-entrada sin retener todos sus frames simultáneamente. La comparación de filas
-completas fusiona firmas por bloques y aún conserva un mapa global exacto. La
-comparación por claves particiona ese índice exacto en 256 cubetas temporales y
-procesa resumen, nuevas claves y conflictos paginados por una cubeta a la vez,
-sin retener todos los índices de ambos datasets en memoria. Los JOIN locales por claves ya ejecutan el plan Polars
+entrada sin retener todos sus frames simultáneamente. La comparación completa de
+filas y la comparación por claves particionan sus firmas exactas en 256 cubetas
+temporales y procesan multiconjuntos, resumen, nuevas claves y conflictos
+paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JOIN locales por claves ya ejecutan el plan Polars
   con motor `streaming` después de su preflight, pero su resultado sigue dentro
   de los límites explícitos. `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
@@ -1829,6 +1828,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 amplía los `JOIN` SQL locales a hasta ocho pares de claves entre `dataset` y `compared`, con validación de duplicados, tipos compatibles, preflight de cardinalidad y orden izquierdo; DuckDB y joins fuera de memoria siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 procesa la segunda pasada de agregaciones SQL locales por bloques: conserva estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos, no índices de todas las coincidencias, sin cambiar el presupuesto ni el resultado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 particiona el índice exacto de comparación por claves en 256 cubetas temporales y procesa resumen, nuevas claves y conflictos paginados por cubeta, preservando orden y duplicados sin retener todos los índices en memoria. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 calcula la comparación completa de filas por multiconjuntos de firmas particionadas, conservando conteos exactos sin mapas globales de firmas. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
@@ -1887,6 +1887,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Extender el parser SQL local para JOINs compuestos de hasta ocho pares, reutilizando el preflight existente de tipos/cardinalidad y el plan streaming con orden izquierdo | Implementada como vigésimo tercera expansión; no amplía aún el motor a DuckDB ni la ejecución fuera de memoria |
 | 2026-08-30 | Procesar agregaciones SQL locales en una segunda pasada por bloques, con acumuladores por grupo y sin guardar índices de filas coincidentes | Implementada como vigésimo cuarta expansión; el `DataFrame` activo, el límite de coincidencias y los resultados paginados siguen siendo el contrato actual |
 | 2026-08-30 | Particionar el índice exacto de comparación por claves en cubetas temporales y procesar cada cubeta de forma independiente | Implementada como vigésimo quinta expansión; la comparación de filas completas, el `DataFrame` activo y los joins fuera de memoria siguen pendientes |
+| 2026-08-30 | Particionar también las firmas completas de filas y calcular la intersección de multiconjuntos por cubeta | Implementada como vigésimo sexta expansión; el `DataFrame` activo, las operaciones eager restantes y los joins fuera de memoria siguen pendientes |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

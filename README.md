@@ -168,6 +168,8 @@ por bloques sin conservar índices de todas las filas coincidentes.
 La comparación por claves también particiona su índice temporal y procesa una
 cubeta a la vez, mientras DuckDB, los joins grandes y la ejecución incremental
 completa siguen siendo trabajo pendiente. La
+comparación completa de filas calcula sus conteos de multiconjunto por las mismas
+cubetas temporales, sin mapas globales de firmas.
 sesión actual muestra las últimas cinco ejecuciones con estado,
 duración y filas afectadas, pero nunca conserva el texto de la consulta ni sus
 valores.
