@@ -1213,8 +1213,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    formato dominante cerrado y auditoría
    `_cambios`. El fallback de sesiones ya reproduce además las tres estrategias
    IQR (`cap_outliers`, `impute_outliers`, `drop_outliers`) cuando la secuencia
-   incluye `cast_numeric`; la acción directa de Limpieza ofrece ahora capear y
-   eliminar outliers con confirmación y reversión desde el historial.
+   incluye `cast_numeric`; las estrategias IQR se validan como mutuamente
+   excluyentes antes del replay; la acción directa de Limpieza ofrece ahora
+   capear y eliminar outliers con confirmación y reversión desde el historial.
 - [x] Migrar `selected_cleaning_operations` para que los aliases de las limpiezas
   deterministas se normalicen, se conserven en el informe de sesión y se
   reproduzcan desde la fuente en el orden fijo, incluyendo las estrategias IQR
@@ -1764,6 +1765,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | P1 cierra la brecha de acción directa para `cast_numeric`: Preparar convierte texto con más de 90% de coincidencia numérica, rechaza pérdida de precisión, conserva identificadores/códigos con ceros iniciales y publica una mutación reversible con impacto agregado; el inventario IPC pasa a 66 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
 | 2026-08-29 | M1 amplía el round-trip de sesiones con un `.xlsx` real generado por el exportador nativo: la hoja registrada se valida, la receta se aplica y el proyecto se reabre comprobando esquema, conteos y etapa activa; la restauración completa de artefactos históricos sigue pendiente. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `fixtures/migration/dataprep-session-v1-roundtrip.json` |
 | 2026-08-29 | M1 importa hasta cinco entradas de historial de ejecución solo cuando sus metadatos agregados son seguros (estado, duración y filas), las persiste en la actividad SQL del proyecto con IDs locales y descarta consultas, rutas, valores y entradas inválidas. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
+| 2026-08-29 | M1 rechaza antes de publicar una sesión que combine estrategias IQR de outliers mutuamente excluyentes (`cap`, `impute` y `drop`), preservando la semántica de DataPrep y el catálogo existente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 

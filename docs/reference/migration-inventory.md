@@ -156,6 +156,9 @@ limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
 completamente nulas y no elimina por sí sola texto en blanco. Si existe un
 snapshot compatible, se usa ese estado materializado y las operaciones no se
 reaplican.
+Las estrategias IQR `cap_outliers`, `impute_outliers` y `drop_outliers` son
+mutuamente excluyentes: si una sesión selecciona más de una, el replay se
+rechaza antes de publicar el proyecto y no combina sus efectos.
 Al publicar un proyecto importado, Columnia recalcula y persiste su propio
 perfil agregado junto con la huella SHA-256 de `current.parquet`, para que
 Revisar tenga una caché verificable y pueda invalidarla si el snapshot cambia;

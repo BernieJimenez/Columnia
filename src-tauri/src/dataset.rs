@@ -18060,6 +18060,20 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
+        let selected_outlier_modes = ["cap_outliers", "impute_outliers", "drop_outliers"]
+            .iter()
+            .filter(|mode| {
+                applied_operations
+                    .iter()
+                    .any(|operation| operation == **mode)
+            })
+            .count();
+        if selected_outlier_modes > 1 {
+            return Err(
+                "Las estrategias de outliers son excluyentes: elige capear, imputar o eliminar."
+                    .to_owned(),
+            );
+        }
         let mut cleaned = dataset.frame.clone();
         let mut changed = false;
 

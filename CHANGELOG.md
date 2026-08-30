@@ -45,6 +45,9 @@ los artefactos de validación locales.
    cuando no hay snapshot compatible, respetando el orden fijo de limpieza; un snapshot disponible
    conserva prioridad para evitar reaplicar operaciones sobre un estado
    materializado.
+- El replay M1 rechaza antes de publicar una sesión que combine las estrategias
+  IQR incompatibles `cap_outliers`, `impute_outliers` y `drop_outliers`, igualando
+  la exclusividad del catálogo DataPrep.
 - El catálogo DataPrep `selected_cleaning_operations` se migra por aliases canónicos:
   las limpiezas deterministas, incluido `mask_pii` en su modo `mask` predeterminado,
   se reproducen desde la fuente y se conservan en el informe de sesión. Los modos

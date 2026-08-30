@@ -3296,6 +3296,35 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_rejects_conflicting_outlier_modes_before_publishing() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(&source, "amount\n1\n2\n3\n4\n100\n").unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Estrategias incompatibles",
+                "source_path": "source.csv",
+                "selected_cleaning_operations": ["cap_outliers", "drop_outliers"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = import_dataprep_session_project_from_path(&store, &session, None, None, None)
+            .expect_err("las estrategias IQR combinadas deben rechazarse");
+
+        assert!(error.contains("limpieza determinista"));
+        assert!(!error.contains(directory.path().to_string_lossy().as_ref()));
+        assert!(store.list().unwrap().is_empty());
+        assert_eq!(snapshot_count(&store), 0);
+    }
+
+    #[test]
     fn dataprep_session_replays_structural_cleaning_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
