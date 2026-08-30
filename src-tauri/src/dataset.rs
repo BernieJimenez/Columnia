@@ -19180,8 +19180,27 @@ fn lazy_renames_have_no_cycles(recipe: &TransformRecipe) -> bool {
     })
 }
 
+fn lazy_outlier_columns_survive_keep(recipe: &TransformRecipe) -> bool {
+    let remap = |name: &str| {
+        recipe
+            .renames
+            .iter()
+            .find(|rename| rename.from == name)
+            .map_or_else(|| name.to_owned(), |rename| rename.to.clone())
+    };
+    recipe.keep_columns.as_ref().is_none_or(|keep_columns| {
+        recipe.outlier_treatments.iter().all(|treatment| {
+            let effective_name = remap(&treatment.column);
+            keep_columns
+                .iter()
+                .any(|name| remap(name) == effective_name)
+        })
+    })
+}
+
 fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
     lazy_renames_have_no_cycles(recipe)
+        && lazy_outlier_columns_survive_keep(recipe)
         && recipe
             .date_parses
             .iter()
@@ -19209,7 +19228,6 @@ fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
             || (recipe.casts.is_empty()
                 && recipe.date_parses.is_empty()
                 && recipe.find_replace.is_none()
-                && recipe.keep_columns.is_none()
                 && recipe.calculated_column.is_none()
                 && recipe.split_column.is_none()
                 && recipe.merge_columns.is_none()
@@ -26554,6 +26572,56 @@ mod tests {
             dropped.0.column("value").unwrap().get(4),
             Ok(AnyValue::Null)
         ));
+    }
+
+    #[test]
+    fn lazy_recipe_keeps_outlier_dependencies_when_projection_precedes_iqr() {
+        let frame = df![
+            "value" => [1_i64, 2, 3, 4, 100, 1000],
+            "group" => ["keep", "keep", "keep", "keep", "keep", "discard"]
+        ]
+        .expect("el frame filtrable debe ser válido");
+        let recipe = TransformRecipe {
+            filters: vec![RecipeFilter {
+                column: "group".into(),
+                operator: RecipeFilterOperator::Eq,
+                value: Some("keep".into()),
+            }],
+            keep_columns: Some(vec!["group".into(), "value".into()]),
+            outlier_treatments: vec![OutlierTreatment {
+                column: "value".into(),
+                action: OutlierAction::Cap,
+            }],
+            ..Default::default()
+        };
+
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe)
+            .expect("la proyección que conserva la dependencia debe seguir en lazy");
+
+        assert_eq!(
+            (outcome.4, outcome.12, outcome.13, outcome.14),
+            (1, 1, 0, 1)
+        );
+        assert_eq!(
+            outcome
+                .0
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["group", "value"]
+        );
+        assert_eq!(outcome.0.height(), 5);
+        assert!(matches!(
+            outcome.0.column("value").unwrap().get(4),
+            Ok(AnyValue::Float64(7.0))
+        ));
+
+        let mut dropping_dependency = recipe;
+        dropping_dependency.keep_columns = Some(vec!["group".into()]);
+        assert!(!lazy_recipe_supported(&frame, &dropping_dependency));
+        assert!(apply_recipe_to_frame(&frame, &dropping_dependency).is_err());
     }
 
     #[test]

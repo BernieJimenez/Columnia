@@ -234,6 +234,11 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 
 ### Historial y atomicidad
 
+Las recetas IQR compatibles con lazy/streaming también pueden usar
+`keepColumns` cuando la proyección conserva todas las columnas tratadas. Si una
+proyección elimina una dependencia, se mantiene el fallback eager y la
+validación cerrada.
+
 En la importación de sesiones y en el ciclo durable de proyectos, los snapshots
 que no son el cursor se copian byte a byte y solo consultan su footer/esquema;
 el cursor se materializa para comprobar igualdad con el frame activo. Las filas

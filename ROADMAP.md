@@ -1419,6 +1419,9 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   Las recetas pueden combinar parseos de fecha con conversiones en columnas
   distintas, y `split` con `merge` cuando ninguna etapa descarta una fuente aún
   necesaria; las dependencias incompatibles conservan rechazo o fallback eager.
+  Los tratamientos IQR también pueden combinarse con `keep_columns` cuando la
+  proyección conserva todas sus columnas fuente; si la proyección descarta una
+  dependencia, la receta mantiene el fallback eager y su validación cerrada.
   La muestra paginada también puede leerse desde el snapshot Parquet del cursor
   actual con `slice`, sin volver a construirla desde todas las filas; si el
   historial está degradado, se conserva la ruta de `DataFrame`.
@@ -1919,6 +1922,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 amplía la receta lazy/streaming para combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` y `merge` en una misma receta cuando se conservan sus dependencias; los conflictos de fuentes mantienen rechazo o fallback eager explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1 reconoce el campo `filename` que emite DataPrep como referencia local reproducible cuando falta `source_path`: lo resuelve junto al manifiesto, valida que sea un archivo regular y conserva nombre/estado sin filtrar la ruta al bridge. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-30 | P1 amplía las recetas IQR lazy/streaming para convivir con `keep_columns` cuando se conservan todas las columnas tratadas; si una proyección elimina una dependencia, se mantiene el fallback eager y el rechazo explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

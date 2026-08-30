@@ -73,6 +73,10 @@ los artefactos de validación locales.
   pueden ejecutarse en lazy/streaming con conteos exactos de celdas y filas,
   calculando sus umbrales después de filtros previos; las etapas que alteran
   valores antes del cálculo conservan fallback eager.
+- Los tratamientos IQR lazy/streaming también pueden combinarse con
+  `keepColumns` cuando la proyección conserva todas sus columnas tratadas; si
+  una proyección elimina una dependencia, se conserva el fallback eager y la
+  validación cerrada.
 - Las recetas lazy pueden combinar parseos de fecha con conversiones en columnas
   distintas, y también dividir y combinar columnas en la misma ejecución; las
   dependencias incompatibles, como descartar antes una fuente que aún necesita
