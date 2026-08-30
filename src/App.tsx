@@ -77,7 +77,9 @@ import {
   getDatasetPage,
   getDatasetProfile,
   inspectDroppedDataset as inspectDroppedDatasetSource,
+  inspectSampleDataset,
   joinDataset,
+  listSampleDatasets,
   loadDatasetSelection,
   pickDatasetSource,
   resolveDatasetConflicts,
@@ -90,6 +92,7 @@ import {
   type DatasetSourceInspection,
   type OperationProgress,
   type SavedRecipe,
+  type SampleDatasetDescriptor,
   type SqlQueryHistoryEntry,
   type SpreadsheetHeaderMode,
 } from "./bridge";
@@ -164,6 +167,7 @@ export function App() {
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
+  const [sampleDatasets, setSampleDatasets] = useState<SampleDatasetDescriptor[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
   const [recipeSession, setRecipeSession] = useState(0);
@@ -276,6 +280,17 @@ export function App() {
 
   useEffect(() => {
     if (status.kind !== "ready") return;
+    let active = true;
+    listSampleDatasets()
+      .then((samples) => active && setSampleDatasets(samples))
+      .catch(() => active && setSampleDatasets([]));
+    return () => {
+      active = false;
+    };
+  }, [status.kind]);
+
+  useEffect(() => {
+    if (status.kind !== "ready") return;
 
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -375,6 +390,10 @@ export function App() {
 
   function selectDataset() {
     return inspectDatasetSource(pickDatasetSource());
+  }
+
+  function selectSampleDataset(sampleId: string) {
+    return inspectDatasetSource(inspectSampleDataset(sampleId));
   }
 
   function selectRecentDataset(_item: RecentDataset) {
@@ -775,7 +794,9 @@ export function App() {
                 datasetStatus={datasetStatus}
                 inspection={loadInspection}
                 recentDatasets={recentDatasets}
+                sampleDatasets={sampleDatasets}
                 onSelect={selectDataset}
+                onSelectSample={selectSampleDataset}
                 onSelectRecent={selectRecentDataset}
                 onClearRecent={() => setRecentDatasets([])}
                 onRemoveRecent={(id) => setRecentDatasets((current) => removeRecentDataset(current, id))}

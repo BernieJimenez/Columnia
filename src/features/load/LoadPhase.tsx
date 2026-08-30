@@ -8,6 +8,7 @@ import type {
   LoadInspectionState,
   SheetSelectionAction,
 } from "./loadModel";
+import type { SampleDatasetDescriptor } from "../../bridge";
 import {
   formatRecentDatasetDate,
   formatRecentDatasetFormat,
@@ -25,7 +26,9 @@ interface LoadPhaseProps {
   datasetStatus: DatasetStatus;
   inspection: LoadInspectionState;
   recentDatasets: readonly RecentDataset[];
+  sampleDatasets?: readonly SampleDatasetDescriptor[];
   onSelect: () => void;
+  onSelectSample?: (sampleId: string) => void;
   onSelectRecent: (item: RecentDataset) => void;
   onClearRecent: () => void;
   onRemoveRecent: (id: string) => void;
@@ -39,7 +42,9 @@ export function LoadPhase({
   datasetStatus,
   inspection,
   recentDatasets,
+  sampleDatasets = [],
   onSelect,
+  onSelectSample = () => undefined,
   onSelectRecent,
   onClearRecent,
   onRemoveRecent,
@@ -108,6 +113,31 @@ export function LoadPhase({
             <span aria-hidden="true">·</span>
             <span>Procesamiento local</span>
           </p>
+        </section>
+      )}
+
+      {!current && runtime.kind === "connected" && sampleDatasets.length > 0 && (
+        <section className="sample-datasets" aria-labelledby="sample-datasets-title">
+          <div>
+            <p className="eyebrow">Sin preparar archivos</p>
+            <h3 id="sample-datasets-title">Explora con un dataset de ejemplo</h3>
+            <p>Los ejemplos se crean localmente en la carpeta de datos de Columnia; no se descargan ni se envían.</p>
+          </div>
+          <div className="sample-datasets__list">
+            {sampleDatasets.map((sample) => (
+              <button
+                key={sample.id}
+                type="button"
+                className="sample-datasets__item"
+                onClick={() => onSelectSample(sample.id)}
+                disabled={selectionDisabled}
+              >
+                <strong>{sample.name}</strong>
+                <span>{sample.description}</span>
+                <small>{sample.format.toUpperCase()}</small>
+              </button>
+            ))}
+          </div>
         </section>
       )}
 

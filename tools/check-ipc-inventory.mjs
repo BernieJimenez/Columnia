@@ -32,6 +32,7 @@ const sharedStructures = [
   ["DatasetPreview", "DatasetPreview"],
   ["WorkbookSheet", "WorkbookSheet"],
   ["DatasetSourceInspection", "DatasetSourceInspection"],
+  ["SampleDatasetDescriptor", "SampleDatasetDescriptor"],
   ["DatasetPage", "DatasetPage"],
   ["DatasetQueryResult", "DatasetQueryResult"],
   ["NumericCorrelation", "NumericCorrelation"],
@@ -126,7 +127,7 @@ try {
   if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
     throw new Error("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
   }
-  if (current.productionCommands.length !== 66 || current.debugCommands.length !== 4) {
+  if (current.productionCommands.length !== 68 || current.debugCommands.length !== 4) {
     throw new Error(`Conteo IPC inesperado: ${current.productionCommands.length} producción, ${current.debugCommands.length} debug.`);
   }
   console.log(`Inventario IPC aprobado: ${current.productionCommands.length} comandos producción, ${current.debugCommands.length} debug, ${current.sharedStructures.length} estructuras.`);

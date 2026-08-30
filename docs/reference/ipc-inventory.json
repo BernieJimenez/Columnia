@@ -35,6 +35,16 @@
       "debug": false
     },
     {
+      "name": "list_sample_datasets",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "inspect_sample_dataset",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "pick_dataset_source",
       "module": "dataset",
       "debug": false
@@ -438,6 +448,10 @@
     {
       "rust": "DatasetSourceInspection",
       "typescript": "DatasetSourceInspection"
+    },
+    {
+      "rust": "SampleDatasetDescriptor",
+      "typescript": "SampleDatasetDescriptor"
     },
     {
       "rust": "DatasetPage",

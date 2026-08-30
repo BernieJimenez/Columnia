@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DatasetSourceInspection } from "../../bridge";
+import type { SampleDatasetDescriptor } from "../../bridge";
 import { LoadPhase } from "./LoadPhase";
 import { workbookInspection } from "./loadModel";
 import type { RecentDataset } from "./recentFilesModel";
@@ -131,6 +132,27 @@ describe("LoadPhase", () => {
     expect(onSelectRecent).toHaveBeenCalledWith(recentDataset);
     expect(onRemoveRecent).toHaveBeenCalledWith("recent-ventas");
     expect(onClearRecent).toHaveBeenCalledOnce();
+  });
+
+  it("ofrece datasets de ejemplo locales mediante identificadores opacos", () => {
+    const onSelectSample = vi.fn();
+    const samples: SampleDatasetDescriptor[] = [
+      {
+        id: "quality",
+        name: "Clientes · señales de calidad",
+        format: "csv",
+        description: "Nulos e identificadores.",
+      },
+    ];
+    render(
+      <LoadPhase
+        {...loadPhaseProps({ sampleDatasets: samples, onSelectSample })}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Explora con un dataset de ejemplo" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Clientes · señales de calidad/ }));
+    expect(onSelectSample).toHaveBeenCalledWith("quality");
   });
 
   it("deshabilita volver a elegir fuera de Tauri, pero conserva el historial visible", () => {

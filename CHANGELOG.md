@@ -71,6 +71,10 @@ los artefactos de validación locales.
 - La migración de sesiones DataPrep conserva en el artefacto de receta los
   identificadores estructurales acotados de operaciones aplicadas y comprobaciones
   de análisis, además de sus conteos; no guarda resultados, cachés ni rutas.
+- Cargar ofrece dos datasets de ejemplo locales para explorar señales de calidad
+  y series temporales sin descargar datos ni exponer rutas; la selección usa un
+  identificador opaco y el inventario IPC queda en 68 comandos de producción y
+  59 estructuras.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de

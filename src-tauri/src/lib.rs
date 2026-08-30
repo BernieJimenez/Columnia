@@ -177,6 +177,8 @@ pub fn run() {
             get_performance_settings,
             set_performance_profile,
             preview_dataprep_session_migration,
+            dataset::list_sample_datasets,
+            dataset::inspect_sample_dataset,
             dataset::pick_dataset_source,
             dataset::inspect_dropped_dataset,
             dataset::load_dataset_selection,

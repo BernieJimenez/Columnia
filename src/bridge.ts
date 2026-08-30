@@ -128,6 +128,13 @@ export interface DatasetSourceInspection {
   isCompressedContainer: boolean;
 }
 
+export interface SampleDatasetDescriptor {
+  id: string;
+  name: string;
+  format: string;
+  description: string;
+}
+
 export type SpreadsheetHeaderMode = "firstRow" | "generated";
 
 export interface DatasetPage {
@@ -766,6 +773,14 @@ export function getPerformanceSettings(): Promise<PerformanceSettings> {
 
 export function setPerformanceProfile(profile: PerformanceProfile): Promise<PerformanceSettings> {
   return invoke<PerformanceSettings>("set_performance_profile", { profile });
+}
+
+export function listSampleDatasets(): Promise<SampleDatasetDescriptor[]> {
+  return invoke<SampleDatasetDescriptor[]>("list_sample_datasets");
+}
+
+export function inspectSampleDataset(sampleId: string): Promise<DatasetSourceInspection> {
+  return invoke<DatasetSourceInspection>("inspect_sample_dataset", { sampleId });
 }
 
 export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {
