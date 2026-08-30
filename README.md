@@ -451,6 +451,8 @@ preceder a los resúmenes, y las extracciones textuales también pueden alimenta
 sus claves y agregaciones dentro del mismo plan.
 Las operaciones que necesitan
 validaciones o materialización completa conservan el camino eager explícito;
+los parseos explícitos `Ymd`, `Dmy` y `Mdy` de fechas también se ejecutan dentro
+del plan, mientras `Iso8601` y las zonas horarias mantienen fallback eager.
 la extracción de año, mes y día usa la ruta lazy para `Date` y `Datetime` sin
 zona horaria cuando no hay filtros previos, y mantiene fallback eager en los
 demás casos. Las columnas calculadas numéricas y concatenadas también pueden

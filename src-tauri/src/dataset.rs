@@ -18913,7 +18913,26 @@ type LazyContactTarget = (String, ContactKind);
 type LazyTextExtractionTarget = (String, ExtractionKind, Option<String>);
 
 fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
-    recipe.date_parses.is_empty()
+    recipe
+        .date_parses
+        .iter()
+        .all(|parse| match recipe_column(source, &parse.column) {
+            Ok(column)
+                if matches!(
+                    parse.format,
+                    RecipeDateFormat::Ymd | RecipeDateFormat::Dmy | RecipeDateFormat::Mdy
+                ) =>
+            {
+                matches!(column.dtype(), DataType::String)
+                    || matches!(
+                        (column.dtype(), parse.target),
+                        (DataType::Date, RecipeDateTarget::Date)
+                            | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
+                    )
+            }
+            _ => false,
+        })
+        && (recipe.date_parses.is_empty() || recipe.casts.is_empty())
         && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
         && recipe.outlier_treatments.is_empty()
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
@@ -19672,6 +19691,70 @@ fn apply_lazy_recipe_to_frame(
         plan = plan.with_columns(cast_expressions);
     }
 
+    let mut date_columns = HashSet::new();
+    let mut date_expressions = Vec::new();
+    let mut parsed_date_column_count = 0;
+    for parse in &recipe.date_parses {
+        let effective_name = remapped_name(&parse.column, &rename_map);
+        if cast_columns.contains(effective_name) {
+            return Err(format!(
+                "La columna '{}' no puede convertirse y parsearse como fecha en la misma receta.",
+                parse.column
+            ));
+        }
+        if !date_columns.insert(effective_name) {
+            return Err(format!(
+                "La columna '{}' aparece en más de un parseo de fecha.",
+                parse.column
+            ));
+        }
+        let column = recipe_column(source, &parse.column)?;
+        let already_target = matches!(
+            (column.dtype(), parse.target),
+            (DataType::Date, RecipeDateTarget::Date)
+                | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
+        );
+        if already_target {
+            continue;
+        }
+        if column.dtype() != &DataType::String {
+            return Err(format!(
+                "La columna '{}' debe ser de texto para parsearse como fecha.",
+                parse.column
+            ));
+        }
+        let format = match parse.format {
+            RecipeDateFormat::Ymd => "%Y-%m-%d",
+            RecipeDateFormat::Dmy => "%d/%m/%Y",
+            RecipeDateFormat::Mdy => "%m/%d/%Y",
+            RecipeDateFormat::Iso8601 => {
+                unreachable!("el soporte lazy de fechas solo admite formatos sin zona horaria")
+            }
+        };
+        let target = match parse.target {
+            RecipeDateTarget::Date => DataType::Date,
+            RecipeDateTarget::Datetime => DataType::Datetime(TimeUnit::Milliseconds, None),
+        };
+        let expression = col(effective_name)
+            .str()
+            .strip_chars(lit(NULL))
+            .str()
+            .strptime(
+                target,
+                StrptimeOptions {
+                    format: Some(format.into()),
+                    ..Default::default()
+                },
+                lit("raise"),
+            )
+            .alias(effective_name);
+        date_expressions.push(expression);
+        parsed_date_column_count += 1;
+    }
+    if !date_expressions.is_empty() {
+        plan = plan.with_columns(date_expressions);
+    }
+
     for filter in &recipe.filters {
         let effective_name = remapped_name(&filter.column, &rename_map);
         plan = plan.filter(lazy_filter_expression(source, filter, effective_name)?);
@@ -20276,7 +20359,7 @@ fn apply_lazy_recipe_to_frame(
         candidate,
         renamed_count,
         cast_count,
-        0,
+        parsed_date_column_count,
         removed_row_count,
         calculated_column_count,
         replaced_cell_count,
@@ -25726,6 +25809,7 @@ mod tests {
             ..Default::default()
         };
 
+        assert!(!lazy_recipe_supported(&frame, &recipe));
         let (
             result,
             renamed,
@@ -25775,6 +25859,42 @@ mod tests {
             dataset_page(&result, 0, 2).unwrap().rows[0][5].as_deref(),
             Some("R1")
         );
+    }
+
+    #[test]
+    fn lazy_recipe_parses_fixed_date_formats_with_streaming_plan() {
+        let frame = DataFrame::new(
+            3,
+            vec![Series::new(
+                "when".into(),
+                [Some("31/12/2025"), Some("01/01/2026"), None::<&str>],
+            )
+            .into_column()],
+        )
+        .expect("el frame de fechas debe ser válido");
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "when".into(),
+                format: RecipeDateFormat::Dmy,
+                target: RecipeDateTarget::Date,
+            }],
+            ..Default::default()
+        };
+
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_lazy_recipe_to_frame(&frame, &recipe)
+            .expect("el parseo lazy de fechas debe completarse");
+
+        assert_eq!(outcome.3, 1);
+        assert_eq!(outcome.0.column("when").unwrap().dtype(), &DataType::Date);
+        assert!(matches!(
+            outcome.0.column("when").unwrap().get(0),
+            Ok(AnyValue::Date(_))
+        ));
+        assert!(matches!(
+            outcome.0.column("when").unwrap().get(2),
+            Ok(AnyValue::Null)
+        ));
     }
 
     #[test]

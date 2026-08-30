@@ -27,6 +27,10 @@ los artefactos de validación locales.
   demanda, DuckDB puede registrar directamente ambos snapshots en un JOIN y
   el directorio se elimina al descartar la comparación. La primera lectura y
   el resultado final de comparación siguen teniendo sus límites actuales.
+- Las recetas compatibles con Polars lazy/streaming también convierten fechas
+  con formatos explícitos `Ymd`, `Dmy` y `Mdy`, respetando espacios exteriores,
+  nulos y objetivos `Date`/`Datetime`; `Iso8601`, zonas horarias y operaciones
+  avanzadas conservan el fallback eager seguro.
 - La migración M1 de sesiones DataPrep restaura un historial explícito de hasta
   doce snapshots Parquet locales mediante el contrato versionado
   `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de
