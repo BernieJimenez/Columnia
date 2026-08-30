@@ -43,6 +43,14 @@ function isRecipeExportOptions(value: unknown): value is RecipeExportOptions {
     ["none", "mask", "hash"].includes(candidate.privacyMode ?? "");
 }
 
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isOptionalNonNegativeSafeInteger(value: unknown): boolean {
+  return value === undefined || isNonNegativeSafeInteger(value);
+}
+
 function isRecipeMigrationReport(value: unknown): value is RecipeMigrationReport {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<RecipeMigrationReport>;
@@ -63,9 +71,9 @@ function isRecipeMigrationReport(value: unknown): value is RecipeMigrationReport
       typeof candidate.session.hasSnapshotReference === "boolean" &&
       (typeof candidate.session.sheetName === "string" || candidate.session.sheetName === null) &&
       (typeof candidate.session.stageLabel === "string" || candidate.session.stageLabel === null) &&
-      typeof candidate.session.appliedOperationCount === "number" &&
-      typeof candidate.session.qualityRuleCount === "number" &&
-      typeof candidate.session.analysisCheckCount === "number" &&
+      isNonNegativeSafeInteger(candidate.session.appliedOperationCount) &&
+      isNonNegativeSafeInteger(candidate.session.qualityRuleCount) &&
+      isNonNegativeSafeInteger(candidate.session.analysisCheckCount) &&
       (candidate.session.appliedOperations === undefined || (
         Array.isArray(candidate.session.appliedOperations) &&
         candidate.session.appliedOperations.every((operation) => typeof operation === "string")
@@ -73,6 +81,15 @@ function isRecipeMigrationReport(value: unknown): value is RecipeMigrationReport
       (candidate.session.analysisChecks === undefined || (
         Array.isArray(candidate.session.analysisChecks) &&
         candidate.session.analysisChecks.every((check) => typeof check === "string")
+      )) &&
+      (candidate.session.analysisSampled === undefined || typeof candidate.session.analysisSampled === "boolean") &&
+      isOptionalNonNegativeSafeInteger(candidate.session.analysisSampleRowCount) &&
+      isOptionalNonNegativeSafeInteger(candidate.session.analysisTotalRowCount) &&
+      isOptionalNonNegativeSafeInteger(candidate.session.historySnapshotCount) &&
+      isOptionalNonNegativeSafeInteger(candidate.session.historyCursor) &&
+      (candidate.session.nonPortableArtifacts === undefined || (
+        Array.isArray(candidate.session.nonPortableArtifacts) &&
+        candidate.session.nonPortableArtifacts.every((artifact) => typeof artifact === "string")
       ))
     ));
 }

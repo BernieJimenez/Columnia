@@ -475,6 +475,7 @@ export interface SessionMigrationMetadata {
   analysisTotalRowCount?: number;
   historySnapshotCount?: number;
   historyCursor?: number;
+  nonPortableArtifacts?: string[];
 }
 
 export type SessionReferenceStatus = "not_provided" | "available" | "missing" | "unsupported";
@@ -506,6 +507,7 @@ export interface SessionMigrationReport {
     analysisTotalRowCount?: number;
     historySnapshotCount?: number;
     historyCursor?: number;
+    nonPortableArtifacts?: string[];
   };
   recipeSummary: {
     operationCount: number;

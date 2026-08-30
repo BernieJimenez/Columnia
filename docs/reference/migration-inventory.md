@@ -153,6 +153,10 @@ Si el manifiesto trae bloques reconocibles de resultados, historial o caché,
 el informe los clasifica como `analysis_results`, `history` o `caches` no
 portables; solo conserva esos nombres de categoría y una acción manual, nunca
 su contenido ni la referencia de archivo.
+El contrato frontend declara `nonPortableArtifacts` y solo acepta sus nombres
+como texto; los contadores opcionales de muestra e historial son enteros seguros
+no negativos y las banderas de muestreo son booleanas. Un reporte mal formado se
+descarta antes de tratarse como receta cargada.
 Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
 `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `parse_dates`,

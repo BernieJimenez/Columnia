@@ -16,6 +16,11 @@ los artefactos de validación locales.
   relajar los límites de disco, ruta, etiqueta, cancelación y publicación
   atómica. La ejecución incremental del dataset activo y el presupuesto global
   de datasets grandes siguen fuera de este bloque.
+- El bridge declara ahora `nonPortableArtifacts` y valida estrictamente los
+  metadatos opcionales de sesión DataPrep: contadores enteros seguros no
+  negativos, banderas booleanas y listas de categorías sin valores arbitrarios.
+  Los artefactos no portables siguen siendo señales sanitizadas y no se
+  convierten en datos operativos.
 - La consulta SQL local ofrece un motor DuckDB explícito además de Polars:
   ejecuta el contrato restringido de solo lectura sobre el snapshot Parquet
   administrado de la revisión actual cuando está disponible, evitando

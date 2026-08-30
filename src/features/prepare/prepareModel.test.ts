@@ -67,6 +67,12 @@ describe("modelo de preparación", () => {
         analysisCheckCount: 1,
         appliedOperations: ["rename_text"],
         analysisChecks: ["completeness"],
+        analysisSampled: true,
+        analysisSampleRowCount: 2,
+        analysisTotalRowCount: 3,
+        historySnapshotCount: 2,
+        historyCursor: 1,
+        nonPortableArtifacts: ["analysis_results", "caches"],
       },
     };
 
@@ -86,6 +92,45 @@ describe("modelo de preparación", () => {
         ...migrationReport,
         session: { ...migrationReport.session, appliedOperations: ["rename_text", 1] },
       },
+    })).toBe(false);
+  });
+
+  it.each([
+    ["un conteo negativo", { appliedOperationCount: -1 }],
+    ["un conteo fraccionario", { historyCursor: 0.5 }],
+    ["un conteo no finito", { analysisTotalRowCount: Number.NaN }],
+    ["una bandera mal formada", { analysisSampled: "yes" }],
+    ["un artefacto mal formado", { nonPortableArtifacts: ["caches", 1] }],
+  ])("rechaza %s en metadatos de sesión", (_name, sessionPatch) => {
+    const migrationReport = {
+      artifactSha256: null,
+      sourceFormat: "dataprep" as const,
+      sourceVersion: 1,
+      convertedItems: 1,
+      omittedItems: 0,
+      warningCount: 0,
+      convertedOperations: ["renames"],
+      omittedOperations: [],
+      warnings: [],
+      manualActions: [],
+      session: {
+        hasSourceReference: true,
+        hasSnapshotReference: false,
+        sheetName: "Datos",
+        stageLabel: "Preparar",
+        appliedOperationCount: 1,
+        qualityRuleCount: 0,
+        analysisCheckCount: 0,
+        ...sessionPatch,
+      },
+    };
+
+    expect(isLoadedRecipe({
+      version: 1,
+      name: "Sesión inválida",
+      savedAt: "2026-08-29T00:00:00Z",
+      recipe: emptyRecipe,
+      migrationReport,
     })).toBe(false);
   });
 
