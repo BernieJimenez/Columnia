@@ -21,6 +21,10 @@ claro y esté cubierta por una prueba o evidencia local.
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales, sanitización de recetas/reports/manifests y confirmación visible de columnas protegidas | Parcial | Extender contratos equivalentes a conectores remotos |
 | Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles, incluidos parseos explícitos `Ymd`/`Dmy`/`Mdy`, conversiones en columnas distintas y combinaciones `split`/`merge`, tratamientos IQR aislados con filtros previos compatibles y proyección `keepColumns` que conserva sus dependencias; paginación de muestra source-backed desde snapshots Parquet del cursor con `slice`/streaming`; historial durable que copia snapshots byte a byte, valida footer/esquema de revisiones no cursor y materializa solo el cursor, leyendo filas restantes bajo demanda en undo/redo; benchmark CLI validado hasta 256 MiB; perfiles Rayon persistentes; SQL local con Polars predeterminado o DuckDB opcional que reutiliza snapshots Parquet administrados del activo y la comparación y conserva fallback temporal, cancelación cooperativa, presupuesto de agregación y preflight de cardinalidad JOIN | Parcial | Ejecución incremental real fuera de RAM y presupuesto integral |
 
+La receta lazy/streaming también acepta `Iso8601` sin offset o con sufijo UTC
+`Z`; los offsets distintos de UTC conservan el fallback eager para mantener la
+conversión estricta a UTC.
+
 ## Primera entrega de paridad
 
 La primera capacidad añadida en esta fase es la exportación JSON de extremo a

@@ -19198,6 +19198,22 @@ fn lazy_outlier_columns_survive_keep(recipe: &TransformRecipe) -> bool {
     })
 }
 
+fn lazy_iso8601_value_supported(value: &str) -> bool {
+    let trimmed = value.trim();
+    parse_recipe_datetime(trimmed, RecipeDateFormat::Iso8601).is_ok()
+        && (DateTime::parse_from_rfc3339(trimmed).is_err() || trimmed.ends_with('Z'))
+}
+
+fn lazy_iso8601_column_supported(column: &Column) -> bool {
+    column.dtype() == &DataType::String
+        && strict_column_text(column).is_ok_and(|values| {
+            values
+                .iter()
+                .flatten()
+                .all(|value| lazy_iso8601_value_supported(value))
+        })
+}
+
 fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
     lazy_renames_have_no_cycles(recipe)
         && lazy_outlier_columns_survive_keep(recipe)
@@ -19208,15 +19224,21 @@ fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
                 Ok(column)
                     if matches!(
                         parse.format,
-                        RecipeDateFormat::Ymd | RecipeDateFormat::Dmy | RecipeDateFormat::Mdy
+                        RecipeDateFormat::Ymd
+                            | RecipeDateFormat::Dmy
+                            | RecipeDateFormat::Mdy
+                            | RecipeDateFormat::Iso8601
                     ) =>
                 {
-                    matches!(column.dtype(), DataType::String)
-                        || matches!(
-                            (column.dtype(), parse.target),
-                            (DataType::Date, RecipeDateTarget::Date)
-                                | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
-                        )
+                    (if matches!(parse.format, RecipeDateFormat::Iso8601) {
+                        lazy_iso8601_column_supported(column)
+                    } else {
+                        matches!(column.dtype(), DataType::String)
+                    }) || matches!(
+                        (column.dtype(), parse.target),
+                        (DataType::Date, RecipeDateTarget::Date)
+                            | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
+                    )
                 }
                 _ => false,
             })
@@ -20028,31 +20050,64 @@ fn apply_lazy_recipe_to_frame(
                 parse.column
             ));
         }
-        let format = match parse.format {
-            RecipeDateFormat::Ymd => "%Y-%m-%d",
-            RecipeDateFormat::Dmy => "%d/%m/%Y",
-            RecipeDateFormat::Mdy => "%m/%d/%Y",
-            RecipeDateFormat::Iso8601 => {
-                unreachable!("el soporte lazy de fechas solo admite formatos sin zona horaria")
+        let expression = if parse.format == RecipeDateFormat::Iso8601 {
+            let value = col(effective_name)
+                .str()
+                .strip_chars(lit(NULL))
+                .str()
+                .replace_all(lit("Z"), lit(""), true);
+            let datetime_target = DataType::Datetime(TimeUnit::Milliseconds, None);
+            let parsed = [
+                "%Y-%m-%d",
+                "%Y-%m-%dT%H:%M:%S%.f",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S%.f",
+                "%Y-%m-%d %H:%M:%S",
+            ]
+            .into_iter()
+            .map(|format| {
+                value.clone().str().strptime(
+                    datetime_target.clone(),
+                    StrptimeOptions {
+                        format: Some(format.into()),
+                        strict: false,
+                        ..Default::default()
+                    },
+                    lit("raise"),
+                )
+            })
+            .collect::<Vec<_>>();
+            let parsed = coalesce(&parsed);
+            match parse.target {
+                RecipeDateTarget::Date => parsed.cast(DataType::Date),
+                RecipeDateTarget::Datetime => parsed,
             }
+            .alias(effective_name)
+        } else {
+            let format = match parse.format {
+                RecipeDateFormat::Ymd => "%Y-%m-%d",
+                RecipeDateFormat::Dmy => "%d/%m/%Y",
+                RecipeDateFormat::Mdy => "%m/%d/%Y",
+                RecipeDateFormat::Iso8601 => unreachable!(),
+            };
+            let target = match parse.target {
+                RecipeDateTarget::Date => DataType::Date,
+                RecipeDateTarget::Datetime => DataType::Datetime(TimeUnit::Milliseconds, None),
+            };
+            col(effective_name)
+                .str()
+                .strip_chars(lit(NULL))
+                .str()
+                .strptime(
+                    target,
+                    StrptimeOptions {
+                        format: Some(format.into()),
+                        ..Default::default()
+                    },
+                    lit("raise"),
+                )
+                .alias(effective_name)
         };
-        let target = match parse.target {
-            RecipeDateTarget::Date => DataType::Date,
-            RecipeDateTarget::Datetime => DataType::Datetime(TimeUnit::Milliseconds, None),
-        };
-        let expression = col(effective_name)
-            .str()
-            .strip_chars(lit(NULL))
-            .str()
-            .strptime(
-                target,
-                StrptimeOptions {
-                    format: Some(format.into()),
-                    ..Default::default()
-                },
-                lit("raise"),
-            )
-            .alias(effective_name);
         date_expressions.push(expression);
         parsed_date_column_count += 1;
     }
@@ -26472,6 +26527,103 @@ mod tests {
         assert!(matches!(
             outcome.0.column("when").unwrap().get(2),
             Ok(AnyValue::Null)
+        ));
+    }
+
+    #[test]
+    fn lazy_recipe_parses_iso8601_dates_and_utc_values_without_offset_materialization() {
+        let frame = DataFrame::new(
+            4,
+            vec![Series::new(
+                "when".into(),
+                [
+                    Some("2025-12-31"),
+                    Some("2025-12-31T23:15:30.125"),
+                    Some("2025-12-31T23:15:30Z"),
+                    None::<&str>,
+                ],
+            )
+            .into_column()],
+        )
+        .expect("el frame ISO debe ser válido");
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "when".into(),
+                format: RecipeDateFormat::Iso8601,
+                target: RecipeDateTarget::Datetime,
+            }],
+            ..Default::default()
+        };
+
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe)
+            .expect("los valores ISO sin offset y UTC deben usar streaming");
+        assert_eq!(outcome.3, 1);
+        let column = outcome.0.column("when").unwrap();
+        assert_eq!(
+            column.dtype(),
+            &DataType::Datetime(TimeUnit::Milliseconds, None)
+        );
+        assert!(matches!(
+            column.get(0),
+            Ok(AnyValue::Datetime(value, TimeUnit::Milliseconds, None))
+                if value == 1_767_139_200_000
+        ));
+        assert!(matches!(
+            column.get(1),
+            Ok(AnyValue::Datetime(value, TimeUnit::Milliseconds, None))
+                if value == 1_767_222_930_125
+        ));
+        assert!(matches!(
+            column.get(2),
+            Ok(AnyValue::Datetime(value, TimeUnit::Milliseconds, None))
+                if value == 1_767_222_930_000
+        ));
+        assert!(matches!(column.get(3), Ok(AnyValue::Null)));
+
+        let date_recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "when".into(),
+                format: RecipeDateFormat::Iso8601,
+                target: RecipeDateTarget::Date,
+            }],
+            ..Default::default()
+        };
+        let date_outcome = apply_recipe_to_frame(&frame, &date_recipe)
+            .expect("el objetivo Date ISO también debe usar streaming");
+        assert_eq!(
+            date_outcome.0.column("when").unwrap().dtype(),
+            &DataType::Date
+        );
+        assert!(matches!(
+            date_outcome.0.column("when").unwrap().get(1),
+            Ok(AnyValue::Date(value)) if value == 20_453
+        ));
+    }
+
+    #[test]
+    fn lazy_recipe_keeps_non_utc_iso_offsets_on_the_strict_eager_path() {
+        let frame = DataFrame::new(
+            1,
+            vec![Series::new("when".into(), [Some("2025-12-31T23:15:30+02:00")]).into_column()],
+        )
+        .expect("el frame con offset debe ser válido");
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "when".into(),
+                format: RecipeDateFormat::Iso8601,
+                target: RecipeDateTarget::Datetime,
+            }],
+            ..Default::default()
+        };
+
+        assert!(!lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe)
+            .expect("el fallback eager debe conservar la conversión UTC");
+        assert!(matches!(
+            outcome.0.column("when").unwrap().get(0),
+            Ok(AnyValue::DatetimeOwned(value, TimeUnit::Milliseconds, None))
+                if value == 1_767_215_730_000
         ));
     }
 

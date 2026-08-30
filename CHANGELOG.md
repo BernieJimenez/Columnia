@@ -67,8 +67,9 @@ los artefactos de validación locales.
   `LNK1140` sin alterar las mediciones de runtime.
 - Las recetas compatibles con Polars lazy/streaming también convierten fechas
   con formatos explícitos `Ymd`, `Dmy` y `Mdy`, respetando espacios exteriores,
-  nulos y objetivos `Date`/`Datetime`; `Iso8601`, zonas horarias y operaciones
-  avanzadas conservan el fallback eager seguro.
+  nulos y objetivos `Date`/`Datetime`; `Iso8601` sin offset o con sufijo UTC
+  `Z` también usa streaming, mientras offsets distintos de UTC, zonas horarias
+  y operaciones avanzadas conservan el fallback eager seguro.
 - Los tratamientos IQR aislados de recetas (`cap`, `impute` y `drop`) ahora
   pueden ejecutarse en lazy/streaming con conteos exactos de celdas y filas,
   calculando sus umbrales después de filtros previos; las etapas que alteran

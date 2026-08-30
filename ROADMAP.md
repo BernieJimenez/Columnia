@@ -1411,7 +1411,9 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   validando la proyección posterior a las etapas estructurales; las demás fechas
   mantienen fallback eager. Los parseos explícitos `Ymd`, `Dmy` y `Mdy` ya se
   ejecutan dentro del plan lazy/streaming, conservando trim, nulos y objetivos
-  `Date`/`Datetime`; `Iso8601` y zonas horarias siguen en fallback eager.
+  `Date`/`Datetime`; `Iso8601` sin offset o con sufijo UTC `Z` también se
+  ejecuta en streaming, mientras offsets distintos de UTC y zonas horarias
+  mantienen fallback eager.
   Los tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas
   numéricas también se ejecutan en streaming con conteos exactos después de
   filtros compatibles, calculando los umbrales sobre las filas supervivientes;
@@ -1917,7 +1919,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 reduce la materialización de JOIN DuckDB: cuando existe snapshot administrado, la preparación lee solo el esquema Parquet de la comparación y evita volver a cargar sus filas; la preparación DuckDB tampoco aplica el límite de entradas Polars, mientras el `DataFrame` activo y la ejecución completa fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 sirve la paginación de la muestra activa desde el snapshot Parquet del cursor actual con `slice` y colección streaming, conservando el fallback al `DataFrame` cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 evita una segunda clonación completa al guardar proyectos: la copia aislada del dataset se entrega directamente al escritor Parquet, conservando la publicación atómica y la recuperación ante fallos; el benchmark fija el perfil de compilación reproducible y restaura el entorno del proceso. | `src-tauri/src/projects.rs`, `tools/benchmark-datasets.ps1`, `CHANGELOG.md`, `CONTEXTO.md` |
-| 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras `Iso8601` y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`, y a `Iso8601` sin offset o con sufijo UTC `Z`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras offsets distintos de UTC y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, calculando umbrales y conteos después de filtros compatibles; las etapas que alteran valores mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 amplía la receta lazy/streaming para combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` y `merge` en una misma receta cuando se conservan sus dependencias; los conflictos de fuentes mantienen rechazo o fallback eager explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
