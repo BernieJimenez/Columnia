@@ -13396,7 +13396,14 @@ fn comparison_key_bucket(signature: &str) -> usize {
     (xxh3_64(signature.as_bytes()) as usize) % COMPARISON_KEY_BUCKETS
 }
 
-fn spill_key_rows(frame: &DataFrame, key_columns: &[String]) -> Result<SpilledKeyRows, String> {
+fn spill_key_rows_with_cancel<C>(
+    frame: &DataFrame,
+    key_columns: &[String],
+    is_cancelled: &C,
+) -> Result<SpilledKeyRows, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let directory = tempfile::tempdir().map_err(|error| {
         format!("No se pudo preparar el índice temporal de comparación: {error}")
     })?;
@@ -13408,6 +13415,9 @@ fn spill_key_rows(frame: &DataFrame, key_columns: &[String]) -> Result<SpilledKe
         .collect::<Vec<_>>();
 
     for row_index in 0..frame.height() {
+        if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
         let signature = row_signature(frame, key_columns, row_index)?;
         let bucket = comparison_key_bucket(&signature);
         let writer = if let Some(writer) = writers[bucket].as_mut() {
@@ -13438,11 +13448,16 @@ fn spill_key_rows(frame: &DataFrame, key_columns: &[String]) -> Result<SpilledKe
             format!("No se pudo sincronizar el índice temporal de comparación: {error}")
         })?;
     }
+    ensure_not_cancelled(is_cancelled())?;
     drop(writers);
     Ok(SpilledKeyRows {
         _directory: directory,
         bucket_paths,
     })
+}
+
+fn spill_key_rows(frame: &DataFrame, key_columns: &[String]) -> Result<SpilledKeyRows, String> {
+    spill_key_rows_with_cancel(frame, key_columns, &|| false)
 }
 
 fn for_each_spilled_key_record<F>(
@@ -13501,12 +13516,23 @@ where
     Ok(())
 }
 
-fn read_spilled_key_bucket(
+fn read_spilled_key_bucket_with_cancel<C>(
     spill: &SpilledKeyRows,
     bucket: usize,
-) -> Result<HashMap<String, KeyRowGroup>, String> {
+    is_cancelled: &C,
+) -> Result<HashMap<String, KeyRowGroup>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut record_index = 0usize;
     let mut rows_by_key = HashMap::new();
     for_each_spilled_key_record(spill, bucket, |key, row_index| {
+        if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled((*is_cancelled)())?;
+        }
+        record_index = record_index
+            .checked_add(1)
+            .ok_or_else(|| "La cubeta temporal supera la capacidad local.".to_owned())?;
         let group = rows_by_key.entry(key).or_insert(KeyRowGroup {
             first_row_index: row_index,
             count: 0,
@@ -13517,7 +13543,15 @@ fn read_spilled_key_bucket(
             .ok_or_else(|| "La clave temporal supera la capacidad local.".to_owned())?;
         Ok(())
     })?;
+    ensure_not_cancelled((*is_cancelled)())?;
     Ok(rows_by_key)
+}
+
+fn read_spilled_key_bucket(
+    spill: &SpilledKeyRows,
+    bucket: usize,
+) -> Result<HashMap<String, KeyRowGroup>, String> {
+    read_spilled_key_bucket_with_cancel(spill, bucket, &|| false)
 }
 
 fn common_row_count_from_spilled_signatures(
@@ -13975,32 +14009,6 @@ fn join_frames_on_keys(
     )
 }
 
-fn local_join_key(
-    frame: &DataFrame,
-    row_index: usize,
-    key_columns: &[String],
-) -> Result<String, String> {
-    use std::fmt::Write as _;
-
-    let mut key = String::new();
-    for column_name in key_columns {
-        let value = frame
-            .column(column_name)
-            .map_err(|_| format!("La columna clave '{column_name}' no existe en el dataset."))?
-            .get(row_index)
-            .map_err(|error| format!("No se pudo leer la clave '{column_name}': {error}"))?;
-        match preview_value(value) {
-            Some(value) => {
-                write!(&mut key, "1{}:", value.len())
-                    .expect("escribir en un String no debe fallar");
-                key.push_str(&value);
-            }
-            None => key.push_str("0;"),
-        }
-    }
-    Ok(key)
-}
-
 fn join_cardinality_upper_bound<C>(
     current: &DataFrame,
     compared: &DataFrame,
@@ -14012,30 +14020,28 @@ fn join_cardinality_upper_bound<C>(
 where
     C: Fn() -> bool + Sync,
 {
-    let mut compared_counts = HashMap::<String, usize>::new();
-    for row_index in 0..compared.height() {
-        if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
-            ensure_not_cancelled(is_cancelled())?;
-        }
-        let key = local_join_key(compared, row_index, compared_keys)?;
-        let count = compared_counts.entry(key).or_default();
-        *count = count
-            .checked_add(1)
-            .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?;
-    }
-
+    let current_index = spill_key_rows_with_cancel(current, current_keys, is_cancelled)?;
+    let compared_index = spill_key_rows_with_cancel(compared, compared_keys, is_cancelled)?;
     let mut inner_rows = 0usize;
-    for row_index in 0..current.height() {
-        if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
-            ensure_not_cancelled(is_cancelled())?;
-        }
-        let key = local_join_key(current, row_index, current_keys)?;
-        let compared_count = compared_counts.get(&key).copied().unwrap_or(0);
-        inner_rows = inner_rows
-            .checked_add(compared_count)
-            .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?;
-        if inner_rows > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
-            return Ok(inner_rows);
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let current_bucket =
+            read_spilled_key_bucket_with_cancel(&current_index, bucket, is_cancelled)?;
+        let compared_bucket =
+            read_spilled_key_bucket_with_cancel(&compared_index, bucket, is_cancelled)?;
+        for (key, current_group) in current_bucket {
+            let Some(compared_group) = compared_bucket.get(&key) else {
+                continue;
+            };
+            let matching_rows = current_group
+                .count
+                .checked_mul(compared_group.count)
+                .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?;
+            inner_rows = inner_rows
+                .checked_add(matching_rows)
+                .ok_or_else(|| "El cardinal del JOIN supera la capacidad local.".to_owned())?;
+            if inner_rows > LOCAL_QUERY_JOIN_MAX_RESULT_ROWS {
+                return Ok(inner_rows);
+            }
         }
     }
 
@@ -21364,14 +21370,15 @@ mod tests {
 
     #[test]
     fn local_query_join_rejects_many_to_many_cardinality_before_materializing() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS + 1_501;
         let current = DataFrame::new(
-            1_501,
-            vec![Series::new("id".into(), vec![1_i64; 1_501]).into_column()],
+            row_count,
+            vec![Series::new("id".into(), vec![1_i64; row_count]).into_column()],
         )
         .expect("el dataset activo debe construirse");
         let compared = DataFrame::new(
-            1_501,
-            vec![Series::new("id".into(), vec![1_i64; 1_501]).into_column()],
+            row_count,
+            vec![Series::new("id".into(), vec![1_i64; row_count]).into_column()],
         )
         .expect("el dataset comparado debe construirse");
 

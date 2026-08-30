@@ -165,6 +165,8 @@ coincidentes que exceden su presupuesto y los joins ejecutan el plan Polars con
 motor streaming después de un preflight de tipos y cardinalidad antes de
 materializar resultados dentro de los límites locales; su segunda pasada acumula
 por bloques sin conservar índices de todas las filas coincidentes.
+El preflight de cardinalidad de los joins también procesa índices de claves por
+cubetas temporales antes de materializar el resultado.
 La comparación por claves también particiona su índice temporal y procesa una
 cubeta a la vez, mientras DuckDB, los joins grandes y la ejecución incremental
 completa siguen siendo trabajo pendiente. La

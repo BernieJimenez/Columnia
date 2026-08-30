@@ -8,6 +8,9 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- El preflight de cardinalidad de los `JOIN` locales usa índices temporales de
+  claves particionados y cuenta por cubeta los productos de duplicidad, con
+  cancelación cooperativa y el mismo rechazo explícito de resultados excesivos.
 - La comparación completa de filas calcula el multiconjunto de filas comunes por
   cubetas temporales, conservando los conteos exactos sin retener mapas globales
   de firmas de ambos datasets.
