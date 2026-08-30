@@ -1529,7 +1529,9 @@ del original.
   espacios exteriores y protege `_cambios`, `normalize_text` colapsa espacios,
   retira acentos, omite texto de alta cardinalidad y aplica título a nombres
   propios sugeridos por la columna, `normalize_booleans` exige un
-  vocabulario cerrado con ambos valores y `normalize_columns` conserva la
+  vocabulario cerrado con ambos valores; `drop_high_null_cols` y `drop_id_cols`
+  consultan el perfil inicial aunque `drop_duplicates` haya cambiado las filas,
+  y `normalize_columns` conserva la
   resolución Unicode de nombres; el preflight clasifica como no portables los
   bloques reconocibles de resultados, historial y cachés sin copiar su contenido;
   las etiquetas de etapa conocidas se restauran como etapa activa del workspace

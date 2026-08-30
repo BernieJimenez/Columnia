@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- El replay de limpiezas DataPrep dependientes del perfil (`drop_high_null_cols`
+  y `drop_id_cols`) conserva las métricas del dataset inicial aunque antes se
+  ejecute `drop_duplicates`; evita eliminar columnas solo porque la deduplicación
+  cambió su cardinalidad o porcentaje de nulos.
 - El replay de sesiones DataPrep aplica la semántica de `normalize_text` del
   limpiador original: omite columnas de texto con más de 50% de valores
   distintos, conserva nulos y aplica título a columnas cuyo nombre sugiere

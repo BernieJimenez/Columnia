@@ -3584,6 +3584,49 @@ mod tests {
     }
 
     #[test]
+    fn dataprep_session_uses_initial_profile_for_profile_based_cleaning_after_deduplication() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let source = directory.path().join("source.csv");
+        let session = directory.path().join("session.json");
+        fs::write(
+            &source,
+            "id,mostly_empty,amount\nA,keep,1\nA,keep,1\nA,keep,1\nA,keep,1\nA,keep,1\nB,,2\nC,,3\nD,,4\nE,,5\nF,,6\n",
+        )
+        .unwrap();
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Perfil inicial de limpieza",
+                "source_path": "source.csv",
+                "applied_ops": ["drop_duplicates", "drop_high_null_cols", "drop_id_cols"],
+                "transform": {"rename_text": ""}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la limpieza combinada debe poder reproducirse desde la fuente");
+        let state = DatasetState::default();
+        store
+            .open(&state, imported.id)
+            .expect("el proyecto debe reabrirse");
+        let active = state
+            .active_project_snapshot()
+            .expect("el dataset limpiado debe quedar activo");
+
+        assert_eq!(
+            active.frame.get_column_names(),
+            ["id", "mostly_empty", "amount"]
+        );
+        assert_eq!(active.frame.height(), 6);
+        assert_eq!(active.history.entries.len(), 2);
+    }
+
+    #[test]
     fn dataprep_session_replays_numeric_cast_from_csv_without_snapshot() {
         let directory = tempfile::tempdir().unwrap();
         let store = ProjectStore::initialize(directory.path().join("data")).unwrap();

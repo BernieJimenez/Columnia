@@ -6000,15 +6000,16 @@ fn dataprep_numeric_or_date_text_column(column: &Column) -> Result<bool, String>
     Ok(date_count * 10 > values.len() * 8)
 }
 
-fn remove_dataprep_high_null_columns_from_frame(
+fn remove_dataprep_high_null_columns_from_reference(
     frame: &DataFrame,
+    reference: &DataFrame,
 ) -> Result<(DataFrame, Vec<String>), String> {
-    let candidates = frame
+    let candidates = reference
         .columns()
         .iter()
         .filter(|column| {
             let null_count = column.null_count();
-            null_count > 0 && null_count.saturating_mul(100) > frame.height().saturating_mul(80)
+            null_count > 0 && null_count.saturating_mul(100) > reference.height().saturating_mul(80)
         })
         .map(|column| column.name().to_string())
         .collect::<Vec<_>>();
@@ -6019,15 +6020,16 @@ fn remove_dataprep_high_null_columns_from_frame(
     )
 }
 
-fn remove_dataprep_identifier_columns_from_frame(
+fn remove_dataprep_identifier_columns_from_reference(
     frame: &DataFrame,
+    reference: &DataFrame,
 ) -> Result<(DataFrame, Vec<String>), String> {
     let mut candidates = Vec::new();
-    for column in frame.columns() {
+    for column in reference.columns() {
         if column.null_count() != 0
             || column.n_unique().map_err(|error| {
                 format!("No se pudo contar la columna '{}': {error}", column.name())
-            })? != frame.height()
+            })? != reference.height()
         {
             continue;
         }
@@ -21775,12 +21777,15 @@ impl DatasetState {
                 }
                 "drop_high_null_cols" => {
                     let (candidate, removed_columns) =
-                        remove_dataprep_high_null_columns_from_frame(&cleaned)?;
+                        remove_dataprep_high_null_columns_from_reference(&cleaned, &dataset.frame)?;
                     (candidate, 0, removed_columns.len(), Vec::new())
                 }
                 "drop_id_cols" => {
                     let (candidate, removed_columns) =
-                        remove_dataprep_identifier_columns_from_frame(&cleaned)?;
+                        remove_dataprep_identifier_columns_from_reference(
+                            &cleaned,
+                            &dataset.frame,
+                        )?;
                     (candidate, 0, removed_columns.len(), Vec::new())
                 }
                 "drop_empty_cols" => {
