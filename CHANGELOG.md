@@ -107,6 +107,9 @@ los artefactos de validación locales.
 - La búsqueda y reemplazo literal sobre columnas de texto también usa el plan
   lazy/streaming, cuenta celdas modificadas con una agregación separada y
   conserva el comportamiento para nulos, renombres y casts a texto.
+- La unión de columnas de texto puede ejecutarse dentro del plan lazy/streaming,
+  conserva el orden de las fuentes, omite nulos como antes y vuelve a nulo una
+  fila sin ningún valor; los casts numérico→texto se validan antes de publicar.
 - La importación de sesiones DataPrep prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de

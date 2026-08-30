@@ -334,8 +334,8 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
 - recetas JSON versión 1 guardables y cargables;
 - historial multinivel Deshacer/Rehacer.
 - ejecución Polars lazy para renombres, casts, filtros, búsqueda/reemplazo
-  literal, selección de columnas y columnas calculadas numéricas compatibles;
-  las operaciones restantes usan fallback eager atómico.
+  literal, selección y unión de columnas y columnas calculadas numéricas
+  compatibles; las operaciones restantes usan fallback eager atómico.
 
 Las recetas se validan y ejecutan en orden determinista. Una entrada inválida, pérdida de precisión, división por cero o conflicto entre pasos revierte el lote completo.
 

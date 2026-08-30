@@ -17054,7 +17054,6 @@ type RecipeFrameOutcome = (
 fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
         && recipe.split_column.is_none()
-        && recipe.merge_columns.is_none()
         && recipe.outlier_treatments.is_empty()
         && recipe.group_summary.is_none()
         && recipe.contact_normalizations.is_empty()
@@ -17548,6 +17547,89 @@ fn apply_lazy_recipe_to_frame(
         0
     };
 
+    let (merged_column_count, dropped_source_column_count) = if let Some(merge) =
+        &recipe.merge_columns
+    {
+        if !(2..=16).contains(&merge.sources.len()) {
+            return Err("La unión requiere entre 2 y 16 columnas fuente.".into());
+        }
+        if merge.name.trim().is_empty() || merge.name != merge.name.trim() {
+            return Err(
+                "El nombre de la columna unida no puede estar vacío ni tener espacios exteriores."
+                    .into(),
+            );
+        }
+        let mut output_names = if recipe.keep_columns.is_some() {
+            keep_names.clone()
+        } else {
+            final_names.clone()
+        };
+        if let Some(calculation) = &recipe.calculated_column {
+            output_names.push(calculation.name.clone());
+        }
+        if output_names.iter().any(|name| name == &merge.name) {
+            return Err(format!("La columna unida '{}' ya existe.", merge.name));
+        }
+        let mut unique = HashSet::new();
+        let sources = merge
+                .sources
+                .iter()
+                .map(|source_name| {
+                    if !unique.insert(source_name) {
+                        return Err(format!(
+                            "La columna fuente '{source_name}' está duplicada."
+                        ));
+                    }
+                    let effective_name = remapped_name(source_name, &rename_map).to_owned();
+                    if !output_names.iter().any(|name| name == &effective_name) {
+                        return Err(format!(
+                            "La columna '{effective_name}' requerida por merge fue descartada por keepColumns."
+                        ));
+                    }
+                    let source_column = recipe_column(source, source_name)?;
+                    let cast_target = recipe
+                        .casts
+                        .iter()
+                        .find(|cast| {
+                            remapped_name(&cast.column, &rename_map) == effective_name
+                        })
+                        .map(|cast| cast.target);
+                    let is_text = cast_target
+                        .map(|target| target == RecipeCastTarget::String)
+                        .unwrap_or(source_column.dtype() == &DataType::String);
+                    if !is_text {
+                        return Err(format!(
+                            "La columna '{effective_name}' debe ser de texto para unirse."
+                        ));
+                    }
+                    Ok(effective_name)
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+        let source_expressions = sources.iter().map(col).collect::<Vec<_>>();
+        let expression = when(coalesce(&source_expressions).is_not_null())
+            .then(concat_str(source_expressions, &merge.separator, true))
+            .otherwise(lit(NULL))
+            .alias(merge.name.clone());
+        plan = plan.with_columns(vec![expression]);
+        output_names.push(merge.name.clone());
+        let dropped_source_column_count = if merge.drop_sources {
+            let dropped = sources.iter().collect::<HashSet<_>>();
+            plan = plan.select(
+                output_names
+                    .iter()
+                    .filter(|name| !dropped.contains(name))
+                    .map(col)
+                    .collect::<Vec<_>>(),
+            );
+            sources.len()
+        } else {
+            0
+        };
+        (1, dropped_source_column_count)
+    } else {
+        (0, 0)
+    };
+
     let candidate = collect_lazy_frame_streaming(plan, "No se pudo ejecutar la receta lazy")?;
     let removed_row_count = source.height().saturating_sub(candidate.height());
     Ok((
@@ -17561,8 +17643,8 @@ fn apply_lazy_recipe_to_frame(
         dropped_column_count,
         kept_order_changed,
         0,
-        0,
-        0,
+        merged_column_count,
+        dropped_source_column_count,
         0,
         0,
         0,
@@ -23116,6 +23198,39 @@ mod tests {
         assert_eq!(rows[0][0].as_deref(), Some("A🙂"));
         assert_eq!(rows[1][0].as_deref(), Some("B"));
         assert_eq!(rows[2][0], None);
+    }
+
+    #[test]
+    fn lazy_merge_accepts_numeric_source_cast_to_text() {
+        let frame = DataFrame::new(
+            2,
+            vec![
+                Series::new("number".into(), [12_i64, 34]).into_column(),
+                Series::new("label".into(), ["A", "B"]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "number".into(),
+                target: RecipeCastTarget::String,
+            }],
+            merge_columns: Some(MergeColumnsRecipe {
+                sources: vec!["number".into(), "label".into()],
+                name: "joined".into(),
+                separator: ":".into(),
+                drop_sources: true,
+            }),
+            ..Default::default()
+        };
+
+        let (result, _, converted, _, _, _, _, _, _, _, merged, dropped, _, _, _, _, _, _, _, _, _) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!((converted, merged, dropped), (1, 1, 2));
+        assert_eq!(
+            dataset_page(&result, 0, 2).unwrap().rows,
+            vec![vec![Some("12:A".into())], vec![Some("34:B".into())],]
+        );
     }
 
     #[test]
