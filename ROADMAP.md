@@ -1358,8 +1358,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   presupuestos explícitos sin materialización silenciosa. La carga de CSV/TSV/TXT,
   Parquet y la primera familia de recetas compatibles ya comparten colección
   Polars con motor `streaming`; la apertura y validación de snapshots Parquet
-  durables también reutiliza esa frontera, y el historial se restaura entrada por
-entrada sin retener todos sus frames simultáneamente. La comparación completa de
+  durables también reutiliza esa frontera, y el historial copia sus snapshots
+  entrada por entrada, valida solo footer/esquema para revisiones no cursor y
+  materializa únicamente el cursor para comprobar consistencia, dejando la
+  lectura de filas restante a undo/redo. La comparación completa de
 filas y la comparación por claves particionan sus firmas exactas en 256 cubetas
 temporales y procesan multiconjuntos, resumen, nuevas claves y conflictos
 paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JOIN locales por claves ya ejecutan el plan Polars
@@ -1974,6 +1976,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Particionar también las firmas completas de filas y calcular la intersección de multiconjuntos por cubeta | Implementada como vigésimo sexta expansión; el `DataFrame` activo, las operaciones eager restantes y los joins fuera de memoria siguen pendientes |
 | 2026-08-30 | Particionar el preflight de cardinalidad de JOIN y calcular duplicidades por cubeta antes de materializar el resultado | Implementada como vigésimo séptima expansión; la materialización final del JOIN, DuckDB y los joins fuera de memoria siguen pendientes |
 | 2026-08-30 | Combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` con `merge` dentro de una misma receta lazy | Implementada como vigésimo octava expansión; las dependencias que descartan una fuente necesaria conservan rechazo o fallback eager, y la entrada/candidato activo siguen materializados |
+| 2026-08-30 | Reducir el pico de RAM de historiales Parquet en importación de sesión, guardado y apertura: copiar snapshots byte a byte, validar footer/esquema para revisiones no cursor y materializar solo el cursor para comprobar consistencia | Implementada como vigésimo novena expansión; undo/redo conserva la lectura completa bajo demanda, mientras la ejecución incremental del dataset activo y los presupuestos globales siguen en cola |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

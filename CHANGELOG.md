@@ -8,11 +8,14 @@ los artefactos de validación locales.
 
 ### Añadido
 
-- La importación de historiales `history_snapshots` procesa cada Parquet de forma
-  secuencial: valida y materializa una revisión temporal por iteración, conserva
-  la comprobación del cursor y evita acumular todos los `DataFrame` históricos
-  antes de publicar el proyecto. La ejecución incremental del dataset activo
-  y el presupuesto global de datasets grandes siguen fuera de este bloque.
+- La importación, guardado y apertura de historiales `history_snapshots` copia
+  cada Parquet de forma secuencial y conserva sus bytes originales; las
+  revisiones que no son el cursor validan solo footer/esquema y se leen bajo
+  demanda al hacer undo/redo. Únicamente el cursor se materializa para
+  comprobar igualdad con el dataset activo, reduciendo el pico de RAM sin
+  relajar los límites de disco, ruta, etiqueta, cancelación y publicación
+  atómica. La ejecución incremental del dataset activo y el presupuesto global
+  de datasets grandes siguen fuera de este bloque.
 - La consulta SQL local ofrece un motor DuckDB explícito además de Polars:
   ejecuta el contrato restringido de solo lectura sobre el snapshot Parquet
   administrado de la revisión actual cuando está disponible, evitando

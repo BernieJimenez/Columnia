@@ -1356,31 +1356,15 @@ impl HistoryManager {
                 ((index + 1) * 100 / entries.len()) as u8,
             );
             validate_history_label(&entry.label)?;
-            let frame = read_parquet_frame(&entry.path).map_err(|_| {
-                "Un snapshot del historial de la sesión no se puede leer como Parquet.".to_owned()
+            let metadata = fs::symlink_metadata(&entry.path).map_err(|_| {
+                "Un snapshot del historial de la sesión no está disponible.".to_owned()
             })?;
-            if index == cursor {
-                cursor_matches = frame.equals_missing(current_frame);
+            if is_symbolic_link_or_reparse_point(&metadata) || !metadata.is_file() {
+                return Err(
+                    "Un snapshot del historial de la sesión no es un archivo regular.".to_owned(),
+                );
             }
-            let temporary = tempfile::NamedTempFile::new_in(directory.path()).map_err(|_| {
-                "No se pudo preparar un snapshot del historial importado.".to_owned()
-            })?;
-            let mut snapshot = frame.clone();
-            ParquetWriter::new(temporary.as_file())
-                .finish(&mut snapshot)
-                .map_err(|_| {
-                    "No se pudo escribir un snapshot del historial importado.".to_owned()
-                })?;
-            temporary.as_file().sync_all().map_err(|_| {
-                "No se pudo sincronizar un snapshot del historial importado.".to_owned()
-            })?;
-            let bytes = temporary
-                .as_file()
-                .metadata()
-                .map_err(|_| {
-                    "No se pudo verificar un snapshot del historial importado.".to_owned()
-                })?
-                .len();
+            let bytes = metadata.len();
             total_bytes = total_bytes.checked_add(bytes).ok_or_else(|| {
                 "El historial importado supera su presupuesto de disco.".to_owned()
             })?;
@@ -1390,13 +1374,34 @@ impl HistoryManager {
             let destination = directory
                 .path()
                 .join(format!("snapshot-{index:020}.parquet"));
-            temporary.persist(&destination).map_err(|_| {
-                "No se pudo publicar un snapshot del historial importado.".to_owned()
-            })?;
+            let copied = fs::copy(&entry.path, &destination)
+                .map_err(|_| "No se pudo copiar un snapshot del historial importado.".to_owned())?;
+            if copied != bytes {
+                return Err(
+                    "Un snapshot del historial de la sesión cambió durante la copia.".to_owned(),
+                );
+            }
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&destination)
+                .and_then(|file| file.sync_all())
+                .map_err(|_| {
+                    "No se pudo sincronizar un snapshot del historial importado.".to_owned()
+                })?;
+            let matches = validate_staged_history_snapshot(
+                &destination,
+                current_frame,
+                index == cursor,
+                "Un snapshot del historial de la sesión no se puede leer como Parquet.",
+            )?;
+            if index == cursor {
+                cursor_matches = matches;
+            }
             history_entries.push(HistoryEntry {
                 label: entry.label.clone(),
                 path: destination,
-                bytes,
+                bytes: copied,
             });
         }
         ensure_not_cancelled(is_cancelled())?;
@@ -7805,6 +7810,25 @@ fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
 fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
     let plan = parquet_scan(path)?;
     collect_lazy_frame_streaming(plan, "No se pudo interpretar el Parquet")
+}
+
+fn validate_staged_history_snapshot(
+    path: &Path,
+    current_frame: &DataFrame,
+    is_cursor: bool,
+    error_message: &str,
+) -> Result<bool, String> {
+    if is_cursor {
+        let frame = read_parquet_frame(path).map_err(|_| error_message.to_owned())?;
+        return Ok(frame.equals_missing(current_frame));
+    }
+
+    // Los snapshots que no son el cursor se conservan byte a byte y solo se
+    // valida su esquema/footer durante la apertura. Sus páginas se leen bajo
+    // demanda cuando el usuario hace undo/redo, evitando materializar todo el
+    // historial en RAM.
+    read_parquet_schema_frame(path).map_err(|_| error_message.to_owned())?;
+    Ok(false)
 }
 
 fn read_parquet_schema_frame(path: &Path) -> Result<DataFrame, String> {
@@ -21376,10 +21400,14 @@ fn capture_project_history(
         if copied != entry.bytes {
             return Err("El historial activo cambió mientras se guardaba.".to_owned());
         }
-        let staged_frame = read_parquet_frame(&destination)
-            .map_err(|_| "El historial activo contiene un snapshot corrupto.".to_owned())?;
+        let matches = validate_staged_history_snapshot(
+            &destination,
+            current_frame,
+            index == history.cursor,
+            "El historial activo contiene un snapshot corrupto.",
+        )?;
         if index == history.cursor {
-            cursor_matches = staged_frame.equals_missing(current_frame);
+            cursor_matches = matches;
         }
         entries.push(ProjectHistoryCaptureEntry {
             label: entry.label.clone(),
@@ -21450,8 +21478,6 @@ fn restore_project_history(
         if total_bytes > history.disk_budget_bytes {
             return Err("El historial guardado supera su presupuesto.".to_owned());
         }
-        let frame = read_parquet_frame(&entry.path)
-            .map_err(|_| "Un snapshot del historial no contiene un Parquet válido.".to_owned())?;
         let destination = directory
             .path()
             .join(format!("snapshot-{index:020}.parquet"));
@@ -21460,8 +21486,14 @@ fn restore_project_history(
         if copied != entry.bytes {
             return Err("Un snapshot del historial cambió durante la apertura.".to_owned());
         }
+        let matches = validate_staged_history_snapshot(
+            &destination,
+            current_frame,
+            index == history.cursor,
+            "Un snapshot del historial no contiene un Parquet válido.",
+        )?;
         if index == history.cursor {
-            cursor_matches = frame.equals_missing(current_frame);
+            cursor_matches = matches;
         }
         entries.push(HistoryEntry {
             label: entry.label,

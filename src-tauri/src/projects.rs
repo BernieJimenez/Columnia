@@ -3983,6 +3983,14 @@ mod tests {
             .unwrap();
         assert!(generation.join("history-000.parquet").is_file());
         assert!(generation.join("history-001.parquet").is_file());
+        assert_eq!(
+            fs::read(generation.join("history-000.parquet")).unwrap(),
+            fs::read(&initial).unwrap()
+        );
+        assert_eq!(
+            fs::read(generation.join("history-001.parquet")).unwrap(),
+            fs::read(&current).unwrap()
+        );
     }
 
     #[test]

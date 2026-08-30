@@ -234,6 +234,12 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 
 ### Historial y atomicidad
 
+En la importación de sesiones y en el ciclo durable de proyectos, los snapshots
+que no son el cursor se copian byte a byte y solo consultan su footer/esquema;
+el cursor se materializa para comprobar igualdad con el frame activo. Las filas
+de las demás revisiones se leen bajo demanda al hacer undo/redo, evitando cargar
+todo el historial en RAM durante la apertura o el guardado.
+
 Cada revisión reversible de la sesión se guarda como snapshot Parquet en un directorio temporal:
 
 - máximo normal: 12 entradas;
@@ -762,6 +768,7 @@ Al actualizarlo:
 | 2026-08-30 | La receta lazy/streaming incorpora tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, calculando umbrales y conteos después de filtros compatibles y preservando nulos; las etapas previas que alteran valores mantienen fallback eager. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La receta lazy/streaming combina parseos de fecha con conversiones en columnas distintas y permite `split` junto con `merge` cuando se conservan las fuentes; dependencias incompatibles mantienen rechazo o fallback eager. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | M1/P1 copia los snapshots históricos byte a byte en importación, guardado y apertura; valida footer/esquema en revisiones no cursor, materializa solo el cursor para la comprobación de consistencia y deja la lectura completa restante para undo/redo bajo demanda. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La comparación por claves particiona el índice exacto en 256 cubetas temporales y procesa resumen, nuevas claves y conflictos por cubeta; conserva el orden de conflictos, duplicados y resultados sin retener todos los índices de ambos datasets en memoria. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La comparación completa calcula el multiconjunto de filas comunes procesando las firmas por cubetas temporales y conserva los conteos exactos sin mapas globales de firmas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | El preflight de cardinalidad de los `JOIN` locales derrama las claves de ambos datasets y calcula los productos de duplicidad por cubeta con cancelación cooperativa, sin cambiar los límites ni el rechazo many-to-many. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
