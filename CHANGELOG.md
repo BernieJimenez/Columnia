@@ -10,8 +10,10 @@ los artefactos de validación locales.
 
 - Los `JOIN` locales `INNER` y `LEFT` sin agregación procesan el lado `dataset`
   por bloques y conservan el conteo, orden y `OFFSET`/`LIMIT` globales sin
-  acumular el `DataFrame` unido completo; `FULL` y agregaciones mantienen su ruta
-  eager acotada hasta completar una estrategia incremental equivalente.
+  acumular el `DataFrame` unido completo.
+- Las agregaciones sobre `JOIN` locales `INNER` y `LEFT` también procesan bloques
+  y fusionan estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos sin acumular el
+  `DataFrame` unido completo; `FULL` conserva la ruta eager acotada.
 - El preflight de cardinalidad de los `JOIN` locales usa índices temporales de
   claves particionados y cuenta por cubeta los productos de duplicidad, con
   cancelación cooperativa y el mismo rechazo explícito de resultados excesivos.

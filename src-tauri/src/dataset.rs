@@ -2700,9 +2700,8 @@ where
 }
 
 #[derive(Clone)]
-struct LocalAggregateState<'a> {
+struct LocalAggregateState {
     function: LocalAggregate,
-    column: Option<&'a Column>,
     column_name: Option<String>,
     count: usize,
     total: f64,
@@ -2711,9 +2710,9 @@ struct LocalAggregateState<'a> {
     all_numeric: bool,
 }
 
-impl<'a> LocalAggregateState<'a> {
+impl LocalAggregateState {
     fn from_projection(
-        frame: &'a DataFrame,
+        frame: &DataFrame,
         projection: &LocalProjection,
     ) -> Result<Option<Self>, String> {
         let LocalProjection::Aggregate {
@@ -2722,17 +2721,13 @@ impl<'a> LocalAggregateState<'a> {
         else {
             return Ok(None);
         };
-        let source = column
-            .as_deref()
-            .map(|name| {
-                frame
-                    .column(name)
-                    .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
-            })
-            .transpose()?;
+        if let Some(name) = column {
+            frame
+                .column(name)
+                .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))?;
+        }
         Ok(Some(Self {
             function: *function,
-            column: source,
             column_name: column.clone(),
             count: 0,
             total: 0.0,
@@ -2746,11 +2741,15 @@ impl<'a> LocalAggregateState<'a> {
         }))
     }
 
-    fn add_row(&mut self, row_index: usize) -> Result<(), String> {
+    fn add_row(&mut self, frame: &DataFrame, row_index: usize) -> Result<(), String> {
         if matches!(self.function, LocalAggregate::Count) {
-            let include = match self.column {
-                Some(column) => {
-                    column
+            let include = match self.column_name.as_deref() {
+                Some(name) => {
+                    frame
+                        .column(name)
+                        .map_err(|_| {
+                            format!("La columna '{name}' no existe en el dataset activo.")
+                        })?
                         .get(row_index)
                         .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?
                         != AnyValue::Null
@@ -2769,11 +2768,10 @@ impl<'a> LocalAggregateState<'a> {
             .column_name
             .as_deref()
             .ok_or_else(|| "La agregación necesita una columna válida.".to_owned())?;
-        let column = self
-            .column
-            .ok_or_else(|| "La agregación necesita una columna válida.".to_owned())?;
         let Some(value) = preview_value(
-            column
+            frame
+                .column(column_name)
+                .map_err(|_| format!("La columna '{column_name}' no existe en el dataset activo."))?
                 .get(row_index)
                 .map_err(|error| format!("No se pudo leer la agregación local: {error}"))?,
         ) else {
@@ -2849,12 +2847,12 @@ impl<'a> LocalAggregateState<'a> {
 }
 
 #[derive(Clone)]
-struct LocalAggregateAccumulator<'a> {
-    states: Vec<LocalAggregateState<'a>>,
+struct LocalAggregateAccumulator {
+    states: Vec<LocalAggregateState>,
 }
 
-impl<'a> LocalAggregateAccumulator<'a> {
-    fn new(frame: &'a DataFrame, projections: &[LocalProjection]) -> Result<Self, String> {
+impl LocalAggregateAccumulator {
+    fn new(frame: &DataFrame, projections: &[LocalProjection]) -> Result<Self, String> {
         let mut states = Vec::new();
         for projection in projections {
             if let Some(state) = LocalAggregateState::from_projection(frame, projection)? {
@@ -2864,9 +2862,9 @@ impl<'a> LocalAggregateAccumulator<'a> {
         Ok(Self { states })
     }
 
-    fn add_row(&mut self, row_index: usize) -> Result<(), String> {
+    fn add_row(&mut self, frame: &DataFrame, row_index: usize) -> Result<(), String> {
         for state in &mut self.states {
-            state.add_row(row_index)?;
+            state.add_row(frame, row_index)?;
         }
         Ok(())
     }
@@ -2879,9 +2877,22 @@ impl<'a> LocalAggregateAccumulator<'a> {
     }
 }
 
-struct LocalAggregateGroup<'a> {
+struct LocalAggregateGroup {
     key: Vec<Option<String>>,
-    accumulator: LocalAggregateAccumulator<'a>,
+    accumulator: LocalAggregateAccumulator,
+}
+
+struct LocalAggregateExecution {
+    matching_count: usize,
+    global: Option<LocalAggregateAccumulator>,
+    groups: Vec<LocalAggregateGroup>,
+}
+
+struct LocalAggregateQueryContext<'a, C> {
+    projections: &'a [LocalProjection],
+    predicates: &'a [LocalPredicate],
+    group_by: Option<&'a [String]>,
+    is_cancelled: &'a C,
 }
 
 fn local_query_aggregate_row(
@@ -2915,6 +2926,154 @@ fn local_query_aggregate_row(
         .collect()
 }
 
+fn aggregate_local_query_into_execution_with_cancel<C>(
+    frame: &DataFrame,
+    block_count: usize,
+    execution: &mut LocalAggregateExecution,
+    positions: &mut HashMap<Vec<Option<String>>, usize>,
+    context: &LocalAggregateQueryContext<'_, C>,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let template = LocalAggregateAccumulator::new(frame, context.projections)?;
+    let group_columns = context
+        .group_by
+        .map(|groups| {
+            groups
+                .iter()
+                .map(|name| {
+                    frame
+                        .column(name)
+                        .map(|_| name.clone())
+                        .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
+    for block_index in 0..block_count {
+        let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
+        let flags = local_query_block_flags_with_cancel(
+            frame,
+            context.predicates,
+            start,
+            end,
+            context.is_cancelled,
+        )?;
+        for (offset, matches) in flags.into_iter().enumerate() {
+            if !matches {
+                continue;
+            }
+            if execution
+                .matching_count
+                .is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS)
+            {
+                ensure_not_cancelled((context.is_cancelled)())?;
+            }
+            let row_index = start + offset;
+            if let Some(accumulator) = execution.global.as_mut() {
+                accumulator.add_row(frame, row_index)?;
+            } else {
+                let columns = group_columns
+                    .as_ref()
+                    .ok_or_else(|| "GROUP BY requiere columnas válidas.".to_owned())?;
+                let key = columns
+                    .iter()
+                    .map(|name| {
+                        frame
+                            .column(name)
+                            .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))?
+                            .get(row_index)
+                            .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))
+                            .map(preview_value)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let group_index = if let Some(position) = positions.get(&key) {
+                    *position
+                } else {
+                    let position = execution.groups.len();
+                    positions.insert(key.clone(), position);
+                    execution.groups.push(LocalAggregateGroup {
+                        key,
+                        accumulator: template.clone(),
+                    });
+                    position
+                };
+                execution.groups[group_index]
+                    .accumulator
+                    .add_row(frame, row_index)?;
+            }
+            execution.matching_count = execution
+                .matching_count
+                .checked_add(1)
+                .ok_or_else(|| "La agregación local supera la capacidad de conteo.".to_owned())?;
+        }
+    }
+    ensure_not_cancelled((context.is_cancelled)())?;
+    Ok(())
+}
+
+fn aggregate_local_query_state_with_cancel<C>(
+    frame: &DataFrame,
+    projections: &[LocalProjection],
+    predicates: &[LocalPredicate],
+    group_by: Option<&[String]>,
+    block_count: usize,
+    is_cancelled: &C,
+) -> Result<LocalAggregateExecution, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut execution = LocalAggregateExecution {
+        matching_count: 0,
+        global: group_by
+            .is_none()
+            .then_some(LocalAggregateAccumulator::new(frame, projections)?),
+        groups: Vec::new(),
+    };
+    let mut positions = HashMap::new();
+    let context = LocalAggregateQueryContext {
+        projections,
+        predicates,
+        group_by,
+        is_cancelled,
+    };
+    aggregate_local_query_into_execution_with_cancel(
+        frame,
+        block_count,
+        &mut execution,
+        &mut positions,
+        &context,
+    )?;
+    Ok(execution)
+}
+
+fn finish_local_aggregate_execution(
+    execution: LocalAggregateExecution,
+    projections: &[LocalProjection],
+    group_by: Option<&[String]>,
+) -> Result<Vec<Vec<Option<String>>>, String> {
+    if let Some(accumulator) = execution.global {
+        let aggregate_values = accumulator.finish();
+        return Ok(vec![local_query_aggregate_row(
+            projections,
+            None,
+            None,
+            &aggregate_values,
+        )?]);
+    }
+
+    execution
+        .groups
+        .into_iter()
+        .map(|group| {
+            let aggregate_values = group.accumulator.finish();
+            local_query_aggregate_row(projections, group_by, Some(&group.key), &aggregate_values)
+        })
+        .collect()
+}
+
 fn aggregate_local_query_with_cancel<C>(
     frame: &DataFrame,
     projections: &[LocalProjection],
@@ -2926,87 +3085,47 @@ fn aggregate_local_query_with_cancel<C>(
 where
     C: Fn() -> bool + Sync,
 {
-    let template = LocalAggregateAccumulator::new(frame, projections)?;
-    let group_columns = group_by
-        .map(|groups| {
-            groups
-                .iter()
-                .map(|name| {
-                    frame
-                        .column(name)
-                        .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
+    let execution = aggregate_local_query_state_with_cancel(
+        frame,
+        projections,
+        predicates,
+        group_by,
+        block_count,
+        is_cancelled,
+    )?;
+    finish_local_aggregate_execution(execution, projections, group_by)
+}
+
+fn local_query_columns(
+    frame: &DataFrame,
+    plan: &LocalQueryPlan,
+) -> Result<Vec<DatasetColumn>, String> {
+    plan.projections
+        .iter()
+        .map(|projection| match projection {
+            LocalProjection::Column { name, output_name } => frame
+                .column(name)
+                .map(|column| DatasetColumn {
+                    name: output_name.clone(),
+                    data_type: column.dtype().to_string(),
                 })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?;
-    let mut global = group_by.is_none().then_some(template.clone());
-    let mut groups = Vec::<LocalAggregateGroup<'_>>::new();
-    let mut positions = HashMap::<Vec<Option<String>>, usize>::new();
-    let mut matching_position = 0usize;
-
-    for block_index in 0..block_count {
-        let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
-        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
-        let flags =
-            local_query_block_flags_with_cancel(frame, predicates, start, end, is_cancelled)?;
-        for (offset, matches) in flags.into_iter().enumerate() {
-            if !matches {
-                continue;
-            }
-            if matching_position.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
-            }
-            let row_index = start + offset;
-            if let Some(accumulator) = global.as_mut() {
-                accumulator.add_row(row_index)?;
-            } else {
-                let columns = group_columns
-                    .as_ref()
-                    .ok_or_else(|| "GROUP BY requiere columnas válidas.".to_owned())?;
-                let key = columns
-                    .iter()
-                    .map(|column| {
-                        column
-                            .get(row_index)
-                            .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))
-                            .map(preview_value)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let group_index = if let Some(position) = positions.get(&key) {
-                    *position
-                } else {
-                    let position = groups.len();
-                    positions.insert(key.clone(), position);
-                    groups.push(LocalAggregateGroup {
-                        key,
-                        accumulator: template.clone(),
-                    });
-                    position
-                };
-                groups[group_index].accumulator.add_row(row_index)?;
-            }
-            matching_position = matching_position
-                .checked_add(1)
-                .ok_or_else(|| "La agregación local supera la capacidad de conteo.".to_owned())?;
-        }
-    }
-    ensure_not_cancelled(is_cancelled())?;
-
-    if let Some(accumulator) = global {
-        let aggregate_values = accumulator.finish();
-        return Ok(vec![local_query_aggregate_row(
-            projections,
-            None,
-            None,
-            &aggregate_values,
-        )?]);
-    }
-
-    groups
-        .into_iter()
-        .map(|group| {
-            let aggregate_values = group.accumulator.finish();
-            local_query_aggregate_row(projections, group_by, Some(&group.key), &aggregate_values)
+                .map_err(|_| format!("La columna '{name}' no existe en el dataset activo.")),
+            LocalProjection::Aggregate {
+                function,
+                column,
+                output_name,
+            } => Ok(DatasetColumn {
+                name: output_name.clone(),
+                data_type: match function {
+                    LocalAggregate::Count => "UInt64".to_owned(),
+                    LocalAggregate::Sum | LocalAggregate::Average => "Float64".to_owned(),
+                    LocalAggregate::Minimum | LocalAggregate::Maximum => column
+                        .as_deref()
+                        .and_then(|name| frame.column(name).ok())
+                        .map(|column| column.dtype().to_string())
+                        .unwrap_or_else(|| "String".to_owned()),
+                },
+            }),
         })
         .collect()
 }
@@ -3117,35 +3236,7 @@ where
         (matching_count, matching_rows)
     };
     ensure_not_cancelled(is_cancelled())?;
-    let columns = plan
-        .projections
-        .iter()
-        .map(|projection| match projection {
-            LocalProjection::Column { name, output_name } => frame
-                .column(name)
-                .map(|column| DatasetColumn {
-                    name: output_name.clone(),
-                    data_type: column.dtype().to_string(),
-                })
-                .map_err(|_| format!("La columna '{name}' no existe en el dataset activo.")),
-            LocalProjection::Aggregate {
-                function,
-                column,
-                output_name,
-            } => Ok(DatasetColumn {
-                name: output_name.clone(),
-                data_type: match function {
-                    LocalAggregate::Count => "UInt64".to_owned(),
-                    LocalAggregate::Sum | LocalAggregate::Average => "Float64".to_owned(),
-                    LocalAggregate::Minimum | LocalAggregate::Maximum => column
-                        .as_deref()
-                        .and_then(|name| frame.column(name).ok())
-                        .map(|column| column.dtype().to_string())
-                        .unwrap_or_else(|| "String".to_owned()),
-                },
-            }),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let columns = local_query_columns(frame, plan)?;
     let (row_count, rows, offset, truncated) = if plan.aggregate {
         let aggregate_rows = aggregate_local_query_with_cancel(
             frame,
@@ -3221,6 +3312,95 @@ fn execute_local_query_with_comparison(
     execute_local_query_with_comparison_and_cancel(current, compared, query, &never_cancelled)
 }
 
+fn execute_local_join_aggregate_in_blocks_after_validation<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    spec: &LocalJoinQuerySpec,
+    plan: &LocalQueryPlan,
+    first_joined_block: DataFrame,
+    is_cancelled: &C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut execution = LocalAggregateExecution {
+        matching_count: 0,
+        global: plan
+            .group_by
+            .is_none()
+            .then_some(LocalAggregateAccumulator::new(
+                &first_joined_block,
+                &plan.projections,
+            )?),
+        groups: Vec::new(),
+    };
+    let mut positions = HashMap::new();
+    let context = LocalAggregateQueryContext {
+        projections: &plan.projections,
+        predicates: &plan.predicates,
+        group_by: plan.group_by.as_deref(),
+        is_cancelled,
+    };
+    let first_block_count = first_joined_block.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    aggregate_local_query_into_execution_with_cancel(
+        &first_joined_block,
+        first_block_count,
+        &mut execution,
+        &mut positions,
+        &context,
+    )?;
+    if execution.matching_count > LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS {
+        return Err(format!(
+            "La agregación local limita las filas coincidentes a {LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS} para proteger la memoria."
+        ));
+    }
+
+    let columns = local_query_columns(&first_joined_block, plan)?;
+    let block_count = current.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    for block_index in 1..block_count {
+        ensure_not_cancelled(is_cancelled())?;
+        let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(current.height());
+        let current_block = current.slice(start as i64, end - start);
+        let joined_block = collect_join_frame_on_keys_with_cancel(
+            &current_block,
+            compared,
+            &spec.current_keys,
+            &spec.compared_keys,
+            spec.join_type,
+            is_cancelled,
+        )?;
+        let joined_block_count = joined_block.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+        aggregate_local_query_into_execution_with_cancel(
+            &joined_block,
+            joined_block_count,
+            &mut execution,
+            &mut positions,
+            &context,
+        )?;
+        if execution.matching_count > LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS {
+            return Err(format!(
+                "La agregación local limita las filas coincidentes a {LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS} para proteger la memoria."
+            ));
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    let aggregate_rows =
+        finish_local_aggregate_execution(execution, &plan.projections, plan.group_by.as_deref())?;
+    let row_count = aggregate_rows.len();
+    if plan.offset > row_count {
+        return Err("La página solicitada está fuera del resultado agregado.".to_owned());
+    }
+    let end = plan.offset.saturating_add(plan.limit).min(row_count);
+    Ok(DatasetQueryResult {
+        columns,
+        row_count,
+        offset: plan.offset,
+        rows: aggregate_rows[plan.offset..end].to_vec(),
+        truncated: plan.offset.saturating_add(plan.limit) < row_count,
+    })
+}
+
 fn execute_local_join_query_in_blocks_with_cancel<C>(
     current: &DataFrame,
     compared: &DataFrame,
@@ -3269,7 +3449,15 @@ where
         if plan.is_none() {
             let parsed = parse_local_query(&spec.normalized_query, &joined_block)?;
             if parsed.aggregate {
-                return Ok((None, true));
+                let result = execute_local_join_aggregate_in_blocks_after_validation(
+                    current,
+                    compared,
+                    spec,
+                    &parsed,
+                    joined_block,
+                    is_cancelled,
+                )?;
+                return Ok((Some(result), true));
             }
             offset_in_matches = parsed.offset;
             remaining = parsed.limit;
@@ -21581,6 +21769,86 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(result.truncated);
+    }
+
+    #[test]
+    fn local_query_join_aggregates_across_current_blocks_without_materializing_all_rows() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS + 4;
+        let ids = (0..row_count as i64).collect::<Vec<_>>();
+        let regions = ids
+            .iter()
+            .map(|id| {
+                if *id < LOCAL_QUERY_BLOCK_ROWS as i64 {
+                    "north".to_owned()
+                } else {
+                    "south".to_owned()
+                }
+            })
+            .collect::<Vec<_>>();
+        let current = DataFrame::new(
+            row_count,
+            vec![
+                Series::new("id".into(), ids.clone()).into_column(),
+                Series::new("region".into(), regions).into_column(),
+            ],
+        )
+        .expect("el dataset activo debe construirse");
+        let compared = DataFrame::new(
+            row_count,
+            vec![
+                Series::new("id".into(), ids.clone()).into_column(),
+                Series::new("value".into(), ids).into_column(),
+            ],
+        )
+        .expect("el dataset comparado debe construirse");
+        let query = "SELECT region, COUNT(*) AS total, SUM(value) AS total_value, AVG(value) AS average_value, MIN(value) AS minimum_value, MAX(value) AS maximum_value FROM dataset LEFT JOIN compared ON dataset.id = compared.id WHERE value IS NOT NULL GROUP BY region LIMIT 10";
+        let result = execute_local_query_with_comparison(&current, Some(&compared), query)
+            .expect("la agregación JOIN debe atravesar el límite de bloque");
+        let north_sum = (0..LOCAL_QUERY_BLOCK_ROWS as i64).sum::<i64>();
+        let south_start = LOCAL_QUERY_BLOCK_ROWS as i64;
+        let south_sum = (south_start..south_start + 4).sum::<i64>();
+
+        assert_eq!(result.row_count, 2);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![
+                    Some("north".to_owned()),
+                    Some(LOCAL_QUERY_BLOCK_ROWS.to_string()),
+                    Some(north_sum.to_string()),
+                    Some((north_sum as f64 / LOCAL_QUERY_BLOCK_ROWS as f64).to_string()),
+                    Some("0".to_owned()),
+                    Some((LOCAL_QUERY_BLOCK_ROWS as i64 - 1).to_string()),
+                ],
+                vec![
+                    Some("south".to_owned()),
+                    Some("4".to_owned()),
+                    Some(south_sum.to_string()),
+                    Some((south_sum as f64 / 4.0).to_string()),
+                    Some(south_start.to_string()),
+                    Some((south_start + 3).to_string()),
+                ],
+            ]
+        );
+        assert!(!result.truncated);
+
+        let paged_query = query.replace("LIMIT 10", "LIMIT 1 OFFSET 1");
+        let page = execute_local_query_with_comparison(&current, Some(&compared), &paged_query)
+            .expect("la agregación JOIN debe conservar OFFSET/LIMIT");
+        assert_eq!(page.row_count, 2);
+        assert_eq!(page.offset, 1);
+        assert_eq!(
+            page.rows,
+            vec![vec![
+                Some("south".to_owned()),
+                Some("4".to_owned()),
+                Some(south_sum.to_string()),
+                Some((south_sum as f64 / 4.0).to_string()),
+                Some(south_start.to_string()),
+                Some((south_start + 3).to_string()),
+            ],]
+        );
+        assert!(!page.truncated);
     }
 
     #[test]
