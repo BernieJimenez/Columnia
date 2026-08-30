@@ -3312,52 +3312,71 @@ fn execute_local_query_with_comparison(
     execute_local_query_with_comparison_and_cancel(current, compared, query, &never_cancelled)
 }
 
-fn execute_local_join_aggregate_in_blocks_after_validation<C>(
+fn collect_unmatched_join_right_with_cancel<C>(
     current: &DataFrame,
     compared: &DataFrame,
-    spec: &LocalJoinQuerySpec,
-    plan: &LocalQueryPlan,
-    first_joined_block: DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
     is_cancelled: &C,
-) -> Result<DatasetQueryResult, String>
+) -> Result<DataFrame, String>
 where
     C: Fn() -> bool + Sync,
 {
-    let mut execution = LocalAggregateExecution {
-        matching_count: 0,
-        global: plan
-            .group_by
-            .is_none()
-            .then_some(LocalAggregateAccumulator::new(
-                &first_joined_block,
-                &plan.projections,
-            )?),
-        groups: Vec::new(),
-    };
-    let mut positions = HashMap::new();
-    let context = LocalAggregateQueryContext {
-        projections: &plan.projections,
-        predicates: &plan.predicates,
-        group_by: plan.group_by.as_deref(),
-        is_cancelled,
-    };
-    let first_block_count = first_joined_block.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
-    aggregate_local_query_into_execution_with_cancel(
-        &first_joined_block,
-        first_block_count,
-        &mut execution,
-        &mut positions,
-        &context,
+    ensure_not_cancelled(is_cancelled())?;
+    let order_column = (0..)
+        .map(|suffix| {
+            if suffix == 0 {
+                "__columnia_join_order".to_owned()
+            } else {
+                format!("__columnia_join_order_{suffix}")
+            }
+        })
+        .find(|candidate| {
+            current.get_column_index(candidate).is_none()
+                && compared.get_column_index(candidate).is_none()
+        })
+        .ok_or_else(|| "No se pudo preparar el orden interno del JOIN local.".to_owned())?;
+    let compared_indexed = compared
+        .with_row_index(order_column.clone().into(), None)
+        .map_err(|error| format!("No se pudo preparar el orden del JOIN local: {error}"))?;
+    let left_on = compared_keys.iter().map(col).collect::<Vec<_>>();
+    let right_on = current_keys.iter().map(col).collect::<Vec<_>>();
+    let mut join_args = JoinArgs::new(JoinType::Anti);
+    join_args.maintain_order = MaintainOrderJoin::Left;
+    let plan = compared_indexed
+        .lazy()
+        .join(current.clone().lazy(), left_on, right_on, join_args);
+    let unmatched = collect_lazy_frame_streaming(
+        plan,
+        "No se pudieron seleccionar las filas no emparejadas del dataset comparado",
     )?;
-    if execution.matching_count > LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS {
-        return Err(format!(
-            "La agregación local limita las filas coincidentes a {LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS} para proteger la memoria."
-        ));
-    }
+    let mut unmatched = unmatched
+        .sort([order_column.as_str()], SortMultipleOptions::default())
+        .map_err(|error| format!("No se pudo conservar el orden del dataset comparado: {error}"))?;
+    unmatched
+        .drop_in_place(order_column.as_str())
+        .map_err(|error| format!("No se pudo retirar el orden interno del JOIN local: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(unmatched)
+}
 
-    let columns = local_query_columns(&first_joined_block, plan)?;
-    let block_count = current.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
-    for block_index in 1..block_count {
+fn visit_local_join_blocks_with_cancel<C, F>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    spec: &LocalJoinQuerySpec,
+    is_cancelled: &C,
+    mut visit: F,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Sync,
+    F: FnMut(DataFrame) -> Result<(), String>,
+{
+    let left_join_type = match spec.join_type {
+        DatasetJoinType::Full => DatasetJoinType::Left,
+        join_type => join_type,
+    };
+    let current_block_count = current.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    for block_index in 0..current_block_count {
         ensure_not_cancelled(is_cancelled())?;
         let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
         let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(current.height());
@@ -3367,38 +3386,71 @@ where
             compared,
             &spec.current_keys,
             &spec.compared_keys,
-            spec.join_type,
+            left_join_type,
             is_cancelled,
         )?;
-        let joined_block_count = joined_block.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
-        aggregate_local_query_into_execution_with_cancel(
-            &joined_block,
-            joined_block_count,
-            &mut execution,
-            &mut positions,
-            &context,
+        visit(joined_block)?;
+    }
+
+    if matches!(spec.join_type, DatasetJoinType::Full) {
+        let unmatched_right = collect_unmatched_join_right_with_cancel(
+            current,
+            compared,
+            &spec.current_keys,
+            &spec.compared_keys,
+            is_cancelled,
         )?;
-        if execution.matching_count > LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS {
-            return Err(format!(
-                "La agregación local limita las filas coincidentes a {LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS} para proteger la memoria."
-            ));
+        let empty_current = current.slice(0, 0);
+        let right_order_column = (0..)
+            .map(|suffix| {
+                if suffix == 0 {
+                    "__columnia_full_join_order".to_owned()
+                } else {
+                    format!("__columnia_full_join_order_{suffix}")
+                }
+            })
+            .find(|candidate| {
+                current.get_column_index(candidate).is_none()
+                    && compared.get_column_index(candidate).is_none()
+            })
+            .ok_or_else(|| "No se pudo preparar el orden del FULL JOIN local.".to_owned())?;
+        let right_block_count = unmatched_right.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+        for block_index in 0..right_block_count {
+            ensure_not_cancelled(is_cancelled())?;
+            let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+            let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(unmatched_right.height());
+            let right_block = unmatched_right.slice(start as i64, end - start);
+            let right_block = right_block
+                .with_row_index(right_order_column.clone().into(), None)
+                .map_err(|error| {
+                    format!("No se pudo preparar el orden del FULL JOIN local: {error}")
+                })?;
+            let joined_block = collect_join_frame_on_keys_with_cancel(
+                &empty_current,
+                &right_block,
+                &spec.current_keys,
+                &spec.compared_keys,
+                DatasetJoinType::Full,
+                is_cancelled,
+            )?;
+            let mut joined_block = joined_block
+                .sort(
+                    [right_order_column.as_str()],
+                    SortMultipleOptions::default(),
+                )
+                .map_err(|error| {
+                    format!("No se pudo conservar el orden del FULL JOIN local: {error}")
+                })?;
+            joined_block
+                .drop_in_place(right_order_column.as_str())
+                .map_err(|error| {
+                    format!("No se pudo retirar el orden interno del FULL JOIN: {error}")
+                })?;
+            visit(joined_block)?;
         }
     }
     ensure_not_cancelled(is_cancelled())?;
-    let aggregate_rows =
-        finish_local_aggregate_execution(execution, &plan.projections, plan.group_by.as_deref())?;
-    let row_count = aggregate_rows.len();
-    if plan.offset > row_count {
-        return Err("La página solicitada está fuera del resultado agregado.".to_owned());
-    }
-    let end = plan.offset.saturating_add(plan.limit).min(row_count);
-    Ok(DatasetQueryResult {
-        columns,
-        row_count,
-        offset: plan.offset,
-        rows: aggregate_rows[plan.offset..end].to_vec(),
-        truncated: plan.offset.saturating_add(plan.limit) < row_count,
-    })
+    Ok(())
 }
 
 fn execute_local_join_query_in_blocks_with_cancel<C>(
@@ -3410,7 +3462,7 @@ fn execute_local_join_query_in_blocks_with_cancel<C>(
 where
     C: Fn() -> bool + Sync,
 {
-    if current.height() == 0 || matches!(spec.join_type, DatasetJoinType::Full) {
+    if current.height() == 0 {
         return Ok((None, false));
     }
 
@@ -3424,49 +3476,62 @@ where
     )?;
     ensure_not_cancelled(is_cancelled())?;
 
-    let block_count = current.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
     let mut plan = None;
     let mut columns = None;
     let mut matching_count = 0usize;
     let mut offset_in_matches = 0usize;
     let mut remaining = 0usize;
     let mut rows = Vec::new();
+    let mut aggregate_execution = None;
+    let mut aggregate_positions = HashMap::new();
 
-    for block_index in 0..block_count {
-        ensure_not_cancelled(is_cancelled())?;
-        let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
-        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(current.height());
-        let current_block = current.slice(start as i64, end - start);
-        let joined_block = collect_join_frame_on_keys_with_cancel(
-            &current_block,
-            compared,
-            &spec.current_keys,
-            &spec.compared_keys,
-            spec.join_type,
-            is_cancelled,
-        )?;
-
+    visit_local_join_blocks_with_cancel(current, compared, spec, is_cancelled, |joined_block| {
         if plan.is_none() {
             let parsed = parse_local_query(&spec.normalized_query, &joined_block)?;
+            columns = Some(local_query_columns(&joined_block, &parsed)?);
             if parsed.aggregate {
-                let result = execute_local_join_aggregate_in_blocks_after_validation(
-                    current,
-                    compared,
-                    spec,
-                    &parsed,
-                    joined_block,
-                    is_cancelled,
-                )?;
-                return Ok((Some(result), true));
+                aggregate_execution =
+                    Some(LocalAggregateExecution {
+                        matching_count: 0,
+                        global: parsed.group_by.is_none().then_some(
+                            LocalAggregateAccumulator::new(&joined_block, &parsed.projections)?,
+                        ),
+                        groups: Vec::new(),
+                    });
+            } else {
+                offset_in_matches = parsed.offset;
+                remaining = parsed.limit;
+                rows = Vec::with_capacity(parsed.limit);
             }
-            offset_in_matches = parsed.offset;
-            remaining = parsed.limit;
-            rows = Vec::with_capacity(parsed.limit);
             plan = Some(parsed);
         }
+
         let base_plan = plan
             .as_ref()
             .expect("la consulta JOIN paginada debe tener un plan");
+        if let Some(execution) = aggregate_execution.as_mut() {
+            let context = LocalAggregateQueryContext {
+                projections: &base_plan.projections,
+                predicates: &base_plan.predicates,
+                group_by: base_plan.group_by.as_deref(),
+                is_cancelled,
+            };
+            let joined_block_count = joined_block.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+            aggregate_local_query_into_execution_with_cancel(
+                &joined_block,
+                joined_block_count,
+                execution,
+                &mut aggregate_positions,
+                &context,
+            )?;
+            if execution.matching_count > LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS {
+                return Err(format!(
+                    "La agregación local limita las filas coincidentes a {LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS} para proteger la memoria."
+                ));
+            }
+            return Ok(());
+        }
+
         let mut probe_plan = base_plan.clone();
         probe_plan.offset = 0;
         probe_plan.limit = if offset_in_matches == 0 && remaining > 0 {
@@ -3475,19 +3540,16 @@ where
             1
         };
         let probe = execute_local_query_plan_with_cancel(&joined_block, &probe_plan, is_cancelled)?;
-        if columns.is_none() {
-            columns = Some(probe.columns.clone());
-        }
         matching_count = matching_count
             .checked_add(probe.row_count)
             .ok_or_else(|| "La consulta local supera la capacidad de conteo.".to_owned())?;
 
         if offset_in_matches >= probe.row_count {
             offset_in_matches -= probe.row_count;
-            continue;
+            return Ok(());
         }
         if remaining == 0 {
-            continue;
+            return Ok(());
         }
 
         let rows_before = rows.len();
@@ -3506,9 +3568,33 @@ where
             .checked_sub(added)
             .expect("la página JOIN no puede exceder su límite");
         offset_in_matches = 0;
-    }
+        Ok(())
+    })?;
 
     let plan = plan.expect("la consulta JOIN paginada debe visitar un bloque");
+    if let Some(execution) = aggregate_execution {
+        let aggregate_rows = finish_local_aggregate_execution(
+            execution,
+            &plan.projections,
+            plan.group_by.as_deref(),
+        )?;
+        let row_count = aggregate_rows.len();
+        if plan.offset > row_count {
+            return Err("La página solicitada está fuera del resultado agregado.".to_owned());
+        }
+        let end = plan.offset.saturating_add(plan.limit).min(row_count);
+        return Ok((
+            Some(DatasetQueryResult {
+                columns: columns.expect("la consulta JOIN agregada debe tener columnas"),
+                row_count,
+                offset: plan.offset,
+                rows: aggregate_rows[plan.offset..end].to_vec(),
+                truncated: plan.offset.saturating_add(plan.limit) < row_count,
+            }),
+            true,
+        ));
+    }
+
     if plan.offset > matching_count {
         return Err("La página solicitada está fuera del resultado filtrado.".to_owned());
     }
@@ -21849,6 +21935,155 @@ mod tests {
             ],]
         );
         assert!(!page.truncated);
+    }
+
+    #[test]
+    fn local_query_full_join_pages_current_and_right_only_blocks_in_order() {
+        let current_row_count = LOCAL_QUERY_BLOCK_ROWS + 3;
+        let current_ids = (0..current_row_count as i64).collect::<Vec<_>>();
+        let mut compared_ids = current_ids.clone();
+        compared_ids.extend([current_row_count as i64, current_row_count as i64 + 1]);
+        let compared_segments = compared_ids
+            .iter()
+            .map(|id| format!("segment-{id}"))
+            .collect::<Vec<_>>();
+        let current = DataFrame::new(
+            current_row_count,
+            vec![Series::new("id".into(), current_ids).into_column()],
+        )
+        .expect("el dataset activo debe construirse");
+        let compared = DataFrame::new(
+            compared_ids.len(),
+            vec![
+                Series::new("id".into(), compared_ids).into_column(),
+                Series::new("segment".into(), compared_segments).into_column(),
+            ],
+        )
+        .expect("el dataset comparado debe construirse");
+        let offset = current_row_count - 2;
+
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            &format!(
+                "SELECT id, segment FROM dataset FULL JOIN compared ON dataset.id = compared.id LIMIT 4 OFFSET {offset}"
+            ),
+        )
+        .expect("el FULL JOIN paginado debe recorrer ambos lados");
+
+        assert_eq!(result.row_count, current_row_count + 2);
+        assert_eq!(result.offset, offset);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![
+                    Some((current_row_count - 2).to_string()),
+                    Some(format!("segment-{}", current_row_count - 2)),
+                ],
+                vec![
+                    Some((current_row_count - 1).to_string()),
+                    Some(format!("segment-{}", current_row_count - 1)),
+                ],
+                vec![
+                    Some(current_row_count.to_string()),
+                    Some(format!("segment-{current_row_count}")),
+                ],
+                vec![
+                    Some((current_row_count + 1).to_string()),
+                    Some(format!("segment-{}", current_row_count + 1)),
+                ],
+            ]
+        );
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn local_query_full_join_aggregates_right_only_rows() {
+        let current_row_count = LOCAL_QUERY_BLOCK_ROWS + 4;
+        let current_ids = (0..current_row_count as i64).collect::<Vec<_>>();
+        let mut compared_ids = current_ids.clone();
+        compared_ids.extend([current_row_count as i64, current_row_count as i64 + 1]);
+        let values = compared_ids.clone();
+        let current = DataFrame::new(
+            current_row_count,
+            vec![Series::new("id".into(), current_ids).into_column()],
+        )
+        .expect("el dataset activo debe construirse");
+        let compared = DataFrame::new(
+            compared_ids.len(),
+            vec![
+                Series::new("id".into(), compared_ids).into_column(),
+                Series::new("value".into(), values).into_column(),
+            ],
+        )
+        .expect("el dataset comparado debe construirse");
+
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT COUNT(*) AS total, SUM(value) AS total_value FROM dataset FULL JOIN compared ON dataset.id = compared.id LIMIT 10",
+        )
+        .expect("la agregación FULL JOIN debe incluir las filas derechas");
+        let total = current_row_count + 2;
+        let sum = (0..total as i64).sum::<i64>();
+
+        assert_eq!(result.row_count, 1);
+        assert_eq!(
+            result.rows,
+            vec![vec![Some(total.to_string()), Some(sum.to_string())]]
+        );
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn local_query_full_join_preserves_duplicate_matches_and_filters_both_sides() {
+        let current = df!["id" => &[1_i64, 2]].unwrap();
+        let compared = df![
+            "id" => &[1_i64, 1, 3],
+            "segment" => &["A", "B", "C"]
+        ]
+        .unwrap();
+
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT id, segment FROM dataset FULL JOIN compared ON dataset.id = compared.id WHERE segment IS NOT NULL LIMIT 10",
+        )
+        .expect("el FULL JOIN debe conservar duplicados y filtrar ambos lados");
+
+        assert_eq!(result.row_count, 3);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("1".to_owned()), Some("A".to_owned())],
+                vec![Some("1".to_owned()), Some("B".to_owned())],
+                vec![Some("3".to_owned()), Some("C".to_owned())],
+            ]
+        );
+    }
+
+    #[test]
+    fn local_query_full_join_honors_cancellation_during_preflight_or_block_walk() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS + 1;
+        let ids = (0..row_count as i64).collect::<Vec<_>>();
+        let current = DataFrame::new(
+            row_count,
+            vec![Series::new("id".into(), ids.clone()).into_column()],
+        )
+        .expect("el dataset activo debe construirse");
+        let compared = DataFrame::new(row_count, vec![Series::new("id".into(), ids).into_column()])
+            .expect("el dataset comparado debe construirse");
+        let checks = AtomicU64::new(0);
+
+        let error = execute_local_query_with_comparison_and_cancel(
+            &current,
+            Some(&compared),
+            "SELECT id FROM dataset FULL JOIN compared ON dataset.id = compared.id LIMIT 1",
+            &|| checks.fetch_add(1, Ordering::Relaxed) >= 12,
+        )
+        .expect_err("el FULL JOIN debe respetar la cancelación cooperativa");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
     }
 
     #[test]

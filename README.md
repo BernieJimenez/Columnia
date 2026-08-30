@@ -167,8 +167,10 @@ materializar resultados dentro de los límites locales; su segunda pasada acumul
 por bloques sin conservar índices de todas las filas coincidentes.
 Los `JOIN` `INNER`/`LEFT` sin agregación también procesan el lado `dataset` por
 bloques y devuelven la página global sin acumular el `DataFrame` unido completo;
-las agregaciones `INNER`/`LEFT` fusionan estados por bloques y `FULL` mantiene la
-ruta eager acotada.
+las agregaciones `INNER`/`LEFT` fusionan estados por bloques. `FULL` procesa el
+lado `dataset` por bloques y añade en bloques las filas derechas no emparejadas
+mediante un anti-join estable, aunque ese frame derecho todavía se materializa
+dentro de los límites explícitos.
 El preflight de cardinalidad de los joins también procesa índices de claves por
 cubetas temporales antes de materializar el resultado.
 La comparación por claves también particiona su índice temporal y procesa una
