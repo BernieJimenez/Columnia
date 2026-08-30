@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- La comparación por claves particiona su índice exacto en 256 cubetas temporales
+  y procesa una cubeta a la vez para el resumen, las nuevas claves y los
+  conflictos paginados, conservando orden, duplicados y resultados sin retener
+  todos los índices de ambos datasets en memoria.
 - Las agregaciones SQL locales procesan su segunda pasada por bloques y conservan
   solo estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos, sin retener índices de
   todas las filas coincidentes; el presupuesto explícito y los resultados exactos

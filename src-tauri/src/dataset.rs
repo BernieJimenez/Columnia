@@ -27,6 +27,7 @@ use sha2::{Digest, Sha256};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::dataset_fingerprints::{
     normalized_fingerprint_columns, normalized_row_fingerprint, row_fingerprint,
@@ -113,6 +114,10 @@ const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_MAX_GROUP_COLUMNS: usize = 8;
 const LOCAL_QUERY_MAX_JOIN_COLUMNS: usize = 8;
+// Key indexes are partitioned before comparison so only one bucket from each
+// dataset needs to be materialized while computing the exact result.
+const COMPARISON_KEY_BUCKETS: usize = 256;
+const COMPARISON_KEY_RECORD_BYTES: usize = std::mem::size_of::<u64>() * 2;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -13403,43 +13408,156 @@ fn row_signatures(frame: &DataFrame, columns: &[String]) -> Result<HashMap<Strin
     Ok(counts)
 }
 
-fn key_rows(
-    frame: &DataFrame,
-    key_columns: &[String],
-) -> Result<HashMap<String, Vec<usize>>, String> {
-    let mut rows_by_key = HashMap::new();
-    for start in (0..frame.height()).step_by(LOCAL_QUERY_BLOCK_ROWS) {
-        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(frame.height());
-        let partial = (start..end)
-            .into_par_iter()
-            .try_fold(
-                HashMap::new,
-                |mut partial, row_index| -> Result<_, String> {
-                    let signature = row_signature(frame, key_columns, row_index)?;
-                    partial
-                        .entry(signature)
-                        .or_insert_with(Vec::new)
-                        .push(row_index);
-                    Ok(partial)
-                },
-            )
-            .try_reduce(HashMap::new, |mut left, right| -> Result<_, String> {
-                for (signature, mut rows) in right {
-                    left.entry(signature)
-                        .or_insert_with(Vec::new)
-                        .append(&mut rows);
-                }
-                Ok(left)
+struct SpilledKeyRows {
+    _directory: tempfile::TempDir,
+    bucket_paths: Vec<PathBuf>,
+}
+
+#[derive(Clone, Copy)]
+struct KeyRowGroup {
+    first_row_index: usize,
+    count: usize,
+}
+
+fn comparison_key_bucket(signature: &str) -> usize {
+    (xxh3_64(signature.as_bytes()) as usize) % COMPARISON_KEY_BUCKETS
+}
+
+fn spill_key_rows(frame: &DataFrame, key_columns: &[String]) -> Result<SpilledKeyRows, String> {
+    let directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de comparación: {error}")
+    })?;
+    let bucket_paths = (0..COMPARISON_KEY_BUCKETS)
+        .map(|bucket| directory.path().join(format!("keys-{bucket:03}.bin")))
+        .collect::<Vec<_>>();
+    let mut writers = (0..COMPARISON_KEY_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
+
+    for row_index in 0..frame.height() {
+        let signature = row_signature(frame, key_columns, row_index)?;
+        let bucket = comparison_key_bucket(&signature);
+        let writer = if let Some(writer) = writers[bucket].as_mut() {
+            writer
+        } else {
+            let file = File::create(&bucket_paths[bucket]).map_err(|error| {
+                format!("No se pudo crear el índice temporal de comparación: {error}")
             })?;
-        for (signature, mut rows) in partial {
-            rows_by_key
-                .entry(signature)
-                .or_insert_with(Vec::new)
-                .append(&mut rows);
-        }
+            writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+        };
+        let key_bytes = signature.as_bytes();
+        let key_length = u64::try_from(key_bytes.len()).map_err(|_| {
+            "La clave de comparación supera la capacidad del índice temporal.".to_owned()
+        })?;
+        let row_number = u64::try_from(row_index)
+            .map_err(|_| "El índice de fila supera la capacidad del índice temporal.".to_owned())?;
+        writer
+            .write_all(&key_length.to_le_bytes())
+            .and_then(|_| writer.write_all(&row_number.to_le_bytes()))
+            .and_then(|_| writer.write_all(key_bytes))
+            .map_err(|error| {
+                format!("No se pudo escribir el índice temporal de comparación: {error}")
+            })?;
     }
-    for rows in rows_by_key.values_mut() {
-        rows.sort_unstable();
+
+    for writer in writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudo sincronizar el índice temporal de comparación: {error}")
+        })?;
+    }
+    drop(writers);
+    Ok(SpilledKeyRows {
+        _directory: directory,
+        bucket_paths,
+    })
+}
+
+fn for_each_spilled_key_record<F>(
+    spill: &SpilledKeyRows,
+    bucket: usize,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(String, usize) -> Result<(), String>,
+{
+    let path = spill
+        .bucket_paths
+        .get(bucket)
+        .ok_or_else(|| "La cubeta del índice temporal no existe.".to_owned())?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let bytes = fs::metadata(path)
+        .map_err(|error| format!("No se pudo inspeccionar el índice temporal: {error}"))?
+        .len();
+    if bytes < COMPARISON_KEY_RECORD_BYTES as u64 {
+        return Err("El índice temporal de comparación quedó incompleto.".to_owned());
+    }
+
+    let file = File::open(path)
+        .map_err(|error| format!("No se pudo leer el índice temporal de comparación: {error}"))?;
+    let mut reader = BufReader::new(file);
+    loop {
+        let mut length_bytes = [0_u8; std::mem::size_of::<u64>()];
+        let first_byte = reader.read(&mut length_bytes[..1]).map_err(|error| {
+            format!("No se pudo leer el índice temporal de comparación: {error}")
+        })?;
+        if first_byte == 0 {
+            break;
+        }
+        reader
+            .read_exact(&mut length_bytes[1..])
+            .map_err(|_| "El índice temporal de comparación quedó incompleto.".to_owned())?;
+        let key_length = usize::try_from(u64::from_le_bytes(length_bytes))
+            .map_err(|_| "La clave temporal excede la capacidad local.".to_owned())?;
+        let mut row_bytes = [0_u8; std::mem::size_of::<u64>()];
+        reader.read_exact(&mut row_bytes).map_err(|error| {
+            format!("No se pudo leer el índice temporal de comparación: {error}")
+        })?;
+        let row_index = usize::try_from(u64::from_le_bytes(row_bytes))
+            .map_err(|_| "El índice de fila temporal excede la capacidad local.".to_owned())?;
+        let mut key_bytes = vec![0_u8; key_length];
+        reader.read_exact(&mut key_bytes).map_err(|error| {
+            format!("No se pudo leer la clave del índice temporal de comparación: {error}")
+        })?;
+        let key = String::from_utf8(key_bytes).map_err(|_| {
+            "El índice temporal de comparación contiene una clave inválida.".to_owned()
+        })?;
+        visit(key, row_index)?;
+    }
+    Ok(())
+}
+
+fn read_spilled_key_bucket(
+    spill: &SpilledKeyRows,
+    bucket: usize,
+) -> Result<HashMap<String, KeyRowGroup>, String> {
+    let mut rows_by_key = HashMap::new();
+    for_each_spilled_key_record(spill, bucket, |key, row_index| {
+        let group = rows_by_key.entry(key).or_insert(KeyRowGroup {
+            first_row_index: row_index,
+            count: 0,
+        });
+        group.count = group
+            .count
+            .checked_add(1)
+            .ok_or_else(|| "La clave temporal supera la capacidad local.".to_owned())?;
+        Ok(())
+    })?;
+    Ok(rows_by_key)
+}
+
+#[cfg(test)]
+fn collect_spilled_key_rows(spill: &SpilledKeyRows) -> Result<HashMap<String, Vec<usize>>, String> {
+    let mut rows_by_key = HashMap::new();
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        for_each_spilled_key_record(spill, bucket, |key, row_index| {
+            rows_by_key
+                .entry(key)
+                .or_insert_with(Vec::new)
+                .push(row_index);
+            Ok(())
+        })?;
     }
     Ok(rows_by_key)
 }
@@ -13485,55 +13603,63 @@ fn compare_keyed_frames(
 ) -> Result<KeyComparisonSummary, String> {
     validate_key_columns(current, compared, key_columns)?;
 
-    let current_rows = key_rows(current, key_columns)?;
-    let compared_rows = key_rows(compared, key_columns)?;
+    let current_rows = spill_key_rows(current, key_columns)?;
+    let compared_rows = spill_key_rows(compared, key_columns)?;
     let shared_payload_columns = shared_columns
         .iter()
         .filter(|column| !key_columns.contains(column))
         .cloned()
         .collect::<Vec<_>>();
-    let duplicate_key_count = current_rows
-        .iter()
-        .filter(|(_, rows)| rows.len() > 1)
-        .count()
-        + compared_rows
+    let mut summary = KeyComparisonSummary::default();
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let current_bucket = read_spilled_key_bucket(&current_rows, bucket)?;
+        let compared_bucket = read_spilled_key_bucket(&compared_rows, bucket)?;
+        summary.matched_key_count += current_bucket
+            .keys()
+            .filter(|key| compared_bucket.contains_key(*key))
+            .count();
+        summary.current_only_key_count += current_bucket
+            .keys()
+            .filter(|key| !compared_bucket.contains_key(*key))
+            .count();
+        summary.compared_only_key_count += compared_bucket
+            .keys()
+            .filter(|key| !current_bucket.contains_key(*key))
+            .count();
+        summary.duplicate_key_count += current_bucket
+            .values()
+            .filter(|rows| rows.count > 1)
+            .count();
+        summary.duplicate_key_count += compared_bucket
             .iter()
             .filter(|(key, rows)| {
-                rows.len() > 1
-                    && current_rows
+                rows.count > 1
+                    && current_bucket
                         .get(*key)
-                        .is_none_or(|current_rows| current_rows.len() <= 1)
+                        .is_none_or(|current_rows| current_rows.count <= 1)
             })
             .count();
-    let mut summary = KeyComparisonSummary {
-        matched_key_count: current_rows
-            .keys()
-            .filter(|key| compared_rows.contains_key(*key))
-            .count(),
-        current_only_key_count: current_rows
-            .keys()
-            .filter(|key| !compared_rows.contains_key(*key))
-            .count(),
-        compared_only_key_count: compared_rows
-            .keys()
-            .filter(|key| !current_rows.contains_key(*key))
-            .count(),
-        duplicate_key_count,
-        ..Default::default()
-    };
 
-    for (key, current_key_rows) in &current_rows {
-        let Some(compared_key_rows) = compared_rows.get(key) else {
-            continue;
-        };
-        if current_key_rows.len() != 1 || compared_key_rows.len() != 1 {
-            continue;
-        }
-        let current_payload = row_signature(current, &shared_payload_columns, current_key_rows[0])?;
-        let compared_payload =
-            row_signature(compared, &shared_payload_columns, compared_key_rows[0])?;
-        if current_payload != compared_payload {
-            summary.conflicting_key_count += 1;
+        for (key, current_key_rows) in &current_bucket {
+            let Some(compared_key_rows) = compared_bucket.get(key) else {
+                continue;
+            };
+            if current_key_rows.count != 1 || compared_key_rows.count != 1 {
+                continue;
+            }
+            let current_payload = row_signature(
+                current,
+                &shared_payload_columns,
+                current_key_rows.first_row_index,
+            )?;
+            let compared_payload = row_signature(
+                compared,
+                &shared_payload_columns,
+                compared_key_rows.first_row_index,
+            )?;
+            if current_payload != compared_payload {
+                summary.conflicting_key_count += 1;
+            }
         }
     }
 
@@ -13546,6 +13672,67 @@ struct KeyConflictRows {
     conflict: DatasetConflict,
 }
 
+fn build_key_conflict(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_payload_columns: &[String],
+    current_row_index: usize,
+    compared_row_index: usize,
+) -> Result<Option<KeyConflictRows>, String> {
+    let current_payload = row_signature(current, shared_payload_columns, current_row_index)?;
+    let compared_payload = row_signature(compared, shared_payload_columns, compared_row_index)?;
+    if current_payload == compared_payload {
+        return Ok(None);
+    }
+
+    let key = key_columns
+        .iter()
+        .map(|column| {
+            current
+                .column(column)
+                .map_err(|error| format!("No se pudo leer la clave '{column}': {error}"))?
+                .get(current_row_index)
+                .map_err(|error| format!("No se pudo leer la fila en conflicto: {error}"))
+                .map(preview_value)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let cells = shared_payload_columns
+        .iter()
+        .map(|column| {
+            let current_value = current
+                .column(column)
+                .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+                .get(current_row_index)
+                .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
+                .map(preview_value)?;
+            let compared_value = compared
+                .column(column)
+                .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+                .get(compared_row_index)
+                .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
+                .map(preview_value)?;
+            Ok((column.clone(), current_value, compared_value))
+        })
+        .collect::<Result<Vec<_>, String>>()?
+        .into_iter()
+        .filter(|(_, current_value, compared_value)| current_value != compared_value)
+        .map(|(column, current, compared)| DatasetConflictCell {
+            column,
+            current,
+            compared,
+        })
+        .collect::<Vec<_>>();
+    if cells.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(KeyConflictRows {
+        current_row_index,
+        compared_row_index,
+        conflict: DatasetConflict { key, cells },
+    }))
+}
+
 fn collect_key_conflicts_page(
     current: &DataFrame,
     compared: &DataFrame,
@@ -13555,88 +13742,121 @@ fn collect_key_conflicts_page(
     limit: usize,
 ) -> Result<(Vec<KeyConflictRows>, bool), String> {
     validate_key_columns(current, compared, key_columns)?;
-    let current_rows = key_rows(current, key_columns)?;
-    let compared_rows = key_rows(compared, key_columns)?;
+    let current_rows = spill_key_rows(current, key_columns)?;
+    let compared_rows = spill_key_rows(compared, key_columns)?;
     let shared_payload_columns = shared_columns
         .iter()
         .filter(|column| !key_columns.contains(column))
         .cloned()
         .collect::<Vec<_>>();
-    let mut seen = HashSet::new();
+    let row_index_bytes = std::mem::size_of::<u64>() as u64;
+    let current_row_bytes = u64::try_from(current.height())
+        .map_err(|_| "El dataset activo supera la capacidad del índice temporal.".to_owned())?;
+    let mut conflict_markers = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+    conflict_markers
+        .set_len(current_row_bytes)
+        .map_err(|error| {
+            format!("No se pudo preparar el índice temporal de conflictos: {error}")
+        })?;
+    let mut conflict_rows = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let current_bucket = read_spilled_key_bucket(&current_rows, bucket)?;
+        let compared_bucket = read_spilled_key_bucket(&compared_rows, bucket)?;
+        for (signature, current_group) in current_bucket {
+            let Some(compared_group) = compared_bucket.get(&signature) else {
+                continue;
+            };
+            if current_group.count != 1 || compared_group.count != 1 {
+                continue;
+            }
+            let current_payload = row_signature(
+                current,
+                &shared_payload_columns,
+                current_group.first_row_index,
+            )?;
+            let compared_payload = row_signature(
+                compared,
+                &shared_payload_columns,
+                compared_group.first_row_index,
+            )?;
+            if current_payload == compared_payload {
+                continue;
+            }
+            let marker_offset = u64::try_from(current_group.first_row_index).map_err(|_| {
+                "El índice de fila supera la capacidad del índice temporal.".to_owned()
+            })?;
+            let compared_offset = u64::try_from(current_group.first_row_index)
+                .ok()
+                .and_then(|index| index.checked_mul(row_index_bytes))
+                .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
+            let compared_row_index =
+                u64::try_from(compared_group.first_row_index).map_err(|_| {
+                    "El índice de fila supera la capacidad del índice temporal.".to_owned()
+                })?;
+            conflict_markers
+                .seek(SeekFrom::Start(marker_offset))
+                .and_then(|_| conflict_markers.write_all(&[1]))
+                .map_err(|error| {
+                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                })?;
+            conflict_rows
+                .seek(SeekFrom::Start(compared_offset))
+                .and_then(|_| conflict_rows.write_all(&compared_row_index.to_le_bytes()))
+                .map_err(|error| {
+                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                })?;
+        }
+    }
+
+    conflict_markers
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| format!("No se pudo leer el índice temporal de conflictos: {error}"))?;
+    let mut marker_reader = BufReader::new(conflict_markers);
     let mut conflicts = Vec::new();
     let mut total = 0usize;
-
     for current_row_index in 0..current.height() {
-        let signature = row_signature(current, key_columns, current_row_index)?;
-        if !seen.insert(signature.clone()) {
+        let mut marker = [0_u8; 1];
+        marker_reader.read_exact(&mut marker).map_err(|error| {
+            format!("No se pudo leer el índice temporal de conflictos: {error}")
+        })?;
+        if marker[0] == 0 {
             continue;
         }
-        let Some(current_key_rows) = current_rows.get(&signature) else {
-            continue;
-        };
-        let Some(compared_key_rows) = compared_rows.get(&signature) else {
-            continue;
-        };
-        if current_key_rows.len() != 1 || compared_key_rows.len() != 1 {
-            continue;
-        }
-        let current_row_index = current_key_rows[0];
-        let compared_row_index = compared_key_rows[0];
-        let current_payload = row_signature(current, &shared_payload_columns, current_row_index)?;
-        let compared_payload =
-            row_signature(compared, &shared_payload_columns, compared_row_index)?;
-        if current_payload == compared_payload {
-            continue;
-        }
-
-        let key = key_columns
-            .iter()
-            .map(|column| {
-                current
-                    .column(column)
-                    .map_err(|error| format!("No se pudo leer la clave '{column}': {error}"))?
-                    .get(current_row_index)
-                    .map_err(|error| format!("No se pudo leer la fila en conflicto: {error}"))
-                    .map(preview_value)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let cells = shared_payload_columns
-            .iter()
-            .map(|column| {
-                let current_value = current
-                    .column(column)
-                    .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
-                    .get(current_row_index)
-                    .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
-                    .map(preview_value)?;
-                let compared_value = compared
-                    .column(column)
-                    .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
-                    .get(compared_row_index)
-                    .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
-                    .map(preview_value)?;
-                Ok((column.clone(), current_value, compared_value))
-            })
-            .collect::<Result<Vec<_>, String>>()?
-            .into_iter()
-            .filter(|(_, current_value, compared_value)| current_value != compared_value)
-            .map(|(column, current, compared)| DatasetConflictCell {
-                column,
-                current,
-                compared,
-            })
-            .collect::<Vec<_>>();
-        if cells.is_empty() {
-            continue;
-        }
-        let conflict_index = total;
-        total = total.saturating_add(1);
-        if conflict_index >= offset && conflicts.len() < limit {
-            conflicts.push(KeyConflictRows {
-                current_row_index,
-                compared_row_index,
-                conflict: DatasetConflict { key, cells },
-            });
+        let row_offset = u64::try_from(current_row_index)
+            .ok()
+            .and_then(|index| index.checked_mul(row_index_bytes))
+            .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
+        conflict_rows
+            .seek(SeekFrom::Start(row_offset))
+            .map_err(|error| {
+                format!("No se pudo leer el índice temporal de conflictos: {error}")
+            })?;
+        let mut compared_row_bytes = [0_u8; std::mem::size_of::<u64>()];
+        conflict_rows
+            .read_exact(&mut compared_row_bytes)
+            .map_err(|error| {
+                format!("No se pudo leer el índice temporal de conflictos: {error}")
+            })?;
+        let compared_row_index = usize::try_from(u64::from_le_bytes(compared_row_bytes))
+            .map_err(|_| "El índice de fila temporal excede la capacidad local.".to_owned())?;
+        if let Some(conflict) = build_key_conflict(
+            current,
+            compared,
+            key_columns,
+            &shared_payload_columns,
+            current_row_index,
+            compared_row_index,
+        )? {
+            let conflict_index = total;
+            total = total.saturating_add(1);
+            if conflict_index >= offset && conflicts.len() < limit {
+                conflicts.push(conflict);
+            }
         }
     }
     let page_end = offset.saturating_add(conflicts.len());
@@ -13697,13 +13917,20 @@ fn rows_with_new_keys(
     compared: &DataFrame,
     key_columns: &[String],
 ) -> Result<DataFrame, String> {
-    let current_keys = key_rows(current, key_columns)?;
-    let keep = (0..compared.height())
-        .map(|row_index| {
-            row_signature(compared, key_columns, row_index)
-                .map(|signature| !current_keys.contains_key(&signature))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    validate_key_columns(current, compared, key_columns)?;
+    let current_keys = spill_key_rows(current, key_columns)?;
+    let compared_keys = spill_key_rows(compared, key_columns)?;
+    let mut keep = vec![false; compared.height()];
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let current_bucket = read_spilled_key_bucket(&current_keys, bucket)?;
+        let current_bucket = &current_bucket;
+        for_each_spilled_key_record(&compared_keys, bucket, |signature, row_index| {
+            if let Some(value) = keep.get_mut(row_index) {
+                *value = !current_bucket.contains_key(&signature);
+            }
+            Ok(())
+        })?;
+    }
     compared
         .filter(&BooleanChunked::from_slice("new_keys".into(), &keep))
         .map_err(|error| format!("No se pudieron seleccionar las claves nuevas: {error}"))
@@ -22250,12 +22477,74 @@ mod tests {
         let columns = vec!["id".to_owned()];
 
         let signatures = row_signatures(&frame, &columns).expect("las firmas deben fusionarse");
-        let keys = key_rows(&frame, &columns).expect("las claves deben fusionarse");
+        let key_spill = spill_key_rows(&frame, &columns).expect("las claves deben derramarse");
+        let keys = collect_spilled_key_rows(&key_spill).expect("las claves deben fusionarse");
 
         assert_eq!(signatures.len(), 7);
         assert_eq!(keys.len(), 7);
         assert_eq!(signatures.values().sum::<usize>(), row_count);
         assert_eq!(keys.values().map(Vec::len).sum::<usize>(), row_count);
+    }
+
+    #[test]
+    fn keyed_conflicts_keep_current_row_order_across_spilled_blocks() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS + 2;
+        let ids = (0..row_count as i64).collect::<Vec<_>>();
+        let current_values = (0..row_count)
+            .map(|index| format!("current-{index}"))
+            .collect::<Vec<_>>();
+        let compared_values = (0..row_count)
+            .map(|index| {
+                if index == 0 || index == row_count - 1 {
+                    format!("compared-{index}")
+                } else {
+                    format!("current-{index}")
+                }
+            })
+            .collect::<Vec<_>>();
+        let current = DataFrame::new(
+            row_count,
+            vec![
+                Series::new("id".into(), ids.clone()).into_column(),
+                Series::new("value".into(), current_values).into_column(),
+            ],
+        )
+        .expect("el frame activo debe ser válido");
+        let compared = DataFrame::new(
+            row_count,
+            vec![
+                Series::new("id".into(), ids).into_column(),
+                Series::new("value".into(), compared_values).into_column(),
+            ],
+        )
+        .expect("el frame comparado debe ser válido");
+        let key_columns = vec!["id".to_owned()];
+        let comparison = compare_frames(
+            &current,
+            "activo.csv",
+            &compared,
+            "comparado.csv",
+            &key_columns,
+        )
+        .expect("la comparación por bloques debe calcularse");
+
+        assert_eq!(comparison.conflicting_key_count, 2);
+        assert_eq!(comparison.conflicts[0].key, vec![Some("0".to_owned())]);
+        assert_eq!(
+            comparison.conflicts[1].key,
+            vec![Some((row_count as i64 - 1).to_string())]
+        );
+        let (last_page, has_next) = collect_key_conflicts_page(
+            &current,
+            &compared,
+            &key_columns,
+            &["id".to_owned(), "value".to_owned()],
+            1,
+            1,
+        )
+        .expect("la segunda página debe conservar el orden de filas");
+        assert!(!has_next);
+        assert_eq!(last_page[0].conflict.key, comparison.conflicts[1].key);
     }
 
     #[test]
