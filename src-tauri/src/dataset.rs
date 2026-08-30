@@ -17072,6 +17072,8 @@ fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
                 CalculatedOperation::Add
                     | CalculatedOperation::Subtract
                     | CalculatedOperation::Multiply
+                    | CalculatedOperation::Divide
+                    | CalculatedOperation::Concat
             )
         })
 }
@@ -17114,35 +17116,83 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
     }
 
     if let Some(calculation) = &recipe.calculated_column {
-        let source_name = calculation.source.as_str();
-        let source_values = strict_column_text(recipe_column(source, source_name)?)?;
-        for (row, value) in source_values.iter().enumerate() {
-            if let Some(value) = value {
-                strict_f64(
+        let unary = matches!(
+            calculation.operation,
+            CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day
+        );
+        if unary != calculation.operand.is_none() {
+            return Err(if unary {
+                "year, month y day no aceptan operando.".into()
+            } else {
+                "La operación calculada requiere un operando.".into()
+            });
+        }
+        if matches!(
+            calculation.operation,
+            CalculatedOperation::Add
+                | CalculatedOperation::Subtract
+                | CalculatedOperation::Multiply
+                | CalculatedOperation::Divide
+        ) {
+            let source_name = calculation.source.as_str();
+            let source_values = strict_column_text(recipe_column(source, source_name)?)?;
+            let source_numbers = source_values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| {
+                    value
+                        .as_deref()
+                        .map(|value| {
+                            strict_f64(value, &format!("La fila {} de '{source_name}'", row + 1))
+                        })
+                        .transpose()
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let operand_numbers = match calculation.operand.as_ref().unwrap() {
+                CalculatedOperand {
+                    kind: CalculatedOperandKind::Literal,
                     value,
-                    &format!("La fila {} de la columna '{source_name}'", row + 1),
-                )?;
-            }
-        }
-        if let Some(CalculatedOperand {
-            kind: CalculatedOperandKind::Literal,
-            value,
-        }) = &calculation.operand
-        {
-            strict_f64(value, "El operando numérico")?;
-        }
-        if let Some(CalculatedOperand {
-            kind: CalculatedOperandKind::Column,
-            value,
-        }) = &calculation.operand
-        {
-            let values = strict_column_text(recipe_column(source, value)?)?;
-            for (row, value) in values.iter().enumerate() {
-                if let Some(value) = value {
-                    strict_f64(
-                        value,
-                        &format!("La fila {} de la columna '{value}'", row + 1),
-                    )?;
+                } => {
+                    if value.is_empty() {
+                        return Err("El operando numérico no puede estar vacío.".into());
+                    }
+                    vec![Some(strict_f64(value, "El operando numérico")?); source.height()]
+                }
+                CalculatedOperand {
+                    kind: CalculatedOperandKind::Column,
+                    value,
+                } => strict_column_text(recipe_column(source, value)?)?
+                    .iter()
+                    .enumerate()
+                    .map(|(row, value)| {
+                        value
+                            .as_deref()
+                            .map(|value| {
+                                strict_f64(value, &format!("El operando de la fila {}", row + 1))
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<_>, String>>()?,
+            };
+            for (row, (left, right)) in source_numbers.iter().zip(&operand_numbers).enumerate() {
+                let (Some(left), Some(right)) = (left, right) else {
+                    continue;
+                };
+                if calculation.operation == CalculatedOperation::Divide && *right == 0.0 {
+                    return Err(format!("División por cero en la fila {}.", row + 1));
+                }
+                let result = match calculation.operation {
+                    CalculatedOperation::Add => left + right,
+                    CalculatedOperation::Subtract => left - right,
+                    CalculatedOperation::Multiply => left * right,
+                    CalculatedOperation::Divide => left / right,
+                    _ => unreachable!(),
+                };
+                if !result.is_finite() {
+                    return Err(format!(
+                        "El cálculo produjo un valor no finito en la fila {}.",
+                        row + 1
+                    ));
                 }
             }
         }
@@ -17840,37 +17890,70 @@ fn apply_lazy_recipe_to_frame(
             ));
         }
         let source_column = recipe_column(source, &calculation.source)?;
-        let left = col(source_name).strict_cast(DataType::Float64);
-        let operand = calculation.operand.as_ref().ok_or_else(|| {
-            "La columna calculada requiere un operando para esta operación.".to_owned()
-        })?;
-        let right = match operand.kind {
-            CalculatedOperandKind::Literal => {
-                lit(strict_f64(&operand.value, "El operando numérico")?)
-            }
-            CalculatedOperandKind::Column => {
-                let operand_name = remapped_name(&operand.value, &rename_map);
-                recipe_column(source, &operand.value)?;
-                col(operand_name).strict_cast(DataType::Float64)
-            }
-        };
+        let unary = matches!(
+            calculation.operation,
+            CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day
+        );
+        if unary != calculation.operand.is_none() {
+            return Err(if unary {
+                "year, month y day no aceptan operando.".into()
+            } else {
+                "La operación calculada requiere un operando.".into()
+            });
+        }
         let expression = match calculation.operation {
-            CalculatedOperation::Add => left + right,
-            CalculatedOperation::Subtract => left - right,
-            CalculatedOperation::Multiply => left * right,
-            CalculatedOperation::Divide => left / right,
+            CalculatedOperation::Add
+            | CalculatedOperation::Subtract
+            | CalculatedOperation::Multiply
+            | CalculatedOperation::Divide => {
+                if source_column.dtype() == &DataType::Boolean {
+                    return Err(format!(
+                        "La columna fuente calculada '{}' debe ser numérica.",
+                        calculation.source
+                    ));
+                }
+                let left = col(source_name).strict_cast(DataType::Float64);
+                let operand = calculation.operand.as_ref().unwrap();
+                let right = match operand.kind {
+                    CalculatedOperandKind::Literal => {
+                        lit(strict_f64(&operand.value, "El operando numérico")?)
+                    }
+                    CalculatedOperandKind::Column => {
+                        let operand_name = remapped_name(&operand.value, &rename_map);
+                        recipe_column(source, &operand.value)?;
+                        col(operand_name).strict_cast(DataType::Float64)
+                    }
+                };
+                match calculation.operation {
+                    CalculatedOperation::Add => left + right,
+                    CalculatedOperation::Subtract => left - right,
+                    CalculatedOperation::Multiply => left * right,
+                    CalculatedOperation::Divide => left / right,
+                    _ => unreachable!(),
+                }
+            }
+            CalculatedOperation::Concat => {
+                let operand = calculation.operand.as_ref().unwrap();
+                let right = match operand.kind {
+                    CalculatedOperandKind::Literal => lit(operand.value.clone()),
+                    CalculatedOperandKind::Column => {
+                        let operand_name = remapped_name(&operand.value, &rename_map);
+                        recipe_column(source, &operand.value)?;
+                        col(operand_name).cast(DataType::String)
+                    }
+                };
+                concat_str(
+                    vec![col(source_name).cast(DataType::String), right],
+                    "",
+                    false,
+                )
+            }
             _ => return Err("La operación calculada no está soportada por el plan lazy.".into()),
         };
         if recipe_column(source, &calculation.name).is_ok() {
             return Err(format!(
                 "La columna calculada '{}' ya existe.",
                 calculation.name
-            ));
-        }
-        if source_column.dtype() == &DataType::Boolean {
-            return Err(format!(
-                "La columna fuente calculada '{}' debe ser numérica.",
-                calculation.source
             ));
         }
         plan = plan.with_columns(vec![expression.alias(calculation.name.clone())]);
@@ -23529,6 +23612,54 @@ mod tests {
         assert_eq!(rows[0][7].as_deref(), Some("resto"));
         assert_eq!(rows[0][8], None);
         assert_eq!(rows[1][8], None);
+    }
+
+    #[test]
+    fn lazy_calculated_division_and_concat_preserve_nulls_and_validate_results() {
+        let frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("left".into(), [Some("10"), None, Some("20")]).into_column(),
+                Series::new("right".into(), [Some("A"), Some("B"), Some("C")]).into_column(),
+            ],
+        )
+        .unwrap();
+        let concat = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "label".into(),
+                source: "left".into(),
+                operation: CalculatedOperation::Concat,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Column,
+                    value: "right".into(),
+                }),
+            }),
+            ..Default::default()
+        };
+        let (result, _, _, _, _, calculated, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
+            apply_recipe_to_frame(&frame, &concat).unwrap();
+        assert_eq!(calculated, 1);
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][2].as_deref(), Some("10A"));
+        assert_eq!(rows[1][2], None);
+
+        let divide = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "ratio".into(),
+                source: "left".into(),
+                operation: CalculatedOperation::Divide,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Literal,
+                    value: "2".into(),
+                }),
+            }),
+            ..Default::default()
+        };
+        let result = apply_recipe_to_frame(&frame, &divide).unwrap().0;
+        let rows = dataset_page(&result, 0, 10).unwrap().rows;
+        assert_eq!(rows[0][2].as_deref(), Some("5.0"));
+        assert_eq!(rows[1][2], None);
+        assert_eq!(rows[2][2].as_deref(), Some("10.0"));
     }
 
     #[test]
