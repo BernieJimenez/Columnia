@@ -428,7 +428,8 @@ reemplazo literal, selección, unión y división de columnas, cálculos de suma
 resta, multiplicación, división y concatenación, y resúmenes agrupados incluso
 con filtros previos se ejecutan mediante un plan Polars lazy
 con el motor streaming; las normalizaciones de contactos también pueden
-preceder a los resúmenes, y las extracciones textuales se planifican allí.
+preceder a los resúmenes, y las extracciones textuales también pueden alimentar
+sus claves y agregaciones dentro del mismo plan.
 Las operaciones que necesitan
 validaciones o materialización completa conservan el camino eager explícito;
 la extracción de año, mes y día usa la ruta lazy para `Date` y `Datetime` sin

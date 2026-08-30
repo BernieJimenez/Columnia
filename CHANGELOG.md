@@ -126,8 +126,9 @@ los artefactos de validación locales.
   conteos exactos de celdas modificadas; también puede ejecutarse antes de
   resumir grupos, con validación sobre los valores ya normalizados.
 - Las extracciones textuales también pueden ejecutarse dentro del plan
-  lazy/streaming: tokens, runs Unicode y búsquedas antes/después de delimitadores
-  literales preservan nulos, coincidencias ausentes y el límite de 16 columnas.
+  lazy/streaming y alimentar resúmenes agrupados: tokens, runs Unicode y
+  búsquedas antes/después de delimitadores literales preservan nulos,
+  coincidencias ausentes y el límite de 16 columnas.
 - Las columnas calculadas de suma, resta, multiplicación, división, concatenación
   y extracción de año, mes o día sobre fechas sin zona horaria también pueden
   ejecutarse dentro del plan lazy/streaming; los operandos y rangos se validan

@@ -17123,7 +17123,6 @@ fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
         && !(recipe.split_column.is_some() && recipe.merge_columns.is_some())
         && recipe.outlier_treatments.is_empty()
-        && (recipe.text_extractions.is_empty() || recipe.group_summary.is_none())
         && recipe.calculated_column.as_ref().is_none_or(|calculation| {
             matches!(
                 calculation.operation,
@@ -18344,13 +18343,20 @@ fn apply_lazy_recipe_to_frame(
     let (group_summary_input_rows, summary_aggregations) = if let Some(summary) =
         &recipe.group_summary
     {
+        let extracted_names = recipe
+            .text_extractions
+            .iter()
+            .map(|extraction| extraction.name.as_str())
+            .collect::<HashSet<_>>();
         for name in summary.group_by.iter().chain(
             summary
                 .aggregations
                 .iter()
                 .map(|aggregation| &aggregation.column),
         ) {
-            recipe_column(source, name)?;
+            if !extracted_names.contains(name.as_str()) {
+                recipe_column(source, name)?;
+            }
         }
         let schema = plan
             .collect_schema()
@@ -18373,7 +18379,10 @@ fn apply_lazy_recipe_to_frame(
                 ));
             }
         }
-        let validation = if recipe.filters.is_empty() && recipe.contact_normalizations.is_empty() {
+        let validation = if recipe.filters.is_empty()
+            && recipe.contact_normalizations.is_empty()
+            && recipe.text_extractions.is_empty()
+        {
             None
         } else {
             Some(collect_lazy_frame_streaming(
@@ -18552,18 +18561,21 @@ fn apply_eager_recipe_to_frame(
         recipe_column(source, &treatment.column)?;
     }
     if let Some(summary) = &recipe.group_summary {
+        let extracted_names = recipe
+            .text_extractions
+            .iter()
+            .map(|extraction| extraction.name.as_str())
+            .collect::<HashSet<_>>();
         for name in &summary.group_by {
-            recipe_column(source, name)?;
+            if !extracted_names.contains(name.as_str()) {
+                recipe_column(source, name)?;
+            }
         }
         for aggregation in &summary.aggregations {
-            recipe_column(source, &aggregation.column)?;
+            if !extracted_names.contains(aggregation.column.as_str()) {
+                recipe_column(source, &aggregation.column)?;
+            }
         }
-    }
-    if recipe.group_summary.is_some() && !recipe.text_extractions.is_empty() {
-        return Err(
-            "No se puede combinar extracción de texto con agrupar/resumir en la misma receta."
-                .into(),
-        );
     }
     for treatment in &recipe.contact_normalizations {
         recipe_column(source, &treatment.column)?;
@@ -23767,6 +23779,66 @@ mod tests {
     }
 
     #[test]
+    fn lazy_group_summary_uses_text_extractions_before_grouping() {
+        let frame = DataFrame::new(
+            5,
+            vec![
+                Series::new(
+                    "text".into(),
+                    [
+                        Some("A 123|east"),
+                        Some("A 456|east"),
+                        Some("B 123|west"),
+                        None,
+                        Some("B 999|west"),
+                    ],
+                )
+                .into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4, 5]).into_column(),
+            ],
+        )
+        .unwrap();
+
+        for (kind, delimiter, expected_groups) in [
+            (ExtractionKind::FirstToken, None, 3),
+            (ExtractionKind::LastToken, None, 5),
+            (ExtractionKind::Digits, None, 4),
+            (ExtractionKind::Letters, None, 3),
+            (ExtractionKind::Before, Some("|"), 5),
+            (ExtractionKind::After, Some("|"), 3),
+        ] {
+            let recipe = TransformRecipe {
+                text_extractions: vec![TextExtraction {
+                    source: "text".into(),
+                    kind,
+                    name: "key".into(),
+                    delimiter: delimiter.map(str::to_owned),
+                }],
+                group_summary: Some(GroupSummaryRecipe {
+                    group_by: vec!["key".into()],
+                    aggregations: vec![
+                        SummaryAggregation {
+                            column: "value".into(),
+                            operation: SummaryOperation::Sum,
+                        },
+                        SummaryAggregation {
+                            column: "key".into(),
+                            operation: SummaryOperation::CountUnique,
+                        },
+                    ],
+                }),
+                ..Default::default()
+            };
+            assert!(lazy_recipe_supported(&frame, &recipe));
+            let outcome = apply_recipe_to_frame(&frame, &recipe).unwrap();
+            assert_eq!(
+                (outcome.15, outcome.16, outcome.17, outcome.20),
+                (expected_groups, 2, 5 - expected_groups, 1)
+            );
+        }
+    }
+
+    #[test]
     fn lazy_contact_normalization_preserves_nulls_and_counts_changes() {
         let frame = DataFrame::new(
             2,
@@ -25420,7 +25492,7 @@ mod tests {
     }
 
     #[test]
-    fn contacts_and_extractions_validate_remap_keep_group_conflict_and_rollback() {
+    fn contacts_and_extractions_validate_remap_keep_group_and_rollback() {
         let path = temporary_csv("contact,other\n A@B.COM ,x\n");
         let (frame, _) = load_csv(&path).unwrap();
         let original = frame.clone();
@@ -25459,7 +25531,7 @@ mod tests {
         undo_dataset(&mut dataset).unwrap();
         assert!(dataset.frame.equals_missing(&original));
 
-        let conflict = TransformRecipe {
+        let grouped = TransformRecipe {
             text_extractions: vec![TextExtraction {
                 source: "contact".into(),
                 kind: ExtractionKind::FirstToken,
@@ -25475,8 +25547,16 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(apply_recipe_to_dataset(&mut dataset, &conflict).is_err());
-        assert!(!dataset.history.state().can_undo);
+        let grouped = apply_recipe_to_dataset(&mut dataset, &grouped).unwrap();
+        assert_eq!(
+            (
+                grouped.group_count,
+                grouped.aggregated_column_count,
+                grouped.extracted_column_count
+            ),
+            (1, 1, 1)
+        );
+        assert!(dataset.history.state().can_undo);
         fs::remove_file(path).unwrap();
     }
 
