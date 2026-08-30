@@ -6510,6 +6510,110 @@ fn clean_text_columns(
     ))
 }
 
+fn dataprep_is_proper_noun_column(name: &str) -> bool {
+    let normalized = normalize_text_value(name, true);
+    [
+        "nombre",
+        "name",
+        "apellido",
+        "surname",
+        "ciudad",
+        "city",
+        "pais",
+        "country",
+        "region",
+        "provincia",
+        "estado",
+        "state",
+        "municipio",
+        "municipality",
+        "localidad",
+        "barrio",
+        "district",
+        "marca",
+        "brand",
+    ]
+    .into_iter()
+    .any(|pattern| normalized.contains(pattern))
+}
+
+fn dataprep_title_case(value: &str) -> String {
+    let mut titled = String::with_capacity(value.len());
+    for (index, word) in value.split(' ').enumerate() {
+        if index > 0 {
+            titled.push(' ');
+        }
+        let mut characters = word.chars();
+        if let Some(first) = characters.next() {
+            titled.extend(first.to_uppercase());
+            titled.extend(characters);
+        }
+    }
+    titled
+}
+
+fn normalize_dataprep_text_columns(
+    frame: &DataFrame,
+) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
+    let mut cleaned = frame.clone();
+    let mut changed_rows = vec![false; frame.height()];
+    let mut changed_cell_count = 0;
+    let mut changed_columns = Vec::new();
+
+    for column in frame.columns() {
+        let name = column.name().to_string();
+        if name == "_cambios" || column.dtype() != &DataType::String {
+            continue;
+        }
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let distinct_non_null = values.iter().flatten().collect::<HashSet<_>>().len();
+        if distinct_non_null.saturating_mul(2) > frame.height() {
+            continue;
+        }
+        let title_case = dataprep_is_proper_noun_column(&name);
+        let mut column_changes = 0;
+        let transformed = values
+            .iter()
+            .enumerate()
+            .map(|(row_index, value)| {
+                value.map(|original| {
+                    let normalized = normalize_text_value(original, true);
+                    let next = if title_case {
+                        dataprep_title_case(&normalized)
+                    } else {
+                        normalized
+                    };
+                    if next != original {
+                        column_changes += 1;
+                        changed_cell_count += 1;
+                        changed_rows[row_index] = true;
+                    }
+                    next
+                })
+            })
+            .collect::<Vec<_>>();
+
+        if column_changes > 0 {
+            cleaned
+                .replace(&name, Column::new(name.clone().into(), transformed))
+                .map_err(|error| format!("No se pudo normalizar la columna '{name}': {error}"))?;
+            changed_columns.push(ChangedTextColumn {
+                name,
+                changed_cell_count: column_changes,
+            });
+        }
+    }
+
+    Ok((
+        cleaned,
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+        changed_columns,
+    ))
+}
+
 fn dataprep_boolean_token(value: &str) -> Option<bool> {
     match value.trim().to_lowercase().as_str() {
         "si" | "sí" | "yes" | "y" | "true" | "verdadero" | "1" => Some(true),
@@ -21707,13 +21811,7 @@ impl DatasetState {
                     clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
                 }
                 "trim_text" => clean_text_columns(&cleaned, None, TextCleaningMode::Trim)?,
-                "normalize_text" => clean_text_columns(
-                    &cleaned,
-                    None,
-                    TextCleaningMode::Normalize {
-                        remove_accents: true,
-                    },
-                )?,
+                "normalize_text" => normalize_dataprep_text_columns(&cleaned)?,
                 "cast_numeric" => cast_dataprep_numeric_columns(&cleaned)?,
                 "cap_outliers" => apply_dataprep_outlier_mode(&cleaned, DataprepOutlierMode::Cap)?,
                 "impute_outliers" => impute_outlier_values_in_frame(&cleaned)?,
@@ -25720,6 +25818,78 @@ mod tests {
         assert_eq!(columns.len(), 1);
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn dataprep_normalize_text_respects_cardinality_and_proper_noun_title_case() {
+        let frame = df![
+            "customer_name" => &[Some("  Ana María  "), Some(" ANA "), Some(" ANA "), None::<&str>],
+            "description" => &[Some(" First "), Some("Second"), Some("Third"), Some("Fourth")]
+        ]
+        .unwrap();
+
+        let (cleaned, rows, cells, columns) = normalize_dataprep_text_columns(&frame)
+            .expect("la normalización DataPrep debe conservar su heurística");
+        let names = cleaned.column("customer_name").unwrap().str().unwrap();
+        let descriptions = cleaned.column("description").unwrap().str().unwrap();
+
+        assert_eq!(names.get(0), Some("Ana Maria"));
+        assert_eq!(names.get(1), Some("Ana"));
+        assert_eq!(names.get(2), Some("Ana"));
+        assert_eq!(names.get(3), None);
+        assert_eq!(descriptions.get(0), Some(" First "));
+        assert_eq!(descriptions.get(1), Some("Second"));
+        assert_eq!(rows, 3);
+        assert_eq!(cells, 3);
+        assert_eq!(columns.len(), 1);
+        assert_eq!(columns[0].name, "customer_name");
+        assert_eq!(columns[0].changed_cell_count, 3);
+    }
+
+    #[test]
+    fn dataprep_session_replay_uses_dataprep_normalize_text_semantics() {
+        let state = DatasetState::for_project_import(
+            df![
+                "customer_name" => &[" ANA ", "ANA", " ANA ", "ANA"],
+                "description" => &[" First ", "Second", "Third", "Fourth"]
+            ]
+            .unwrap(),
+            "session.csv".to_owned(),
+        )
+        .expect("la sesión aislada debe poder iniciarse");
+
+        assert!(state
+            .apply_project_import_deterministic_cleaning_with_progress(
+                &["normalize_text".to_owned()],
+                |_, _| {},
+                || false,
+            )
+            .expect("el replay de la limpieza debe completarse"));
+        let current = state.current.lock().unwrap();
+        let names = current
+            .as_ref()
+            .unwrap()
+            .frame
+            .column("customer_name")
+            .unwrap()
+            .str()
+            .unwrap();
+        assert_eq!(names.get(0), Some("Ana"));
+        assert_eq!(names.get(1), Some("Ana"));
+        assert_eq!(names.get(2), Some("Ana"));
+        assert_eq!(names.get(3), Some("Ana"));
+        assert_eq!(
+            current
+                .as_ref()
+                .unwrap()
+                .frame
+                .column("description")
+                .unwrap()
+                .str()
+                .unwrap()
+                .get(0),
+            Some(" First ")
+        );
     }
 
     #[test]

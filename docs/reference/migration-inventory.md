@@ -38,7 +38,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `impute_categorical` | Acción directa de Preparar e importación de sesión | Convertida/reproducida cuando la semántica es determinista: nulos textuales a `Desconocido`; es reversible, agregada y no modifica números ni `_cambios` |
 | `parse_dates` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para columnas textuales con un formato dominante cerrado y cobertura segura; convierte a `Datetime`, conserva nulos y omite columnas ambiguas o con demasiadas fechas ilegibles |
 | `trim_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente para columnas textuales, recortando espacios exteriores de forma determinista y protegiendo `_cambios` |
-| `normalize_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con espacios colapsados, minúsculas y eliminación de acentos; protege `_cambios` |
+| `normalize_text` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback a la fuente con espacios colapsados, minúsculas y eliminación de acentos; omite columnas de texto con más de 50% de valores distintos, aplica título a nombres propios sugeridos por el encabezado, conserva nulos y protege `_cambios` |
 | `cast_numeric` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback para texto con más de 90% de valores numéricos; convierte a `Int64`/`Float64`, conserva nulos no convertibles y rechaza conversiones inseguras |
 | `cap_outliers` | Acción directa de Preparar, receta de Transformaciones e importación de sesión | Reproducida en Preparar y en el fallback después de `cast_numeric`, usando límites IQR ×1.5 sobre columnas numéricas con al menos cuatro valores válidos; promueve el resultado a `Float64` cuando los límites son fraccionarios |
 | `impute_outliers` | Acción directa de Preparar e importación de sesión | Reproducida en el fallback con IQR ×1.5 y mediana observada, conservando el tipo numérico cuando la mediana es representable |
@@ -164,7 +164,9 @@ Las operaciones deterministas `drop_duplicates`, `drop_high_null_cols`,
 `impute_outliers`, `drop_outliers`, `normalize_booleans`, `mask_pii`,
 `drop_fuzzy_duplicates`, `normalize_columns` y `add_cambios_col` se reproducen como
 parte de la importación cuando solo queda la fuente, en el orden fijo de
-limpieza de DataPrep. `drop_empty_rows` conserva la semántica original de filas
+limpieza de DataPrep. `normalize_text` conserva la heurística de cardinalidad
+del limpiador original y aplica título a columnas de nombres propios; la acción
+manual de Columnia sigue siendo explícita por selección. `drop_empty_rows` conserva la semántica original de filas
 completamente nulas y no elimina por sí sola texto en blanco. Si existe un
 snapshot compatible, se usa ese estado materializado y las operaciones no se
 reaplican.

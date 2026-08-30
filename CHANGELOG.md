@@ -8,6 +8,11 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- El replay de sesiones DataPrep aplica la semántica de `normalize_text` del
+  limpiador original: omite columnas de texto con más de 50% de valores
+  distintos, conserva nulos y aplica título a columnas cuyo nombre sugiere
+  nombres propios. La normalización directa de Columnia mantiene su contrato
+  independiente, sin cambiar el comportamiento de la acción manual.
 - La importación, guardado y apertura de historiales `history_snapshots` copia
   cada Parquet de forma secuencial y conserva sus bytes originales; las
   revisiones que no son el cursor validan solo footer/esquema y se leen bajo

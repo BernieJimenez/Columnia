@@ -3309,7 +3309,7 @@ mod tests {
         let session = directory.path().join("session.json");
         fs::write(
             &source,
-            "email,name,amount,city\nperson@example.com, María ,10,  Santo   Domingo  \n,Ana,11,Santo\n",
+            "email,name,amount,city\nperson@example.com, María ,10,  Santo   Domingo  \n,Ana,11,Santo\nother@example.com, María ,12,  Santo   Domingo  \n,Ana,13,Santo\n",
         )
         .unwrap();
         fs::write(
@@ -3354,7 +3354,7 @@ mod tests {
         );
         assert_eq!(
             active.frame.column("city").unwrap().str().unwrap().get(0),
-            Some("santo domingo")
+            Some("Santo Domingo")
         );
         assert_eq!(active.history.entries.len(), 2);
     }
@@ -3903,8 +3903,8 @@ mod tests {
         assert_eq!(restored.dataset.columns[0].name, "new_name");
         assert_eq!(restored.dataset.row_count, 3);
         let restored_history = restored_state.active_project_snapshot().unwrap().history;
-        assert_eq!(restored_history.entries.len(), 4);
-        assert_eq!(restored_history.cursor, 3);
+        assert_eq!(restored_history.entries.len(), 3);
+        assert_eq!(restored_history.cursor, 2);
         assert!(restored_state
             .project_test_undo()
             .unwrap()

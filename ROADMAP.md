@@ -1526,7 +1526,9 @@ del original.
   solo retira filas completamente nulas, `impute_numeric` usa la mediana de
   columnas físicas después de normalizar centinelas y promueve a `Float64` si
   resulta fraccionaria, `trim_text` recorta
-  espacios exteriores y protege `_cambios`, `normalize_booleans` exige un
+  espacios exteriores y protege `_cambios`, `normalize_text` colapsa espacios,
+  retira acentos, omite texto de alta cardinalidad y aplica título a nombres
+  propios sugeridos por la columna, `normalize_booleans` exige un
   vocabulario cerrado con ambos valores y `normalize_columns` conserva la
   resolución Unicode de nombres; el preflight clasifica como no portables los
   bloques reconocibles de resultados, historial y cachés sin copiar su contenido;
