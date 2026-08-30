@@ -112,6 +112,7 @@ const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_MAX_GROUP_COLUMNS: usize = 8;
+const LOCAL_QUERY_MAX_JOIN_COLUMNS: usize = 8;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -2223,6 +2224,32 @@ fn parse_local_join_operand(value: &str) -> Result<LocalJoinOperand, String> {
     }
 }
 
+fn parse_local_join_condition(
+    condition: &str,
+) -> Result<(LocalJoinOperand, LocalJoinOperand), String> {
+    let pattern = Regex::new(
+        r#"(?is)^\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*=\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*$"#,
+    )
+    .expect("el patrón de condición JOIN local debe ser válido");
+    let captures = pattern.captures(condition).ok_or_else(|| {
+        "Cada condición del JOIN debe comparar una columna de dataset con una de compared."
+            .to_owned()
+    })?;
+    let left = parse_local_join_operand(
+        captures
+            .get(1)
+            .expect("la clave izquierda debe existir")
+            .as_str(),
+    )?;
+    let right = parse_local_join_operand(
+        captures
+            .get(2)
+            .expect("la clave derecha debe existir")
+            .as_str(),
+    )?;
+    Ok((left, right))
+}
+
 fn parse_local_join_query_with_cancel<C>(
     query: &str,
     current: &DataFrame,
@@ -2234,13 +2261,13 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     let pattern = Regex::new(
-        r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))\s*=\s*((?:\"(?:\"\"|[^\"])+\"|[[:alnum:]_.]+))(.*)$"#,
+        r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+(.+?)(\s+(?:limit\s+\d+(?:\s+offset\s+\d+)?|offset\s+\d+))?\s*$"#,
     )
     .expect("el patrón de JOIN local debe ser válido");
     let Some(captures) = pattern.captures(query) else {
         if query.to_ascii_lowercase().contains("join") {
             return Err(
-                "El JOIN local debe usar FROM dataset JOIN compared ON columna = columna."
+                "El JOIN local debe usar FROM dataset JOIN compared ON columna = columna [AND columna = columna]."
                     .to_owned(),
             );
         }
@@ -2256,30 +2283,41 @@ where
         ));
     }
 
-    let left = parse_local_join_operand(
+    let conditions = split_local_predicates(
         captures
             .get(3)
-            .expect("la clave izquierda debe existir")
+            .expect("las condiciones deben existir")
             .as_str(),
     )?;
-    let right = parse_local_join_operand(
-        captures
-            .get(4)
-            .expect("la clave derecha debe existir")
-            .as_str(),
-    )?;
-    let left_table = left.table.as_deref().unwrap_or("dataset");
-    let right_table = right.table.as_deref().unwrap_or("compared");
-    if left_table == right_table {
-        return Err(
-            "El JOIN debe relacionar una columna de dataset con una de compared.".to_owned(),
-        );
+    if conditions.is_empty() || conditions.len() > LOCAL_QUERY_MAX_JOIN_COLUMNS {
+        return Err(format!(
+            "El JOIN requiere entre 1 y {LOCAL_QUERY_MAX_JOIN_COLUMNS} pares de columnas clave."
+        ));
     }
-    let (current_key, compared_key) = if left_table == "dataset" {
-        (left.column, right.column)
-    } else {
-        (right.column, left.column)
-    };
+    let mut current_keys = Vec::with_capacity(conditions.len());
+    let mut compared_keys = Vec::with_capacity(conditions.len());
+    for condition in conditions {
+        let (left, right) = parse_local_join_condition(&condition)?;
+        let left_table = left.table.as_deref().unwrap_or("dataset");
+        let right_table = right.table.as_deref().unwrap_or("compared");
+        if left_table == right_table {
+            return Err(
+                "El JOIN debe relacionar una columna de dataset con una de compared.".to_owned(),
+            );
+        }
+        let (current_key, compared_key) = if left_table == "dataset" {
+            (left.column, right.column)
+        } else {
+            (right.column, left.column)
+        };
+        if current_keys.iter().any(|key| key == &current_key)
+            || compared_keys.iter().any(|key| key == &compared_key)
+        {
+            return Err("Las columnas clave del JOIN no pueden repetirse.".to_owned());
+        }
+        current_keys.push(current_key);
+        compared_keys.push(compared_key);
+    }
     let join_type = match captures
         .get(2)
         .map(|value| value.as_str().to_ascii_lowercase())
@@ -2291,8 +2329,8 @@ where
     let joined = join_frames_on_keys_with_cancel(
         current,
         compared,
-        &[current_key],
-        &[compared_key],
+        &current_keys,
+        &compared_keys,
         join_type,
         is_cancelled,
     )?;
@@ -2304,7 +2342,7 @@ where
             .expect("la proyección debe existir")
             .as_str(),
         captures
-            .get(5)
+            .get(4)
             .map(|value| value.as_str())
             .unwrap_or_default()
     );
@@ -20791,6 +20829,70 @@ mod tests {
             ]
         );
         assert!(result.truncated);
+    }
+
+    #[test]
+    fn local_query_joins_by_multiple_keys_without_cross_matching() {
+        let current = df![
+            "id" => &[1_i64, 2, 2, 3],
+            "region" => &["north", "north", "south", "south"]
+        ]
+        .unwrap();
+        let compared = df![
+            "id" => &[2_i64, 2, 3],
+            "region" => &["north", "south", "south"],
+            "segment" => &["A", "B", "C"]
+        ]
+        .unwrap();
+
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT id, region, segment FROM dataset LEFT JOIN compared ON dataset.id = compared.id AND dataset.region = compared.region LIMIT 10",
+        )
+        .expect("el JOIN compuesto local debe ejecutarse");
+
+        assert_eq!(result.row_count, 4);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("1".to_owned()), Some("north".to_owned()), None],
+                vec![
+                    Some("2".to_owned()),
+                    Some("north".to_owned()),
+                    Some("A".to_owned())
+                ],
+                vec![
+                    Some("2".to_owned()),
+                    Some("south".to_owned()),
+                    Some("B".to_owned())
+                ],
+                vec![
+                    Some("3".to_owned()),
+                    Some("south".to_owned()),
+                    Some("C".to_owned())
+                ],
+            ]
+        );
+
+        let duplicate = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT id FROM dataset JOIN compared ON id = id AND dataset.id = compared.id LIMIT 1",
+        )
+        .expect_err("el JOIN no debe repetir columnas clave");
+        assert!(duplicate.contains("no pueden repetirse"));
+
+        let too_many_conditions = std::iter::repeat_n("id = id", LOCAL_QUERY_MAX_JOIN_COLUMNS + 1)
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let too_many = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            &format!("SELECT id FROM dataset JOIN compared ON {too_many_conditions} LIMIT 1"),
+        )
+        .expect_err("el JOIN debe respetar el límite de pares de claves");
+        assert!(too_many.contains("entre 1 y 8"));
     }
 
     #[test]

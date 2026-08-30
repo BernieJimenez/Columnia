@@ -8,6 +8,9 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Los `JOIN` de la consulta SQL local admiten hasta ocho pares de columnas clave
+  entre `dataset` y `compared`; rechazan claves repetidas, conservan el preflight
+  de tipos/cardinalidad y mantienen el orden estable y los límites de materialización.
 - La consulta SQL local admite `GROUP BY` compuesto de hasta ocho columnas, con
   orden estable de primera aparición, claves nulas, rechazo de claves duplicadas
   y el mismo presupuesto acotado de filas para agregaciones.
