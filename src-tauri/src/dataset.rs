@@ -17053,7 +17053,6 @@ type RecipeFrameOutcome = (
 
 fn lazy_recipe_supported(recipe: &TransformRecipe) -> bool {
     recipe.date_parses.is_empty()
-        && recipe.find_replace.is_none()
         && recipe.split_column.is_none()
         && recipe.merge_columns.is_none()
         && recipe.outlier_treatments.is_empty()
@@ -17221,6 +17220,59 @@ fn lazy_filter_expression(
     })
 }
 
+fn lazy_find_replace_targets(
+    source: &DataFrame,
+    recipe: &FindReplaceRecipe,
+    renames: &HashMap<&str, &str>,
+    casts: &[RecipeCast],
+) -> Result<Vec<String>, String> {
+    if recipe.find.is_empty() {
+        return Err("El texto buscado no puede estar vacío.".into());
+    }
+    let cast_target = |effective_name: &str| {
+        casts
+            .iter()
+            .find(|cast| remapped_name(&cast.column, renames) == effective_name)
+            .map(|cast| cast.target)
+    };
+    let is_text_after_cast = |source_name: &str, source_dtype: &DataType| {
+        cast_target(remapped_name(source_name, renames))
+            .map(|target| target == RecipeCastTarget::String)
+            .unwrap_or(source_dtype == &DataType::String)
+    };
+
+    match recipe.scope {
+        FindReplaceScope::Column => {
+            let column = recipe
+                .column
+                .as_deref()
+                .ok_or_else(|| "La búsqueda por columna requiere una columna.".to_owned())?;
+            let source_column = recipe_column(source, column)?;
+            let effective_name = remapped_name(column, renames);
+            if !is_text_after_cast(column, source_column.dtype()) {
+                return Err(format!(
+                    "La columna '{effective_name}' debe ser de texto para buscar y reemplazar."
+                ));
+            }
+            Ok(vec![effective_name.to_owned()])
+        }
+        FindReplaceScope::AllTextColumns => {
+            if recipe.column.is_some() {
+                return Err(
+                    "La búsqueda en todas las columnas no acepta una columna concreta.".into(),
+                );
+            }
+            Ok(source
+                .get_column_names()
+                .iter()
+                .zip(source.columns())
+                .filter(|(name, column)| is_text_after_cast(name, column.dtype()))
+                .map(|(name, _)| remapped_name(name, renames).to_owned())
+                .collect())
+        }
+    }
+}
+
 fn apply_lazy_recipe_to_frame(
     source: &DataFrame,
     recipe: &TransformRecipe,
@@ -17355,6 +17407,84 @@ fn apply_lazy_recipe_to_frame(
         plan = plan.filter(lazy_filter_expression(source, filter, effective_name)?);
     }
 
+    let replaced_cell_count = if let Some(find_replace) = &recipe.find_replace {
+        let targets = lazy_find_replace_targets(source, find_replace, &rename_map, &recipe.casts)?;
+        if targets.is_empty() {
+            0
+        } else {
+            let count_aliases = targets
+                .iter()
+                .enumerate()
+                .map(|(index, _)| format!("__columnia_replaced_{index}"))
+                .collect::<Vec<_>>();
+            let count_expressions = targets
+                .iter()
+                .zip(&count_aliases)
+                .map(|(name, alias)| {
+                    let original = col(name);
+                    let replaced = original.clone().str().replace_all(
+                        lit(find_replace.find.clone()),
+                        lit(find_replace.replace.clone()),
+                        true,
+                    );
+                    replaced
+                        .neq_missing(original)
+                        .cast(DataType::UInt64)
+                        .sum()
+                        .alias(alias)
+                })
+                .collect::<Vec<_>>();
+            let count_frame = collect_lazy_frame_streaming(
+                plan.clone().select(count_expressions),
+                "No se pudo contar el reemplazo de texto",
+            )?;
+            let count = count_aliases
+                .iter()
+                .map(|alias| {
+                    let value = count_frame
+                        .column(alias)
+                        .map_err(|error| {
+                            format!("No se pudo leer el conteo de reemplazos: {error}")
+                        })?
+                        .get(0)
+                        .map_err(|error| {
+                            format!("No se pudo leer el conteo de reemplazos: {error}")
+                        })?;
+                    match value {
+                        AnyValue::UInt64(value) => usize::try_from(value).map_err(|_| {
+                            "El conteo de reemplazos excede el límite de memoria.".to_owned()
+                        }),
+                        AnyValue::Int64(value) if value >= 0 => usize::try_from(value as u64)
+                            .map_err(|_| {
+                                "El conteo de reemplazos excede el límite de memoria.".to_owned()
+                            }),
+                        AnyValue::Null => Ok(0),
+                        _ => Err("El conteo de reemplazos devolvió un tipo inválido.".to_owned()),
+                    }
+                })
+                .collect::<Result<Vec<_>, String>>()?
+                .into_iter()
+                .sum();
+            let replacement_expressions = targets
+                .iter()
+                .map(|name| {
+                    col(name)
+                        .str()
+                        .replace_all(
+                            lit(find_replace.find.clone()),
+                            lit(find_replace.replace.clone()),
+                            true,
+                        )
+                        .alias(name)
+                })
+                .collect::<Vec<_>>();
+            plan = plan.with_columns(replacement_expressions);
+            count
+        }
+    } else {
+        0
+    };
+
     let renamed_source = if recipe.keep_columns.is_some() {
         let mut frame = source.clone();
         frame
@@ -17427,7 +17557,7 @@ fn apply_lazy_recipe_to_frame(
         0,
         removed_row_count,
         calculated_column_count,
-        0,
+        replaced_cell_count,
         dropped_column_count,
         kept_order_changed,
         0,
@@ -22747,6 +22877,45 @@ mod tests {
         assert_eq!(
             dataset_page(&result, 0, 1).unwrap().rows[0][0].as_deref(),
             Some("z value")
+        );
+    }
+
+    #[test]
+    fn lazy_find_replace_counts_after_string_cast_and_preserves_nulls() {
+        let frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("code".into(), [12_i64, 20, 30]).into_column(),
+                Series::new("note".into(), [Some("x"), None, Some("z")]).into_column(),
+            ],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "code".into(),
+                target: RecipeCastTarget::String,
+            }],
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("code".into()),
+                find: "2".into(),
+                replace: "X".into(),
+            }),
+            ..Default::default()
+        };
+
+        let (result, _, converted, _, _, _, replaced, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
+            apply_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(converted, 1);
+        assert_eq!(replaced, 2);
+        assert_eq!(result.column("code").unwrap().dtype(), &DataType::String);
+        assert_eq!(
+            dataset_page(&result, 0, 3).unwrap().rows,
+            vec![
+                vec![Some("1X".into()), Some("x".into())],
+                vec![Some("X0".into()), None],
+                vec![Some("30".into()), Some("z".into())],
+            ]
         );
     }
 
