@@ -139,6 +139,12 @@ como `project-import-dataprep --store DIR --session FILE [--name NAME]` para
 migraciones autorizadas. Una cancelación o error no modifica el dataset activo
 ni reemplaza proyectos existentes.
 
+Los manifiestos producidos por DataPrep pueden registrar el nombre de archivo en
+`filename` aunque `source_path` esté ausente (por ejemplo, cuando solo queda una
+referencia local reproducible). La importación considera ese alias únicamente
+junto a la carpeta del manifiesto, lo valida como archivo regular y mantiene la
+ruta fuera del bridge; si no está disponible, el preflight exige revisión.
+
 Cuando el manifiesto aporta identificadores estructurales, el informe conserva
 hasta 64 nombres de operaciones aplicadas y comprobaciones de análisis, con un
 límite de 96 caracteres por nombre y sin separadores de ruta. Los elementos que

@@ -1314,7 +1314,13 @@ fn resolve_dataprep_reference(
 fn resolve_dataprep_source(session_path: &Path) -> Result<PathBuf, String> {
     resolve_dataprep_reference(
         session_path,
-        &["source_path", "sourcePath", "file_name", "fileName"],
+        &[
+            "source_path",
+            "sourcePath",
+            "file_name",
+            "fileName",
+            "filename",
+        ],
         "La fuente de la sesión DataPrep no está disponible.",
     )
 }
@@ -2176,6 +2182,47 @@ mod tests {
         assert!(!serialized.contains("private_fixture_value"));
         assert!(!serialized.contains("no se debe copiar"));
         assert!(!serialized.contains("derived-cache.json"));
+    }
+
+    #[test]
+    fn dataprep_session_uses_filename_alias_when_source_path_is_absent() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        fs::write(
+            directory.path().join("source.csv"),
+            "value,label\n1,uno\n2,dos\n",
+        )
+        .unwrap();
+        let session = directory.path().join("session.json");
+        fs::write(
+            &session,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "name": "Sesión DataPrep con filename",
+                "saved_at": "2026-08-30T00:00:00Z",
+                "filename": "source.csv",
+                "stage_label": "Revisar",
+                "transform_config": {},
+                "analysis_checks": {"completeness": true}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let project = import_dataprep_session_project_from_path(&store, &session, None, None, None)
+            .expect("filename debe ser una referencia local reproducible");
+        let opened = store
+            .open(&DatasetState::default(), project.id)
+            .expect("el proyecto importado debe reabrirse");
+
+        assert_eq!(opened.dataset.file_name, "source.csv");
+        assert_eq!(opened.dataset.row_count, 2);
+        assert_eq!(opened.workspace.active_phase, None);
+        let workspace = serde_json::to_value(&opened.workspace).unwrap();
+        assert_eq!(
+            workspace["recipeDraft"]["migrationReport"]["session"]["hasSourceReference"],
+            true
+        );
     }
 
     #[test]

@@ -8,6 +8,9 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- La importación de sesiones DataPrep reconoce también el campo real `filename`
+  como referencia local reproducible cuando el manifiesto no incluye
+  `source_path`, incluyendo su validación nativa y el nombre seguro del dataset.
 - El replay de limpiezas DataPrep dependientes del perfil (`drop_high_null_cols`
   y `drop_id_cols`) conserva las métricas del dataset inicial aunque antes se
   ejecute `drop_duplicates`; evita eliminar columnas solo porque la deduplicación

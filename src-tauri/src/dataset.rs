@@ -8608,20 +8608,15 @@ fn migration_session_field<'a>(
         "file_name" => "fileName",
         _ => return root.get(key),
     };
+    let legacy_alias = (key == "file_name").then_some("filename");
+    let find_value = |map: &'a JsonMap<String, JsonValue>| {
+        map.get(key)
+            .or_else(|| map.get(camel_case))
+            .or_else(|| legacy_alias.and_then(|alias| map.get(alias)))
+            .filter(|value| !value.is_null())
+    };
     let session = root.get("session").and_then(JsonValue::as_object);
-    root.get(key)
-        .filter(|value| !value.is_null())
-        .or_else(|| root.get(camel_case).filter(|value| !value.is_null()))
-        .or_else(|| {
-            session
-                .and_then(|map| map.get(key))
-                .filter(|value| !value.is_null())
-        })
-        .or_else(|| {
-            session
-                .and_then(|map| map.get(camel_case))
-                .filter(|value| !value.is_null())
-        })
+    find_value(root).or_else(|| session.and_then(find_value))
 }
 
 fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
@@ -9077,8 +9072,7 @@ fn migration_session_metadata(
     applied_operations.retain(|operation| seen_operations.insert(operation.clone()));
 
     Ok(Some(SessionMigrationMetadata {
-        has_source_reference: migration_session_field(root, "source_path")
-            .is_some_and(|value| !value.is_null()),
+        has_source_reference: session_source_reference(root).is_some_and(|value| !value.is_null()),
         has_snapshot_reference: migration_session_field(root, "snapshot_path")
             .is_some_and(|value| !value.is_null()),
         sheet_name: optional_text("sheet_name")?,
