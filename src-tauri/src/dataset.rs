@@ -8612,6 +8612,11 @@ fn migration_session_field<'a>(
     let find_value = |map: &'a JsonMap<String, JsonValue>| {
         map.get(key)
             .or_else(|| map.get(camel_case))
+            .or_else(|| {
+                (key == "selected_cleaning_operations")
+                    .then_some("selected")
+                    .and_then(|alias| map.get(alias))
+            })
             .or_else(|| legacy_alias.and_then(|alias| map.get(alias)))
             .filter(|value| !value.is_null())
     };
@@ -22539,6 +22544,39 @@ mod tests {
         assert!(!json
             .to_string()
             .contains(&directory.path().display().to_string()));
+    }
+
+    #[test]
+    fn imports_dataprep_pipeline_selected_cleaning_alias() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("pipeline.json");
+        let source = serde_json::json!({
+            "version": 3,
+            "name": "Pipeline con selección nativa",
+            "saved_at": "2026-08-30T00:00:00Z",
+            "selected": ["normalize_text_values", "remove_duplicates"],
+            "transform": {}
+        });
+        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
+
+        let loaded = load_recipe_file(&path)
+            .expect("el alias selected de un pipeline DataPrep debe importarse");
+        let json = serde_json::to_value(&loaded).expect("la receta importada debe serializarse");
+
+        assert_eq!(
+            json["migrationReport"]["session"]["appliedOperations"],
+            serde_json::json!(["normalize_text", "drop_duplicates"])
+        );
+        let converted = json["migrationReport"]["convertedOperations"]
+            .as_array()
+            .unwrap();
+        assert!(converted
+            .iter()
+            .any(|value| value == "selected_cleaning_operations.normalize_text"));
+        assert!(converted
+            .iter()
+            .any(|value| value == "selected_cleaning_operations.drop_duplicates"));
+        assert_eq!(json["migrationReport"]["omittedItems"], 0);
     }
 
     #[test]

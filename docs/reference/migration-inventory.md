@@ -100,7 +100,8 @@ selector de Entregar; quedan señalados para revisión antes de exportar.
 
 También se informa cuando el pipeline trae operaciones de limpieza,
 análisis o calidad incrustadas. `selected_cleaning_operations` reconoce aliases
-de las limpiezas deterministas y los normaliza a nombres canónicos. `parse_dates`
+de las limpiezas deterministas, incluido el campo `selected` que emiten los
+pipelines persistidos, y los normaliza a nombres canónicos. `parse_dates`
 solo convierte columnas textuales con formatos cerrados, cobertura de al menos
 80%, años entre 1900 y 2100 y como máximo 1% de literales no interpretables;
 las columnas ambiguas se dejan intactas. `mask_pii` se reproduce únicamente como

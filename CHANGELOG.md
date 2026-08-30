@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- La migración de recetas DataPrep reconoce el campo `selected` que emiten los
+  pipelines persistidos, además de `selected_cleaning_operations` y su alias
+  camelCase; las operaciones se normalizan al catálogo determinista canónico y
+  no se pierden al importar un pipeline real.
 - La importación de sesiones DataPrep reconoce también el campo real `filename`
   como referencia local reproducible cuando el manifiesto no incluye
   `source_path`, incluyendo su validación nativa y el nombre seguro del dataset.

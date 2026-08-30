@@ -1541,7 +1541,8 @@ del original.
   bloques reconocibles de resultados, historial y cachés sin copiar su contenido;
   las etiquetas de etapa conocidas se restauran como etapa activa del workspace
   y las desconocidas vuelven a Revisar;
-  todavía no restaura resultados de análisis originales, cachés reanudables ni
+  reconoce también el campo `selected` que emiten los pipelines persistidos de
+  DataPrep y lo normaliza al mismo catálogo determinista; todavía no restaura resultados de análisis originales, cachés reanudables ni
   snapshots históricos que el artefacto no contiene. Cuando el manifiesto aporta
   el contrato explícito `history_snapshots` v1, la importación sí restaura hasta
   doce snapshots Parquet locales, valida el cursor contra el estado actual y los
@@ -1925,6 +1926,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | M1 reconoce el campo `filename` que emite DataPrep como referencia local reproducible cuando falta `source_path`: lo resuelve junto al manifiesto, valida que sea un archivo regular y conserva nombre/estado sin filtrar la ruta al bridge. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-30 | P1 amplía las recetas IQR lazy/streaming para convivir con `keep_columns` cuando se conservan todas las columnas tratadas; si una proyección elimina una dependencia, se mantiene el fallback eager y el rechazo explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | M1 corrige la migración de pipelines DataPrep persistidos: el campo real `selected` ahora se reconoce junto a sus aliases de sesión, normaliza las operaciones deterministas y conserva la selección al importar la receta. | `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
