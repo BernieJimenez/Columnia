@@ -339,7 +339,8 @@ CSV y otros formatos delimitados se conservan físicamente como texto para no in
   literal, selección, unión y división de columnas, columnas calculadas
   numéricas compatibles, partes temporales lazy sin filtros previos y como claves
   de agrupación, resúmenes
-  agrupados incluso con filtros previos (la búsqueda y reemplazo literal se
+  agrupados incluso con filtros previos (la búsqueda y reemplazo literal o regex
+  segura se
   aplica antes dentro del plan y el preflight proyecta solo las columnas
   necesarias), normalizaciones de contactos y extracciones textuales incluso
   antes de resumir grupos; las columnas calculadas numéricas y concatenadas
@@ -741,6 +742,7 @@ Al actualizarlo:
 | 2026-08-29 | La comparación por filas y claves fusiona firmas en bloques de 16K filas, conserva determinismo y evita `HashSet` auxiliares redundantes; el mapa global exacto sigue limitado por la memoria disponible y los límites de JOIN/comparación continúan vigentes. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-29 | Los JOIN locales por claves ejecutan el plan Polars con motor `streaming` después del preflight de cardinalidad; el resultado sigue materializándose solo dentro de los límites explícitos de entradas y filas, con comprobación posterior antes de publicar. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-29 | La agrupación y los resúmenes tipados pueden ejecutarse mediante `group_by_stable` en el plan streaming incluso con filtros previos; la búsqueda/reemplazo literal se aplica antes dentro del plan, el preflight proyecta solo las columnas necesarias y se conservan orden de primera aparición, claves nulas, conteo de filas, `count_unique` y validaciones numéricas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-08-30 | `find_replace` admite modo regex seguro en recetas eager/lazy y en la migración DataPrep; conserva grupos de captura, nulos y conteos de celdas, y valida el patrón con el motor Rust antes de modificar o publicar el dataset. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/prepare/TransformRecipeEditor.tsx`, `docs/reference/migration-inventory.md`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La normalización lazy de correo, teléfono y dirección puede preceder a la agrupación; el preflight valida claves y agregaciones sobre los valores ya normalizados y conserva los conteos de celdas modificadas. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | Las extracciones textuales lazy pueden preceder a la agrupación; tokens, runs y delimitadores literales se validan en la proyección posterior y sus columnas derivadas pueden ser claves o fuentes de agregación sin perder nulos ni orden. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | Las columnas calculadas numéricas y concatenadas pueden preceder a la agrupación; el preflight valida la proyección posterior al cálculo y conserva tipos, nulos, orden y conteos de agregación. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |

@@ -20,7 +20,7 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 | `dtype_col` + `dtype_type` | `casts` | Convertida para tipos explícitos |
 | `parse_date_cols` | `dateParses` | Convertida con ISO 8601 por defecto |
 | `filters` (`col`, `op`, `val`) | `filters` (`column`, `operator`, `value`) | Convertida |
-| `find_replace` literal | `findReplace` | Convertida |
+| `find_replace` literal o regex segura | `findReplace` (`regex`) | Convertida; el patrón se valida con el motor Rust |
 | `keep_columns` | `keepColumns` | Convertida |
 | `calc` | `calculatedColumn` | Convertida para operaciones equivalentes |
 | `split_column`, `merge_columns` | `splitColumn`, `mergeColumns` | Convertida |
@@ -54,10 +54,12 @@ al catálogo cuando su fuente local puede validarse de forma segura.
 ## Conversión segura
 
 - Las versiones futuras a v3 se rechazan antes de convertirlas.
-- Expresiones regulares en `find_replace`, booleanos personalizados y
-  operaciones estructurales sin equivalente no se descartan: la carga falla con
-  una razón accionable para revisión manual. En `selected_cleaning_operations`,
-  una limpieza desconocida se conserva como advertencia específica para poder
+- Las expresiones regulares de `find_replace` se convierten únicamente con la
+  sintaxis segura compatible con Rust y sus grupos de captura se conservan en
+  el reemplazo. Patrones inválidos, booleanos personalizados y operaciones
+  estructurales sin equivalente hacen que la carga falle con una razón
+  accionable para revisión manual. En `selected_cleaning_operations`, una
+  limpieza desconocida se conserva como advertencia específica para poder
   revisar el catálogo sin ejecutar una aproximación insegura.
 - Los campos desconocidos de una receta nativa Columnia continúan fallando por
   `deny_unknown_fields`.

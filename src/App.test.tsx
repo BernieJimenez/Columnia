@@ -1249,7 +1249,7 @@ describe("App", () => {
       renames: [{ from: "estado", to: "situacion" }], casts: [{ column: "total", target: "decimal" }],
       dateParses: [{ column: "fecha", format: "ymd", target: "date" }], filters: [{ column: "total", operator: "gte", value: "10" }],
       calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
-      findReplace: { scope: "column", column: "estado", find: "P", replace: "Pendiente" }, keepColumns: ["total", "estado", "correo", "fecha"],
+      findReplace: { scope: "column", column: "estado", find: "P", replace: "Pendiente", regex: false }, keepColumns: ["total", "estado", "correo", "fecha"],
       splitColumn: { source: "estado", delimiter: "-", names: ["estado_base", "zona"], dropSource: false },
       mergeColumns: { sources: ["estado", "correo"], name: "contacto", separator: " ", dropSources: false },
       outlierTreatments: [{ column: "total", action: "cap" }], groupSummary: null,
@@ -1366,7 +1366,7 @@ describe("App", () => {
     expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({
       filters: [{ column: "estado", operator: "not_null", value: null }],
       calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
-      findReplace: { scope: "column", column: "estado", find: " ", replace: "" },
+      findReplace: { scope: "column", column: "estado", find: " ", replace: "", regex: false },
       keepColumns: null,
       splitColumn: { source: "estado", delimiter: "-", names: ["estado_base", "zona"], dropSource: false },
       mergeColumns: { sources: ["estado", "categoria"], name: "estado_categoria", separator: "", dropSources: true },

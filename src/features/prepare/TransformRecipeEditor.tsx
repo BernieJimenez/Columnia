@@ -407,7 +407,7 @@ export function TransformRecipeEditor({
   });
   const [pendingConfirmation, setPendingConfirmation] = useState<TransformRecipe | null>(null);
   const [findReplaceEnabled, setFindReplaceEnabled] = useState(initialRecipe?.findReplace !== null && initialRecipe?.findReplace !== undefined);
-  const [findReplace, setFindReplace] = useState<FindReplaceDraft>(initialRecipe?.findReplace ?? { scope: "column", column: null, find: "", replace: "" });
+  const [findReplace, setFindReplace] = useState<FindReplaceDraft>(initialRecipe?.findReplace ?? { scope: "column", column: null, find: "", replace: "", regex: false });
   const [keptColumns, setKeptColumns] = useState<string[]>(initialRecipe?.keepColumns ?? dataset.columns.map((column) => column.name));
   const [splitEnabled, setSplitEnabled] = useState(initialRecipe?.splitColumn !== null && initialRecipe?.splitColumn !== undefined);
   const [split, setSplit] = useState<SplitDraft>(initialRecipe?.splitColumn ?? { source: "", delimiter: "", names: [], dropSource: false });
@@ -609,7 +609,7 @@ export function TransformRecipeEditor({
     setCalculationEnabled(recipe.calculatedColumn !== null);
     setCalculation(recipe.calculatedColumn ?? { name: "", source: "", operation: "add", operand: { kind: "literal", value: "" } });
     setFindReplaceEnabled(recipe.findReplace !== null);
-    setFindReplace(recipe.findReplace ?? { scope: "column", column: null, find: "", replace: "" });
+    setFindReplace(recipe.findReplace ?? { scope: "column", column: null, find: "", replace: "", regex: false });
     setKeptColumns(recipe.keepColumns ?? dataset.columns.map((column) => column.name));
     setSplitEnabled(recipe.splitColumn !== null);
     setSplit(recipe.splitColumn ?? { source: "", delimiter: "", names: [], dropSource: false });
@@ -865,7 +865,7 @@ export function TransformRecipeEditor({
         </RecipeOperationGroup>
 
         <RecipeOperationGroup
-          title="Buscar y reemplazar literal"
+          title="Buscar y reemplazar"
           status={findReplaceEnabled ? "Activo" : "Inactivo"}
           active={findReplaceEnabled}
         >
@@ -875,8 +875,9 @@ export function TransformRecipeEditor({
             {findReplace.scope === "column" && <label><span>Columna</span><select aria-label="Columna para buscar" value={findReplace.column ?? ""} disabled={searchableTextColumns.length === 0} onChange={(event) => setFindReplace((current) => ({ ...current, column: event.target.value || null }))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>}
             <label><span>Buscar</span><input aria-label="Texto a buscar" value={findReplace.find} onChange={(event) => setFindReplace((current) => ({ ...current, find: event.target.value }))} /></label>
             <label><span>Reemplazar por</span><input aria-label="Texto de reemplazo" value={findReplace.replace} placeholder="Vacío elimina la coincidencia" onChange={(event) => setFindReplace((current) => ({ ...current, replace: event.target.value }))} /></label>
+            <label className="option-toggle"><input type="checkbox" aria-label="Interpretar búsqueda como expresión regular" checked={findReplace.regex} onChange={(event) => setFindReplace((current) => ({ ...current, regex: event.target.checked }))} />Interpretar la búsqueda como expresión regular segura</label>
           </div>}
-          <p className="recipe-hint">Busca texto literal, distingue mayúsculas y minúsculas y no interpreta expresiones regulares. Se permite buscar espacios y reemplazar por vacío.</p>
+          <p className="recipe-hint">{findReplace.regex ? "Busca con expresiones regulares compatibles con Rust, distingue mayúsculas y minúsculas y permite grupos de captura en el reemplazo ($1, $2…). El motor nativo valida el patrón antes de modificar el dataset." : "Busca texto literal, distingue mayúsculas y minúsculas y no interpreta expresiones regulares. Se permite buscar espacios y reemplazar por vacío."}</p>
           {searchableTextColumns.length === 0 && <p className="recipe-error">Este dataset no contiene columnas de texto disponibles.</p>}
         </RecipeOperationGroup>
 

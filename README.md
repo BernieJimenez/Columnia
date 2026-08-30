@@ -449,7 +449,7 @@ y un resultado correcto ocupa una única revisión de Deshacer/Rehacer. El borra
 puede guardarse y cargarse como una receta JSON v1 mediante selectores nativos;
 la ruta nunca llega a React y una receta cargada no se aplica automáticamente.
 Las recetas compatibles con renombres, conversiones, filtros, búsqueda y
-reemplazo literal, selección, unión y división de columnas, cálculos de suma,
+reemplazo literal o regex segura, selección, unión y división de columnas, cálculos de suma,
 resta, multiplicación, división y concatenación, y resúmenes agrupados incluso
 con filtros previos se ejecutan mediante un plan Polars lazy
 con el motor streaming; las normalizaciones de contactos también pueden
@@ -483,10 +483,12 @@ de año, mes o día. El motor preserva nulos y cancela el lote completo ante
 conversiones imprecisas, división por cero, infinitos o fechas no representables.
 
 **Buscar y reemplazar** trabaja de forma literal y sensible a mayúsculas sobre
-una columna o sobre todas las columnas físicas de texto; no interpreta patrones
-regulares ni convierte silenciosamente columnas numéricas. También puedes elegir
-qué columnas conservar. El descarte solicita confirmación y la receta rechaza
-eliminar columnas que todavía necesita un cálculo posterior.
+una columna o sobre todas las columnas físicas de texto. El modo regex seguro
+usa la sintaxis compatible con Rust, admite grupos de captura en el reemplazo y
+valida el patrón antes de ejecutar; no convierte silenciosamente columnas
+numéricas. También puedes elegir qué columnas conservar. El descarte solicita
+confirmación y la receta rechaza eliminar columnas que todavía necesita un
+cálculo posterior.
 
 **Dividir columna** usa un separador literal y nombres de salida explícitos; la
 última salida conserva cualquier resto. **Combinar columnas** une entre dos y

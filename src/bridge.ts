@@ -377,6 +377,7 @@ export interface FindReplaceRecipe {
   column: string | null;
   find: string;
   replace: string;
+  regex: boolean;
 }
 
 export interface SplitColumnRecipe {

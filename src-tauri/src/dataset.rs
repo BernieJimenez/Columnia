@@ -975,6 +975,8 @@ pub struct FindReplaceRecipe {
     column: Option<String>,
     find: String,
     replace: String,
+    #[serde(default)]
+    regex: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -8131,6 +8133,9 @@ fn validate_recipe_text_budget(recipe: &TransformRecipe) -> Result<(), String> {
 
 fn validate_recipe_structure(recipe: &TransformRecipe) -> Result<(), String> {
     validate_recipe_text_budget(recipe)?;
+    if let Some(find_replace) = &recipe.find_replace {
+        validate_find_replace_pattern(find_replace)?;
+    }
     let bounded = [
         (recipe.renames.len(), 256, "renombres"),
         (recipe.casts.len(), 256, "conversiones"),
@@ -9821,9 +9826,6 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
             .get("regex")
             .and_then(JsonValue::as_bool)
             .unwrap_or(false);
-        if regex {
-            return Err("find_replace con expresiones regulares requiere revisión manual y no se importa automáticamente.".to_owned());
-        }
         if !find.is_empty() {
             let column = migration_text_field(config, &["col", "column"], "find_replace.col")?;
             let scope = if column.is_some() {
@@ -9834,7 +9836,8 @@ fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, S
             canonical.insert(
                 "findReplace".to_owned(),
                 serde_json::json!({
-                    "scope": scope, "column": column, "find": find, "replace": replace
+                    "scope": scope, "column": column, "find": find, "replace": replace,
+                    "regex": regex
                 }),
             );
         }
@@ -18022,9 +18025,7 @@ fn apply_find_replace(
     recipe: &FindReplaceRecipe,
     renames: &HashMap<&str, &str>,
 ) -> Result<usize, String> {
-    if recipe.find.is_empty() {
-        return Err("El texto buscado no puede estar vacío.".into());
-    }
+    let regex = compile_find_replace_pattern(recipe)?;
     let targets = match recipe.scope {
         FindReplaceScope::Column => {
             let column = recipe
@@ -18060,7 +18061,14 @@ fn apply_find_replace(
             .into_iter()
             .map(|value| {
                 value.map(|value| {
-                    let updated = value.replace(&recipe.find, &recipe.replace);
+                    let updated = regex
+                        .as_ref()
+                        .map(|regex| {
+                            regex
+                                .replace_all(value.as_str(), recipe.replace.as_str())
+                                .into_owned()
+                        })
+                        .unwrap_or_else(|| value.replace(&recipe.find, &recipe.replace));
                     if updated != value {
                         count += 1;
                         updated
@@ -18078,6 +18086,31 @@ fn apply_find_replace(
             .map_err(|error| format!("No se pudo reemplazar texto en '{name}': {error}"))?;
     }
     Ok(count)
+}
+
+fn validate_find_replace_pattern(recipe: &FindReplaceRecipe) -> Result<(), String> {
+    if recipe.regex && !recipe.find.is_empty() {
+        Regex::new(&recipe.find).map_err(|_| {
+            "El patrón de búsqueda no es una expresión regular válida compatible con Rust."
+                .to_owned()
+        })?;
+    }
+    Ok(())
+}
+
+fn compile_find_replace_pattern(recipe: &FindReplaceRecipe) -> Result<Option<Regex>, String> {
+    if recipe.find.is_empty() {
+        return Err("El texto buscado no puede estar vacío.".into());
+    }
+    validate_find_replace_pattern(recipe)?;
+    if recipe.regex {
+        Regex::new(&recipe.find).map(Some).map_err(|_| {
+            "El patrón de búsqueda no es una expresión regular válida compatible con Rust."
+                .to_owned()
+        })
+    } else {
+        Ok(None)
+    }
 }
 
 fn resolve_keep_column_names(
@@ -19297,6 +19330,7 @@ fn lazy_find_replace_targets(
     if recipe.find.is_empty() {
         return Err("El texto buscado no puede estar vacío.".into());
     }
+    validate_find_replace_pattern(recipe)?;
     let cast_target = |effective_name: &str| {
         casts
             .iter()
@@ -19907,7 +19941,7 @@ fn apply_lazy_recipe_to_frame(
                     let replaced = original.clone().str().replace_all(
                         lit(find_replace.find.clone()),
                         lit(find_replace.replace.clone()),
-                        true,
+                        !find_replace.regex,
                     );
                     replaced
                         .neq_missing(original)
@@ -19955,7 +19989,7 @@ fn apply_lazy_recipe_to_frame(
                         .replace_all(
                             lit(find_replace.find.clone()),
                             lit(find_replace.replace.clone()),
-                            true,
+                            !find_replace.regex,
                         )
                         .alias(name)
                 })
@@ -22101,6 +22135,7 @@ mod tests {
                     column: Some("city".to_owned()),
                     find: "SD".to_owned(),
                     replace: "Santo Domingo".to_owned(),
+                    regex: false,
                 }),
                 keep_columns: Some(vec!["new".to_owned(), "total".to_owned()]),
                 split_column: Some(SplitColumnRecipe {
@@ -22494,7 +22529,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_ambiguous_dataprep_recipe_semantics_instead_of_dropping_them() {
+    fn imports_dataprep_regex_find_replace_without_losing_its_semantics() {
         let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
         let path = directory.path().join("pipeline.json");
         fs::write(
@@ -22508,8 +22543,38 @@ mod tests {
         )
         .unwrap();
 
-        let error = load_recipe_file(&path).expect_err("la semántica regex no debe perderse");
-        assert!(error.contains("expresiones regulares"));
+        let loaded = load_recipe_file(&path).expect("la semántica regex debe importarse");
+        let find_replace = loaded
+            .recipe
+            .find_replace
+            .expect("la operación regex debe conservarse");
+        assert!(find_replace.regex);
+        assert_eq!(find_replace.find, "^A");
+        assert_eq!(find_replace.replace, "B");
+        assert!(loaded
+            .migration_report
+            .expect("la migración debe incluir informe")
+            .converted_operations
+            .contains(&"findReplace".to_owned()));
+    }
+
+    #[test]
+    fn rejects_invalid_dataprep_regex_before_importing_the_recipe() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("pipeline.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 3,
+                "name": "Regex inválida",
+                "transform": {"find_replace": {"find": "[", "replace": "B", "regex": true}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = load_recipe_file(&path).expect_err("el patrón inválido debe rechazarse");
+        assert!(error.contains("expresión regular válida"));
     }
 
     #[test]
@@ -26817,6 +26882,7 @@ mod tests {
                 column: Some("group".into()),
                 find: "A".into(),
                 replace: "B".into(),
+                regex: false,
             }),
             group_summary: Some(GroupSummaryRecipe {
                 group_by: vec!["group".into()],
@@ -27673,6 +27739,7 @@ mod tests {
                 column: Some("text".into()),
                 find: "á".into(),
                 replace: "🙂".into(),
+                regex: false,
             }),
             ..Default::default()
         };
@@ -27692,10 +27759,100 @@ mod tests {
                 column: Some("text".into()),
                 find: "á".into(),
                 replace: "á".into(),
+                regex: false,
             }),
             ..Default::default()
         };
         assert_eq!(apply_recipe_to_frame(&frame, &identical).unwrap().6, 0);
+    }
+
+    #[test]
+    fn eager_find_replace_regex_supports_captures_and_counts_changed_cells() {
+        let frame = DataFrame::new(
+            3,
+            vec![Series::new("text".into(), [Some("Ana-01"), Some("Luis-02"), None]).into_column()],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("text".into()),
+                find: r"([A-Za-z]+)-(\d+)".into(),
+                replace: "$2:$1".into(),
+                regex: true,
+            }),
+            ..Default::default()
+        };
+
+        let outcome = apply_eager_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(outcome.6, 2);
+        assert_eq!(
+            dataset_page(&outcome.0, 0, 10).unwrap().rows,
+            vec![
+                vec![Some("01:Ana".into())],
+                vec![Some("02:Luis".into())],
+                vec![None],
+            ]
+        );
+    }
+
+    #[test]
+    fn lazy_find_replace_regex_supports_captures_and_counts_changed_cells() {
+        let frame = DataFrame::new(
+            3,
+            vec![Series::new("text".into(), [Some("Ana-01"), Some("Luis-02"), None]).into_column()],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("text".into()),
+                find: r"([A-Za-z]+)-(\d+)".into(),
+                replace: "$2:$1".into(),
+                regex: true,
+            }),
+            ..Default::default()
+        };
+
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_lazy_recipe_to_frame(&frame, &recipe).unwrap();
+        assert_eq!(outcome.6, 2);
+        assert_eq!(
+            dataset_page(&outcome.0, 0, 10).unwrap().rows,
+            vec![
+                vec![Some("01:Ana".into())],
+                vec![Some("02:Luis".into())],
+                vec![None],
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_find_replace_regex_is_rejected_before_eager_or_lazy_execution() {
+        let frame = DataFrame::new(
+            1,
+            vec![Series::new("text".into(), [Some("Ana")]).into_column()],
+        )
+        .unwrap();
+        let recipe = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("text".into()),
+                find: "[".into(),
+                replace: "x".into(),
+                regex: true,
+            }),
+            ..Default::default()
+        };
+
+        assert!(apply_eager_recipe_to_frame(&frame, &recipe)
+            .err()
+            .expect("el patrón eager debe fallar")
+            .contains("expresión regular válida"));
+        assert!(apply_lazy_recipe_to_frame(&frame, &recipe)
+            .err()
+            .expect("el patrón lazy debe fallar")
+            .contains("expresión regular válida"));
     }
 
     #[test]
@@ -27715,6 +27872,7 @@ mod tests {
                 column: None,
                 find: "x".into(),
                 replace: "y".into(),
+                regex: false,
             }),
             ..Default::default()
         };
@@ -27730,6 +27888,7 @@ mod tests {
                 column: Some("first".into()),
                 find: "x".into(),
                 replace: "z".into(),
+                regex: false,
             }),
             ..Default::default()
         };
@@ -27760,6 +27919,7 @@ mod tests {
                 column: Some("code".into()),
                 find: "2".into(),
                 replace: "X".into(),
+                regex: false,
             }),
             ..Default::default()
         };
@@ -28082,6 +28242,7 @@ mod tests {
                 column: Some("full".into()),
                 find: "A".into(),
                 replace: "Z".into(),
+                regex: false,
             }),
             split_column: Some(SplitColumnRecipe {
                 source: "full".into(),

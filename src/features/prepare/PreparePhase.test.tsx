@@ -818,6 +818,35 @@ describe("TransformRecipeEditor", () => {
     }), "Mi receta");
   });
 
+  it("expone el modo regex seguro de buscar y reemplazar en recetas cargadas", () => {
+    const initialDraft: LoadedRecipe = {
+      version: 1,
+      name: "Regex segura",
+      savedAt: "2026-08-30T00:00:00Z",
+      recipe: {
+        ...emptyRecipe,
+        findReplace: {
+          scope: "column",
+          column: "nombre",
+          find: "^(Ana)$",
+          replace: "$1",
+          regex: true,
+        },
+      },
+    };
+    render(<TransformRecipeEditor
+      dataset={dataset}
+      busy={false}
+      initialDraft={initialDraft}
+      onApply={() => undefined}
+      onDraftChange={() => undefined}
+    />);
+
+    fireEvent.click(screen.getAllByText("Buscar y reemplazar")[0]);
+    expect(screen.getByRole("checkbox", { name: "Interpretar búsqueda como expresión regular" })).toBeChecked();
+    expect(screen.getByText(/expresiones regulares compatibles con Rust/)).toBeInTheDocument();
+  });
+
   it("expone la imputación de outliers en recetas y solicita confirmación", () => {
     const onApply = vi.fn();
     const initialDraft: LoadedRecipe = {

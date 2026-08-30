@@ -1054,10 +1054,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 ## 8.1. Cola de ejecución recomendada desde v0.57.0
 
 1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
-   representable. El selector importa pipelines v1–v3, normaliza operaciones
-   compatibles a receta Columnia v1 y rechaza semánticas ambiguas como regex o
-   booleanos personalizados. La migración de sesiones, reglas incrustadas,
-   artefactos y round-trip completo permanece en M1.
+   representable y ampliada en Unreleased con `find_replace` regex segura. El
+   selector importa pipelines v1–v3, valida los patrones con la sintaxis Rust y
+   conserva grupos de captura; booleanos personalizados y operaciones sin
+   equivalente siguen requiriendo revisión manual. La migración de sesiones,
+   reglas incrustadas, artefactos y round-trip completo permanece en M1.
 2. **Sistema visual y temas:** completado en v0.52.0. La barra lateral ofrece
    un selector persistente de tema `Sistema`, `Claro` y `Oscuro`; la preferencia
    se aplica antes de montar React, se conserva en almacenamiento local y mantiene
@@ -1375,7 +1376,8 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
   cambios con una agregación streaming separada y preserva nulos, renombres y
-  casts a texto. La unión de columnas de texto conserva el orden de fuentes,
+  casts a texto; el modo regex seguro conserva grupos de captura y valida el
+  patrón antes de construir el plan. La unión de columnas de texto conserva el orden de fuentes,
   omite nulos y mantiene nula la fila vacía, incluyendo casts numérico→texto
   validados antes de publicar. La división literal conserva el resto en el
   último destino y rellena destinos ausentes con nulos dentro del plan
@@ -1466,10 +1468,11 @@ del original.
   reales ni celdas de usuario; el contrato vive en `docs/reference/migration-inventory.md`
   y `fixtures/manifest.json`.
 - [x] Importar el núcleo representable de pipelines JSON DataPrep v1–v3:
-  renombres, casts, fechas, filtros, reemplazos literales, columnas conservadas,
-  cálculos, split/merge, outliers, grupos, contactos y extracciones; producir
-  una receta Columnia v1. Regex, booleanos personalizados y operaciones sin
-  equivalente se rechazan explícitamente.
+  renombres, casts, fechas, filtros, reemplazos literales o regex seguras con
+  grupos de captura, columnas conservadas, cálculos, split/merge, outliers,
+  grupos, contactos y extracciones; producir una receta Columnia v1. Patrones
+  regex inválidos, booleanos personalizados y operaciones sin equivalente se
+  rechazan explícitamente.
 - [x] Completar la importación de opciones de exportación representables de
   DataPrep: formatos CSV/JSON/Parquet/SQL/XLSX→Excel, columnas seleccionadas y
   privacidad; conservarlas en la receta y generar warnings estructurados para
@@ -1964,6 +1967,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Permitir columnas derivadas lazy de split/merge antes de agrupación, usando sus resultados como claves o fuentes de agregación con preflight posterior a las etapas estructurales | Implementada como vigésima expansión; partes temporales derivadas, la entrada y el candidato activo mantienen sus límites actuales |
 | 2026-08-30 | Permitir partes temporales calculadas lazy de año/mes/día como claves de agrupación sobre `Date` y `Datetime` sin zona horaria, con preflight de rango | Implementada como vigésimo primera expansión; filtros previos y zonas horarias mantienen fallback eager, y la entrada/candidato activo siguen materializados |
 | 2026-08-30 | Extender la consulta SQL local restringida a claves compuestas de hasta ocho columnas, formando grupos en orden estable y conservando claves nulas sin superar el presupuesto de filas | Implementada como vigésimo segunda expansión; la consulta sigue siendo solo lectura sobre el `DataFrame` activo y DuckDB/ejecución fuera de memoria continúan en cola |
+| 2026-08-30 | Extender `find_replace` a expresiones regulares seguras en recetas eager/lazy y migración DataPrep, conservando grupos de captura, nulos, conteos y validación previa del patrón | Implementada como slice de migración y ejecución; la entrada y el candidato activo siguen materializados y el catálogo avanzado restante continúa en cola |
 | 2026-08-30 | Extender el parser SQL local para JOINs compuestos de hasta ocho pares, reutilizando el preflight existente de tipos/cardinalidad y el plan streaming con orden izquierdo | Implementada como vigésimo tercera expansión; no amplía aún el motor a DuckDB ni la ejecución fuera de memoria |
 | 2026-08-30 | Procesar agregaciones SQL locales en una segunda pasada por bloques, con acumuladores por grupo y sin guardar índices de filas coincidentes | Implementada como vigésimo cuarta expansión; el `DataFrame` activo, el límite de coincidencias y los resultados paginados siguen siendo el contrato actual |
 | 2026-08-30 | Particionar el índice exacto de comparación por claves en cubetas temporales y procesar cada cubeta de forma independiente | Implementada como vigésimo quinta expansión; la comparación de filas completas, el `DataFrame` activo y los joins fuera de memoria siguen pendientes |

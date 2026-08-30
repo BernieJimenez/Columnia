@@ -38,6 +38,10 @@ los artefactos de validación locales.
 - Guardar un proyecto entrega la copia ya aislada del dataset directamente al
   escritor Parquet, eliminando una segunda clonación completa del `DataFrame`
   durante la publicación durable.
+- Las recetas y la migración DataPrep admiten `find_replace` con expresiones
+  regulares seguras, grupos de captura en el reemplazo y validación nativa del
+  patrón antes de modificar el dataset; los patrones inválidos siguen fallando
+  cerrado sin perder la semántica del pipeline.
 - El benchmark de datasets compila el CLI con el perfil debug sin símbolos y
   restaura la configuración del proceso, evitando el fallo de enlace MSVC
   `LNK1140` sin alterar las mediciones de runtime.
