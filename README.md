@@ -158,9 +158,10 @@ El resumen conserva solo dimensiones, duraciones, memoria agregada y cleanup;
 El gate de rendimiento también limita la duración máxima de transformaciones,
 guardado, inspección y exportación dentro del benchmark sostenido.
 
-El explorador SQL local es de solo lectura y trabaja por bloques cancelables. Las
-agregaciones rechazan conjuntos coincidentes que exceden su presupuesto y los
-joins ejecutan el plan Polars con motor streaming después de un preflight de
+El explorador SQL local es de solo lectura y trabaja por bloques cancelables;
+admite `GROUP BY` compuesto de hasta ocho columnas, con orden estable y claves
+nulas. Las agregaciones rechazan conjuntos coincidentes que exceden su presupuesto
+y los joins ejecutan el plan Polars con motor streaming después de un preflight de
 cardinalidad antes de materializar resultados dentro de los límites locales.
 DuckDB y la ejecución incremental completa siguen siendo trabajo pendiente. La
 sesión actual muestra las últimas cinco ejecuciones con estado,

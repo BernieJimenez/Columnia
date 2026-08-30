@@ -8,6 +8,9 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- La consulta SQL local admite `GROUP BY` compuesto de hasta ocho columnas, con
+  orden estable de primera aparición, claves nulas, rechazo de claves duplicadas
+  y el mismo presupuesto acotado de filas para agregaciones.
 - Preparar detecta outliers numéricos mediante IQR y permite reemplazarlos de
   forma reversible por la mediana observada, conservando tipos `Int64`/`Float64`,
   `_cambios` y un impacto agregado. La misma regla está disponible en recetas

@@ -1293,6 +1293,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   `AVG`, `MIN`, `MAX`), con presupuesto y resultados tabulares seguros.
 - [x] Añadir `GROUP BY` de una columna con orden estable, grupos nulos y
   paginación segura sobre agregaciones.
+- [x] Extender `GROUP BY` local a hasta ocho columnas compuestas, preservando
+  orden estable, claves nulas, validación de duplicados y presupuesto de filas.
 - [x] Endurecer la consulta SQL local con cancelación cooperativa, límite de
   filas coincidentes para agregaciones y preflight de cardinalidad para evitar
   materializar joins many-to-many fuera de presupuesto.
@@ -1810,6 +1812,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | M1 conserva metadatos agregados de muestreo de análisis cuando una sesión DataPrep los aporta: estado muestreado y conteos de filas validados, sin importar filas, valores ni resultados; el resumen queda visible en el informe de compatibilidad. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/prepare/TransformRecipeEditor.tsx`, `docs/reference/migration-inventory.md` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
+| 2026-08-30 | P1 amplía la consulta SQL local a `GROUP BY` compuesto de hasta ocho columnas, con orden de primera aparición, combinaciones nulas, rechazo de claves duplicadas y presupuesto de agregación conservado; DuckDB, joins más amplios y ejecución incremental siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
@@ -1864,6 +1867,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Permitir columnas calculadas lazy numéricas y concatenadas antes de agrupación, usando sus resultados como claves o fuentes de agregación con preflight posterior | Implementada como decimonovena expansión; partes temporales, split/merge derivados, la entrada y el candidato activo mantienen sus límites actuales |
 | 2026-08-30 | Permitir columnas derivadas lazy de split/merge antes de agrupación, usando sus resultados como claves o fuentes de agregación con preflight posterior a las etapas estructurales | Implementada como vigésima expansión; partes temporales derivadas, la entrada y el candidato activo mantienen sus límites actuales |
 | 2026-08-30 | Permitir partes temporales calculadas lazy de año/mes/día como claves de agrupación sobre `Date` y `Datetime` sin zona horaria, con preflight de rango | Implementada como vigésimo primera expansión; filtros previos y zonas horarias mantienen fallback eager, y la entrada/candidato activo siguen materializados |
+| 2026-08-30 | Extender la consulta SQL local restringida a claves compuestas de hasta ocho columnas, formando grupos en orden estable y conservando claves nulas sin superar el presupuesto de filas | Implementada como vigésimo segunda expansión; la consulta sigue siendo solo lectura sobre el `DataFrame` activo y DuckDB/ejecución fuera de memoria continúan en cola |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |

@@ -111,6 +111,7 @@ const LOCAL_QUERY_CANCEL_CHECK_ROWS: usize = 4096;
 const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS: usize = 2_000_000;
+const LOCAL_QUERY_MAX_GROUP_COLUMNS: usize = 8;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1947,13 +1948,13 @@ struct LocalPredicate {
 struct LocalQueryPlan {
     projections: Vec<LocalProjection>,
     predicates: Vec<LocalPredicate>,
-    group_by: Option<String>,
+    group_by: Option<Vec<String>>,
     offset: usize,
     limit: usize,
     aggregate: bool,
 }
 
-type LocalGroupRows = Vec<(Option<String>, Vec<usize>)>;
+type LocalGroupRows = Vec<(Vec<Option<String>>, Vec<usize>)>;
 
 fn local_identifier(value: &str) -> Result<String, String> {
     let value = value.trim();
@@ -2078,7 +2079,7 @@ fn parse_local_literal(value: &str) -> Result<String, String> {
 fn parse_local_projection(
     projection: &str,
     frame: &DataFrame,
-    group_by: Option<&str>,
+    group_by: Option<&[String]>,
 ) -> Result<(Vec<LocalProjection>, bool), String> {
     if projection.trim() == "*" {
         return Ok((
@@ -2110,10 +2111,13 @@ fn parse_local_projection(
             if column_projection
                 && (group_by.is_none()
                     || projections.iter().any(|projection| {
-                        matches!(projection, LocalProjection::Column { name, .. } if Some(name.as_str()) != group_by)
+                        matches!(projection, LocalProjection::Column { name, .. } if !group_by
+                            .is_some_and(|groups| groups.iter().any(|group| group == name)))
                     }))
             {
-                return Err("No mezcles columnas y agregaciones salvo la clave GROUP BY.".to_owned());
+                return Err(
+                    "No mezcles columnas y agregaciones salvo la clave GROUP BY.".to_owned(),
+                );
             }
             let function = match captures
                 .get(1)
@@ -2169,7 +2173,10 @@ fn parse_local_projection(
             column_projection = true;
             let name =
                 local_identifier(captures.get(1).expect("la columna debe existir").as_str())?;
-            if aggregate && (group_by.is_none() || Some(name.as_str()) != group_by) {
+            if aggregate
+                && (group_by.is_none()
+                    || !group_by.is_some_and(|groups| groups.iter().any(|group| group == &name)))
+            {
                 return Err("No mezcles columnas y agregaciones en una misma consulta.".to_owned());
             }
             frame
@@ -2403,12 +2410,32 @@ fn parse_local_query(query: &str, frame: &DataFrame) -> Result<LocalQueryPlan, S
 
     let group_by = captures
         .get(3)
-        .map(|value| local_identifier(value.as_str()))
+        .map(|value| {
+            let groups = split_local_sql_list(value.as_str())?
+                .into_iter()
+                .map(|group| local_identifier(&group))
+                .collect::<Result<Vec<_>, _>>()?;
+            if groups.is_empty() || groups.len() > LOCAL_QUERY_MAX_GROUP_COLUMNS {
+                return Err(format!(
+                    "GROUP BY requiere entre 1 y {LOCAL_QUERY_MAX_GROUP_COLUMNS} columnas."
+                ));
+            }
+            let mut unique = HashSet::new();
+            for group in &groups {
+                if !unique.insert(group) {
+                    return Err(format!("La clave GROUP BY '{group}' está duplicada."));
+                }
+                frame
+                    .column(group)
+                    .map_err(|_| format!("La columna '{group}' no existe en el dataset activo."))?;
+            }
+            Ok(groups)
+        })
         .transpose()?;
     if let Some(group_by) = &group_by {
-        frame
-            .column(group_by)
-            .map_err(|_| format!("La columna '{group_by}' no existe en el dataset activo."))?;
+        if group_by.is_empty() {
+            return Err("GROUP BY necesita al menos una columna.".to_owned());
+        }
     }
     let (projections, aggregate) = parse_local_projection(projection, frame, group_by.as_deref())?;
     if group_by.is_some() && !aggregate {
@@ -2652,26 +2679,35 @@ where
 fn grouped_local_rows_with_cancel<C>(
     frame: &DataFrame,
     rows: &[usize],
-    group_by: &str,
+    group_by: &[String],
     is_cancelled: &C,
 ) -> Result<LocalGroupRows, String>
 where
     C: Fn() -> bool + Sync,
 {
-    let group_column = frame
-        .column(group_by)
-        .map_err(|_| format!("La columna '{group_by}' no existe en el dataset activo."))?;
-    let mut groups = Vec::<(Option<String>, Vec<usize>)>::new();
-    let mut positions = HashMap::<Option<String>, usize>::new();
+    let group_columns = group_by
+        .iter()
+        .map(|name| {
+            frame
+                .column(name)
+                .map_err(|_| format!("La columna '{name}' no existe en el dataset activo."))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut groups = LocalGroupRows::new();
+    let mut positions = HashMap::<Vec<Option<String>>, usize>::new();
     for (position, row_index) in rows.iter().enumerate() {
         if position % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
             ensure_not_cancelled(is_cancelled())?;
         }
-        let key = preview_value(
-            group_column
-                .get(*row_index)
-                .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))?,
-        );
+        let key = group_columns
+            .iter()
+            .map(|column| {
+                column
+                    .get(*row_index)
+                    .map_err(|error| format!("No se pudo leer la clave GROUP BY: {error}"))
+                    .map(preview_value)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if let Some(position) = positions.get(&key) {
             groups[*position].1.push(*row_index);
         } else {
@@ -2687,7 +2723,8 @@ fn local_query_row_with_cancel<C>(
     frame: &DataFrame,
     projections: &[LocalProjection],
     rows: &[usize],
-    group_value: Option<&Option<String>>,
+    group_by: Option<&[String]>,
+    group_values: Option<&[Option<String>]>,
     is_cancelled: &C,
 ) -> Result<Vec<Option<String>>, String>
 where
@@ -2696,7 +2733,14 @@ where
     projections
         .iter()
         .map(|projection| match projection {
-            LocalProjection::Column { .. } => Ok(group_value.cloned().flatten()),
+            LocalProjection::Column { name, .. } => {
+                let group_index =
+                    group_by.and_then(|groups| groups.iter().position(|group| group == name));
+                Ok(group_index
+                    .and_then(|index| group_values.and_then(|values| values.get(index)))
+                    .cloned()
+                    .flatten())
+            }
             LocalProjection::Aggregate { .. } => {
                 aggregate_result_with_cancel(frame, projection, rows, is_cancelled)
             }
@@ -2847,12 +2891,13 @@ where
         let aggregate_rows = if let Some(group_by) = &plan.group_by {
             grouped_local_rows_with_cancel(frame, &matching_rows, group_by, is_cancelled)?
                 .iter()
-                .map(|(group_value, group_rows)| {
+                .map(|(group_values, group_rows)| {
                     local_query_row_with_cancel(
                         frame,
                         &plan.projections,
                         group_rows,
-                        Some(group_value),
+                        Some(group_by),
+                        Some(group_values),
                         is_cancelled,
                     )
                 })
@@ -2862,6 +2907,7 @@ where
                 frame,
                 &plan.projections,
                 &matching_rows,
+                None,
                 None,
                 is_cancelled,
             )?]
@@ -20902,6 +20948,63 @@ mod tests {
         assert!(execute_local_query(&frame, "SELECT SUM(city) FROM dataset").is_err());
         assert!(execute_local_query(&frame, "SELECT city, COUNT(*) FROM dataset").is_err());
         assert!(execute_local_query(&frame, "SELECT city FROM dataset GROUP BY city").is_err());
+    }
+
+    #[test]
+    fn local_query_groups_by_multiple_columns_with_stable_null_keys() {
+        let frame = df![
+            "region" => &["north", "north", "north", "south", "south", "north"],
+            "segment" => &[Some("a"), Some("b"), Some("a"), Some("a"), None, Some("b")],
+            "value" => &[1_i64, 2, 3, 4, 5, 6]
+        ]
+        .unwrap();
+
+        let grouped = execute_local_query(
+            &frame,
+            "SELECT region, segment, SUM(value) AS total FROM dataset GROUP BY region, segment LIMIT 10",
+        )
+        .expect("GROUP BY compuesto local debe ejecutarse");
+
+        assert_eq!(grouped.row_count, 4);
+        assert_eq!(
+            grouped.rows,
+            vec![
+                vec![
+                    Some("north".to_owned()),
+                    Some("a".to_owned()),
+                    Some("4".to_owned())
+                ],
+                vec![
+                    Some("north".to_owned()),
+                    Some("b".to_owned()),
+                    Some("8".to_owned())
+                ],
+                vec![
+                    Some("south".to_owned()),
+                    Some("a".to_owned()),
+                    Some("4".to_owned())
+                ],
+                vec![Some("south".to_owned()), None, Some("5".to_owned())],
+            ]
+        );
+
+        let duplicate = execute_local_query(
+            &frame,
+            "SELECT region, COUNT(*) AS total FROM dataset GROUP BY region, region LIMIT 10",
+        )
+        .expect_err("GROUP BY no debe aceptar claves duplicadas");
+        assert!(duplicate.contains("está duplicada"));
+
+        let too_many_groups = (0..=LOCAL_QUERY_MAX_GROUP_COLUMNS)
+            .map(|index| format!("column_{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let too_many = execute_local_query(
+            &frame,
+            &format!("SELECT COUNT(*) AS total FROM dataset GROUP BY {too_many_groups} LIMIT 10"),
+        )
+        .expect_err("GROUP BY debe respetar el límite de columnas");
+        assert!(too_many.contains("entre 1 y 8"));
     }
 
     #[test]
