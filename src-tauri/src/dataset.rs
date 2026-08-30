@@ -16157,45 +16157,75 @@ pub async fn query_dataset(
 ) -> Result<DatasetQueryResult, String> {
     let generation = app.state::<DatasetState>().begin_query();
     let engine = engine.unwrap_or_default();
-    let (frame, compared) = {
-        let state = app.state::<DatasetState>();
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let frame = current
-            .as_ref()
-            .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?
-            .frame
-            .clone();
-        let compared = state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?
-            .as_ref()
-            .map(|pending| pending.frame.clone());
-        (frame, compared)
-    };
-    let cancellation_app = app.clone();
+    let query_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || match engine {
-        DatasetQueryEngine::Polars => execute_local_query_with_comparison_and_cancel(
-            &frame,
-            compared.as_ref(),
-            &query,
-            &|| {
-                cancellation_app
-                    .state::<DatasetState>()
-                    .query_was_cancelled(generation)
-            },
-        ),
+        DatasetQueryEngine::Polars => {
+            let state = query_app.state::<DatasetState>();
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let dataset = current
+                .as_ref()
+                .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?;
+            let comparison = state
+                .comparison
+                .lock()
+                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let compared = comparison.as_ref().map(|pending| &pending.frame);
+            execute_local_query_with_comparison_and_cancel(
+                &dataset.frame,
+                compared,
+                &query,
+                &|| state.query_was_cancelled(generation),
+            )
+        }
         DatasetQueryEngine::Duckdb => {
-            let spec = prepare_duckdb_query(&query, &frame, compared.as_ref())?;
-            let cancellation_app = cancellation_app.clone();
-            crate::duckdb_query::execute_duckdb_query(&frame, compared.as_ref(), &spec, move || {
-                cancellation_app
-                    .state::<DatasetState>()
-                    .query_was_cancelled(generation)
-            })
+            let state = query_app.state::<DatasetState>();
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let dataset = current
+                .as_ref()
+                .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?;
+            let comparison = state
+                .comparison
+                .lock()
+                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+            let compared = comparison.as_ref().map(|pending| &pending.frame);
+            let spec = prepare_duckdb_query(&query, &dataset.frame, compared)?;
+            let current_snapshot = dataset
+                .history
+                .snapshots_enabled
+                .then(|| dataset.history.entries.get(dataset.history.cursor))
+                .flatten()
+                .map(|entry| entry.path.clone());
+            let cancellation_app = query_app.clone();
+            let fallback_cancellation_app = query_app.clone();
+            if let Some(path) = current_snapshot {
+                crate::duckdb_query::execute_duckdb_query_from_parquet(
+                    &path,
+                    compared,
+                    &spec,
+                    move || {
+                        cancellation_app
+                            .state::<DatasetState>()
+                            .query_was_cancelled(generation)
+                    },
+                )
+            } else {
+                crate::duckdb_query::execute_duckdb_query(
+                    &dataset.frame,
+                    compared,
+                    &spec,
+                    move || {
+                        fallback_cancellation_app
+                            .state::<DatasetState>()
+                            .query_was_cancelled(generation)
+                    },
+                )
+            }
         }
     })
     .await
