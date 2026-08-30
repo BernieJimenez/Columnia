@@ -165,6 +165,9 @@ coincidentes que exceden su presupuesto y los joins ejecutan el plan Polars con
 motor streaming después de un preflight de tipos y cardinalidad antes de
 materializar resultados dentro de los límites locales; su segunda pasada acumula
 por bloques sin conservar índices de todas las filas coincidentes.
+Los `JOIN` `INNER`/`LEFT` sin agregación también procesan el lado `dataset` por
+bloques y devuelven la página global sin acumular el `DataFrame` unido completo;
+`FULL` y agregaciones mantienen la ruta eager acotada.
 El preflight de cardinalidad de los joins también procesa índices de claves por
 cubetas temporales antes de materializar el resultado.
 La comparación por claves también particiona su índice temporal y procesa una

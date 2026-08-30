@@ -1305,6 +1305,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   y conflictos paginados por una cubeta a la vez sin retener mapas globales en memoria.
 - [x] Particionar el preflight de cardinalidad de los `JOIN` locales, contando por
   cubeta los productos de duplicidad con cancelación cooperativa y límites explícitos.
+- [x] Procesar `JOIN` locales `INNER`/`LEFT` sin agregación por bloques del lado
+  `dataset`, conservando orden, filtros y paginación globales sin acumular el
+  `DataFrame` unido completo; `FULL` y consultas agregadas mantienen la ruta
+  completa acotada hasta cerrar su estrategia incremental.
 - [x] Endurecer la consulta SQL local con cancelación cooperativa, límite de
   filas coincidentes para agregaciones y preflight de cardinalidad para evitar
   materializar joins many-to-many fuera de presupuesto.
@@ -1337,7 +1341,10 @@ temporales y procesan multiconjuntos, resumen, nuevas claves y conflictos
 paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JOIN locales por claves ya ejecutan el plan Polars
   con motor `streaming` después de su preflight; ese preflight también derrama las
   claves y cuenta por cubeta los productos de duplicidad con cancelación, pero su resultado sigue dentro
-  de los límites explícitos. `keep_columns` también puede proyectar dentro de
+  de los límites explícitos. Los `JOIN` `INNER`/`LEFT` sin agregación procesan el
+  lado `dataset` por bloques y conservan solo la página global, su conteo y un
+  bloque unido temporal; `FULL` y agregaciones mantienen la ruta completa acotada.
+  `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
   cambios con una agregación streaming separada y preserva nulos, renombres y
@@ -1833,6 +1840,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 particiona el índice exacto de comparación por claves en 256 cubetas temporales y procesa resumen, nuevas claves y conflictos paginados por cubeta, preservando orden y duplicados sin retener todos los índices en memoria. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 calcula la comparación completa de filas por multiconjuntos de firmas particionadas, conservando conteos exactos sin mapas globales de firmas. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 particiona el preflight de cardinalidad de los `JOIN` locales: derrama claves de ambos lados, calcula productos de duplicidad por cubeta y conserva cancelación y límites explícitos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1 procesa consultas SQL locales `INNER`/`LEFT` sin agregación por bloques del lado `dataset`: conserva el orden y la paginación globales, cuenta todas las coincidencias y evita acumular el `DataFrame` unido completo. `FULL` y agregaciones mantienen la ruta eager acotada mientras se define su estrategia incremental. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

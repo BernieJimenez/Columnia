@@ -2339,16 +2339,19 @@ fn split_local_join_tail(value: &str) -> Result<(&str, &str), String> {
     Ok((value, ""))
 }
 
-fn parse_local_join_query_with_cancel<C>(
+#[derive(Clone, Debug)]
+struct LocalJoinQuerySpec {
+    current_keys: Vec<String>,
+    compared_keys: Vec<String>,
+    join_type: DatasetJoinType,
+    normalized_query: String,
+}
+
+fn parse_local_join_query_spec(
     query: &str,
     current: &DataFrame,
     compared: Option<&DataFrame>,
-    is_cancelled: &C,
-) -> Result<Option<(DataFrame, String)>, String>
-where
-    C: Fn() -> bool + Sync,
-{
-    ensure_not_cancelled(is_cancelled())?;
+) -> Result<Option<LocalJoinQuerySpec>, String> {
     let pattern = Regex::new(
         r#"(?is)^\s*select\s+(.+?)\s+from\s+dataset\s+(?:(inner|left|full)\s+)?join\s+compared\s+on\s+(.+)$"#,
     )
@@ -2416,15 +2419,6 @@ where
         Some(value) if value == "full" => DatasetJoinType::Full,
         _ => DatasetJoinType::Inner,
     };
-    let joined = join_frames_on_keys_with_cancel(
-        current,
-        compared,
-        &current_keys,
-        &compared_keys,
-        join_type,
-        is_cancelled,
-    )?;
-    ensure_not_cancelled(is_cancelled())?;
     let projection = captures
         .get(1)
         .expect("la proyección debe existir")
@@ -2434,7 +2428,12 @@ where
     } else {
         format!("SELECT {projection} FROM dataset {}", query_tail.trim())
     };
-    Ok(Some((joined, normalized_query)))
+    Ok(Some(LocalJoinQuerySpec {
+        current_keys,
+        compared_keys,
+        join_type,
+        normalized_query,
+    }))
 }
 
 fn parse_local_predicates(
@@ -3027,6 +3026,17 @@ where
     C: Fn() -> bool + Sync,
 {
     let plan = parse_local_query(query, frame)?;
+    execute_local_query_plan_with_cancel(frame, &plan, is_cancelled)
+}
+
+fn execute_local_query_plan_with_cancel<C>(
+    frame: &DataFrame,
+    plan: &LocalQueryPlan,
+    is_cancelled: &C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Sync,
+{
     ensure_not_cancelled(is_cancelled())?;
     let block_count = frame.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
     let (matching_count, matching_rows) = if plan.aggregate {
@@ -3211,6 +3221,122 @@ fn execute_local_query_with_comparison(
     execute_local_query_with_comparison_and_cancel(current, compared, query, &never_cancelled)
 }
 
+fn execute_local_join_query_in_blocks_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    spec: &LocalJoinQuerySpec,
+    is_cancelled: &C,
+) -> Result<(Option<DatasetQueryResult>, bool), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    if current.height() == 0 || matches!(spec.join_type, DatasetJoinType::Full) {
+        return Ok((None, false));
+    }
+
+    validate_join_inputs_and_cardinality_with_cancel(
+        current,
+        compared,
+        &spec.current_keys,
+        &spec.compared_keys,
+        spec.join_type,
+        is_cancelled,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+
+    let block_count = current.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    let mut plan = None;
+    let mut columns = None;
+    let mut matching_count = 0usize;
+    let mut offset_in_matches = 0usize;
+    let mut remaining = 0usize;
+    let mut rows = Vec::new();
+
+    for block_index in 0..block_count {
+        ensure_not_cancelled(is_cancelled())?;
+        let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
+        let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(current.height());
+        let current_block = current.slice(start as i64, end - start);
+        let joined_block = collect_join_frame_on_keys_with_cancel(
+            &current_block,
+            compared,
+            &spec.current_keys,
+            &spec.compared_keys,
+            spec.join_type,
+            is_cancelled,
+        )?;
+
+        if plan.is_none() {
+            let parsed = parse_local_query(&spec.normalized_query, &joined_block)?;
+            if parsed.aggregate {
+                return Ok((None, true));
+            }
+            offset_in_matches = parsed.offset;
+            remaining = parsed.limit;
+            rows = Vec::with_capacity(parsed.limit);
+            plan = Some(parsed);
+        }
+        let base_plan = plan
+            .as_ref()
+            .expect("la consulta JOIN paginada debe tener un plan");
+        let mut probe_plan = base_plan.clone();
+        probe_plan.offset = 0;
+        probe_plan.limit = if offset_in_matches == 0 && remaining > 0 {
+            remaining
+        } else {
+            1
+        };
+        let probe = execute_local_query_plan_with_cancel(&joined_block, &probe_plan, is_cancelled)?;
+        if columns.is_none() {
+            columns = Some(probe.columns.clone());
+        }
+        matching_count = matching_count
+            .checked_add(probe.row_count)
+            .ok_or_else(|| "La consulta local supera la capacidad de conteo.".to_owned())?;
+
+        if offset_in_matches >= probe.row_count {
+            offset_in_matches -= probe.row_count;
+            continue;
+        }
+        if remaining == 0 {
+            continue;
+        }
+
+        let rows_before = rows.len();
+        if offset_in_matches == 0 {
+            rows.extend(probe.rows);
+        } else {
+            let mut page_plan = base_plan.clone();
+            page_plan.offset = offset_in_matches;
+            page_plan.limit = remaining;
+            let page =
+                execute_local_query_plan_with_cancel(&joined_block, &page_plan, is_cancelled)?;
+            rows.extend(page.rows);
+        }
+        let added = rows.len().saturating_sub(rows_before);
+        remaining = remaining
+            .checked_sub(added)
+            .expect("la página JOIN no puede exceder su límite");
+        offset_in_matches = 0;
+    }
+
+    let plan = plan.expect("la consulta JOIN paginada debe visitar un bloque");
+    if plan.offset > matching_count {
+        return Err("La página solicitada está fuera del resultado filtrado.".to_owned());
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    Ok((
+        Some(DatasetQueryResult {
+            columns: columns.expect("la consulta JOIN paginada debe tener columnas"),
+            row_count: matching_count,
+            offset: plan.offset,
+            rows,
+            truncated: plan.offset.saturating_add(plan.limit) < matching_count,
+        }),
+        true,
+    ))
+}
+
 fn execute_local_query_with_comparison_and_cancel<C>(
     current: &DataFrame,
     compared: Option<&DataFrame>,
@@ -3220,10 +3346,42 @@ fn execute_local_query_with_comparison_and_cancel<C>(
 where
     C: Fn() -> bool + Sync,
 {
-    if let Some((joined, normalized_query)) =
-        parse_local_join_query_with_cancel(query, current, compared, is_cancelled)?
-    {
-        execute_local_query_with_cancel(&joined, &normalized_query, is_cancelled)
+    ensure_not_cancelled(is_cancelled())?;
+    if let Some(spec) = parse_local_join_query_spec(query, current, compared)? {
+        let mut validated = false;
+        if let Some(compared) = compared {
+            let (result, validation_done) = execute_local_join_query_in_blocks_with_cancel(
+                current,
+                compared,
+                &spec,
+                is_cancelled,
+            )?;
+            validated = validation_done;
+            if let Some(result) = result {
+                return Ok(result);
+            }
+        }
+        let compared = compared.expect("la especificación JOIN validó compared");
+        let joined = if validated {
+            collect_join_frame_on_keys_with_cancel(
+                current,
+                compared,
+                &spec.current_keys,
+                &spec.compared_keys,
+                spec.join_type,
+                is_cancelled,
+            )?
+        } else {
+            join_frames_on_keys_with_cancel(
+                current,
+                compared,
+                &spec.current_keys,
+                &spec.compared_keys,
+                spec.join_type,
+                is_cancelled,
+            )?
+        };
+        execute_local_query_with_cancel(&joined, &spec.normalized_query, is_cancelled)
     } else {
         execute_local_query_with_cancel(current, query, is_cancelled)
     }
@@ -14059,14 +14217,14 @@ where
     Ok(bound)
 }
 
-fn join_frames_on_keys_with_cancel<C>(
+fn validate_join_inputs_and_cardinality_with_cancel<C>(
     current: &DataFrame,
     compared: &DataFrame,
     current_keys: &[String],
     compared_keys: &[String],
     join_type: DatasetJoinType,
     is_cancelled: &C,
-) -> Result<DataFrame, String>
+) -> Result<(), String>
 where
     C: Fn() -> bool + Sync,
 {
@@ -14107,6 +14265,20 @@ where
             "El resultado estimado del JOIN supera el límite local de {LOCAL_QUERY_JOIN_MAX_RESULT_ROWS} filas; reduce los duplicados de las claves."
         ));
     }
+    Ok(())
+}
+
+fn collect_join_frame_on_keys_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
+    join_type: DatasetJoinType,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
     ensure_not_cancelled(is_cancelled())?;
     let left_on = current_keys.iter().map(col).collect::<Vec<_>>();
     let right_on = compared_keys.iter().map(col).collect::<Vec<_>>();
@@ -14125,6 +14297,35 @@ where
         ));
     }
     Ok(joined)
+}
+
+fn join_frames_on_keys_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    current_keys: &[String],
+    compared_keys: &[String],
+    join_type: DatasetJoinType,
+    is_cancelled: &C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    validate_join_inputs_and_cardinality_with_cancel(
+        current,
+        compared,
+        current_keys,
+        compared_keys,
+        join_type,
+        is_cancelled,
+    )?;
+    collect_join_frame_on_keys_with_cancel(
+        current,
+        compared,
+        current_keys,
+        compared_keys,
+        join_type,
+        is_cancelled,
+    )
 }
 
 fn compare_frames(
@@ -21337,6 +21538,49 @@ mod tests {
         )
         .expect_err("el JOIN debe respetar el límite de pares de claves");
         assert!(too_many.contains("entre 1 y 8"));
+    }
+
+    #[test]
+    fn local_query_join_pages_across_current_blocks_without_changing_order() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS + 5;
+        let ids = (0..row_count as i64).collect::<Vec<_>>();
+        let segments = ids
+            .iter()
+            .map(|id| format!("segment-{id}"))
+            .collect::<Vec<_>>();
+        let current = DataFrame::new(
+            row_count,
+            vec![Series::new("id".into(), ids.clone()).into_column()],
+        )
+        .expect("el dataset activo debe construirse");
+        let compared = DataFrame::new(
+            row_count,
+            vec![
+                Series::new("id".into(), ids).into_column(),
+                Series::new("segment".into(), segments).into_column(),
+            ],
+        )
+        .expect("el dataset comparado debe construirse");
+        let offset = LOCAL_QUERY_BLOCK_ROWS - 2;
+
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            &format!(
+                "SELECT id, segment FROM dataset INNER JOIN compared ON dataset.id = compared.id LIMIT 5 OFFSET {offset}"
+            ),
+        )
+        .expect("el JOIN paginado debe atravesar el límite de bloque");
+
+        assert_eq!(result.row_count, row_count);
+        assert_eq!(result.offset, offset);
+        assert_eq!(
+            result.rows,
+            (offset as i64..offset as i64 + 5)
+                .map(|id| vec![Some(id.to_string()), Some(format!("segment-{id}"))])
+                .collect::<Vec<_>>()
+        );
+        assert!(result.truncated);
     }
 
     #[test]
