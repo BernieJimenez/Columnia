@@ -86,8 +86,12 @@ cobertura; no cambia las estadísticas agregadas restantes.
   recorrido nativo aislado histórico verificó abrir dataset, guardar/cargar
   receta y exportar con 521.79 MiB de working set y 265.98 MiB privados, por
   encima del límite privado de 256 MiB (`.local/validation/webview2-cdp/20260828T203917Z`).
-- `npm run accessibility:visual`, `npm run accessibility:check` y
-  `npm run perf:check` pasan; evidencia visual:
+- `npm run accessibility:visual`, `npm run accessibility:check` y, ejecutados en
+  secuencia después de regenerar el resumen, `npm run perf:check` pasan; el
+  benchmark `npm run perf:webview2` también pasa con un input sintético de 100
+  MiB y 819.137 filas: carga 2,9 s, paginación 29 ms, transformación 1,7 s,
+  exportación 1,4 s, 691.789.824 B de working set y 460.587.008 B privados,
+  con cleanup confirmado. Evidencia visual:
   `.local/validation/accessibility-visual/20260828T185137Z`.
 - La captura release desde un commit limpio y la aprobación del baseline visual
   ya pasan; el bundle

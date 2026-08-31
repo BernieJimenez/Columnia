@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- El benchmark `perf:webview2` valida carga, paginación, transformación y
+  exportación de un dataset sintético de 100 MiB en WebView2, con memoria dentro
+  del presupuesto contractual y cleanup confirmado; la ejecución general fuera
+  de RAM continúa explícitamente pendiente.
 - Los perfiles Cargo `dev` y `test` omiten símbolos de depuración para que
   `npm run tauri dev` y las pruebas nativas puedan enlazar de forma reproducible
   en Windows sin alcanzar `LNK1140`; el perfil `release` conserva su política

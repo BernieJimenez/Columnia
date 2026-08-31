@@ -884,10 +884,13 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
 - [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; el
   perfil contractual de 100 MiB, el gate CDP y el bundle ya pasan. El escenario
   CLI de 256 MiB también completa transformaciones y ciclo durable, pero alcanza
-  aproximadamente 1.12 GiB de working set. Ya existe `perf:webview2` para medir
-  el mismo caso dentro de WebView2 con carga, paginación, transformación,
-  exportación, memoria agregada y cleanup; falta usar la evidencia aprobada para
-  cerrar el presupuesto final y decidir la optimización lazy/incremental.
+  aproximadamente 1.12 GiB de working set. `perf:webview2` aprobó el 2026-08-30
+  el mismo caso dentro de WebView2 con un input de 100 MiB/819.137 filas,
+  carga 2,9 s, paginación 29 ms, transformación 1,7 s, exportación 1,4 s,
+  pico de 691.789.824 B de working set y 460.587.008 B privados, dentro del
+  presupuesto de dataset grande y con cleanup confirmado; falta decidir el
+  presupuesto final de la aplicación y cerrar la optimización lazy/incremental
+  general fuera de RAM.
 - [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
 - [x] Reducir el trabajo crítico del arranque: el bundle inicial separa las
@@ -1955,6 +1958,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 conecta el límite de entradas de Polars con la ruta DuckDB: un JOIN grande se promueve automáticamente a DuckDB cuando puede reutilizar los snapshots Parquet administrados del activo y la comparación, evitando recargar la segunda fuente completa; sin ambos snapshots se conserva el rechazo seguro, y la ejecución incremental general fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 elimina la materialización completa del anti-join derecho en `FULL JOIN` local: derrama el índice temporal de claves del activo, recorre la comparación por bloques de 16K, conserva `NULL` como no emparejado y mantiene duplicados/orden; los `DataFrame` fuente y la ejecución general fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | I3 fija los perfiles Cargo `dev` y `test` sin símbolos de depuración para evitar `LNK1140` en el enlazado MSVC del binario Tauri; `npm run tauri dev` queda reproducible desde `Columnia` sin variables temporales y `release` mantiene su política independiente. | `src-tauri/Cargo.toml`, `README.md`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | I3 valida el benchmark WebView2 de dataset grande: un input sintético de 100 MiB y 819.137 filas completa carga, paginación, transformación y exportación; el pico observado queda en 691.789.824 B de working set y 460.587.008 B privados, con presupuesto y cleanup aprobados. La ejecución general fuera de RAM sigue pendiente. | `.local/validation/performance-webview2/20260831T031622Z`, `.local/validation/webview2-cdp/20260831T031624Z`, `.local/validation/performance-baseline/20260831T031959Z` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
