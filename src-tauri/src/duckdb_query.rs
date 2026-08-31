@@ -33,6 +33,16 @@ pub(crate) struct DuckDbQuerySpec {
 enum DatasetSource<'a> {
     Frame(&'a DataFrame),
     Parquet(&'a Path),
+    File {
+        path: &'a Path,
+        format: DuckDbFileFormat,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum DuckDbFileFormat {
+    Parquet,
+    Delimited { delimiter: u8 },
 }
 
 pub(crate) fn execute_duckdb_query<C>(
@@ -80,6 +90,48 @@ where
 {
     execute_duckdb_query_with_source(
         DatasetSource::Parquet(current_path),
+        compared_path.map(DatasetSource::Parquet),
+        spec,
+        is_cancelled,
+    )
+}
+
+pub(crate) fn execute_duckdb_query_from_file<C>(
+    current_path: &Path,
+    current_format: DuckDbFileFormat,
+    compared: Option<&DataFrame>,
+    spec: &DuckDbQuerySpec,
+    is_cancelled: C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_query_with_source(
+        DatasetSource::File {
+            path: current_path,
+            format: current_format,
+        },
+        compared.map(DatasetSource::Frame),
+        spec,
+        is_cancelled,
+    )
+}
+
+pub(crate) fn execute_duckdb_query_from_file_sources<C>(
+    current_path: &Path,
+    current_format: DuckDbFileFormat,
+    compared_path: Option<&Path>,
+    spec: &DuckDbQuerySpec,
+    is_cancelled: C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_query_with_source(
+        DatasetSource::File {
+            path: current_path,
+            format: current_format,
+        },
         compared_path.map(DatasetSource::Parquet),
         spec,
         is_cancelled,
@@ -278,25 +330,52 @@ fn register_dataset_view(
             write_frame_snapshot(frame, frame_path, label, order_column)?;
             register_parquet_view(connection, name, frame_path)
         }
-        DatasetSource::Parquet(path) => {
-            let escaped_path = path
-                .to_string_lossy()
-                .replace('\\', "/")
-                .replace('\'', "''");
-            let query = if let Some(order_column) = order_column {
-                format!(
-                    "CREATE VIEW {name} AS SELECT *, row_number() OVER () - 1 AS {} FROM read_parquet('{escaped_path}')",
-                    quote_identifier(order_column),
-                )
-            } else {
-                format!("CREATE VIEW {name} AS SELECT * FROM read_parquet('{escaped_path}')")
-            };
-            connection
-                .execute_batch(&query)
-                .map_err(|error| format!("DuckDB no pudo registrar la tabla {name}: {error}"))?;
-            Ok(())
+        DatasetSource::Parquet(path) => register_file_view(
+            connection,
+            name,
+            path,
+            DuckDbFileFormat::Parquet,
+            order_column,
+        ),
+        DatasetSource::File { path, format } => {
+            register_file_view(connection, name, path, format, order_column)
         }
     }
+}
+
+fn register_file_view(
+    connection: &Connection,
+    name: &str,
+    path: &Path,
+    format: DuckDbFileFormat,
+    order_column: Option<&str>,
+) -> Result<(), String> {
+    let escaped_path = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let source = match format {
+        DuckDbFileFormat::Parquet => format!("read_parquet('{escaped_path}')"),
+        DuckDbFileFormat::Delimited { delimiter } => {
+            let delimiter = char::from(delimiter);
+            let escaped_delimiter = delimiter.to_string().replace('\'', "''");
+            format!(
+                "read_csv_auto('{escaped_path}', header = true, all_varchar = true, delim = '{escaped_delimiter}')"
+            )
+        }
+    };
+    let query = if let Some(order_column) = order_column {
+        format!(
+            "CREATE VIEW {name} AS SELECT *, row_number() OVER () - 1 AS {} FROM {source}",
+            quote_identifier(order_column),
+        )
+    } else {
+        format!("CREATE VIEW {name} AS SELECT * FROM {source}")
+    };
+    connection
+        .execute_batch(&query)
+        .map_err(|error| format!("DuckDB no pudo registrar la tabla {name}: {error}"))?;
+    Ok(())
 }
 
 fn quote_identifier(value: &str) -> String {
@@ -368,6 +447,8 @@ fn format_blob(value: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use polars::df;
 
     use super::*;
@@ -435,6 +516,43 @@ mod tests {
             vec![vec![Some("Santiago".to_owned()), Some("20".to_owned())]]
         );
         assert!(path.is_file());
+    }
+
+    #[test]
+    fn queries_a_delimited_source_without_creating_a_snapshot() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let path = directory.path().join("current.csv");
+        fs::write(&path, "city,value\nSanto Domingo,10\nSantiago,20\n")
+            .expect("se debe escribir el CSV");
+        let spec = DuckDbQuerySpec {
+            bounded_query:
+                "SELECT city, value FROM dataset ORDER BY \"__columnia_order\" LIMIT 1 OFFSET 1"
+                    .to_owned(),
+            count_query: "SELECT COUNT(*) FROM (SELECT city, value FROM dataset) AS count_rows"
+                .to_owned(),
+            offset: 1,
+            limit: 1,
+            dataset_view_query: None,
+            current_order_column: Some("__columnia_order".to_owned()),
+            compared_order_column: None,
+        };
+
+        let result = execute_duckdb_query_from_file(
+            &path,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            None,
+            &spec,
+            || false,
+        )
+        .expect("DuckDB debe consultar el CSV original");
+
+        assert_eq!(result.row_count, 2);
+        assert_eq!(
+            result.rows,
+            vec![vec![Some("Santiago".to_owned()), Some("20".to_owned())]]
+        );
+        assert!(path.is_file());
+        assert!(!directory.path().join("dataset.parquet").exists());
     }
 
     #[test]

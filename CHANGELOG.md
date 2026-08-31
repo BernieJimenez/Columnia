@@ -12,6 +12,11 @@ los artefactos de validación locales.
   exportación de un dataset sintético de 100 MiB en WebView2, con memoria dentro
   del presupuesto contractual y cleanup confirmado; la ejecución general fuera
   de RAM continúa explícitamente pendiente.
+- DuckDB puede consultar directamente desde disco la fuente original CSV, TSV,
+  TXT delimitada o Parquet cuando el historial se degrada por presupuesto y el
+  dataset sigue intacto; los JOINs grandes pueden combinarla con el snapshot
+  comparado sin reserializar el activo. Una mutación invalida la referencia y
+  conserva el fallback materializado seguro.
 - Los perfiles Cargo `dev` y `test` omiten símbolos de depuración para que
   `npm run tauri dev` y las pruebas nativas puedan enlazar de forma reproducible
   en Windows sin alcanzar `LNK1140`; el perfil `release` conserva su política

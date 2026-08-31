@@ -557,7 +557,12 @@ no se habilita SQL arbitrario, tablas externas ni escritura. Si un JOIN supera
 el límite de entradas y ambos snapshots administrados están disponibles, la
 ruta Polars lo promueve automáticamente a DuckDB; el `DataFrame` activo, la
 comparación sin snapshots y la ejecución incremental completa fuera de la RAM
-permanecen pendientes. En la variante Polars `FULL`, las filas derechas no
+permanecen pendientes. Cuando el historial se degrada por presupuesto, el
+dataset no ha sido mutado y la fuente original es CSV, TSV, TXT delimitado o
+Parquet, la variante DuckDB puede registrar ese archivo directamente desde
+disco; un JOIN grande puede combinarlo con el snapshot Parquet comparado sin
+crear otra copia del activo. Si la fuente cambia o no admite esa ruta, se usa
+el fallback materializado seguro. En la variante Polars `FULL`, las filas derechas no
 emparejadas se visitan por bloques de 16K usando un índice temporal de claves,
 por lo que no se materializa el anti-join derecho completo; `NULL` no se trata
 como una coincidencia y se conservan duplicados y orden de entrada. Los

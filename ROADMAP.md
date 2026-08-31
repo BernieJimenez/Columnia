@@ -1337,7 +1337,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   bloques el snapshot Parquet del cursor y conservan fallback ante snapshots
   degradados o inconsistentes. Los `JOIN`, la comparación y el `DataFrame`
   activo todavía no constituyen una ejecución completa fuera de RAM y requieren
-  esta expansión.
+  esta expansión. Cuando el historial está degradado, el dataset no ha sido
+  mutado y la fuente original es CSV, TSV, TXT delimitado o Parquet, DuckDB ya
+  puede leerla directamente desde disco; un `JOIN` puede combinarla con el
+  snapshot Parquet de la comparación sin reserializar el activo. Si la fuente
+  cambió, desapareció, usa JSON/Excel o el dataset ya fue transformado, se
+  conserva el fallback materializado seguro.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
   para columnas personales detectadas durante la exportación.
 - [x] Extender detección, enmascarado/hash y modos de privacidad visibles a los
@@ -1436,7 +1441,11 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   historial está degradado, se conserva la ruta de `DataFrame`.
   La publicación durable de proyectos entrega al escritor Parquet la copia ya
   aislada del dataset y evita una segunda clonación completa durante el guardado;
-  la interfaz sigue manteniendo un `DataFrame` activo como contrato.
+  la interfaz sigue manteniendo un `DataFrame` activo como contrato. En el
+  caso acotado de SQL DuckDB, si el historial se degrada por presupuesto y la
+  fuente original sigue intacta, el lector registra directamente CSV/TSV/TXT
+  delimitado o Parquet desde disco, incluso al unirlo con el snapshot comparado;
+  una mutación invalida la referencia para no consultar el archivo obsoleto.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -1959,6 +1968,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 elimina la materialización completa del anti-join derecho en `FULL JOIN` local: derrama el índice temporal de claves del activo, recorre la comparación por bloques de 16K, conserva `NULL` como no emparejado y mantiene duplicados/orden; los `DataFrame` fuente y la ejecución general fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | I3 fija los perfiles Cargo `dev` y `test` sin símbolos de depuración para evitar `LNK1140` en el enlazado MSVC del binario Tauri; `npm run tauri dev` queda reproducible desde `Columnia` sin variables temporales y `release` mantiene su política independiente. | `src-tauri/Cargo.toml`, `README.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | I3 valida el benchmark WebView2 de dataset grande: un input sintético de 100 MiB y 819.137 filas completa carga, paginación, transformación y exportación; el pico observado queda en 691.789.824 B de working set y 460.587.008 B privados, con presupuesto y cleanup aprobados. La ejecución general fuera de RAM sigue pendiente. | `.local/validation/performance-webview2/20260831T031622Z`, `.local/validation/webview2-cdp/20260831T031624Z`, `.local/validation/performance-baseline/20260831T031959Z` |
+| 2026-08-30 | P1 amplía DuckDB para registrar directamente la fuente original CSV/TSV/TXT delimitada o Parquet cuando el historial está degradado: las consultas explícitas y los JOINs grandes pueden combinarla con el snapshot comparado sin crear una copia Parquet del activo; cualquier mutación invalida la referencia y conserva el fallback materializado. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
