@@ -128,6 +128,7 @@ El inventario mínimo se prueba con fixtures sintéticas versionadas en
 | --- | --- | --- |
 | `dataprep-pipeline-v3.json` | Pipeline DataPrep v3 | Transformación y entrega compatibles |
 | `dataprep-session-v1.json` | Manifiesto de sesión | Origen, snapshot, hoja, etapa, operaciones, calidad y análisis como warnings |
+| `dataprep-session-v1-history-roundtrip.json` | Manifiesto de sesión con historial | Round-trip de fuente/snapshot, etapa, actividad, historial Parquet y artefactos no portables |
 | `dataprep-quality-v3.json` | Reglas DataPrep v3 | Forma de contrato de calidad sin datos de usuario |
 | `legacy-recipe-v1.json` | Receta antigua | Campos legacy sin versión explícita |
 

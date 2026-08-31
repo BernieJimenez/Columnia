@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; la importación M1 también puede publicar `history_snapshots` Parquet explícitos como revisiones durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 298 frontend y 341 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 298 frontend y 342 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-08-30, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la migración DataPrep conserva metadatos agregados de muestreo sin filas ni valores y tiene fixture v3 con round-trip de proyecto y actividad agregada; el inventario IPC registra 68 comandos de producción y 59 estructuras, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
@@ -72,7 +72,7 @@ cobertura; no cambia las estadísticas agregadas restantes.
 
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 298 tests frontend y 341 tests Rust; los
+- Las suites locales actuales pasan: 298 tests frontend y 342 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
@@ -657,6 +657,7 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
  - 2026-08-30 M1 conserva el perfil inicial para `drop_high_null_cols` y `drop_id_cols` durante el replay DataPrep: una deduplicación previa no puede convertir artificialmente una columna en candidata por cambiar su porcentaje de nulos o cardinalidad.
  - 2026-08-30 M1 reconoce `filename`, el campo de nombre que emite DataPrep, como fallback de referencia local cuando falta `source_path`; solo lo usa junto al manifiesto, valida el archivo antes de publicar y nunca transporta la ruta por IPC.
  - 2026-08-30 M1 añade una fixture v3 con la forma real de `SessionRecipe`: la importación conserva etapa, reglas y metadatos agregados de muestra, normaliza la actividad `ExecutionHistory` y la restaura al reabrir el proyecto; resultados, cachés, consultas y rutas siguen siendo señales no portables.
+ - 2026-08-30 M1 añade la fixture `dataprep-session-v1-history-roundtrip.json`: importa una sesión con fuente, snapshot actual, dos revisiones Parquet, cursor, etapa, actividad y artefactos no portables; reabre el proyecto y verifica Deshacer/Rehacer sin copiar resultados ni cachés.
  - 2026-08-29 P1 añade una acción confirmada para apartar como nulos los valores de texto que no coinciden con una sugerencia semántica con al menos 90% de confianza; no muestra celdas, conserva vacíos y tipos no textuales, y puede revertirse desde el historial.
   - 2026-08-29 P1 persiste en el workspace de cada proyecto las últimas cinco ejecuciones SQL como estado, duración y filas; las restaura al abrir y rechaza entradas corruptas o sobredimensionadas, sin guardar consultas, rutas ni valores.
   - 2026-08-29 P1 conserva también la vista y etapa activa del flujo, además de la página visible de la muestra de Revisar, en el workspace durable; `diagnosis`, Revisar y la primera página son fallbacks seguros para catálogos anteriores, valores no soportados u offsets fuera de rango, y la migración SQLite avanza a v8.

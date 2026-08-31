@@ -41,6 +41,10 @@ los artefactos de validación locales.
   y una regresión de proyecto que verifica metadatos agregados de muestreo,
   etapa, reglas y actividad `ExecutionHistory` tras reabrir; los resultados,
   cachés, consultas y rutas privadas siguen descartándose.
+- Se añade una fixture de round-trip con historial Parquet explícito que verifica
+  importación, cursor, etapa, actividad y Deshacer/Rehacer después de reabrir;
+  resultados de análisis y cachés reanudables continúan marcados como no
+  portables y no se copian al workspace.
 - El replay de limpiezas DataPrep dependientes del perfil (`drop_high_null_cols`
   y `drop_id_cols`) conserva las métricas del dataset inicial aunque antes se
   ejecute `drop_duplicates`; evita eliminar columnas solo porque la deduplicación

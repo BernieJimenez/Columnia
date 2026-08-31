@@ -1597,15 +1597,16 @@ del original.
   importar → reabrir → validar → exportar, comparando conteos, columnas y tipos;
   los casos de importación parcial conservan la regresión que impide reemplazar un
   proyecto válido.
-- [ ] Completar el round-trip con fixtures representativas de sesiones, hojas,
-  historial y artefactos que todavía requieran restauración manual. Ya existe una
-  fixture de round-trip que verifica el fallback a fuente, metadatos de hoja/etapa,
-  operaciones deterministas, reglas y redacción de análisis/historial/caché no
-  portables; la fixture v3 `dataprep-session-v3-real.json` añade la forma real de
-  `SessionRecipe`, metadatos agregados de muestra y actividad de ejecución segura.
-  La slice `history_snapshots` ya restaura revisiones Parquet locales con cursor
-  validado, pero aún faltan fixtures históricas de snapshots reales, cachés
-  reanudables y artefactos de análisis originales.
+- [x] Completar el round-trip con fixtures representativas de sesiones, hojas,
+  historial y artefactos que todavía requieran restauración manual. Las fixtures
+  `dataprep-session-v1-roundtrip.json` y
+  `dataprep-session-v1-history-roundtrip.json` verifican fuente/snapshot,
+  metadatos de hoja/etapa, operaciones, reglas, actividad, historial Parquet con
+  cursor validado y redacción de análisis/historial/caché no portables; la
+  fixture v3 `dataprep-session-v3-real.json` añade la forma real de
+  `SessionRecipe`, metadatos agregados de muestra y actividad segura. Los
+  resultados de análisis originales y cachés reanudables continúan requiriendo
+  revisión manual por no tener un contrato portable.
 
 #### Límites de alcance de M1
 

@@ -4226,6 +4226,117 @@ mod tests {
     }
 
     #[test]
+    fn representative_history_roundtrip_fixture_restores_workspace_and_nonportable_artifacts() {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo debe vivir dentro del repositorio");
+        let fixture =
+            repository.join("fixtures/migration/dataprep-session-v1-history-roundtrip.json");
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("session.json");
+        let source = directory.path().join("ventas-hoja.csv");
+        let initial = directory.path().join("initial.parquet");
+        let current = directory.path().join("current.parquet");
+        fs::copy(
+            repository.join("fixtures/migration/ventas-hoja.csv"),
+            &source,
+        )
+        .unwrap();
+        write_snapshot(
+            &DataFrame::new(
+                2,
+                vec![
+                    Series::new("old_name".into(), ["Alpha", "Beta"]).into_column(),
+                    Series::new("amount".into(), [10_i64, 20]).into_column(),
+                ],
+            )
+            .unwrap(),
+            &initial,
+        )
+        .unwrap();
+        write_snapshot(
+            &DataFrame::new(
+                2,
+                vec![
+                    Series::new("new_name".into(), ["Alpha", "Beta"]).into_column(),
+                    Series::new("amount".into(), [10_i64, 20]).into_column(),
+                ],
+            )
+            .unwrap(),
+            &current,
+        )
+        .unwrap();
+        fs::copy(&fixture, &session).unwrap();
+
+        let store = ProjectStore::initialize(directory.path().join("projects")).unwrap();
+        let plan = dataset::load_dataprep_session_migration_plan(&session).unwrap();
+        let session_metadata = serde_json::to_value(&plan.recipe).unwrap();
+        assert_eq!(
+            session_metadata["migrationReport"]["session"]["historySnapshotCount"],
+            2
+        );
+        assert_eq!(
+            session_metadata["migrationReport"]["session"]["historyCursor"],
+            1
+        );
+
+        let imported =
+            import_dataprep_session_project_from_path(&store, &session, None, None, None)
+                .expect("la fixture con historial debe convertirse en un proyecto");
+        let state = DatasetState::default();
+        let opened = store
+            .open(&state, imported.id.clone())
+            .expect("el proyecto con historial debe reabrirse");
+        let active = state
+            .active_project_snapshot()
+            .expect("el dataset restaurado debe quedar activo");
+        let expected_initial = DataFrame::new(
+            2,
+            vec![
+                Series::new("old_name".into(), ["Alpha", "Beta"]).into_column(),
+                Series::new("amount".into(), [10_i64, 20]).into_column(),
+            ],
+        )
+        .unwrap();
+        let expected_current = DataFrame::new(
+            2,
+            vec![
+                Series::new("new_name".into(), ["Alpha", "Beta"]).into_column(),
+                Series::new("amount".into(), [10_i64, 20]).into_column(),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(opened.dataset.file_name, "current.parquet");
+        assert_eq!(opened.workspace.active_phase.as_deref(), Some("deliver"));
+        assert_eq!(opened.workspace.sql_history.len(), 1);
+        assert_eq!(opened.workspace.sql_history[0].outcome, "success");
+        assert_eq!(opened.workspace.sql_history[0].row_count, Some(2));
+        assert_eq!(active.history.entries.len(), 2);
+        assert_eq!(active.history.cursor, 1);
+        assert!(active.frame.equals_missing(&expected_current));
+
+        let workspace = serde_json::to_value(&opened.workspace).unwrap();
+        assert_eq!(
+            workspace["recipeDraft"]["migrationReport"]["session"]["nonPortableArtifacts"],
+            serde_json::json!(["analysis_results", "caches"])
+        );
+        let serialized = workspace.to_string();
+        assert!(!serialized.contains("no se debe restaurar"));
+        assert!(!serialized.contains("private_value"));
+        assert!(!serialized.contains("derived-cache.json"));
+
+        assert!(state
+            .project_test_undo()
+            .unwrap()
+            .equals_missing(&expected_initial));
+        assert!(state
+            .project_test_redo()
+            .unwrap()
+            .equals_missing(&expected_current));
+    }
+
+    #[test]
     fn dataprep_session_history_missing_reference_blocks_publication_without_path_leak() {
         let directory = tempfile::tempdir().unwrap();
         let session = directory.path().join("session-history-missing.json");

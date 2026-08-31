@@ -29,6 +29,7 @@
     "migration/dataprep-quality-v3.json",
     "migration/dataprep-session-v1.json",
     "migration/dataprep-session-v1-camel.json",
+    "migration/dataprep-session-v1-history-roundtrip.json",
     "migration/dataprep-session-v1-roundtrip.json",
     "migration/dataprep-session-v3-real.json",
     "migration/ventas-hoja.csv",
