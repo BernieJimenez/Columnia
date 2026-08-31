@@ -108,8 +108,13 @@ los artefactos de validación locales.
   el directorio se elimina al descartar la comparación. Cuando la fuente
   comparada ya es Parquet, el archivo se copia secuencialmente y la comparación
   calcula conteos, claves y la primera página de conflictos por bloques de 16K,
-  sin materializar otra copia completa; CSV, JSON y Excel conservan su camino
+  sin materializar otra copia completa; JSON y Excel conservan su camino
   materializado.
+- La comparación inicial de fuentes CSV, TSV y TXT delimitadas usa el lector
+  DuckDB seguro para crear el snapshot Parquet temporal de forma secuencial y
+  después reutiliza la comparación por bloques; no crea un `DataFrame` completo
+  de la fuente secundaria. JSON y Excel mantienen el camino materializado hasta
+  disponer de un lector incremental equivalente.
 - La preparación de JOIN para DuckDB ya lee solo el esquema del snapshot
   comparado cuando existe un snapshot activo administrado, y no vuelve a
   materializar sus filas para validar el contrato. La ruta DuckDB tampoco

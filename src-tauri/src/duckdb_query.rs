@@ -138,6 +138,27 @@ where
     )
 }
 
+pub(crate) fn materialize_file_to_parquet(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+) -> Result<(), String> {
+    let connection = Connection::open_in_memory()
+        .map_err(|error| format!("No se pudo iniciar DuckDB para el snapshot: {error}"))?;
+    let source = file_scan_expression(source_path, source_format);
+    let destination = destination
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let query = format!(
+        "SET preserve_insertion_order = true; COPY (SELECT * FROM {source}) TO '{destination}' (FORMAT PARQUET)"
+    );
+    connection
+        .execute_batch(&query)
+        .map_err(|error| format!("DuckDB no pudo crear el snapshot: {error}"))?;
+    Ok(())
+}
+
 fn execute_duckdb_query_with_source<C>(
     current: DatasetSource<'_>,
     compared: Option<DatasetSource<'_>>,
@@ -350,20 +371,7 @@ fn register_file_view(
     format: DuckDbFileFormat,
     order_column: Option<&str>,
 ) -> Result<(), String> {
-    let escaped_path = path
-        .to_string_lossy()
-        .replace('\\', "/")
-        .replace('\'', "''");
-    let source = match format {
-        DuckDbFileFormat::Parquet => format!("read_parquet('{escaped_path}')"),
-        DuckDbFileFormat::Delimited { delimiter } => {
-            let delimiter = char::from(delimiter);
-            let escaped_delimiter = delimiter.to_string().replace('\'', "''");
-            format!(
-                "read_csv_auto('{escaped_path}', header = true, all_varchar = true, delim = '{escaped_delimiter}')"
-            )
-        }
-    };
+    let source = file_scan_expression(path, format);
     let query = if let Some(order_column) = order_column {
         format!(
             "CREATE VIEW {name} AS SELECT *, row_number() OVER () - 1 AS {} FROM {source}",
@@ -376,6 +384,23 @@ fn register_file_view(
         .execute_batch(&query)
         .map_err(|error| format!("DuckDB no pudo registrar la tabla {name}: {error}"))?;
     Ok(())
+}
+
+fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
+    let escaped_path = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    match format {
+        DuckDbFileFormat::Parquet => format!("read_parquet('{escaped_path}')"),
+        DuckDbFileFormat::Delimited { delimiter } => {
+            let delimiter = char::from(delimiter);
+            let escaped_delimiter = delimiter.to_string().replace('\'', "''");
+            format!(
+                "read_csv_auto('{escaped_path}', header = true, all_varchar = true, delim = '{escaped_delimiter}')"
+            )
+        }
+    }
 }
 
 fn quote_identifier(value: &str) -> String {

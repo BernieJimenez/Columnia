@@ -15098,6 +15098,25 @@ fn persist_comparison_source_file(path: &Path) -> Result<(tempfile::TempDir, Pat
     Ok((directory, destination))
 }
 
+fn persist_delimited_comparison_source_file(
+    path: &Path,
+    extension: &str,
+) -> Result<(tempfile::TempDir, PathBuf), String> {
+    let delimiter = detect_delimiter(path, extension)?;
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = directory.path().join("compared.partial.parquet");
+    crate::duckdb_query::materialize_file_to_parquet(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
+        &temporary,
+    )?;
+    let destination = directory.path().join("compared.parquet");
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
+    Ok((directory, destination))
+}
+
 fn row_signature(
     frame: &DataFrame,
     columns: &[String],
@@ -16536,31 +16555,36 @@ pub async fn compare_dataset(
         .unwrap_or("dataset")
         .to_owned();
     tauri::async_runtime::spawn_blocking(move || {
-        let (comparison, directory, snapshot_path, compared_row_count) = if extension == "parquet" {
-            let (directory, snapshot_path) = persist_comparison_source_file(&path)?;
-            let compared_row_count = parquet_row_count(&snapshot_path)?;
-            let comparison = compare_parquet_source(
-                &current_frame,
-                &current_file_name,
-                &snapshot_path,
-                &compared_file_name,
-                compared_row_count,
-                &key_columns,
-            )?;
-            (comparison, directory, snapshot_path, compared_row_count)
-        } else {
-            let compared_frame = load_compare_frame(&path, &extension)?;
-            let comparison = compare_frames(
-                &current_frame,
-                &current_file_name,
-                &compared_frame,
-                &compared_file_name,
-                &key_columns,
-            )?;
-            let (directory, snapshot_path) = persist_comparison_snapshot(&compared_frame)?;
-            let compared_row_count = compared_frame.height();
-            (comparison, directory, snapshot_path, compared_row_count)
-        };
+        let (comparison, directory, snapshot_path, compared_row_count) =
+            if matches!(extension.as_str(), "parquet" | "csv" | "tsv" | "txt") {
+                let (directory, snapshot_path) = if extension == "parquet" {
+                    persist_comparison_source_file(&path)?
+                } else {
+                    persist_delimited_comparison_source_file(&path, &extension)?
+                };
+                let compared_row_count = parquet_row_count(&snapshot_path)?;
+                let comparison = compare_parquet_source(
+                    &current_frame,
+                    &current_file_name,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                )?;
+                (comparison, directory, snapshot_path, compared_row_count)
+            } else {
+                let compared_frame = load_compare_frame(&path, &extension)?;
+                let comparison = compare_frames(
+                    &current_frame,
+                    &current_file_name,
+                    &compared_frame,
+                    &compared_file_name,
+                    &key_columns,
+                )?;
+                let (directory, snapshot_path) = persist_comparison_snapshot(&compared_frame)?;
+                let compared_row_count = compared_frame.height();
+                (comparison, directory, snapshot_path, compared_row_count)
+            };
         let state = app.state::<DatasetState>();
         *state
             .comparison
@@ -26283,6 +26307,43 @@ mod tests {
         drop(source_directory);
         assert!(!snapshot_path.exists());
         assert!(!source_path.exists());
+    }
+
+    #[test]
+    fn compares_delimited_source_through_a_parquet_snapshot_without_changing_values() {
+        let compared_path =
+            temporary_csv("id,city,total\n1,Santo Domingo,010\n2,Santiago,020\n3,La Vega,030\n");
+        let current_path = temporary_csv("id,city,total\n1,Santo Domingo,010\n2,Santiago,025\n");
+        let (current, _) = load_csv(&current_path).expect("el dataset activo debe cargar");
+        let (compared, _) = load_csv(&compared_path).expect("el dataset comparado debe cargar");
+        let (directory, snapshot_path) =
+            persist_delimited_comparison_source_file(&compared_path, "csv")
+                .expect("el CSV debe convertirse al snapshot temporal");
+        let restored = read_parquet_frame(&snapshot_path).expect("el snapshot debe ser legible");
+        assert!(restored.equals_missing(&compared));
+
+        let expected = compare_frames(
+            &current,
+            "activo.csv",
+            &compared,
+            "comparado.csv",
+            &["id".to_owned()],
+        )
+        .expect("la comparación CSV de referencia debe calcularse");
+        let actual = compare_parquet_source(
+            &current,
+            "activo.csv",
+            &snapshot_path,
+            "comparado.csv",
+            parquet_row_count(&snapshot_path).expect("el snapshot debe contar sus filas"),
+            &["id".to_owned()],
+        )
+        .expect("la comparación del snapshot CSV debe calcularse");
+        assert_eq!(actual, expected);
+
+        drop(directory);
+        fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
+        fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
     }
 
     #[test]

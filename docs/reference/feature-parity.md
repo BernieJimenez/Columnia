@@ -406,11 +406,11 @@ dos bloques; la respuesta retiene solo la página solicitada y un bloque de valo
 para construir sus celdas. Se valida el conteo registrado y cualquier snapshot
 obsoleto o modificado se rechaza sin mutar el dataset.
 
-La comparación inicial de una fuente Parquet también conserva esta frontera:
-el archivo se copia secuencialmente al snapshot temporal, el conteo se obtiene
-por streaming y las métricas por filas, claves y conflictos se calculan por
-bloques de 16K. CSV, JSON y Excel todavía cargan la fuente comparada completa
-antes de calcular la comparación.
+La comparación inicial de una fuente Parquet o delimitada (`CSV`, `TSV`, `TXT`)
+también conserva esta frontera: el snapshot se copia o genera secuencialmente,
+el conteo se obtiene por streaming y las métricas por filas, claves y conflictos
+se calculan por bloques de 16K. JSON y Excel todavía cargan la fuente comparada
+completa antes de calcular la comparación.
 
 La exportación reutiliza un único snapshot protegido para todos los destinos
 locales existentes. La detección usa el mismo catálogo agregado de señales de
