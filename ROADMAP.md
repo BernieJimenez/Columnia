@@ -17,7 +17,7 @@
   restauración completa de sesiones y la cobertura integral del round-trip hacia
   proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.60.0`.
+- Versión actual del prototipo: `0.61.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1328,7 +1328,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   siguen produciendo un rechazo explícito o fallback eager seguro.
 - [x] Servir la paginación de la muestra activa desde el snapshot Parquet del
   cursor actual mediante `slice` y colección streaming cuando el historial está
-  habilitado; los estados degradados conservan el fallback al `DataFrame`.
+  habilitado; cuando el historial está degradado pero la fuente original
+  Parquet o CSV/TSV/TXT permanece intacta, leer solo la página solicitada desde
+  disco y conservar el fallback al `DataFrame` ante cambios o formatos no
+  compatibles.
 - [ ] Completar consulta con joins y DuckDB para datasets que excedan la RAM,
   después de validar el benchmark y ampliar los límites de forma explícita. La
   ruta parcial actual prepara el contrato DuckDB desde el esquema del snapshot
@@ -2000,6 +2003,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-31 | Versión 0.58.0 procesa la comparación inicial de libros XLSX/XLSB con el lector secuencial de celdas de Calamine: detecta esquema en una pasada, escribe Parquet por bloques de 16K y compara desde snapshot; XLS/ODS conservan fallback compatible. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.59.0 permite que la consulta Polars use automáticamente DuckDB sobre la fuente original CSV/TSV/TXT delimitada o Parquet cuando el historial se degrada; las consultas compatibles, incluidos JOINs con snapshots comparados, evitan reconstruir la fuente desde el `DataFrame` y mantienen fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.60.0 promueve todos los JOIN compatibles elegidos por Polars a DuckDB cuando el activo y la comparación tienen snapshots o fuentes de disco válidas, no solo los JOIN grandes; la ruta evita materializar ambos datasets y conserva fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.61.0 extiende la paginación source-backed al historial degradado: un dataset intacto lee solo la ventana solicitada desde su fuente original Parquet o CSV/TSV/TXT, comprueba el tamaño de la fuente y la cantidad esperada de filas de la página, y vuelve al frame ante inconsistencias. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

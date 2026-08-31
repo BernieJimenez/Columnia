@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-08-31
+
+### Mejorado
+
+- La vista previa de un dataset intacto con historial degradado puede leer
+  únicamente la página solicitada desde la fuente original Parquet o CSV/TSV/TXT,
+  validando el tamaño de la fuente y la cantidad esperada de filas de la página
+  antes de responder; si la fuente no coincide o el formato no es compatible,
+  conserva el fallback seguro al frame.
+
 ## [0.60.0] - 2026-08-31
 
 ### Mejorado

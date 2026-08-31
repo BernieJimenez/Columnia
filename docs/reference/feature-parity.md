@@ -10,7 +10,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Área | `dataprepv1.1` | Columnia | Estado | Siguiente decisión |
 | --- | --- | --- | --- | --- |
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Excel/ODS, Parquet | CSV, TSV, JSON/JSONL, XLSX/XLS/XLSB/ODS, Parquet | Implementada | Mantener casos difíciles de libros en pruebas |
-| Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas desde el snapshot Parquet del cursor actual con `slice`/streaming; fallback al `DataFrame` en historial degradado, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
+| Vista previa | Paginación y muestras acotadas | Páginas Rust de 50 filas desde el snapshot Parquet del cursor actual con `slice`/streaming; en historial degradado, Parquet y CSV/TSV/TXT intactos leen solo la ventana solicitada desde disco y vuelven al `DataFrame` ante inconsistencias, sin enviar el dataset completo a React | Implementada | Ampliar evidencia con datasets grandes |
 | Perfilado | Esquema, nulos, duplicados, estadísticas y análisis | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos acotados, cobertura temporal y lectura visual accesible; la matriz de correlaciones numéricas permite elegir 10.000, 50.000 o 100.000 filas | Parcial | Migrar análisis exploratorio, calendario completo, tendencias y series temporales |
 | Calidad | Reglas v3, tolerancias, formatos, severidad y validación previa a entrega | Reglas base más `allowed_values`, `regex`, `dtype`, unicidad compuesta, `column_compare`, `referential_integrity`, `monotonic`, `aggregate_check`, `aggregate_reconciliation`, `distribution_drift`, `date_range`, `conditional`, `schema_contract` y `row_count`; documento Columnia v1, compatibilidad DataPrep v1–v3, límites de payload y gate Rust | Parcial | Conservar severidad y políticas avanzadas sin degradarlas |
 | Transformaciones | Limpieza, tipos, filtros, columnas calculadas y operaciones compuestas | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, búsqueda/reemplazo literal o regex segura con grupos de captura, combinaciones compatibles de parseo y conversión o split/merge, outliers con límite/eliminación/imputación por mediana, imputación categórica explícita como `Desconocido`, eliminación reversible de casi duplicados por fingerprint normalizado y agregación; importación del núcleo representable de pipelines DataPrep v1–v3, incluido el catálogo determinista completo `selected`/`selected_cleaning_operations`; reparación reversible de doble codificación UTF-8 y apartado confirmado de valores incompatibles con sugerencias semánticas | Parcial | Completar opciones de exportación y optimización no destructiva; operaciones desconocidas o políticas PII no equivalentes requieren revisión manual |
@@ -415,7 +415,7 @@ celdas de Calamine en dos pasadas y escriben el snapshot Parquet por bloques de
 16K; XLS/ODS todavía cargan la fuente comparada completa como fallback compatible.
 
 Cuando el historial del dataset activo se degrada por presupuesto y su fuente
-original CSV/TSV/TXT delimitada o Parquet no ha cambiado, las consultas
+original CSV/TSV/TXT delimitada o Parquet no ha cambiado, la vista previa y las consultas
 compatibles elegidas como Polars pueden reutilizar DuckDB directamente desde
 disco, incluso al combinar la fuente con un snapshot comparado. Una consulta o
 fuente incompatible vuelve al `DataFrame` materializado sin mutarlo.

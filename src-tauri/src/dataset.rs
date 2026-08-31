@@ -2079,6 +2079,40 @@ fn dataset_page_from_parquet(
     Ok(page)
 }
 
+fn dataset_page_from_source(
+    path: &Path,
+    extension: &str,
+    row_count: usize,
+    offset: usize,
+    limit: usize,
+) -> Result<DatasetPage, String> {
+    validate_dataset_page_request(row_count, offset, limit)?;
+    let slice_offset = i64::try_from(offset)
+        .map_err(|_| "La página solicitada excede la capacidad del lector.".to_owned())?;
+    let plan =
+        match extension {
+            "parquet" => parquet_scan(path)?,
+            "csv" | "tsv" | "txt" => delimited_scan(path, extension)?,
+            _ => return Err(
+                "La paginación directa solo está disponible para Parquet y archivos delimitados."
+                    .to_owned(),
+            ),
+        }
+        .slice(slice_offset, limit as IdxSize);
+    let page_frame =
+        collect_lazy_frame_streaming(plan, "No se pudo leer la página desde la fuente")?;
+    let expected_rows = row_count.saturating_sub(offset).min(limit);
+    if page_frame.height() != expected_rows {
+        return Err(
+            "La fuente cambió durante la lectura y ya no coincide con el dataset activo."
+                .to_owned(),
+        );
+    }
+    let mut page = dataset_page(&page_frame, 0, limit)?;
+    page.offset = offset;
+    Ok(page)
+}
+
 #[derive(Clone, Copy, Debug)]
 enum LocalAggregate {
     Count,
@@ -8782,18 +8816,22 @@ fn collect_lazy_frame_streaming(plan: LazyFrame, context: &str) -> Result<DataFr
         .map_err(|error| format!("{context}: {error}"))
 }
 
-fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
+fn delimited_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
     let separator = detect_delimiter(path, extension)?;
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector delimitado: {error}"))?;
-    let plan = LazyCsvReader::new(source)
+    LazyCsvReader::new(source)
         .with_has_header(true)
         .with_infer_schema_length(Some(0))
         .with_low_memory(true)
         .with_rechunk(false)
         .with_separator(separator)
         .finish()
-        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))?;
+        .map_err(|error| format!("No se pudo abrir el archivo delimitado: {error}"))
+}
+
+fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
+    let plan = delimited_scan(path, extension)?;
     collect_lazy_frame_streaming(
         plan,
         "No se pudo interpretar el archivo delimitado como UTF-8",
@@ -17907,6 +17945,19 @@ pub fn get_dataset_page(
         }
     }
 
+    // A degraded history still has a safe, immutable source reference while
+    // the dataset has not been mutated. Read only the requested page from
+    // disk instead of duplicating the whole active frame for the preview.
+    if let Some((path, _)) = current_duckdb_file_source(dataset) {
+        if let Ok(extension) = dataset_extension(&path) {
+            if let Ok(page) =
+                dataset_page_from_source(&path, &extension, dataset.frame.height(), offset, limit)
+            {
+                return Ok(page);
+            }
+        }
+    }
+
     dataset_page(&dataset.frame, offset, limit)
 }
 
@@ -24887,6 +24938,24 @@ mod tests {
         assert_eq!(page.rows.len(), 2);
         assert_eq!(page.rows[0][0].as_deref(), Some("2"));
         assert_eq!(page.rows[1][1].as_deref(), Some("C"));
+    }
+
+    #[test]
+    fn reads_a_page_from_an_unchanged_delimited_source() {
+        let path = temporary_csv("value\nfirst\nsecond\nthird\nfourth\n");
+
+        let page = dataset_page_from_source(&path, "csv", 4, 1, 2)
+            .expect("la página debe leerse desde la fuente delimitada");
+
+        assert_eq!(page.offset, 1);
+        assert_eq!(
+            page.rows,
+            vec![
+                vec![Some("second".to_owned())],
+                vec![Some("third".to_owned())],
+            ]
+        );
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]
