@@ -557,7 +557,12 @@ no se habilita SQL arbitrario, tablas externas ni escritura. Si un JOIN supera
 el límite de entradas y ambos snapshots administrados están disponibles, la
 ruta Polars lo promueve automáticamente a DuckDB; el `DataFrame` activo, la
 comparación sin snapshots y la ejecución incremental completa fuera de la RAM
-permanecen pendientes.
+permanecen pendientes. En la variante Polars `FULL`, las filas derechas no
+emparejadas se visitan por bloques de 16K usando un índice temporal de claves,
+por lo que no se materializa el anti-join derecho completo; `NULL` no se trata
+como una coincidencia y se conservan duplicados y orden de entrada. Los
+`DataFrame` fuente todavía se materializan y la ejecución general fuera de RAM
+continúa pendiente.
 
 Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en

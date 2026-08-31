@@ -142,10 +142,12 @@ los artefactos de validación locales.
 - Las agregaciones sobre `JOIN` locales `INNER` y `LEFT` también procesan bloques
   y fusionan estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos sin acumular el
   `DataFrame` unido completo.
-- Los `JOIN` locales `FULL` procesan el lado `dataset` por bloques y añaden por
-  bloques las filas derechas no emparejadas mediante anti-join estable; la
-  paginación y las agregaciones cubren ambos lados sin acumular el resultado
-  unido completo, manteniendo los límites explícitos del frame derecho.
+- Los `JOIN` locales `FULL` procesan el lado `dataset` por bloques y recorren las
+  filas derechas no emparejadas por bloques de 16K usando un índice temporal de
+  claves, sin materializar el anti-join derecho completo. La paginación y las
+  agregaciones cubren ambos lados sin acumular el resultado unido completo,
+  conservando `NULL` como no emparejado, duplicados y orden de entrada; los
+  `DataFrame` fuente y la ejecución general fuera de RAM mantienen sus límites.
 - El preflight de cardinalidad de los `JOIN` locales usa índices temporales de
   claves particionados y cuenta por cubeta los productos de duplicidad, con
   cancelación cooperativa y el mismo rechazo explícito de resultados excesivos.

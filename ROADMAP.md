@@ -1368,9 +1368,11 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   lado `dataset` por bloques y conservan solo la página global, su conteo y un
   bloque unido temporal; las agregaciones `INNER`/`LEFT` fusionan estados sin
   conservar el resultado unido completo. `FULL` recorre el lado activo por
-  bloques y añade bloques de filas derechas no emparejadas mediante un anti-join
-  estable; ese frame derecho acotado todavía se materializa y no equivale a
-  ejecución fuera de memoria general. La consulta Polars simple sin comparación
+  bloques y visita las filas derechas no emparejadas mediante un índice temporal
+  de claves y bloques de 16K, sin materializar el anti-join derecho completo;
+  conserva la semántica SQL de nulos, duplicados y orden de entrada. El dataset
+  activo y la comparación siguen materializados y no equivale a ejecución fuera
+  de memoria general. La consulta Polars simple sin comparación
   también lee el snapshot Parquet del cursor por bloques de 16K filas, cuenta
   coincidencias y conserva solo la página o los acumuladores; si el snapshot
   falla vuelve al frame activo. Quedan fuera de esta slice los `JOIN`, la
@@ -1950,6 +1952,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | M1 corrige la paridad de la actividad de sesiones con el `ExecutionHistory` real de DataPrep: `completed`/`failed`, duraciones decimales y `rows_out`/`rowsOut` se normalizan a la actividad agregada segura de Columnia; consultas, rutas y valores siguen descartados. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
 | 2026-08-30 | M1 añade la fixture `dataprep-session-v3-real.json`, basada en la forma v3 de `SessionRecipe`, y verifica importar → reabrir con etapa, reglas, muestreo agregado y tres entradas de actividad normalizadas; resultados, cachés, consultas y rutas privadas no cruzan al workspace. | `fixtures/migration/dataprep-session-v3-real.json`, `fixtures/manifest.json`, `src-tauri/src/projects.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 conecta el límite de entradas de Polars con la ruta DuckDB: un JOIN grande se promueve automáticamente a DuckDB cuando puede reutilizar los snapshots Parquet administrados del activo y la comparación, evitando recargar la segunda fuente completa; sin ambos snapshots se conserva el rechazo seguro, y la ejecución incremental general fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | P1 elimina la materialización completa del anti-join derecho en `FULL JOIN` local: derrama el índice temporal de claves del activo, recorre la comparación por bloques de 16K, conserva `NULL` como no emparejado y mantiene duplicados/orden; los `DataFrame` fuente y la ejecución general fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

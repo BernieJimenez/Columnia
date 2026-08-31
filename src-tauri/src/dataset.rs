@@ -4019,52 +4019,83 @@ fn execute_local_query_with_comparison(
     execute_local_query_with_comparison_and_cancel(current, compared, query, &never_cancelled)
 }
 
-fn collect_unmatched_join_right_with_cancel<C>(
+fn visit_unmatched_join_right_blocks_with_cancel<C, F>(
     current: &DataFrame,
     compared: &DataFrame,
     current_keys: &[String],
     compared_keys: &[String],
     is_cancelled: &C,
-) -> Result<DataFrame, String>
+    mut visit: F,
+) -> Result<(), String>
 where
     C: Fn() -> bool + Sync,
+    F: FnMut(DataFrame) -> Result<(), String>,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let order_column = (0..)
-        .map(|suffix| {
-            if suffix == 0 {
-                "__columnia_join_order".to_owned()
-            } else {
-                format!("__columnia_join_order_{suffix}")
+    if current_keys.len() != compared_keys.len() {
+        return Err("El FULL JOIN necesita el mismo número de columnas clave.".to_owned());
+    }
+    let current_index = spill_key_rows_with_cancel(current, current_keys, is_cancelled)?;
+    let compared_block_count = compared.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    for block_index in 0..compared_block_count {
+        ensure_not_cancelled(is_cancelled())?;
+        let start = block_index
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| "El índice del bloque del JOIN excede la capacidad local.".to_owned())?;
+        let length = LOCAL_QUERY_BLOCK_ROWS.min(compared.height() - start);
+        let block = compared.slice(start as i64, length);
+        let mut keep = vec![false; block.height()];
+        let mut rows_by_bucket = (0..COMPARISON_KEY_BUCKETS)
+            .map(|_| Vec::<(usize, String)>::new())
+            .collect::<Vec<_>>();
+
+        for (row_index, keep_row) in keep.iter_mut().enumerate() {
+            if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+                ensure_not_cancelled(is_cancelled())?;
             }
-        })
-        .find(|candidate| {
-            current.get_column_index(candidate).is_none()
-                && compared.get_column_index(candidate).is_none()
-        })
-        .ok_or_else(|| "No se pudo preparar el orden interno del JOIN local.".to_owned())?;
-    let compared_indexed = compared
-        .with_row_index(order_column.clone().into(), None)
-        .map_err(|error| format!("No se pudo preparar el orden del JOIN local: {error}"))?;
-    let left_on = compared_keys.iter().map(col).collect::<Vec<_>>();
-    let right_on = current_keys.iter().map(col).collect::<Vec<_>>();
-    let mut join_args = JoinArgs::new(JoinType::Anti);
-    join_args.maintain_order = MaintainOrderJoin::Left;
-    let plan = compared_indexed
-        .lazy()
-        .join(current.clone().lazy(), left_on, right_on, join_args);
-    let unmatched = collect_lazy_frame_streaming(
-        plan,
-        "No se pudieron seleccionar las filas no emparejadas del dataset comparado",
-    )?;
-    let mut unmatched = unmatched
-        .sort([order_column.as_str()], SortMultipleOptions::default())
-        .map_err(|error| format!("No se pudo conservar el orden del dataset comparado: {error}"))?;
-    unmatched
-        .drop_in_place(order_column.as_str())
-        .map_err(|error| format!("No se pudo retirar el orden interno del JOIN local: {error}"))?;
+            let joinable = compared_keys.iter().try_fold(true, |joinable, key| {
+                let value = block
+                    .column(key)
+                    .map_err(|error| format!("No se pudo leer la clave del FULL JOIN: {error}"))?
+                    .get(row_index)
+                    .map_err(|error| format!("No se pudo leer la clave del FULL JOIN: {error}"))?;
+                Ok::<_, String>(joinable && !matches!(value, AnyValue::Null))
+            })?;
+            let signature = row_signature(&block, compared_keys, row_index)?;
+            if joinable {
+                rows_by_bucket[comparison_key_bucket(&signature)].push((row_index, signature));
+            } else {
+                *keep_row = true;
+            }
+        }
+
+        for (bucket, rows) in rows_by_bucket.iter().enumerate() {
+            if rows.is_empty() {
+                continue;
+            }
+            let current_bucket =
+                read_spilled_key_bucket_with_cancel(&current_index, bucket, is_cancelled)?;
+            for (row_index, signature) in rows {
+                if let Some(keep_row) = keep.get_mut(*row_index) {
+                    *keep_row = !current_bucket.contains_key(signature);
+                }
+            }
+        }
+
+        let unmatched = block
+            .filter(&BooleanChunked::from_slice(
+                "full_join_unmatched".into(),
+                &keep,
+            ))
+            .map_err(|error| {
+                format!("No se pudieron seleccionar las filas derechas del FULL JOIN: {error}")
+            })?;
+        if unmatched.height() > 0 {
+            visit(unmatched)?;
+        }
+    }
     ensure_not_cancelled(is_cancelled())?;
-    Ok(unmatched)
+    Ok(())
 }
 
 fn visit_local_join_blocks_with_cancel<C, F>(
@@ -4100,13 +4131,6 @@ where
     }
 
     if matches!(spec.join_type, DatasetJoinType::Full) {
-        let unmatched_right = collect_unmatched_join_right_with_cancel(
-            current,
-            compared,
-            &spec.current_keys,
-            &spec.compared_keys,
-            is_cancelled,
-        )?;
         let empty_current = current.slice(0, 0);
         let right_order_column = (0..)
             .map(|suffix| {
@@ -4121,40 +4145,43 @@ where
                     && compared.get_column_index(candidate).is_none()
             })
             .ok_or_else(|| "No se pudo preparar el orden del FULL JOIN local.".to_owned())?;
-        let right_block_count = unmatched_right.height().div_ceil(LOCAL_QUERY_BLOCK_ROWS);
-        for block_index in 0..right_block_count {
-            ensure_not_cancelled(is_cancelled())?;
-            let start = block_index * LOCAL_QUERY_BLOCK_ROWS;
-            let end = (start + LOCAL_QUERY_BLOCK_ROWS).min(unmatched_right.height());
-            let right_block = unmatched_right.slice(start as i64, end - start);
-            let right_block = right_block
-                .with_row_index(right_order_column.clone().into(), None)
-                .map_err(|error| {
-                    format!("No se pudo preparar el orden del FULL JOIN local: {error}")
-                })?;
-            let joined_block = collect_join_frame_on_keys_with_cancel(
-                &empty_current,
-                &right_block,
-                &spec.current_keys,
-                &spec.compared_keys,
-                DatasetJoinType::Full,
-                is_cancelled,
-            )?;
-            let mut joined_block = joined_block
-                .sort(
-                    [right_order_column.as_str()],
-                    SortMultipleOptions::default(),
-                )
-                .map_err(|error| {
-                    format!("No se pudo conservar el orden del FULL JOIN local: {error}")
-                })?;
-            joined_block
-                .drop_in_place(right_order_column.as_str())
-                .map_err(|error| {
-                    format!("No se pudo retirar el orden interno del FULL JOIN: {error}")
-                })?;
-            visit(joined_block)?;
-        }
+        visit_unmatched_join_right_blocks_with_cancel(
+            current,
+            compared,
+            &spec.current_keys,
+            &spec.compared_keys,
+            is_cancelled,
+            |right_block| {
+                let right_block = right_block
+                    .with_row_index(right_order_column.clone().into(), None)
+                    .map_err(|error| {
+                        format!("No se pudo preparar el orden del FULL JOIN local: {error}")
+                    })?;
+                let joined_block = collect_join_frame_on_keys_with_cancel(
+                    &empty_current,
+                    &right_block,
+                    &spec.current_keys,
+                    &spec.compared_keys,
+                    DatasetJoinType::Full,
+                    is_cancelled,
+                )?;
+                let mut joined_block = joined_block
+                    .sort(
+                        [right_order_column.as_str()],
+                        SortMultipleOptions::default(),
+                    )
+                    .map_err(|error| {
+                        format!("No se pudo conservar el orden del FULL JOIN local: {error}")
+                    })?;
+                joined_block
+                    .drop_in_place(right_order_column.as_str())
+                    .map_err(|error| {
+                        format!("No se pudo retirar el orden interno del FULL JOIN: {error}")
+                    })?;
+                visit(joined_block)?;
+                Ok(())
+            },
+        )?;
     }
     ensure_not_cancelled(is_cancelled())?;
     Ok(())
@@ -24141,6 +24168,61 @@ mod tests {
             ]
         );
         assert!(!result.truncated);
+    }
+
+    #[test]
+    fn full_join_visits_right_only_rows_in_bounded_blocks_and_keeps_null_keys_unmatched() {
+        let current = DataFrame::new(
+            2,
+            vec![Series::new("id".into(), &[Some(1_i64), None]).into_column()],
+        )
+        .expect("el dataset activo debe construirse");
+        let compared = DataFrame::new(
+            2,
+            vec![
+                Series::new("id".into(), &[Some(1_i64), None]).into_column(),
+                Series::new("segment".into(), &[Some("matched"), Some("null-right")]).into_column(),
+            ],
+        )
+        .expect("el dataset comparado debe construirse");
+        let result = execute_local_query_with_comparison(
+            &current,
+            Some(&compared),
+            "SELECT id, segment FROM dataset FULL JOIN compared ON dataset.id = compared.id LIMIT 10",
+        )
+        .expect("el FULL JOIN debe conservar las claves nulas como no emparejadas");
+
+        assert_eq!(result.row_count, 3);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("1".to_owned()), Some("matched".to_owned())],
+                vec![None, None],
+                vec![None, Some("null-right".to_owned())],
+            ]
+        );
+
+        let mut compared_ids = (2_i64..=LOCAL_QUERY_BLOCK_ROWS as i64 + 2).collect::<Vec<_>>();
+        compared_ids.push(LOCAL_QUERY_BLOCK_ROWS as i64 + 3);
+        let compared_large = DataFrame::new(
+            compared_ids.len(),
+            vec![Series::new("id".into(), compared_ids.clone()).into_column()],
+        )
+        .expect("el dataset comparado grande debe construirse");
+        let mut visited_heights = Vec::new();
+        visit_unmatched_join_right_blocks_with_cancel(
+            &current,
+            &compared_large,
+            &["id".to_owned()],
+            &["id".to_owned()],
+            &|| false,
+            |block| {
+                visited_heights.push(block.height());
+                Ok(())
+            },
+        )
+        .expect("el anti-join derecho debe emitirse por bloques");
+        assert_eq!(visited_heights, vec![LOCAL_QUERY_BLOCK_ROWS, 2]);
     }
 
     #[test]

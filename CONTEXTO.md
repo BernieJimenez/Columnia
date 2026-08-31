@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; la importación M1 también puede publicar `history_snapshots` Parquet explícitos como revisiones durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 298 frontend y 339 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 298 frontend y 341 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-08-30, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la migración DataPrep conserva metadatos agregados de muestreo sin filas ni valores y tiene fixture v3 con round-trip de proyecto y actividad agregada; el inventario IPC registra 68 comandos de producción y 59 estructuras, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
@@ -51,7 +51,10 @@ leerse, la sesión vuelve al `DataFrame` activo. Un JOIN que supera el límite d
 entradas se promueve automáticamente a DuckDB cuando existen los snapshots
 Parquet administrados de ambos lados; sin ellos conserva el rechazo seguro de
 Polars. La comparación, el historial degradado y la ejecución incremental
-general fuera de RAM siguen siendo límites explícitos.
+general fuera de RAM siguen siendo límites explícitos. En la ruta Polars `FULL`,
+las filas derechas no emparejadas se recorren en bloques de 16K mediante un
+índice temporal de claves, sin materializar el anti-join derecho completo; los
+`DataFrame` fuente siguen teniendo los límites actuales.
 
 Cuando se reabre una sesión DataPrep con metadatos de muestreo, Revisar muestra
 su estado y conteos agregados como contexto de compatibilidad. El perfil visible
@@ -69,7 +72,7 @@ cobertura; no cambia las estadísticas agregadas restantes.
 
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 298 tests frontend y 340 tests Rust; los
+- Las suites locales actuales pasan: 298 tests frontend y 341 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
@@ -664,6 +667,7 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
 - Validación v0.49.0 completada en Windows con `npm run verify:tier` (9.09 minutos): Vitest 130/130, Rust 127/127, Playwright 9/9, build, evidencia/baseline visual 4/4, benchmark sostenido, Package, smoke CLI, smoke desktop, CDP sostenido, reinicio y gates finales aprobados. Evidencias: visual `.local/validation/accessibility-visual/20260823T055019Z`, baseline visual `.local/validation/accessibility-baseline/20260823T055904Z`, benchmark `.local/validation/performance-benchmark/20260823T055027Z`, CDP final `.local/validation/webview2-cdp/20260823T055801Z`, reinicio `.local/validation/webview2-restart/20260823T055558Z`, desktop `.local/validation/desktop-smoke/20260823T055552Z`, CLI `.local/validation/cli-smoke/20260823T055548Z`, Package `.local/validation/20260823T055253Z-d865c7a-package.json`, baseline de rendimiento `.local/validation/performance-baseline/20260823T055904Z` y resumen `.local/validation/performance-summary/summary.json` (59 muestras CDP, 26 desktop). El gate CDP observó 453,664,768 bytes de working set y 249,978,880 bytes privados; la señal nativa ejecutó tres ciclos con máximos de 9.8 ms de transformación y 4.7 ms de exportación. El benchmark alcanzó 104,963,092 bytes, ejecutó tres iteraciones y dos actualizaciones, tuvo pico CLI de 492,957,696 bytes, duraciones máximas de 6,243.26/26,306.45/11,436.06/13,285.38 ms (transform/guardado/inspección/exportación) y confirmó cleanup.
  - 2026-08-30 P1 reduce el pico de los `JOIN` SQL locales `INNER`/`LEFT` sin agregación: el lado `dataset` se divide en bloques, cada bloque se une y consulta de forma cancelable, y solo se conserva la página global, el conteo y un bloque temporal. La ruta `FULL` y las agregaciones también recorren bloques dentro de sus límites explícitos; DuckDB y la ejecución incremental general permanecen pendientes.
  - 2026-08-30 P1 extiende esa ruta por bloques a las agregaciones `INNER`/`LEFT` y `FULL`: `COUNT`, `SUM`, `AVG`, `MIN` y `MAX` fusionan sus estados y grupos en el orden de primera aparición, sin conservar el `DataFrame` unido completo. DuckDB y la ejecución incremental general permanecen pendientes.
+ - 2026-08-30 P1 elimina la materialización completa del anti-join derecho en `FULL JOIN` local: un índice temporal de claves del activo y bloques de 16K recorren solo las filas no emparejadas, preservando `NULL` como no igual, duplicados y orden de entrada. Los `DataFrame` fuente y la ejecución general fuera de RAM permanecen pendientes.
 
 - Fase I8 completada: la documentación está separada en tutorial, how-to, referencia y explicación; `CHANGELOG.md` y el índice de ADRs tienen entradas verificables; `docs:check` valida 14 Markdown, enlaces locales, UTF-8 sin BOM, versiones y ownership de imágenes. `accessibility:release` construyó el binario optimizado y capturó cuatro escenarios desde Tauri/WebView2 (`.local/validation/release-evidence/20260823T185353Z`); `accessibility:release:check` aprobó el baseline `.local/validation/release-evidence-check/20260823T185503Z` con fixture sintética de 44 bytes, controles legibles en `forced-colors` y contratos de landmarks, foco, targets y overflow. Las imágenes permanecen fuera de Git y sus hashes/owner/propósito viven en `fixtures/accessibility/release-evidence-baseline-v1.json`; la auditoría manual de lector de pantalla sigue siendo I3.
 
