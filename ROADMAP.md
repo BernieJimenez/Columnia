@@ -1847,7 +1847,7 @@ por el mero hecho de estar documentada aquí.
 - [x] **[T5-17] Fijar toolchains y alinear la configuración de distribución**
   - **Área:** DevOps / Configuración
   - **Severidad:** Media
-  - **Ubicación:** `README.md:51`, `package.json:1`, `src-tauri/tauri.conf.json:49`
+  - **Ubicación:** `README.md:51`, `package.json:1`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json:49`
   - **Qué hacer:** declarar/comprobar Node/npm/Rust, documentar red de `npm audit`
     y WebView2, y seleccionar bundles explícitos por plataforma/canal.
   - **Criterio de aceptación:** una versión fuera de contrato falla con mensaje
@@ -1954,6 +1954,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | M1 añade la fixture `dataprep-session-v3-real.json`, basada en la forma v3 de `SessionRecipe`, y verifica importar → reabrir con etapa, reglas, muestreo agregado y tres entradas de actividad normalizadas; resultados, cachés, consultas y rutas privadas no cruzan al workspace. | `fixtures/migration/dataprep-session-v3-real.json`, `fixtures/manifest.json`, `src-tauri/src/projects.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 conecta el límite de entradas de Polars con la ruta DuckDB: un JOIN grande se promueve automáticamente a DuckDB cuando puede reutilizar los snapshots Parquet administrados del activo y la comparación, evitando recargar la segunda fuente completa; sin ambos snapshots se conserva el rechazo seguro, y la ejecución incremental general fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 elimina la materialización completa del anti-join derecho en `FULL JOIN` local: derrama el índice temporal de claves del activo, recorre la comparación por bloques de 16K, conserva `NULL` como no emparejado y mantiene duplicados/orden; los `DataFrame` fuente y la ejecución general fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | I3 fija los perfiles Cargo `dev` y `test` sin símbolos de depuración para evitar `LNK1140` en el enlazado MSVC del binario Tauri; `npm run tauri dev` queda reproducible desde `Columnia` sin variables temporales y `release` mantiene su política independiente. | `src-tauri/Cargo.toml`, `README.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

@@ -10,6 +10,15 @@ default-run = "columnia"
 name = "columnia_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The Windows linker can exhaust the PDB capacity on this dependency-heavy
+# development binary. Release keeps its own symbols policy; dev/test builds do
+# not need debugger symbols to run the local application or its gates.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

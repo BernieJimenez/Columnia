@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Los perfiles Cargo `dev` y `test` omiten símbolos de depuración para que
+  `npm run tauri dev` y las pruebas nativas puedan enlazar de forma reproducible
+  en Windows sin alcanzar `LNK1140`; el perfil `release` conserva su política
+  independiente de símbolos.
 - Revisar permite elegir el límite de filas usado por la matriz de correlaciones
   numéricas (10.000, 50.000 o 100.000) y conserva la preferencia localmente;
   Rust valida el rango de 1.000 a 100.000, invalida cachés con una cobertura

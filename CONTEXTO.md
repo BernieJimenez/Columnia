@@ -65,6 +65,11 @@ La preferencia del motor SQL de Revisar (`Polars`/`DuckDB`) se conserva en el
 almacenamiento local del navegador embebido, con validación cerrada y fallback a
 Polars. No forma parte del workspace SQLite ni cambia el contrato IPC.
 
+Los perfiles Cargo `dev` y `test` se configuran sin símbolos de depuración para
+evitar `LNK1140` al enlazar el binario Tauri en Windows; por eso `npm run tauri
+dev` se puede ejecutar directamente desde `Columnia` sin una variable temporal.
+El perfil `release` conserva una política independiente.
+
 La matriz de correlaciones numéricas permite seleccionar una muestra acotada de
 10.000, 50.000 o 100.000 filas. El límite se valida en Rust, se conserva como
 preferencia local y obliga a recalcular si el perfil cacheado tiene otra
@@ -658,6 +663,7 @@ Son una fotografía orientativa ligada a `137520b`, no un umbral permanente.
  - 2026-08-30 M1 reconoce `filename`, el campo de nombre que emite DataPrep, como fallback de referencia local cuando falta `source_path`; solo lo usa junto al manifiesto, valida el archivo antes de publicar y nunca transporta la ruta por IPC.
  - 2026-08-30 M1 añade una fixture v3 con la forma real de `SessionRecipe`: la importación conserva etapa, reglas y metadatos agregados de muestra, normaliza la actividad `ExecutionHistory` y la restaura al reabrir el proyecto; resultados, cachés, consultas y rutas siguen siendo señales no portables.
  - 2026-08-30 M1 añade la fixture `dataprep-session-v1-history-roundtrip.json`: importa una sesión con fuente, snapshot actual, dos revisiones Parquet, cursor, etapa, actividad y artefactos no portables; reabre el proyecto y verifica Deshacer/Rehacer sin copiar resultados ni cachés.
+ - 2026-08-30 Configuración de desarrollo fija los perfiles Cargo `dev`/`test` sin símbolos de depuración: `npm run tauri dev` enlaza el binario Windows sin `LNK1140`, mientras `release` mantiene su política separada.
  - 2026-08-29 P1 añade una acción confirmada para apartar como nulos los valores de texto que no coinciden con una sugerencia semántica con al menos 90% de confianza; no muestra celdas, conserva vacíos y tipos no textuales, y puede revertirse desde el historial.
   - 2026-08-29 P1 persiste en el workspace de cada proyecto las últimas cinco ejecuciones SQL como estado, duración y filas; las restaura al abrir y rechaza entradas corruptas o sobredimensionadas, sin guardar consultas, rutas ni valores.
   - 2026-08-29 P1 conserva también la vista y etapa activa del flujo, además de la página visible de la muestra de Revisar, en el workspace durable; `diagnosis`, Revisar y la primera página son fallbacks seguros para catálogos anteriores, valores no soportados u offsets fuera de rango, y la migración SQLite avanza a v8.

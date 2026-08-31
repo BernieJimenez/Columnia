@@ -58,7 +58,17 @@ abierto bajo MIT y no requiere telemetría ni un servicio remoto.
 - Dependencias nativas de Tauri para el sistema operativo correspondiente.
 
 La máquina de desarrollo actual ya dispone de Rust/Cargo, WebView2 y las Build
-Tools de Visual Studio. El shell nativo se compila localmente en Windows.
+Tools de Visual Studio. El shell nativo se compila localmente en Windows. Desde
+la raíz del repositorio, entra primero en `Columnia` antes de ejecutar npm:
+
+```powershell
+Set-Location .\Columnia
+npm run tauri dev
+```
+
+Los perfiles Cargo `dev` y `test` omiten símbolos de depuración para evitar que
+el enlazador MSVC agote el límite de PDB de este binario con muchas dependencias;
+esto no cambia la política de símbolos del perfil `release`.
 
 ## Proyectos locales
 
