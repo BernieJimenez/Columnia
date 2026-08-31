@@ -17,7 +17,7 @@
   restauración completa de sesiones y la cobertura integral del round-trip hacia
   proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.64.0`.
+- Versión actual del prototipo: `0.65.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1054,7 +1054,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.64.0
+## 8.1. Cola de ejecución recomendada desde v0.65.0
 
 1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
    representable y ampliada en Unreleased con `find_replace` regex segura. El
@@ -1100,15 +1100,22 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    paint. CSV, TSV y TXT delimitado ya se leen con `LazyCsvReader`, y Parquet
    con `scan_parquet`; ambos usan el motor streaming de Polars, baja memoria y
    sin `rechunk` paralelo. Ampliar después a datasets mayores y a operaciones
-   que todavía requieren el camino eager.
+   que todavía requieren el camino eager. Desde v0.65.0, CSV, TSV, TXT
+   delimitado y Parquet de al menos 512 MiB abren source-backed con esquema,
+   primera página y conteo desde disco, sin retener todas las filas en el
+   `DataFrame`; perfilado, calidad, transformaciones, exportación y demás
+   operaciones eager materializan bajo demanda con validación de tamaño y
+   conteo.
 7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
    valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
    temporales, con paginación, orden estable, agregaciones y joins seguros.
    Desde v0.63 cada consulta configura 512 MB de memoria y hasta 8 GB de
    derrame temporal privado, y desde v0.64 la conversión de fuentes a snapshots
    comparte esa misma frontera; los planes source-backed pueden continuar
-   procesando intermedios mayores que la memoria disponible. Quedan
-   el benchmark del motor, la validación con datasets que excedan la RAM,
+   procesando intermedios mayores que la memoria disponible. En v0.65, las
+   fuentes grandes intactas también evitan la materialización inicial y pueden
+   reutilizar la lectura directa de disco en paginación y consultas compatibles.
+   Quedan el benchmark del motor, la validación con datasets que excedan la RAM,
    consultas más amplias y destinos de base de datos.
 8. **Migración M1 desde `dataprepv1.1`:** la vertical de contratos de calidad
    ya produce en v0.55.0 un informe con conteos, advertencias, acciones manuales
@@ -1356,6 +1363,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; esto
   habilita la expansión fuera de RAM de los planes compatibles, pero aún
   requiere benchmark sostenido y validación con datasets reales grandes.
+  Desde v0.65.0, la apertura de fuentes CSV/TSV/TXT delimitadas y Parquet de al
+  menos 512 MiB conserva solo esquema, primera página y conteo; las consultas
+  y páginas compatibles pueden seguir en disco, mientras las operaciones que
+  necesitan filas completas materializan con validación.
   La comparación inicial de fuentes Parquet, CSV/TSV/TXT delimitadas y JSON
   reutiliza el snapshot Parquet administrado del activo cuando existe; si no,
   convierte una fuente original intacta compatible a un snapshot temporal y
@@ -1440,9 +1451,11 @@ comparación no equivale a ejecución fuera de memoria general. La
   literal se aplica antes de agrupar dentro del mismo plan y el preflight
   proyecta solo las columnas necesarias:
   preservan orden estable, claves nulas, conteo de filas, `count_unique`, tipos
-  y validaciones de finitos, precisión y desbordamiento. El dataset activo sigue
-  materializado para conservar la compatibilidad de transformaciones, perfil e
-  historial. Las normalizaciones de contactos también pueden ejecutarse en el
+  y validaciones de finitos, precisión y desbordamiento. Los datasets normales
+  siguen materializados para conservar la compatibilidad de transformaciones,
+  perfil e historial; desde v0.65.0 las fuentes grandes soportadas abren con
+  esquema/preview source-backed y materializan al entrar en estas operaciones.
+  Las normalizaciones de contactos también pueden ejecutarse en el
   plan streaming, conservando nulos y espacios Unicode junto con conteos exactos; su combinación
   con agrupación también se ejecuta dentro del plan, validando el resumen sobre
   los valores normalizados.
@@ -2015,6 +2028,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-31 | Versión 0.60.0 promueve todos los JOIN compatibles elegidos por Polars a DuckDB cuando el activo y la comparación tienen snapshots o fuentes de disco válidas, no solo los JOIN grandes; la ruta evita materializar ambos datasets y conserva fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.61.0 extiende la paginación source-backed al historial degradado: un dataset intacto lee solo la ventana solicitada desde su fuente original Parquet o CSV/TSV/TXT, comprueba el tamaño de la fuente y la cantidad esperada de filas de la página, y vuelve al frame ante inconsistencias. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.62.0 extiende la comparación inicial source-backed al lado activo: reutiliza su snapshot Parquet o una fuente original Parquet/CSV/TSV/TXT intacta, compara ambos lados por bloques e índices temporales sin clonar el `DataFrame` y conserva fallback ante inconsistencias. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.65.0 abre CSV/TSV/TXT delimitados y Parquet de al menos 512 MiB source-backed: conserva esquema, primera página y conteo desde disco; paginación y consultas compatibles evitan el `DataFrame` completo, y operaciones eager materializan bajo demanda con validación de cambios. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.64.0 configura la misma frontera de 512 MB de memoria y hasta 8 GB de derrame temporal privado para consultas DuckDB y conversión source-backed a snapshots Parquet; la regresión delimitada verifica legibilidad y cleanup. | `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva

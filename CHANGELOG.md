@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-08-31
+
+### Mejorado
+
+- Los CSV, TSV, TXT delimitados y Parquet de al menos 512 MiB abren ahora en
+  modo source-backed: Columnia conserva el esquema y la primera página de 50
+  filas, calcula el total sin retener el dataset completo y sirve la
+  paginación directamente desde disco mientras la fuente permanece intacta.
+- Perfilado, calidad, exportación, recetas, limpiezas, joins y demás operaciones
+  que necesitan todas las filas materializan la fuente bajo demanda, validando
+  que no haya cambiado; después de una mutación la referencia source-backed se
+  invalida para no consultar datos obsoletos.
+- La carga diferida mantiene un historial explícitamente degradado hasta la
+  primera materialización y conserva el fallback seguro para formatos o rutas
+  incompatibles. La suite Rust queda en 357 pruebas aprobadas.
+
 ## [0.64.0] - 2026-08-31
 
 ### Mejorado

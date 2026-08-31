@@ -41,6 +41,7 @@ use crate::dataset_fingerprints::{
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
+const SOURCE_BACKED_LOAD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
 const LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX: &str =
     "No se pudo usar el snapshot Parquet para la consulta local:";
@@ -1286,7 +1287,9 @@ struct LoadedDataset {
     source_path: Option<PathBuf>,
     file_name: String,
     file_size_bytes: u64,
+    row_count: usize,
     frame: DataFrame,
+    source_backed: bool,
     profile: Option<DatasetProfile>,
     history: HistoryManager,
 }
@@ -1312,6 +1315,24 @@ struct HistoryManager {
 }
 
 impl HistoryManager {
+    fn deferred() -> Result<Self, String> {
+        let directory = tempfile::tempdir()
+            .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
+        Ok(Self {
+            directory,
+            entries: Vec::new(),
+            cursor: 0,
+            snapshots_enabled: false,
+            degraded_reason: Some(
+                "La carga source-backed conserva el historial desactivado hasta materializar una operación.".to_owned(),
+            ),
+            current_label: "Dataset original".to_owned(),
+            next_id: 0,
+            max_entries: HISTORY_MAX_ENTRIES,
+            disk_budget_bytes: HISTORY_DISK_BUDGET_BYTES,
+        })
+    }
+
     fn new(frame: &DataFrame) -> Result<Self, String> {
         Self::with_limits(frame, HISTORY_MAX_ENTRIES, HISTORY_DISK_BUDGET_BYTES)
     }
@@ -1574,7 +1595,9 @@ fn publish_candidate(
     // mutación. Después de publicar una candidata, las consultas deben usar
     // el snapshot/historial o el frame transformado, nunca el archivo viejo.
     dataset.source_path = None;
+    dataset.row_count = candidate.height();
     dataset.frame = candidate;
+    dataset.source_backed = false;
     dataset.profile = None;
     Ok(preview)
 }
@@ -1781,7 +1804,9 @@ pub fn probe_seed_dataset(state: State<'_, DatasetState>) -> Result<DatasetPrevi
         source_path: None,
         file_name: "native-probe.csv".to_owned(),
         file_size_bytes: 96,
+        row_count: frame.height(),
         frame,
+        source_backed: false,
         profile: None,
         history,
     });
@@ -1822,13 +1847,14 @@ pub async fn probe_export_dataset(
     validate_quality_rules_payload(&quality_rules)?;
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
-        let current = state
+        let mut current = state
             .current
             .lock()
             .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
         let dataset = current
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| "No hay un dataset activo para el probe nativo.".to_owned())?;
+        materialize_loaded_dataset(dataset)?;
         let stem = Path::new(&dataset.file_name)
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -1885,6 +1911,7 @@ impl DatasetState {
     pub(crate) fn project_test_cache_profile(&self) -> Result<DatasetProfile, String> {
         let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
+        materialize_loaded_dataset(dataset)?;
         let profile = profile_dataset(&dataset.frame)?;
         dataset.profile = Some(profile.clone());
         Ok(profile)
@@ -1893,6 +1920,7 @@ impl DatasetState {
     pub(crate) fn project_test_degrade_history(&self) -> Result<(), String> {
         let mut current = self.current.lock().map_err(|_| "lock".to_owned())?;
         let dataset = current.as_mut().ok_or_else(|| "missing".to_owned())?;
+        materialize_loaded_dataset(dataset)?;
         dataset.history = HistoryManager::with_limits(&dataset.frame, HISTORY_MAX_ENTRIES, 0)?;
         Ok(())
     }
@@ -6180,6 +6208,33 @@ fn dataset_preview_with_size(
     })
 }
 
+fn dataset_preview_from_schema_and_page(
+    file_name: &str,
+    file_size_bytes: u64,
+    row_count: usize,
+    schema: &DataFrame,
+    page: &DataFrame,
+) -> Result<DatasetPreview, String> {
+    let columns = schema
+        .columns()
+        .iter()
+        .map(|column| DatasetColumn {
+            name: column.name().to_string(),
+            data_type: column.dtype().to_string(),
+        })
+        .collect();
+    let rows = dataset_page(page, 0, PREVIEW_ROW_LIMIT)?.rows;
+
+    Ok(DatasetPreview {
+        file_name: file_name.to_owned(),
+        file_size_bytes,
+        row_count,
+        column_count: schema.width(),
+        columns,
+        rows,
+    })
+}
+
 fn loaded_dataset_preview(
     dataset: &LoadedDataset,
     frame: &DataFrame,
@@ -8881,6 +8936,118 @@ fn read_parquet_schema_frame(path: &Path) -> Result<DataFrame, String> {
         .collect_schema()
         .map_err(|error| format!("No se pudo leer el esquema Parquet: {error}"))?;
     Ok(DataFrame::empty_with_schema(&schema))
+}
+
+fn source_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
+    match extension {
+        "csv" | "tsv" | "txt" => delimited_scan(path, extension),
+        "parquet" => parquet_scan(path),
+        _ => Err("El formato no admite una carga source-backed diferida.".to_owned()),
+    }
+}
+
+fn row_count_from_scan(plan: LazyFrame, context: &str) -> Result<usize, String> {
+    let result = collect_lazy_frame_streaming(plan.select([len().alias("__row_count")]), context)?;
+    let value = result
+        .column("__row_count")
+        .map_err(|error| format!("No se pudo leer el conteo de filas: {error}"))?
+        .get(0)
+        .map_err(|error| format!("No se pudo leer el conteo de filas: {error}"))?;
+    match value {
+        AnyValue::UInt8(value) => Ok(value.into()),
+        AnyValue::UInt16(value) => Ok(value.into()),
+        AnyValue::UInt32(value) => Ok(value as usize),
+        AnyValue::UInt64(value) => usize::try_from(value)
+            .map_err(|_| "El conteo de filas excede la capacidad local.".to_owned()),
+        AnyValue::UInt128(value) => usize::try_from(value)
+            .map_err(|_| "El conteo de filas excede la capacidad local.".to_owned()),
+        _ => Err("El lector devolvió un conteo de filas inesperado.".to_owned()),
+    }
+}
+
+fn source_backed_load<C>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview, usize), String>
+where
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let mut schema_plan = source_scan(path, extension)?;
+    let schema = schema_plan
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let schema_frame = DataFrame::empty_with_schema(&schema);
+    let row_count = row_count_from_scan(
+        source_scan(path, extension)?,
+        "No se pudo contar el dataset source-backed",
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let page = collect_lazy_frame_streaming(
+        source_scan(path, extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+        "No se pudo leer la vista previa source-backed",
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let file_size_bytes = fs::metadata(path)
+        .map_err(|error| format!("No se pudieron leer los metadatos del archivo: {error}"))?
+        .len();
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset")
+        .to_owned();
+    let preview = dataset_preview_from_schema_and_page(
+        &file_name,
+        file_size_bytes,
+        row_count,
+        &schema_frame,
+        &page,
+    )?;
+    Ok((schema_frame, preview, row_count))
+}
+
+fn should_defer_source_load(extension: &str, file_size_bytes: u64) -> bool {
+    file_size_bytes >= SOURCE_BACKED_LOAD_THRESHOLD_BYTES
+        && matches!(extension, "csv" | "tsv" | "txt" | "parquet")
+}
+
+fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String> {
+    if !dataset.source_backed {
+        return Ok(());
+    }
+    let path = dataset
+        .source_path
+        .as_deref()
+        .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
+    let (canonical, file_size, extension) = validate_dataset_file(path)?;
+    if file_size != dataset.file_size_bytes {
+        return Err("El archivo source-backed cambió después de la carga.".to_owned());
+    }
+    let frame = match extension.as_str() {
+        "csv" | "tsv" | "txt" => read_delimited_frame(&canonical, &extension)?,
+        "parquet" => read_parquet_frame(&canonical)?,
+        _ => return Err("El formato source-backed no se puede materializar.".to_owned()),
+    };
+    if frame.height() != dataset.row_count {
+        return Err("El conteo del dataset source-backed cambió durante la lectura.".to_owned());
+    }
+    dataset.frame = frame;
+    dataset.source_backed = false;
+    Ok(())
+}
+
+fn materialize_current_dataset(state: &DatasetState) -> Result<(DataFrame, String), String> {
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    materialize_loaded_dataset(dataset)?;
+    Ok((dataset.frame.clone(), dataset.file_name.clone()))
 }
 
 #[cfg(test)]
@@ -17742,7 +17909,7 @@ pub async fn compare_dataset(
         });
         (
             dataset.file_name.clone(),
-            dataset.frame.height(),
+            dataset.row_count,
             current_snapshot,
             current_source,
         )
@@ -17808,17 +17975,8 @@ pub async fn compare_dataset(
                     &key_columns,
                 )
             } else {
-                let (current_frame, current_file_name) = {
-                    let state = app.state::<DatasetState>();
-                    let current = state.current.lock().map_err(|_| {
-                        "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                    })?;
-                    let dataset = current.as_ref().ok_or_else(|| {
-                        "No hay un dataset activo. Selecciona primero un archivo compatible."
-                            .to_owned()
-                    })?;
-                    (dataset.frame.clone(), dataset.file_name.clone())
-                };
+                let state = app.state::<DatasetState>();
+                let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
                 compare_parquet_source(
                     &current_frame,
                     &current_file_name,
@@ -17831,17 +17989,8 @@ pub async fn compare_dataset(
             let comparison = match comparison {
                 Ok(comparison) => comparison,
                 Err(_) => {
-                    let (current_frame, current_file_name) = {
-                        let state = app.state::<DatasetState>();
-                        let current = state.current.lock().map_err(|_| {
-                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                        })?;
-                        let dataset = current.as_ref().ok_or_else(|| {
-                            "No hay un dataset activo. Selecciona primero un archivo compatible."
-                                .to_owned()
-                        })?;
-                        (dataset.frame.clone(), dataset.file_name.clone())
-                    };
+                    let state = app.state::<DatasetState>();
+                    let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
                     compare_parquet_source(
                         &current_frame,
                         &current_file_name,
@@ -17883,17 +18032,8 @@ pub async fn compare_dataset(
                     &key_columns,
                 )
             } else {
-                let (current_frame, current_file_name) = {
-                    let state = app.state::<DatasetState>();
-                    let current = state.current.lock().map_err(|_| {
-                        "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                    })?;
-                    let dataset = current.as_ref().ok_or_else(|| {
-                        "No hay un dataset activo. Selecciona primero un archivo compatible."
-                            .to_owned()
-                    })?;
-                    (dataset.frame.clone(), dataset.file_name.clone())
-                };
+                let state = app.state::<DatasetState>();
+                let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
                 compare_parquet_source(
                     &current_frame,
                     &current_file_name,
@@ -17906,17 +18046,8 @@ pub async fn compare_dataset(
             let comparison = match comparison {
                 Ok(comparison) => comparison,
                 Err(_) => {
-                    let (current_frame, current_file_name) = {
-                        let state = app.state::<DatasetState>();
-                        let current = state.current.lock().map_err(|_| {
-                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                        })?;
-                        let dataset = current.as_ref().ok_or_else(|| {
-                            "No hay un dataset activo. Selecciona primero un archivo compatible."
-                                .to_owned()
-                        })?;
-                        (dataset.frame.clone(), dataset.file_name.clone())
-                    };
+                    let state = app.state::<DatasetState>();
+                    let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
                     compare_parquet_source(
                         &current_frame,
                         &current_file_name,
@@ -17929,16 +18060,8 @@ pub async fn compare_dataset(
             };
             (comparison, directory, snapshot_path, compared_row_count)
         } else {
-            let (current_frame, current_file_name) = {
-                let state = app.state::<DatasetState>();
-                let current = state.current.lock().map_err(|_| {
-                    "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
-                })?;
-                let dataset = current.as_ref().ok_or_else(|| {
-                    "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-                })?;
-                (dataset.frame.clone(), dataset.file_name.clone())
-            };
+            let state = app.state::<DatasetState>();
+            let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
             let compared_frame = load_compare_frame(&path, &extension)?;
             let comparison = compare_frames(
                 &current_frame,
@@ -17983,19 +18106,7 @@ pub async fn get_dataset_conflict_page(
     }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
-        let current_frame = {
-            let current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-            current
-                .as_ref()
-                .ok_or_else(|| {
-                    "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-                })?
-                .frame
-                .clone()
-        };
+        let (current_frame, _) = materialize_current_dataset(&state)?;
         let (compared_path, compared_row_count, key_columns) = {
             let comparison = state
                 .comparison
@@ -18057,13 +18168,14 @@ pub async fn join_dataset(
     }
     let (current_frame, current_file_name, current_file_size) = {
         let state = app.state::<DatasetState>();
-        let current = state
+        let mut current = state
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_ref().ok_or_else(|| {
+        let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         (
             dataset.frame.clone(),
             dataset.file_name.clone(),
@@ -18110,6 +18222,7 @@ pub async fn join_dataset(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let preview = dataset_preview_with_size(&file_name, file_size_bytes, &joined)?;
         dataset
             .history
@@ -18117,7 +18230,9 @@ pub async fn join_dataset(
         dataset.source_path = None;
         dataset.file_name = file_name;
         dataset.file_size_bytes = file_size_bytes;
+        dataset.row_count = joined.height();
         dataset.frame = joined;
+        dataset.source_backed = false;
         dataset.profile = None;
         drop(current);
         *state
@@ -18307,6 +18422,7 @@ pub async fn resolve_dataset_conflicts(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let resolved =
             resolved_conflict_frame(&dataset.frame, &compared_frame, &key_columns, &decisions)?;
         let file_name = format!("Resuelto · {} + {compared_file_name}", dataset.file_name);
@@ -18318,7 +18434,9 @@ pub async fn resolve_dataset_conflicts(
         dataset.source_path = None;
         dataset.file_name = file_name;
         dataset.file_size_bytes = file_size_bytes;
+        dataset.row_count = resolved.height();
         dataset.frame = resolved;
+        dataset.source_backed = false;
         dataset.profile = None;
         drop(current);
         *state
@@ -18364,6 +18482,7 @@ pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<Datase
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    materialize_loaded_dataset(dataset)?;
     if dataset.frame.get_column_names() != compared_frame.get_column_names()
         || dataset
             .frame
@@ -18415,7 +18534,9 @@ pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<Datase
     dataset.source_path = None;
     dataset.file_name = file_name;
     dataset.file_size_bytes = file_size_bytes;
+    dataset.row_count = consolidated.height();
     dataset.frame = consolidated;
+    dataset.source_backed = false;
     dataset.profile = None;
     drop(current);
     *state
@@ -18560,7 +18681,7 @@ pub async fn load_dataset_selection(
             );
         }
         let extension = dataset_extension(&pending.path)?;
-        let (frame, preview) = if spreadsheet_extensions(&extension) {
+        let (frame, preview, row_count, source_backed) = if spreadsheet_extensions(&extension) {
             let header_mode = header_mode
                 .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
             let index = sheet_id
@@ -18577,7 +18698,8 @@ pub async fn load_dataset_selection(
             ensure_not_cancelled(app.state::<DatasetState>().load_was_cancelled(generation))?;
             send_progress(&on_progress, "load", "Preparando vista previa", 85);
             let preview = dataset_preview(&pending.path, &frame)?;
-            (frame, preview)
+            let row_count = frame.height();
+            (frame, preview, row_count, false)
         } else {
             if sheet_id.is_some() {
                 return Err("Este formato no utiliza hojas.".to_owned());
@@ -18585,15 +18707,36 @@ pub async fn load_dataset_selection(
             if header_mode.is_some() {
                 return Err("Este formato no utiliza opciones de encabezado de Excel.".to_owned());
             }
-            load_dataset_with_progress(
-                &pending.path,
-                |stage, percent| send_progress(&on_progress, "load", stage, percent),
-                || app.state::<DatasetState>().load_was_cancelled(generation),
-            )?
+            if should_defer_source_load(&extension, pending.file_size_bytes) {
+                send_progress(
+                    &on_progress,
+                    "load",
+                    "Inspeccionando estructura en disco",
+                    25,
+                );
+                let (frame, preview, row_count) =
+                    source_backed_load(&pending.path, &extension, || {
+                        app.state::<DatasetState>().load_was_cancelled(generation)
+                    })?;
+                send_progress(&on_progress, "load", "Preparando vista previa", 85);
+                (frame, preview, row_count, true)
+            } else {
+                let (frame, preview) = load_dataset_with_progress(
+                    &pending.path,
+                    |stage, percent| send_progress(&on_progress, "load", stage, percent),
+                    || app.state::<DatasetState>().load_was_cancelled(generation),
+                )?;
+                let row_count = frame.height();
+                (frame, preview, row_count, false)
+            }
         };
         let state = app.state::<DatasetState>();
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
-        let history = HistoryManager::new(&frame)?;
+        let history = if source_backed {
+            HistoryManager::deferred()?
+        } else {
+            HistoryManager::new(&frame)?
+        };
         *state
             .current
             .lock()
@@ -18607,7 +18750,9 @@ pub async fn load_dataset_selection(
                     .unwrap_or("dataset.csv")
                     .to_owned(),
                 file_size_bytes: pending.file_size_bytes,
+                row_count,
                 frame,
+                source_backed,
                 profile: None,
                 history,
             });
@@ -18657,17 +18802,17 @@ pub fn get_dataset_page(
     offset: usize,
     limit: usize,
 ) -> Result<DatasetPage, String> {
-    let current = state
+    let mut current = state
         .current
         .lock()
         .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-    let dataset = current.as_ref().ok_or_else(|| {
+    let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
 
     if dataset.history.snapshots_enabled {
         if let Some(entry) = dataset.history.entries.get(dataset.history.cursor) {
-            return dataset_page_from_parquet(&entry.path, dataset.frame.height(), offset, limit);
+            return dataset_page_from_parquet(&entry.path, dataset.row_count, offset, limit);
         }
     }
 
@@ -18677,13 +18822,14 @@ pub fn get_dataset_page(
     if let Some((path, _)) = current_duckdb_file_source(dataset) {
         if let Ok(extension) = dataset_extension(&path) {
             if let Ok(page) =
-                dataset_page_from_source(&path, &extension, dataset.frame.height(), offset, limit)
+                dataset_page_from_source(&path, &extension, dataset.row_count, offset, limit)
             {
                 return Ok(page);
             }
         }
     }
 
+    materialize_loaded_dataset(dataset)?;
     dataset_page(&dataset.frame, offset, limit)
 }
 
@@ -18699,12 +18845,12 @@ pub async fn query_dataset(
     tauri::async_runtime::spawn_blocking(move || match engine {
         DatasetQueryEngine::Polars => {
             let state = query_app.state::<DatasetState>();
-            let current = state
+            let mut current = state
                 .current
                 .lock()
                 .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
             let dataset = current
-                .as_ref()
+                .as_mut()
                 .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?;
             let comparison = state
                 .comparison
@@ -18818,7 +18964,7 @@ pub async fn query_dataset(
                 if let Some(path) = current_snapshot {
                     match execute_local_query_from_parquet_with_cancel(
                         &path,
-                        dataset.frame.height(),
+                        dataset.row_count,
                         &query,
                         &|| state.query_was_cancelled(generation),
                     ) {
@@ -18828,6 +18974,7 @@ pub async fn query_dataset(
                     }
                 }
             }
+            materialize_loaded_dataset(dataset)?;
             let compared_frame = comparison
                 .as_ref()
                 .map(|pending| read_parquet_frame(&pending.snapshot_path))
@@ -18842,12 +18989,12 @@ pub async fn query_dataset(
         }
         DatasetQueryEngine::Duckdb => {
             let state = query_app.state::<DatasetState>();
-            let current = state
+            let mut current = state
                 .current
                 .lock()
                 .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
             let dataset = current
-                .as_ref()
+                .as_mut()
                 .ok_or_else(|| "No hay un dataset activo para consultar.".to_owned())?;
             let comparison = state
                 .comparison
@@ -18862,7 +19009,11 @@ pub async fn query_dataset(
                 .then(|| dataset.history.entries.get(dataset.history.cursor))
                 .flatten()
                 .map(|entry| entry.path.clone());
-            let current_file_source = current_duckdb_file_source(dataset);
+            let mut current_file_source = current_duckdb_file_source(dataset);
+            if dataset.source_backed && current_file_source.is_none() {
+                materialize_loaded_dataset(dataset)?;
+                current_file_source = current_duckdb_file_source(dataset);
+            }
             let current_validation_frame = current_snapshot
                 .as_deref()
                 .map(read_parquet_schema_frame)
@@ -18969,6 +19120,7 @@ pub async fn get_dataset_profile(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
 
         if let Some(profile) = &dataset.profile {
             let has_enough_numeric_columns = profile
@@ -18987,7 +19139,7 @@ pub async fn get_dataset_profile(
                 (column.data_type == "Date" || column.data_type.starts_with("Datetime"))
                     || column.suggested_type.as_deref() == Some("date")
             });
-            let expected_sampled_row_count = dataset.frame.height().min(correlation_sample_rows);
+            let expected_sampled_row_count = dataset.row_count.min(correlation_sample_rows);
             let has_requested_numeric_correlations = profile
                 .numeric_correlations
                 .as_ref()
@@ -19032,17 +19184,15 @@ pub async fn validate_quality_rules(
     validate_quality_rules_payload(&quality_rules)?;
     let frame = {
         let state = app.state::<DatasetState>();
-        let current = state
+        let mut current = state
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        current
-            .as_ref()
-            .ok_or_else(|| {
-                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-            })?
-            .frame
-            .clone()
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        materialize_loaded_dataset(dataset)?;
+        dataset.frame.clone()
     };
     tauri::async_runtime::spawn_blocking(move || evaluate_quality_rules(&frame, &quality_rules))
         .await
@@ -19065,13 +19215,14 @@ pub async fn export_dataset(
     }
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
-        let current = state
+        let mut current = state
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_ref().ok_or_else(|| {
+        let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let stem = Path::new(&dataset.file_name)
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -19331,6 +19482,7 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_duplicate_rows(&dataset.frame)?;
 
         let preview = if affected_row_count > 0 {
@@ -19359,6 +19511,7 @@ pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, S
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_near_duplicate_rows(&dataset.frame)?;
 
         let preview = if affected_row_count > 0 {
@@ -19387,6 +19540,7 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_empty_rows_from_frame(&dataset.frame)?;
         let preview = if affected_row_count > 0 {
             publish_candidate(dataset, cleaned, "Eliminar filas completamente vacías")?
@@ -19413,6 +19567,7 @@ pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String>
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (candidate, added) = add_audit_column_to_frame(&dataset.frame)?;
         let preview = if added {
             publish_candidate(dataset, candidate, "Activar trazabilidad por fila")?
@@ -19439,6 +19594,7 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_constant_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
@@ -19466,6 +19622,7 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_empty_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
@@ -19493,6 +19650,7 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_high_null_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
@@ -19522,6 +19680,7 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_identifier_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
             loaded_dataset_preview(dataset, &dataset.frame)?
@@ -19551,6 +19710,7 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_personal_columns_from_frame(&dataset.frame)?;
         let removed_column_count = removed_columns.len();
         let preview = if removed_columns.is_empty() {
@@ -19582,6 +19742,7 @@ pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResu
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (masked, changed_cell_count, changed_column_count) =
             mask_personal_values_from_frame(&dataset.frame)?;
         let preview = if changed_cell_count > 0 {
@@ -19610,6 +19771,7 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (names, renames) = normalized_column_names(&dataset.frame);
 
         let preview = if !renames.is_empty() {
@@ -19645,6 +19807,7 @@ fn apply_text_cleaning(
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    materialize_loaded_dataset(dataset)?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         clean_text_columns(&dataset.frame, selected_columns.as_deref(), mode)?;
 
@@ -19679,6 +19842,7 @@ fn apply_dataprep_date_parsing(app: AppHandle) -> Result<TextCleaningResult, Str
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    materialize_loaded_dataset(dataset)?;
     let (parsed, affected_row_count, changed_cell_count, changed_columns) =
         parse_dataprep_date_columns(&dataset.frame)?;
     let preview = if changed_cell_count > 0 {
@@ -19704,6 +19868,7 @@ fn apply_dataprep_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, Str
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    materialize_loaded_dataset(dataset)?;
     let (cast, affected_row_count, changed_cell_count, changed_columns) =
         cast_dataprep_numeric_columns(&dataset.frame)?;
     let preview = if changed_cell_count > 0 {
@@ -19807,6 +19972,7 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_missing_values_in_frame(&dataset.frame)?;
         let preview = if changed_cell_count > 0 {
@@ -19836,6 +20002,7 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_categorical_values_in_frame(&dataset.frame)?;
         let preview = if changed_cell_count > 0 {
@@ -19865,6 +20032,7 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_outlier_values_in_frame(&dataset.frame)?;
         let preview = if changed_cell_count > 0 {
@@ -19896,6 +20064,7 @@ fn apply_direct_outlier_mode(
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    materialize_loaded_dataset(dataset)?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         apply_dataprep_outlier_mode(&dataset.frame, mode)?;
     let preview = if changed_cell_count > 0 || affected_row_count > 0 {
@@ -19940,6 +20109,7 @@ pub async fn apply_safe_corrections(app: AppHandle) -> Result<SafeCorrectionsRes
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        materialize_loaded_dataset(dataset)?;
 
         let (candidate, affected_row_count, changed_cell_count, renames) =
             safe_corrected_frame(&dataset.frame)?;
@@ -19987,7 +20157,9 @@ fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
     let target = dataset.history.cursor - 1;
     let previous = dataset.history.restore(target)?;
     let preview = loaded_dataset_preview(dataset, &previous)?;
+    dataset.row_count = previous.height();
     dataset.frame = previous;
+    dataset.source_backed = false;
     dataset.history.cursor = target;
     dataset.profile = None;
     Ok(HistoryResult {
@@ -20021,7 +20193,9 @@ fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
     let target = dataset.history.cursor + 1;
     let next = dataset.history.restore(target)?;
     let preview = loaded_dataset_preview(dataset, &next)?;
+    dataset.row_count = next.height();
     dataset.frame = next;
+    dataset.source_backed = false;
     dataset.history.cursor = target;
     dataset.profile = None;
     Ok(HistoryResult {
@@ -24187,7 +24361,9 @@ impl DatasetState {
                 source_path: None,
                 file_name,
                 file_size_bytes: 0,
+                row_count: frame.height(),
                 frame,
+                source_backed: false,
                 profile: None,
                 history,
             })),
@@ -24255,6 +24431,7 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
+        materialize_loaded_dataset(dataset)?;
         let selected_outlier_modes = ["cap_outliers", "impute_outliers", "drop_outliers"]
             .iter()
             .filter(|mode| {
@@ -24427,6 +24604,7 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
+        materialize_loaded_dataset(dataset)?;
         let profile = profile_dataset_with_progress(
             &dataset.frame,
             report,
@@ -24438,17 +24616,18 @@ impl DatasetState {
     }
 
     pub(crate) fn active_project_snapshot(&self) -> Result<ActiveDatasetSnapshot, String> {
-        let current = self
+        let mut current = self
             .current
             .lock()
             .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
         let dataset = current
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| "Carga un dataset antes de guardar un proyecto.".to_owned())?;
+        materialize_loaded_dataset(dataset)?;
         Ok(ActiveDatasetSnapshot {
             frame: dataset.frame.clone(),
             file_name: dataset.file_name.clone(),
-            row_count: dataset.frame.height(),
+            row_count: dataset.row_count,
             column_count: dataset.frame.width(),
             profile: dataset.profile.clone(),
             history: capture_project_history(&dataset.history, &dataset.frame)?,
@@ -24488,7 +24667,9 @@ impl DatasetState {
                 source_path: None,
                 file_name,
                 file_size_bytes,
+                row_count: frame.height(),
                 frame,
+                source_backed: false,
                 profile,
                 history,
             },
@@ -24614,6 +24795,7 @@ fn apply_recipe_to_dataset(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
+    materialize_loaded_dataset(dataset)?;
     validate_recipe_structure(recipe)?;
     let (
         candidate,
@@ -25411,7 +25593,9 @@ mod tests {
                 .unwrap_or("dataset.csv")
                 .to_owned(),
             file_size_bytes: fs::metadata(&path).map(|value| value.len()).unwrap_or(0),
+            row_count: frame.height(),
             frame,
+            source_backed: false,
             profile: None,
             history,
         }
@@ -25448,6 +25632,53 @@ mod tests {
         assert_eq!(preview.columns[0].name, "city");
         assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
         assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_load_keeps_only_schema_while_preparing_the_preview() {
+        let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
+
+        let (schema, preview, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+
+        assert_eq!(schema.height(), 0);
+        assert_eq!(schema.width(), 2);
+        assert_eq!(row_count, 2);
+        assert_eq!(preview.row_count, 2);
+        assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
+        assert_eq!(preview.rows[1][1].as_deref(), Some("28"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn materializes_a_deferred_dataset_only_when_an_operation_requires_rows() {
+        let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        materialize_loaded_dataset(&mut dataset)
+            .expect("la operación debe materializar la fuente sin cambiarla");
+
+        assert!(!dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 2);
+        assert_eq!(dataset.row_count, 2);
+        assert_eq!(
+            preview_value(dataset.frame.column("city").unwrap().get(0).unwrap()),
+            Some("Santo Domingo".to_owned())
+        );
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 

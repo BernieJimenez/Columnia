@@ -21,6 +21,15 @@ claro y esté cubierta por una prueba o evidencia local.
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales, sanitización de recetas/reports/manifests y confirmación visible de columnas protegidas | Parcial | Extender contratos equivalentes a conectores remotos |
 | Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles, incluidos parseos explícitos `Ymd`/`Dmy`/`Mdy`, conversiones en columnas distintas y combinaciones `split`/`merge`, tratamientos IQR aislados con filtros previos compatibles y proyección `keepColumns` que conserva sus dependencias; paginación de muestra source-backed desde snapshots Parquet del cursor con `slice`/streaming`; consultas Polars simples sin comparación que validan el esquema y recorren el snapshot por bloques, reteniendo solo la página o los acumuladores; historial durable que copia snapshots byte a byte, valida footer/esquema de revisiones no cursor y materializa solo el cursor, leyendo filas restantes bajo demanda en undo/redo; benchmark CLI validado hasta 256 MiB; perfiles Rayon persistentes; SQL local con Polars predeterminado o DuckDB opcional que reutiliza snapshots Parquet administrados del activo y la comparación, promueve todos los JOIN compatibles respaldados por fuentes de disco al camino DuckDB y conserva fallback temporal, cancelación cooperativa, presupuesto de agregación y preflight de cardinalidad JOIN | Parcial | Ejecución incremental real fuera de RAM, comparación general y presupuesto integral |
 
+Desde v0.65.0, la apertura de CSV, TSV, TXT delimitado y Parquet de al menos
+512 MiB es source-backed: el `DataFrame` inicial conserva únicamente el
+esquema, el conteo se calcula desde disco y la UI recibe la primera página de
+50 filas. La paginación y las consultas compatibles pueden continuar sobre la
+fuente intacta; perfilado, calidad, exportación, transformaciones, joins y
+fallbacks que requieren todas las filas materializan bajo demanda y validan
+que tamaño y conteo no hayan cambiado. Esto reduce el pico de apertura, pero no
+declara todavía ejecución general fuera de RAM para todas las operaciones.
+
 La receta lazy/streaming también acepta `Iso8601` sin offset o con sufijo UTC
 `Z`; los offsets distintos de UTC conservan el fallback eager para mantener la
 conversión estricta a UTC.
@@ -596,9 +605,11 @@ privado de derrame y un máximo de 8 GB temporales; la carpeta se elimina al
 terminar la consulta. La misma frontera se aplica al convertir fuentes
 CSV/TSV/TXT delimitadas o JSON a snapshots Parquet temporales para comparación,
 evitando que la preparación source-backed use un presupuesto distinto. Esto
-permite que los intermedios compatibles cedan memoria a disco, pero la carga
-inicial, el fallback Polars y las transformaciones generales todavía pueden
-materializar `DataFrame` y la ejecución completa fuera de RAM continúa pendiente.
+permite que los intermedios compatibles cedan memoria a disco. Para fuentes
+grandes soportadas, la carga inicial conserva esquema, conteo y preview sin
+materializar todas las filas; el fallback Polars, el perfilado y las
+transformaciones generales todavía pueden materializar `DataFrame`, por lo que
+la ejecución completa fuera de RAM continúa pendiente.
 
 Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en
