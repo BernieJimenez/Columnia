@@ -818,8 +818,6 @@ export function App() {
                   onDeleteRequest={projects.requestDelete}
                   onDeleteCancel={projects.cancelDelete}
                   onDeleteConfirm={() => void projects.confirmDelete()}
-                  onImportSession={() => void projects.importSession()}
-                  onCancelImport={() => void cancelActiveOperation("migration")}
                   onRetry={() => void projects.refresh()}
                   onClearFeedback={projects.clearFeedback}
                 />
@@ -850,9 +848,6 @@ export function App() {
                 onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
                 sqlHistory={sqlHistory}
                 onSqlHistoryChange={setSqlHistory}
-                importedSessionAnalysis={recipeDraft?.migrationReport?.sourceFormat === "dataprep"
-                  ? recipeDraft.migrationReport.session
-                  : undefined}
                 analysisSampleRows={analysisSampleRows}
                 onAnalysisSampleRowsChange={setAnalysisSampleRows}
               />

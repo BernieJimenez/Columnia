@@ -443,7 +443,6 @@ export interface SavedRecipe {
   savedAt: string;
   recipe: TransformRecipe;
   exportOptions?: RecipeExportOptions;
-  migrationReport?: RecipeMigrationReport;
 }
 
 export type LoadedRecipe = SavedRecipe;
@@ -452,111 +451,6 @@ export interface RecipeExportOptions {
   formats: ExportFormat[];
   selectedColumns: string[];
   privacyMode: PrivacyMode;
-}
-
-export interface RecipeMigrationWarning {
-  path: string;
-  severity: "warning" | "omitted";
-  message: string;
-}
-
-export interface SessionMigrationMetadata {
-  hasSourceReference: boolean;
-  hasSnapshotReference: boolean;
-  sheetName: string | null;
-  stageLabel: string | null;
-  appliedOperationCount: number;
-  qualityRuleCount: number;
-  analysisCheckCount: number;
-  appliedOperations?: string[];
-  analysisChecks?: string[];
-  analysisSampled?: boolean;
-  analysisSampleRowCount?: number;
-  analysisTotalRowCount?: number;
-  historySnapshotCount?: number;
-  historyCursor?: number;
-  nonPortableArtifacts?: string[];
-}
-
-export type SessionReferenceStatus = "not_provided" | "available" | "missing" | "unsupported";
-
-export interface SessionMigrationReferenceReport {
-  status: SessionReferenceStatus;
-  available: boolean;
-}
-
-export interface SessionMigrationReport {
-  schemaVersion: number;
-  command: "session-migration-report";
-  artifactSha256: string;
-  origin: {
-    source: SessionMigrationReferenceReport;
-    snapshot: SessionMigrationReferenceReport;
-    sourceFileName: string | null;
-  };
-  session: {
-    sourceVersion: string | null;
-    sheetName: string | null;
-    stageLabel: string | null;
-    appliedOperationCount: number;
-    analysisCheckCount: number;
-    appliedOperations?: string[];
-    analysisChecks?: string[];
-    analysisSampled?: boolean;
-    analysisSampleRowCount?: number;
-    analysisTotalRowCount?: number;
-    historySnapshotCount?: number;
-    historyCursor?: number;
-    nonPortableArtifacts?: string[];
-  };
-  recipeSummary: {
-    operationCount: number;
-    convertedOperationCount: number;
-    omittedOperationCount: number;
-    warningCount: number;
-    convertedOperations: string[];
-    omittedOperations: string[];
-  };
-  quality: {
-    totalRules: number;
-    convertedRules: number;
-    omittedRules: number;
-    warningCount: number;
-  };
-  missingReferences: string[];
-  collisions: string[];
-  canCreateProject: boolean;
-  requiresManualReview: boolean;
-  manualActions: string[];
-}
-
-export interface DataprepSessionMigrationPlan {
-  name: string;
-  sourceFileName: string | null;
-  sourceStatus: SessionReferenceStatus;
-  snapshotStatus: SessionReferenceStatus;
-  sheetName: string | null;
-  stageLabel: string | null;
-  recipe: SavedRecipe;
-  qualityRules: QualityRule[];
-  qualityReport: QualityMigrationReport | null;
-  missingReferences: string[];
-  collisions: string[];
-  canCreateProject: boolean;
-}
-
-export interface RecipeMigrationReport {
-  artifactSha256: string | null;
-  sourceFormat: "dataprep" | "legacy";
-  sourceVersion: number | null;
-  convertedItems: number;
-  omittedItems: number;
-  warningCount: number;
-  convertedOperations: string[];
-  omittedOperations: string[];
-  warnings: RecipeMigrationWarning[];
-  manualActions: string[];
-  session?: SessionMigrationMetadata;
 }
 
 export interface TransformRecipeResult {
@@ -584,7 +478,7 @@ export interface TransformRecipeResult {
 }
 
 export interface OperationProgress {
-  operation: "load" | "profile" | "export" | "migration";
+  operation: "load" | "profile" | "export";
   stage: string;
   percent: number;
 }
@@ -693,7 +587,7 @@ export interface QualityMigrationReport {
 }
 
 export interface QualityMigrationResult {
-  sourceFormat: "columnia" | "dataprep" | "legacy";
+  sourceFormat: "columnia" | "legacy";
   sourceVersion: string | null;
   convertedRules: QualityRule[];
   warnings: QualityMigrationWarning[];
@@ -919,10 +813,6 @@ export function pickQualityRulesMigration(): Promise<QualityMigrationResult | nu
   return invoke<QualityMigrationResult | null>("pick_quality_rules_migration");
 }
 
-export function pickDataprepSessionMigration(): Promise<DataprepSessionMigrationPlan | null> {
-  return invoke<DataprepSessionMigrationPlan | null>("pick_dataprep_session_migration");
-}
-
 export function saveQualityRulesDocument(
   qualityRules: QualityRule[],
 ): Promise<QualityRulesDocument | null> {
@@ -1039,13 +929,11 @@ export function applyTransformRecipe(recipe: TransformRecipe): Promise<Transform
 export function saveTransformRecipe(
   recipe: TransformRecipe,
   name: string,
-  migrationReport: RecipeMigrationReport | null = null,
   exportOptions: RecipeExportOptions | null = null,
 ): Promise<SavedRecipe | null> {
   return invoke<SavedRecipe | null>("save_transform_recipe", {
     recipe,
     name,
-    migrationReport,
     exportOptions,
   });
 }
@@ -1088,22 +976,4 @@ export function openProject(projectId: string): Promise<ProjectOpenResult> {
 
 export function deleteProject(projectId: string): Promise<void> {
   return invoke<void>("delete_project", { projectId });
-}
-
-export function importDataprepSessionProject(
-  name: string | null = null,
-  sheetName: string | null = null,
-  headerMode: SpreadsheetHeaderMode | null = null,
-  onProgress?: ProgressHandler,
-): Promise<ProjectSummary> {
-  return invoke<ProjectSummary>("import_dataprep_session_project", {
-    name,
-    sheetName,
-    headerMode,
-    onProgress: progressChannel(onProgress),
-  });
-}
-
-export function previewDataprepSessionMigration(): Promise<SessionMigrationReport | null> {
-  return invoke<SessionMigrationReport | null>("preview_dataprep_session_migration");
 }

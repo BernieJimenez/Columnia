@@ -1,7 +1,0 @@
-{
-  "name": "Receta legacy sintética",
-  "rename_text": "old_name -> new_name",
-  "dtype_col": "age",
-  "dtype_type": "integer",
-  "keep_columns": ["new_name", "age"]
-}

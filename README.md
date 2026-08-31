@@ -85,8 +85,7 @@ con su cursor y la actividad SQL agregada del proyecto. Los catálogos v1, v2 y 
 se migran de forma compatible al abrirse. La actividad SQL se limita a cinco
 entradas de estado, duración y filas; no guarda consultas, rutas ni valores.
 Los contratos de calidad intercambiados como archivos usan el formato canónico
-`columnia-quality-rules` v1 y conservan compatibilidad con DataPrep v1–v3 y el
-documento legado v1.
+`columnia-quality-rules` v1 y conservan compatibilidad con el documento legado v1.
 Columnia valida el conjunto durable antes de activarlo; si un perfil o snapshot
 está corrupto, la apertura falla sin reemplazar el dataset actual.
 
@@ -95,22 +94,6 @@ sesión temporal para continuar trabajando sin modificar directamente los
 artefactos guardados. El historial conserva el máximo de doce revisiones y el
 presupuesto de 1 GiB. Eliminar un proyecto no descarta el dataset que ya está
 abierto en memoria.
-
-### Migración de sesiones DataPrep
-
-En **Preparar**, **Cargar receta** acepta pipelines DataPrep v1–v3 y manifiestos
-de sesión que contengan una transformación reconocible. Columnia convierte solo
-las operaciones seguras a una receta local y muestra un resumen estructural de
-la sesión detectada: hoja, etapa, operaciones aplicadas, reglas y comprobaciones
-de análisis. Las referencias al archivo original y a snapshots se conservan
-únicamente como señales de revisión; no se activan ni se copian automáticamente,
-por lo que una importación parcial nunca reemplaza un proyecto válido.
-
-La compatibilidad de sesión se mantiene en la capa nativa para migraciones y
-restauraciones controladas, pero no se expone como una acción dentro de
-**Proyectos**. Cuando una migración autorizada valida la fuente, la hoja, el
-esquema y la receta en un estado temporal, puede restaurar un `snapshot_path`
-local y compatible sin volver a ejecutar la receta sobre datos ya materializados.
 
 ## Desarrollo local
 
@@ -245,8 +228,6 @@ cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- i
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- batch --manifest lote.json
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-list --store .\almacen-columnia
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-save --store .\almacen-columnia --name Ventas --input datos.csv --profile
-cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-import-dataprep --store .\almacen-columnia --session sesion-dataprep.json --name Ventas-migradas
-cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- session-migration-report --session sesion-dataprep.json
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-inspect --store .\almacen-columnia --id <id>
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-export --store .\almacen-columnia --id <id> --output entrega.parquet --format parquet
 cargo run --release --manifest-path src-tauri/Cargo.toml --bin columnia-cli -- project-delete --store .\almacen-columnia --id <id> --confirm <id>
@@ -267,13 +248,9 @@ lee el documento `columnia-quality-rules` v1; también acepta el documento legad
 `{"version":1,"rules":[...]}`. Formatos o versiones futuras se rechazan.
 Devuelve 0 cuando el contrato pasa, 2 cuando falla y 1 ante errores de uso/carga.
 `quality-migration-report --rules FILE` ejecuta un preflight sanitizado para
-contratos Columnia, DataPrep v1–v3 y legacy: informa severidades, políticas,
+contratos Columnia y documentos legacy: informa severidades, políticas,
 omisiones, acciones manuales y hash SHA-256 sin exponer rutas, columnas ni
 valores; devuelve 2 si requiere revisión.
-`session-migration-report --session FILE` ejecuta el mismo preflight
-de solo lectura sobre una sesión DataPrep v1–v3: resume origen, snapshot, hoja,
-etapa, operaciones, receta, calidad y análisis, detecta referencias ausentes y
-colisiones, e incluye el hash y acciones manuales sin escribir proyectos.
 
 Un manifiesto batch v1 contiene entre 1 y 64 trabajos `input`, `recipe`,
 `output` y `format`, más `sheet`/`header` para libros. Las rutas relativas se
@@ -283,13 +260,12 @@ propio manifiesto. Cada trabajo es atómico, pero el lote no es una transacción
 global: un fallo tardío conserva los trabajos anteriores, informa su ordinal y
 termina con código 2. Un manifiesto inválido termina con código 1 sin outputs.
 
-Los seis comandos de proyectos requieren un almacén explícito y canonicalizado
+Los cinco comandos de proyectos requieren un almacén explícito y canonicalizado
 mediante `--store <directorio>`; no usan implícitamente el directorio privado de
 la aplicación de escritorio:
 
 - `project-save --store DIR --name NAME --input FILE [--id ID] [--sheet NAME --header first-row|generated] [--recipe FILE] [--rules FILE] [--profile]` crea un proyecto o actualiza el ID indicado. La receta, las reglas y el cálculo de perfil son opcionales.
 - `project-list --store DIR` lista resúmenes ordenados del catálogo.
-- `project-import-dataprep --store DIR --session FILE [--name NAME]` migra una sesión DataPrep como proyecto nuevo. Valida referencias y receta antes de escribir; si la fuente falta, usa un snapshot compatible cuando existe.
 - `project-inspect --store DIR --id ID` inspecciona metadatos y estado durable sin activar el proyecto ni abrir una sesión de escritorio.
 - `project-export --store DIR --id ID --output FILE --format csv|json|parquet|sql|excel|sqlite|bundle [--allow-unvalidated]` valida y exporta el snapshot completo de forma atómica, sin activarlo ni cambiar la recuperación del escritorio. Las reglas guardadas siempre deben aprobar; `--allow-unvalidated` solo autoriza un proyecto que no tenga reglas.
 - `project-delete --store DIR --id ID --confirm ID` borra únicamente cuando la confirmación coincide exactamente con el ID.
@@ -300,12 +276,10 @@ Todos emiten JSON v1 por stdout sin rutas, filas ni muestras. Sus contratos son:
 | --- | --- |
 | `project-list` | `schemaVersion`, `command`, `projects` con resúmenes de ID, nombre, archivo visible, dimensiones y fechas |
 | `project-save` | `schemaVersion`, `command`, `created`, `project` |
-| `project-import-dataprep` | `schemaVersion`, `command`, `imported`, `project` |
 | `project-inspect` | `schemaVersion`, `command`, `project`, `profileCached`, `qualityRuleCount`, `recipeDraftPresent`, `history` con conteo, cursor, disponibilidad de undo/redo y estado degradado |
 | `project-export` | `schemaVersion`, `command`, `status`, `format`, `quality`; añade `fileName` y `fileSizeBytes` solo cuando publica |
 | `project-delete` | `schemaVersion`, `command`, `id`, `deleted` |
 | `quality-migration-report` | `schemaVersion`, `command`, `sourceFormat`, `sourceVersion`, `artifactSha256`, `policies`, reglas agregadas y acciones manuales |
-| `session-migration-report` | `schemaVersion`, `command`, `artifactSha256`, `origin`, `session`, `recipeSummary`, `quality`, referencias, colisiones y acciones manuales |
 
 El código 0 indica éxito, 2 indica una exportación bloqueada por reglas
 reprobadas y 1 indica error de uso, carga o almacenamiento.
@@ -341,9 +315,8 @@ perfiles comprueban además documentación, inventario IPC y toolchains fijados.
 añade Clippy con warnings como errores y las pruebas Rust. `Release` agrega el
 binario Tauri optimizado sin crear instaladores ni usar servicios externos.
 
-El flujo principal replica el orden de `dataprepv1.1`: **Cargar → Revisar →
-Preparar → Entregar**. Cada acción aparece únicamente en la etapa que le
-corresponde.
+El flujo principal sigue el orden **Cargar → Revisar → Preparar → Entregar**.
+Cada acción aparece únicamente en la etapa que le corresponde.
 
 En **Cargar**, usa **Seleccionar dataset** o arrastra un archivo compatible a la
 ventana. Rust abre el diálogo nativo para CSV,
@@ -387,9 +360,9 @@ unicidad compuesta, comparación entre columnas, integridad referencial,
 monotonía, agregados, drift de distribución, rangos de fecha, condiciones,
 contratos de esquema y conteo de filas. Cada regla admite tolerancia por cantidad
 o porcentaje; Rust vuelve a evaluar el contrato sobre el snapshot que escribirá
-y el resultado solo expone conteos. Los contratos se pueden importar desde
-DataPrep y guardar como `columnia-quality-rules` v1 mediante diálogos nativos,
-sin exponer rutas a React. Si no existen reglas, la entrega no validada requiere
+y el resultado solo expone conteos. Los contratos se pueden guardar como
+`columnia-quality-rules` v1 mediante diálogos nativos, sin exponer rutas a React.
+Si no existen reglas, la entrega no validada requiere
 una confirmación explícita. El modo de privacidad puede dejar los datos intactos,
 enmascarar o aplicar SHA-256 a columnas detectadas por nombre, incluidos
 identificadores numéricos; el resultado informa las columnas protegidas sin

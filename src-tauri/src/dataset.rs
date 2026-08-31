@@ -91,11 +91,6 @@ const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_AUDIT_CELL_CHARS: usize = 2048;
 const RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
-const MAX_SESSION_METADATA_NAMES: usize = 64;
-const MAX_SESSION_METADATA_NAME_CHARS: usize = 96;
-const MAX_SESSION_SAMPLE_ROWS: usize = 3_000_000;
-const MAX_SESSION_EXECUTION_HISTORY_ENTRIES: usize = 5;
-const MAX_SESSION_EXECUTION_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
@@ -267,7 +262,7 @@ const QUALITY_DATASET_COLUMN: &str = "__dataset__";
 const QUALITY_MIGRATION_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const QUALITY_RULES_DOCUMENT_FORMAT: &str = "columnia-quality-rules";
 const QUALITY_RULES_DOCUMENT_VERSION: u8 = 1;
-const DATAPREP_QUALITY_DOCUMENT_MAX_VERSION: u8 = 3;
+const LEGACY_QUALITY_DOCUMENT_MAX_VERSION: u8 = 3;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1137,106 +1132,6 @@ pub struct RecipeExportOptions {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RecipeMigrationWarning {
-    path: String,
-    severity: String,
-    message: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionMigrationMetadata {
-    has_source_reference: bool,
-    has_snapshot_reference: bool,
-    sheet_name: Option<String>,
-    stage_label: Option<String>,
-    applied_operation_count: usize,
-    quality_rule_count: usize,
-    analysis_check_count: usize,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    applied_operations: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    analysis_checks: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    analysis_sampled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    analysis_sample_row_count: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    analysis_total_row_count: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    history_snapshot_count: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    history_cursor: Option<usize>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    non_portable_artifacts: Vec<String>,
-}
-
-type SessionSampleMetadataValues = (Option<bool>, Option<usize>, Option<usize>);
-
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum SessionReferenceStatus {
-    NotProvided,
-    Available,
-    Missing,
-    Unsupported,
-}
-
-/// A read-only migration decision. It deliberately contains no resolved paths so it can
-/// cross the IPC boundary without leaking the user's filesystem layout.
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct DataprepSessionMigrationPlan {
-    pub(crate) name: String,
-    pub(crate) source_file_name: Option<String>,
-    pub(crate) source_status: SessionReferenceStatus,
-    pub(crate) snapshot_status: SessionReferenceStatus,
-    pub(crate) sheet_name: Option<String>,
-    pub(crate) stage_label: Option<String>,
-    pub(crate) recipe: StoredTransformRecipe,
-    pub(crate) quality_rules: Vec<QualityRule>,
-    pub(crate) quality_report: Option<QualityMigrationReport>,
-    pub(crate) missing_references: Vec<String>,
-    pub(crate) collisions: Vec<String>,
-    pub(crate) can_create_project: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SessionExecutionHistoryEntry {
-    pub(crate) outcome: String,
-    pub(crate) duration_ms: u64,
-    pub(crate) row_count: Option<usize>,
-}
-
-pub(crate) struct DataprepSessionHistoryEntry {
-    pub(crate) label: String,
-    pub(crate) path: PathBuf,
-}
-
-pub(crate) struct DataprepSessionHistory {
-    pub(crate) entries: Vec<DataprepSessionHistoryEntry>,
-    pub(crate) cursor: usize,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RecipeMigrationReport {
-    artifact_sha256: Option<String>,
-    source_format: String,
-    source_version: Option<u64>,
-    converted_items: usize,
-    omitted_items: usize,
-    warning_count: usize,
-    converted_operations: Vec<String>,
-    omitted_operations: Vec<String>,
-    warnings: Vec<RecipeMigrationWarning>,
-    manual_actions: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    session: Option<SessionMigrationMetadata>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredTransformRecipe {
     pub version: u32,
     pub name: String,
@@ -1244,18 +1139,6 @@ pub struct StoredTransformRecipe {
     pub recipe: TransformRecipe,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export_options: Option<RecipeExportOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub migration_report: Option<RecipeMigrationReport>,
-}
-
-impl StoredTransformRecipe {
-    pub(crate) fn session_applied_operations(&self) -> Vec<String> {
-        self.migration_report
-            .as_ref()
-            .and_then(|report| report.session.as_ref())
-            .map(|session| session.applied_operations.clone())
-            .unwrap_or_default()
-    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -1358,100 +1241,6 @@ impl HistoryManager {
         };
         manager.record(frame, "Dataset original")?;
         Ok(manager)
-    }
-
-    fn from_imported_paths_with_progress<F, C>(
-        entries: &[DataprepSessionHistoryEntry],
-        cursor: usize,
-        current_frame: &DataFrame,
-        mut report: F,
-        is_cancelled: C,
-    ) -> Result<Self, String>
-    where
-        F: FnMut(&'static str, u8),
-        C: Fn() -> bool,
-    {
-        ensure_not_cancelled(is_cancelled())?;
-        if entries.is_empty() || entries.len() > HISTORY_MAX_ENTRIES || cursor >= entries.len() {
-            return Err("El historial importado supera los límites admitidos.".to_owned());
-        }
-        let directory = tempfile::tempdir()
-            .map_err(|_| "No se pudo preparar el historial importado.".to_owned())?;
-        let mut history_entries = Vec::with_capacity(entries.len());
-        let mut total_bytes = 0_u64;
-        let mut cursor_matches = false;
-        for (index, entry) in entries.iter().enumerate() {
-            ensure_not_cancelled(is_cancelled())?;
-            report(
-                "Restaurando historial",
-                ((index + 1) * 100 / entries.len()) as u8,
-            );
-            validate_history_label(&entry.label)?;
-            let metadata = fs::symlink_metadata(&entry.path).map_err(|_| {
-                "Un snapshot del historial de la sesión no está disponible.".to_owned()
-            })?;
-            if is_symbolic_link_or_reparse_point(&metadata) || !metadata.is_file() {
-                return Err(
-                    "Un snapshot del historial de la sesión no es un archivo regular.".to_owned(),
-                );
-            }
-            let bytes = metadata.len();
-            total_bytes = total_bytes.checked_add(bytes).ok_or_else(|| {
-                "El historial importado supera su presupuesto de disco.".to_owned()
-            })?;
-            if total_bytes > HISTORY_DISK_BUDGET_BYTES {
-                return Err("El historial importado supera su presupuesto de disco.".to_owned());
-            }
-            let destination = directory
-                .path()
-                .join(format!("snapshot-{index:020}.parquet"));
-            let copied = fs::copy(&entry.path, &destination)
-                .map_err(|_| "No se pudo copiar un snapshot del historial importado.".to_owned())?;
-            if copied != bytes {
-                return Err(
-                    "Un snapshot del historial de la sesión cambió durante la copia.".to_owned(),
-                );
-            }
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&destination)
-                .and_then(|file| file.sync_all())
-                .map_err(|_| {
-                    "No se pudo sincronizar un snapshot del historial importado.".to_owned()
-                })?;
-            let matches = validate_staged_history_snapshot(
-                &destination,
-                current_frame,
-                index == cursor,
-                "Un snapshot del historial de la sesión no se puede leer como Parquet.",
-            )?;
-            if index == cursor {
-                cursor_matches = matches;
-            }
-            history_entries.push(HistoryEntry {
-                label: entry.label.clone(),
-                path: destination,
-                bytes: copied,
-            });
-        }
-        ensure_not_cancelled(is_cancelled())?;
-        if !cursor_matches {
-            return Err(
-                "El cursor del historial importado no coincide con el dataset actual.".to_owned(),
-            );
-        }
-        Ok(Self {
-            directory,
-            entries: history_entries,
-            cursor,
-            snapshots_enabled: true,
-            degraded_reason: None,
-            current_label: entries[cursor].label.clone(),
-            next_id: entries.len() as u64,
-            max_entries: HISTORY_MAX_ENTRIES,
-            disk_budget_bytes: HISTORY_DISK_BUDGET_BYTES,
-        })
     }
 
     fn disk_bytes(&self) -> u64 {
@@ -1686,7 +1475,6 @@ pub struct DatasetState {
     profile_generation: AtomicU64,
     export_generation: AtomicU64,
     query_generation: AtomicU64,
-    migration_generation: AtomicU64,
 }
 
 impl DatasetState {
@@ -1727,12 +1515,6 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
-    pub(crate) fn begin_migration(&self) -> u64 {
-        self.migration_generation
-            .fetch_add(1, Ordering::SeqCst)
-            .wrapping_add(1)
-    }
-
     fn load_was_cancelled(&self, generation: u64) -> bool {
         self.load_generation.load(Ordering::SeqCst) != generation
     }
@@ -1747,10 +1529,6 @@ impl DatasetState {
 
     fn query_was_cancelled(&self, generation: u64) -> bool {
         self.query_generation.load(Ordering::SeqCst) != generation
-    }
-
-    pub(crate) fn migration_was_cancelled(&self, generation: u64) -> bool {
-        self.migration_generation.load(Ordering::SeqCst) != generation
     }
 
     fn remember_last_export(&self, path: PathBuf) {
@@ -1773,7 +1551,6 @@ impl DatasetState {
             "profile" => &self.profile_generation,
             "export" => &self.export_generation,
             "query" => &self.query_generation,
-            "migration" => &self.migration_generation,
             _ => return Err("La operación indicada no admite cancelación.".to_owned()),
         };
         generation.fetch_add(1, Ordering::SeqCst);
@@ -5184,7 +4961,7 @@ struct TextStatistics {
 }
 
 #[derive(Clone, Copy)]
-enum DataprepDateFormat {
+enum InferredDateFormat {
     Ymd,
     DmySlash,
     MdySlash,
@@ -5202,25 +4979,25 @@ enum DataprepDateFormat {
     Iso8601,
 }
 
-const DATAPREP_DATE_FORMATS: &[DataprepDateFormat] = &[
-    DataprepDateFormat::Ymd,
-    DataprepDateFormat::DmySlash,
-    DataprepDateFormat::MdySlash,
-    DataprepDateFormat::DmyDash,
-    DataprepDateFormat::YmdSlash,
-    DataprepDateFormat::DmyShort,
-    DataprepDateFormat::DmyLong,
-    DataprepDateFormat::CompactYmd,
-    DataprepDateFormat::DmyShortDash,
-    DataprepDateFormat::MdyShort,
-    DataprepDateFormat::MdyLong,
-    DataprepDateFormat::YmdTime,
-    DataprepDateFormat::YmdSpaceTime,
-    DataprepDateFormat::DmySlashTime,
-    DataprepDateFormat::Iso8601,
+const INFERRED_DATE_FORMATS: &[InferredDateFormat] = &[
+    InferredDateFormat::Ymd,
+    InferredDateFormat::DmySlash,
+    InferredDateFormat::MdySlash,
+    InferredDateFormat::DmyDash,
+    InferredDateFormat::YmdSlash,
+    InferredDateFormat::DmyShort,
+    InferredDateFormat::DmyLong,
+    InferredDateFormat::CompactYmd,
+    InferredDateFormat::DmyShortDash,
+    InferredDateFormat::MdyShort,
+    InferredDateFormat::MdyLong,
+    InferredDateFormat::YmdTime,
+    InferredDateFormat::YmdSpaceTime,
+    InferredDateFormat::DmySlashTime,
+    InferredDateFormat::Iso8601,
 ];
 
-fn parse_dataprep_datetime(value: &str, format: DataprepDateFormat) -> Option<NaiveDateTime> {
+fn parse_inferred_datetime(value: &str, format: InferredDateFormat) -> Option<NaiveDateTime> {
     let value = value.trim();
     let parse_date = |format| {
         NaiveDate::parse_from_str(value, format)
@@ -5234,33 +5011,33 @@ fn parse_dataprep_datetime(value: &str, format: DataprepDateFormat) -> Option<Na
     };
 
     match format {
-        DataprepDateFormat::Ymd => parse_date("%Y-%m-%d"),
-        DataprepDateFormat::DmySlash => parse_date("%d/%m/%Y"),
-        DataprepDateFormat::MdySlash => parse_date("%m/%d/%Y"),
-        DataprepDateFormat::DmyDash => parse_date("%d-%m-%Y"),
-        DataprepDateFormat::YmdSlash => parse_date("%Y/%m/%d"),
-        DataprepDateFormat::DmyShort => parse_date("%d %b %Y"),
-        DataprepDateFormat::DmyLong => parse_date("%d %B %Y"),
-        DataprepDateFormat::CompactYmd => parse_date("%Y%m%d"),
-        DataprepDateFormat::DmyShortDash => parse_date("%d-%b-%Y"),
-        DataprepDateFormat::MdyShort => parse_date("%b %d, %Y"),
-        DataprepDateFormat::MdyLong => parse_date("%B %d, %Y"),
-        DataprepDateFormat::YmdTime => {
+        InferredDateFormat::Ymd => parse_date("%Y-%m-%d"),
+        InferredDateFormat::DmySlash => parse_date("%d/%m/%Y"),
+        InferredDateFormat::MdySlash => parse_date("%m/%d/%Y"),
+        InferredDateFormat::DmyDash => parse_date("%d-%m-%Y"),
+        InferredDateFormat::YmdSlash => parse_date("%Y/%m/%d"),
+        InferredDateFormat::DmyShort => parse_date("%d %b %Y"),
+        InferredDateFormat::DmyLong => parse_date("%d %B %Y"),
+        InferredDateFormat::CompactYmd => parse_date("%Y%m%d"),
+        InferredDateFormat::DmyShortDash => parse_date("%d-%b-%Y"),
+        InferredDateFormat::MdyShort => parse_date("%b %d, %Y"),
+        InferredDateFormat::MdyLong => parse_date("%B %d, %Y"),
+        InferredDateFormat::YmdTime => {
             parse_datetime(&["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S"])
         }
-        DataprepDateFormat::YmdSpaceTime => {
+        InferredDateFormat::YmdSpaceTime => {
             parse_datetime(&["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%d %H:%M:%S"])
         }
-        DataprepDateFormat::DmySlashTime => parse_datetime(&["%d/%m/%Y %H:%M"]),
-        DataprepDateFormat::Iso8601 => parse_recipe_datetime(value, RecipeDateFormat::Iso8601).ok(),
+        InferredDateFormat::DmySlashTime => parse_datetime(&["%d/%m/%Y %H:%M"]),
+        InferredDateFormat::Iso8601 => parse_recipe_datetime(value, RecipeDateFormat::Iso8601).ok(),
     }
 }
 
 fn is_supported_date(value: &str) -> bool {
-    DATAPREP_DATE_FORMATS
+    INFERRED_DATE_FORMATS
         .iter()
         .copied()
-        .any(|format| parse_dataprep_datetime(value, format).is_some())
+        .any(|format| parse_inferred_datetime(value, format).is_some())
 }
 
 fn is_missing_sentinel(value: &str) -> bool {
@@ -7478,173 +7255,13 @@ fn remove_empty_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize),
     Ok((cleaned, affected_row_count))
 }
 
-fn remove_null_only_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize), String> {
-    let keep = (0..frame.height())
-        .map(|row_index| {
-            frame
-                .columns()
-                .iter()
-                .map(|column| {
-                    column
-                        .get(row_index)
-                        .map(|value| !matches!(value, AnyValue::Null))
-                        .map_err(|error| format!("No se pudo leer la fila vacía: {error}"))
-                })
-                .try_fold(false, |has_value, value| {
-                    value.map(|value| has_value || value)
-                })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let cleaned = frame
-        .filter(&BooleanChunked::from_slice("non_null_row".into(), &keep))
-        .map_err(|error| format!("No se pudieron eliminar las filas nulas: {error}"))?;
-    let affected_row_count = frame.height().saturating_sub(cleaned.height());
-    Ok((cleaned, affected_row_count))
-}
-
-fn remove_dataprep_columns_from_frame(
-    frame: &DataFrame,
-    candidates: Vec<String>,
-    error_message: &str,
-) -> Result<(DataFrame, Vec<String>), String> {
-    if frame.width() <= 1 {
-        return Ok((frame.clone(), Vec::new()));
-    }
-    let removed_columns = candidates
-        .into_iter()
-        .take(frame.width().saturating_sub(1))
-        .collect::<Vec<_>>();
-    if removed_columns.is_empty() {
-        return Ok((frame.clone(), removed_columns));
-    }
-    let remaining_columns = frame
-        .get_column_names()
-        .iter()
-        .filter(|name| {
-            !removed_columns
-                .iter()
-                .any(|removed| removed == name.as_str())
-        })
-        .map(|name| name.to_string())
-        .collect::<Vec<_>>();
-    let cleaned = frame
-        .select(&remaining_columns)
-        .map_err(|error| format!("{error_message}: {error}"))?;
-    Ok((cleaned, removed_columns))
-}
-
-fn dataprep_numeric_text(value: &str) -> bool {
-    let value = value.trim();
-    let value = value.strip_prefix('-').unwrap_or(value);
-    let mut parts = value.split('.');
-    let integer = parts.next().unwrap_or_default();
-    let fraction = parts.next();
-    !integer.is_empty()
-        && integer.chars().all(|character| character.is_ascii_digit())
-        && fraction.is_none_or(|fraction| {
-            !fraction.is_empty() && fraction.chars().all(|character| character.is_ascii_digit())
-        })
-        && parts.next().is_none()
-}
-
-fn dataprep_leading_zero_text(value: &str) -> bool {
+fn leading_zero_code(value: &str) -> bool {
     let value = value.trim().trim_start_matches(['+', '-']);
     value.starts_with('0')
         && value
             .chars()
             .nth(1)
             .is_some_and(|character| character.is_ascii_digit())
-}
-
-fn dataprep_numeric_or_date_text_column(column: &Column) -> Result<bool, String> {
-    if matches!(
-        column.dtype(),
-        DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-            | DataType::Float32
-            | DataType::Float64
-            | DataType::Date
-            | DataType::Datetime(_, _)
-    ) {
-        return Ok(true);
-    }
-    if column.dtype() != &DataType::String {
-        return Ok(false);
-    }
-    let values = column
-        .str()
-        .map_err(|error| format!("No se pudo inferir la columna '{}': {error}", column.name()))?
-        .iter()
-        .flatten()
-        .take(50)
-        .collect::<Vec<_>>();
-    if values.is_empty() {
-        return Ok(false);
-    }
-    let numeric_count = values
-        .iter()
-        .filter(|value| dataprep_numeric_text(value))
-        .count();
-    if numeric_count * 10 > values.len() * 8
-        && !values.iter().any(|value| dataprep_leading_zero_text(value))
-    {
-        return Ok(true);
-    }
-    let date_count = values
-        .iter()
-        .filter(|value| is_supported_date(value.trim()))
-        .count();
-    Ok(date_count * 10 > values.len() * 8)
-}
-
-fn remove_dataprep_high_null_columns_from_reference(
-    frame: &DataFrame,
-    reference: &DataFrame,
-) -> Result<(DataFrame, Vec<String>), String> {
-    let candidates = reference
-        .columns()
-        .iter()
-        .filter(|column| {
-            let null_count = column.null_count();
-            null_count > 0 && null_count.saturating_mul(100) > reference.height().saturating_mul(80)
-        })
-        .map(|column| column.name().to_string())
-        .collect::<Vec<_>>();
-    remove_dataprep_columns_from_frame(
-        frame,
-        candidates,
-        "No se pudieron eliminar columnas DataPrep con alta nulidad",
-    )
-}
-
-fn remove_dataprep_identifier_columns_from_reference(
-    frame: &DataFrame,
-    reference: &DataFrame,
-) -> Result<(DataFrame, Vec<String>), String> {
-    let mut candidates = Vec::new();
-    for column in reference.columns() {
-        if column.null_count() != 0
-            || column.n_unique().map_err(|error| {
-                format!("No se pudo contar la columna '{}': {error}", column.name())
-            })? != reference.height()
-        {
-            continue;
-        }
-        if !dataprep_numeric_or_date_text_column(column)? {
-            candidates.push(column.name().to_string());
-        }
-    }
-    remove_dataprep_columns_from_frame(
-        frame,
-        candidates,
-        "No se pudieron eliminar columnas identificadoras de DataPrep",
-    )
 }
 
 fn remove_constant_columns_from_frame(
@@ -8115,187 +7732,7 @@ fn clean_text_columns(
     ))
 }
 
-fn dataprep_is_proper_noun_column(name: &str) -> bool {
-    let normalized = normalize_text_value(name, true);
-    [
-        "nombre",
-        "name",
-        "apellido",
-        "surname",
-        "ciudad",
-        "city",
-        "pais",
-        "country",
-        "region",
-        "provincia",
-        "estado",
-        "state",
-        "municipio",
-        "municipality",
-        "localidad",
-        "barrio",
-        "district",
-        "marca",
-        "brand",
-    ]
-    .into_iter()
-    .any(|pattern| normalized.contains(pattern))
-}
-
-fn dataprep_title_case(value: &str) -> String {
-    let mut titled = String::with_capacity(value.len());
-    for (index, word) in value.split(' ').enumerate() {
-        if index > 0 {
-            titled.push(' ');
-        }
-        let mut characters = word.chars();
-        if let Some(first) = characters.next() {
-            titled.extend(first.to_uppercase());
-            titled.extend(characters);
-        }
-    }
-    titled
-}
-
-fn normalize_dataprep_text_columns(
-    frame: &DataFrame,
-) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
-    let mut cleaned = frame.clone();
-    let mut changed_rows = vec![false; frame.height()];
-    let mut changed_cell_count = 0;
-    let mut changed_columns = Vec::new();
-
-    for column in frame.columns() {
-        let name = column.name().to_string();
-        if name == "_cambios" || column.dtype() != &DataType::String {
-            continue;
-        }
-        let values = column
-            .str()
-            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
-        let distinct_non_null = values.iter().flatten().collect::<HashSet<_>>().len();
-        if distinct_non_null.saturating_mul(2) > frame.height() {
-            continue;
-        }
-        let title_case = dataprep_is_proper_noun_column(&name);
-        let mut column_changes = 0;
-        let transformed = values
-            .iter()
-            .enumerate()
-            .map(|(row_index, value)| {
-                value.map(|original| {
-                    let normalized = normalize_text_value(original, true);
-                    let next = if title_case {
-                        dataprep_title_case(&normalized)
-                    } else {
-                        normalized
-                    };
-                    if next != original {
-                        column_changes += 1;
-                        changed_cell_count += 1;
-                        changed_rows[row_index] = true;
-                    }
-                    next
-                })
-            })
-            .collect::<Vec<_>>();
-
-        if column_changes > 0 {
-            cleaned
-                .replace(&name, Column::new(name.clone().into(), transformed))
-                .map_err(|error| format!("No se pudo normalizar la columna '{name}': {error}"))?;
-            changed_columns.push(ChangedTextColumn {
-                name,
-                changed_cell_count: column_changes,
-            });
-        }
-    }
-
-    Ok((
-        cleaned,
-        changed_rows.into_iter().filter(|changed| *changed).count(),
-        changed_cell_count,
-        changed_columns,
-    ))
-}
-
-fn dataprep_boolean_token(value: &str) -> Option<bool> {
-    match value.trim().to_lowercase().as_str() {
-        "si" | "sí" | "yes" | "y" | "true" | "verdadero" | "1" => Some(true),
-        "no" | "n" | "false" | "falso" | "0" => Some(false),
-        _ => None,
-    }
-}
-
-fn normalize_dataprep_boolean_columns(
-    frame: &DataFrame,
-) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
-    let mut cleaned = frame.clone();
-    let mut changed_rows = vec![false; frame.height()];
-    let mut changed_cell_count = 0;
-    let mut changed_columns = Vec::new();
-
-    for column in frame.columns() {
-        let name = column.name().to_string();
-        if name == "_cambios" || column.dtype() != &DataType::String {
-            continue;
-        }
-        let values = column
-            .str()
-            .map_err(|error| format!("No se pudo leer la columna booleana '{name}': {error}"))?;
-        let tokens = values
-            .iter()
-            .flatten()
-            .map(|value| value.trim().to_lowercase())
-            .collect::<Vec<_>>();
-        if tokens.is_empty()
-            || !tokens
-                .iter()
-                .all(|value| dataprep_boolean_token(value).is_some())
-            || !tokens
-                .iter()
-                .any(|value| dataprep_boolean_token(value) == Some(true))
-            || !tokens
-                .iter()
-                .any(|value| dataprep_boolean_token(value) == Some(false))
-        {
-            continue;
-        }
-
-        let mut transformed = Vec::with_capacity(values.len());
-        for (row_index, value) in values.iter().enumerate() {
-            let Some(value) = value else {
-                transformed.push(None);
-                continue;
-            };
-            let next = dataprep_boolean_token(value).ok_or_else(|| {
-                format!("La columna booleana '{name}' contiene un token no reconocido.")
-            })?;
-            changed_rows[row_index] = true;
-            changed_cell_count += 1;
-            transformed.push(Some(next));
-        }
-        let column_changes = transformed.iter().filter(|value| value.is_some()).count();
-        cleaned
-            .replace(&name, Column::new(name.clone().into(), transformed))
-            .map_err(|error| {
-                format!("No se pudo normalizar la columna booleana '{name}': {error}")
-            })?;
-        changed_columns.push(ChangedTextColumn {
-            name,
-            changed_cell_count: column_changes,
-        });
-    }
-
-    Ok((
-        cleaned,
-        changed_rows.into_iter().filter(|changed| *changed).count(),
-        changed_cell_count,
-        changed_columns,
-    ))
-}
-
-fn parse_dataprep_date_columns(
+fn parse_inferred_date_columns(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     const INFERENCE_THRESHOLD_PERCENTAGE: usize = 80;
@@ -8334,10 +7771,10 @@ fn parse_dataprep_date_columns(
             continue;
         }
 
-        let inferred_format = DATAPREP_DATE_FORMATS.iter().copied().find(|format| {
+        let inferred_format = INFERRED_DATE_FORMATS.iter().copied().find(|format| {
             let parsed = sample
                 .iter()
-                .filter_map(|value| parse_dataprep_datetime(value, *format))
+                .filter_map(|value| parse_inferred_datetime(value, *format))
                 .collect::<Vec<_>>();
             parsed.len() * 100 > sample.len() * INFERENCE_THRESHOLD_PERCENTAGE
                 && parsed
@@ -8348,7 +7785,7 @@ fn parse_dataprep_date_columns(
             continue;
         };
 
-        let parse_value = |value: &str| parse_dataprep_datetime(value, inferred_format);
+        let parse_value = |value: &str| parse_inferred_datetime(value, inferred_format);
         let parsed = values
             .iter()
             .map(|value| value.as_deref().and_then(parse_value))
@@ -8525,83 +7962,6 @@ fn impute_missing_values_in_frame(
     ))
 }
 
-fn impute_dataprep_numeric_values_in_frame(
-    frame: &DataFrame,
-) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
-    let mut cleaned = frame.clone();
-    let mut changed_rows = vec![false; frame.height()];
-    let mut changed_cell_count = 0;
-    let mut changed_columns = Vec::new();
-
-    for column in frame.columns() {
-        let name = column.name().to_string();
-        if name == "_cambios"
-            || !matches!(column.dtype(), DataType::Int64 | DataType::Float64)
-            || column.null_count() == 0
-        {
-            continue;
-        }
-
-        let values = physical_numeric_values(column)?;
-        let mut observed = values.iter().flatten().copied().collect::<Vec<_>>();
-        if observed.is_empty() {
-            continue;
-        }
-        observed.sort_by(f64::total_cmp);
-        let middle = observed.len() / 2;
-        let replacement = if observed.len() % 2 == 0 {
-            (observed[middle - 1] + observed[middle]) / 2.0
-        } else {
-            observed[middle]
-        };
-        if !replacement.is_finite() {
-            return Err(format!(
-                "La mediana de '{name}' excede el rango numérico finito."
-            ));
-        }
-
-        let mut column_changes = 0;
-        let transformed = values
-            .into_iter()
-            .enumerate()
-            .map(|(row_index, value)| match value {
-                Some(value) => Some(value),
-                None => {
-                    column_changes += 1;
-                    changed_cell_count += 1;
-                    changed_rows[row_index] = true;
-                    Some(replacement)
-                }
-            })
-            .collect::<Vec<_>>();
-        let replacement_column = Column::new(name.clone().into(), transformed);
-        let replacement_column = if column.dtype() == &DataType::Int64
-            && replacement.fract() == 0.0
-            && replacement.abs() <= (1_u64 << 53) as f64
-        {
-            replacement_column
-                .cast(&DataType::Int64)
-                .map_err(|error| format!("No se pudo conservar el tipo de '{name}': {error}"))?
-        } else {
-            replacement_column
-        };
-        cleaned
-            .replace(&name, replacement_column)
-            .map_err(|error| format!("No se pudo imputar la columna numérica '{name}': {error}"))?;
-        changed_columns.push(ChangedTextColumn {
-            name,
-            changed_cell_count: column_changes,
-        });
-    }
-
-    Ok((
-        cleaned,
-        changed_rows.into_iter().filter(|changed| *changed).count(),
-        changed_cell_count,
-        changed_columns,
-    ))
-}
-
 fn impute_categorical_values_in_frame(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
@@ -8649,7 +8009,7 @@ fn impute_categorical_values_in_frame(
     ))
 }
 
-fn cast_dataprep_numeric_columns(
+fn cast_inferred_numeric_columns(
     frame: &DataFrame,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     let mut cleaned = frame.clone();
@@ -8676,7 +8036,7 @@ fn cast_dataprep_numeric_columns(
             || values
                 .iter()
                 .flatten()
-                .any(|value| dataprep_leading_zero_text(value))
+                .any(|value| leading_zero_code(value))
         {
             continue;
         }
@@ -8837,14 +8197,14 @@ fn impute_outlier_values_in_frame(
 }
 
 #[derive(Clone, Copy)]
-enum DataprepOutlierMode {
+enum OutlierMode {
     Cap,
     Drop,
 }
 
-fn apply_dataprep_outlier_mode(
+fn apply_outlier_mode(
     frame: &DataFrame,
-    mode: DataprepOutlierMode,
+    mode: OutlierMode,
 ) -> Result<(DataFrame, usize, usize, Vec<ChangedTextColumn>), String> {
     let mut candidate = frame.clone();
     let mut drop_mask = vec![false; frame.height()];
@@ -8878,7 +8238,7 @@ fn apply_dataprep_outlier_mode(
 
         let mut column_changes = 0;
         match mode {
-            DataprepOutlierMode::Cap => {
+            OutlierMode::Cap => {
                 let transformed = values
                     .into_iter()
                     .enumerate()
@@ -8900,7 +8260,7 @@ fn apply_dataprep_outlier_mode(
                         .map_err(|error| format!("No se pudo limitar '{name}': {error}"))?;
                 }
             }
-            DataprepOutlierMode::Drop => {
+            OutlierMode::Drop => {
                 for (row, value) in values.into_iter().enumerate() {
                     if value.is_some_and(|value| value < lower || value > upper) {
                         drop_mask[row] = true;
@@ -8919,7 +8279,7 @@ fn apply_dataprep_outlier_mode(
         }
     }
 
-    if matches!(mode, DataprepOutlierMode::Drop) {
+    if matches!(mode, OutlierMode::Drop) {
         affected_row_count = drop_mask.iter().filter(|drop| **drop).count();
         if affected_row_count > 0 {
             let keep = drop_mask.iter().map(|drop| !drop).collect::<Vec<_>>();
@@ -8928,7 +8288,7 @@ fn apply_dataprep_outlier_mode(
                 .map_err(|error| format!("No se pudieron retirar filas atípicas: {error}"))?;
         }
     }
-    if matches!(mode, DataprepOutlierMode::Cap) {
+    if matches!(mode, OutlierMode::Cap) {
         affected_row_count = changed_rows.iter().filter(|changed| **changed).count();
     }
 
@@ -10312,7 +9672,6 @@ fn build_stored_recipe(
         saved_at: current_recipe_timestamp(),
         recipe,
         export_options: None,
-        migration_report: None,
     };
     validate_stored_recipe(&document)?;
     Ok(document)
@@ -10622,1974 +9981,7 @@ fn load_recipe_file(path: &Path) -> Result<StoredTransformRecipe, String> {
         return Ok(document);
     }
 
-    let mut document = migration_dataprep_recipe(&raw)?;
-    if let Some(report) = &mut document.migration_report {
-        report.artifact_sha256 = Some(format!("{:x}", Sha256::digest(&bytes)));
-    }
-    Ok(document)
-}
-
-fn migration_recipe_transform(
-    root: &JsonMap<String, JsonValue>,
-) -> Result<&JsonMap<String, JsonValue>, String> {
-    if let Some(value) = root
-        .get("transform")
-        .or_else(|| root.get("transformConfig"))
-        .or_else(|| root.get("transform_config"))
-    {
-        return value.as_object().ok_or_else(|| {
-            "La configuración de transformación de DataPrep debe ser un objeto.".to_owned()
-        });
-    }
-
-    let known_field = [
-        "rename_text",
-        "dtype_col",
-        "parse_date_cols",
-        "filters",
-        "find_replace",
-        "keep_columns",
-        "calc",
-        "outliers",
-        "split_column",
-        "merge_columns",
-        "group_summary",
-        "normalize_contacts",
-        "extract_text",
-    ]
-    .iter()
-    .any(|key| root.contains_key(*key));
-
-    if known_field {
-        Ok(root)
-    } else {
-        Err("El JSON no es una receta Columnia ni contiene una transformación DataPrep reconocible.".to_owned())
-    }
-}
-
-fn migration_scalar_text(value: &JsonValue, key: &str) -> Result<String, String> {
-    match value {
-        JsonValue::String(value) => Ok(value.clone()),
-        JsonValue::Bool(value) => Ok(value.to_string()),
-        JsonValue::Number(value) => Ok(value.to_string()),
-        JsonValue::Null => Err(format!("El campo '{key}' no puede ser nulo.")),
-        JsonValue::Array(_) | JsonValue::Object(_) => {
-            Err(format!("El campo '{key}' debe ser un valor escalar."))
-        }
-    }
-}
-
-fn migration_text_field(
-    map: &JsonMap<String, JsonValue>,
-    keys: &[&str],
-    label: &str,
-) -> Result<Option<String>, String> {
-    let Some((key, value)) = keys
-        .iter()
-        .find_map(|key| map.get(*key).map(|value| (*key, value)))
-    else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    Ok(Some(migration_scalar_text(
-        value,
-        &format!("{label}/{key}"),
-    )?))
-}
-
-fn migration_required_text(
-    map: &JsonMap<String, JsonValue>,
-    keys: &[&str],
-    label: &str,
-) -> Result<String, String> {
-    migration_text_field(map, keys, label)?
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| format!("La operación DataPrep '{label}' necesita un valor de texto."))
-}
-
-fn migration_filter_operator(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "eq" | "equal" | "equals" | "=" => Some("eq"),
-        "ne" | "neq" | "not_equal" | "!=" => Some("neq"),
-        "gt" | ">" => Some("gt"),
-        "lt" | "<" => Some("lt"),
-        "gte" | "ge" | ">=" => Some("gte"),
-        "lte" | "le" | "<=" => Some("lte"),
-        "contains" => Some("contains"),
-        "not_contains" | "not contains" => Some("not_contains"),
-        "is_null" | "null" => Some("is_null"),
-        "not_null" | "not null" => Some("not_null"),
-        _ => None,
-    }
-}
-
-fn migration_cast_target(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "string" | "str" | "text" | "object" => Some("string"),
-        "integer" | "int" | "int64" => Some("integer"),
-        "decimal" | "float" | "float64" | "number" => Some("decimal"),
-        "boolean" | "bool" => Some("boolean"),
-        _ => None,
-    }
-}
-
-fn migration_date_format(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "iso8601" | "iso" | "auto" => Some("iso8601"),
-        "ymd" | "%y-%m-%d" => Some("ymd"),
-        "dmy" | "%d/%m/%y" => Some("dmy"),
-        "mdy" | "%m/%d/%y" => Some("mdy"),
-        _ => None,
-    }
-}
-
-fn migration_calculated_operation(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "add" | "+" => Some("add"),
-        "subtract" | "sub" | "-" => Some("subtract"),
-        "multiply" | "mul" | "*" => Some("multiply"),
-        "divide" | "div" | "/" => Some("divide"),
-        "concat" => Some("concat"),
-        "year" => Some("year"),
-        "month" => Some("month"),
-        "day" => Some("day"),
-        _ => None,
-    }
-}
-
-fn migration_summary_operation(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "sum" | "total" => Some("sum"),
-        "mean" | "avg" | "average" => Some("mean"),
-        "min" | "minimum" => Some("min"),
-        "max" | "maximum" => Some("max"),
-        "count" | "counts" => Some("count"),
-        "count_unique" | "nunique" | "unique" => Some("count_unique"),
-        _ => None,
-    }
-}
-
-fn push_migration_operation(operations: &mut Vec<String>, operation: impl Into<String>) {
-    let operation = operation.into();
-    if !operations.contains(&operation) {
-        operations.push(operation);
-    }
-}
-
-fn recipe_migration_warning(
-    path: impl Into<String>,
-    severity: &str,
-    message: impl Into<String>,
-) -> RecipeMigrationWarning {
-    RecipeMigrationWarning {
-        path: path.into(),
-        severity: severity.to_owned(),
-        message: message.into(),
-    }
-}
-
-fn build_recipe_migration_report(
-    source_format: &str,
-    source_version: Option<u64>,
-    mut converted_operations: Vec<String>,
-    mut omitted_operations: Vec<String>,
-    warnings: Vec<RecipeMigrationWarning>,
-    session: Option<SessionMigrationMetadata>,
-) -> RecipeMigrationReport {
-    converted_operations.sort();
-    omitted_operations.sort();
-    let mut manual_actions = vec![
-        "Revisar la receta y sus opciones de entrega antes de aplicarla o exportarla.".to_owned(),
-    ];
-    if !omitted_operations.is_empty() {
-        manual_actions.push(
-            "Revisar las operaciones y opciones omitidas; deben recrearse manualmente si siguen siendo necesarias."
-                .to_owned(),
-        );
-    }
-    if !warnings.is_empty() {
-        manual_actions.push(
-            "Confirmar las advertencias de compatibilidad frente al pipeline original de DataPrep."
-                .to_owned(),
-        );
-    }
-    RecipeMigrationReport {
-        artifact_sha256: None,
-        source_format: source_format.to_owned(),
-        source_version,
-        converted_items: converted_operations.len(),
-        omitted_items: omitted_operations.len(),
-        warning_count: warnings.len(),
-        converted_operations,
-        omitted_operations,
-        warnings,
-        manual_actions,
-        session,
-    }
-}
-
-fn migration_session_field<'a>(
-    root: &'a JsonMap<String, JsonValue>,
-    key: &str,
-) -> Option<&'a JsonValue> {
-    let camel_case = match key {
-        "source_path" => "sourcePath",
-        "snapshot_path" => "snapshotPath",
-        "sheet_name" => "sheetName",
-        "stage_label" => "stageLabel",
-        "applied_ops" => "appliedOps",
-        "selected_cleaning_operations" => "selectedCleaningOperations",
-        "quality_rules" => "qualityRules",
-        "analysis_checks" => "analysisChecks",
-        "execution_history" => "executionHistory",
-        "history_snapshots" => "historySnapshots",
-        "file_name" => "fileName",
-        _ => return root.get(key),
-    };
-    let legacy_alias = (key == "file_name").then_some("filename");
-    let find_value = |map: &'a JsonMap<String, JsonValue>| {
-        map.get(key)
-            .or_else(|| map.get(camel_case))
-            .or_else(|| {
-                (key == "selected_cleaning_operations")
-                    .then_some("selected")
-                    .and_then(|alias| map.get(alias))
-            })
-            .or_else(|| legacy_alias.and_then(|alias| map.get(alias)))
-            .filter(|value| !value.is_null())
-    };
-    let session = root.get("session").and_then(JsonValue::as_object);
-    find_value(root).or_else(|| session.and_then(find_value))
-}
-
-fn migration_cleaning_operation(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "drop_duplicates" | "remove_duplicates" | "deduplicate" => Some("drop_duplicates"),
-        "drop_high_null_cols" | "drop_high_null_columns" | "remove_high_null_columns" => {
-            Some("drop_high_null_cols")
-        }
-        "drop_id_cols" | "drop_id_columns" | "drop_identifier_columns" => Some("drop_id_cols"),
-        "drop_empty_cols" | "drop_empty_columns" | "remove_empty_columns" => {
-            Some("drop_empty_cols")
-        }
-        "drop_constant_cols" | "drop_constant_columns" | "remove_constant_columns" => {
-            Some("drop_constant_cols")
-        }
-        "drop_empty_rows" | "remove_empty_rows" => Some("drop_empty_rows"),
-        "normalize_sentinels" | "sentinels" => Some("normalize_sentinels"),
-        "impute_numeric" | "impute_missing_numeric" => Some("impute_numeric"),
-        "impute_categorical" | "impute_missing_categorical" => Some("impute_categorical"),
-        "parse_dates" | "parse_date_columns" | "parse_datetime" => Some("parse_dates"),
-        "trim_text" | "trim_text_values" => Some("trim_text"),
-        "normalize_text" | "normalize_text_values" => Some("normalize_text"),
-        "fix_encoding" | "repair_encoding" => Some("fix_encoding"),
-        "cast_numeric" | "cast_numeric_columns" => Some("cast_numeric"),
-        "cap_outliers" | "cap_outlier_values" => Some("cap_outliers"),
-        "impute_outliers" | "impute_outlier_values" => Some("impute_outliers"),
-        "drop_outliers" | "remove_outliers" => Some("drop_outliers"),
-        "normalize_booleans" | "normalize_boolean_values" => Some("normalize_booleans"),
-        "mask_pii" | "mask_personal_data" | "mask_personal_values" => Some("mask_pii"),
-        "drop_fuzzy_duplicates" | "remove_near_duplicates" | "deduplicate_fuzzy" => {
-            Some("drop_fuzzy_duplicates")
-        }
-        "normalize_columns" | "normalize_column_names" => Some("normalize_columns"),
-        "add_cambios_col" | "enable_row_audit" => Some("add_cambios_col"),
-        _ => None,
-    }
-}
-
-const DATAPREP_CLEANING_OPERATIONS: [&str; 22] = [
-    "drop_duplicates",
-    "drop_high_null_cols",
-    "drop_id_cols",
-    "drop_empty_cols",
-    "drop_constant_cols",
-    "drop_empty_rows",
-    "normalize_sentinels",
-    "impute_numeric",
-    "impute_categorical",
-    "parse_dates",
-    "trim_text",
-    "normalize_text",
-    "fix_encoding",
-    "cast_numeric",
-    "cap_outliers",
-    "impute_outliers",
-    "drop_outliers",
-    "normalize_booleans",
-    "mask_pii",
-    "drop_fuzzy_duplicates",
-    "normalize_columns",
-    "add_cambios_col",
-];
-
-fn migration_metadata_name(value: &JsonValue) -> Option<String> {
-    let candidate = value.as_str().or_else(|| {
-        value.as_object().and_then(|map| {
-            ["name", "kind", "operation", "id"]
-                .iter()
-                .find_map(|key| map.get(*key).and_then(JsonValue::as_str))
-        })
-    })?;
-    let candidate = candidate.trim();
-    if candidate.is_empty()
-        || candidate.chars().count() > MAX_SESSION_METADATA_NAME_CHARS
-        || candidate
-            .chars()
-            .any(|character| character.is_control() || matches!(character, '/' | '\\'))
-    {
-        return None;
-    }
-    Some(candidate.to_owned())
-}
-
-fn migration_session_history_value(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
-    let session = root.get("session").and_then(JsonValue::as_object);
-    let explicit_keys = [
-        "history_snapshots",
-        "historySnapshots",
-        "snapshot_history",
-        "snapshotHistory",
-    ];
-    explicit_keys
-        .iter()
-        .find_map(|key| {
-            root.get(*key)
-                .or_else(|| session.and_then(|map| map.get(*key)))
-                .filter(|value| !value.is_null())
-        })
-        .or_else(|| {
-            [
-                root.get("history"),
-                session.and_then(|map| map.get("history")),
-            ]
-            .into_iter()
-            .flatten()
-            .find(|value| {
-                value
-                    .as_object()
-                    .and_then(|map| map.get("entries"))
-                    .is_some()
-            })
-        })
-}
-
-fn migration_session_history_metadata(
-    root: &JsonMap<String, JsonValue>,
-) -> Result<Option<(usize, usize)>, String> {
-    let Some(value) = migration_session_history_value(root) else {
-        return Ok(None);
-    };
-    let object = value.as_object().ok_or_else(|| {
-        "El historial de snapshots de la sesión DataPrep debe ser un objeto.".to_owned()
-    })?;
-    let version = object
-        .get("version")
-        .and_then(JsonValue::as_u64)
-        .ok_or_else(|| {
-            "El historial de snapshots de la sesión necesita una versión explícita.".to_owned()
-        })?;
-    if version != 1 {
-        return Err(
-            "La versión del historial de snapshots de la sesión no es compatible.".to_owned(),
-        );
-    }
-    let cursor = object
-        .get("cursor")
-        .and_then(JsonValue::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-        .ok_or_else(|| {
-            "El cursor del historial de snapshots de la sesión no es válido.".to_owned()
-        })?;
-    let entries = object
-        .get("entries")
-        .and_then(JsonValue::as_array)
-        .ok_or_else(|| {
-            "El historial de snapshots de la sesión necesita una lista de entradas.".to_owned()
-        })?;
-    if entries.is_empty() || entries.len() > HISTORY_MAX_ENTRIES {
-        return Err(format!(
-            "El historial de snapshots de la sesión debe tener entre 1 y {HISTORY_MAX_ENTRIES} entradas."
-        ));
-    }
-    if cursor >= entries.len() {
-        return Err(
-            "El cursor del historial de snapshots de la sesión está fuera de rango.".to_owned(),
-        );
-    }
-    for entry in entries {
-        let entry = entry.as_object().ok_or_else(|| {
-            "Cada entrada del historial de snapshots debe ser un objeto.".to_owned()
-        })?;
-        if entry
-            .get("label")
-            .or_else(|| entry.get("name"))
-            .and_then(migration_metadata_name)
-            .is_none()
-        {
-            return Err(
-                "Cada snapshot del historial de la sesión necesita una etiqueta válida.".to_owned(),
-            );
-        }
-        let reference = entry
-            .get("snapshot_path")
-            .or_else(|| entry.get("snapshotPath"))
-            .or_else(|| entry.get("path"))
-            .or_else(|| entry.get("file_path"))
-            .or_else(|| entry.get("filePath"))
-            .and_then(JsonValue::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty() && !value.contains("://"));
-        if reference.is_none() {
-            return Err(
-                "Cada snapshot del historial de la sesión necesita una referencia local válida."
-                    .to_owned(),
-            );
-        }
-    }
-    Ok(Some((entries.len(), cursor)))
-}
-
-fn migration_session_artifact_names(root: &JsonMap<String, JsonValue>) -> Vec<String> {
-    let session = root.get("session").and_then(JsonValue::as_object);
-    let fields: [(&str, &[&str]); 3] = [
-        (
-            "analysis_results",
-            &[
-                "analysis_results",
-                "analysisResults",
-                "analysis_result",
-                "analysisResult",
-            ],
-        ),
-        (
-            "history",
-            &["history", "execution_history", "executionHistory"],
-        ),
-        (
-            "caches",
-            &[
-                "cache",
-                "cache_path",
-                "cachePath",
-                "cache_dir",
-                "cacheDir",
-                "cached_derived",
-                "cachedDerived",
-            ],
-        ),
-    ];
-    let mut artifacts = fields
-        .iter()
-        .filter_map(|(name, aliases)| {
-            if *name == "history" && migration_session_history_value(root).is_some() {
-                return None;
-            }
-            aliases
-                .iter()
-                .any(|key| {
-                    root.get(*key)
-                        .or_else(|| session.and_then(|map| map.get(*key)))
-                        .is_some_and(|value| !value.is_null())
-                })
-                .then_some((*name).to_owned())
-        })
-        .collect::<Vec<_>>();
-    artifacts.sort();
-    artifacts.dedup();
-    artifacts
-}
-
-fn migration_sample_metadata_map(
-    root: &JsonMap<String, JsonValue>,
-) -> Option<&JsonMap<String, JsonValue>> {
-    let session = root.get("session").and_then(JsonValue::as_object);
-    let mut containers = vec![root];
-    if let Some(session) = session {
-        containers.push(session);
-    }
-    let container_keys = [
-        "analysis_results",
-        "analysisResults",
-        "analysis_result",
-        "analysisResult",
-        "analysis",
-        "resource_info",
-        "resourceInfo",
-    ];
-    let direct_keys = [
-        "is_sampled",
-        "isSampled",
-        "sampled",
-        "profile_sampled",
-        "profileSampled",
-        "sample_rows",
-        "sampleRows",
-        "sample_rows_count",
-        "sampleRowsCount",
-        "profile_sample_rows",
-        "profileSampleRows",
-    ];
-    let nested_keys = [
-        "sample",
-        "analysis_sample",
-        "analysisSample",
-        "sample_metadata",
-        "sampleMetadata",
-        "profile",
-        "profile_metadata",
-        "profileMetadata",
-    ];
-
-    for container in containers {
-        if direct_keys.iter().any(|key| container.contains_key(*key)) {
-            return Some(container);
-        }
-        for key in container_keys {
-            let Some(object) = container.get(key).and_then(JsonValue::as_object) else {
-                continue;
-            };
-            if direct_keys.iter().any(|key| object.contains_key(*key)) {
-                return Some(object);
-            }
-            if let Some(nested) = nested_keys
-                .iter()
-                .find_map(|key| object.get(*key).and_then(JsonValue::as_object))
-            {
-                return Some(nested);
-            }
-        }
-    }
-    None
-}
-
-fn migration_bool_field(
-    map: &JsonMap<String, JsonValue>,
-    keys: &[&str],
-) -> Result<Option<bool>, String> {
-    let Some((key, value)) = keys
-        .iter()
-        .find_map(|key| map.get(*key).map(|value| (*key, value)))
-    else {
-        return Ok(None);
-    };
-    value
-        .as_bool()
-        .map(Some)
-        .ok_or_else(|| format!("El campo '{key}' debe ser booleano."))
-}
-
-fn migration_session_sample_metadata(
-    root: &JsonMap<String, JsonValue>,
-) -> Result<Option<SessionSampleMetadataValues>, String> {
-    let Some(map) = migration_sample_metadata_map(root) else {
-        return Ok(None);
-    };
-    let sampled = migration_bool_field(
-        map,
-        &[
-            "is_sampled",
-            "isSampled",
-            "sampled",
-            "profile_sampled",
-            "profileSampled",
-        ],
-    )?;
-    let sample_row_count = migration_usize_field(
-        map,
-        &[
-            "sample_rows",
-            "sampleRows",
-            "sample_rows_count",
-            "sampleRowsCount",
-            "profile_sample_rows",
-            "profileSampleRows",
-        ],
-    )?;
-    let total_row_count = migration_usize_field(
-        map,
-        &[
-            "n_total_rows",
-            "nTotalRows",
-            "total_rows",
-            "totalRows",
-            "row_count",
-            "rowCount",
-        ],
-    )?;
-    if sampled.is_none() && sample_row_count.is_none() && total_row_count.is_none() {
-        return Ok(None);
-    }
-    if let Some(sample_row_count) = sample_row_count {
-        if sample_row_count > MAX_SESSION_SAMPLE_ROWS {
-            return Err(format!(
-                "La muestra de análisis supera el límite local de {MAX_SESSION_SAMPLE_ROWS} filas."
-            ));
-        }
-        if let Some(total_row_count) = total_row_count {
-            if sample_row_count > total_row_count {
-                return Err(
-                    "La muestra de análisis no puede superar el total de filas registrado."
-                        .to_owned(),
-                );
-            }
-        }
-    }
-    Ok(Some((sampled, sample_row_count, total_row_count)))
-}
-
-fn migration_session_metadata(
-    root: &JsonMap<String, JsonValue>,
-) -> Result<Option<SessionMigrationMetadata>, String> {
-    let non_portable_artifacts = migration_session_artifact_names(root);
-    let has_session_fields = [
-        "source_path",
-        "snapshot_path",
-        "sheet_name",
-        "stage_label",
-        "applied_ops",
-        "selected_cleaning_operations",
-        "quality_rules",
-        "analysis_checks",
-    ]
-    .iter()
-    .any(|key| migration_session_field(root, key).is_some_and(|value| !value.is_null()))
-        || !non_portable_artifacts.is_empty()
-        || migration_session_history_value(root).is_some();
-    if !has_session_fields {
-        return Ok(None);
-    }
-
-    let optional_text = |key: &str| -> Result<Option<String>, String> {
-        let Some(value) = migration_session_field(root, key) else {
-            return Ok(None);
-        };
-        if value.is_null() {
-            return Ok(None);
-        }
-        value
-            .as_str()
-            .map(str::to_owned)
-            .map(Some)
-            .ok_or_else(|| format!("El metadato de sesión '{key}' debe ser texto."))
-    };
-    let count_array = |key: &str| -> Result<usize, String> {
-        let Some(value) = migration_session_field(root, key) else {
-            return Ok(0);
-        };
-        if value.is_null() {
-            return Ok(0);
-        }
-        value
-            .as_array()
-            .map(Vec::len)
-            .ok_or_else(|| format!("El metadato de sesión '{key}' debe ser un arreglo."))
-    };
-    let analysis_check_count = match migration_session_field(root, "analysis_checks") {
-        None | Some(JsonValue::Null) => 0,
-        Some(value) => value
-            .as_object()
-            .map(JsonMap::len)
-            .or_else(|| value.as_array().map(Vec::len))
-            .ok_or_else(|| {
-                "El metadato de sesión 'analysis_checks' debe ser un objeto o arreglo.".to_owned()
-            })?,
-    };
-    let (analysis_sampled, analysis_sample_row_count, analysis_total_row_count) =
-        migration_session_sample_metadata(root)?.unwrap_or_default();
-    let (history_snapshot_count, history_cursor) = migration_session_history_metadata(root)?
-        .map_or((None, None), |(count, cursor)| (Some(count), Some(cursor)));
-
-    let metadata_names = |key: &str| -> Result<Vec<String>, String> {
-        let Some(value) = migration_session_field(root, key) else {
-            return Ok(Vec::new());
-        };
-        let mut names = match value {
-            JsonValue::Array(values) => values.iter().filter_map(migration_metadata_name).collect(),
-            JsonValue::Object(values) if key == "analysis_checks" => values
-                .keys()
-                .filter_map(|value| migration_metadata_name(&JsonValue::String(value.clone())))
-                .collect(),
-            JsonValue::Null => Vec::new(),
-            _ => {
-                return Err(format!(
-                    "El metadato de sesión '{key}' debe ser un objeto o arreglo."
-                ));
-            }
-        };
-        names.truncate(MAX_SESSION_METADATA_NAMES);
-        Ok(names)
-    };
-
-    let explicit_applied_operations = metadata_names("applied_ops")?;
-    let selected_cleaning_operations = metadata_names("selected_cleaning_operations")?;
-    let mut applied_operations = explicit_applied_operations
-        .into_iter()
-        .map(|operation| {
-            migration_cleaning_operation(&operation)
-                .unwrap_or(operation.as_str())
-                .to_owned()
-        })
-        .collect::<Vec<_>>();
-    applied_operations.extend(
-        selected_cleaning_operations
-            .into_iter()
-            .filter_map(|operation| migration_cleaning_operation(&operation).map(str::to_owned)),
-    );
-    let mut seen_operations = HashSet::new();
-    applied_operations.retain(|operation| seen_operations.insert(operation.clone()));
-
-    Ok(Some(SessionMigrationMetadata {
-        has_source_reference: session_source_reference(root).is_some_and(|value| !value.is_null()),
-        has_snapshot_reference: migration_session_field(root, "snapshot_path")
-            .is_some_and(|value| !value.is_null()),
-        sheet_name: optional_text("sheet_name")?,
-        stage_label: optional_text("stage_label")?,
-        applied_operation_count: applied_operations.len(),
-        quality_rule_count: count_array("quality_rules")?,
-        analysis_check_count,
-        applied_operations,
-        analysis_checks: metadata_names("analysis_checks")?,
-        analysis_sampled,
-        analysis_sample_row_count,
-        analysis_total_row_count,
-        history_snapshot_count,
-        history_cursor,
-        non_portable_artifacts,
-    }))
-}
-
-fn session_execution_history(
-    root: &JsonMap<String, JsonValue>,
-) -> Vec<SessionExecutionHistoryEntry> {
-    let Some(JsonValue::Array(entries)) = migration_session_field(root, "execution_history") else {
-        return Vec::new();
-    };
-
-    entries
-        .iter()
-        .rev()
-        .filter_map(|entry| {
-            let object = entry.as_object()?;
-            let outcome = object
-                .get("outcome")
-                .or_else(|| object.get("status"))
-                .and_then(JsonValue::as_str)
-                .map(str::trim)
-                .map(str::to_ascii_lowercase)
-                .and_then(|value| match value.as_str() {
-                    "success" | "completed" | "ok" => Some("success".to_owned()),
-                    "error" | "failed" | "failure" => Some("error".to_owned()),
-                    "cancelled" | "canceled" => Some("cancelled".to_owned()),
-                    _ => None,
-                })?;
-            let duration_ms = object
-                .get("duration_ms")
-                .or_else(|| object.get("durationMs"))
-                .and_then(|value| {
-                    value
-                        .as_u64()
-                        .or_else(|| {
-                            value.as_f64().and_then(|number| {
-                                (number.is_finite() && number >= 0.0)
-                                    .then_some(number.round() as u64)
-                            })
-                        })
-                        .or_else(|| {
-                            value
-                                .as_str()?
-                                .trim()
-                                .parse::<f64>()
-                                .ok()
-                                .filter(|number| number.is_finite() && *number >= 0.0)
-                                .map(|number| number.round() as u64)
-                        })
-                })
-                .filter(|duration| *duration <= MAX_SESSION_EXECUTION_DURATION_MS)?;
-            let row_count = object
-                .get("row_count")
-                .or_else(|| object.get("rowCount"))
-                .or_else(|| object.get("rows_out"))
-                .or_else(|| object.get("rowsOut"))
-                .and_then(|value| {
-                    value
-                        .as_u64()
-                        .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
-                })
-                .and_then(|value| usize::try_from(value).ok());
-
-            Some(SessionExecutionHistoryEntry {
-                outcome,
-                duration_ms,
-                row_count,
-            })
-        })
-        .take(MAX_SESSION_EXECUTION_HISTORY_ENTRIES)
-        .collect()
-}
-
-pub(crate) fn load_dataprep_session_execution_history(
-    path: &Path,
-) -> Vec<SessionExecutionHistoryEntry> {
-    let Ok(file) = File::open(path) else {
-        return Vec::new();
-    };
-    let Ok(size) = file.metadata().map(|metadata| metadata.len()) else {
-        return Vec::new();
-    };
-    if size > RECIPE_FILE_LIMIT_BYTES {
-        return Vec::new();
-    }
-    let mut bytes = Vec::with_capacity(size as usize);
-    if file
-        .take(RECIPE_FILE_LIMIT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .is_err()
-        || bytes.len() as u64 > RECIPE_FILE_LIMIT_BYTES
-    {
-        return Vec::new();
-    }
-    let Ok(JsonValue::Object(root)) = serde_json::from_slice::<JsonValue>(&bytes) else {
-        return Vec::new();
-    };
-    session_execution_history(&root)
-}
-
-pub(crate) fn load_dataprep_session_history(
-    path: &Path,
-) -> Result<Option<DataprepSessionHistory>, String> {
-    let path = canonicalize_existing_file(path, "la sesión DataPrep seleccionada")?;
-    let file = File::open(&path)
-        .map_err(|_| "No se pudo leer el historial de la sesión DataPrep.".to_owned())?;
-    let size = file
-        .metadata()
-        .map_err(|_| "No se pudo verificar el historial de la sesión DataPrep.".to_owned())?
-        .len();
-    if size > RECIPE_FILE_LIMIT_BYTES {
-        return Err("La sesión DataPrep supera el límite local de tamaño.".to_owned());
-    }
-    let mut bytes = Vec::with_capacity(size as usize);
-    file.take(RECIPE_FILE_LIMIT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "No se pudo leer el historial de la sesión DataPrep.".to_owned())?;
-    if bytes.len() as u64 > RECIPE_FILE_LIMIT_BYTES {
-        return Err("La sesión DataPrep supera el límite local de tamaño.".to_owned());
-    }
-    let raw = serde_json::from_slice::<JsonValue>(&bytes)
-        .map_err(|_| "La sesión DataPrep no es JSON válido.".to_owned())?;
-    let root = raw
-        .as_object()
-        .ok_or_else(|| "La sesión DataPrep debe ser un objeto JSON.".to_owned())?;
-    let Some(value) = migration_session_history_value(root) else {
-        return Ok(None);
-    };
-    let (expected_count, cursor) = migration_session_history_metadata(root)?
-        .ok_or_else(|| "El historial de snapshots de la sesión no es válido.".to_owned())?;
-    let object = value.as_object().ok_or_else(|| {
-        "El historial de snapshots de la sesión DataPrep debe ser un objeto.".to_owned()
-    })?;
-    let entries = object
-        .get("entries")
-        .and_then(JsonValue::as_array)
-        .ok_or_else(|| {
-            "El historial de snapshots de la sesión necesita una lista de entradas.".to_owned()
-        })?;
-    if entries.len() != expected_count {
-        return Err("El historial de snapshots de la sesión cambió durante la lectura.".to_owned());
-    }
-
-    let mut resolved_entries = Vec::with_capacity(entries.len());
-    let mut total_bytes = 0_u64;
-    for entry in entries {
-        let entry = entry.as_object().ok_or_else(|| {
-            "Cada entrada del historial de snapshots debe ser un objeto.".to_owned()
-        })?;
-        let label = entry
-            .get("label")
-            .or_else(|| entry.get("name"))
-            .and_then(migration_metadata_name)
-            .ok_or_else(|| {
-                "Cada snapshot del historial necesita una etiqueta válida.".to_owned()
-            })?;
-        let reference = entry
-            .get("snapshot_path")
-            .or_else(|| entry.get("snapshotPath"))
-            .or_else(|| entry.get("path"))
-            .or_else(|| entry.get("file_path"))
-            .or_else(|| entry.get("filePath"))
-            .and_then(JsonValue::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty() && !value.contains("://"))
-            .ok_or_else(|| {
-                "Cada snapshot del historial necesita una referencia local válida.".to_owned()
-            })?;
-        let reference_path = Path::new(reference);
-        let candidate = if reference_path.is_absolute() {
-            reference_path.to_owned()
-        } else {
-            path.parent()
-                .unwrap_or_else(|| Path::new("."))
-                .join(reference_path)
-        };
-        let metadata = fs::symlink_metadata(&candidate)
-            .map_err(|_| "Un snapshot del historial de la sesión no está disponible.".to_owned())?;
-        if is_symbolic_link_or_reparse_point(&metadata) || !metadata.is_file() {
-            return Err(
-                "Un snapshot del historial de la sesión no es un archivo regular.".to_owned(),
-            );
-        }
-        let canonical =
-            canonicalize_existing_file(&candidate, "un snapshot del historial de la sesión")?;
-        if !canonical
-            .extension()
-            .and_then(OsStr::to_str)
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("parquet"))
-        {
-            return Err("El historial de la sesión solo admite snapshots Parquet.".to_owned());
-        }
-        let bytes = fs::metadata(&canonical)
-            .map_err(|_| "No se pudo verificar un snapshot del historial de la sesión.".to_owned())?
-            .len();
-        total_bytes = total_bytes.checked_add(bytes).ok_or_else(|| {
-            "El historial de la sesión supera su presupuesto de disco.".to_owned()
-        })?;
-        if total_bytes > HISTORY_DISK_BUDGET_BYTES {
-            return Err("El historial de la sesión supera su presupuesto de disco.".to_owned());
-        }
-        resolved_entries.push(DataprepSessionHistoryEntry {
-            label,
-            path: canonical,
-        });
-    }
-
-    Ok(Some(DataprepSessionHistory {
-        entries: resolved_entries,
-        cursor,
-    }))
-}
-
-fn session_source_reference(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
-    migration_session_field(root, "source_path")
-        .or_else(|| migration_session_field(root, "file_name"))
-}
-
-fn session_quality_rules(root: &JsonMap<String, JsonValue>) -> Option<&JsonValue> {
-    root.get("quality_rules")
-        .filter(|value| !value.is_null())
-        .or_else(|| root.get("qualityRules").filter(|value| !value.is_null()))
-        .or_else(|| root.get("quality").filter(|value| !value.is_null()))
-        .or_else(|| {
-            root.get("session")
-                .and_then(JsonValue::as_object)
-                .and_then(|session| {
-                    session
-                        .get("quality_rules")
-                        .filter(|value| !value.is_null())
-                        .or_else(|| session.get("qualityRules").filter(|value| !value.is_null()))
-                })
-        })
-}
-
-fn session_reference_status(
-    session_path: &Path,
-    value: Option<&JsonValue>,
-    require_dataset_extension: bool,
-) -> (SessionReferenceStatus, Option<PathBuf>) {
-    let Some(JsonValue::String(reference)) = value else {
-        return (
-            if value.is_some() {
-                SessionReferenceStatus::Unsupported
-            } else {
-                SessionReferenceStatus::NotProvided
-            },
-            None,
-        );
-    };
-    let reference = reference.trim();
-    if reference.is_empty() || reference.contains("://") {
-        return (SessionReferenceStatus::Unsupported, None);
-    }
-    let path = Path::new(reference);
-    let candidate = if path.is_absolute() {
-        path.to_owned()
-    } else {
-        session_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(path)
-    };
-    let Ok(metadata) = fs::symlink_metadata(&candidate) else {
-        return (SessionReferenceStatus::Missing, None);
-    };
-    if is_symbolic_link_or_reparse_point(&metadata) {
-        return (SessionReferenceStatus::Unsupported, None);
-    }
-    if !metadata.is_file() {
-        return (SessionReferenceStatus::Missing, None);
-    }
-    let Ok(canonical) = canonicalize_existing_file(&candidate, "la referencia de sesión") else {
-        return (SessionReferenceStatus::Unsupported, None);
-    };
-    if require_dataset_extension && dataset_extension(&canonical).is_err() {
-        return (SessionReferenceStatus::Unsupported, Some(canonical));
-    }
-    (SessionReferenceStatus::Available, Some(canonical))
-}
-
-fn session_display_file_name(
-    root: &JsonMap<String, JsonValue>,
-    source_path: Option<&Path>,
-) -> Option<String> {
-    let raw = migration_session_field(root, "file_name")
-        .or_else(|| migration_session_field(root, "source_path"))
-        .and_then(JsonValue::as_str)
-        .or_else(|| source_path.and_then(|path| path.file_name().and_then(OsStr::to_str)))?;
-    let file_name = raw.rsplit(['/', '\\']).next()?.trim();
-    if file_name.is_empty() || file_name.chars().any(char::is_control) {
-        return None;
-    }
-    Some(file_name.to_owned())
-}
-
-fn session_recipe_collisions(recipe: &TransformRecipe) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut collisions = Vec::new();
-    let mut record = |name: &str| {
-        let name = name.trim();
-        if !name.is_empty() && !seen.insert(name.to_owned()) {
-            collisions.push("recipe.output_names".to_owned());
-        }
-    };
-    for rename in &recipe.renames {
-        record(&rename.to);
-    }
-    if let Some(calculated) = &recipe.calculated_column {
-        record(&calculated.name);
-    }
-    if let Some(split) = &recipe.split_column {
-        for name in &split.names {
-            record(name);
-        }
-    }
-    if let Some(merge) = &recipe.merge_columns {
-        record(&merge.name);
-    }
-    for extraction in &recipe.text_extractions {
-        record(&extraction.name);
-    }
-    collisions.sort();
-    collisions.dedup();
-    collisions
-}
-
-/// Reads a DataPrep session and produces a sanitized, read-only import decision.
-/// No project catalog or snapshot is touched by this operation.
-pub(crate) fn load_dataprep_session_migration_plan(
-    path: &Path,
-) -> Result<DataprepSessionMigrationPlan, String> {
-    let path = canonicalize_existing_file(path, "la sesión DataPrep seleccionada")?;
-    if !path
-        .extension()
-        .and_then(OsStr::to_str)
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
-    {
-        return Err("La sesión DataPrep debe ser un archivo JSON.".to_owned());
-    }
-    let file = File::open(&path)
-        .map_err(|error| format!("No se pudo abrir la sesión DataPrep: {error}"))?;
-    let size = file
-        .metadata()
-        .map_err(|error| format!("No se pudo verificar la sesión DataPrep: {error}"))?
-        .len();
-    if size > RECIPE_FILE_LIMIT_BYTES {
-        return Err(format!(
-            "La sesión DataPrep supera el límite local de {} bytes.",
-            RECIPE_FILE_LIMIT_BYTES
-        ));
-    }
-    let mut bytes = Vec::with_capacity(size as usize);
-    file.take(RECIPE_FILE_LIMIT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("No se pudo leer la sesión DataPrep: {error}"))?;
-    if bytes.len() as u64 > RECIPE_FILE_LIMIT_BYTES {
-        return Err(format!(
-            "La sesión DataPrep supera el límite local de {} bytes.",
-            RECIPE_FILE_LIMIT_BYTES
-        ));
-    }
-    let raw = serde_json::from_slice::<JsonValue>(&bytes)
-        .map_err(|error| format!("La sesión DataPrep no es JSON válido: {error}"))?;
-    let root = raw
-        .as_object()
-        .ok_or_else(|| "La sesión DataPrep debe ser un objeto JSON.".to_owned())?;
-    let mut recipe = migration_dataprep_recipe(&raw)?;
-    if let Some(report) = &mut recipe.migration_report {
-        report.artifact_sha256 = Some(format!("{:x}", Sha256::digest(&bytes)));
-    }
-
-    let (source_status, source_path) =
-        session_reference_status(&path, session_source_reference(root), true);
-    let (snapshot_status, snapshot_path) =
-        session_reference_status(&path, migration_session_field(root, "snapshot_path"), true);
-    let source_file_name =
-        session_display_file_name(root, source_path.as_deref().or(snapshot_path.as_deref()));
-    let mut missing_references = Vec::new();
-    if matches!(source_status, SessionReferenceStatus::Missing) {
-        missing_references.push("source".to_owned());
-    } else if matches!(source_status, SessionReferenceStatus::Unsupported) {
-        missing_references.push("source.unsupported".to_owned());
-    }
-    if matches!(snapshot_status, SessionReferenceStatus::Missing) {
-        missing_references.push("snapshot".to_owned());
-    } else if matches!(snapshot_status, SessionReferenceStatus::Unsupported) {
-        missing_references.push("snapshot.unsupported".to_owned());
-    }
-    let history_references_available = match load_dataprep_session_history(&path) {
-        Ok(_) => true,
-        Err(_) => {
-            missing_references.push("history".to_owned());
-            false
-        }
-    };
-
-    let mut collisions = session_recipe_collisions(&recipe.recipe);
-    if let (Some(source_path), Some(snapshot_path)) = (&source_path, &snapshot_path) {
-        if source_path == snapshot_path {
-            collisions.push("source_snapshot".to_owned());
-        }
-    }
-    collisions.sort();
-    collisions.dedup();
-
-    let (quality_rules, quality_report) = if let Some(raw_rules) = session_quality_rules(root) {
-        let migrated = migrate_quality_rules_document(raw_rules.clone())?;
-        (migrated.converted_rules, Some(migrated.report))
-    } else {
-        (Vec::new(), None)
-    };
-    let name = recipe.name.clone();
-    // A source is preferred because its recipe can be replayed. If it disappeared,
-    // an available compatible snapshot is still a valid temporal dataset to import.
-    let has_usable_input = matches!(source_status, SessionReferenceStatus::Available)
-        || matches!(snapshot_status, SessionReferenceStatus::Available);
-    let can_create_project =
-        has_usable_input && history_references_available && collisions.is_empty();
-    Ok(DataprepSessionMigrationPlan {
-        name,
-        source_file_name,
-        source_status,
-        snapshot_status,
-        sheet_name: recipe
-            .migration_report
-            .as_ref()
-            .and_then(|report| report.session.as_ref())
-            .and_then(|session| session.sheet_name.clone()),
-        stage_label: recipe
-            .migration_report
-            .as_ref()
-            .and_then(|report| report.session.as_ref())
-            .and_then(|session| session.stage_label.clone()),
-        recipe,
-        quality_rules,
-        quality_report,
-        missing_references,
-        collisions,
-        can_create_project,
-    })
-}
-
-fn migration_export_format(value: &str) -> Option<ExportFormat> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "csv" => Some(ExportFormat::Csv),
-        "json" => Some(ExportFormat::Json),
-        "parquet" => Some(ExportFormat::Parquet),
-        "sql" => Some(ExportFormat::Sql),
-        "xlsx" | "excel" => Some(ExportFormat::Excel),
-        "sqlite" => Some(ExportFormat::Sqlite),
-        "bundle" | "zip" => Some(ExportFormat::Bundle),
-        _ => None,
-    }
-}
-
-fn migration_export_options(
-    root: &JsonMap<String, JsonValue>,
-    converted_operations: &mut Vec<String>,
-    omitted_operations: &mut Vec<String>,
-    warnings: &mut Vec<RecipeMigrationWarning>,
-) -> Result<Option<RecipeExportOptions>, String> {
-    let Some(value) = root
-        .get("export")
-        .or_else(|| root.get("exportOptions"))
-        .or_else(|| root.get("export_options"))
-    else {
-        return Ok(None);
-    };
-    let export = value
-        .as_object()
-        .ok_or_else(|| "La configuración de exportación DataPrep debe ser un objeto.".to_owned())?;
-
-    let mut formats = Vec::new();
-    if let Some(raw_formats) = export.get("formats") {
-        let raw_formats = raw_formats
-            .as_array()
-            .ok_or_else(|| "export.formats de DataPrep debe ser un arreglo.".to_owned())?;
-        for raw_format in raw_formats {
-            let raw_format = raw_format
-                .as_str()
-                .ok_or_else(|| "Cada formato de exportación DataPrep debe ser texto.".to_owned())?;
-            if let Some(format) = migration_export_format(raw_format) {
-                if !formats.contains(&format) {
-                    formats.push(format);
-                }
-            } else {
-                push_migration_operation(omitted_operations, "export.formats");
-                warnings.push(recipe_migration_warning(
-                    "export.formats",
-                    "omitted",
-                    "Se omitió un formato de entrega DataPrep sin equivalente local seguro.",
-                ));
-            }
-        }
-    } else {
-        formats.push(ExportFormat::Csv);
-        push_migration_operation(converted_operations, "export.formats.default");
-    }
-    if formats.is_empty() {
-        formats.push(ExportFormat::Csv);
-    }
-    if export.get("formats").is_some() && !formats.is_empty() {
-        push_migration_operation(converted_operations, "export.formats");
-    }
-
-    let selected_columns = if let Some(raw_columns) = export.get("selected_columns") {
-        let raw_columns = raw_columns
-            .as_array()
-            .ok_or_else(|| "export.selected_columns de DataPrep debe ser un arreglo.".to_owned())?;
-        let mut columns = Vec::with_capacity(raw_columns.len());
-        for raw_column in raw_columns {
-            let column = raw_column.as_str().ok_or_else(|| {
-                "Cada columna seleccionada de exportación debe ser texto.".to_owned()
-            })?;
-            if !column.trim().is_empty() {
-                columns.push(column.to_owned());
-            }
-        }
-        push_migration_operation(converted_operations, "export.selected_columns");
-        columns
-    } else {
-        Vec::new()
-    };
-
-    let privacy_mode = if let Some(raw_privacy) = export.get("privacy_mode") {
-        let raw_privacy = raw_privacy
-            .as_str()
-            .ok_or_else(|| "export.privacy_mode de DataPrep debe ser texto.".to_owned())?;
-        match raw_privacy.trim().to_ascii_lowercase().as_str() {
-            "none" => {
-                push_migration_operation(converted_operations, "export.privacy_mode");
-                PrivacyMode::None
-            }
-            "mask" => {
-                push_migration_operation(converted_operations, "export.privacy_mode");
-                PrivacyMode::Mask
-            }
-            "hash" => {
-                push_migration_operation(converted_operations, "export.privacy_mode");
-                PrivacyMode::Hash
-            }
-            _ => {
-                push_migration_operation(omitted_operations, "export.privacy_mode");
-                warnings.push(recipe_migration_warning(
-                    "export.privacy_mode",
-                    "omitted",
-                    "La política de privacidad DataPrep no se reconoce; se usará revisión manual.",
-                ));
-                PrivacyMode::None
-            }
-        }
-    } else {
-        PrivacyMode::None
-    };
-
-    let unsupported_fields = [
-        (
-            "report_format",
-            "Los reportes de entrega DataPrep requieren una exportación manual.",
-        ),
-        (
-            "csv_separator",
-            "El separador CSV DataPrep no forma parte del contrato de receta local.",
-        ),
-        (
-            "csv_encoding",
-            "La codificación CSV DataPrep no forma parte del contrato de receta local.",
-        ),
-        (
-            "date_format",
-            "El formato de fecha de entrega DataPrep requiere revisión manual.",
-        ),
-        (
-            "package_zip",
-            "El empaquetado ZIP DataPrep no tiene equivalente local.",
-        ),
-        (
-            "sql_table_name",
-            "El nombre de tabla SQL DataPrep requiere configuración en el destino.",
-        ),
-        (
-            "sql_dialect",
-            "El dialecto SQL DataPrep requiere configuración en el destino.",
-        ),
-        (
-            "sql_if_exists",
-            "La política SQL DataPrep requiere configuración en el destino.",
-        ),
-    ];
-    for (field, message) in unsupported_fields {
-        let Some(raw_value) = export.get(field) else {
-            continue;
-        };
-        if field == "package_zip" && raw_value.as_bool() == Some(false) {
-            continue;
-        }
-        if raw_value.is_null() {
-            continue;
-        }
-        let path = format!("export.{field}");
-        push_migration_operation(omitted_operations, &path);
-        warnings.push(recipe_migration_warning(path, "omitted", message));
-    }
-
-    let known_fields = [
-        "formats",
-        "selected_columns",
-        "privacy_mode",
-        "report_format",
-        "csv_separator",
-        "csv_encoding",
-        "date_format",
-        "package_zip",
-        "sql_table_name",
-        "sql_dialect",
-        "sql_if_exists",
-    ];
-    if export
-        .keys()
-        .any(|key| !known_fields.contains(&key.as_str()))
-    {
-        push_migration_operation(omitted_operations, "export.additional");
-        warnings.push(recipe_migration_warning(
-            "export.additional",
-            "omitted",
-            "Se omitieron opciones de entrega DataPrep no reconocidas por el contrato local.",
-        ));
-    }
-
-    Ok(Some(RecipeExportOptions {
-        formats,
-        selected_columns,
-        privacy_mode,
-    }))
-}
-
-fn migration_dataprep_recipe(raw: &JsonValue) -> Result<StoredTransformRecipe, String> {
-    let root = raw
-        .as_object()
-        .ok_or_else(|| "La receta DataPrep debe ser un objeto JSON.".to_owned())?;
-    if let Some(version) = root.get("version").and_then(JsonValue::as_u64) {
-        if version > 3 {
-            return Err(format!(
-                "La receta DataPrep usa la versión {version}; solo se admiten versiones 1 a 3."
-            ));
-        }
-    }
-    let transform = migration_recipe_transform(root)?;
-    let mut canonical = JsonMap::new();
-    let mut converted_operations = Vec::new();
-    let mut omitted_operations = Vec::new();
-    let mut warnings = Vec::new();
-    let session = migration_session_metadata(root)?;
-
-    if let Some(selected_cleaning_operations) =
-        migration_session_field(root, "selected_cleaning_operations")
-    {
-        let operations = selected_cleaning_operations.as_array().ok_or_else(|| {
-            "selected_cleaning_operations de DataPrep debe ser un arreglo.".to_owned()
-        })?;
-        for operation in operations {
-            let Some(name) = migration_metadata_name(operation) else {
-                push_migration_operation(&mut omitted_operations, "selected_cleaning_operations");
-                warnings.push(recipe_migration_warning(
-                    "selected_cleaning_operations",
-                    "omitted",
-                    "Una operación de limpieza no tiene un identificador migrable y requiere revisión manual.",
-                ));
-                continue;
-            };
-            if let Some(canonical) = migration_cleaning_operation(&name) {
-                push_migration_operation(
-                    &mut converted_operations,
-                    format!("selected_cleaning_operations.{canonical}"),
-                );
-            } else {
-                push_migration_operation(
-                    &mut omitted_operations,
-                    format!("selected_cleaning_operations.{name}"),
-                );
-                warnings.push(recipe_migration_warning(
-                    format!("selected_cleaning_operations.{name}"),
-                    "omitted",
-                    "La operación de limpieza DataPrep no tiene un equivalente reversible automático y requiere revisión manual.",
-                ));
-            }
-        }
-    }
-    for (key, canonical_key) in [
-        ("analysis", "analysis"),
-        ("quality_rules", "quality_rules"),
-        ("qualityRules", "quality_rules"),
-        ("quality", "quality"),
-    ] {
-        if root.get(key).is_some_and(|value| !value.is_null()) {
-            if key != canonical_key
-                && root
-                    .get(canonical_key)
-                    .is_some_and(|value| !value.is_null())
-            {
-                continue;
-            }
-            push_migration_operation(&mut omitted_operations, canonical_key);
-            warnings.push(recipe_migration_warning(
-                canonical_key,
-                "omitted",
-                "El artefacto contiene un bloque que requiere una migración separada.",
-            ));
-        }
-    }
-    for key in [
-        "analysis_checks",
-        "source_path",
-        "snapshot_path",
-        "sheet_name",
-        "stage_label",
-    ] {
-        if migration_session_field(root, key).is_some_and(|value| !value.is_null()) {
-            let path = format!("session.{key}");
-            push_migration_operation(&mut omitted_operations, &path);
-            warnings.push(recipe_migration_warning(
-                &path,
-                "omitted",
-                "El metadato de sesión requiere revisión manual y no se aplica automáticamente a la receta Columnia.",
-            ));
-        }
-    }
-    for artifact in migration_session_artifact_names(root) {
-        let path = format!("session.{artifact}");
-        push_migration_operation(&mut omitted_operations, &path);
-        warnings.push(recipe_migration_warning(
-            &path,
-            "omitted",
-            "El artefacto de sesión no forma parte del contrato portable y debe regenerarse en Columnia.",
-        ));
-    }
-    if migration_session_history_value(root).is_some() {
-        push_migration_operation(&mut omitted_operations, "session.history_snapshots");
-        warnings.push(recipe_migration_warning(
-            "session.history_snapshots",
-            "warning",
-            "El historial Parquet solo se restaura al importar la sesión como proyecto; una receta aislada conserva únicamente sus metadatos.",
-        ));
-    }
-    if let Some(applied_ops) = migration_session_field(root, "applied_ops") {
-        let operations = applied_ops
-            .as_array()
-            .ok_or_else(|| "applied_ops de la sesión DataPrep debe ser un arreglo.".to_owned())?;
-        let mut replayable_count = 0;
-        for operation in operations {
-            if let Some(canonical) = migration_metadata_name(operation)
-                .and_then(|name| migration_cleaning_operation(&name))
-            {
-                push_migration_operation(
-                    &mut converted_operations,
-                    format!("session.applied_ops.{canonical}"),
-                );
-                replayable_count += 1;
-            }
-        }
-        let non_replayable_count = operations.len().saturating_sub(replayable_count);
-        if non_replayable_count > 0 {
-            push_migration_operation(&mut omitted_operations, "session.applied_ops");
-            warnings.push(recipe_migration_warning(
-                "session.applied_ops",
-                "omitted",
-                format!(
-                    "Se omitieron {non_replayable_count} operaciones aplicadas de la sesión; deben revisarse contra el dataset importado."
-                ),
-            ));
-        }
-    }
-    let export_options = migration_export_options(
-        root,
-        &mut converted_operations,
-        &mut omitted_operations,
-        &mut warnings,
-    )?;
-
-    if let Some(rename_text) =
-        migration_text_field(transform, &["rename_text", "renameText"], "rename_text")?
-    {
-        let mut renames = Vec::new();
-        for line in rename_text
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        {
-            let (from, to) = line.split_once("->").ok_or_else(|| {
-                format!("No se pudo migrar el renombrado DataPrep '{line}': falta '->'.")
-            })?;
-            if from.trim().is_empty() || to.trim().is_empty() {
-                return Err("Los renombrados DataPrep no pueden tener nombres vacíos.".to_owned());
-            }
-            renames.push(serde_json::json!({ "from": from.trim(), "to": to.trim() }));
-        }
-        canonical.insert("renames".to_owned(), JsonValue::Array(renames));
-    }
-
-    if let Some(column) = migration_text_field(transform, &["dtype_col", "dtypeCol"], "dtype_col")?
-    {
-        let raw_type = migration_text_field(transform, &["dtype_type", "dtypeType"], "dtype_type")?
-            .unwrap_or_else(|| "auto".to_owned());
-        if !raw_type.eq_ignore_ascii_case("auto") {
-            let target = migration_cast_target(&raw_type).ok_or_else(|| {
-                format!("El tipo DataPrep '{raw_type}' no se puede migrar de forma segura.")
-            })?;
-            canonical.insert(
-                "casts".to_owned(),
-                serde_json::json!([{ "column": column, "target": target }]),
-            );
-        }
-    }
-
-    if let Some(date_columns) =
-        migration_string_array(transform, &["parse_date_cols", "parseDateCols"])?
-    {
-        let format =
-            migration_text_field(transform, &["date_format", "dateFormat"], "date_format")?
-                .unwrap_or_else(|| "iso8601".to_owned());
-        let format = migration_date_format(&format).ok_or_else(|| {
-            format!("El formato de fecha DataPrep '{format}' no se puede migrar.")
-        })?;
-        canonical.insert(
-            "dateParses".to_owned(),
-            JsonValue::Array(date_columns.into_iter().map(|column| {
-                serde_json::json!({ "column": column, "format": format, "target": "date" })
-            }).collect()),
-        );
-    }
-
-    if let Some(filters) = transform.get("filters") {
-        let filters = filters
-            .as_array()
-            .ok_or_else(|| "La lista de filtros DataPrep debe ser un arreglo.".to_owned())?
-            .iter()
-            .map(|value| {
-                let filter = value
-                    .as_object()
-                    .ok_or_else(|| "Cada filtro DataPrep debe ser un objeto.".to_owned())?;
-                let column = migration_required_text(filter, &["col", "column"], "filter.col")?;
-                let raw_operator =
-                    migration_required_text(filter, &["op", "operator"], "filter.op")?;
-                let operator = migration_filter_operator(&raw_operator).ok_or_else(|| {
-                    format!("El operador de filtro DataPrep '{raw_operator}' no se puede migrar.")
-                })?;
-                let value = if matches!(operator, "is_null" | "not_null") {
-                    JsonValue::Null
-                } else {
-                    let raw_value = filter
-                        .get("val")
-                        .or_else(|| filter.get("value"))
-                        .ok_or_else(|| {
-                            format!("El filtro DataPrep sobre '{column}' necesita val.")
-                        })?;
-                    JsonValue::String(migration_scalar_text(raw_value, "filter.val")?)
-                };
-                Ok(serde_json::json!({ "column": column, "operator": operator, "value": value }))
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        canonical.insert("filters".to_owned(), JsonValue::Array(filters));
-    }
-
-    if let Some(find_replace) = transform
-        .get("find_replace")
-        .or_else(|| transform.get("findReplace"))
-    {
-        let config = find_replace
-            .as_object()
-            .ok_or_else(|| "find_replace de DataPrep debe ser un objeto.".to_owned())?;
-        let find =
-            migration_text_field(config, &["find"], "find_replace.find")?.unwrap_or_default();
-        let replace =
-            migration_text_field(config, &["replace"], "find_replace.replace")?.unwrap_or_default();
-        let regex = config
-            .get("regex")
-            .and_then(JsonValue::as_bool)
-            .unwrap_or(false);
-        if !find.is_empty() {
-            let column = migration_text_field(config, &["col", "column"], "find_replace.col")?;
-            let scope = if column.is_some() {
-                "column"
-            } else {
-                "all_text_columns"
-            };
-            canonical.insert(
-                "findReplace".to_owned(),
-                serde_json::json!({
-                    "scope": scope, "column": column, "find": find, "replace": replace,
-                    "regex": regex
-                }),
-            );
-        }
-    }
-
-    if let Some(columns) = migration_string_array(transform, &["keep_columns", "keepColumns"])? {
-        if !columns.is_empty() {
-            canonical.insert(
-                "keepColumns".to_owned(),
-                JsonValue::Array(columns.into_iter().map(JsonValue::String).collect()),
-            );
-        }
-    }
-
-    if let Some(calc) = transform
-        .get("calc")
-        .or_else(|| transform.get("calculatedColumn"))
-    {
-        let config = calc
-            .as_object()
-            .ok_or_else(|| "calc de DataPrep debe ser un objeto.".to_owned())?;
-        let name = migration_text_field(config, &["name"], "calc.name")?.unwrap_or_default();
-        let source = migration_text_field(config, &["col_a", "source", "column"], "calc.col_a")?
-            .unwrap_or_default();
-        let operation = migration_text_field(config, &["operation", "op"], "calc.operation")?
-            .unwrap_or_else(|| "add".to_owned());
-        if !name.is_empty() || !source.is_empty() {
-            if name.is_empty() || source.is_empty() {
-                return Err(
-                    "La columna calculada DataPrep necesita nombre y columna de origen.".to_owned(),
-                );
-            }
-            let operation = migration_calculated_operation(&operation).ok_or_else(|| {
-                format!("La operación calculada DataPrep '{operation}' no se puede migrar.")
-            })?;
-            let operand = migration_text_field(
-                config,
-                &["col_b_or_val", "operand", "value"],
-                "calc.col_b_or_val",
-            )?
-            .filter(|value| !value.is_empty())
-            .map(|value| serde_json::json!({ "kind": "literal", "value": value }));
-            canonical.insert(
-                "calculatedColumn".to_owned(),
-                serde_json::json!({
-                    "name": name, "source": source, "operation": operation, "operand": operand
-                }),
-            );
-        }
-    }
-
-    if let Some(split) = transform
-        .get("split_column")
-        .or_else(|| transform.get("splitColumn"))
-    {
-        let config = split
-            .as_object()
-            .ok_or_else(|| "split_column de DataPrep debe ser un objeto.".to_owned())?;
-        let source = if config
-            .get("column")
-            .or_else(|| config.get("source"))
-            .is_some_and(|value| !value.is_null())
-        {
-            migration_text_field(config, &["column", "source"], "split_column.column")?
-        } else {
-            None
-        };
-        let delimiter = if config
-            .get("delimiter")
-            .is_some_and(|value| !value.is_null())
-        {
-            migration_text_field(config, &["delimiter"], "split_column.delimiter")?
-        } else {
-            None
-        };
-        let names = config.get("new_names").or_else(|| config.get("names"));
-        let drop_source = config
-            .get("drop_source")
-            .and_then(JsonValue::as_bool)
-            .unwrap_or(false);
-        let is_configured = source.is_some()
-            || delimiter.as_deref().is_some_and(|value| !value.is_empty())
-            || names.is_some_and(|value| value.as_array().is_some_and(|values| !values.is_empty()))
-            || drop_source;
-        if is_configured {
-            let source = source.ok_or_else(|| "split_column.column es obligatorio.".to_owned())?;
-            let delimiter =
-                delimiter.ok_or_else(|| "split_column.delimiter es obligatorio.".to_owned())?;
-            let names =
-                migration_string_array(config, &["new_names", "names"])?.unwrap_or_default();
-            if names.len() < 2 {
-                return Err(
-                    "split_column de DataPrep necesita al menos dos nombres de salida.".to_owned(),
-                );
-            }
-            canonical.insert("splitColumn".to_owned(), serde_json::json!({
-                "source": source, "delimiter": delimiter, "names": names, "dropSource": drop_source
-            }));
-        }
-    }
-
-    if let Some(merge) = transform
-        .get("merge_columns")
-        .or_else(|| transform.get("mergeColumns"))
-    {
-        let config = merge
-            .as_object()
-            .ok_or_else(|| "merge_columns de DataPrep debe ser un objeto.".to_owned())?;
-        let sources = migration_string_array(config, &["columns", "sources"])?.unwrap_or_default();
-        let name =
-            migration_text_field(config, &["name"], "merge_columns.name")?.unwrap_or_default();
-        if !sources.is_empty() || !name.is_empty() {
-            if sources.len() < 2 || name.is_empty() {
-                return Err(
-                    "merge_columns de DataPrep necesita dos columnas y un nombre.".to_owned(),
-                );
-            }
-            let separator =
-                migration_text_field(config, &["separator"], "merge_columns.separator")?
-                    .unwrap_or_else(|| " ".to_owned());
-            let drop_sources = config
-                .get("drop_sources")
-                .and_then(JsonValue::as_bool)
-                .unwrap_or(false);
-            canonical.insert("mergeColumns".to_owned(), serde_json::json!({
-                "sources": sources, "name": name, "separator": separator, "dropSources": drop_sources
-            }));
-        }
-    }
-
-    if let Some(outliers) = transform.get("outliers") {
-        let config = outliers
-            .as_object()
-            .ok_or_else(|| "outliers de DataPrep debe ser un objeto.".to_owned())?;
-        let mut treatments = Vec::new();
-        for (key, action) in [("cap_cols", "cap"), ("drop_cols", "drop")] {
-            if let Some(columns) = migration_string_array(config, &[key])? {
-                treatments.extend(
-                    columns
-                        .into_iter()
-                        .map(|column| serde_json::json!({ "column": column, "action": action })),
-                );
-            }
-        }
-        if !treatments.is_empty() {
-            canonical.insert("outlierTreatments".to_owned(), JsonValue::Array(treatments));
-        }
-    }
-
-    if let Some(group) = transform
-        .get("group_summary")
-        .or_else(|| transform.get("groupSummary"))
-    {
-        let config = group
-            .as_object()
-            .ok_or_else(|| "group_summary de DataPrep debe ser un objeto.".to_owned())?;
-        let group_by =
-            migration_string_array(config, &["group_by", "groupBy"])?.unwrap_or_default();
-        let aggregations = config
-            .get("aggregations")
-            .and_then(JsonValue::as_object)
-            .map(|values| {
-                values
-                    .iter()
-                    .map(|(column, operation)| {
-                        let operation = operation
-                            .as_str()
-                            .and_then(migration_summary_operation)
-                            .ok_or_else(|| {
-                                format!("La agregación DataPrep '{column}' no se puede migrar.")
-                            })?;
-                        Ok(serde_json::json!({ "column": column, "operation": operation }))
-                    })
-                    .collect::<Result<Vec<_>, String>>()
-            })
-            .transpose()?
-            .unwrap_or_default();
-        if !group_by.is_empty() || !aggregations.is_empty() {
-            if group_by.is_empty() || aggregations.is_empty() {
-                return Err("group_summary de DataPrep necesita claves y agregaciones.".to_owned());
-            }
-            canonical.insert(
-                "groupSummary".to_owned(),
-                serde_json::json!({ "groupBy": group_by, "aggregations": aggregations }),
-            );
-        }
-    }
-
-    if let Some(contacts) = transform
-        .get("normalize_contacts")
-        .or_else(|| transform.get("normalizeContacts"))
-    {
-        let config = contacts
-            .as_object()
-            .ok_or_else(|| "normalize_contacts de DataPrep debe ser un objeto.".to_owned())?;
-        let mut normalized = Vec::new();
-        for (key, kind) in [
-            ("email_cols", "email"),
-            ("phone_cols", "phone"),
-            ("address_cols", "address"),
-        ] {
-            if let Some(columns) = migration_string_array(config, &[key])? {
-                normalized.extend(
-                    columns
-                        .into_iter()
-                        .map(|column| serde_json::json!({ "column": column, "kind": kind })),
-                );
-            }
-        }
-        if !normalized.is_empty() {
-            canonical.insert(
-                "contactNormalizations".to_owned(),
-                JsonValue::Array(normalized),
-            );
-        }
-    }
-
-    if let Some(extraction) = transform
-        .get("extract_text")
-        .or_else(|| transform.get("extractText"))
-    {
-        let config = extraction
-            .as_object()
-            .ok_or_else(|| "extract_text de DataPrep debe ser un objeto.".to_owned())?;
-        let source =
-            migration_text_field(config, &["source_col", "source"], "extract_text.source_col")?
-                .unwrap_or_default();
-        let name = migration_text_field(config, &["new_name", "name"], "extract_text.new_name")?
-            .unwrap_or_default();
-        let kind =
-            migration_text_field(config, &["extraction", "kind"], "extract_text.extraction")?
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-        if !source.is_empty() || !name.is_empty() || !kind.is_empty() {
-            let kind = match kind.as_str() {
-                "first_token" | "first" => "first_token",
-                "last_token" | "last" => "last_token",
-                "digits" => "digits",
-                "letters" => "letters",
-                "before" => "before",
-                "after" => "after",
-                _ => {
-                    return Err(format!(
-                        "La extracción DataPrep '{kind}' no se puede migrar."
-                    ))
-                }
-            };
-            if source.is_empty() || name.is_empty() {
-                return Err(
-                    "extract_text de DataPrep necesita origen y nombre de salida.".to_owned(),
-                );
-            }
-            let delimiter = migration_text_field(
-                config,
-                &["pattern_or_delimiter", "delimiter"],
-                "extract_text.pattern_or_delimiter",
-            )?;
-            canonical.insert(
-                "textExtractions".to_owned(),
-                serde_json::json!([{
-                    "source": source, "kind": kind, "name": name, "delimiter": delimiter
-                }]),
-            );
-        }
-    }
-
-    for key in ["true_values", "false_values", "trueValues", "falseValues"] {
-        if let Some(values) = transform.get(key).and_then(JsonValue::as_array) {
-            if !values.is_empty() {
-                return Err(format!(
-                    "La normalización de booleanos DataPrep ('{key}') requiere revisión manual."
-                ));
-            }
-        }
-    }
-
-    let recipe: TransformRecipe = serde_json::from_value(JsonValue::Object(canonical))
-        .map_err(|error| format!("La transformación DataPrep convertida no es válida: {error}"))?;
-    let mut canonical_operations = Vec::new();
-    for key in [
-        "renames",
-        "casts",
-        "dateParses",
-        "filters",
-        "calculatedColumn",
-        "findReplace",
-        "keepColumns",
-        "splitColumn",
-        "mergeColumns",
-        "outlierTreatments",
-        "groupSummary",
-        "contactNormalizations",
-        "textExtractions",
-    ] {
-        let field_is_present = match key {
-            "renames" => !recipe.renames.is_empty(),
-            "casts" => !recipe.casts.is_empty(),
-            "dateParses" => !recipe.date_parses.is_empty(),
-            "filters" => !recipe.filters.is_empty(),
-            "calculatedColumn" => recipe.calculated_column.is_some(),
-            "findReplace" => recipe.find_replace.is_some(),
-            "keepColumns" => recipe.keep_columns.is_some(),
-            "splitColumn" => recipe.split_column.is_some(),
-            "mergeColumns" => recipe.merge_columns.is_some(),
-            "outlierTreatments" => !recipe.outlier_treatments.is_empty(),
-            "groupSummary" => recipe.group_summary.is_some(),
-            "contactNormalizations" => !recipe.contact_normalizations.is_empty(),
-            "textExtractions" => !recipe.text_extractions.is_empty(),
-            _ => false,
-        };
-        if field_is_present {
-            canonical_operations.push(key.to_owned());
-        }
-    }
-    converted_operations.extend(canonical_operations);
-    let source_version = root.get("version").and_then(JsonValue::as_u64);
-    let source_format = if source_version.is_some() {
-        "dataprep"
-    } else {
-        "legacy"
-    };
-    let name = migration_string_field(root, &["name"])
-        .unwrap_or_else(|| "Receta DataPrep importada".to_owned());
-    let saved_at = migration_string_field(root, &["savedAt", "saved_at"])
-        .unwrap_or_else(current_recipe_timestamp);
-    let document = StoredTransformRecipe {
-        version: RECIPE_FILE_VERSION,
-        name,
-        saved_at,
-        recipe,
-        export_options,
-        migration_report: Some(build_recipe_migration_report(
-            source_format,
-            source_version,
-            converted_operations,
-            omitted_operations,
-            warnings,
-            session,
-        )),
-    };
-    validate_stored_recipe(&document)?;
-    Ok(document)
+    Err("El archivo no contiene una receta Columnia válida.".to_owned())
 }
 
 fn migration_string_field(map: &JsonMap<String, JsonValue>, keys: &[&str]) -> Option<String> {
@@ -12651,7 +10043,7 @@ fn migration_severity_value(map: &JsonMap<String, JsonValue>) -> Result<String, 
         migration_policy_value(map, "severity", "blocking")?
     };
     let normalized = match severity.as_str() {
-        // DataPrep historically called blocking rules "error" or "critical".
+        // legacy historically called blocking rules "error" or "critical".
         // They are equivalent to Columnia's blocking gate and can be retained.
         "blocking" | "error" | "critical" | "fatal" => "blocking",
         "warning" | "warn" | "non_blocking" | "non-blocking" | "info" => "non_blocking",
@@ -13205,9 +10597,9 @@ fn migration_quality_document_version(
         .and_then(|value| u8::try_from(value).ok())
         .or_else(|| raw_version.as_str()?.trim().parse::<u8>().ok())
         .ok_or_else(|| format!("El campo '{field}' debe ser un entero de versión."))?;
-    if !(1..=DATAPREP_QUALITY_DOCUMENT_MAX_VERSION).contains(&version) {
+    if !(1..=LEGACY_QUALITY_DOCUMENT_MAX_VERSION).contains(&version) {
         return Err(format!(
-            "La versión DataPrep {version} no es compatible; se admiten las versiones 1 a {DATAPREP_QUALITY_DOCUMENT_MAX_VERSION}."
+            "La versión legacy {version} no es compatible; se admiten las versiones 1 a {LEGACY_QUALITY_DOCUMENT_MAX_VERSION}."
         ));
     }
     Ok(Some(version))
@@ -13235,14 +10627,7 @@ fn migrate_quality_rules_document(document: JsonValue) -> Result<QualityMigratio
         JsonValue::Array(rules) => ("legacy", None, rules),
         JsonValue::Object(document) => {
             let source_version = migration_quality_document_version(&document)?;
-            let source_format = if document.contains_key("quality_rules")
-                || document.contains_key("schema_version")
-                || source_version.is_some_and(|version| version >= 2)
-            {
-                "dataprep"
-            } else {
-                "legacy"
-            };
+            let source_format = "legacy";
             let rules = document
                 .get("rules")
                 .or_else(|| document.get("quality_rules"))
@@ -21376,18 +18761,16 @@ pub async fn save_transform_recipe(
     app: AppHandle,
     recipe: TransformRecipe,
     name: String,
-    migration_report: Option<RecipeMigrationReport>,
     export_options: Option<RecipeExportOptions>,
 ) -> Result<Option<StoredTransformRecipe>, String> {
     let mut document = build_stored_recipe(recipe, name)?;
-    document.migration_report = migration_report;
     document.export_options = export_options;
     validate_stored_recipe(&document)?;
     let suggested_name = recipe_suggested_file_name(&document.name);
     let selection = app
         .dialog()
         .file()
-        .add_filter("Receta Columnia o DataPrep", &["json"])
+        .add_filter("Receta Columnia", &["json"])
         .set_file_name(suggested_name)
         .blocking_save_file();
     let Some(selection) = selection else {
@@ -21412,7 +18795,7 @@ pub async fn pick_transform_recipe(
     let selection = app
         .dialog()
         .file()
-        .add_filter("Receta Columnia o DataPrep", &["json"])
+        .add_filter("Receta Columnia", &["json"])
         .blocking_pick_file();
     let Some(selection) = selection else {
         return Ok(None);
@@ -21473,28 +18856,6 @@ pub async fn pick_quality_rules_migration(
     let loaded = tauri::async_runtime::spawn_blocking(move || load_quality_migration_file(&path))
         .await
         .map_err(|error| format!("La migración del contrato se interrumpió: {error}"))??;
-    Ok(Some(loaded))
-}
-
-#[tauri::command]
-pub async fn pick_dataprep_session_migration(
-    app: AppHandle,
-) -> Result<Option<DataprepSessionMigrationPlan>, String> {
-    let selection = app
-        .dialog()
-        .file()
-        .add_filter("Sesión DataPrep", &["json"])
-        .blocking_pick_file();
-    let Some(selection) = selection else {
-        return Ok(None);
-    };
-    let path = selection
-        .into_path()
-        .map_err(|error| format!("No se pudo resolver la sesión seleccionada: {error}"))?;
-    let loaded =
-        tauri::async_runtime::spawn_blocking(move || load_dataprep_session_migration_plan(&path))
-            .await
-            .map_err(|error| format!("La inspección de la sesión se interrumpió: {error}"))??;
     Ok(Some(loaded))
 }
 
@@ -21860,7 +19221,7 @@ fn apply_text_cleaning(
     })
 }
 
-fn apply_dataprep_date_parsing(app: AppHandle) -> Result<TextCleaningResult, String> {
+fn apply_date_parsing(app: AppHandle) -> Result<TextCleaningResult, String> {
     let state = app.state::<DatasetState>();
     let mut current = state
         .current
@@ -21871,7 +19232,7 @@ fn apply_dataprep_date_parsing(app: AppHandle) -> Result<TextCleaningResult, Str
     })?;
     materialize_loaded_dataset(dataset)?;
     let (parsed, affected_row_count, changed_cell_count, changed_columns) =
-        parse_dataprep_date_columns(&dataset.frame)?;
+        parse_inferred_date_columns(&dataset.frame)?;
     let preview = if changed_cell_count > 0 {
         publish_candidate(dataset, parsed, "Interpretar fechas detectadas")?
     } else {
@@ -21886,7 +19247,7 @@ fn apply_dataprep_date_parsing(app: AppHandle) -> Result<TextCleaningResult, Str
     })
 }
 
-fn apply_dataprep_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, String> {
+fn apply_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, String> {
     let state = app.state::<DatasetState>();
     let mut current = state
         .current
@@ -21897,7 +19258,7 @@ fn apply_dataprep_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, Str
     })?;
     materialize_loaded_dataset(dataset)?;
     let (cast, affected_row_count, changed_cell_count, changed_columns) =
-        cast_dataprep_numeric_columns(&dataset.frame)?;
+        cast_inferred_numeric_columns(&dataset.frame)?;
     let preview = if changed_cell_count > 0 {
         publish_candidate(dataset, cast, "Convertir números detectados")?
     } else {
@@ -21940,14 +19301,14 @@ pub async fn normalize_text_values(
 
 #[tauri::command]
 pub async fn parse_date_values(app: AppHandle) -> Result<TextCleaningResult, String> {
-    tauri::async_runtime::spawn_blocking(move || apply_dataprep_date_parsing(app))
+    tauri::async_runtime::spawn_blocking(move || apply_date_parsing(app))
         .await
         .map_err(|error| format!("La interpretación de fechas se interrumpió: {error}"))?
 }
 
 #[tauri::command]
 pub async fn cast_numeric_values(app: AppHandle) -> Result<TextCleaningResult, String> {
-    tauri::async_runtime::spawn_blocking(move || apply_dataprep_numeric_cast(app))
+    tauri::async_runtime::spawn_blocking(move || apply_numeric_cast(app))
         .await
         .map_err(|error| format!("La conversión numérica se interrumpió: {error}"))?
 }
@@ -22080,7 +19441,7 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
 
 fn apply_direct_outlier_mode(
     app: AppHandle,
-    mode: DataprepOutlierMode,
+    mode: OutlierMode,
     label: &'static str,
 ) -> Result<TextCleaningResult, String> {
     let state = app.state::<DatasetState>();
@@ -22093,7 +19454,7 @@ fn apply_direct_outlier_mode(
     })?;
     materialize_loaded_dataset(dataset)?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
-        apply_dataprep_outlier_mode(&dataset.frame, mode)?;
+        apply_outlier_mode(&dataset.frame, mode)?;
     let preview = if changed_cell_count > 0 || affected_row_count > 0 {
         publish_candidate(dataset, cleaned, label)?
     } else {
@@ -22110,7 +19471,7 @@ fn apply_direct_outlier_mode(
 #[tauri::command]
 pub async fn cap_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        apply_direct_outlier_mode(app, DataprepOutlierMode::Cap, "Limitar outliers con IQR")
+        apply_direct_outlier_mode(app, OutlierMode::Cap, "Limitar outliers con IQR")
     })
     .await
     .map_err(|error| format!("La limitación de outliers se interrumpió: {error}"))?
@@ -22119,7 +19480,7 @@ pub async fn cap_outlier_values(app: AppHandle) -> Result<TextCleaningResult, St
 #[tauri::command]
 pub async fn drop_outlier_values(app: AppHandle) -> Result<TextCleaningResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        apply_direct_outlier_mode(app, DataprepOutlierMode::Drop, "Eliminar filas atípicas")
+        apply_direct_outlier_mode(app, OutlierMode::Drop, "Eliminar filas atípicas")
     })
     .await
     .map_err(|error| format!("La eliminación de outliers se interrumpió: {error}"))?
@@ -26640,34 +24001,6 @@ impl DatasetState {
         })
     }
 
-    pub(crate) fn install_project_import_history_with_progress<F, C>(
-        &self,
-        entries: &[DataprepSessionHistoryEntry],
-        cursor: usize,
-        report: F,
-        is_cancelled: C,
-    ) -> Result<(), String>
-    where
-        F: FnMut(&'static str, u8),
-        C: Fn() -> bool,
-    {
-        let mut current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
-        let dataset = current
-            .as_mut()
-            .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        dataset.history = HistoryManager::from_imported_paths_with_progress(
-            entries,
-            cursor,
-            &dataset.frame,
-            report,
-            is_cancelled,
-        )?;
-        Ok(())
-    }
-
     pub(crate) fn apply_project_import_recipe(
         &self,
         recipe: &TransformRecipe,
@@ -26680,177 +24013,6 @@ impl DatasetState {
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
         apply_recipe_to_dataset(dataset, recipe).map(|result| result.changed)
-    }
-
-    pub(crate) fn apply_project_import_deterministic_cleaning_with_progress<F, C>(
-        &self,
-        applied_operations: &[String],
-        mut report: F,
-        is_cancelled: C,
-    ) -> Result<bool, String>
-    where
-        F: FnMut(&'static str, u8),
-        C: Fn() -> bool + Sync,
-    {
-        ensure_not_cancelled(is_cancelled())?;
-        let mut current = self
-            .current
-            .lock()
-            .map_err(|_| "La sesión de importación no está disponible.".to_owned())?;
-        let dataset = current
-            .as_mut()
-            .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        materialize_loaded_dataset(dataset)?;
-        let selected_outlier_modes = ["cap_outliers", "impute_outliers", "drop_outliers"]
-            .iter()
-            .filter(|mode| {
-                applied_operations
-                    .iter()
-                    .any(|operation| operation == **mode)
-            })
-            .count();
-        if selected_outlier_modes > 1 {
-            return Err(
-                "Las estrategias de outliers son excluyentes: elige capear, imputar o eliminar."
-                    .to_owned(),
-            );
-        }
-        let mut cleaned = dataset.frame.clone();
-        let mut changed = false;
-
-        // DataPrep ejecuta el registro de limpieza en un orden fijo. Mantener
-        // ese orden evita que el orden accidental del manifiesto cambie el
-        // resultado cuando una sesión enumera varias operaciones.
-        let operations = DATAPREP_CLEANING_OPERATIONS;
-        let operation_count = operations.len();
-        for (operation_index, operation) in operations.into_iter().enumerate() {
-            ensure_not_cancelled(is_cancelled())?;
-            if !applied_operations
-                .iter()
-                .any(|candidate| candidate == operation)
-            {
-                continue;
-            }
-            report(
-                "Reproduciendo limpieza",
-                35 + ((operation_index + 1) * 30 / operation_count) as u8,
-            );
-            let (candidate, _, changed_cell_count, _) = match operation {
-                "drop_duplicates" => {
-                    let (candidate, affected_row_count) = remove_duplicate_rows(&cleaned)?;
-                    (
-                        candidate,
-                        affected_row_count,
-                        affected_row_count,
-                        Vec::new(),
-                    )
-                }
-                "drop_high_null_cols" => {
-                    let (candidate, removed_columns) =
-                        remove_dataprep_high_null_columns_from_reference(&cleaned, &dataset.frame)?;
-                    (candidate, 0, removed_columns.len(), Vec::new())
-                }
-                "drop_id_cols" => {
-                    let (candidate, removed_columns) =
-                        remove_dataprep_identifier_columns_from_reference(
-                            &cleaned,
-                            &dataset.frame,
-                        )?;
-                    (candidate, 0, removed_columns.len(), Vec::new())
-                }
-                "drop_empty_cols" => {
-                    let (candidate, removed_columns) = remove_empty_columns_from_frame(&cleaned)?;
-                    (candidate, 0, removed_columns.len(), Vec::new())
-                }
-                "drop_constant_cols" => {
-                    let (candidate, removed_columns) =
-                        remove_constant_columns_from_frame(&cleaned)?;
-                    (candidate, 0, removed_columns.len(), Vec::new())
-                }
-                "drop_empty_rows" => {
-                    let (candidate, affected_row_count) =
-                        remove_null_only_rows_from_frame(&cleaned)?;
-                    (
-                        candidate,
-                        affected_row_count,
-                        affected_row_count,
-                        Vec::new(),
-                    )
-                }
-                "impute_numeric" => impute_dataprep_numeric_values_in_frame(&cleaned)?,
-                "parse_dates" => parse_dataprep_date_columns(&cleaned)?,
-                "normalize_sentinels" => {
-                    clean_text_columns(&cleaned, None, TextCleaningMode::Sentinels)?
-                }
-                "fix_encoding" => {
-                    clean_text_columns(&cleaned, None, TextCleaningMode::FixEncoding)?
-                }
-                "trim_text" => clean_text_columns(&cleaned, None, TextCleaningMode::Trim)?,
-                "normalize_text" => normalize_dataprep_text_columns(&cleaned)?,
-                "cast_numeric" => cast_dataprep_numeric_columns(&cleaned)?,
-                "cap_outliers" => apply_dataprep_outlier_mode(&cleaned, DataprepOutlierMode::Cap)?,
-                "impute_outliers" => impute_outlier_values_in_frame(&cleaned)?,
-                "drop_outliers" => {
-                    apply_dataprep_outlier_mode(&cleaned, DataprepOutlierMode::Drop)?
-                }
-                "normalize_booleans" => normalize_dataprep_boolean_columns(&cleaned)?,
-                "mask_pii" => {
-                    // DataPrep's default mode is ``mask``. The session
-                    // manifest does not carry a portable HMAC key, so only
-                    // the conservative local mask is replayed here; a
-                    // materialized snapshot remains the exact source of
-                    // truth whenever one is available.
-                    let (candidate, _, changed_cell_count) =
-                        mask_personal_values_from_frame(&cleaned)?;
-                    (candidate, 0, changed_cell_count, Vec::new())
-                }
-                "drop_fuzzy_duplicates" => {
-                    // DataPrep deliberately skips fuzzy deduplication above
-                    // 5,000 rows. Keep that guard in the source fallback and
-                    // use Columnia's normalized full-row fingerprint, which
-                    // preserves exact repeats and the earliest row.
-                    if cleaned.height() > 5_000 {
-                        (cleaned.clone(), 0, 0, Vec::new())
-                    } else {
-                        let (candidate, affected_row_count) = remove_near_duplicate_rows(&cleaned)?;
-                        (
-                            candidate,
-                            affected_row_count,
-                            affected_row_count,
-                            Vec::new(),
-                        )
-                    }
-                }
-                "normalize_columns" => {
-                    let (names, renames) = normalized_column_names(&cleaned);
-                    if renames.is_empty() {
-                        (cleaned.clone(), 0, 0, Vec::new())
-                    } else {
-                        let mut candidate = cleaned.clone();
-                        candidate.set_column_names(&names).map_err(|error| {
-                            format!("No se pudieron normalizar las columnas: {error}")
-                        })?;
-                        (candidate, 0, renames.len(), Vec::new())
-                    }
-                }
-                "add_cambios_col" => {
-                    let (candidate, added) = add_audit_column_to_frame(&cleaned)?;
-                    (candidate, 0, usize::from(added), Vec::new())
-                }
-                "impute_categorical" => impute_categorical_values_in_frame(&cleaned)?,
-                _ => unreachable!("operación determinista no registrada"),
-            };
-            if changed_cell_count > 0 {
-                cleaned = candidate;
-                changed = true;
-            }
-        }
-
-        ensure_not_cancelled(is_cancelled())?;
-        if !changed {
-            return Ok(false);
-        }
-        publish_candidate(dataset, cleaned, "Limpieza DataPrep").map(|_| true)
     }
 
     pub(crate) fn cache_project_import_profile(&self) -> Result<DatasetProfile, String> {
@@ -27375,438 +24537,6 @@ mod tests {
         assert!(load_recipe_file(&path)
             .unwrap_err()
             .contains("supera el límite"));
-    }
-
-    #[test]
-    fn imports_representable_dataprep_pipeline_recipe_without_paths() {
-        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
-        let path = directory.path().join("pipeline.json");
-        let source = serde_json::json!({
-            "version": 3,
-            "name": "Pipeline DataPrep",
-            "saved_at": "2026-08-24T00:00:00Z",
-            "selected_cleaning_operations": ["normalize_text", "mask_pii"],
-            "transform": {
-                "rename_text": "old_name -> new_name",
-                "dtype_col": "age",
-                "dtype_type": "integer",
-                "parse_date_cols": ["created_at"],
-                "filters": [{"col": "age", "op": ">=", "val": 18}],
-                "find_replace": {"col": "new_name", "find": "old", "replace": "new"},
-                "keep_columns": ["new_name", "age", "created_at"]
-            },
-            "export": {
-                "formats": ["csv", "xlsx", "database"],
-                "selected_columns": ["new_name", "age"],
-                "privacy_mode": "mask",
-                "report_format": "html",
-                "csv_separator": ";",
-                "package_zip": true,
-                "sql_dialect": "postgresql"
-            }
-        });
-        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
-
-        let loaded =
-            load_recipe_file(&path).expect("la receta DataPrep representable debe importarse");
-        let json = serde_json::to_value(&loaded).expect("la receta importada debe serializarse");
-
-        assert_eq!(json["version"], RECIPE_FILE_VERSION);
-        assert_eq!(json["name"], "Pipeline DataPrep");
-        assert_eq!(json["recipe"]["renames"][0]["from"], "old_name");
-        assert_eq!(json["recipe"]["casts"][0]["target"], "integer");
-        assert_eq!(json["recipe"]["dateParses"][0]["format"], "iso8601");
-        assert_eq!(json["recipe"]["filters"][0]["operator"], "gte");
-        assert_eq!(json["recipe"]["findReplace"]["scope"], "column");
-        assert_eq!(json["recipe"]["keepColumns"][2], "created_at");
-        assert_eq!(json["exportOptions"]["formats"][0], "csv");
-        assert_eq!(json["exportOptions"]["formats"][1], "excel");
-        assert_eq!(json["exportOptions"]["selectedColumns"][1], "age");
-        assert_eq!(json["exportOptions"]["privacyMode"], "mask");
-        assert_eq!(
-            json["migrationReport"]["session"]["appliedOperations"],
-            serde_json::json!(["normalize_text", "mask_pii"])
-        );
-        assert!(json["migrationReport"]["convertedOperations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "selected_cleaning_operations.normalize_text"));
-        assert!(!json["migrationReport"]["omittedOperations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "selected_cleaning_operations.mask_pii"));
-        assert_eq!(json["migrationReport"]["sourceFormat"], "dataprep");
-        assert_eq!(json["migrationReport"]["sourceVersion"], 3);
-        assert!(json["migrationReport"]["convertedItems"].as_u64().unwrap() > 0);
-        assert!(json["migrationReport"]["omittedOperations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "export.report_format"));
-        assert_eq!(
-            json["migrationReport"]["artifactSha256"]
-                .as_str()
-                .unwrap()
-                .len(),
-            64
-        );
-        assert!(!json
-            .to_string()
-            .contains(&directory.path().display().to_string()));
-    }
-
-    #[test]
-    fn imports_dataprep_pipeline_selected_cleaning_alias() {
-        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
-        let path = directory.path().join("pipeline.json");
-        let source = serde_json::json!({
-            "version": 3,
-            "name": "Pipeline con selección nativa",
-            "saved_at": "2026-08-30T00:00:00Z",
-            "selected": ["normalize_text_values", "remove_duplicates"],
-            "transform": {}
-        });
-        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
-
-        let loaded = load_recipe_file(&path)
-            .expect("el alias selected de un pipeline DataPrep debe importarse");
-        let json = serde_json::to_value(&loaded).expect("la receta importada debe serializarse");
-
-        assert_eq!(
-            json["migrationReport"]["session"]["appliedOperations"],
-            serde_json::json!(["normalize_text", "drop_duplicates"])
-        );
-        let converted = json["migrationReport"]["convertedOperations"]
-            .as_array()
-            .unwrap();
-        assert!(converted
-            .iter()
-            .any(|value| value == "selected_cleaning_operations.normalize_text"));
-        assert!(converted
-            .iter()
-            .any(|value| value == "selected_cleaning_operations.drop_duplicates"));
-        assert_eq!(json["migrationReport"]["omittedItems"], 0);
-    }
-
-    #[test]
-    fn dataprep_cleaning_registry_has_a_migration_mapping_for_every_operation() {
-        assert_eq!(DATAPREP_CLEANING_OPERATIONS.len(), 22);
-        for operation in DATAPREP_CLEANING_OPERATIONS {
-            assert_eq!(
-                migration_cleaning_operation(operation),
-                Some(operation),
-                "la operación registrada debe tener un alias canónico: {operation}"
-            );
-        }
-    }
-
-    #[test]
-    fn imports_synthetic_session_fixture_without_restoring_session_paths() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("Cargo debe vivir dentro del repositorio")
-            .join("fixtures/migration/dataprep-session-v1.json");
-        let loaded = load_recipe_file(&fixture)
-            .expect("la fixture de sesión DataPrep debe reducirse a receta revisable");
-        let json = serde_json::to_value(&loaded).expect("la sesión convertida debe serializarse");
-        let omitted = json["migrationReport"]["omittedOperations"]
-            .as_array()
-            .expect("el informe debe listar omisiones");
-
-        assert!(omitted.iter().any(|value| value == "session.source_path"));
-        assert!(omitted.iter().any(|value| value == "session.snapshot_path"));
-        assert!(!omitted.iter().any(|value| value == "session.applied_ops"));
-        assert!(json["migrationReport"]["convertedOperations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "session.applied_ops.normalize_text"));
-        assert!(omitted.iter().any(|value| value == "quality_rules"));
-        assert!(omitted
-            .iter()
-            .any(|value| value == "session.analysis_checks"));
-        assert_eq!(json["migrationReport"]["session"]["sheetName"], "Datos");
-        assert_eq!(
-            json["migrationReport"]["session"]["stageLabel"],
-            "Transformación"
-        );
-        assert_eq!(
-            json["migrationReport"]["session"]["appliedOperationCount"],
-            1
-        );
-        assert_eq!(json["migrationReport"]["session"]["qualityRuleCount"], 1);
-        assert_eq!(json["migrationReport"]["session"]["analysisCheckCount"], 1);
-        assert_eq!(
-            json["migrationReport"]["session"]["appliedOperations"],
-            serde_json::json!(["normalize_text"])
-        );
-        assert_eq!(
-            json["migrationReport"]["session"]["analysisChecks"],
-            serde_json::json!(["completeness"])
-        );
-        assert_eq!(
-            json["migrationReport"]["session"]["hasSourceReference"],
-            true
-        );
-        assert_eq!(
-            json["migrationReport"]["session"]["hasSnapshotReference"],
-            true
-        );
-        assert!(!json.to_string().contains("fixture://"));
-        assert!(!json.to_string().contains("ventas-sinteticas.csv"));
-        assert_eq!(json["recipe"]["renames"][0]["to"], "new_name");
-    }
-
-    #[test]
-    fn reports_non_portable_dataprep_artifacts_without_copying_their_contents() {
-        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
-        let path = directory.path().join("session-artifacts.json");
-        let source = serde_json::json!({
-            "version": 1,
-            "name": "Sesión con artefactos externos",
-            "analysis_results": {"private_column": ["no debe copiarse"]},
-            "executionHistory": [{"query": "no debe copiarse"}],
-            "cachePath": "profile-cache.json",
-            "transform": {"rename_text": ""}
-        });
-        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
-
-        let loaded = load_recipe_file(&path).expect("la sesión debe poder inspeccionarse");
-        let json = serde_json::to_value(&loaded).expect("la sesión debe serializarse");
-        assert_eq!(
-            json["migrationReport"]["session"]["nonPortableArtifacts"],
-            serde_json::json!(["analysis_results", "caches", "history"])
-        );
-        assert!(json["migrationReport"]["omittedOperations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "session.analysis_results"));
-        assert!(json["migrationReport"]["omittedOperations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "session.history"));
-        assert!(json["migrationReport"]["omittedOperations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "session.caches"));
-        let serialized = json.to_string();
-        assert!(!serialized.contains("private_column"));
-        assert!(!serialized.contains("no debe copiarse"));
-        assert!(!serialized.contains("profile-cache.json"));
-    }
-
-    #[test]
-    fn imports_only_aggregate_analysis_sample_metadata_without_rows_or_values() {
-        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
-        let path = directory.path().join("session-sample-metadata.json");
-        let source = serde_json::json!({
-            "version": 3,
-            "name": "Sesión con muestra agregada",
-            "analysis_results": {
-                "is_sampled": true,
-                "sample_rows": 200,
-                "n_total_rows": 1200,
-                "rows": [{"email": "no debe copiarse"}],
-                "private_result": "no debe copiarse"
-            },
-            "transform": {"rename_text": ""}
-        });
-        fs::write(&path, serde_json::to_vec(&source).unwrap()).unwrap();
-
-        let loaded = load_recipe_file(&path).expect("la sesión debe poder inspeccionarse");
-        let json = serde_json::to_value(&loaded).expect("la sesión debe serializarse");
-        let session = &json["migrationReport"]["session"];
-        assert_eq!(session["analysisSampled"], true);
-        assert_eq!(session["analysisSampleRowCount"], 200);
-        assert_eq!(session["analysisTotalRowCount"], 1200);
-        let serialized = json.to_string();
-        assert!(!serialized.contains("no debe copiarse"));
-        assert!(!serialized.contains("private_result"));
-        assert!(serialized.contains("analysis_results"));
-    }
-
-    #[test]
-    fn imports_camel_case_session_fixture_without_exposing_paths() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("Cargo debe vivir dentro del repositorio")
-            .join("fixtures/migration/dataprep-session-v1-camel.json");
-        let loaded = load_recipe_file(&fixture)
-            .expect("la sesión camelCase DataPrep debe reducirse a receta revisable");
-        let json = serde_json::to_value(&loaded).expect("la sesión convertida debe serializarse");
-        let report = &json["migrationReport"];
-
-        assert_eq!(report["session"]["sheetName"], "Datos");
-        assert_eq!(report["session"]["stageLabel"], "Revisión");
-        assert_eq!(report["session"]["appliedOperationCount"], 2);
-        assert_eq!(report["session"]["qualityRuleCount"], 2);
-        assert_eq!(report["session"]["analysisCheckCount"], 3);
-        assert_eq!(
-            report["session"]["appliedOperations"],
-            serde_json::json!(["trim_text", "normalize_text"])
-        );
-        assert_eq!(
-            report["session"]["analysisChecks"],
-            serde_json::json!(["completeness", "duplicates", "outliers"])
-        );
-        assert_eq!(report["session"]["hasSourceReference"], true);
-        assert_eq!(report["session"]["hasSnapshotReference"], true);
-        assert!(!report["omittedOperations"]
-            .as_array()
-            .expect("el informe debe listar omisiones")
-            .iter()
-            .any(|value| value == "session.applied_ops"));
-        assert!(report["convertedOperations"]
-            .as_array()
-            .expect("el informe debe listar conversiones")
-            .iter()
-            .any(|value| value == "session.applied_ops.normalize_text"));
-        assert!(report["omittedOperations"]
-            .as_array()
-            .expect("el informe debe listar omisiones")
-            .iter()
-            .any(|value| value == "quality_rules"));
-        assert!(!json.to_string().contains("fixture://"));
-        assert!(!json.to_string().contains("ventas-camel.csv"));
-    }
-
-    #[test]
-    fn imports_synthetic_legacy_fixture_as_columnia_recipe() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("Cargo debe vivir dentro del repositorio")
-            .join("fixtures/migration/legacy-recipe-v1.json");
-        let loaded = load_recipe_file(&fixture).expect("la fixture legacy debe ser compatible");
-        assert_eq!(loaded.name, "Receta legacy sintética");
-        assert_eq!(loaded.recipe.renames[0].from, "old_name");
-        assert_eq!(loaded.recipe.casts[0].target, RecipeCastTarget::Integer);
-        assert_eq!(
-            loaded.migration_report.as_ref().unwrap().source_format,
-            "legacy"
-        );
-    }
-
-    #[test]
-    fn imports_dataprep_regex_find_replace_without_losing_its_semantics() {
-        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
-        let path = directory.path().join("pipeline.json");
-        fs::write(
-            &path,
-            serde_json::to_vec(&serde_json::json!({
-                "version": 3,
-                "name": "Regex",
-                "transform": {"find_replace": {"find": "^A", "replace": "B", "regex": true}}
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-
-        let loaded = load_recipe_file(&path).expect("la semántica regex debe importarse");
-        let find_replace = loaded
-            .recipe
-            .find_replace
-            .expect("la operación regex debe conservarse");
-        assert!(find_replace.regex);
-        assert_eq!(find_replace.find, "^A");
-        assert_eq!(find_replace.replace, "B");
-        assert!(loaded
-            .migration_report
-            .expect("la migración debe incluir informe")
-            .converted_operations
-            .contains(&"findReplace".to_owned()));
-    }
-
-    #[test]
-    fn rejects_invalid_dataprep_regex_before_importing_the_recipe() {
-        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
-        let path = directory.path().join("pipeline.json");
-        fs::write(
-            &path,
-            serde_json::to_vec(&serde_json::json!({
-                "version": 3,
-                "name": "Regex inválida",
-                "transform": {"find_replace": {"find": "[", "replace": "B", "regex": true}}
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-
-        let error = load_recipe_file(&path).expect_err("el patrón inválido debe rechazarse");
-        assert!(error.contains("expresión regular válida"));
-    }
-
-    #[test]
-    fn ignores_empty_dataprep_operation_defaults_during_recipe_import() {
-        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
-        let path = directory.path().join("pipeline.json");
-        fs::write(
-            &path,
-            serde_json::to_vec(&serde_json::json!({
-                "version": 3,
-                "name": "Pipeline sin operaciones",
-                "transform": {
-                    "rename_text": "",
-                    "dtype_col": null,
-                    "dtype_type": "auto",
-                    "parse_date_cols": [],
-                    "filters": [],
-                    "find_replace": {
-                        "col": null,
-                        "find": "",
-                        "replace": "",
-                        "regex": false
-                    },
-                    "keep_columns": [],
-                    "calc": {
-                        "name": "",
-                        "col_a": null,
-                        "operation": "add",
-                        "col_b_or_val": ""
-                    },
-                    "outliers": {"cap_cols": [], "drop_cols": []},
-                    "split_column": {
-                        "column": null,
-                        "delimiter": "",
-                        "new_names": [],
-                        "drop_source": false
-                    },
-                    "merge_columns": {
-                        "columns": [],
-                        "name": "",
-                        "separator": " ",
-                        "drop_sources": false
-                    },
-                    "group_summary": {"group_by": [], "aggregations": {}},
-                    "normalize_contacts": {
-                        "enabled": false,
-                        "auto_detect": true,
-                        "phone_cols": [],
-                        "email_cols": [],
-                        "address_cols": []
-                    },
-                    "extract_text": {
-                        "source_col": null,
-                        "extraction": "",
-                        "new_name": "",
-                        "pattern_or_delimiter": ""
-                    },
-                    "true_values": [],
-                    "false_values": []
-                }
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-
-        let loaded = load_recipe_file(&path)
-            .expect("las configuraciones vacías de DataPrep deben ser no-op");
-        let json = serde_json::to_value(&loaded).expect("la receta debe serializarse");
-        assert!(json["recipe"]["splitColumn"].is_null());
     }
 
     #[test]
@@ -29955,23 +26685,17 @@ mod tests {
         let profile_generation = state.begin_profile();
         let export_generation = state.begin_export();
         let query_generation = state.begin_query();
-        let migration_generation = state.begin_migration();
-
         state
             .cancel("profile")
             .expect("el perfil debe poder cancelarse");
         state
             .cancel("query")
             .expect("la consulta debe poder cancelarse");
-        state
-            .cancel("migration")
-            .expect("la migración debe poder cancelarse");
 
         assert!(!state.load_was_cancelled(load_generation));
         assert!(state.profile_was_cancelled(profile_generation));
         assert!(!state.export_was_cancelled(export_generation));
         assert!(state.query_was_cancelled(query_generation));
-        assert!(state.migration_was_cancelled(migration_generation));
         assert!(state.cancel("unknown").is_err());
     }
 
@@ -31780,78 +28504,6 @@ mod tests {
     }
 
     #[test]
-    fn dataprep_normalize_text_respects_cardinality_and_proper_noun_title_case() {
-        let frame = df![
-            "customer_name" => &[Some("  Ana María  "), Some(" ANA "), Some(" ANA "), None::<&str>],
-            "description" => &[Some(" First "), Some("Second"), Some("Third"), Some("Fourth")]
-        ]
-        .unwrap();
-
-        let (cleaned, rows, cells, columns) = normalize_dataprep_text_columns(&frame)
-            .expect("la normalización DataPrep debe conservar su heurística");
-        let names = cleaned.column("customer_name").unwrap().str().unwrap();
-        let descriptions = cleaned.column("description").unwrap().str().unwrap();
-
-        assert_eq!(names.get(0), Some("Ana Maria"));
-        assert_eq!(names.get(1), Some("Ana"));
-        assert_eq!(names.get(2), Some("Ana"));
-        assert_eq!(names.get(3), None);
-        assert_eq!(descriptions.get(0), Some(" First "));
-        assert_eq!(descriptions.get(1), Some("Second"));
-        assert_eq!(rows, 3);
-        assert_eq!(cells, 3);
-        assert_eq!(columns.len(), 1);
-        assert_eq!(columns[0].name, "customer_name");
-        assert_eq!(columns[0].changed_cell_count, 3);
-    }
-
-    #[test]
-    fn dataprep_session_replay_uses_dataprep_normalize_text_semantics() {
-        let state = DatasetState::for_project_import(
-            df![
-                "customer_name" => &[" ANA ", "ANA", " ANA ", "ANA"],
-                "description" => &[" First ", "Second", "Third", "Fourth"]
-            ]
-            .unwrap(),
-            "session.csv".to_owned(),
-        )
-        .expect("la sesión aislada debe poder iniciarse");
-
-        assert!(state
-            .apply_project_import_deterministic_cleaning_with_progress(
-                &["normalize_text".to_owned()],
-                |_, _| {},
-                || false,
-            )
-            .expect("el replay de la limpieza debe completarse"));
-        let current = state.current.lock().unwrap();
-        let names = current
-            .as_ref()
-            .unwrap()
-            .frame
-            .column("customer_name")
-            .unwrap()
-            .str()
-            .unwrap();
-        assert_eq!(names.get(0), Some("Ana"));
-        assert_eq!(names.get(1), Some("Ana"));
-        assert_eq!(names.get(2), Some("Ana"));
-        assert_eq!(names.get(3), Some("Ana"));
-        assert_eq!(
-            current
-                .as_ref()
-                .unwrap()
-                .frame
-                .column("description")
-                .unwrap()
-                .str()
-                .unwrap()
-                .get(0),
-            Some(" First ")
-        );
-    }
-
-    #[test]
     fn undo_and_redo_restore_disk_backed_revisions() {
         let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
         let (original, _) = load_csv(&path).expect("el CSV debe cargar");
@@ -32822,7 +29474,7 @@ mod tests {
     }
 
     #[test]
-    fn dataprep_date_cleaning_skips_ambiguous_columns_instead_of_creating_nulls() {
+    fn legacy_date_cleaning_skips_ambiguous_columns_instead_of_creating_nulls() {
         let frame = df![
             "safe" => &["2025-01-02", "2025-01-03", "2025-01-04", "2025-01-05"],
             "ambiguous" => &["01/02/2025", "02/03/2025", "2025/04/05", "May 6, 2025"]
@@ -32830,7 +29482,7 @@ mod tests {
         .expect("la fixture de fechas debe construirse");
 
         let (cleaned, changed_rows, changed_cells, changed_columns) =
-            parse_dataprep_date_columns(&frame).expect("el parseo conservador debe completarse");
+            parse_inferred_date_columns(&frame).expect("el parseo conservador debe completarse");
 
         assert!(matches!(
             cleaned.column("safe").unwrap().dtype(),
@@ -32847,7 +29499,7 @@ mod tests {
     }
 
     #[test]
-    fn dataprep_numeric_cast_skips_identifiers_and_leading_zero_codes() {
+    fn legacy_numeric_cast_skips_identifiers_and_leading_zero_codes() {
         let frame = df![
             "amount" => &["10.5", "11.5", "12.5"],
             "code" => &["001", "002", "003"],
@@ -32856,7 +29508,7 @@ mod tests {
         .expect("la fixture numérica debe construirse");
 
         let (cast, changed_rows, changed_cells, changed_columns) =
-            cast_dataprep_numeric_columns(&frame).expect("el cast seguro debe completarse");
+            cast_inferred_numeric_columns(&frame).expect("el cast seguro debe completarse");
 
         assert_eq!(cast.column("amount").unwrap().dtype(), &DataType::Float64);
         assert_eq!(cast.column("code").unwrap().dtype(), &DataType::String);
@@ -34810,7 +31462,7 @@ mod tests {
         .unwrap();
 
         let (capped, cap_rows, cap_cells, cap_columns) =
-            apply_dataprep_outlier_mode(&frame, DataprepOutlierMode::Cap).unwrap();
+            apply_outlier_mode(&frame, OutlierMode::Cap).unwrap();
         assert_eq!((cap_rows, cap_cells, cap_columns.len()), (1, 1, 1));
         assert_eq!(capped.column("amount").unwrap().dtype(), &DataType::Float64);
         assert_eq!(
@@ -34820,7 +31472,7 @@ mod tests {
         assert_eq!(capped.column("amount").unwrap().f64().unwrap().get(5), None);
 
         let (dropped, drop_rows, drop_cells, drop_columns) =
-            apply_dataprep_outlier_mode(&frame, DataprepOutlierMode::Drop).unwrap();
+            apply_outlier_mode(&frame, OutlierMode::Drop).unwrap();
         assert_eq!((drop_rows, drop_cells, drop_columns.len()), (1, 1, 1));
         assert_eq!(dropped.height(), 5);
     }
@@ -36029,13 +32681,13 @@ mod tests {
         });
         assert!(migrate_quality_rules_document(unknown_field).is_err());
 
-        let dataprep_future = serde_json::json!({
+        let legacy_future = serde_json::json!({
             "version": 4,
             "rules": []
         });
-        assert!(migrate_quality_rules_document(dataprep_future)
+        assert!(migrate_quality_rules_document(legacy_future)
             .unwrap_err()
-            .contains("DataPrep 4"));
+            .contains("legacy 4"));
 
         let directory = tempfile::tempdir().unwrap();
         let legacy_future = directory.path().join("legacy-future.json");
@@ -36103,7 +32755,7 @@ mod tests {
                 }
             ]
         }))
-        .expect("los aliases numéricos de DataPrep deben conservarse");
+        .expect("los aliases numéricos de legacy deben conservarse");
 
         assert_eq!(result.converted_rules.len(), 2);
         assert_eq!(

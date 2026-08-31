@@ -259,43 +259,6 @@ describe("ReviewPhase", () => {
     expect(onAnalysisSampleRowsChange).toHaveBeenCalledWith(10_000);
   });
 
-  it("expone la cobertura agregada de una sesión DataPrep sin prometer la muestra original", () => {
-    render(
-      <ReviewPhase
-        datasetStatus={createReadyDatasetStatus(dataset)}
-        profileStatus={{ kind: "idle" }}
-        reviewTab="diagnosis"
-        onTabChange={() => undefined}
-        onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
-        onCancelProfile={() => undefined}
-        comparisonStatus={{ kind: "idle" }}
-        datasetColumns={dataset.columns}
-        comparisonKeyColumns={[]}
-        onComparisonKeyColumnsChange={() => undefined}
-        onCompare={() => undefined}
-        onClearComparison={() => undefined}
-        onConsolidate={() => undefined}
-        onResolveConflicts={() => undefined}
-        onConflictPageChange={() => undefined}
-        joinStatus={{ kind: "idle" }}
-        joinType="inner"
-        onJoinTypeChange={() => undefined}
-        onJoin={() => undefined}
-        importedSessionAnalysis={{
-          analysisSampled: true,
-          analysisSampleRowCount: 120,
-          analysisTotalRowCount: 1_000,
-        }}
-      />,
-    );
-
-    const notice = screen.getByRole("status", { name: "Cobertura del análisis importado" });
-    expect(notice).toHaveTextContent("Análisis importado desde DataPrep");
-    expect(notice).toHaveTextContent("cobertura muestreado · 120 de 1,000 filas");
-    expect(notice).toHaveTextContent("no restaura filas, valores ni resultados originales");
-  });
-
   it("muestra diferencias de fuentes y permite consolidar un esquema compatible", () => {
     const onCompare = vi.fn();
     const onClearComparison = vi.fn();

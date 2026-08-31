@@ -512,46 +512,6 @@ describe("DeliveryPhase", () => {
     expect(screen.getByRole("textbox", { name: "Orden requerido esquema regla 1" })).toHaveValue("total\nestado");
   });
 
-  it("importa reglas DataPrep, aplica las convertibles y muestra la compatibilidad", async () => {
-    vi.spyOn(bridge, "pickQualityRulesMigration").mockResolvedValue({
-      sourceFormat: "dataprep",
-      sourceVersion: "3",
-      convertedRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
-      omittedRules: 1,
-      warnings: [{
-        ruleIndex: 2,
-        sourceKind: "column_compare",
-        severity: "omitted",
-        message: "La regla no tiene una representación equivalente.",
-      }],
-      report: {
-        artifactSha256: "b".repeat(64),
-        totalItems: 2,
-        convertedItems: 1,
-        omittedItems: 1,
-        warningCount: 1,
-        manualActions: [
-          "Validar el contrato convertido antes de exportar.",
-          "Revisar las reglas omitidas y recrearlas manualmente si siguen siendo necesarias.",
-        ],
-      },
-    });
-    const onExport = vi.fn();
-    render(<DeliveryHarness onExport={onExport} />);
-
-    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Importar contrato" }));
-
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Importación revisada"));
-    expect(screen.getByRole("status")).toHaveTextContent("1 reglas importadas");
-    expect(screen.getByRole("status")).toHaveTextContent("1 omitidas");
-    expect(screen.getByRole("status")).toHaveTextContent("origen DataPrep v3");
-    expect(screen.getByRole("status")).toHaveTextContent("column_compare");
-    expect(screen.getByRole("status")).toHaveTextContent("SHA-256 del artefacto");
-    expect(screen.getByRole("status")).toHaveTextContent("Acciones manuales");
-    expect(screen.getByRole("combobox", { name: "Comprobación regla 1" })).toHaveValue("not_null");
-  });
-
   it("guarda el contrato activo como documento Columnia v1", async () => {
     const save = vi.spyOn(bridge, "saveQualityRulesDocument").mockResolvedValue({
       format: "columnia-quality-rules",

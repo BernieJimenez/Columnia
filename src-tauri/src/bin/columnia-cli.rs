@@ -69,15 +69,6 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
                 return Ok(ExitCode::from(2));
             }
         }
-        CliCommand::SessionMigrationReport { session } => {
-            let output = automation::session_migration_report(&session)?;
-            let requires_manual_review = output.requires_manual_review();
-            privacy::write_sanitized_json(io::stdout().lock(), &output)?;
-            println!();
-            if requires_manual_review {
-                return Ok(ExitCode::from(2));
-            }
-        }
         CliCommand::Batch { manifest, force } => {
             let output = automation::batch_with_options(&manifest, force)?;
             let failed = output.failed();
@@ -115,17 +106,6 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
                     rules.as_deref(),
                     profile,
                 )?,
-            )?;
-            println!();
-        }
-        CliCommand::ProjectImportDataprep {
-            store,
-            session,
-            name,
-        } => {
-            privacy::write_sanitized_json(
-                io::stdout().lock(),
-                &automation::project_import_dataprep(&store, &session, name)?,
             )?;
             println!();
         }

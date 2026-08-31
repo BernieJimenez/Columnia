@@ -7,7 +7,6 @@ import { useProjectsController } from "./useProjectsController";
 const bridge = vi.hoisted(() => ({
   deleteProject: vi.fn(),
   getRecoveryCandidate: vi.fn(),
-  importDataprepSessionProject: vi.fn(),
   listProjects: vi.fn(),
   openProject: vi.fn(),
   saveProject: vi.fn(),
@@ -41,7 +40,6 @@ beforeEach(() => {
   bridge.saveProject.mockResolvedValue(summary);
   bridge.openProject.mockResolvedValue({ project: summary, dataset, workspace, profile: null } satisfies ProjectOpenResult);
   bridge.deleteProject.mockResolvedValue(undefined);
-  bridge.importDataprepSessionProject.mockResolvedValue(summary);
 });
 
 describe("useProjectsController", () => {
@@ -72,66 +70,6 @@ describe("useProjectsController", () => {
     expect(onProjectOpened).toHaveBeenCalledWith({ project: summary, dataset, workspace, profile: null });
     expect(result.current.activeProject).toEqual(summary);
     expect(result.current.operation.kind).toBe("success");
-  });
-
-  it("importa una sesión DataPrep y abre el proyecto resultante sin recibir una ruta", async () => {
-    const onProjectOpened = vi.fn();
-    const { result } = renderHook(() => useProjectsController({
-      connected: true,
-      blocked: false,
-      hasDataset: false,
-      workspace,
-      onProjectOpened,
-    }));
-    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
-
-    await act(async () => result.current.importSession());
-
-    expect(bridge.importDataprepSessionProject).toHaveBeenCalledOnce();
-    expect(bridge.importDataprepSessionProject).toHaveBeenCalledWith(
-      null,
-      null,
-      null,
-      expect.any(Function),
-    );
-    expect(bridge.openProject).toHaveBeenCalledWith(summary.id);
-    expect(onProjectOpened).toHaveBeenCalledWith({ project: summary, dataset, workspace, profile: null });
-    expect(result.current.activeProject).toEqual(summary);
-    expect(result.current.operation).toMatchObject({ kind: "success", message: expect.stringContaining("importada") });
-  });
-
-  it("sanitiza rutas locales en errores de operación", async () => {
-    bridge.importDataprepSessionProject.mockRejectedValue(new Error("No se pudo leer C:\\Users\\private\\sesion.json"));
-    const { result } = renderHook(() => useProjectsController({
-      connected: true,
-      blocked: false,
-      hasDataset: false,
-      workspace,
-      onProjectOpened: vi.fn(),
-    }));
-    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
-
-    await act(async () => result.current.importSession());
-
-    expect(result.current.operation).toMatchObject({ kind: "error" });
-    expect(result.current.operation).not.toHaveProperty("message", expect.stringContaining("C:\\Users\\private"));
-    expect(result.current.operation).toHaveProperty("message", expect.stringContaining("archivo seleccionado"));
-  });
-
-  it("mantiene el estado en reposo cuando se cancela el selector de sesiones", async () => {
-    bridge.importDataprepSessionProject.mockRejectedValue(new Error("No se seleccionó una sesión DataPrep."));
-    const { result } = renderHook(() => useProjectsController({
-      connected: true,
-      blocked: false,
-      hasDataset: false,
-      workspace,
-      onProjectOpened: vi.fn(),
-    }));
-    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
-
-    await act(async () => result.current.importSession());
-
-    expect(result.current.operation).toEqual({ kind: "idle" });
   });
 
   it("impide doble guardado mientras la primera operación sigue activa", async () => {

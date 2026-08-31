@@ -2,7 +2,6 @@ import type {
   HistoryState,
   LoadedRecipe,
   RecipeExportOptions,
-  RecipeMigrationReport,
   TransformRecipe,
 } from "../../bridge";
 
@@ -43,57 +42,6 @@ function isRecipeExportOptions(value: unknown): value is RecipeExportOptions {
     ["none", "mask", "hash"].includes(candidate.privacyMode ?? "");
 }
 
-function isNonNegativeSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function isOptionalNonNegativeSafeInteger(value: unknown): boolean {
-  return value === undefined || isNonNegativeSafeInteger(value);
-}
-
-function isRecipeMigrationReport(value: unknown): value is RecipeMigrationReport {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<RecipeMigrationReport>;
-  return (typeof candidate.artifactSha256 === "string" || candidate.artifactSha256 === null) &&
-    ["dataprep", "legacy"].includes(candidate.sourceFormat ?? "") &&
-    (typeof candidate.sourceVersion === "number" || candidate.sourceVersion === null) &&
-    typeof candidate.convertedItems === "number" && typeof candidate.omittedItems === "number" &&
-    typeof candidate.warningCount === "number" && Array.isArray(candidate.convertedOperations) &&
-    candidate.convertedOperations.every((operation) => typeof operation === "string") &&
-    Array.isArray(candidate.omittedOperations) && candidate.omittedOperations.every((operation) => typeof operation === "string") &&
-    Array.isArray(candidate.warnings) && candidate.warnings.every((warning) =>
-      !!warning && typeof warning === "object" && typeof warning.path === "string" &&
-      ["warning", "omitted"].includes(warning.severity) && typeof warning.message === "string",
-    ) && Array.isArray(candidate.manualActions) && candidate.manualActions.every((action) => typeof action === "string") &&
-    (!candidate.session || (
-      typeof candidate.session === "object" &&
-      typeof candidate.session.hasSourceReference === "boolean" &&
-      typeof candidate.session.hasSnapshotReference === "boolean" &&
-      (typeof candidate.session.sheetName === "string" || candidate.session.sheetName === null) &&
-      (typeof candidate.session.stageLabel === "string" || candidate.session.stageLabel === null) &&
-      isNonNegativeSafeInteger(candidate.session.appliedOperationCount) &&
-      isNonNegativeSafeInteger(candidate.session.qualityRuleCount) &&
-      isNonNegativeSafeInteger(candidate.session.analysisCheckCount) &&
-      (candidate.session.appliedOperations === undefined || (
-        Array.isArray(candidate.session.appliedOperations) &&
-        candidate.session.appliedOperations.every((operation) => typeof operation === "string")
-      )) &&
-      (candidate.session.analysisChecks === undefined || (
-        Array.isArray(candidate.session.analysisChecks) &&
-        candidate.session.analysisChecks.every((check) => typeof check === "string")
-      )) &&
-      (candidate.session.analysisSampled === undefined || typeof candidate.session.analysisSampled === "boolean") &&
-      isOptionalNonNegativeSafeInteger(candidate.session.analysisSampleRowCount) &&
-      isOptionalNonNegativeSafeInteger(candidate.session.analysisTotalRowCount) &&
-      isOptionalNonNegativeSafeInteger(candidate.session.historySnapshotCount) &&
-      isOptionalNonNegativeSafeInteger(candidate.session.historyCursor) &&
-      (candidate.session.nonPortableArtifacts === undefined || (
-        Array.isArray(candidate.session.nonPortableArtifacts) &&
-        candidate.session.nonPortableArtifacts.every((artifact) => typeof artifact === "string")
-      ))
-    ));
-}
-
 export function isLoadedRecipe(value: unknown): value is LoadedRecipe {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LoadedRecipe>;
@@ -106,8 +54,7 @@ export function isLoadedRecipe(value: unknown): value is LoadedRecipe {
     Array.isArray(recipe.textExtractions) && "calculatedColumn" in recipe &&
     "findReplace" in recipe && "keepColumns" in recipe && "splitColumn" in recipe &&
     "mergeColumns" in recipe && "groupSummary" in recipe &&
-    (!candidate.exportOptions || isRecipeExportOptions(candidate.exportOptions)) &&
-    (!candidate.migrationReport || isRecipeMigrationReport(candidate.migrationReport));
+    (!candidate.exportOptions || isRecipeExportOptions(candidate.exportOptions));
 }
 
 export function requiresImpactConfirmation(recipe: TransformRecipe): boolean {

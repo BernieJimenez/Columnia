@@ -52,18 +52,6 @@ describe("OperationProgressView", () => {
     expect(screen.getByText("100%", { selector: ".operation-progress__percent" })).toBeInTheDocument();
   });
 
-  it("describe la importación de sesiones DataPrep", () => {
-    render(
-      <OperationProgressView
-        progress={{ operation: "migration", stage: "Restaurando historial", percent: 75 }}
-        cancellation={{ kind: "available", onCancel: vi.fn() }}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: "Importando sesión DataPrep" })).toBeInTheDocument();
-    expect(screen.getByText("Proyectos")).toBeInTheDocument();
-  });
-
   it("muestra el tiempo transcurrido para operaciones largas", async () => {
     vi.useFakeTimers();
     try {

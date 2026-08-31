@@ -28,11 +28,6 @@ const OPERATION_COPY: Record<
     title: "Exportando dataset",
     description: "Estamos escribiendo una copia validada en el formato elegido.",
   },
-  migration: {
-    eyebrow: "Proyectos",
-    title: "Importando sesión DataPrep",
-    description: "Estamos validando y convirtiendo la sesión antes de guardarla en el catálogo local.",
-  },
 };
 
 function formatElapsed(seconds: number) {

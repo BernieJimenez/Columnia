@@ -86,41 +86,14 @@ project-list --store DIR
 
 Lista resúmenes ordenados sin activar datasets ni devolver rutas internas.
 
-### `project-import-dataprep`
-
-```text
-project-import-dataprep --store DIR --session FILE [--name NAME]
-```
-
-Migra una sesión DataPrep a un proyecto nuevo. La sesión debe ser un JSON
-local con una fuente o snapshot compatible; la fuente se prefiere para poder
-reproducir la receta y el snapshot se usa como respaldo cuando la fuente ya no
-está disponible. La validación completa ocurre antes de escribir el catálogo,
-por lo que una sesión inválida no crea ni reemplaza proyectos. El nombre de la
-sesión se usa cuando se omite `--name`.
-
-### `session-migration-report`
-
-```text
-session-migration-report --session FILE
-```
-
-Ejecuta un preflight de solo lectura para una sesión DataPrep v1–v3 usando el
-mismo cargador que `project-import-dataprep`. Devuelve estados de origen y
-snapshot, etapa, operaciones aplicadas, receta, calidad y análisis, junto con
-referencias ausentes, colisiones, hash SHA-256 y acciones manuales. En stdout,
-`sourceFileName` y `sheetName` se redactan; se conservan únicamente estados,
-flags y conteos estructurales. No abre el almacén ni escribe proyectos. El
-código es `2` cuando la sesión requiere revisión manual.
-
 ### `quality-migration-report`
 
 ```text
 quality-migration-report --rules FILE
 ```
 
-Ejecuta un preflight sanitizado de un contrato de calidad Columnia v1,
-DataPrep v1–v3 o legacy. Devuelve un resumen por regla con la severidad y las
+Ejecuta un preflight sanitizado de un contrato de calidad Columnia v1 o
+legacy. Devuelve un resumen por regla con la severidad y las
 políticas `on_missing`/`null_policy`, el hash SHA-256 del artefacto y acciones
 manuales. No muestra rutas, nombres de columnas ni valores. El código es `2`
 cuando existen reglas omitidas o políticas no equivalentes que deben revisarse.
@@ -154,12 +127,6 @@ Borra únicamente cuando `--confirm` coincide exactamente con `--id`.
 ## Contratos y seguridad
 
 - JSON de salida: `schemaVersion: 1` y `command`.
-- `project-import-dataprep` devuelve `imported: true` y el resumen opaco del
-  proyecto nuevo; no devuelve la ruta de la sesión ni sus referencias.
-- `session-migration-report` devuelve únicamente metadatos estructurales y
-  estados de referencias; no devuelve rutas, nombres de archivo, nombres de
-  hoja, columnas, filas ni valores. Los estados, flags, conteos y hashes se
-  mantienen para poder automatizar la revisión.
 - `project-inspect` conserva el identificador, nombre visible, dimensiones,
   flags y estado del historial, pero redacta el nombre del dataset y las
   marcas temporales antes de escribir stdout.

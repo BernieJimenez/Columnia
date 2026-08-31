@@ -30,11 +30,6 @@
       "debug": false
     },
     {
-      "name": "preview_dataprep_session_migration",
-      "module": "lib",
-      "debug": false
-    },
-    {
       "name": "list_sample_datasets",
       "module": "dataset",
       "debug": false
@@ -146,11 +141,6 @@
     },
     {
       "name": "pick_quality_rules_migration",
-      "module": "dataset",
-      "debug": false
-    },
-    {
-      "name": "pick_dataprep_session_migration",
       "module": "dataset",
       "debug": false
     },
@@ -343,11 +333,6 @@
       "name": "delete_project",
       "module": "projects",
       "debug": false
-    },
-    {
-      "name": "import_dataprep_session_project",
-      "module": "projects",
-      "debug": false
     }
   ],
   "debugCommands": [
@@ -424,10 +409,6 @@
     {
       "rust": "QualityMigrationResult",
       "typescript": "QualityMigrationResult"
-    },
-    {
-      "rust": "DataprepSessionMigrationPlan",
-      "typescript": "DataprepSessionMigrationPlan"
     },
     {
       "rust": "QualityRulesDocument",

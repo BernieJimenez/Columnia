@@ -940,9 +940,7 @@ export function DeliveryPhase({
               <div className="notice quality-migration-result" role="status" aria-live="polite">
                 <strong>Importación revisada</strong>
                 <span>
-                  {migrationState.result.report.convertedItems} reglas importadas · {migrationState.result.report.omittedItems} omitidas de {migrationState.result.report.totalItems} · origen {migrationState.result.sourceFormat === "columnia"
-                    ? "Columnia"
-                    : migrationState.result.sourceFormat === "dataprep" ? "DataPrep" : "legado"}
+                  {migrationState.result.report.convertedItems} reglas importadas · {migrationState.result.report.omittedItems} omitidas de {migrationState.result.report.totalItems} · origen {migrationState.result.sourceFormat === "columnia" ? "Columnia" : "legado"}
                   {migrationState.result.sourceVersion ? ` v${migrationState.result.sourceVersion}` : " sin versión"}
                 </span>
                 {migrationState.result.report.artifactSha256 && (

@@ -31,8 +31,6 @@ import {
   normalizeTextValues,
   openLastExport,
   openProject,
-  importDataprepSessionProject,
-  previewDataprepSessionMigration,
   discardDatasetSelection,
   dropOutlierValues,
   inspectDroppedDataset,
@@ -59,8 +57,6 @@ import {
   type ProjectWorkspace,
   type OperationProgress,
   type RecipeExportOptions,
-  type RecipeMigrationReport,
-  type SessionMigrationReport,
   type TransformRecipe,
 } from "./bridge";
 
@@ -483,78 +479,6 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenCalledWith("apply_transform_recipe", { recipe });
   });
 
-  it("guarda y carga recetas mediante selectores nativos sin exponer rutas", async () => {
-    const recipe: TransformRecipe = {
-      renames: [{ from: "Total venta", to: "total" }],
-      casts: [{ column: "total", target: "decimal" }],
-      dateParses: [{ column: "fecha", format: "dmy", target: "date" }],
-      filters: [{ column: "total", operator: "gte", value: "10" }],
-      calculatedColumn: { name: "doble", source: "total", operation: "multiply", operand: { kind: "literal", value: "2" } },
-      findReplace: { scope: "column", column: "estado", find: "P", replace: "Pendiente", regex: false },
-      keepColumns: ["total", "fecha", "estado"],
-      splitColumn: { source: "estado", delimiter: "-", names: ["estado", "detalle"], dropSource: false },
-      mergeColumns: { sources: ["estado", "detalle"], name: "estado_detalle", separator: " ", dropSources: false },
-      outlierTreatments: [{ column: "total", action: "cap" }],
-      groupSummary: { groupBy: ["estado"], aggregations: [{ column: "total", operation: "sum" }] },
-      contactNormalizations: [{ column: "correo", kind: "email" }],
-      textExtractions: [{ source: "estado", kind: "first_token", name: "estado_corto", delimiter: null }],
-    };
-    const stored = { version: 1 as const, name: "Ventas", savedAt: "2026-08-14T12:00:00Z", recipe };
-    vi.mocked(invoke).mockResolvedValueOnce(stored).mockResolvedValueOnce(stored);
-
-    await expect(saveTransformRecipe(recipe, "Ventas")).resolves.toEqual(stored);
-    expect(invoke).toHaveBeenNthCalledWith(1, "save_transform_recipe", {
-      recipe,
-      name: "Ventas",
-      migrationReport: null,
-      exportOptions: null,
-    });
-    await expect(pickTransformRecipe()).resolves.toEqual(stored);
-    expect(invoke).toHaveBeenNthCalledWith(2, "pick_transform_recipe");
-    expect(vi.mocked(invoke).mock.calls.flatMap((call) => Object.keys((call[1] ?? {}) as object))).not.toContain("path");
-  });
-
-  it("conserva metadatos de migración al guardar una receta importada", async () => {
-    const recipe: TransformRecipe = {
-      renames: [{ from: "nombre", to: "cliente" }],
-      casts: [],
-      dateParses: [],
-      filters: [],
-      calculatedColumn: null,
-      findReplace: null,
-      keepColumns: null,
-      splitColumn: null,
-      mergeColumns: null,
-      outlierTreatments: [],
-      groupSummary: null,
-      contactNormalizations: [],
-      textExtractions: [],
-    };
-    const migrationReport: RecipeMigrationReport = {
-      artifactSha256: "a".repeat(64),
-      sourceFormat: "dataprep",
-      sourceVersion: 3,
-      convertedItems: 2,
-      omittedItems: 1,
-      warningCount: 1,
-      convertedOperations: ["renames"],
-      omittedOperations: ["export.report_format"],
-      warnings: [{ path: "export.report_format", severity: "omitted", message: "Revisión manual." }],
-      manualActions: ["Validar antes de exportar."],
-    };
-    const exportOptions: RecipeExportOptions = { formats: ["csv", "excel"], selectedColumns: ["cliente"], privacyMode: "mask" };
-    vi.mocked(invoke).mockResolvedValue(null);
-
-    await saveTransformRecipe(recipe, "Pipeline", migrationReport, exportOptions);
-
-    expect(invoke).toHaveBeenCalledWith("save_transform_recipe", {
-      recipe,
-      name: "Pipeline",
-      migrationReport,
-      exportOptions,
-    });
-  });
-
   it("cancela únicamente la operación indicada", async () => {
     vi.mocked(invoke).mockResolvedValue(undefined);
 
@@ -598,66 +522,6 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledWith("open_project", { projectId: "project-1" });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
-  });
-
-  it("importa sesiones DataPrep mediante selector nativo sin argumentos de ruta", async () => {
-    vi.mocked(invoke).mockResolvedValue({ id: "project-2", name: "Sesión" });
-    const updates: OperationProgress[] = [];
-
-    await expect(importDataprepSessionProject(null, null, null, (progress) => updates.push(progress)))
-      .resolves.toEqual({ id: "project-2", name: "Sesión" });
-
-    expect(invoke).toHaveBeenCalledWith("import_dataprep_session_project", {
-      name: null,
-      sheetName: null,
-      headerMode: null,
-      onProgress: expect.any(Channel),
-    });
-    const channel = vi.mocked(invoke).mock.calls[0][1] as { onProgress: Channel<OperationProgress> };
-    const progress = { operation: "migration" as const, stage: "Restaurando historial", percent: 75 };
-    channel.onProgress.onmessage(progress);
-    expect(updates).toEqual([progress]);
-    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("sessionPath");
-  });
-
-  it("previsualiza sesiones DataPrep mediante selector nativo sin argumentos de ruta", async () => {
-    const report: SessionMigrationReport = {
-      schemaVersion: 1,
-      command: "session-migration-report",
-      artifactSha256: "c".repeat(64),
-      origin: {
-        source: { status: "available", available: true },
-        snapshot: { status: "not_provided", available: false },
-        sourceFileName: "ventas.csv",
-      },
-      session: {
-        sourceVersion: "3",
-        sheetName: "Datos",
-        stageLabel: "Revisar",
-        appliedOperationCount: 1,
-        analysisCheckCount: 0,
-      },
-      recipeSummary: {
-        operationCount: 1,
-        convertedOperationCount: 1,
-        omittedOperationCount: 0,
-        warningCount: 0,
-        convertedOperations: ["filters"],
-        omittedOperations: [],
-      },
-      quality: { totalRules: 0, convertedRules: 0, omittedRules: 0, warningCount: 0 },
-      missingReferences: [],
-      collisions: [],
-      canCreateProject: true,
-      requiresManualReview: false,
-      manualActions: [],
-    };
-    vi.mocked(invoke).mockResolvedValue(report);
-
-    await expect(previewDataprepSessionMigration()).resolves.toEqual(report);
-
-    expect(invoke).toHaveBeenCalledWith("preview_dataprep_session_migration");
-    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1] ?? "")).not.toContain("path");
   });
 
   it("exporta mediante selector nativo sin recibir una ruta de React", async () => {
@@ -777,37 +641,6 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenCalledWith("validate_quality_rules", { qualityRules });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("rows");
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
-  });
-
-  it("importa reglas DataPrep mediante un selector nativo sin exponer rutas", async () => {
-    vi.mocked(invoke).mockResolvedValue({
-      sourceFormat: "dataprep",
-      sourceVersion: "3",
-      convertedRules: [{ column: "status", kind: "not_null", maxInvalid: 0 }],
-      warnings: [],
-      omittedRules: 0,
-      report: {
-        artifactSha256: "a".repeat(64),
-        totalItems: 1,
-        convertedItems: 1,
-        omittedItems: 0,
-        warningCount: 0,
-        manualActions: ["Validar el contrato convertido antes de exportar."],
-      },
-    });
-
-    await expect(pickQualityRulesMigration()).resolves.toMatchObject({
-      sourceVersion: "3",
-      omittedRules: 0,
-      report: {
-        artifactSha256: "a".repeat(64),
-        totalItems: 1,
-        convertedItems: 1,
-      },
-    });
-
-    expect(invoke).toHaveBeenCalledWith("pick_quality_rules_migration");
-    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1] ?? {})).not.toContain("path");
   });
 
   it("guarda un documento de calidad versionado sin entregar rutas", async () => {

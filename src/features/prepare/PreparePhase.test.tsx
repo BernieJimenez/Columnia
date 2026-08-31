@@ -815,7 +815,7 @@ describe("TransformRecipeEditor", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Receta guardada: Mi receta"));
     expect(save).toHaveBeenCalledWith(expect.objectContaining({
       renames: [{ from: "nombre", to: "cliente" }],
-    }), "Mi receta");
+    }), "Mi receta", null);
   });
 
   it("expone el modo regex seguro de buscar y reemplazar en recetas cargadas", () => {
@@ -908,67 +908,5 @@ describe("TransformRecipeEditor", () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
     expect(screen.getByLabelText("Nuevo nombre 1")).toHaveValue("borrador");
     expect(screen.queryByText(/Receta cargada:/)).not.toBeInTheDocument();
-  });
-
-  it("muestra el informe de compatibilidad y las opciones de entrega migradas", async () => {
-    const loaded: LoadedRecipe = {
-      version: 1,
-      name: "Pipeline DataPrep",
-      savedAt: "2026-08-24T00:00:00Z",
-      recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
-      exportOptions: { formats: ["csv", "excel"], selectedColumns: ["cliente"], privacyMode: "mask" },
-      migrationReport: {
-        artifactSha256: "a".repeat(64),
-        sourceFormat: "dataprep",
-        sourceVersion: 3,
-        convertedItems: 4,
-        omittedItems: 2,
-        warningCount: 2,
-        convertedOperations: ["renames", "export.formats"],
-        omittedOperations: ["export.report_format"],
-        warnings: [{ path: "export.report_format", severity: "omitted", message: "Revisión manual." }],
-        manualActions: ["Abrir C:\\Users\\Ana\\pipeline.json y revisar valor 'secreto'."],
-        session: {
-          hasSourceReference: true,
-          hasSnapshotReference: true,
-          sheetName: "Datos",
-          stageLabel: "Transformación",
-          appliedOperationCount: 1,
-          qualityRuleCount: 2,
-          analysisCheckCount: 3,
-          analysisSampled: true,
-          analysisSampleRowCount: 200,
-          analysisTotalRowCount: 1200,
-          historySnapshotCount: 2,
-          historyCursor: 1,
-        },
-      },
-    };
-    vi.spyOn(bridge, "pickTransformRecipe").mockResolvedValue(loaded);
-    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={() => undefined} onDraftChange={() => undefined} />);
-    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
-
-    const report = await waitFor(() => screen.getByLabelText("Informe de migración de receta"));
-    expect(report).toHaveTextContent("Convertidos");
-    expect(report).toHaveTextContent("4");
-    expect(report).toHaveTextContent("Entrega importada: CSV, Excel");
-    expect(report).toHaveTextContent("Acciones manuales");
-    expect(report).toHaveTextContent("Contexto de sesión");
-    expect(report).toHaveTextContent("Etapa de trabajo");
-    expect(report).toHaveTextContent("Hoja de origen");
-    expect(report).toHaveTextContent("Operaciones aplicadas");
-    expect(report).toHaveTextContent("Reglas de calidad");
-    expect(report).toHaveTextContent("Comprobaciones");
-    expect(report).toHaveTextContent("Muestra de análisis");
-    expect(report).toHaveTextContent("acotada · 200 filas de 1,200");
-    expect(report).toHaveTextContent("Snapshots históricos");
-    expect(report).toHaveTextContent("2 · cursor 1");
-    expect(report).toHaveTextContent("Se detectaron referencias de origen o snapshot");
-    expect(report).not.toHaveTextContent("Transformación");
-    expect(report).not.toHaveTextContent("Datos");
-    expect(report).not.toHaveTextContent("a".repeat(64));
-    expect(report).not.toHaveTextContent("export.report_format");
-    expect(report).not.toHaveTextContent("C:\\Users\\Ana\\pipeline.json");
-    expect(report).not.toHaveTextContent("secreto");
   });
 });

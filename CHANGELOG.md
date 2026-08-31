@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.90.0] - 2026-08-31
+
+### Eliminado
+
+- Se retiró completamente la compatibilidad con sesiones, recetas, comandos,
+  fixtures y documentación del sistema externo.
+- El bridge IPC, la interfaz y el catálogo de proyectos ya exponen únicamente
+  contratos nativos de Columnia.
+
+### Mejorado
+
+- El inventario IPC queda sincronizado en 65 comandos de producción, 4 de
+  depuración y 58 estructuras compartidas.
+- Se conserva la carga de contratos legacy de calidad sin mantener una
+  integración de sesiones externa.
+
 ## [0.80.0] - 2026-08-31
 
 ### Mejorado
@@ -192,28 +208,28 @@ los artefactos de validación locales.
   aperturas, valida cualquier valor persistido y vuelve a `Polars` si el
   almacenamiento no está disponible o contiene una opción desconocida.
 - Revisar expone la cobertura agregada de análisis conservada al importar una
-  sesión DataPrep: indica si el análisis fue muestreado y sus conteos de filas
+  sesión sistema anterior: indica si el análisis fue muestreado y sus conteos de filas
   cuando están disponibles. El perfil actual se recalcula sobre el dataset
   activo y la UI deja explícito que no se restauran filas, valores ni resultados
   originales.
-- La migración de recetas DataPrep reconoce el campo `selected` que emiten los
+- La migración de recetas sistema anterior reconoce el campo `selected` que emiten los
   pipelines persistidos, además de `selected_cleaning_operations` y su alias
   camelCase; las operaciones se normalizan al catálogo determinista canónico y
   no se pierden al importar un pipeline real.
 - `project-save --recipe` reproduce ahora las limpiezas deterministas
-  seleccionadas en un pipeline DataPrep antes de aplicar su receta estructural,
+  seleccionadas en un pipeline sistema anterior antes de aplicar su receta estructural,
   validando el resultado completo antes de publicar el snapshot del proyecto.
 - El catálogo de limpieza sugerida queda alineado con las 22 operaciones
-  registradas por `dataprepv1.1`; la lista canónica comparte el orden del replay
+  registradas por `sistema anterior`; la lista canónica comparte el orden del replay
   de sesiones y una regresión evita que futuras operaciones queden sin mapping.
-- La importación de sesiones DataPrep reconoce también el campo real `filename`
+- La importación de sesiones sistema anterior reconoce también el campo real `filename`
   como referencia local reproducible cuando el manifiesto no incluye
   `source_path`, incluyendo su validación nativa y el nombre seguro del dataset.
-- La actividad de sesiones DataPrep acepta los estados reales `completed` y
+- La actividad de sesiones sistema anterior acepta los estados reales `completed` y
   `failed`, además de sus aliases compatibles, y convierte `rows_out`/`rowsOut`
   en el conteo agregado de filas; las duraciones decimales se redondean de forma
   segura y nunca se conservan consultas, rutas ni valores.
-- Se añade una fixture v3 con la forma emitida por `SessionRecipe` de DataPrep
+- Se añade una fixture v3 con la forma emitida por `SessionRecipe` de sistema anterior
   y una regresión de proyecto que verifica metadatos agregados de muestreo,
   etapa, reglas y actividad `ExecutionHistory` tras reabrir; los resultados,
   cachés, consultas y rutas privadas siguen descartándose.
@@ -221,11 +237,11 @@ los artefactos de validación locales.
   importación, cursor, etapa, actividad y Deshacer/Rehacer después de reabrir;
   resultados de análisis y cachés reanudables continúan marcados como no
   portables y no se copian al workspace.
-- El replay de limpiezas DataPrep dependientes del perfil (`drop_high_null_cols`
+- El replay de limpiezas sistema anterior dependientes del perfil (`drop_high_null_cols`
   y `drop_id_cols`) conserva las métricas del dataset inicial aunque antes se
   ejecute `drop_duplicates`; evita eliminar columnas solo porque la deduplicación
   cambió su cardinalidad o porcentaje de nulos.
-- El replay de sesiones DataPrep aplica la semántica de `normalize_text` del
+- El replay de sesiones sistema anterior aplica la semántica de `normalize_text` del
   limpiador original: omite columnas de texto con más de 50% de valores
   distintos, conserva nulos y aplica título a columnas cuyo nombre sugiere
   nombres propios. La normalización directa de Columnia mantiene su contrato
@@ -239,7 +255,7 @@ los artefactos de validación locales.
   atómica. La ejecución incremental del dataset activo y el presupuesto global
   de datasets grandes siguen fuera de este bloque.
 - El bridge declara ahora `nonPortableArtifacts` y valida estrictamente los
-  metadatos opcionales de sesión DataPrep: contadores enteros seguros no
+  metadatos opcionales de sesión sistema anterior: contadores enteros seguros no
   negativos, banderas booleanas y listas de categorías sin valores arbitrarios.
   Los artefactos no portables siguen siendo señales sanitizadas y no se
   convierten en datos operativos.
@@ -295,7 +311,7 @@ los artefactos de validación locales.
 - Guardar un proyecto entrega la copia ya aislada del dataset directamente al
   escritor Parquet, eliminando una segunda clonación completa del `DataFrame`
   durante la publicación durable.
-- Las recetas y la migración DataPrep admiten `find_replace` con expresiones
+- Las recetas y la migración sistema anterior admiten `find_replace` con expresiones
   regulares seguras, grupos de captura en el reemplazo y validación nativa del
   patrón antes de modificar el dataset; los patrones inválidos siguen fallando
   cerrado sin perder la semántica del pipeline.
@@ -319,16 +335,16 @@ los artefactos de validación locales.
   distintas, y también dividir y combinar columnas en la misma ejecución; las
   dependencias incompatibles, como descartar antes una fuente que aún necesita
   un `merge`, conservan el fallback o rechazo explícito.
-- La migración M1 de sesiones DataPrep restaura un historial explícito de hasta
+- La migración M1 de sesiones sistema anterior restaura un historial explícito de hasta
   doce snapshots Parquet locales mediante el contrato versionado
   `history_snapshots`: valida etiquetas, referencias regulares, presupuesto de
   disco y cursor contra el dataset actual, y publica las revisiones dentro de
   la generación durable del proyecto sin exponer rutas.
-- La importación nativa de sesiones DataPrep publica progreso por etapas de
+- La importación nativa de sesiones sistema anterior publica progreso por etapas de
   validación, carga, replay, restauración de historial, perfil y publicación;
   la operación `migration` admite cancelación cooperativa aislada y nunca
   publica un proyecto parcial cuando se cancela antes del commit atómico.
-- Proyectos expone la importación de sesiones DataPrep con progreso visible y
+- Proyectos expone la importación de sesiones sistema anterior con progreso visible y
   cancelación desde la interfaz, además del selector nativo y la CLI existentes.
 - Los `JOIN` locales `INNER` y `LEFT` sin agregación procesan el lado `dataset`
   por bloques y conservan el conteo, orden y `OFFSET`/`LIMIT` globales sin
@@ -391,7 +407,7 @@ los artefactos de validación locales.
 - La importación M1 conserva hasta cinco entradas de historial de ejecución solo
   cuando contienen estado, duración y filas agregadas; asigna IDs locales y no
   copia consultas, rutas, valores ni entradas inválidas.
-- La importación de sesiones DataPrep reproduce `drop_duplicates`,
+- La importación de sesiones sistema anterior reproduce `drop_duplicates`,
    `drop_fuzzy_duplicates`,
    `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`,
    `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `parse_dates`, `trim_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers` y `drop_outliers`,
@@ -401,17 +417,17 @@ los artefactos de validación locales.
    materializado.
 - El replay M1 rechaza antes de publicar una sesión que combine las estrategias
   IQR incompatibles `cap_outliers`, `impute_outliers` y `drop_outliers`, igualando
-  la exclusividad del catálogo DataPrep.
-- El catálogo DataPrep `selected_cleaning_operations` se migra por aliases canónicos:
+  la exclusividad del catálogo sistema anterior.
+- El catálogo sistema anterior `selected_cleaning_operations` se migra por aliases canónicos:
   las limpiezas deterministas, incluido `mask_pii` en su modo `mask` predeterminado,
   se reproducen desde la fuente y se conservan en el informe de sesión. Los modos
   hash/clave explícita no se inventan y las operaciones sin equivalente quedan como
   advertencias accionables, sin descartarse silenciosamente.
-- La importación de sesiones DataPrep convierte etiquetas de etapa conocidas
+- La importación de sesiones sistema anterior convierte etiquetas de etapa conocidas
   (`Cargar`, `Revisar`, `Preparar`, `Entregar` y equivalentes de análisis,
   transformación o exportación) en la etapa activa del workspace; etiquetas
   desconocidas conservan el fallback seguro a Revisar.
-- El preflight de sesiones DataPrep clasifica bloques reconocibles de resultados,
+- El preflight de sesiones sistema anterior clasifica bloques reconocibles de resultados,
   historial y cachés como artefactos no portables, conservando solo sus categorías
   sanitizadas y una acción manual; no copia contenido ni rutas de esos artefactos.
 - El probe WebView2 atribuye memoria por proceso y fase, y limita el perfil y el
@@ -422,14 +438,14 @@ los artefactos de validación locales.
   paginación, transformación y exportación con evidencia agregada de duración,
   memoria y cleanup. `perf:check` y `verify:tier` exigen este recorrido además
   del benchmark CLI.
-- La migración de sesiones DataPrep conserva en el artefacto de receta los
+- La migración de sesiones sistema anterior conserva en el artefacto de receta los
   identificadores estructurales acotados de operaciones aplicadas y comprobaciones
   de análisis, además de sus conteos; no guarda resultados, cachés ni rutas.
 - Cargar ofrece dos datasets de ejemplo locales para explorar señales de calidad
   y series temporales sin descargar datos ni exponer rutas; la selección usa un
   identificador opaco y el inventario IPC queda en 68 comandos de producción y
   59 estructuras.
-- La migración de sesiones DataPrep conserva metadatos agregados de muestras de
+- La migración de sesiones sistema anterior conserva metadatos agregados de muestras de
   análisis —estado muestreado y conteos de filas— cuando están disponibles, sin
   copiar filas, valores ni resultados originales; el informe los muestra como
   contexto de compatibilidad.
@@ -500,7 +516,7 @@ los artefactos de validación locales.
   antes de publicar, se preservan nulos y se rechazan división por cero, infinitos
   y fechas no representables. Fechas con zona horaria o filtros previos mantienen
   el fallback eager.
-- La importación de sesiones DataPrep prioriza un snapshot local compatible para
+- La importación de sesiones sistema anterior prioriza un snapshot local compatible para
   conservar el estado materializado exacto; solo reaplica la receta sobre el
   origen cuando no existe snapshot, dejando explícito el límite de paridad de
   operaciones cuyos parámetros no están en el manifiesto.
@@ -514,7 +530,7 @@ los artefactos de validación locales.
 - Preparar permite confirmar y apartar como nulos los valores de texto que no
   coincidan con una sugerencia semántica con al menos 90% de confianza; no muestra
   celdas, conserva tipos no textuales y ofrece reversión desde el historial.
-- La importación de sesiones DataPrep recalcula y persiste el perfil agregado
+- La importación de sesiones sistema anterior recalcula y persiste el perfil agregado
   del dataset importado antes de publicar el proyecto, para que Revisar abra
   con una caché de calidad válida sin conservar filas, celdas, rutas ni muestras.
 - Los proyectos con perfil cacheado guardan la huella SHA-256 del
@@ -575,12 +591,12 @@ los artefactos de validación locales.
   consultas/joins locales incorporan cancelación y preflight de cardinalidad.
 - El smoke CLI valida la redacción de nombres de archivo en stdout sin dejar de
   comprobar que las salidas locales se publiquen completas y de forma atómica.
-- Los manifiestos de sesión DataPrep importados conservan un resumen estructural
+- Los manifiestos de sesión sistema anterior importados conservan un resumen estructural
   sanitizado en el informe de migración: hoja, etapa, conteos de operaciones,
   reglas y análisis, además de señales booleanas para referencias de origen y
   snapshot. No se restauran sesiones ni se escriben proyectos automáticamente.
 - Contrato de calidad versionado `columnia-quality-rules` v1, con guardado
-  atómico, importación de Columnia/DataPrep v1–v3 y compatibilidad con el
+  atómico, importación de Columnia/sistema anterior v1–v3 y compatibilidad con el
   documento legado v1; versiones futuras y formatos ambiguos fallan cerrados.
 - Selector nativo Win32 estabilizado para Abrir/Guardar como, con soporte de
   editores `1148`/`1001`, fallback de UI Automation/Win32/Unicode y entrada al
@@ -594,7 +610,7 @@ los artefactos de validación locales.
   atómico para operaciones que requieren validaciones específicas.
 - Monitor compacto de consumo en el lateral, con CPU/RAM del proceso y del
   equipo, actualización nativa periódica y estado accesible para el shell web.
-- Benchmark reproducible de 100 MiB contra `dataprepv1.1`, con comparación de
+- Benchmark reproducible de 100 MiB contra `sistema anterior`, con comparación de
   duración, working set, conteos, fixture sintética y cleanup sin conservar datos.
 - Gate de cobertura V8 global para `src` (80% statements/lines, 75% branches y
   functions), más umbrales por capa crítica para App, Entrega, Preparar y su
@@ -605,7 +621,7 @@ los artefactos de validación locales.
 - Contrato de instalador NSIS `currentUser`, recursos MIT/third-party notices y
   política WebView2 `downloadBootstrapper`; Polars actualizado a `0.55.2`.
 - Primera entrega de paridad funcional: exportación JSON atómica en UI, Rust,
-  CLI, batch y proyectos, con matriz comparativa frente a `dataprepv1.1`.
+  CLI, batch y proyectos, con matriz comparativa frente a `sistema anterior`.
 - Segunda entrega de paridad funcional: comparación local de dos datasets,
   diferencias multivaluadas de filas/columnas y consolidación opt-in con
   historial cuando el esquema es compatible.
@@ -732,7 +748,7 @@ los artefactos de validación locales.
 ### Añadido
 
 - Inventario y fixtures sintéticas para pipelines, sesiones, reglas de calidad
-  y recetas legacy DataPrep, declaradas en `fixtures/manifest.json`.
+  y recetas legacy sistema anterior, declaradas en `fixtures/manifest.json`.
 - La importación de manifiestos de sesión reconoce origen, snapshot, hoja,
   etapa, operaciones aplicadas, calidad y análisis, y los publica como warnings
   sanitizados sin afirmar una restauración automática.
@@ -750,7 +766,7 @@ los artefactos de validación locales.
 
 ### Añadido
 
-- La migración de pipelines DataPrep v1–v3 conserva las opciones de entrega
+- La migración de pipelines sistema anterior v1–v3 conserva las opciones de entrega
   compatibles: formatos locales, columnas seleccionadas y privacidad.
 - `xlsx` se normaliza a `excel`; reportes, CSV/ZIP y parámetros SQL sin
   equivalente generan warnings estructurados en el informe de migración.
@@ -770,7 +786,7 @@ los artefactos de validación locales.
 
 ### Añadido
 
-- La importación de contratos de calidad DataPrep ahora entrega un informe
+- La importación de contratos de calidad sistema anterior ahora entrega un informe
   estructurado con total de entradas, reglas convertidas, omisiones,
   advertencias, acciones manuales y SHA-256 del artefacto original.
 - Entregar muestra el resumen del informe y las acciones recomendadas sin
@@ -807,7 +823,7 @@ los artefactos de validación locales.
 
 ### Añadido
 
-- Importación segura de recetas JSON DataPrep v1–v3 desde el selector nativo de
+- Importación segura de recetas JSON sistema anterior v1–v3 desde el selector nativo de
   Preparar: renombres, casts, fechas, filtros, reemplazos literales, columnas
   conservadas, cálculos, split/merge, outliers, grupos, contactos y extracciones
   se normalizan a una receta Columnia v1.

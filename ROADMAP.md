@@ -1,7 +1,8 @@
 # Roadmap — Columnia
 
 > Documento vivo de planificación del nuevo proyecto.
-> La versión actual usada como referencia está en `../dataprepv1.1/`.
+> La versión actual se define únicamente por el código y los contratos de este
+> repositorio.
 
 ## Estado general
 
@@ -10,14 +11,12 @@
   con JSON, SQL, comparación/consolidación por clave, joins multidataset y
   visualizaciones accesibles, resolución por columna/valor, privacidad visible
   en los destinos locales, correlaciones numéricas acotadas y contratos de calidad v3 con documento canónico
-  Columnia v1; la Fase M1 importa reglas de DataPrep v1–v3 y legados, conserva
-  opciones de entrega, reconoce metadatos de sesiones con fixtures sintéticas y
-  ofrece cobertura temporal con calendario diario accesible, retiro confirmado de
-  identificadores y migración de sesiones por CLI; mantiene pendientes la
-  restauración completa de sesiones y la cobertura integral del round-trip hacia
-  proyectos;
+  Columnia v1; conserva opciones de entrega, cobertura temporal con calendario
+  diario accesible, retiro confirmado de identificadores y proyectos locales;
+  la superficie de compatibilidad externa fue retirada para mantener un contrato
+  nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.80.0`.
+- Versión actual del prototipo: `0.90.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -91,7 +90,7 @@ inglés y permite una identidad propia.
   otros contextos editoriales.
 - `Tamiz`: comunica selección y limpieza, pero limita la percepción del producto
   y ya aparece asociado a otros servicios digitales.
-- `DataPrep`: es descriptivo, pero demasiado genérico y se confunde con
+- `sistema anterior`: es descriptivo, pero demasiado genérico y se confunde con
   bibliotecas y productos existentes.
 - `PrepDesk`: describe una herramienta de escritorio, pero ya existe como nombre
   de software comercial.
@@ -187,12 +186,12 @@ el 2026-08-12 sobre `main` en el commit
 ProcessDevKill es útil como referencia porque ya distribuye una aplicación
 Windows con la combinación elegida para Columnia: Tauri 2, Rust, React,
 TypeScript y Vite. No se toma como plantilla completa: su producto y su carga de
-datos son mucho menores, y DataPrep ya posee controles de ingeniería que allí no
+datos son mucho menores, y sistema anterior ya posee controles de ingeniería que allí no
 existen.
 
 ### Comparación de infraestructura
 
-| Área | `dataprepv1.1` | ProcessDevKill | Decisión para Columnia |
+| Área | `sistema anterior` | ProcessDevKill | Decisión para Columnia |
 | --- | --- | --- | --- |
 | Shell de escritorio | pywebview + WebView2 | Tauri 2 + WebView2 | Adoptar Tauri 2 |
 | Backend | Python empaquetado con PyInstaller | Rust compilado nativamente | Adoptar Rust |
@@ -218,7 +217,7 @@ existen.
 | Privacidad | Aplicación local, assets offline, threat model y manejo de PII | Declara datos locales y única petición de red para updates | Crear inventario de datos/red verificable y telemetría desactivada por defecto |
 | Firma de código Windows | No disponible | No disponible; SmartScreen advierte | No comprar Authenticode; publicar honestamente como editor desconocido |
 
-### Lo que ProcessDevKill aporta y DataPrep no tiene completo
+### Lo que ProcessDevKill aporta y sistema anterior no tiene completo
 
 Estas son las brechas que sí deben incorporarse a Columnia:
 
@@ -376,7 +375,7 @@ ajustará después del prototipo y de decidir el alcance de la primera versión.
   el dataset anterior cuando se cancela una sustitución.
 - [x] Implementar exportación atómica y cancelable CSV/Parquet mediante selector
   nativo, sin modificar el archivo original ni exponer rutas a React.
-- [x] Comparar tiempo y RAM con `dataprepv1.1` mediante un benchmark local
+- [x] Comparar tiempo y RAM con `sistema anterior` mediante un benchmark local
   reproducible de 100 MiB, con cleanup y evidencia sanitizada.
 
 **Gate:** el benchmark cruzado de I1 está aprobado; la arquitectura de entrada
@@ -388,7 +387,7 @@ compatibles ejecutan un plan Polars lazy con renombres, tipos, filtros y
 columnas calculadas; las operaciones no compatibles conservan el camino eager
 para mantener el contrato estricto. El monitor nativo de CPU/RAM se muestra en
 el lateral de la aplicación, y `perf:i1` compara la inspección de 100 MiB con
-`dataprepv1.1` sin conservar datos de la fixture.
+`sistema anterior` sin conservar datos de la fixture.
 
 **Estado actual 2026-08-26:** Columnia ya no impone el límite provisional de
 500 MiB a los datasets. La capacidad efectiva queda determinada por la RAM, el
@@ -427,7 +426,7 @@ orden y la primera aparición, actualiza la vista previa e invalida el perfil. E
 archivo original permanece intacto y existe un único punto de deshacer; este
 historial es provisional hasta introducir recetas reproducibles.
 La interfaz usa un panel lateral y replica el flujo de producto verificado en
-`dataprepv1.1`: Cargar, Revisar, Preparar y Entregar. Esto evita una única
+`sistema anterior`: Cargar, Revisar, Preparar y Entregar. Esto evita una única
 pantalla creciente y mantiene cada responsabilidad en su etapa. El límite de
 carga se elevó a 500 MB a petición del usuario,
 con una advertencia visible: todavía se materializa el dataset completo y el uso
@@ -453,7 +452,7 @@ temporal dentro de la carpeta elegida, se sincroniza y después reemplaza
 atómicamente el destino. Una cancelación o error elimina el temporal y conserva
 intacto cualquier archivo anterior. La exportación informa progreso y puede
 cancelarse con las mismas garantías cooperativas de la carga.
-La versión 0.6.0 corrige la arquitectura de navegación según `dataprepv1.1` y
+La versión 0.6.0 corrige la arquitectura de navegación según `sistema anterior` y
 añade pruebas de regresión para impedir que la selección de archivos aparezca
 fuera de Cargar o que la exportación aparezca fuera de Entregar.
 La versión 0.7.0 incorpora en Preparar la primera corrección segura del proyecto
@@ -1036,7 +1035,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 
 - [x] Aprobar el nombre `Columnia`.
 - [x] Crear la carpeta `Columnia/` y establecer este ROADMAP como documento vivo.
-- [x] Comparar infraestructura de DataPrep y ProcessDevKill.
+- [x] Comparar infraestructura de sistema anterior y ProcessDevKill.
 - [x] Diseñar desde el inicio para Windows, macOS y Linux.
 - [x] Aprobar la arquitectura Rust + Tauri + Polars + DuckDB.
 - [x] Definir licencia MIT y modelo de distribución abierta inicial.
@@ -1050,13 +1049,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   actualizaciones dentro de la app.
 - [x] Ejecutar el primer corte vertical CSV del prototipo técnico de la Fase I1.
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
-- [x] Completar streaming/lazy y benchmark contra `dataprepv1.1`; el trabajo
+- [x] Completar streaming/lazy y benchmark contra `sistema anterior`; el trabajo
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.80.0
+## 8.1. Cola de ejecución recomendada desde v0.90.0
 
-1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
+1. **Migración de recetas sistema anterior:** completada en v0.53.0 para el núcleo
    representable y ampliada en Unreleased con `find_replace` regex segura. El
    selector importa pipelines v1–v3, valida los patrones con la sintaxis Rust y
    conserva grupos de captura; booleanos personalizados y operaciones sin
@@ -1082,7 +1081,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    `accessibility:release:check`. Falta ejecutar lector de pantalla y validar
    en hardware real de Windows High Contrast.
 5. **Baseline de rendimiento:** conservar el objetivo de startup <8 s, mantener
-   cleanup 100 % repetible y comparar contra `dataprepv1.1`; `npm run smoke:cdp`
+   cleanup 100 % repetible y comparar contra `sistema anterior`; `npm run smoke:cdp`
    ya aplica 512 MiB de working set/256 MiB de memoria privada al árbol nativo y
    registra duraciones IPC por operación, mientras `npm run perf:benchmark` cubre
      una muestra CLI de 100 MiB. v0.47 añadió tres iteraciones sostenidas, v0.48
@@ -1135,7 +1134,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    Quedan el benchmark del motor, la validación con datasets que excedan la RAM,
    transformaciones/validación/exportación incrementales, consultas más amplias
    y destinos de base de datos.
-8. **Migración M1 desde `dataprepv1.1`:** la vertical de contratos de calidad
+8. **Migración M1 desde `sistema anterior`:** la vertical de contratos de calidad
    ya produce en v0.55.0 un informe con conteos, advertencias, acciones manuales
    y hash del artefacto; v0.56.0 conserva las opciones de entrega compatibles de
    pipelines y reporta sus omisiones; v0.57.0 añade fixtures sintéticas para
@@ -1146,7 +1145,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    licencias/avisos, smoke de instalador limpio, updater autenticado y validación
    real en macOS/Linux.
 
-### Fase P1 — Paridad funcional con `dataprepv1.1`
+### Fase P1 — Paridad funcional con `sistema anterior`
 
 - [x] Crear una matriz verificable de entradas, transformaciones, proyectos,
   visualizaciones, salidas, privacidad y escala.
@@ -1161,7 +1160,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir apertura segura de la carpeta del último output local desde Entregar:
   Rust conserva temporalmente el destino de la exportación exitosa, lo revalida
   antes de abrirlo y React no recibe la ruta.
-- [ ] Completar la entrega compatible con DataPrep: PostgreSQL/MySQL/SQL Server,
+- [ ] Completar la entrega compatible con sistema anterior: PostgreSQL/MySQL/SQL Server,
   prueba de conexión y políticas de tabla. La
   primera slice ya publica un bundle ZIP atómico con
   dataset CSV protegido, diccionario tipado, reporte de calidad opcional y
@@ -1235,11 +1234,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   numérica, rechazando pérdida de precisión y preservando identificadores o
   códigos con ceros iniciales mediante una acción directa reversible.
  - [x] Completar la migración del catálogo de limpieza sugerida: las 22
-   operaciones registradas por DataPrep tienen acción directa reversible o replay
+   operaciones registradas por sistema anterior tienen acción directa reversible o replay
    determinista seguro en Columnia. Los identificadores y el PII personal
    (correo, teléfono, dirección y nombre) tienen retiro/protección explícitos;
    la eliminación difusa confirma el impacto, conserva la primera fila/orden y
-   las copias exactas, y mantiene el límite de 5.000 filas de DataPrep. También
+   las copias exactas, y mantiene el límite de 5.000 filas de sistema anterior. También
    están cubiertos vacíos, constantes, alta nulidad, centinelas, imputación
    conservadora, booleanos, fechas con formato dominante cerrado, auditoría
    `_cambios` y las tres estrategias IQR (`cap_outliers`, `impute_outliers`,
@@ -1282,33 +1281,33 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   payload, evaluación Rust, bridge tipado, editor accesible y pruebas.
 - [x] Añadir `column_compare` a los contratos de calidad: operadores `eq`, `ne`,
   `lt`, `lte`, `gt` y `gte`, comparación local con nulos inválidos, tolerancias,
-  migración segura desde DataPrep, bridge tipado, editor accesible y pruebas.
+  migración segura desde sistema anterior, bridge tipado, editor accesible y pruebas.
 - [x] Añadir `date_range` a los contratos de calidad: límites `minDate`/`maxDate`,
   parseo seguro de texto/Date/Datetime, valores nulos o ilegibles inválidos,
-  migración DataPrep, bridge tipado, editor accesible y evaluación compartida.
+  migración sistema anterior, bridge tipado, editor accesible y evaluación compartida.
 - [x] Añadir `conditional` a los contratos de calidad con condiciones `eq`, `ne`,
   `lt`, `lte`, `gt` y `gte`, subreglas fila-a-fila seguras, tolerancia exterior,
-  migración DataPrep, bridge tipado, editor accesible y evaluación compartida.
+  migración sistema anterior, bridge tipado, editor accesible y evaluación compartida.
 - [x] Añadir `schema_contract` con columnas requeridas, control de columnas
-  adicionales y orden opcional, migración DataPrep, bridge tipado, editor
+  adicionales y orden opcional, migración sistema anterior, bridge tipado, editor
   accesible y evaluación estructural compartida.
 - [x] Añadir `referential_integrity` con referencias locales explícitas para
-  claves simples y compuestas, migración segura desde DataPrep, bridge tipado,
+  claves simples y compuestas, migración segura desde sistema anterior, bridge tipado,
   editor accesible, tolerancias y evaluación compartida sin exponer valores.
 - [x] Añadir `monotonic` con direcciones no decreciente/no creciente,
-  tolerancias por inversión, migración segura desde DataPrep, bridge tipado,
+  tolerancias por inversión, migración segura desde sistema anterior, bridge tipado,
   editor accesible y evaluación compartida; los nulos reinician la cadena.
 - [x] Añadir `aggregate_check` y `aggregate_reconciliation` para conteo, suma,
   mínimo, máximo y reconciliación de dos columnas, con `expected`/referencias,
-  tolerancias absolutas/relativas, migración DataPrep, bridge tipado, editor
+  tolerancias absolutas/relativas, migración sistema anterior, bridge tipado, editor
   accesible y resultados privados basados en conteos.
 - [x] Añadir `distribution_drift` con línea base numérica, comparación de medias,
   umbral/tolerancia absoluta, exclusión de nulos y textos no numéricos, migración
-  DataPrep, bridge tipado, editor accesible y resultados privados basados en
+  sistema anterior, bridge tipado, editor accesible y resultados privados basados en
   conteos.
 - [x] Añadir versionado/compatibilidad explícita del documento de reglas de
   calidad: formato canónico Columnia v1, guardado atómico, selector nativo,
-  compatibilidad con DataPrep v1–v3 y legado v1/sin versión, rechazo seguro de
+  compatibilidad con sistema anterior v1–v3 y legado v1/sin versión, rechazo seguro de
   formatos/campos/versiones futuras y contrato IPC sin rutas.
 - [x] Migrar la primera slice del optimizador de transformaciones: recomendaciones
   no destructivas, preview antes/después, riesgo/confianza y alternativas de
@@ -1537,7 +1536,7 @@ comparación no equivale a ejecución fuera de memoria general. La
   la muestra ya se conservan en el workspace durable con fallback seguro para
   catálogos anteriores. La etapa activa del flujo también se conserva con
   fallback a Revisar y validación cerrada; Revisar ahora comunica la cobertura
-  agregada de muestreo importada desde DataPrep, sin copiar filas, valores ni
+  agregada de muestreo importada desde sistema anterior, sin copiar filas, valores ni
   resultados originales. Revisar también recuerda localmente el motor SQL
   elegido con validación cerrada y fallback a Polars. Las muestras originales y
   otras preferencias de sesión siguen pendientes; la matriz de correlaciones ya
@@ -1545,7 +1544,7 @@ comparación no equivale a ejecución fuera de memoria general. La
   fuerza el recálculo si la caché no coincide. La importación M1 conserva además
   hasta cinco entradas de historial de ejecución cuando solo contienen estado,
   duración y filas; normaliza los estados reales `completed`/`failed` de
-  DataPrep y sus aliases, interpreta `rows_out` como filas de salida, asigna IDs
+  sistema anterior y sus aliases, interpreta `rows_out` como filas de salida, asigna IDs
   locales y nunca copia consultas, rutas ni valores.
   La apertura segura del último output local ya está implementada desde Entregar
   con revalidación en Rust y sin transportar rutas por IPC.
@@ -1554,157 +1553,6 @@ comparación no equivale a ejecución fuera de memoria general. La
 
 **Gate:** cada capacidad marcada como implementada debe tener contrato, prueba
 automatizada y una fila de paridad con evidencia del original.
-
-### Fase M1 — Migración de compatibilidad desde `dataprepv1.1`
-
-Esta fase no copia Python ni `pywebview`: convierte los artefactos que una
-persona ya tiene en DataPrep para que puedan abrirse y continuar en Columnia.
-La auditoría se hizo contra `src/dataprep/core/bridge_contract.py`,
-`src/dataprep/core/recipes.py`, `src/dataprep/core/cleaner.py`,
-`src/dataprep/capabilities/analysis.py`, `src/dataprep/api.py` y la UI React
-del original.
-
-- [x] Registrar la brecha funcional: Columnia ya cubre entradas, preview,
-  perfil básico, recetas nativas, proyectos, JSON/SQL, comparación por clave,
-  joins y visualizaciones accesibles básicas; no cubre todavía el catálogo
-  completo de análisis/limpieza/calidad/entrega ni los artefactos legacy.
-- [x] Definir un inventario de formatos de migración y fixtures sintéticas para
-  pipelines, sesiones, reglas de calidad y recetas antiguas, sin incluir rutas
-  reales ni celdas de usuario; el contrato vive en `docs/reference/migration-inventory.md`
-  y `fixtures/manifest.json`.
-- [x] Importar el núcleo representable de pipelines JSON DataPrep v1–v3:
-  renombres, casts, fechas, filtros, reemplazos literales o regex seguras con
-  grupos de captura, columnas conservadas, cálculos, split/merge, outliers,
-  grupos, contactos y extracciones; producir una receta Columnia v1. Patrones
-  regex inválidos, booleanos personalizados y operaciones sin equivalente se
-  rechazan explícitamente.
-- [x] Completar la importación de opciones de exportación representables de
-  DataPrep: formatos CSV/JSON/Parquet/SQL/XLSX→Excel, columnas seleccionadas y
-  privacidad; conservarlas en la receta y generar warnings estructurados para
-  reportes, CSV/ZIP y parámetros SQL sin equivalente.
-- [x] Reconocer manifiestos de sesión DataPrep durante la importación de recetas:
-  registrar origen, snapshot, hoja, etapa, operaciones aplicadas, análisis y
-  calidad como omisiones explícitas, sin copiar rutas ni afirmar una restauración
-  de dataset que todavía no existe.
-- [x] Conservar un resumen estructural sanitizado de la sesión importada en el
-  informe de migración: referencias de origen/snapshot como booleanos, hoja y
-  etapa visibles, y conteos de operaciones, reglas y comprobaciones de análisis;
-  admite claves DataPrep `snake_case` y `camelCase`, acepta comprobaciones como
-  objeto o arreglo, y no activa snapshots ni escribe proyectos automáticamente.
-- [x] Implementar la primera vertical de migración de reglas de calidad: selector
-  nativo JSON, conversión de reglas representables, tolerancias por conteo y
-  porcentaje, warnings/omitidas para severidad o políticas no equivalentes,
-  límites de archivo y sin exponer rutas al frontend.
-- [x] Completar el informe estructurado de esta vertical: conteos de entradas,
-  conversiones, omisiones y advertencias, acciones manuales, y SHA-256 del
-  artefacto leído sin publicar rutas ni valores del dataset.
-- [x] Versionar el artefacto de reglas con el formato canónico
-  `columnia-quality-rules` v1, guardarlo atómicamente e importar de forma
-  explícita Columnia v1, DataPrep v1–v3 y documentos legados compatibles; las
-  versiones futuras y contratos ambiguos fallan antes de convertir reglas.
-- [x] Completar la migración de semánticas de reglas antiguas y v3, conservando
-  tolerancias, severidad,
-  referencias, condiciones y reglas no soportadas como advertencias explícitas;
-  nunca convertir una regla bloqueante en una entrega aprobada silenciosamente.
-  Se aceptan aliases snake/camel, severidades históricas (`error`, `critical`,
-  `fatal`), `blocking`, referencias escalares y condiciones heredadas; las
-  políticas externas, `nullable` no equivalente y contradicciones se omiten con
-  warning explícito.
-- [x] Reforzar la migración de reglas representables con aliases de tipo, números
-  serializados como texto y validación cerrada de políticas/tolerancias; los
-  valores inválidos se omiten con warnings en vez de publicarse como reglas
-  convertidas.
-- [ ] Importar sesiones guardadas de DataPrep: dataset/origen, hoja, etapa,
-  operaciones aplicadas, receta, reglas y análisis; cuando no sea seguro guardar
-  un snapshot, conservar solo una referencia reproducible y explicarlo. La
-  vertical actual conserva además nombres estructurales acotados de operaciones
-  y comprobaciones, y regenera el perfil agregado como caché verificable al
-  publicar el proyecto; ahora reproduce `drop_duplicates`, `drop_high_null_cols`,
-  `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`,
-  `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `parse_dates`,
-  `trim_text`, `fix_encoding`, `cast_numeric`, `normalize_booleans`, `mask_pii`,
-  `drop_fuzzy_duplicates`, `normalize_columns` y `add_cambios_col` cuando falta el snapshot y la
-  semántica es determinista, en el orden fijo de limpieza; las eliminaciones
-  de columnas conservan al menos una columna utilizable, `drop_empty_rows`
-  solo retira filas completamente nulas, `impute_numeric` usa la mediana de
-  columnas físicas después de normalizar centinelas y promueve a `Float64` si
-  resulta fraccionaria, `trim_text` recorta
-  espacios exteriores y protege `_cambios`, `normalize_text` colapsa espacios,
-  retira acentos, omite texto de alta cardinalidad y aplica título a nombres
-  propios sugeridos por la columna, `normalize_booleans` exige un
-  vocabulario cerrado con ambos valores; `drop_high_null_cols` y `drop_id_cols`
-  consultan el perfil inicial aunque `drop_duplicates` haya cambiado las filas,
-  y `normalize_columns` conserva la
-  resolución Unicode de nombres; el preflight clasifica como no portables los
-  bloques reconocibles de resultados, historial y cachés sin copiar su contenido;
-  las etiquetas de etapa conocidas se restauran como etapa activa del workspace
-  y las desconocidas vuelven a Revisar;
-  reconoce también el campo `selected` que emiten los pipelines persistidos de
-  DataPrep y lo normaliza al mismo catálogo determinista; todavía no restaura resultados de análisis originales, cachés reanudables ni
-  snapshots históricos que el artefacto no contiene. Cuando el manifiesto aporta
-  el contrato explícito `history_snapshots` v1, la importación sí restaura hasta
-  doce snapshots Parquet locales, valida el cursor contra el estado actual y los
-  publica como historial durable del proyecto; los historiales ambiguos o
-  incompatibles siguen requiriendo revisión manual.
-  La importación nativa informa las etapas de validación, carga, replay,
-  restauración de historial, perfil y publicación mediante el canal Tauri;
-  admite cancelación cooperativa y conserva la publicación atómica del catálogo.
-- [x] Mapear sesiones/pipelines importados al catálogo de proyectos de Columnia,
-  con validación de esquema, tipos, archivos ausentes, hojas inexistentes y
-  colisiones de nombres antes de escribir cualquier snapshot. Las sesiones
-  usan su importador dedicado y los pipelines, que no contienen una fuente,
-  entran mediante `project-save --recipe` junto a un `--input` explícito;
-  las limpiezas seleccionadas se reproducen antes de la receta estructural.
-- [x] Implementar la primera slice de mapeo de sesiones DataPrep al catálogo:
-  selector nativo, validación de referencias, esquema, formato, hoja y receta
-  en un estado temporal, publicación únicamente después de validar, fallback a
-  `snapshot_path` compatible cuando falta la fuente y errores sin rutas
-  administradas en el bridge. El panel de Proyectos ofrece ahora esa acción con
-  progreso por etapas y cancelación cooperativa; la ruta CLI conserva el
-  contrato síncrono.
-- [x] Crear un informe de migración con operaciones convertidas, omitidas,
-  advertencias, acciones manuales y hash de los artefactos; el preflight CLI
-  session-migration-report lee manifiestos DataPrep v1–v3, resume origen,
-  snapshot, hoja, etapa, receta, calidad y análisis, detecta referencias
-  ausentes/colisiones y no publica secretos, rutas administradas ni valores de
-  datasets. Devuelve código 2 cuando requiere revisión y nunca escribe
-  proyectos.
-- [x] Añadir un preflight CLI `quality-migration-report` para contratos Columnia,
-  DataPrep v1–v3 y legacy: resume severidad/políticas, marca reglas omitidas,
-  conserva el hash del artefacto y devuelve código 2 cuando requiere revisión,
-  sin publicar rutas, columnas ni valores.
-- [x] Añadir la primera compatibilidad de bridge necesaria para la migración:
-  contrato versionado, selector nativo, lectura fuera del hilo de UI, errores
-  sanitizados y compatibilidad con el informe de sesiones; no se expone la
-  allowlist Python completa. La operación nativa de importación de sesiones
-  expone progreso por etapas y cancelación cooperativa aislada como operación
-  `migration`; la cancelación antes de publicar no crea proyectos ni reemplaza
-  el dataset activo.
-- [x] Verificar una primera vertical de round-trip con una sesión sintética:
-  importar → reabrir → validar → exportar, comparando conteos, columnas y tipos;
-  los casos de importación parcial conservan la regresión que impide reemplazar un
-  proyecto válido.
-- [x] Completar el round-trip con fixtures representativas de sesiones, hojas,
-  historial y artefactos que todavía requieran restauración manual. Las fixtures
-  `dataprep-session-v1-roundtrip.json` y
-  `dataprep-session-v1-history-roundtrip.json` verifican fuente/snapshot,
-  metadatos de hoja/etapa, operaciones, reglas, actividad, historial Parquet con
-  cursor validado y redacción de análisis/historial/caché no portables; la
-  fixture v3 `dataprep-session-v3-real.json` añade la forma real de
-  `SessionRecipe`, metadatos agregados de muestra y actividad segura. Los
-  resultados de análisis originales y cachés reanudables continúan requiriendo
-  revisión manual por no tener un contrato portable.
-
-#### Límites de alcance de M1
-
-- No se migran restos de Marimo, la implementación Python, `pywebview`,
-  dependencias ECharts ni la estructura interna del bridge.
-- El modelo multi-tabla/esquema estrella y los proyectos legacy se mantienen como
-  capacidades opcionales: no se convierten en requisito de la primera migración
-  sin una decisión de producto explícita.
-- Los proyectos SQLite/Parquet, historial y reglas nativos de Columnia son la
-  representación final; la compatibilidad se mide por comportamiento observable,
-  no por igualdad de archivos internos.
 
 ## Tier 5 — Integridad de gates y preparación de distribución (abierto 2026-08-28)
 
@@ -1985,10 +1833,10 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-28 | Perfil `Release` completo aprobado después de integrar el contrato updater: documentación, IPC, toolchains, cobertura, build web, Clippy, 244 tests Rust, SBOM, supply chain, instalador, fixture updater y binario Tauri sin bundle. La evidencia release posterior fue capturada desde un commit limpio, revisada visualmente en los cinco escenarios y ligada al baseline; la ruta local se valida con `npm run accessibility:release:check`. | `.local/validation/20260828T214048Z-6ec7bae-release.json`, `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-28 | Smoke nativo aislado aprobado desde `npm run smoke:native-selectors`: los cuatro diálogos Win32 de abrir/guardar pasan con filtrado por proceso, outputs verificados, cleanup confirmado y presupuesto de 512 MiB working set / 256 MiB privado respetado. El smoke Playwright se mantiene separado para no mezclar su retención de WebView2 con la medición nativa. | `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
 | 2026-08-29 | `perf:webview2` aprobado: 100 MiB/819,137 filas dentro de WebView2, con selector Win32, carga, paginación, transformación, exportación y cleanup; el recorrido grande queda separado del CDP normal y registra 686,817,280 bytes de working set y 456,114,176 bytes privados bajo su techo de medición 1.5 GiB/1 GiB. El presupuesto global 512/256 MiB continúa abierto. | `.local/validation/performance-webview2/20260829T010235Z/summary.json`, `.local/validation/webview2-cdp/20260829T010238Z/summary.json` |
-| 2026-08-29 | M1 conserva en `migrationReport.session` los nombres estructurales acotados de operaciones aplicadas y comprobaciones de análisis cuando son tokens seguros; sus conteos, receta, reglas y round-trip durable siguen siendo verificables, mientras resultados, cachés y snapshots históricos de DataPrep continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `docs/reference/migration-inventory.md` |
-| 2026-08-29 | M1 prioriza el snapshot local compatible de DataPrep para restaurar el estado materializado exacto; solo reaplica la receta sobre el origen cuando no hay snapshot, con regresión nativa para impedir una reproducción incompleta de `applied_ops`. | `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | M1 conserva en `migrationReport.session` los nombres estructurales acotados de operaciones aplicadas y comprobaciones de análisis cuando son tokens seguros; sus conteos, receta, reglas y round-trip durable siguen siendo verificables, mientras resultados, cachés y snapshots históricos de sistema anterior continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `docs/reference/feature-parity.md` |
+| 2026-08-29 | M1 prioriza el snapshot local compatible de sistema anterior para restaurar el estado materializado exacto; solo reaplica la receta sobre el origen cuando no hay snapshot, con regresión nativa para impedir una reproducción incompleta de `applied_ops`. | `src-tauri/src/projects.rs`, `docs/reference/feature-parity.md` |
 | 2026-08-29 | P1 añade detección agregada y reparación reversible de doble codificación UTF-8 heredada; solo se aplican conversiones de texto inequívocas y se excluyen números y `_cambios`. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
-| 2026-08-29 | M1 regenera y persiste el perfil agregado al importar una sesión DataPrep; el proyecto abre con caché de calidad válida, mientras resultados originales, cachés reanudables e historial que no estén en el artefacto siguen pendientes. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | M1 regenera y persiste el perfil agregado al importar una sesión sistema anterior; el proyecto abre con caché de calidad válida, mientras resultados originales, cachés reanudables e historial que no estén en el artefacto siguen pendientes. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/feature-parity.md` |
 | 2026-08-29 | Nueva corrida estricta `smoke:cdp` con Playwright, ProjectsPanel, mutaciones nativas y cleanup aprobados: el working set quedó en 501,563,392 bytes dentro de 512 MiB, pero la memoria privada alcanzó 272,379,904 bytes frente al límite de 256 MiB. Corridas diagnósticas previas quedaron en 256.06–258.06 MiB; no se atribuye todavía una fuga al código y el gate privado estable sigue abierto. | `.local/validation/webview2-cdp/20260829T023923Z/summary.json`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-29 | El perfil de `smoke:cdp` ahora comprueba pertenencia al `Job Object` al medir y limpiar el árbol; una réplica explicó 63,680,512 bytes privados de un descendiente externo no reconocido. La corrida posterior quedó dentro del contrato con 503,644,160 bytes de working set, 267,456,512 bytes privados y cleanup confirmado. | `.local/validation/webview2-cdp/20260829T044214Z/summary.json`, `.local/validation/webview2-cdp/20260829T044540Z/summary.json`, `tools/probe-webview2-cdp.ps1` |
 | 2026-08-29 | P1 amplía el catálogo de limpieza con una acción confirmada para apartar como nulos los valores de texto que contradicen una sugerencia semántica con al menos 90% de coincidencia; la operación es reversible, no muestra celdas y conserva pendientes las reglas avanzadas restantes. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx` |
@@ -1996,16 +1844,16 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-29 | P1 añade imputación categórica explícita y reversible: completa solo nulos textuales como `Desconocido`, protege números y `_cambios`, publica impacto agregado y actualiza el inventario IPC a 61 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts` |
 | 2026-08-29 | P1 añade acciones IQR confirmables para limitar valores atípicos o eliminar las filas que excedan los límites, con historial reversible, impacto agregado y sin mostrar celdas; el inventario IPC pasa a 63 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts` |
 | 2026-08-29 | P1/M1 liga los perfiles cacheados del catálogo a la huella SHA-256 de `current.parquet`: al reabrir un proyecto se invalida solo la caché si cambia el snapshot, se conserva compatibilidad con catálogos anteriores y SQLite migra a v5 de forma transaccional. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `CONTEXTO.md` |
-| 2026-08-29 | M1 reproduce durante el fallback a la fuente las operaciones DataPrep deterministas `drop_duplicates`, `drop_fuzzy_duplicates`, `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `parse_dates`, `trim_text`, `normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers`, `drop_outliers`, `normalize_booleans`, `mask_pii`, `normalize_columns` y `add_cambios_col`, en el orden fijo del registro y sin inventar parámetros; `parse_dates` solo convierte texto con formatos cerrados, cobertura segura, años entre 1900 y 2100 y como máximo 1% de literales ilegibles; `drop_fuzzy_duplicates` conserva el guard de 5.000 filas y usa el fingerprint normalizado local, mientras `mask_pii` aplica solo la máscara predeterminada `[REDACTED]`; las eliminaciones de columnas conservan al menos una columna utilizable, `drop_empty_rows` conserva la semántica de filas completamente nulas, `impute_numeric` usa la mediana de columnas físicas después de normalizar centinelas y promueve a `Float64` si resulta fraccionaria, `trim_text` recorta espacios exteriores y protege `_cambios`, `normalize_text` colapsa espacios, pasa a minúsculas y retira acentos, `cast_numeric` exige más de 90% de valores numéricos y rechaza conversiones con pérdida de precisión, las estrategias IQR cap/impute/drop usan al menos cuatro valores numéricos válidos y `drop_outliers` elimina una fila si cualquier columna numérica excede sus límites, `normalize_booleans` convierte solo vocabularios cerrados, `normalize_columns` aplica la resolución Unicode de nombres, `add_cambios_col` recupera la estructura reservada sin inventar anotaciones históricas y los snapshots compatibles siguen teniendo prioridad y no se reaplican. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
-| 2026-08-29 | M1/P1 migra `selected_cleaning_operations` mediante aliases canónicos: `normalize_text` y las demás limpiezas deterministas entran al replay desde la fuente y al informe de sesión; las operaciones avanzadas sin equivalente reversible conservan una advertencia específica y no se ejecutan silenciosamente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
-| 2026-08-29 | M1/P1 incorpora `mask_pii` y `drop_fuzzy_duplicates` al replay seguro de sesiones DataPrep: sin snapshot compatible se aplica la máscara predeterminada y conservadora `[REDACTED]` o el fingerprint normalizado local (hasta 5.000 filas), preservando nulos, copias exactas, columnas no personales y `_cambios`; los snapshots mantienen prioridad y los modos hash/clave explícita no se inventan. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | M1 reproduce durante el fallback a la fuente las operaciones sistema anterior deterministas `drop_duplicates`, `drop_fuzzy_duplicates`, `drop_high_null_cols`, `drop_id_cols`, `drop_empty_cols`, `drop_constant_cols`, `drop_empty_rows`, `normalize_sentinels`, `impute_numeric`, `impute_categorical`, `parse_dates`, `trim_text`, `normalize_text`, `fix_encoding`, `cast_numeric`, `cap_outliers`, `impute_outliers`, `drop_outliers`, `normalize_booleans`, `mask_pii`, `normalize_columns` y `add_cambios_col`, en el orden fijo del registro y sin inventar parámetros; `parse_dates` solo convierte texto con formatos cerrados, cobertura segura, años entre 1900 y 2100 y como máximo 1% de literales ilegibles; `drop_fuzzy_duplicates` conserva el guard de 5.000 filas y usa el fingerprint normalizado local, mientras `mask_pii` aplica solo la máscara predeterminada `[REDACTED]`; las eliminaciones de columnas conservan al menos una columna utilizable, `drop_empty_rows` conserva la semántica de filas completamente nulas, `impute_numeric` usa la mediana de columnas físicas después de normalizar centinelas y promueve a `Float64` si resulta fraccionaria, `trim_text` recorta espacios exteriores y protege `_cambios`, `normalize_text` colapsa espacios, pasa a minúsculas y retira acentos, `cast_numeric` exige más de 90% de valores numéricos y rechaza conversiones con pérdida de precisión, las estrategias IQR cap/impute/drop usan al menos cuatro valores numéricos válidos y `drop_outliers` elimina una fila si cualquier columna numérica excede sus límites, `normalize_booleans` convierte solo vocabularios cerrados, `normalize_columns` aplica la resolución Unicode de nombres, `add_cambios_col` recupera la estructura reservada sin inventar anotaciones históricas y los snapshots compatibles siguen teniendo prioridad y no se reaplican. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `docs/reference/feature-parity.md` |
+| 2026-08-29 | M1/P1 migra `selected_cleaning_operations` mediante aliases canónicos: `normalize_text` y las demás limpiezas deterministas entran al replay desde la fuente y al informe de sesión; las operaciones avanzadas sin equivalente reversible conservan una advertencia específica y no se ejecutan silenciosamente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/feature-parity.md` |
+| 2026-08-29 | M1/P1 incorpora `mask_pii` y `drop_fuzzy_duplicates` al replay seguro de sesiones sistema anterior: sin snapshot compatible se aplica la máscara predeterminada y conservadora `[REDACTED]` o el fingerprint normalizado local (hasta 5.000 filas), preservando nulos, copias exactas, columnas no personales y `_cambios`; los snapshots mantienen prioridad y los modos hash/clave explícita no se inventan. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/feature-parity.md` |
 | 2026-08-29 | P1 cierra la brecha de acción directa para `parse_dates`: Preparar ofrece interpretar columnas de texto con un formato de fecha dominante cerrado, omite mezclas ambiguas, conserva nulos y publica el cambio en el historial reversible con impacto agregado; el inventario IPC pasa a 65 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
 | 2026-08-29 | P1 cierra la brecha de acción directa para `cast_numeric`: Preparar convierte texto con más de 90% de coincidencia numérica, rechaza pérdida de precisión, conserva identificadores/códigos con ceros iniciales y publica una mutación reversible con impacto agregado; el inventario IPC pasa a 66 comandos de producción. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
-| 2026-08-29 | M1 amplía el round-trip de sesiones con un `.xlsx` real generado por el exportador nativo: la hoja registrada se valida, la receta se aplica y el proyecto se reabre comprobando esquema, conteos y etapa activa; la restauración completa de artefactos históricos sigue pendiente. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `fixtures/migration/dataprep-session-v1-roundtrip.json` |
+| 2026-08-29 | M1 amplía el round-trip de sesiones con un `.xlsx` real generado por el exportador nativo: la hoja registrada se valida, la receta se aplica y el proyecto se reabre comprobando esquema, conteos y etapa activa; la restauración completa de artefactos históricos sigue pendiente. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `fixtures/manifest.json` |
 | 2026-08-29 | M1 importa hasta cinco entradas de historial de ejecución solo cuando sus metadatos agregados son seguros (estado, duración y filas), las persiste en la actividad SQL del proyecto con IDs locales y descarta consultas, rutas, valores y entradas inválidas. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
-| 2026-08-29 | M1 rechaza antes de publicar una sesión que combine estrategias IQR de outliers mutuamente excluyentes (`cap`, `impute` y `drop`), preservando la semántica de DataPrep y el catálogo existente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
+| 2026-08-29 | M1 rechaza antes de publicar una sesión que combine estrategias IQR de outliers mutuamente excluyentes (`cap`, `impute` y `drop`), preservando la semántica de sistema anterior y el catálogo existente. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs` |
 | 2026-08-29 | P1/M1 añade dos datasets de ejemplo locales para explorar calidad y series temporales desde Cargar: se crean bajo el almacenamiento de la aplicación, se inspeccionan con el flujo nativo existente y React recibe solo metadatos e identificadores opacos; el inventario IPC pasa a 68 comandos de producción y 59 estructuras. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/App.tsx`, `src/features/load/LoadPhase.tsx`, `src/styles.css`, `docs/reference/ipc-inventory.json` |
-| 2026-08-29 | M1 conserva metadatos agregados de muestreo de análisis cuando una sesión DataPrep los aporta: estado muestreado y conteos de filas validados, sin importar filas, valores ni resultados; el resumen queda visible en el informe de compatibilidad. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/prepare/TransformRecipeEditor.tsx`, `docs/reference/migration-inventory.md` |
+| 2026-08-29 | M1 conserva metadatos agregados de muestreo de análisis cuando una sesión sistema anterior los aporta: estado muestreado y conteos de filas validados, sin importar filas, valores ni resultados; el resumen queda visible en el informe de compatibilidad. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/prepare/TransformRecipeEditor.tsx`, `docs/reference/feature-parity.md` |
 | 2026-08-29 | P1 persiste por proyecto las últimas cinco ejecuciones SQL como actividad agregada (estado, duración y filas), las restaura al abrir y rechaza historiales corruptos o sobredimensionados; no guarda consultas, rutas ni valores. | `src-tauri/src/projects.rs`, `src/features/review/ReviewPhase.tsx`, `src/App.tsx` |
 | 2026-08-29 | P1/M1 añade desde Entregar la apertura segura del último output local: Rust retiene solo durante la sesión el destino de una exportación exitosa, lo revalida como archivo regular y abre su carpeta mediante el explorador nativo, sin enviar rutas a React. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx` |
 | 2026-08-30 | P1 amplía la consulta SQL local a `GROUP BY` compuesto de hasta ocho columnas, con orden de primera aparición, combinaciones nulas, rechazo de claves duplicadas y presupuesto de agregación conservado; DuckDB, joins más amplios y ejecución incremental siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
@@ -2017,7 +1865,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 procesa consultas SQL locales `INNER`/`LEFT` sin agregación por bloques del lado `dataset`: conserva el orden y la paginación globales, cuenta todas las coincidencias y evita acumular el `DataFrame` unido completo. `FULL` y agregaciones mantienen la ruta eager acotada mientras se define su estrategia incremental. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 extiende el procesamiento por bloques a las agregaciones SQL locales `INNER`/`LEFT`: fusiona estados de `COUNT`/`SUM`/`AVG`/`MIN`/`MAX` y grupos en orden estable, sin acumular el `DataFrame` unido completo. `FULL` y DuckDB permanecen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 extiende la ruta por bloques a consultas SQL locales `FULL`: procesa el lado `dataset` como `LEFT` y añade por bloques las filas derechas no emparejadas con anti-join estable; paginación y agregaciones incluyen ambos lados sin acumular el resultado unido completo, aunque el frame anti-join derecho sigue acotado por los límites actuales. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `CONTEXTO.md` |
-| 2026-08-30 | M1 restaura el historial portable `history_snapshots` v1: hasta doce Parquet locales, etiquetas/cursor validados, presupuesto durable de 1 GiB y reanudación de Deshacer/Rehacer tras reabrir el proyecto; historiales ambiguos y artefactos de análisis siguen fuera de alcance. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `docs/reference/migration-inventory.md` |
+| 2026-08-30 | M1 restaura el historial portable `history_snapshots` v1: hasta doce Parquet locales, etiquetas/cursor validados, presupuesto durable de 1 GiB y reanudación de Deshacer/Rehacer tras reabrir el proyecto; historiales ambiguos y artefactos de análisis siguen fuera de alcance. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/bridge.ts`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 incorpora la primera ruta DuckDB opcional para SQL local: valida el contrato restringido, reutiliza el snapshot Parquet administrado de la revisión actual cuando existe y usa snapshots temporales como fallback, conserva conteo/paginación/orden estable y reproduce el esquema coalescido de JOIN `INNER`/`LEFT`/`FULL`; el `DataFrame` activo y la ejecución incremental fuera de RAM permanecen como límites explícitos. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src/bridge.ts`, `src/features/review/ReviewPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 hace que DuckDB reutilice el snapshot Parquet administrado de la revisión actual, añadiendo la columna de orden solo en la vista temporal y evitando serializar otra vez el `DataFrame`; la ruta conserva fallback para historiales degradados y no afirma todavía ejecución fuera de RAM. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 conserva la fuente comparada en un snapshot Parquet temporal mientras la comparación está activa: conflictos y consolidación leen bajo demanda, los JOIN DuckDB pueden registrar ambos snapshots sin reserializar el frame comparado y el dueño temporal garantiza cleanup al descartar la comparación. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
@@ -2025,20 +1873,20 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 sirve la paginación de la muestra activa desde el snapshot Parquet del cursor actual con `slice` y colección streaming, conservando el fallback al `DataFrame` cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 evita una segunda clonación completa al guardar proyectos: la copia aislada del dataset se entrega directamente al escritor Parquet, conservando la publicación atómica y la recuperación ante fallos; el benchmark fija el perfil de compilación reproducible y restaura el entorno del proceso. | `src-tauri/src/projects.rs`, `tools/benchmark-datasets.ps1`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 añade consultas Polars simples respaldadas por el snapshot Parquet del cursor: valida el esquema sin filas, cuenta coincidencias por bloques de 16K y relee solo la ventana o los bloques necesarios para agregaciones; comprueba el conteo exacto, respeta cancelación y vuelve al `DataFrame` activo ante snapshot inválido. `JOIN`, comparación, historial degradado y ejecución integral fuera de RAM conservan sus límites explícitos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
-| 2026-08-30 | M1 expone en Revisar la cobertura agregada de análisis conservada en sesiones DataPrep reabiertas: estado muestreado y conteos de filas, con un límite visible que distingue metadatos de la muestra original no portable. | `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | M1 expone en Revisar la cobertura agregada de análisis conservada en sesiones sistema anterior reabiertas: estado muestreado y conteos de filas, con un límite visible que distingue metadatos de la muestra original no portable. | `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 persiste localmente la preferencia del motor SQL de Revisar (`Polars`/`DuckDB`), rechaza valores desconocidos y conserva `Polars` como fallback seguro sin ampliar el workspace ni el IPC. | `src/features/review/reviewModel.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/review/reviewModel.test.ts`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 permite elegir el límite de muestreo de la matriz de correlaciones numéricas entre 10.000, 50.000 y 100.000 filas; el bridge lo transporta como opción acotada, Rust invalida cachés con otra cobertura y conserva fallback seguro. | `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/App.tsx`, `src/features/review/reviewModel.ts`, `src/features/review/ReviewPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`, y a `Iso8601` sin offset o con sufijo UTC `Z`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras offsets distintos de UTC y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, calculando umbrales y conteos después de filtros compatibles; las etapas que alteran valores mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 amplía la receta lazy/streaming para combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` y `merge` en una misma receta cuando se conservan sus dependencias; los conflictos de fuentes mantienen rechazo o fallback eager explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
-| 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md`, `CHANGELOG.md`, `CONTEXTO.md` |
-| 2026-08-30 | M1 reconoce el campo `filename` que emite DataPrep como referencia local reproducible cuando falta `source_path`: lo resuelve junto al manifiesto, valida que sea un archivo regular y conserva nombre/estado sin filtrar la ruta al bridge. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-30 | M1/P1 reduce el pico temporal de restauración de `history_snapshots`: cada Parquet histórico se lee y publica secuencialmente, conserva validación de etiquetas/cursor/cancelación y no acumula todos los `DataFrame` antes del commit; la ejecución lazy del dataset activo y los presupuestos globales de datasets grandes continúan pendientes. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/feature-parity.md`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | M1 reconoce el campo `filename` que emite sistema anterior como referencia local reproducible cuando falta `source_path`: lo resuelve junto al manifiesto, valida que sea un archivo regular y conserva nombre/estado sin filtrar la ruta al bridge. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 amplía las recetas IQR lazy/streaming para convivir con `keep_columns` cuando se conservan todas las columnas tratadas; si una proyección elimina una dependencia, se mantiene el fallback eager y el rechazo explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
-| 2026-08-30 | M1 corrige la migración de pipelines DataPrep persistidos: el campo real `selected` ahora se reconoce junto a sus aliases de sesión, normaliza las operaciones deterministas y conserva la selección al importar la receta. | `src-tauri/src/dataset.rs`, `docs/reference/migration-inventory.md` |
+| 2026-08-30 | M1 corrige la migración de pipelines sistema anterior persistidos: el campo real `selected` ahora se reconoce junto a sus aliases de sesión, normaliza las operaciones deterministas y conserva la selección al importar la receta. | `src-tauri/src/dataset.rs`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | M1 completa el mapeo de pipelines al catálogo mediante `project-save --recipe`: valida el `--input`, reproduce las limpiezas deterministas seleccionadas y aplica la receta estructural antes de publicar el snapshot; una regresión verifica el proyecto reabierto. | `src-tauri/src/automation.rs`, `src-tauri/src/projects.rs`, `ROADMAP.md` |
-| 2026-08-30 | P1/M1 cierra el catálogo de limpieza sugerida: las 22 operaciones de `dataprepv1.1` comparten una lista canónica con el replay de sesiones, y una prueba evita que una operación registrada quede sin mapping migrable. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
-| 2026-08-30 | M1 corrige la paridad de la actividad de sesiones con el `ExecutionHistory` real de DataPrep: `completed`/`failed`, duraciones decimales y `rows_out`/`rowsOut` se normalizan a la actividad agregada segura de Columnia; consultas, rutas y valores siguen descartados. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/migration-inventory.md` |
-| 2026-08-30 | M1 añade la fixture `dataprep-session-v3-real.json`, basada en la forma v3 de `SessionRecipe`, y verifica importar → reabrir con etapa, reglas, muestreo agregado y tres entradas de actividad normalizadas; resultados, cachés, consultas y rutas privadas no cruzan al workspace. | `fixtures/migration/dataprep-session-v3-real.json`, `fixtures/manifest.json`, `src-tauri/src/projects.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-08-30 | P1/M1 cierra el catálogo de limpieza sugerida: las 22 operaciones de `sistema anterior` comparten una lista canónica con el replay de sesiones, y una prueba evita que una operación registrada quede sin mapping migrable. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | M1 corrige la paridad de la actividad de sesiones con el `ExecutionHistory` real de sistema anterior: `completed`/`failed`, duraciones decimales y `rows_out`/`rowsOut` se normalizan a la actividad agregada segura de Columnia; consultas, rutas y valores siguen descartados. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | M1 añade la fixture `sistema anterior-session-v3-real.json`, basada en la forma v3 de `SessionRecipe`, y verifica importar → reabrir con etapa, reglas, muestreo agregado y tres entradas de actividad normalizadas; resultados, cachés, consultas y rutas privadas no cruzan al workspace. | `fixtures/manifest.json`, `fixtures/manifest.json`, `src-tauri/src/projects.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 conecta el límite de entradas de Polars con la ruta DuckDB: un JOIN grande se promueve automáticamente a DuckDB cuando puede reutilizar los snapshots Parquet administrados del activo y la comparación, evitando recargar la segunda fuente completa; sin ambos snapshots se conserva el rechazo seguro, y la ejecución incremental general fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 elimina la materialización completa del anti-join derecho en `FULL JOIN` local: derrama el índice temporal de claves del activo, recorre la comparación por bloques de 16K, conserva `NULL` como no emparejado y mantiene duplicados/orden; los `DataFrame` fuente y la ejecución general fuera de RAM siguen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | I3 fija los perfiles Cargo `dev` y `test` sin símbolos de depuración para evitar `LNK1140` en el enlazado MSVC del binario Tauri; `npm run tauri dev` queda reproducible desde `Columnia` sin variables temporales y `release` mantiene su política independiente. | `src-tauri/Cargo.toml`, `README.md`, `CHANGELOG.md`, `CONTEXTO.md` |
@@ -2113,7 +1961,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Permitir columnas derivadas lazy de split/merge antes de agrupación, usando sus resultados como claves o fuentes de agregación con preflight posterior a las etapas estructurales | Implementada como vigésima expansión; partes temporales derivadas, la entrada y el candidato activo mantienen sus límites actuales |
 | 2026-08-30 | Permitir partes temporales calculadas lazy de año/mes/día como claves de agrupación sobre `Date` y `Datetime` sin zona horaria, con preflight de rango | Implementada como vigésimo primera expansión; filtros previos y zonas horarias mantienen fallback eager, y la entrada/candidato activo siguen materializados |
 | 2026-08-30 | Extender la consulta SQL local restringida a claves compuestas de hasta ocho columnas, formando grupos en orden estable y conservando claves nulas sin superar el presupuesto de filas | Implementada como vigésimo segunda expansión; la consulta sigue siendo solo lectura sobre el `DataFrame` activo y DuckDB/ejecución fuera de memoria continúan en cola |
-| 2026-08-30 | Extender `find_replace` a expresiones regulares seguras en recetas eager/lazy y migración DataPrep, conservando grupos de captura, nulos, conteos y validación previa del patrón | Implementada como slice de migración y ejecución; la entrada y el candidato activo siguen materializados y el catálogo avanzado restante continúa en cola |
+| 2026-08-30 | Extender `find_replace` a expresiones regulares seguras en recetas eager/lazy y migración sistema anterior, conservando grupos de captura, nulos, conteos y validación previa del patrón | Implementada como slice de migración y ejecución; la entrada y el candidato activo siguen materializados y el catálogo avanzado restante continúa en cola |
 | 2026-08-30 | Extender el parser SQL local para JOINs compuestos de hasta ocho pares, reutilizando el preflight existente de tipos/cardinalidad y el plan streaming con orden izquierdo | Implementada como vigésimo tercera expansión; no amplía aún el motor a DuckDB ni la ejecución fuera de memoria |
 | 2026-08-30 | Procesar agregaciones SQL locales en una segunda pasada por bloques, con acumuladores por grupo y sin guardar índices de filas coincidentes | Implementada como vigésimo cuarta expansión; el `DataFrame` activo, el límite de coincidencias y los resultados paginados siguen siendo el contrato actual |
 | 2026-08-30 | Particionar el índice exacto de comparación por claves en cubetas temporales y procesar cada cubeta de forma independiente | Implementada como vigésimo quinta expansión; la comparación de filas completas, el `DataFrame` activo y los joins fuera de memoria siguen pendientes |
@@ -2121,15 +1969,15 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | Particionar el preflight de cardinalidad de JOIN y calcular duplicidades por cubeta antes de materializar el resultado | Implementada como vigésimo séptima expansión; la materialización final del JOIN, DuckDB y los joins fuera de memoria siguen pendientes |
 | 2026-08-30 | Combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` con `merge` dentro de una misma receta lazy | Implementada como vigésimo octava expansión; las dependencias que descartan una fuente necesaria conservan rechazo o fallback eager, y la entrada/candidato activo siguen materializados |
 | 2026-08-30 | Reducir el pico de RAM de historiales Parquet en importación de sesión, guardado y apertura: copiar snapshots byte a byte, validar footer/esquema para revisiones no cursor y materializar solo el cursor para comprobar consistencia | Implementada como vigésimo novena expansión; undo/redo conserva la lectura completa bajo demanda, mientras la ejecución incremental del dataset activo y los presupuestos globales siguen en cola |
-| 2026-08-30 | Alinear y endurecer el contrato frontend de metadatos de sesión DataPrep: declarar `nonPortableArtifacts` y rechazar contadores no enteros/no negativos, banderas inválidas y categorías mal formadas | Implementada como hardening de la vertical M1; los resultados, cachés y rutas no portables siguen requiriendo revisión manual |
+| 2026-08-30 | Alinear y endurecer el contrato frontend de metadatos de sesión sistema anterior: declarar `nonPortableArtifacts` y rechazar contadores no enteros/no negativos, banderas inválidas y categorías mal formadas | Implementada como hardening de la vertical M1; los resultados, cachés y rutas no portables siguen requiriendo revisión manual |
 | 2026-08-26 | Derramar fingerprints XXH3 de duplicados normalizados en 256 cubetas temporales y ordenar una cubeta a la vez; se conserva el conteo, el orden de las filas y la cancelación sin guardar valores del dataset | Implementada en `src-tauri/src/dataset.rs`; la materialización del `DataFrame`, transformaciones eager y joins fuera de memoria siguen en cola |
 | 2026-08-27 | Añadir tendencia temporal diaria para rangos de hasta 90 días, con días vacíos, límite de periodos, cancelación cooperativa y tabla accesible equivalente; rangos mayores mantienen la agregación mensual/anual | Implementada en `src-tauri/src/dataset.rs`, `src/bridge.ts` y `src/features/review/ReviewPhase.tsx` |
 | 2026-08-23 | Cerrar Fase I0: MIT, Windows x64 inicial, frontera Rust/UI, validación local y fixtures sintéticas | Aprobada; `docs/adr/0001-contratos-del-repositorio.md` |
-| 2026-08-12 | Usar `../dataprepv1.1/` como referencia funcional, no como plantilla técnica automática | Aprobada |
+| 2026-08-12 | Usar `../sistema anterior/` como referencia funcional, no como plantilla técnica automática | Aprobada |
 | 2026-08-12 | Nombre del producto y del proyecto: `Columnia` | Aprobada |
 | 2026-08-12 | Backend: Rust + Tauri 2 + Polars + DuckDB | Aprobada |
 | 2026-08-12 | Frontend: React + TypeScript + Vite | Aprobada |
-| 2026-08-12 | Conservar los gates de seguridad, E2E, SBOM y rendimiento de DataPrep, ejecutados solo localmente | Aprobada |
+| 2026-08-12 | Conservar los gates de seguridad, E2E, SBOM y rendimiento de sistema anterior, ejecutados solo localmente | Aprobada |
 | 2026-08-12 | Adoptar de ProcessDevKill los patrones de empaquetado, instancia única, actualización, release y evidencia visual | Propuesta |
 | 2026-08-12 | No usar CI, GitHub Actions ni workflows; centralizar validación en scripts locales | Aprobada |
 | 2026-08-12 | No usar componentes obligatorios de pago ni comprar firma Authenticode | Aprobada |
@@ -2151,7 +1999,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-12 | Versión 0.3.0: progreso tipado por canal Tauri para carga CSV y perfilado por columnas | Implementada |
 | 2026-08-12 | Versión 0.4.0: cancelación cooperativa aislada por operación y recuperación del dataset previo | Implementada |
 | 2026-08-12 | Versión 0.5.0: exportación atómica y cancelable CSV/Parquet mediante selector nativo | Implementada |
-| 2026-08-12 | Versión 0.6.0: flujo Cargar → Revisar → Preparar → Entregar alineado con `dataprepv1.1`; exportación aislada en Entregar | Implementada |
+| 2026-08-12 | Versión 0.6.0: flujo Cargar → Revisar → Preparar → Entregar alineado con `sistema anterior`; exportación aislada en Entregar | Implementada |
 | 2026-08-12 | Versión 0.7.0: normalización reversible y determinista de nombres de columnas en Preparar | Implementada |
 | 2026-08-12 | Versión 0.8.0: recorte de espacios y normalización explícita de texto con métricas exactas | Implementada |
 | 2026-08-13 | Versión 0.9.0: Deshacer/Rehacer de una revisión y aplicación atómica de correcciones recomendadas | Implementada |
@@ -2196,27 +2044,27 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-23 | Versión 0.48.0: presupuestos de duración, stress de actualización/reapertura durable, `verify:tier` y checklist manual de accesibilidad; medición WebView2, lector real y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Versión 0.49.0: tres ciclos nativos de transformación/exportación dentro de WebView2, duraciones incorporadas al gate y presupuesto global del árbol; datasets grandes, lector real y lazy/incremental siguen pendientes | Implementada |
 | 2026-08-23 | Fase I8: documentación Diátaxis, índice de ADR/CHANGELOG, validadores de enlaces/UTF-8/versiones/ownership y evidencia visual reproducible desde el binario release con baseline de hashes; lector de pantalla manual sigue en I3 | Implementada |
-| 2026-08-23 | Fase I1 completa: receta Polars lazy con fallback eager seguro, monitor nativo compacto de CPU/RAM, benchmark cruzado de 100 MiB contra `dataprepv1.1` y revisión visual desktop/móvil/zoom/forced-colors | Implementada |
+| 2026-08-23 | Fase I1 completa: receta Polars lazy con fallback eager seguro, monitor nativo compacto de CPU/RAM, benchmark cruzado de 100 MiB contra `sistema anterior` y revisión visual desktop/móvil/zoom/forced-colors | Implementada |
 | 2026-08-23 | P1: contrato de calidad v3 ampliado con `allowed_values`, `regex`, `dtype`, unicidad compuesta y `row_count`; evaluación Rust/CLI/exportación, bridge/UI accesibles y tests end-to-end | Implementada |
-| 2026-08-24 | P1: `column_compare` completa la comparación de dos columnas con seis operadores, nulos inválidos, tolerancias, migración DataPrep, editor accesible y evaluación compartida por UI/CLI/exportación | Implementada |
+| 2026-08-24 | P1: `column_compare` completa la comparación de dos columnas con seis operadores, nulos inválidos, tolerancias, migración sistema anterior, editor accesible y evaluación compartida por UI/CLI/exportación | Implementada |
 | 2026-08-24 | Versión 0.50.0: resolución de conflictos por columna/valor dentro del preview visible, compatibilidad legacy por fila y privacidad aplicada a los seis destinos locales | Implementada |
 | 2026-08-24 | Versión 0.51.0: conflictos por clave paginados en bloques de 50, índices globales para decisiones y resolución completa fuera del preview con historial reversible; privacidad de artefactos sigue pendiente | Implementada |
-| 2026-08-24 | P1: `date_range` añade límites inclusivos de fecha, soporte texto/Date/Datetime, rechazo de nulos/fechas ilegibles, migración DataPrep, editor accesible y evaluación compartida | Implementada |
-| 2026-08-24 | P1: `conditional` añade condiciones eq/ne/lt/lte/gt/gte, subreglas then fila-a-fila seguras, tolerancia exterior, migración DataPrep, editor accesible y evaluación compartida | Implementada |
-| 2026-08-24 | P1: `schema_contract` añade columnas requeridas, control de adicionales y orden opcional, migración DataPrep, editor accesible y evaluación estructural compartida | Implementada |
-| 2026-08-24 | P1: documento de calidad `columnia-quality-rules` v1 con guardado atómico, compatibilidad explícita Columnia/DataPrep v1–v3/legado, rechazo de versiones futuras, CLI retrocompatible y UI sin exposición de rutas | Implementada |
+| 2026-08-24 | P1: `date_range` añade límites inclusivos de fecha, soporte texto/Date/Datetime, rechazo de nulos/fechas ilegibles, migración sistema anterior, editor accesible y evaluación compartida | Implementada |
+| 2026-08-24 | P1: `conditional` añade condiciones eq/ne/lt/lte/gt/gte, subreglas then fila-a-fila seguras, tolerancia exterior, migración sistema anterior, editor accesible y evaluación compartida | Implementada |
+| 2026-08-24 | P1: `schema_contract` añade columnas requeridas, control de adicionales y orden opcional, migración sistema anterior, editor accesible y evaluación estructural compartida | Implementada |
+| 2026-08-24 | P1: documento de calidad `columnia-quality-rules` v1 con guardado atómico, compatibilidad explícita Columnia/sistema anterior v1–v3/legado, rechazo de versiones futuras, CLI retrocompatible y UI sin exposición de rutas | Implementada |
 | 2026-08-24 | I3: selector nativo Win32 estabilizado y elevado a `verify:tier`; el smoke WebView2 verifica abrir dataset, guardar/cargar receta y exportar con variantes de editor Abrir/Guardar como, cleanup y evidencia sin rutas. Quedan lector de pantalla, High Contrast manual, datasets grandes y VM limpia | Parcial, con evidencia |
 | 2026-08-24 | Versión 0.52.0: sistema visual explícito con selector persistente `Sistema`/`Claro`/`Oscuro`, aplicación temprana en el documento, capa visual refinada y estilos compatibles con foco, movimiento reducido y `forced-colors` | Implementada |
-| 2026-08-24 | Versión 0.53.0: el selector de recetas importa el núcleo representable de pipelines DataPrep v1–v3 a receta Columnia v1 y rechaza semánticas ambiguas antes de modificar el borrador | Implementada |
+| 2026-08-24 | Versión 0.53.0: el selector de recetas importa el núcleo representable de pipelines sistema anterior v1–v3 a receta Columnia v1 y rechaza semánticas ambiguas antes de modificar el borrador | Implementada |
 | 2026-08-24 | Versión 0.54.0: optimización de arranque con code-splitting de etapas pesadas, estado inicial local sin esperar `get_app_info`, migración SQLite diferida y monitor de recursos fuera del primer paint | Implementada |
 | 2026-08-24 | Versión 0.55.0: la migración de contratos de calidad genera un informe auditable con conteos, omisiones, advertencias, acciones manuales y SHA-256 del artefacto sin exponer rutas ni valores | Implementada |
-| 2026-08-24 | Versión 0.56.0: los pipelines DataPrep conservan opciones de entrega compatibles, normalizan XLSX a Excel y publican informe con warnings para semánticas de exportación omitidas, sin exponer rutas | Implementada |
+| 2026-08-24 | Versión 0.56.0: los pipelines sistema anterior conservan opciones de entrega compatibles, normalizan XLSX a Excel y publican informe con warnings para semánticas de exportación omitidas, sin exponer rutas | Implementada |
 | 2026-08-24 | Versión 0.57.0: inventario y fixtures sintéticas de migración para pipelines, sesiones, calidad y legacy; los metadatos de sesión se reconocen y se omiten con warnings sanitizados | Implementada |
 | 2026-08-26 | P1 añade cobertura y tendencia temporal agregadas en Review: rangos Date/Datetime/Timestamp, conteos por mes/año, filas interpretables y porcentaje con tabla equivalente; el calendario diario y las series temporales completas siguen pendientes | Implementada |
-| 2026-08-26 | M1 añade una slice segura para mapear sesiones DataPrep al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta, restauración de `snapshot_path` compatible cuando falta la fuente y publicación transaccional sin tocar el dataset activo; una prueba nativa cubre importar → reabrir → validar → exportar, mientras la restauración histórica completa sigue pendiente | Implementada |
+| 2026-08-26 | M1 añade una slice segura para mapear sesiones sistema anterior al catálogo de proyectos: selector nativo, validación de fuente/hoja/esquema/receta, restauración de `snapshot_path` compatible cuando falta la fuente y publicación transaccional sin tocar el dataset activo; una prueba nativa cubre importar → reabrir → validar → exportar, mientras la restauración histórica completa sigue pendiente | Implementada |
 | 2026-08-27 | P1 incorpora un calendario diario accesible para rangos cortos, conserva días sin filas y mantiene la tabla exacta equivalente; las series temporales completas siguen pendientes | Implementada |
 | 2026-08-27 | P1 incorpora retiro explícito y reversible de columnas identificadoras detectadas por encabezado, con confirmación, conservación de una columna y protección de valores personales | Implementada |
-| 2026-08-27 | M1 incorpora `project-import-dataprep` en la CLI: migra sesiones con validación previa, fallback a snapshot compatible, salida JSON sanitizada y creación de proyectos nuevos sin reemplazos | Implementada |
+| 2026-08-27 | M1 incorpora `project-save --recipe` en la CLI: migra sesiones con validación previa, fallback a snapshot compatible, salida JSON sanitizada y creación de proyectos nuevos sin reemplazos | Implementada |
 
 ## 10. Fuentes de esta revisión
 
@@ -2229,6 +2077,6 @@ por el mero hecho de estar documentada aquí.
 - [Updater oficial de Tauri 2](https://v2.tauri.app/plugin/updater/)
 - [CLI oficial para generar gratuitamente las claves del updater](https://v2.tauri.app/reference/cli/#signer-generate)
 - [Firma de código Windows, diferente de la firma del updater](https://v2.tauri.app/distribute/sign/windows/)
-- Infraestructura local de `../dataprepv1.1/`, especialmente
+- Infraestructura local de `../sistema anterior/`, especialmente
   `.github/workflows/ci.yml`, `tools/build_windows.ps1`, `docs/operations/` y
   `docs/reference/THREAT_MODEL.md`.

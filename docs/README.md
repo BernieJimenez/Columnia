@@ -22,10 +22,8 @@ comportamiento implementado.
 
 - [Referencia de la CLI](reference/cli.md): comandos, opciones, contratos JSON y
   códigos de salida.
-- [Paridad funcional](reference/feature-parity.md): capacidades migradas desde
-  `dataprepv1.1`, compatibilidad de contratos de calidad y brechas pendientes.
-- [Inventario de migración DataPrep](reference/migration-inventory.md): formato
-  de recetas reconocido, conversiones seguras y límites explícitos.
+- [Paridad funcional](reference/feature-parity.md): capacidades disponibles,
+  contratos de calidad y brechas pendientes.
 - [Monitor de recursos](reference/resource-monitor.md): contrato de CPU,
   memoria disponible y estado explícito de la capacidad GPU.
 - [Evidencia visual del release](reference/release-evidence.md): sumario,

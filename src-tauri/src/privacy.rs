@@ -347,7 +347,7 @@ mod tests {
                 "source": "/private/customer.csv"
             },
             "migrationReport": {
-                "sourceFormat": "dataprep",
+                "sourceFormat": "legacy",
                 "sourceVersion": 3,
                 "session": {"hasSourceReference": true}
             }
@@ -356,7 +356,7 @@ mod tests {
         let sanitized = sanitized_json(&source).expect("el JSON debe serializarse");
         assert_eq!(sanitized["name"], "Limpieza de ventas");
         assert_eq!(sanitized["recipe"], REDACTED);
-        assert_eq!(sanitized["migrationReport"]["sourceFormat"], "dataprep");
+        assert_eq!(sanitized["migrationReport"]["sourceFormat"], "legacy");
         assert_eq!(sanitized["migrationReport"]["sourceVersion"], 3);
     }
 

@@ -6,8 +6,6 @@ import {
   saveTransformRecipe,
   type DatasetPreview,
   type LoadedRecipe,
-  type PrivacyMode,
-  type RecipeMigrationReport,
   type SavedRecipe,
   type TransformRecipe,
 } from "../../bridge";
@@ -21,255 +19,6 @@ import { buildTransformPreview, visibleColumnNames, type TransformPreview } from
 function operationGroupStatus(count: number, singular: string, plural: string) {
   if (count === 0) return "Sin cambios";
   return `${count} ${count === 1 ? singular : plural}`;
-}
-
-const migrationOperationLabels: Record<string, string> = {
-  renames: "Renombres de columnas",
-  casts: "Conversiones de tipo",
-  date_parses: "Interpretación de fechas",
-  filters: "Filtros de filas",
-  calculated_column: "Columnas calculadas",
-  find_replace: "Búsqueda y reemplazo",
-  keep_columns: "Selección de columnas",
-  split_column: "División de columnas",
-  merge_columns: "Unión de columnas",
-  outlier_treatments: "Tratamiento de atípicos",
-  group_summary: "Resumen agrupado",
-  contact_normalizations: "Normalización de contactos",
-  text_extractions: "Extracción de texto",
-  "export.formats": "Formatos de entrega",
-  "export.selected_columns": "Columnas de entrega",
-  "export.privacy_mode": "Protección de privacidad",
-  "export.report_format": "Formato de reporte",
-  quality_rules: "Reglas de calidad",
-  analysis_checks: "Comprobaciones de análisis",
-  source_reference: "Referencia de origen",
-  snapshot_reference: "Referencia de snapshot",
-};
-
-const migrationWarningLabels: Record<string, string> = {
-  "export.report_format": "Formato de reporte",
-  "export.formats": "Formatos de entrega",
-  "export.selected_columns": "Columnas de entrega",
-  "export.privacy_mode": "Protección de privacidad",
-  source_reference: "Referencia de origen",
-  snapshot_reference: "Referencia de snapshot",
-  quality_rules: "Reglas de calidad",
-  analysis_checks: "Comprobaciones de análisis",
-};
-
-const migrationFormatLabels: Record<string, string> = {
-  csv: "CSV",
-  json: "JSON",
-  parquet: "Parquet",
-  sql: "SQL",
-  excel: "Excel",
-  sqlite: "SQLite",
-  bundle: "Paquete Columnia",
-};
-
-function safeMigrationCount(value: number) {
-  return Math.max(0, Math.round(Number.isFinite(value) ? value : 0));
-}
-
-function safeMigrationText(value: string, fallback: string) {
-  const sanitized = value
-    .replace(/[\u0000-\u001f\u007f]/g, "")
-    .replace(/\b[A-Za-z]:[\\/][^\n,;]*/g, "[ruta omitida]")
-    .replace(/(^|\s)(?:\.\.?[\\/]|\/)[^\s,;]+/g, "$1[ruta omitida]")
-    .replace(/"[^"]*"/g, '"valor omitido"')
-    .replace(/'[^']*'/g, "'valor omitido'")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!sanitized) return fallback;
-  return sanitized.length > 120 ? `${sanitized.slice(0, 117)}…` : sanitized;
-}
-
-function migrationOperationLabel(operation: string) {
-  return migrationOperationLabels[operation] ?? "Operación de compatibilidad";
-}
-
-function migrationWarningLabel(path: string) {
-  return migrationWarningLabels[path] ?? "Elemento de compatibilidad";
-}
-
-function migrationSourceLabel(report: RecipeMigrationReport) {
-  const source = report.sourceFormat === "dataprep" ? "DataPrep" : "formato legacy";
-  return report.sourceVersion === null ? source : `${source} v${report.sourceVersion}`;
-}
-
-function migrationPrivacyLabel(mode: PrivacyMode) {
-  return mode === "mask" ? "enmascarada" : mode === "hash" ? "con hash" : "sin transformación";
-}
-
-function RecipeMigrationReportPanel({
-  report,
-  exportOptions,
-}: {
-  report: RecipeMigrationReport;
-  exportOptions: NonNullable<SavedRecipe["exportOptions"]> | null;
-}) {
-  const convertedItems = safeMigrationCount(report.convertedItems);
-  const omittedItems = safeMigrationCount(report.omittedItems);
-  const warningCount = safeMigrationCount(report.warningCount);
-  const totalItems = convertedItems + omittedItems;
-  const conversionPercent = totalItems === 0 ? 0 : Math.round((convertedItems / totalItems) * 100);
-  const statusLabel = omittedItems > 0 ? "Revisión necesaria" : warningCount > 0 ? "Revisar" : "Lista para validar";
-  const session = report.session;
-  const hasAnalysisSampleMetadata = session && (
-    session.analysisSampled !== undefined
-    || session.analysisSampleRowCount !== undefined
-    || session.analysisTotalRowCount !== undefined
-  );
-  const analysisSampleLabel = session?.analysisSampled === true
-    ? "acotada"
-    : session?.analysisSampled === false
-      ? "exacta"
-      : "registrada";
-
-  return (
-    <section
-      className="recipe-migration-report"
-      role="status"
-      aria-label="Informe de migración de receta"
-      aria-labelledby="recipe-migration-report-title"
-    >
-      <div className="recipe-migration-report__header">
-        <div>
-          <p className="step">Compatibilidad</p>
-          <h4 id="recipe-migration-report-title">Informe de migración</h4>
-          <p>
-            {migrationSourceLabel(report)}. La receta quedó lista para revisión antes de aplicarla.
-          </p>
-        </div>
-        <strong className={`recipe-migration-report__status recipe-migration-report__status--${omittedItems > 0 ? "warning" : "ready"}`}>
-          {statusLabel}
-        </strong>
-      </div>
-
-      <div className="recipe-migration-report__metrics" role="group" aria-label="Resultado de conversión">
-        <div><span>Convertidos</span><strong>{convertedItems.toLocaleString()}</strong></div>
-        <div><span>Omitidos</span><strong>{omittedItems.toLocaleString()}</strong></div>
-        <div><span>Advertencias</span><strong>{warningCount.toLocaleString()}</strong></div>
-      </div>
-      <div className="recipe-migration-report__progress-row">
-        <div
-          className="recipe-migration-report__progress"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={conversionPercent}
-          aria-label={`${conversionPercent}% de elementos convertidos`}
-        >
-          <span style={{ width: `${conversionPercent}%` }} />
-        </div>
-        <span>{conversionPercent}% convertido</span>
-      </div>
-
-      {exportOptions && (
-        <p className="recipe-migration-report__delivery">
-          <strong>Entrega importada:</strong> {exportOptions.formats.map((format) => migrationFormatLabels[format] ?? "Formato compatible").join(", ")} · {exportOptions.selectedColumns.length > 0 ? `${exportOptions.selectedColumns.length} columnas seleccionadas` : "todas las columnas"} · privacidad {migrationPrivacyLabel(exportOptions.privacyMode)}.
-        </p>
-      )}
-
-      {session && (
-        <div className="recipe-session-summary" aria-label="Resumen de sesión DataPrep">
-          <div className="recipe-session-summary__header">
-            <strong>Contexto de sesión</strong>
-            <small>Metadatos sensibles ocultos</small>
-          </div>
-          <ul className="recipe-session-summary__facts">
-            <li><span>Etapa de trabajo</span><strong>{session.stageLabel ? "Registrada" : "No indicada"}</strong></li>
-            <li><span>Hoja de origen</span><strong>{session.sheetName ? "Registrada" : "No indicada"}</strong></li>
-            <li><span>Operaciones aplicadas</span><strong>{safeMigrationCount(session.appliedOperationCount).toLocaleString()}</strong></li>
-            <li><span>Reglas de calidad</span><strong>{safeMigrationCount(session.qualityRuleCount).toLocaleString()}</strong></li>
-            <li><span>Comprobaciones</span><strong>{safeMigrationCount(session.analysisCheckCount).toLocaleString()}</strong></li>
-            {hasAnalysisSampleMetadata && (
-              <li>
-                <span>Muestra de análisis</span>
-                <strong>
-                  {analysisSampleLabel}
-                  {session.analysisSampleRowCount !== undefined
-                    ? ` · ${safeMigrationCount(session.analysisSampleRowCount).toLocaleString()} filas`
-                    : ""}
-                  {session.analysisTotalRowCount !== undefined
-                    ? ` de ${safeMigrationCount(session.analysisTotalRowCount).toLocaleString()}`
-                    : ""}
-                </strong>
-              </li>
-            )}
-            {session?.historySnapshotCount !== undefined && (
-              <li>
-                <span>Snapshots históricos</span>
-                <strong>
-                  {safeMigrationCount(session.historySnapshotCount).toLocaleString()}
-                  {session.historyCursor !== undefined
-                    ? ` · cursor ${safeMigrationCount(session.historyCursor).toLocaleString()}`
-                    : ""}
-                </strong>
-              </li>
-            )}
-          </ul>
-          <p>
-            {session.hasSourceReference || session.hasSnapshotReference
-              ? "Se detectaron referencias de origen o snapshot; revísalas y vuelve a seleccionarlas en este equipo."
-              : "No se detectaron referencias activables de origen o snapshot."}
-          </p>
-        </div>
-      )}
-
-      <div className="recipe-migration-report__details">
-        {report.convertedOperations.length > 0 && (
-          <details>
-            <summary>Operaciones convertidas ({report.convertedOperations.length})</summary>
-            <ul>
-              {report.convertedOperations.map((operation, index) => (
-                <li key={`${operation}-${index}`}>{migrationOperationLabel(operation)}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {report.omittedOperations.length > 0 && (
-          <details open={omittedItems > 0}>
-            <summary>Operaciones omitidas ({report.omittedOperations.length})</summary>
-            <ul>
-              {report.omittedOperations.map((operation, index) => (
-                <li key={`${operation}-${index}`}>{migrationOperationLabel(operation)}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {report.warnings.length > 0 && (
-          <details open={omittedItems > 0}>
-            <summary>Advertencias de compatibilidad ({report.warnings.length})</summary>
-            <ul>
-              {report.warnings.map((warning, index) => (
-                <li key={`${warning.severity}-${index}`}>
-                  <strong>{migrationWarningLabel(warning.path)}:</strong>{" "}
-                  {warning.severity === "omitted"
-                    ? "No se convirtió automáticamente; recrea este ajuste si todavía es necesario."
-                    : "Se convirtió con una suposición; valida el resultado antes de continuar."}
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {report.manualActions.length > 0 && (
-          <details open={omittedItems > 0}>
-            <summary>Acciones manuales ({report.manualActions.length})</summary>
-            <ul>
-              {report.manualActions.map((action, index) => (
-                <li key={`${action}-${index}`}>{safeMigrationText(action, "Revisar el elemento de compatibilidad indicado.")}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-      </div>
-      <p className="recipe-migration-report__privacy">
-        {report.artifactSha256 ? "Identificador de origen disponible; su valor se mantiene oculto." : "No hay identificador de origen disponible."} No se muestran rutas ni valores originales en este resumen.
-      </p>
-    </section>
-  );
 }
 
 function TransformAdvisor({ preview }: { preview: TransformPreview }) {
@@ -420,7 +169,6 @@ export function TransformRecipeEditor({
   const [contacts, setContacts] = useState<ContactDraft[]>(initialRecipe?.contactNormalizations ?? []);
   const [extractions, setExtractions] = useState<ExtractionDraft[]>(initialRecipe?.textExtractions ?? []);
   const [recipeName, setRecipeName] = useState(initialDraft?.name ?? "Mi receta");
-  const [migrationReport, setMigrationReport] = useState<RecipeMigrationReport | null>(initialDraft?.migrationReport ?? null);
   const [exportOptions, setExportOptions] = useState(initialDraft?.exportOptions ?? null);
   const [recipeFileStatus, setRecipeFileStatus] = useState<RecipeFileStatus>({ kind: "idle" });
   const draftSavedAt = useRef(initialDraft?.savedAt ?? new Date().toISOString());
@@ -553,7 +301,6 @@ export function TransformRecipeEditor({
       savedAt: draftSavedAt.current,
       recipe: buildRecipe(),
     };
-    if (migrationReport) nextDraft.migrationReport = migrationReport;
     if (exportOptions) nextDraft.exportOptions = exportOptions;
     onDraftChange(nextDraft);
   }, [invalid, workspaceDraftFingerprint, onDraftChange]);
@@ -580,15 +327,12 @@ export function TransformRecipeEditor({
     if (recipeBusy || operationCount === 0 || invalid || !recipeName.trim()) return;
     setRecipeFileStatus({ kind: "working", action: "save" });
     try {
-      const saved = migrationReport || exportOptions
-        ? await saveTransformRecipe(buildRecipe(), recipeName.trim(), migrationReport, exportOptions)
-        : await saveTransformRecipe(buildRecipe(), recipeName.trim());
+      const saved = await saveTransformRecipe(buildRecipe(), recipeName.trim(), exportOptions);
       if (saved) {
         acknowledgedRecipeFingerprint.current = draftFingerprint;
         draftSavedAt.current = saved.savedAt;
         lastWorkspaceDraftFingerprint.current = `${saved.name}\u0000${JSON.stringify(saved.recipe)}`;
         const persisted: SavedRecipe = { ...saved };
-        if (!persisted.migrationReport && migrationReport) persisted.migrationReport = migrationReport;
         if (!persisted.exportOptions && exportOptions) persisted.exportOptions = exportOptions;
         onDraftChange(persisted);
       }
@@ -623,7 +367,6 @@ export function TransformRecipeEditor({
     setExtractions(recipe.textExtractions);
     setPendingConfirmation(null);
     setRecipeName(loaded.name);
-    setMigrationReport(loaded.migrationReport ?? null);
     setExportOptions(loaded.exportOptions ?? null);
     setOperationsOpen(true);
     draftSavedAt.current = loaded.savedAt;
@@ -638,7 +381,7 @@ export function TransformRecipeEditor({
         setRecipeFileStatus({ kind: "idle" });
         return;
       }
-      if (!isLoadedRecipe(loaded)) throw new Error("El archivo no contiene una receta compatible con Columnia o DataPrep v1–v3.");
+      if (!isLoadedRecipe(loaded)) throw new Error("El archivo no contiene una receta Columnia válida.");
       if (operationCount > 0 && !window.confirm("La receta cargada reemplazará el borrador actual. ¿Deseas continuar?")) {
         setRecipeFileStatus({ kind: "idle" });
         return;
@@ -692,11 +435,10 @@ export function TransformRecipeEditor({
           {recipeFileStatus.kind === "working" && recipeFileStatus.action === "load" ? "Cargando…" : "Cargar receta"}
         </button>
         <p className="recipe-file-status recipe-file-status--hint">
-          Acepta recetas Columnia y pipelines DataPrep v1–v3; las operaciones no equivalentes se rechazan para no perder semántica.
+          Solo se aceptan recetas nativas de Columnia; las operaciones se validan antes de aplicarlas.
         </p>
         {recipeFileStatus.kind === "success" && <p className="recipe-file-status" role="status">{recipeFileStatus.message}</p>}
         {recipeFileStatus.kind === "error" && <p className="recipe-error recipe-file-status" role="alert">No se pudo completar la operación: {recipeFileStatus.message}</p>}
-        {migrationReport && <RecipeMigrationReportPanel report={migrationReport} exportOptions={exportOptions} />}
       </div>
 
       <details
