@@ -6,6 +6,18 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-08-31
+
+### Mejorado
+
+- La exportación JSON de fuentes source-backed puede leer directamente CSV,
+  TSV, TXT delimitado o Parquet desde disco cuando no se solicita receta,
+  privacidad ni reglas globales, sin materializar el \`DataFrame\` activo.
+- La salida conserva la conversión controlada por DuckDB, el orden de origen,
+  la publicación atómica, la validación de cambios y el cleanup de temporales.
+- La suite Rust queda en 361 pruebas aprobadas, incluida la regresión de
+  exportación JSON source-backed.
+
 ## [0.68.0] - 2026-08-31
 
 ### Mejorado

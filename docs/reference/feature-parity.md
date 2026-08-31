@@ -48,9 +48,11 @@ fuente no haya cambiado durante la operación.
 
 Desde v0.68.0, la exportación Parquet source-backed sin receta ni privacidad
 adicional puede convertir directamente desde CSV/TSV/TXT delimitado o Parquet
-con una frontera de recursos de DuckDB y publicación atómica. Otros formatos,
-recetas, privacidad y operaciones que necesitan transformar filas siguen
-materializando hasta completar su ruta incremental.
+con una frontera de recursos de DuckDB y publicación atómica. Desde v0.69.0,
+la misma ruta incorpora JSON, conserva el orden de origen y mantiene la
+validación de cambios y el cleanup. Recetas, privacidad y operaciones que
+necesitan transformar filas siguen materializando hasta completar su ruta
+incremental.
 
 La receta lazy/streaming también acepta `Iso8601` sin offset o con sufijo UTC
 `Z`; los offsets distintos de UTC conservan el fallback eager para mantener la

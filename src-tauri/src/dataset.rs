@@ -16798,6 +16798,80 @@ where
     })
 }
 
+fn export_source_backed_json_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    destination: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió después de la validación.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Err("El formato source-backed no se puede exportar a JSON.".to_owned()),
+    };
+
+    report("Preparando archivo temporal", 10);
+    let scratch = tempfile::tempdir_in(parent)
+        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
+    let partial = scratch.path().join("dataset.partial.json");
+    report("Escribiendo dataset", 25);
+    crate::duckdb_query::export_file_to_json(&source_path, source_format, &partial)?;
+    ensure_not_cancelled(is_cancelled())?;
+
+    let mut generated = File::open(&partial)
+        .map_err(|error| format!("No se pudo leer el JSON temporal: {error}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
+    std::io::copy(&mut generated, temporary.as_file_mut())
+        .map_err(|error| format!("No se pudo copiar el JSON temporal: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
+    }
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+    let file_size_bytes = fs::metadata(&destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset.json")
+            .to_owned(),
+        file_size_bytes,
+        format: ExportFormat::Json.label(),
+        protected_column_count: 0,
+        protected_columns: Vec::new(),
+    })
+}
+
 fn export_frame_atomic_with_privacy<F, C>(
     frame: &DataFrame,
     destination: &Path,
@@ -20830,7 +20904,7 @@ pub async fn export_dataset(
             })?
         })
     };
-    if format == ExportFormat::Parquet
+    if matches!(format, ExportFormat::Json | ExportFormat::Parquet)
         && privacy_mode == PrivacyMode::None
         && recipe.is_none()
         && quality_rules.iter().all(source_quality_rule_is_incremental)
@@ -20892,7 +20966,12 @@ pub async fn export_dataset(
             let export_state = app.clone();
             let remembered_destination = destination.clone();
             let result = tauri::async_runtime::spawn_blocking(move || {
-                export_source_backed_parquet_atomic(
+                let export = match format {
+                    ExportFormat::Json => export_source_backed_json_atomic,
+                    ExportFormat::Parquet => export_source_backed_parquet_atomic,
+                    _ => unreachable!("el filtro previo limita los formatos source-backed"),
+                };
+                export(
                     &source_path,
                     expected_file_size,
                     &destination,
@@ -27524,6 +27603,37 @@ mod tests {
         assert_eq!(result.format, "Parquet");
         assert_eq!(result.protected_column_count, 0);
         assert_eq!(exported, 2);
+        assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
+    #[test]
+    fn source_backed_json_export_streams_without_leaving_private_artifacts() {
+        let source = temporary_csv("city,amount\nSanto Domingo,10\nSantiago,20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported.json");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut progress = Vec::new();
+        let result = export_source_backed_json_atomic(
+            &source,
+            expected_size,
+            &destination,
+            |stage, percent| progress.push((stage, percent)),
+            || false,
+        )
+        .expect("la exportación JSON source-backed debe funcionar");
+        let exported: JsonValue =
+            serde_json::from_slice(&fs::read(&destination).expect("la salida JSON debe existir"))
+                .expect("la salida JSON debe ser válida");
+
+        assert_eq!(result.format, "JSON");
+        assert_eq!(result.protected_column_count, 0);
+        assert_eq!(exported.as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            exported[0]["city"],
+            JsonValue::String("Santo Domingo".to_owned())
+        );
         assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
         assert_eq!(directory.path().read_dir().unwrap().count(), 1);
         fs::remove_file(source).expect("se debe limpiar la fuente temporal");
