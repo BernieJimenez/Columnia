@@ -15055,6 +15055,19 @@ fn comparison_key_bucket(signature: &str) -> usize {
     (xxh3_64(signature.as_bytes()) as usize) % COMPARISON_KEY_BUCKETS
 }
 
+fn create_spilled_key_rows() -> Result<SpilledKeyRows, String> {
+    let directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de comparación: {error}")
+    })?;
+    let bucket_paths = (0..COMPARISON_KEY_BUCKETS)
+        .map(|bucket| directory.path().join(format!("keys-{bucket:03}.bin")))
+        .collect::<Vec<_>>();
+    Ok(SpilledKeyRows {
+        _directory: directory,
+        bucket_paths,
+    })
+}
+
 fn spill_key_rows_with_cancel<C>(
     frame: &DataFrame,
     key_columns: &[String],
@@ -15063,12 +15076,7 @@ fn spill_key_rows_with_cancel<C>(
 where
     C: Fn() -> bool + Sync,
 {
-    let directory = tempfile::tempdir().map_err(|error| {
-        format!("No se pudo preparar el índice temporal de comparación: {error}")
-    })?;
-    let bucket_paths = (0..COMPARISON_KEY_BUCKETS)
-        .map(|bucket| directory.path().join(format!("keys-{bucket:03}.bin")))
-        .collect::<Vec<_>>();
+    let spill = create_spilled_key_rows()?;
     let mut writers = (0..COMPARISON_KEY_BUCKETS)
         .map(|_| None::<BufWriter<File>>)
         .collect::<Vec<_>>();
@@ -15082,7 +15090,7 @@ where
         let writer = if let Some(writer) = writers[bucket].as_mut() {
             writer
         } else {
-            let file = File::create(&bucket_paths[bucket]).map_err(|error| {
+            let file = File::create(&spill.bucket_paths[bucket]).map_err(|error| {
                 format!("No se pudo crear el índice temporal de comparación: {error}")
             })?;
             writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
@@ -15109,14 +15117,63 @@ where
     }
     ensure_not_cancelled(is_cancelled())?;
     drop(writers);
-    Ok(SpilledKeyRows {
-        _directory: directory,
-        bucket_paths,
-    })
+    Ok(spill)
 }
 
 fn spill_key_rows(frame: &DataFrame, key_columns: &[String]) -> Result<SpilledKeyRows, String> {
     spill_key_rows_with_cancel(frame, key_columns, &|| false)
+}
+
+fn append_spilled_key_rows(
+    spill: &SpilledKeyRows,
+    frame: &DataFrame,
+    key_columns: &[String],
+    row_offset: usize,
+) -> Result<(), String> {
+    let mut writers = (0..COMPARISON_KEY_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
+
+    for row_index in 0..frame.height() {
+        let signature = row_signature(frame, key_columns, row_index)?;
+        let bucket = comparison_key_bucket(&signature);
+        let writer = if let Some(writer) = writers[bucket].as_mut() {
+            writer
+        } else {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&spill.bucket_paths[bucket])
+                .map_err(|error| {
+                    format!("No se pudo abrir el índice temporal de comparación: {error}")
+                })?;
+            writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+        };
+        let key_bytes = signature.as_bytes();
+        let key_length = u64::try_from(key_bytes.len()).map_err(|_| {
+            "La clave de comparación supera la capacidad del índice temporal.".to_owned()
+        })?;
+        let row_number = row_offset
+            .checked_add(row_index)
+            .and_then(|index| u64::try_from(index).ok())
+            .ok_or_else(|| {
+                "El índice de fila supera la capacidad del índice temporal.".to_owned()
+            })?;
+        writer
+            .write_all(&key_length.to_le_bytes())
+            .and_then(|_| writer.write_all(&row_number.to_le_bytes()))
+            .and_then(|_| writer.write_all(key_bytes))
+            .map_err(|error| {
+                format!("No se pudo escribir el índice temporal de comparación: {error}")
+            })?;
+    }
+
+    for writer in writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudo sincronizar el índice temporal de comparación: {error}")
+        })?;
+    }
+    Ok(())
 }
 
 fn for_each_spilled_key_record<F>(
@@ -15558,6 +15615,228 @@ fn collect_key_conflicts_page(
             current_row_index,
             compared_row_index,
         )? {
+            let conflict_index = total;
+            total = total.saturating_add(1);
+            if conflict_index >= offset && conflicts.len() < limit {
+                conflicts.push(conflict);
+            }
+        }
+    }
+    let page_end = offset.saturating_add(conflicts.len());
+    Ok((conflicts, total > page_end))
+}
+
+fn collect_key_conflicts_page_from_parquet(
+    current: &DataFrame,
+    compared_path: &Path,
+    compared_row_count: usize,
+    key_columns: &[String],
+    shared_columns: &[String],
+    offset: usize,
+    limit: usize,
+) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    let compared_schema = read_parquet_schema_frame(compared_path)?;
+    validate_key_columns(current, &compared_schema, key_columns)?;
+    let current_rows = spill_key_rows(current, key_columns)?;
+    let compared_rows = create_spilled_key_rows()?;
+
+    let compared_block_count = compared_row_count.div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    for block_index in 0..compared_block_count {
+        let start = block_index
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad local."
+                )
+            })?;
+        let length = LOCAL_QUERY_BLOCK_ROWS.min(compared_row_count - start);
+        let block = read_parquet_query_block(compared_path, start, length)?;
+        if block.height() != length {
+            return Err(format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                block.height()
+            ));
+        }
+        append_spilled_key_rows(&compared_rows, &block, key_columns, start)?;
+    }
+    let trailing_block = read_parquet_query_block(compared_path, compared_row_count, 1)?;
+    if trailing_block.height() != 0 {
+        return Err(format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado contiene más filas que las registradas."
+        ));
+    }
+
+    let shared_payload_columns = shared_columns
+        .iter()
+        .filter(|column| !key_columns.contains(column))
+        .cloned()
+        .collect::<Vec<_>>();
+    let row_index_bytes = std::mem::size_of::<u64>() as u64;
+    let current_row_bytes = u64::try_from(current.height())
+        .map_err(|_| "El dataset activo supera la capacidad del índice temporal.".to_owned())?;
+    let mut conflict_markers = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+    conflict_markers
+        .set_len(current_row_bytes)
+        .map_err(|error| {
+            format!("No se pudo preparar el índice temporal de conflictos: {error}")
+        })?;
+    let mut conflict_rows = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+
+    for block_index in 0..compared_block_count {
+        let start = block_index
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad local."
+                )
+            })?;
+        let length = LOCAL_QUERY_BLOCK_ROWS.min(compared_row_count - start);
+        let block = read_parquet_query_block(compared_path, start, length)?;
+        if block.height() != length {
+            return Err(format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                block.height()
+            ));
+        }
+        let block_rows = spill_key_rows(&block, key_columns)?;
+        for bucket in 0..COMPARISON_KEY_BUCKETS {
+            let current_bucket = read_spilled_key_bucket(&current_rows, bucket)?;
+            let compared_bucket = read_spilled_key_bucket(&compared_rows, bucket)?;
+            let block_bucket = read_spilled_key_bucket(&block_rows, bucket)?;
+            for (signature, block_group) in block_bucket {
+                let Some(current_group) = current_bucket.get(&signature) else {
+                    continue;
+                };
+                let Some(compared_group) = compared_bucket.get(&signature) else {
+                    continue;
+                };
+                if current_group.count != 1 || compared_group.count != 1 || block_group.count != 1 {
+                    continue;
+                }
+                let current_payload = row_signature(
+                    current,
+                    &shared_payload_columns,
+                    current_group.first_row_index,
+                )?;
+                let compared_payload =
+                    row_signature(&block, &shared_payload_columns, block_group.first_row_index)?;
+                if current_payload == compared_payload {
+                    continue;
+                }
+                let marker_offset = u64::try_from(current_group.first_row_index).map_err(|_| {
+                    "El índice de fila supera la capacidad del índice temporal.".to_owned()
+                })?;
+                let compared_offset = u64::try_from(current_group.first_row_index)
+                    .ok()
+                    .and_then(|index| index.checked_mul(row_index_bytes))
+                    .ok_or_else(|| {
+                        "El índice de conflicto supera la capacidad local.".to_owned()
+                    })?;
+                let compared_row_index = start
+                    .checked_add(block_group.first_row_index)
+                    .and_then(|index| u64::try_from(index).ok())
+                    .ok_or_else(|| {
+                        "El índice de fila supera la capacidad del índice temporal.".to_owned()
+                    })?;
+                conflict_markers
+                    .seek(SeekFrom::Start(marker_offset))
+                    .and_then(|_| conflict_markers.write_all(&[1]))
+                    .map_err(|error| {
+                        format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                    })?;
+                conflict_rows
+                    .seek(SeekFrom::Start(compared_offset))
+                    .and_then(|_| conflict_rows.write_all(&compared_row_index.to_le_bytes()))
+                    .map_err(|error| {
+                        format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                    })?;
+            }
+        }
+    }
+
+    let trailing_block = read_parquet_query_block(compared_path, compared_row_count, 1)?;
+    if trailing_block.height() != 0 {
+        return Err(format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado contiene más filas que las registradas."
+        ));
+    }
+
+    conflict_markers
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| format!("No se pudo leer el índice temporal de conflictos: {error}"))?;
+    let mut marker_reader = BufReader::new(conflict_markers);
+    let mut conflicts = Vec::new();
+    let mut total = 0usize;
+    let mut cached_compared_start = None;
+    let mut cached_compared = None;
+    for current_row_index in 0..current.height() {
+        let mut marker = [0_u8; 1];
+        marker_reader.read_exact(&mut marker).map_err(|error| {
+            format!("No se pudo leer el índice temporal de conflictos: {error}")
+        })?;
+        if marker[0] == 0 {
+            continue;
+        }
+        let row_offset = u64::try_from(current_row_index)
+            .ok()
+            .and_then(|index| index.checked_mul(row_index_bytes))
+            .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
+        conflict_rows
+            .seek(SeekFrom::Start(row_offset))
+            .map_err(|error| {
+                format!("No se pudo leer el índice temporal de conflictos: {error}")
+            })?;
+        let mut compared_row_bytes = [0_u8; std::mem::size_of::<u64>()];
+        conflict_rows
+            .read_exact(&mut compared_row_bytes)
+            .map_err(|error| {
+                format!("No se pudo leer el índice temporal de conflictos: {error}")
+            })?;
+        let compared_row_index = usize::try_from(u64::from_le_bytes(compared_row_bytes))
+            .map_err(|_| "El índice de fila temporal excede la capacidad local.".to_owned())?;
+        if compared_row_index >= compared_row_count {
+            return Err(format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice de conflicto apunta fuera del snapshot registrado."
+            ));
+        }
+        let compared_start = (compared_row_index / LOCAL_QUERY_BLOCK_ROWS)
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad local."
+                )
+            })?;
+        if cached_compared_start != Some(compared_start) {
+            let length = LOCAL_QUERY_BLOCK_ROWS.min(compared_row_count - compared_start);
+            let block = read_parquet_query_block(compared_path, compared_start, length)?;
+            if block.height() != length {
+                return Err(format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot comparado cambió durante la lectura (se esperaban {length} filas en el bloque y se obtuvieron {}).",
+                    block.height()
+                ));
+            }
+            cached_compared_start = Some(compared_start);
+            cached_compared = Some(block);
+        }
+        let compared_block = cached_compared.as_ref().ok_or_else(|| {
+            format!(
+                "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} no se pudo conservar el bloque del conflicto."
+            )
+        })?;
+        let compared_row_in_block = compared_row_index - compared_start;
+        if let Some(mut conflict) = build_key_conflict(
+            current,
+            compared_block,
+            key_columns,
+            &shared_payload_columns,
+            current_row_index,
+            compared_row_in_block,
+        )? {
+            conflict.compared_row_index = compared_row_index;
             let conflict_index = total;
             total = total.saturating_add(1);
             if conflict_index >= offset && conflicts.len() < limit {
@@ -16058,7 +16337,7 @@ pub async fn get_dataset_conflict_page(
                 .frame
                 .clone()
         };
-        let (compared_frame, key_columns) = {
+        let (compared_path, compared_row_count, key_columns) = {
             let comparison = state
                 .comparison
                 .lock()
@@ -16067,7 +16346,8 @@ pub async fn get_dataset_conflict_page(
                 .as_ref()
                 .ok_or_else(|| "No hay una comparación activa para paginar.".to_owned())?;
             (
-                read_parquet_frame(&pending.snapshot_path)?,
+                pending.snapshot_path.clone(),
+                pending.row_count,
                 pending.key_columns.clone(),
             )
         };
@@ -16076,7 +16356,8 @@ pub async fn get_dataset_conflict_page(
             .iter()
             .map(|name| name.to_string())
             .collect::<Vec<_>>();
-        let compared_columns = compared_frame
+        let compared_schema = read_parquet_schema_frame(&compared_path)?;
+        let compared_columns = compared_schema
             .get_column_names()
             .iter()
             .map(|name| name.to_string())
@@ -16086,9 +16367,10 @@ pub async fn get_dataset_conflict_page(
             .filter(|name| compared_columns.contains(name))
             .cloned()
             .collect::<Vec<_>>();
-        let (conflicts, has_next) = collect_key_conflicts_page(
+        let (conflicts, has_next) = collect_key_conflicts_page_from_parquet(
             &current_frame,
-            &compared_frame,
+            &compared_path,
+            compared_row_count,
             &key_columns,
             &shared_columns,
             offset,
@@ -25960,6 +26242,89 @@ mod tests {
             resolved.column("value").unwrap().str().unwrap().get(50),
             Some("comparado-50")
         );
+    }
+
+    #[test]
+    fn paginates_parquet_conflicts_by_blocks_and_preserves_cross_block_duplicates() {
+        let compared_row_count = LOCAL_QUERY_BLOCK_ROWS + 3;
+        let mut compared_ids = (0..compared_row_count as i64).collect::<Vec<_>>();
+        let mut compared_values = compared_ids
+            .iter()
+            .map(|id| format!("comparado-{id}"))
+            .collect::<Vec<_>>();
+        compared_ids[compared_row_count - 1] = 2;
+        compared_values[compared_row_count - 1] = "comparado-duplicado".to_owned();
+        let compared = DataFrame::new(
+            compared_row_count,
+            vec![
+                Series::new("id".into(), compared_ids).into_column(),
+                Series::new("value".into(), compared_values).into_column(),
+            ],
+        )
+        .expect("el frame comparado debe ser válido");
+        let boundary_id = LOCAL_QUERY_BLOCK_ROWS as i64;
+        let current = df![
+            "id" => &[2_i64, boundary_id, boundary_id + 1],
+            "value" => &["activo-2", "activo-boundary", "activo-last"]
+        ]
+        .expect("el frame activo debe ser válido");
+        let key_columns = vec!["id".to_owned()];
+        let shared_columns = vec!["id".to_owned(), "value".to_owned()];
+        let (expected, expected_has_next) = collect_key_conflicts_page(
+            &current,
+            &compared,
+            &key_columns,
+            &shared_columns,
+            0,
+            MAX_CONFLICT_PREVIEW,
+        )
+        .expect("la página en memoria debe poder calcularse");
+        let (directory, compared_path) = persist_comparison_snapshot(&compared)
+            .expect("el snapshot comparado debe poder persistirse");
+        let (actual, actual_has_next) = collect_key_conflicts_page_from_parquet(
+            &current,
+            &compared_path,
+            compared_row_count,
+            &key_columns,
+            &shared_columns,
+            0,
+            MAX_CONFLICT_PREVIEW,
+        )
+        .expect("la página Parquet debe poder calcularse por bloques");
+
+        assert_eq!(actual_has_next, expected_has_next);
+        assert_eq!(actual.len(), expected.len());
+        for (actual, expected) in actual.iter().zip(expected.iter()) {
+            assert_eq!(actual.current_row_index, expected.current_row_index);
+            assert_eq!(actual.compared_row_index, expected.compared_row_index);
+            assert_eq!(actual.conflict, expected.conflict);
+        }
+        assert_eq!(
+            actual
+                .iter()
+                .map(|item| item.conflict.key.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![Some(boundary_id.to_string())],
+                vec![Some((boundary_id + 1).to_string())],
+            ]
+        );
+        let stale_snapshot = collect_key_conflicts_page_from_parquet(
+            &current,
+            &compared_path,
+            compared_row_count + 1,
+            &key_columns,
+            &shared_columns,
+            0,
+            MAX_CONFLICT_PREVIEW,
+        );
+        assert!(matches!(
+            stale_snapshot,
+            Err(error) if error.starts_with(LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX)
+        ));
+
+        drop(directory);
+        assert!(!compared_path.exists());
     }
 
     #[test]

@@ -1343,6 +1343,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   snapshot Parquet de la comparación sin reserializar el activo. Si la fuente
   cambió, desapareció, usa JSON/Excel o el dataset ya fue transformado, se
   conserva el fallback materializado seguro.
+  La paginación de conflictos sobre un snapshot Parquet comparado también
+  recorre bloques de 16K, conserva un índice temporal global de claves para
+  mantener la semántica de duplicados y retiene solo una página y un bloque de
+  valores al construir la respuesta; la comparación inicial y el `DataFrame`
+  activo aún requieren materialización dentro de sus límites explícitos.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
   para columnas personales detectadas durante la exportación.
 - [x] Extender detección, enmascarado/hash y modos de privacidad visibles a los
@@ -1378,6 +1383,11 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   conservar el resultado unido completo. `FULL` recorre el lado activo por
   bloques y visita las filas derechas no emparejadas mediante un índice temporal
   de claves y bloques de 16K, sin materializar el anti-join derecho completo;
+  la paginación de conflictos sobre un snapshot Parquet comparado también recorre
+  bloques de 16K, conserva un índice temporal global de claves para mantener la
+  semántica de duplicados y retiene solo una página y un bloque de valores al
+  construir la respuesta; la comparación inicial y el `DataFrame` activo aún
+  requieren materialización dentro de sus límites explícitos.
   conserva la semántica SQL de nulos, duplicados y orden de entrada. El dataset
   activo y la comparación siguen materializados y no equivale a ejecución fuera
   de memoria general. La consulta Polars simple sin comparación

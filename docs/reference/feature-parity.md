@@ -399,6 +399,13 @@ resolución después de completar todas las páginas. Rust vuelve a calcular el
 conjunto completo antes de publicar, de modo que una página omitida o una
 decisión repetida falla sin mutar el dataset.
 
+Cuando se consulta una página de conflictos de una comparación activa, Rust usa
+el esquema del snapshot y lo recorre en bloques Parquet de 16K. El índice temporal
+global de claves conserva la semántica de duplicados incluso si una clave cruza
+dos bloques; la respuesta retiene solo la página solicitada y un bloque de valores
+para construir sus celdas. Se valida el conteo registrado y cualquier snapshot
+obsoleto o modificado se rechaza sin mutar el dataset.
+
 La exportación reutiliza un único snapshot protegido para todos los destinos
 locales existentes. La detección usa el mismo catálogo agregado de señales de
 perfil, transforma a texto los identificadores numéricos cuando se solicita

@@ -17,6 +17,11 @@ los artefactos de validación locales.
   dataset sigue intacto; los JOINs grandes pueden combinarla con el snapshot
   comparado sin reserializar el activo. Una mutación invalida la referencia y
   conserva el fallback materializado seguro.
+- La paginación de conflictos de Revisar lee el snapshot Parquet comparado en
+  bloques de 16K: mantiene un índice temporal global de claves para respetar
+  duplicados entre bloques y conserva solo el bloque de valores necesario para
+  construir la página visible. También valida el conteo registrado y rechaza
+  snapshots que cambien durante la lectura.
 - Los perfiles Cargo `dev` y `test` omiten símbolos de depuración para que
   `npm run tauri dev` y las pruebas nativas puedan enlazar de forma reproducible
   en Windows sin alcanzar `LNK1140`; el perfil `release` conserva su política
