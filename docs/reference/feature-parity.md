@@ -410,8 +410,9 @@ La comparación inicial de una fuente Parquet, delimitada (`CSV`, `TSV`, `TXT`) 
 también conserva esta frontera: el snapshot se copia o genera secuencialmente,
 el conteo se obtiene por streaming y las métricas por filas, claves y conflictos
 se calculan por bloques de 16K. Los campos JSON anidados se serializan al texto
-JSON del contrato nativo. Excel todavía carga la fuente comparada completa antes
-de calcular la comparación.
+JSON del contrato nativo. Los libros XLSX/XLSB usan el lector secuencial de
+celdas de Calamine en dos pasadas y escriben el snapshot Parquet por bloques de
+16K; XLS/ODS todavía cargan la fuente comparada completa como fallback compatible.
 
 La exportación reutiliza un único snapshot protegido para todos los destinos
 locales existentes. La detección usa el mismo catálogo agregado de señales de

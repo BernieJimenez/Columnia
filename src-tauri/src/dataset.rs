@@ -13,7 +13,9 @@ use std::{
 };
 
 use ::zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
-use calamine::{open_workbook_auto, Data, DataType as CalamineDataType, Range, Reader};
+use calamine::{
+    open_workbook_auto, Data, DataType as CalamineDataType, Dimensions, Range, Reader, Sheets,
+};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use polars::io::json::{JsonFormat, JsonWriter};
 use polars::lazy::dsl::{col, len, lit};
@@ -100,6 +102,7 @@ const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
 // bucket instead of one entry per dataset row.
 const NORMALIZED_DUPLICATE_BUCKETS: usize = 256;
 const NORMALIZED_FINGERPRINT_BYTES: usize = std::mem::size_of::<NormalizedRowFingerprint>();
+const SPREADSHEET_SNAPSHOT_BLOCK_ROWS: usize = 16 * 1024;
 const NUMERIC_HISTOGRAM_BUCKETS: usize = 12;
 const MAX_NUMERIC_CORRELATION_COLUMNS: usize = 12;
 const MIN_NUMERIC_CORRELATION_SAMPLE_ROWS: usize = 1_000;
@@ -7809,12 +7812,18 @@ fn unique_spreadsheet_headers(headers: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn spreadsheet_cells_to_column(name: &str, cells: &[&Data]) -> Result<Column, String> {
-    let mut kind = cells
-        .iter()
-        .fold(SpreadsheetColumnKind::Null, |kind, cell| {
-            merge_spreadsheet_kinds(kind, spreadsheet_cell_kind(cell))
-        });
+fn spreadsheet_cells_to_column(
+    name: &str,
+    cells: &[&Data],
+    forced_kind: Option<SpreadsheetColumnKind>,
+) -> Result<Column, String> {
+    let mut kind = forced_kind.unwrap_or_else(|| {
+        cells
+            .iter()
+            .fold(SpreadsheetColumnKind::Null, |kind, cell| {
+                merge_spreadsheet_kinds(kind, spreadsheet_cell_kind(cell))
+            })
+    });
     if kind == SpreadsheetColumnKind::Float64
         && cells
             .iter()
@@ -7930,6 +7939,425 @@ fn spreadsheet_cells_to_column(name: &str, cells: &[&Data]) -> Result<Column, St
     }
 }
 
+#[derive(Clone, Debug)]
+struct SpreadsheetSnapshotPlan {
+    start: (u32, u32),
+    width: usize,
+    height: usize,
+    data_start: usize,
+    data_rows: usize,
+    headers: Vec<String>,
+    kinds: Vec<SpreadsheetColumnKind>,
+}
+
+struct SpreadsheetSnapshotPlanBuilder {
+    dimensions: Dimensions,
+    width: usize,
+    height: usize,
+    data_start: usize,
+    header_values: Vec<String>,
+    kinds: Vec<SpreadsheetColumnKind>,
+    saw_cell: bool,
+}
+
+impl SpreadsheetSnapshotPlanBuilder {
+    fn new(dimensions: Dimensions, header_mode: SpreadsheetHeaderMode) -> Result<Self, String> {
+        let width = dimensions
+            .end
+            .1
+            .checked_sub(dimensions.start.1)
+            .and_then(|value| value.checked_add(1))
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| "La hoja Excel tiene demasiadas columnas.".to_owned())?;
+        let height = dimensions
+            .end
+            .0
+            .checked_sub(dimensions.start.0)
+            .and_then(|value| value.checked_add(1))
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| "La hoja Excel tiene demasiadas filas.".to_owned())?;
+        if width == 0 || height == 0 {
+            return Err("La hoja seleccionada está vacía.".to_owned());
+        }
+        let data_start = usize::from(header_mode == SpreadsheetHeaderMode::FirstRow);
+        Ok(Self {
+            dimensions,
+            width,
+            height,
+            data_start,
+            header_values: vec![String::new(); width],
+            kinds: vec![SpreadsheetColumnKind::Null; width],
+            saw_cell: false,
+        })
+    }
+
+    fn visit(&mut self, position: (u32, u32), value: Data) {
+        let Some(row) = position.0.checked_sub(self.dimensions.start.0) else {
+            return;
+        };
+        let Some(column) = position.1.checked_sub(self.dimensions.start.1) else {
+            return;
+        };
+        let Some(row) = usize::try_from(row).ok() else {
+            return;
+        };
+        let Some(column) = usize::try_from(column).ok() else {
+            return;
+        };
+        self.visit_relative((row, column), value);
+    }
+
+    fn visit_relative(&mut self, (row, column): (usize, usize), value: Data) {
+        if row >= self.height || column >= self.width {
+            return;
+        }
+        self.saw_cell = true;
+        if row == 0 && self.data_start == 1 {
+            self.header_values[column] = value.to_string();
+            return;
+        }
+        if row < self.data_start {
+            return;
+        }
+        self.kinds[column] =
+            merge_spreadsheet_kinds(self.kinds[column], spreadsheet_cell_kind(&value));
+        if self.kinds[column] == SpreadsheetColumnKind::Float64
+            && matches!(value, Data::Int(number) if number.unsigned_abs() > (1_u64 << 53))
+        {
+            self.kinds[column] = SpreadsheetColumnKind::String;
+        }
+    }
+
+    fn finish(self, header_mode: SpreadsheetHeaderMode) -> Result<SpreadsheetSnapshotPlan, String> {
+        if !self.saw_cell {
+            return Err("La hoja seleccionada está vacía.".to_owned());
+        }
+        let headers = match header_mode {
+            SpreadsheetHeaderMode::FirstRow => unique_spreadsheet_headers(self.header_values),
+            SpreadsheetHeaderMode::Generated => (1..=self.width)
+                .map(|index| format!("column_{index}"))
+                .collect(),
+        };
+        Ok(SpreadsheetSnapshotPlan {
+            start: self.dimensions.start,
+            width: self.width,
+            height: self.height,
+            data_start: self.data_start,
+            data_rows: self.height.saturating_sub(self.data_start),
+            headers,
+            kinds: self.kinds,
+        })
+    }
+}
+
+fn spreadsheet_snapshot_plan_from_range(
+    range: &Range<Data>,
+    header_mode: SpreadsheetHeaderMode,
+) -> Result<SpreadsheetSnapshotPlan, String> {
+    if range.is_empty() {
+        return Err("La hoja seleccionada está vacía.".to_owned());
+    }
+    let dimensions = Dimensions::new(
+        range
+            .start()
+            .ok_or_else(|| "La hoja seleccionada está vacía.".to_owned())?,
+        range
+            .end()
+            .ok_or_else(|| "La hoja seleccionada está vacía.".to_owned())?,
+    );
+    let mut builder = SpreadsheetSnapshotPlanBuilder::new(dimensions, header_mode)?;
+    for (row, values) in range.rows().enumerate() {
+        for (column, value) in values.iter().enumerate() {
+            builder.visit_relative((row, column), value.clone());
+        }
+    }
+    builder.finish(header_mode)
+}
+
+fn spreadsheet_block_frame(
+    plan: &SpreadsheetSnapshotPlan,
+    rows: &[Vec<Data>],
+) -> Result<DataFrame, String> {
+    if rows.iter().any(|row| row.len() != plan.width) {
+        return Err("El bloque Excel no coincide con el esquema detectado.".to_owned());
+    }
+    let columns = plan
+        .headers
+        .iter()
+        .enumerate()
+        .map(|(column_index, name)| {
+            let cells = rows
+                .iter()
+                .map(|row| &row[column_index])
+                .collect::<Vec<_>>();
+            spreadsheet_cells_to_column(name, &cells, Some(plan.kinds[column_index]))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    DataFrame::new(rows.len(), columns)
+        .map_err(|error| format!("No se pudo construir un bloque Excel: {error}"))
+}
+
+fn spreadsheet_block_row_count(plan: &SpreadsheetSnapshotPlan, block_index: usize) -> usize {
+    plan.data_rows
+        .saturating_sub(block_index.saturating_mul(SPREADSHEET_SNAPSHOT_BLOCK_ROWS))
+        .min(SPREADSHEET_SNAPSHOT_BLOCK_ROWS)
+}
+
+fn empty_spreadsheet_block(plan: &SpreadsheetSnapshotPlan, block_index: usize) -> Vec<Vec<Data>> {
+    (0..spreadsheet_block_row_count(plan, block_index))
+        .map(|_| vec![Data::Empty; plan.width])
+        .collect()
+}
+
+fn write_spreadsheet_blocks<F>(
+    destination: &Path,
+    plan: &SpreadsheetSnapshotPlan,
+    mut fill_block: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, usize) -> Result<Vec<Vec<Data>>, String>,
+{
+    let schema_frame = spreadsheet_block_frame(plan, &[])?;
+    let mut file = File::create(destination)
+        .map_err(|error| format!("No se pudo crear el snapshot Excel: {error}"))?;
+    let mut writer = ParquetWriter::new(&mut file)
+        .set_parallel(false)
+        .batched(schema_frame.schema())
+        .map_err(|error| format!("No se pudo preparar el snapshot Excel: {error}"))?;
+    let block_count = plan.data_rows.div_ceil(SPREADSHEET_SNAPSHOT_BLOCK_ROWS);
+    for block_index in 0..block_count {
+        let expected_rows = spreadsheet_block_row_count(plan, block_index);
+        let rows = fill_block(block_index, expected_rows)?;
+        if rows.len() != expected_rows {
+            return Err("El bloque Excel no contiene el número esperado de filas.".to_owned());
+        }
+        let frame = spreadsheet_block_frame(plan, &rows)?;
+        writer
+            .write_batch(&frame)
+            .map_err(|error| format!("No se pudo escribir el snapshot Excel: {error}"))?;
+    }
+    writer
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar el snapshot Excel: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el snapshot Excel: {error}"))
+}
+
+fn write_spreadsheet_range_snapshot(
+    range: &Range<Data>,
+    header_mode: SpreadsheetHeaderMode,
+    destination: &Path,
+) -> Result<usize, String> {
+    let plan = spreadsheet_snapshot_plan_from_range(range, header_mode)?;
+    write_spreadsheet_blocks(destination, &plan, |block_index, expected_rows| {
+        let first_row = plan
+            .data_start
+            .saturating_add(block_index.saturating_mul(SPREADSHEET_SNAPSHOT_BLOCK_ROWS));
+        Ok((0..expected_rows)
+            .map(|row_offset| {
+                (0..plan.width)
+                    .map(|column| {
+                        range
+                            .get((first_row + row_offset, column))
+                            .cloned()
+                            .unwrap_or(Data::Empty)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect())
+    })?;
+    Ok(plan.data_rows)
+}
+
+const SPREADSHEET_STREAMING_UNSUPPORTED: &str =
+    "El formato Excel no ofrece lectura de celdas secuencial; se usará el fallback compatible.";
+
+fn visit_streamed_spreadsheet_cells<F>(
+    path: &Path,
+    sheet_name: &str,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(Dimensions, (u32, u32), Data),
+{
+    let mut workbook = open_workbook_auto(path)
+        .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+    match &mut workbook {
+        Sheets::Xlsx(workbook) => {
+            let mut reader = workbook
+                .worksheet_cells_reader(sheet_name)
+                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+            let dimensions = reader.dimensions();
+            while let Some(cell) = reader
+                .next_cell()
+                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?
+            {
+                visit(
+                    dimensions,
+                    cell.get_position(),
+                    cell.get_value().clone().into(),
+                );
+            }
+        }
+        Sheets::Xlsb(workbook) => {
+            let mut reader = workbook
+                .worksheet_cells_reader(sheet_name)
+                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+            let dimensions = reader.dimensions();
+            while let Some(cell) = reader
+                .next_cell()
+                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?
+            {
+                visit(
+                    dimensions,
+                    cell.get_position(),
+                    cell.get_value().clone().into(),
+                );
+            }
+        }
+        Sheets::Xls(_) | Sheets::Ods(_) => return Err(SPREADSHEET_STREAMING_UNSUPPORTED.to_owned()),
+    }
+    Ok(())
+}
+
+fn spreadsheet_snapshot_plan_from_stream(
+    path: &Path,
+    sheet_name: &str,
+    header_mode: SpreadsheetHeaderMode,
+) -> Result<SpreadsheetSnapshotPlan, String> {
+    let mut builder = None;
+    let mut builder_error = None;
+    visit_streamed_spreadsheet_cells(path, sheet_name, |dimensions, position, value| {
+        if builder.is_none() && builder_error.is_none() {
+            match SpreadsheetSnapshotPlanBuilder::new(dimensions, header_mode) {
+                Ok(value) => builder = Some(value),
+                Err(error) => builder_error = Some(error),
+            }
+        }
+        if builder_error.is_none() {
+            if let Some(builder) = builder.as_mut() {
+                builder.visit(position, value);
+            }
+        }
+    })?;
+    if let Some(error) = builder_error {
+        return Err(error);
+    }
+    builder
+        .ok_or_else(|| "La hoja seleccionada está vacía.".to_owned())?
+        .finish(header_mode)
+}
+
+fn write_streamed_spreadsheet_cells<F>(
+    destination: &Path,
+    plan: &SpreadsheetSnapshotPlan,
+    mut next_cell: F,
+) -> Result<(), String>
+where
+    F: FnMut() -> Result<Option<((u32, u32), Data)>, String>,
+{
+    let schema_frame = spreadsheet_block_frame(plan, &[])?;
+    let mut file = File::create(destination)
+        .map_err(|error| format!("No se pudo crear el snapshot Excel: {error}"))?;
+    let mut writer = ParquetWriter::new(&mut file)
+        .set_parallel(false)
+        .batched(schema_frame.schema())
+        .map_err(|error| format!("No se pudo preparar el snapshot Excel: {error}"))?;
+    let block_count = plan.data_rows.div_ceil(SPREADSHEET_SNAPSHOT_BLOCK_ROWS);
+    let mut current_block = 0_usize;
+    let mut rows = empty_spreadsheet_block(plan, current_block);
+
+    while let Some((position, value)) = next_cell()? {
+        let Some(row) = position.0.checked_sub(plan.start.0) else {
+            continue;
+        };
+        let Some(column) = position.1.checked_sub(plan.start.1) else {
+            continue;
+        };
+        let Some(row) = usize::try_from(row).ok() else {
+            continue;
+        };
+        let Some(column) = usize::try_from(column).ok() else {
+            continue;
+        };
+        if row >= plan.height || column >= plan.width || row < plan.data_start {
+            continue;
+        }
+        let data_row = row - plan.data_start;
+        if data_row >= plan.data_rows {
+            continue;
+        }
+        let block_index = data_row / SPREADSHEET_SNAPSHOT_BLOCK_ROWS;
+        if block_index < current_block {
+            return Err("El lector Excel devolvió celdas fuera de orden.".to_owned());
+        }
+        while current_block < block_index {
+            let frame = spreadsheet_block_frame(plan, &rows)?;
+            writer
+                .write_batch(&frame)
+                .map_err(|error| format!("No se pudo escribir el snapshot Excel: {error}"))?;
+            current_block += 1;
+            rows = empty_spreadsheet_block(plan, current_block);
+        }
+        if block_index < block_count {
+            rows[data_row % SPREADSHEET_SNAPSHOT_BLOCK_ROWS][column] = value;
+        }
+    }
+
+    while current_block < block_count {
+        let frame = spreadsheet_block_frame(plan, &rows)?;
+        writer
+            .write_batch(&frame)
+            .map_err(|error| format!("No se pudo escribir el snapshot Excel: {error}"))?;
+        current_block += 1;
+        rows = empty_spreadsheet_block(plan, current_block);
+    }
+    writer
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar el snapshot Excel: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el snapshot Excel: {error}"))
+}
+
+fn write_streamed_spreadsheet_snapshot(
+    path: &Path,
+    sheet_name: &str,
+    plan: &SpreadsheetSnapshotPlan,
+    destination: &Path,
+) -> Result<(), String> {
+    let mut workbook = open_workbook_auto(path)
+        .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+    match &mut workbook {
+        Sheets::Xlsx(workbook) => {
+            let mut reader = workbook
+                .worksheet_cells_reader(sheet_name)
+                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+            write_streamed_spreadsheet_cells(destination, plan, || {
+                reader
+                    .next_cell()
+                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
+                    .map(|cell| {
+                        cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
+                    })
+            })
+        }
+        Sheets::Xlsb(workbook) => {
+            let mut reader = workbook
+                .worksheet_cells_reader(sheet_name)
+                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+            write_streamed_spreadsheet_cells(destination, plan, || {
+                reader
+                    .next_cell()
+                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
+                    .map(|cell| {
+                        cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
+                    })
+            })
+        }
+        Sheets::Xls(_) | Sheets::Ods(_) => Err(SPREADSHEET_STREAMING_UNSUPPORTED.to_owned()),
+    }
+}
+
 fn spreadsheet_range_to_frame(
     range: &Range<Data>,
     header_mode: SpreadsheetHeaderMode,
@@ -7960,7 +8388,7 @@ fn spreadsheet_range_to_frame(
         let cells = (data_start..height)
             .map(|row| range.get((row, column_index)).expect("rango rectangular"))
             .collect::<Vec<_>>();
-        columns.push(spreadsheet_cells_to_column(name, &cells)?);
+        columns.push(spreadsheet_cells_to_column(name, &cells, None)?);
     }
     DataFrame::new(height.saturating_sub(data_start), columns)
         .map_err(|error| format!("No se pudo construir el dataset desde la hoja: {error}"))
@@ -14535,8 +14963,16 @@ where
         .start_file("xl/worksheets/sheet1.xml", options)
         .map_err(|error| format!("No se pudo preparar la hoja Excel: {error}"))?;
     archive
-        .write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>"#)
+        .write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#)
         .map_err(|error| format!("No se pudo escribir la hoja Excel: {error}"))?;
+    let last_cell = format!(
+        "<dimension ref=\"A1:{}{}\"/><sheetData>",
+        xlsx_column_name(frame.width() - 1),
+        frame.height() + 1
+    );
+    archive
+        .write_all(last_cell.as_bytes())
+        .map_err(|error| format!("No se pudo escribir las dimensiones Excel: {error}"))?;
 
     archive
         .write_all(b"<row r=\"1\">")
@@ -15233,6 +15669,45 @@ fn persist_json_comparison_source_file(
     fs::rename(&temporary, &destination)
         .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
     Ok((directory, destination))
+}
+
+fn persist_spreadsheet_comparison_source_file(
+    path: &Path,
+    extension: &str,
+) -> Result<(tempfile::TempDir, PathBuf, usize), String> {
+    let source_size = fs::metadata(path)
+        .map_err(|error| format!("No se pudo inspeccionar la fuente comparada: {error}"))?
+        .len();
+    let sheets = inspect_workbook(path)?;
+    let sheet = sheets
+        .first()
+        .ok_or_else(|| "El libro no contiene hojas que se puedan comparar.".to_owned())?;
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = directory.path().join("compared.partial.parquet");
+    let row_count = if matches!(extension, "xlsx" | "xlsb") {
+        let plan =
+            spreadsheet_snapshot_plan_from_stream(path, sheet, SpreadsheetHeaderMode::FirstRow)?;
+        write_streamed_spreadsheet_snapshot(path, sheet, &plan, &temporary)?;
+        plan.data_rows
+    } else {
+        let mut workbook = open_workbook_auto(path)
+            .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+        let range = workbook
+            .worksheet_range(sheet)
+            .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+        write_spreadsheet_range_snapshot(&range, SpreadsheetHeaderMode::FirstRow, &temporary)?
+    };
+    let final_size = fs::metadata(path)
+        .map_err(|error| format!("No se pudo verificar la fuente comparada: {error}"))?
+        .len();
+    if final_size != source_size {
+        return Err("La fuente comparada cambió durante la creación del snapshot.".to_owned());
+    }
+    let destination = directory.path().join("compared.parquet");
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
+    Ok((directory, destination, row_count))
 }
 
 fn row_signature(
@@ -16683,6 +17158,18 @@ pub async fn compare_dataset(
                 _ => persist_delimited_comparison_source_file(&path, &extension)?,
             };
             let compared_row_count = parquet_row_count(&snapshot_path)?;
+            let comparison = compare_parquet_source(
+                &current_frame,
+                &current_file_name,
+                &snapshot_path,
+                &compared_file_name,
+                compared_row_count,
+                &key_columns,
+            )?;
+            (comparison, directory, snapshot_path, compared_row_count)
+        } else if spreadsheet_extensions(&extension) {
+            let (directory, snapshot_path, compared_row_count) =
+                persist_spreadsheet_comparison_source_file(&path, &extension)?;
             let comparison = compare_parquet_source(
                 &current_frame,
                 &current_file_name,
@@ -28008,6 +28495,61 @@ mod tests {
         let page = dataset_page(&frame, 0, 50).expect("debe conservar la primera fila");
         assert_eq!(page.rows[0][0].as_deref(), Some("001"));
         assert_eq!(page.rows[0][1].as_deref(), Some("Santo Domingo"));
+    }
+
+    #[test]
+    fn snapshots_xlsx_in_streaming_blocks_without_changing_typed_values() {
+        let compared = df![
+            "id" => &[1_i64, 2, 3],
+            "name" => &["Ana", "Luis", "María"],
+            "amount" => &[10.5_f64, 20.0, 30.25],
+            "active" => &[true, false, true]
+        ]
+        .expect("el frame Excel debe construirse");
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("compared.xlsx");
+        let mut output = File::create(&source).expect("se debe crear el libro Excel");
+        write_xlsx(&compared, &mut output, |_| {}, || false).expect("se debe escribir el libro");
+        output
+            .sync_all()
+            .expect("se debe sincronizar el libro Excel");
+
+        let expected = load_compare_frame(&source, "xlsx").expect("Excel debe cargar");
+        let current = df![
+            "id" => &[1.0_f64, 2.0, 3.0],
+            "name" => &["Ana", "Luis", "María"],
+            "amount" => &[10.5_f64, 19.0, 30.25],
+            "active" => &[true, false, true]
+        ]
+        .expect("el frame activo debe construirse");
+        let (snapshot_directory, snapshot_path, row_count) =
+            persist_spreadsheet_comparison_source_file(&source, "xlsx")
+                .expect("Excel debe convertirse al snapshot por bloques");
+        assert_eq!(row_count, expected.height());
+        let restored = read_parquet_frame(&snapshot_path).expect("el snapshot debe ser legible");
+        assert!(restored.equals_missing(&expected));
+
+        let expected_comparison = compare_frames(
+            &current,
+            "activo.xlsx",
+            &expected,
+            "comparado.xlsx",
+            &["id".to_owned()],
+        )
+        .expect("la comparación Excel de referencia debe calcularse");
+        let actual_comparison = compare_parquet_source(
+            &current,
+            "activo.xlsx",
+            &snapshot_path,
+            "comparado.xlsx",
+            row_count,
+            &["id".to_owned()],
+        )
+        .expect("la comparación del snapshot Excel debe calcularse");
+        assert_eq!(actual_comparison, expected_comparison);
+
+        drop(snapshot_directory);
+        assert!(!snapshot_path.exists());
     }
 
     #[test]

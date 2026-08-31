@@ -6,6 +6,8 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-08-31
+
 ### Añadido
 
 - El benchmark `perf:webview2` valida carga, paginación, transformación y
@@ -108,14 +110,19 @@ los artefactos de validación locales.
   el directorio se elimina al descartar la comparación. Cuando la fuente
   comparada ya es Parquet, el archivo se copia secuencialmente y la comparación
   calcula conteos, claves y la primera página de conflictos por bloques de 16K,
-  sin materializar otra copia completa; Excel conserva su camino
-  materializado.
+  sin materializar otra copia completa; los formatos Excel sin lector secuencial
+  conservan su camino materializado.
 - La comparación inicial de fuentes CSV, TSV, TXT delimitadas y JSON usa el
   lector DuckDB bundled para crear el snapshot Parquet temporal de forma
   secuencial y después reutiliza la comparación por bloques; la proyección
   conserva el orden de columnas y serializa campos anidados con el mismo texto
   JSON que el lector nativo. No crea un `DataFrame` completo de la fuente
-  secundaria; Excel mantiene el camino materializado.
+  secundaria; `.xls` y `.ods` mantienen el camino materializado compatible.
+- La comparación inicial de libros `.xlsx` y `.xlsb` usa el lector secuencial
+  de celdas de Calamine en dos pasadas: detecta el esquema y escribe el
+  snapshot Parquet en bloques de 16K, sin crear un `DataFrame` completo de la
+  fuente comparada. `.xls` y `.ods` conservan el fallback compatible porque
+  Calamine no ofrece lectura lazy para esos formatos.
 - La preparación de JOIN para DuckDB ya lee solo el esquema del snapshot
   comparado cuando existe un snapshot activo administrado, y no vuelve a
   materializar sus filas para validar el contrato. La ruta DuckDB tampoco
