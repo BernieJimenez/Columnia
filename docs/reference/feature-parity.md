@@ -30,6 +30,14 @@ fallbacks que requieren todas las filas materializan bajo demanda y validan
 que tamaño y conteo no hayan cambiado. Esto reduce el pico de apertura, pero no
 declara todavía ejecución general fuera de RAM para todas las operaciones.
 
+Desde v0.66.0, el perfilado de esas fuentes conserva la misma frontera: las
+firmas de duplicados se derraman por cubetas temporales, las columnas se leen
+por bloques, las estadísticas numéricas usan corridas ordenadas en disco y los
+resúmenes categóricos/temporales y las correlaciones solo leen las columnas o
+muestras necesarias. La salida mantiene el contrato del perfil normal; las
+transformaciones, validación y exportación todavía materializan cuando deben
+publicar todas las filas.
+
 La receta lazy/streaming también acepta `Iso8601` sin offset o con sufijo UTC
 `Z`; los offsets distintos de UTC conservan el fallback eager para mantener la
 conversión estricta a UTC.

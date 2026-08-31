@@ -1,4 +1,5 @@
 use std::{
+    collections::BinaryHeap,
     collections::HashMap,
     collections::HashSet,
     collections::VecDeque,
@@ -3734,6 +3735,67 @@ where
     Ok(())
 }
 
+fn read_parquet_column_block(
+    path: &Path,
+    column_name: &str,
+    start: usize,
+    length: usize,
+) -> Result<DataFrame, String> {
+    let slice_offset = i64::try_from(start).map_err(|_| {
+        format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} la columna solicitada excede la capacidad del lector."
+        )
+    })?;
+    let plan = parquet_scan(path)
+        .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))?
+        .select([col(column_name)])
+        .slice(slice_offset, length as IdxSize);
+    collect_lazy_frame_streaming(
+        plan,
+        "No se pudo leer el bloque de columna Parquet del perfil",
+    )
+}
+
+fn for_each_parquet_column_block<F>(
+    path: &Path,
+    row_count: usize,
+    column_name: &str,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, &Column) -> Result<(), String>,
+{
+    let block_count = row_count.div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    for block_index in 0..block_count {
+        let start = block_index
+            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque de columna excede la capacidad del lector."
+                )
+            })?;
+        let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
+        let block = read_parquet_column_block(path, column_name, start, length)?;
+        if block.height() != length || block.width() != 1 {
+            return Err(format!(
+                "No se pudo leer el bloque de la columna '{column_name}' con el tamaño esperado."
+            ));
+        }
+        let column = block
+            .columns()
+            .first()
+            .ok_or_else(|| format!("No se pudo obtener la columna '{column_name}'."))?;
+        visit(start, column)?;
+    }
+    let trailing_block = read_parquet_column_block(path, column_name, row_count, 1)?;
+    if trailing_block.height() != 0 {
+        return Err(format!(
+            "El snapshot Parquet contiene más filas que las registradas para la columna '{column_name}'."
+        ));
+    }
+    Ok(())
+}
+
 fn parquet_row_count(path: &Path) -> Result<usize, String> {
     let result = collect_lazy_frame_streaming(
         parquet_scan(path)?.select([len().alias("__row_count")]),
@@ -4659,6 +4721,319 @@ fn numeric_histogram(values: &Float64Chunked, minimum: f64, maximum: f64) -> Vec
         .collect()
 }
 
+const SOURCE_PROFILE_NUMERIC_RUN_VALUES: usize = 262_144;
+
+struct NumericRunWriter {
+    directory: tempfile::TempDir,
+    pending: Vec<f64>,
+    runs: Vec<PathBuf>,
+}
+
+impl NumericRunWriter {
+    fn new() -> Result<Self, String> {
+        let directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el almacenamiento temporal numérico: {error}")
+        })?;
+        Ok(Self {
+            directory,
+            pending: Vec::with_capacity(SOURCE_PROFILE_NUMERIC_RUN_VALUES),
+            runs: Vec::new(),
+        })
+    }
+
+    fn push(&mut self, value: f64) -> Result<(), String> {
+        if !value.is_finite() {
+            return Ok(());
+        }
+        self.pending.push(value);
+        if self.pending.len() >= SOURCE_PROFILE_NUMERIC_RUN_VALUES {
+            self.flush_pending()?;
+        }
+        Ok(())
+    }
+
+    fn flush_pending(&mut self) -> Result<(), String> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        self.pending.sort_unstable_by(f64::total_cmp);
+        let path = self
+            .directory
+            .path()
+            .join(format!("numeric-run-{:06}.bin", self.runs.len()));
+        let file = File::create(&path)
+            .map_err(|error| format!("No se pudo crear una corrida numérica temporal: {error}"))?;
+        let mut writer = BufWriter::with_capacity(64 * 1024, file);
+        for value in self.pending.drain(..) {
+            writer.write_all(&value.to_le_bytes()).map_err(|error| {
+                format!("No se pudo guardar una corrida numérica temporal: {error}")
+            })?;
+        }
+        writer.flush().map_err(|error| {
+            format!("No se pudo sincronizar una corrida numérica temporal: {error}")
+        })?;
+        self.runs.push(path);
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<NumericRuns, String> {
+        self.flush_pending()?;
+        Ok(NumericRuns {
+            _directory: self.directory,
+            paths: self.runs,
+        })
+    }
+}
+
+struct NumericRuns {
+    _directory: tempfile::TempDir,
+    paths: Vec<PathBuf>,
+}
+
+struct NumericRunCursor {
+    reader: BufReader<File>,
+    current: Option<f64>,
+}
+
+struct NumericHeapEntry {
+    value: f64,
+    run_index: usize,
+}
+
+impl PartialEq for NumericHeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.value.total_cmp(&other.value) == std::cmp::Ordering::Equal
+            && self.run_index == other.run_index
+    }
+}
+
+impl Eq for NumericHeapEntry {}
+
+impl PartialOrd for NumericHeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NumericHeapEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .value
+            .total_cmp(&self.value)
+            .then_with(|| other.run_index.cmp(&self.run_index))
+    }
+}
+
+fn read_numeric_run_value(reader: &mut BufReader<File>) -> Result<Option<f64>, String> {
+    let mut bytes = [0_u8; std::mem::size_of::<f64>()];
+    match reader.read_exact(&mut bytes) {
+        Ok(()) => Ok(Some(f64::from_le_bytes(bytes))),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
+        Err(error) => Err(format!(
+            "No se pudo leer una corrida numérica temporal: {error}"
+        )),
+    }
+}
+
+struct SortedNumericRuns {
+    cursors: Vec<NumericRunCursor>,
+    heap: BinaryHeap<NumericHeapEntry>,
+}
+
+impl SortedNumericRuns {
+    fn new(runs: &NumericRuns) -> Result<Self, String> {
+        let mut cursors = Vec::with_capacity(runs.paths.len());
+        let mut heap = BinaryHeap::with_capacity(runs.paths.len());
+        for (run_index, path) in runs.paths.iter().enumerate() {
+            let file = File::open(path).map_err(|error| {
+                format!("No se pudo abrir una corrida numérica temporal: {error}")
+            })?;
+            let mut cursor = NumericRunCursor {
+                reader: BufReader::with_capacity(64 * 1024, file),
+                current: None,
+            };
+            cursor.current = read_numeric_run_value(&mut cursor.reader)?;
+            if let Some(value) = cursor.current {
+                heap.push(NumericHeapEntry { value, run_index });
+            }
+            cursors.push(cursor);
+        }
+        Ok(Self { cursors, heap })
+    }
+
+    fn next(&mut self) -> Result<Option<f64>, String> {
+        let Some(entry) = self.heap.pop() else {
+            return Ok(None);
+        };
+        let cursor = self
+            .cursors
+            .get_mut(entry.run_index)
+            .ok_or_else(|| "La corrida numérica temporal quedó desalineada.".to_owned())?;
+        cursor.current = read_numeric_run_value(&mut cursor.reader)?;
+        if let Some(value) = cursor.current {
+            self.heap.push(NumericHeapEntry {
+                value,
+                run_index: entry.run_index,
+            });
+        }
+        Ok(Some(entry.value))
+    }
+}
+
+fn source_numeric_quantiles(
+    runs: &NumericRuns,
+    value_count: usize,
+) -> Result<[Option<f64>; 3], String> {
+    if value_count == 0 {
+        return Ok([None; 3]);
+    }
+    let positions =
+        [0.25_f64, 0.5, 0.75].map(|quantile| value_count.saturating_sub(1) as f64 * quantile);
+    let lower = positions.map(f64::floor).map(|value| value as usize);
+    let upper = positions.map(f64::ceil).map(|value| value as usize);
+    let fractions = positions.map(|value| value.fract());
+    let mut lower_values = [None; 3];
+    let mut upper_values = [None; 3];
+    let mut sorted = SortedNumericRuns::new(runs)?;
+    let final_index = upper.into_iter().max().unwrap_or(0);
+    for index in 0..=final_index {
+        let value = sorted
+            .next()?
+            .ok_or_else(|| "La corrida numérica temporal quedó incompleta.".to_owned())?;
+        for quantile_index in 0..3 {
+            if index == lower[quantile_index] {
+                lower_values[quantile_index] = Some(value);
+            }
+            if index == upper[quantile_index] {
+                upper_values[quantile_index] = Some(value);
+            }
+        }
+    }
+    Ok(std::array::from_fn(|index| {
+        let first = lower_values[index]?;
+        let second = upper_values[index].unwrap_or(first);
+        Some(first + (second - first) * fractions[index])
+    }))
+}
+
+fn source_numeric_histogram_and_outliers(
+    runs: &NumericRuns,
+    value_count: usize,
+    minimum: f64,
+    maximum: f64,
+    first_quartile: Option<f64>,
+    third_quartile: Option<f64>,
+) -> Result<(Vec<HistogramBucket>, usize), String> {
+    let mut counts = vec![0_usize; NUMERIC_HISTOGRAM_BUCKETS];
+    let (scale, normalized_minimum, normalized_span) = if minimum == maximum {
+        (1.0, 0.0, 0.0)
+    } else {
+        let scale = minimum.abs().max(maximum.abs());
+        let normalized_minimum = minimum / scale;
+        let normalized_maximum = maximum / scale;
+        (
+            scale,
+            normalized_minimum,
+            normalized_maximum - normalized_minimum,
+        )
+    };
+    let outlier_bounds = if value_count < 4 {
+        None
+    } else {
+        let first_quartile = first_quartile
+            .ok_or_else(|| "No se pudo calcular el primer cuartil numérico.".to_owned())?;
+        let third_quartile = third_quartile
+            .ok_or_else(|| "No se pudo calcular el tercer cuartil numérico.".to_owned())?;
+        let interquartile_range = third_quartile - first_quartile;
+        Some((
+            first_quartile - 1.5 * interquartile_range,
+            third_quartile + 1.5 * interquartile_range,
+        ))
+    };
+    let mut outlier_count = 0;
+    let mut sorted = SortedNumericRuns::new(runs)?;
+    while let Some(value) = sorted.next()? {
+        let bucket = if minimum == maximum {
+            0
+        } else {
+            let position = ((value / scale - normalized_minimum) / normalized_span).clamp(0.0, 1.0);
+            ((position * NUMERIC_HISTOGRAM_BUCKETS as f64).floor() as usize)
+                .min(NUMERIC_HISTOGRAM_BUCKETS - 1)
+        };
+        counts[bucket] = counts[bucket].saturating_add(1);
+        if let Some((lower, upper)) = outlier_bounds {
+            outlier_count += usize::from(value < lower || value > upper);
+        }
+    }
+    let histogram = if minimum == maximum {
+        vec![HistogramBucket {
+            lower: minimum,
+            upper: maximum,
+            count: counts[0],
+        }]
+    } else {
+        counts
+            .into_iter()
+            .enumerate()
+            .map(|(index, count)| {
+                let lower_fraction = index as f64 / NUMERIC_HISTOGRAM_BUCKETS as f64;
+                let upper_fraction = (index + 1) as f64 / NUMERIC_HISTOGRAM_BUCKETS as f64;
+                HistogramBucket {
+                    lower: if index == 0 {
+                        minimum
+                    } else {
+                        stable_histogram_boundary(
+                            minimum * (1.0 - lower_fraction) + maximum * lower_fraction,
+                        )
+                    },
+                    upper: if index + 1 == NUMERIC_HISTOGRAM_BUCKETS {
+                        maximum
+                    } else {
+                        stable_histogram_boundary(
+                            minimum * (1.0 - upper_fraction) + maximum * upper_fraction,
+                        )
+                    },
+                    count,
+                }
+            })
+            .collect()
+    };
+    Ok((histogram, outlier_count))
+}
+
+fn source_numeric_statistics(
+    runs: &NumericRuns,
+    value_count: usize,
+    minimum: Option<f64>,
+    maximum: Option<f64>,
+    mean: Option<f64>,
+    m2: f64,
+) -> Result<Option<NumericStatistics>, String> {
+    let (Some(minimum), Some(maximum), Some(mean)) = (minimum, maximum, mean) else {
+        return Ok(None);
+    };
+    let quantiles = source_numeric_quantiles(runs, value_count)?;
+    let (histogram, outlier_count) = source_numeric_histogram_and_outliers(
+        runs,
+        value_count,
+        minimum,
+        maximum,
+        quantiles[0],
+        quantiles[2],
+    )?;
+    Ok(Some(NumericStatistics {
+        minimum: Some(minimum),
+        maximum: Some(maximum),
+        mean: Some(mean),
+        standard_deviation: (value_count >= 2).then(|| (m2 / (value_count - 1) as f64).sqrt()),
+        first_quartile: quantiles[0],
+        median: quantiles[1],
+        third_quartile: quantiles[2],
+        outlier_count,
+        histogram: Some(histogram),
+    }))
+}
+
 fn numeric_statistics(
     column: &Column,
     text_profile: Option<&TextStatistics>,
@@ -4796,6 +5171,7 @@ fn numeric_statistics(
 }
 
 struct TextStatistics {
+    value_count: usize,
     empty_count: usize,
     sentinel_count: usize,
     encoding_issue_count: usize,
@@ -5106,6 +5482,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         date_count,
     );
     Ok(Some(TextStatistics {
+        value_count,
         empty_count,
         sentinel_count,
         encoding_issue_count,
@@ -5242,6 +5619,299 @@ where
             .as_ref()
             .and_then(|statistics| statistics.histogram.clone()),
     })
+}
+
+struct SourceTextAccumulator {
+    empty_count: usize,
+    sentinel_count: usize,
+    encoding_issue_count: usize,
+    value_count: usize,
+    boolean_count: usize,
+    integer_count: usize,
+    decimal_count: usize,
+    date_count: usize,
+    total_length: usize,
+    minimum_length: Option<usize>,
+    maximum_length: Option<usize>,
+}
+
+impl SourceTextAccumulator {
+    fn new() -> Self {
+        Self {
+            empty_count: 0,
+            sentinel_count: 0,
+            encoding_issue_count: 0,
+            value_count: 0,
+            boolean_count: 0,
+            integer_count: 0,
+            decimal_count: 0,
+            date_count: 0,
+            total_length: 0,
+            minimum_length: None,
+            maximum_length: None,
+        }
+    }
+
+    fn update(&mut self, column: &Column) -> Result<(), String> {
+        let values = column
+            .str()
+            .map_err(|error| format!("No se pudo analizar la columna source-backed: {error}"))?;
+        for value in values.iter().flatten() {
+            let length = value.chars().count();
+            let trimmed = value.trim();
+            self.empty_count = self
+                .empty_count
+                .saturating_add(usize::from(trimmed.is_empty()));
+            self.sentinel_count = self
+                .sentinel_count
+                .saturating_add(usize::from(is_missing_sentinel(trimmed)));
+            self.encoding_issue_count = self
+                .encoding_issue_count
+                .saturating_add(usize::from(repair_mojibake(value).is_some()));
+            self.value_count = self.value_count.saturating_add(1);
+            self.total_length = self.total_length.saturating_add(length);
+            self.minimum_length = Some(
+                self.minimum_length
+                    .map_or(length, |current| current.min(length)),
+            );
+            self.maximum_length = Some(
+                self.maximum_length
+                    .map_or(length, |current| current.max(length)),
+            );
+            if trimmed.is_empty() {
+                continue;
+            }
+            self.boolean_count = self
+                .boolean_count
+                .saturating_add(usize::from(boolean_token(trimmed).is_some()));
+            let numeric = semantic_numeric_value(trimmed);
+            self.integer_count = self.integer_count.saturating_add(usize::from(
+                trimmed.parse::<i64>().is_ok() && numeric.is_some(),
+            ));
+            self.decimal_count = self
+                .decimal_count
+                .saturating_add(usize::from(numeric.is_some()));
+            self.date_count = self
+                .date_count
+                .saturating_add(usize::from(is_supported_date(trimmed)));
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> TextStatistics {
+        let non_empty_count = self.value_count.saturating_sub(self.empty_count);
+        let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
+            non_empty_count,
+            self.boolean_count,
+            self.integer_count,
+            self.decimal_count,
+            self.date_count,
+        );
+        TextStatistics {
+            value_count: self.value_count,
+            empty_count: self.empty_count,
+            sentinel_count: self.sentinel_count,
+            encoding_issue_count: self.encoding_issue_count,
+            minimum_length: self.minimum_length,
+            maximum_length: self.maximum_length,
+            average_length: (self.value_count > 0)
+                .then(|| self.total_length as f64 / self.value_count as f64),
+            suggested_type,
+            type_match_percentage,
+            invalid_type_count,
+        }
+    }
+}
+
+struct SourceNumericAccumulator {
+    value_count: usize,
+    minimum: Option<f64>,
+    maximum: Option<f64>,
+    mean: f64,
+    m2: f64,
+    runs: Option<NumericRunWriter>,
+}
+
+impl SourceNumericAccumulator {
+    fn new() -> Self {
+        Self {
+            value_count: 0,
+            minimum: None,
+            maximum: None,
+            mean: 0.0,
+            m2: 0.0,
+            runs: None,
+        }
+    }
+
+    fn push(&mut self, value: Option<f64>) -> Result<(), String> {
+        let Some(value) = value.filter(|value| value.is_finite()) else {
+            return Ok(());
+        };
+        self.value_count = self.value_count.saturating_add(1);
+        self.minimum = Some(self.minimum.map_or(value, |current| current.min(value)));
+        self.maximum = Some(self.maximum.map_or(value, |current| current.max(value)));
+        let delta = value - self.mean;
+        self.mean += delta / self.value_count as f64;
+        self.m2 += delta * (value - self.mean);
+        if self.runs.is_none() {
+            self.runs = Some(NumericRunWriter::new()?);
+        }
+        self.runs
+            .as_mut()
+            .expect("la corrida numérica debe existir")
+            .push(value)
+    }
+}
+
+struct SourceColumnAccumulator {
+    name: String,
+    data_type: String,
+    is_string: bool,
+    is_primitive_numeric: bool,
+    null_count: usize,
+    text: Option<SourceTextAccumulator>,
+    numeric: SourceNumericAccumulator,
+}
+
+impl SourceColumnAccumulator {
+    fn new(column: &Column) -> Self {
+        Self {
+            name: column.name().to_string(),
+            data_type: column.dtype().to_string(),
+            is_string: column.dtype() == &DataType::String,
+            is_primitive_numeric: column.dtype().is_primitive_numeric(),
+            null_count: 0,
+            text: (column.dtype() == &DataType::String).then(SourceTextAccumulator::new),
+            numeric: SourceNumericAccumulator::new(),
+        }
+    }
+
+    fn update(&mut self, column: &Column) -> Result<(), String> {
+        self.null_count = self.null_count.saturating_add(column.null_count());
+        if let Some(text) = self.text.as_mut() {
+            text.update(column)?;
+            let values = column.str().map_err(|error| {
+                format!("No se pudo analizar la columna source-backed: {error}")
+            })?;
+            for value in values.iter().flatten() {
+                self.numeric.push(semantic_numeric_value(value.trim()))?;
+            }
+        } else if self.is_primitive_numeric {
+            for row_index in 0..column.len() {
+                let value = column.get(row_index).map_err(|error| {
+                    format!("No se pudo analizar la columna numérica source-backed: {error}")
+                })?;
+                self.numeric.push(numeric_value(value))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(self, row_count: usize, unique_count: usize) -> Result<ColumnProfile, String> {
+        let text = self.text.map(SourceTextAccumulator::finish);
+        let numeric_eligible = self.is_primitive_numeric
+            || (self.is_string
+                && text.as_ref().is_some_and(|text| {
+                    self.numeric.value_count > 0
+                        && self.numeric.value_count
+                            == text.value_count.saturating_sub(text.empty_count)
+                }));
+        let numeric_runs = self
+            .numeric
+            .runs
+            .map(NumericRunWriter::finish)
+            .transpose()?;
+        let numeric_statistics = if numeric_eligible {
+            match numeric_runs.as_ref() {
+                Some(runs) => source_numeric_statistics(
+                    runs,
+                    self.numeric.value_count,
+                    self.numeric.minimum,
+                    self.numeric.maximum,
+                    (self.numeric.value_count > 0).then_some(self.numeric.mean),
+                    self.numeric.m2,
+                )?,
+                None => None,
+            }
+        } else {
+            None
+        };
+        let (minimum, maximum, mean) = if self.is_primitive_numeric {
+            (
+                self.numeric.minimum.map(|value| value.to_string()),
+                self.numeric.maximum.map(|value| value.to_string()),
+                numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.mean),
+            )
+        } else if let Some(statistics) = numeric_statistics.as_ref() {
+            (
+                statistics.minimum.map(|value| value.to_string()),
+                statistics.maximum.map(|value| value.to_string()),
+                statistics.mean,
+            )
+        } else {
+            (None, None, None)
+        };
+        Ok(ColumnProfile {
+            name: self.name.clone(),
+            data_type: self.data_type,
+            null_count: self.null_count,
+            completeness_percentage: if row_count == 0 {
+                100.0
+            } else {
+                ((row_count.saturating_sub(self.null_count)) as f64 / row_count as f64) * 100.0
+            },
+            unique_count,
+            minimum,
+            maximum,
+            mean,
+            empty_count: text.as_ref().map(|statistics| statistics.empty_count),
+            minimum_length: text
+                .as_ref()
+                .and_then(|statistics| statistics.minimum_length),
+            maximum_length: text
+                .as_ref()
+                .and_then(|statistics| statistics.maximum_length),
+            average_length: text
+                .as_ref()
+                .and_then(|statistics| statistics.average_length),
+            suggested_type: text
+                .as_ref()
+                .and_then(|statistics| statistics.suggested_type)
+                .map(str::to_owned),
+            type_match_percentage: text
+                .as_ref()
+                .and_then(|statistics| statistics.type_match_percentage),
+            invalid_type_count: text
+                .as_ref()
+                .and_then(|statistics| statistics.invalid_type_count),
+            sentinel_count: text.as_ref().map(|statistics| statistics.sentinel_count),
+            encoding_issue_count: text
+                .as_ref()
+                .map(|statistics| statistics.encoding_issue_count),
+            privacy_signal: privacy_signal(&self.name).map(str::to_owned),
+            standard_deviation: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.standard_deviation),
+            first_quartile: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.first_quartile),
+            median: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.median),
+            third_quartile: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.third_quartile),
+            outlier_count: numeric_statistics
+                .as_ref()
+                .map(|statistics| statistics.outlier_count),
+            histogram: numeric_statistics
+                .as_ref()
+                .and_then(|statistics| statistics.histogram.clone()),
+        })
+    }
 }
 
 fn count_distinct_rows(frame: &DataFrame) -> Result<usize, String> {
@@ -6144,6 +6814,471 @@ where
     }
     ensure_not_cancelled(is_cancelled())?;
     Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
+}
+
+fn append_spilled_column_rows(
+    spill: &SpilledKeyRows,
+    column: &Column,
+    row_offset: usize,
+    writers: &mut [Option<BufWriter<File>>],
+) -> Result<(), String> {
+    for row_index in 0..column.len() {
+        let key = match preview_value(column.get(row_index).map_err(|error| {
+            format!("No se pudo leer la fila source-backed del perfil: {error}")
+        })?) {
+            Some(value) => format!("v{}:{value};", value.len()),
+            None => "n;".to_owned(),
+        };
+        let bucket = comparison_key_bucket(&key);
+        let writer = if let Some(writer) = writers[bucket].as_mut() {
+            writer
+        } else {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&spill.bucket_paths[bucket])
+                .map_err(|error| {
+                    format!("No se pudo abrir el índice temporal del perfil: {error}")
+                })?;
+            writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+        };
+        let key_bytes = key.as_bytes();
+        let key_length = u64::try_from(key_bytes.len()).map_err(|_| {
+            "El valor de la columna supera el índice temporal del perfil.".to_owned()
+        })?;
+        let row_number = row_offset
+            .checked_add(row_index)
+            .and_then(|index| u64::try_from(index).ok())
+            .ok_or_else(|| "El índice de fila supera la capacidad local.".to_owned())?;
+        writer
+            .write_all(&key_length.to_le_bytes())
+            .and_then(|_| writer.write_all(&row_number.to_le_bytes()))
+            .and_then(|_| writer.write_all(key_bytes))
+            .map_err(|error| {
+                format!("No se pudo escribir el índice temporal del perfil: {error}")
+            })?;
+    }
+    Ok(())
+}
+
+fn profile_source_column<C>(
+    path: &Path,
+    row_count: usize,
+    schema_column: &Column,
+    is_cancelled: &C,
+) -> Result<ColumnProfile, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let column_name = schema_column.name().to_string();
+    let mut accumulator = SourceColumnAccumulator::new(schema_column);
+    let unique_spill = create_spilled_key_rows()?;
+    let mut unique_writers = (0..COMPARISON_KEY_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
+    for_each_parquet_column_block(path, row_count, &column_name, |start, column| {
+        ensure_not_cancelled(is_cancelled())?;
+        accumulator.update(column)?;
+        append_spilled_column_rows(&unique_spill, column, start, &mut unique_writers)
+    })?;
+    for writer in unique_writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudo sincronizar el índice temporal del perfil: {error}")
+        })?;
+    }
+    let distinct_values = count_distinct_spilled_key_rows(&unique_spill, is_cancelled)?;
+    let unique_count = distinct_values.saturating_sub(usize::from(accumulator.null_count > 0));
+    accumulator.finish(row_count, unique_count)
+}
+
+fn source_categorical_group_summary<C>(
+    path: &Path,
+    row_count: usize,
+    profile: &ColumnProfile,
+    is_cancelled: &C,
+) -> Result<Option<CategoricalGroupSummary>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut candidates = HashMap::with_capacity(MAX_GROUP_CANDIDATES);
+    for_each_parquet_column_block(path, row_count, &profile.name, |_, column| {
+        for row_index in 0..column.len() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let value = column.get(row_index).map_err(|error| {
+                format!("No se pudo resumir la columna {}: {error}", profile.name)
+            })?;
+            if let Some(key) = categorical_group_key(value) {
+                retain_group_candidate(&mut candidates, key);
+            }
+        }
+        Ok(())
+    })?;
+    ensure_not_cancelled(is_cancelled())?;
+
+    let mut selected_counts = HashMap::with_capacity(candidates.len());
+    for_each_parquet_column_block(path, row_count, &profile.name, |_, column| {
+        for row_index in 0..column.len() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let value = column.get(row_index).map_err(|error| {
+                format!("No se pudo resumir la columna {}: {error}", profile.name)
+            })?;
+            let Some(key) = categorical_group_key(value) else {
+                continue;
+            };
+            if candidates.contains_key(&key) {
+                let count = selected_counts.entry(key).or_insert(0usize);
+                *count = (*count).saturating_add(1);
+            }
+        }
+        Ok(())
+    })?;
+
+    let mut groups = selected_counts
+        .into_iter()
+        .filter(|(_, count)| *count >= MIN_GROUP_COUNT)
+        .map(|(key, group_row_count)| CategoricalGroup {
+            label: categorical_group_label(&key),
+            row_count: group_row_count,
+            percentage: if row_count == 0 {
+                0.0
+            } else {
+                (group_row_count as f64 / row_count as f64) * 100.0
+            },
+            is_other: false,
+        })
+        .collect::<Vec<_>>();
+    groups.sort_by(|left, right| {
+        right
+            .row_count
+            .cmp(&left.row_count)
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    groups.truncate(MAX_CATEGORICAL_GROUPS);
+    let displayed_count = groups.iter().map(|group| group.row_count).sum::<usize>();
+    let other_count = row_count.saturating_sub(displayed_count);
+    if other_count > 0 {
+        groups.push(CategoricalGroup {
+            label: "Resto".to_owned(),
+            row_count: other_count,
+            percentage: if row_count == 0 {
+                0.0
+            } else {
+                (other_count as f64 / row_count as f64) * 100.0
+            },
+            is_other: true,
+        });
+    }
+    if groups.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(CategoricalGroupSummary {
+        column: profile.name.clone(),
+        groups,
+        distinct_count: profile.unique_count,
+        truncated: other_count > 0,
+    }))
+}
+
+fn source_temporal_series_summary<C>(
+    path: &Path,
+    row_count: usize,
+    profile: &ColumnProfile,
+    is_cancelled: &C,
+) -> Result<Option<TemporalSeriesSummary>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut counts = HashMap::<TemporalPeriodKey, usize>::new();
+    let mut first = None;
+    let mut last = None;
+    let mut parsed_row_count = 0usize;
+    for_each_parquet_column_block(path, row_count, &profile.name, |_, column| {
+        for row_index in 0..column.len() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let value = column.get(row_index).map_err(|error| {
+                format!(
+                    "No se pudo resumir la tendencia temporal de {}: {error}",
+                    profile.name
+                )
+            })?;
+            let Some(datetime) = quality_datetime_value(value) else {
+                continue;
+            };
+            let key = temporal_period_key(datetime);
+            first = Some(first.map_or(key, |current: TemporalPeriodKey| current.min(key)));
+            last = Some(last.map_or(key, |current: TemporalPeriodKey| current.max(key)));
+            *counts.entry(key).or_insert(0) += 1;
+            parsed_row_count = parsed_row_count.saturating_add(1);
+        }
+        Ok(())
+    })?;
+    let (Some(first), Some(last)) = (first, last) else {
+        return Ok(None);
+    };
+    let first_date = NaiveDate::from_ymd_opt(first.year, first.month, first.day)
+        .ok_or_else(|| "No se pudo interpretar el inicio de la tendencia temporal.".to_owned())?;
+    let last_date = NaiveDate::from_ymd_opt(last.year, last.month, last.day)
+        .ok_or_else(|| "No se pudo interpretar el fin de la tendencia temporal.".to_owned())?;
+    let day_span = (last_date - first_date).num_days();
+    let month_span = (i64::from(last.year) - i64::from(first.year)) * 12 + i64::from(last.month)
+        - i64::from(first.month);
+    let granularity = if day_span <= MAX_TEMPORAL_DAY_SPAN {
+        "day"
+    } else if month_span <= MAX_TEMPORAL_MONTH_SPAN {
+        "month"
+    } else {
+        "year"
+    };
+    let mut raw_periods = temporal_periods_between(first, last, granularity, &counts);
+    raw_periods.retain(|(_, count)| *count > 0 || matches!(granularity, "month" | "day"));
+    let truncated = raw_periods.len() > MAX_TEMPORAL_PERIODS;
+    if truncated {
+        let split = raw_periods.len() - (MAX_TEMPORAL_PERIODS - 1);
+        let previous_count = raw_periods[..split]
+            .iter()
+            .map(|(_, count)| *count)
+            .sum::<usize>();
+        let mut retained = vec![("Periodos anteriores".to_owned(), previous_count)];
+        retained.extend(raw_periods.into_iter().skip(split));
+        raw_periods = retained;
+    }
+    let denominator = parsed_row_count.max(1) as f64;
+    let periods = raw_periods
+        .into_iter()
+        .map(|(period, row_count)| TemporalPeriod {
+            period,
+            row_count,
+            percentage: (row_count as f64 / denominator) * 100.0,
+        })
+        .collect();
+    Ok(Some(TemporalSeriesSummary {
+        column: profile.name.clone(),
+        granularity: granularity.to_owned(),
+        periods,
+        parsed_row_count,
+        unparsed_row_count: row_count.saturating_sub(parsed_row_count),
+        truncated,
+    }))
+}
+
+fn source_numeric_correlation_matrix<C>(
+    path: &Path,
+    row_count: usize,
+    profiles: &[ColumnProfile],
+    is_cancelled: &C,
+    sample_row_limit: usize,
+) -> Result<Option<NumericCorrelationMatrix>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let numeric_columns = profiles
+        .iter()
+        .filter(|profile| profile.outlier_count.is_some())
+        .take(MAX_NUMERIC_CORRELATION_COLUMNS)
+        .map(|profile| profile.name.clone())
+        .collect::<Vec<_>>();
+    if numeric_columns.len() < 2 || row_count == 0 {
+        return Ok(None);
+    }
+    let sampled_row_count = row_count.min(sample_row_limit);
+    let mut values = Vec::with_capacity(numeric_columns.len());
+    for column_name in &numeric_columns {
+        let mut column_values = Vec::with_capacity(sampled_row_count);
+        let mut next_sample = 0usize;
+        for_each_parquet_column_block(path, row_count, column_name, |start, column| {
+            while next_sample < sampled_row_count {
+                let row_index = next_sample.saturating_mul(row_count) / sampled_row_count;
+                if row_index < start {
+                    return Ok(());
+                }
+                if row_index >= start + column.len() {
+                    break;
+                }
+                ensure_not_cancelled(is_cancelled())?;
+                let value = column.get(row_index - start).map_err(|error| {
+                    format!("No se pudieron calcular correlaciones para la columna {column_name}: {error}")
+                })?;
+                column_values.push(correlation_numeric_value(value));
+                next_sample += 1;
+            }
+            Ok(())
+        })?;
+        if next_sample != sampled_row_count {
+            return Err(format!(
+                "No se pudo leer la muestra completa de correlaciones para la columna {column_name}."
+            ));
+        }
+        values.push(column_values);
+    }
+    let mut pairs =
+        Vec::with_capacity(numeric_columns.len().saturating_mul(numeric_columns.len()) / 2);
+    for first_index in 0..numeric_columns.len() {
+        for second_index in (first_index + 1)..numeric_columns.len() {
+            let (coefficient, sample_count) =
+                pearson_correlation(&values[first_index], &values[second_index]);
+            pairs.push(NumericCorrelation {
+                first_column: numeric_columns[first_index].clone(),
+                second_column: numeric_columns[second_index].clone(),
+                coefficient,
+                sample_count,
+            });
+        }
+    }
+    Ok(Some(NumericCorrelationMatrix {
+        columns: numeric_columns,
+        pairs,
+        sampled_row_count,
+        truncated: profiles
+            .iter()
+            .filter(|profile| profile.outlier_count.is_some())
+            .count()
+            > MAX_NUMERIC_CORRELATION_COLUMNS,
+    }))
+}
+
+fn source_profile_snapshot(
+    source_path: &Path,
+    extension: &str,
+) -> Result<(Option<tempfile::TempDir>, PathBuf), String> {
+    match extension {
+        "parquet" => Ok((None, source_path.to_owned())),
+        "csv" | "tsv" | "txt" => {
+            let (directory, snapshot) =
+                persist_delimited_comparison_source_file(source_path, extension)?;
+            Ok((Some(directory), snapshot))
+        }
+        _ => Err("El formato no admite un perfil source-backed.".to_owned()),
+    }
+}
+
+fn profile_source_backed_with_progress<F, C>(
+    source_path: &Path,
+    extension: &str,
+    expected_file_size: u64,
+    row_count: usize,
+    mut report: F,
+    is_cancelled: C,
+    correlation_sample_rows: usize,
+) -> Result<DatasetProfile, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let (_snapshot_directory, snapshot_path) = source_profile_snapshot(source_path, extension)?;
+    let schema = read_parquet_schema_frame(&snapshot_path)?;
+    let column_names = schema
+        .columns()
+        .iter()
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+
+    report("Detectando filas duplicadas", 10);
+    let distinct_row_count =
+        count_distinct_rows_from_parquet(&snapshot_path, row_count, &column_names, &is_cancelled)?;
+    let duplicate_row_count = row_count.saturating_sub(distinct_row_count);
+    let duplicate_percentage = if row_count == 0 {
+        0.0
+    } else {
+        (duplicate_row_count as f64 / row_count as f64) * 100.0
+    };
+    report("Normalizando filas parecidas", 15);
+    let near_duplicate_row_count = count_normalized_duplicate_rows_from_parquet(
+        &snapshot_path,
+        row_count,
+        duplicate_row_count,
+        &is_cancelled,
+    )?;
+
+    let mut columns = Vec::with_capacity(schema.width());
+    if schema.width() == 0 {
+        report("Perfil completado", 100);
+    } else {
+        report("Analizando columnas", 40);
+        for (index, schema_column) in schema.columns().iter().enumerate() {
+            ensure_not_cancelled(is_cancelled())?;
+            let profile =
+                profile_source_column(&snapshot_path, row_count, schema_column, &is_cancelled)?;
+            columns.push(profile);
+            let percent = 40 + (((index + 1) * 50) / schema.width()) as u8;
+            report("Analizando columnas", percent.min(90));
+        }
+    }
+
+    report("Resumiendo categorías", 93);
+    let mut categorical = Vec::new();
+    for (schema_column, profile) in schema.columns().iter().zip(&columns) {
+        if categorical.len() >= MAX_CATEGORICAL_GROUP_COLUMNS {
+            break;
+        }
+        if schema_column.dtype() != &DataType::String
+            || profile.empty_count.is_none()
+            || profile.suggested_type.is_some()
+            || profile.privacy_signal.is_some()
+            || profile.unique_count < 2
+        {
+            continue;
+        }
+        if let Some(summary) =
+            source_categorical_group_summary(&snapshot_path, row_count, profile, &is_cancelled)?
+        {
+            categorical.push(summary);
+        }
+    }
+    let categorical_group_summaries = (!categorical.is_empty()).then_some(categorical);
+
+    report("Resumiendo tendencia temporal", 95);
+    let mut temporal = Vec::new();
+    for (schema_column, profile) in schema.columns().iter().zip(&columns) {
+        if temporal.len() >= MAX_TEMPORAL_COLUMNS
+            || profile.privacy_signal.is_some()
+            || (!matches!(
+                schema_column.dtype(),
+                DataType::Date | DataType::Datetime(_, _)
+            ) && profile.suggested_type.as_deref() != Some("date"))
+        {
+            continue;
+        }
+        if let Some(summary) =
+            source_temporal_series_summary(&snapshot_path, row_count, profile, &is_cancelled)?
+        {
+            temporal.push(summary);
+        }
+    }
+    let temporal_series = (!temporal.is_empty()).then_some(temporal);
+
+    report("Calculando correlaciones", 97);
+    let numeric_correlations = source_numeric_correlation_matrix(
+        &snapshot_path,
+        row_count,
+        &columns,
+        &is_cancelled,
+        correlation_sample_rows,
+    )?;
+    report("Analizando columnas", 100);
+    ensure_not_cancelled(is_cancelled())?;
+    let final_size = fs::metadata(source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante el perfilado.".to_owned());
+    }
+    Ok(DatasetProfile {
+        row_count,
+        duplicate_row_count,
+        near_duplicate_row_count,
+        duplicate_percentage,
+        columns,
+        numeric_correlations,
+        categorical_group_summaries,
+        temporal_series,
+    })
 }
 
 #[cfg(test)]
@@ -16448,6 +17583,152 @@ fn collect_spilled_key_rows(spill: &SpilledKeyRows) -> Result<HashMap<String, Ve
     Ok(rows_by_key)
 }
 
+fn count_distinct_spilled_key_rows<C>(
+    spill: &SpilledKeyRows,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let mut distinct_count = 0usize;
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        ensure_not_cancelled(is_cancelled())?;
+        let mut keys = Vec::new();
+        let mut record_index = 0usize;
+        for_each_spilled_key_record(spill, bucket, |key, _| {
+            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            record_index = record_index.saturating_add(1);
+            keys.push(key);
+            Ok(())
+        })?;
+        keys.sort_unstable();
+        keys.dedup();
+        distinct_count = distinct_count
+            .checked_add(keys.len())
+            .ok_or_else(|| "El conteo de filas distintas excede la capacidad local.".to_owned())?;
+    }
+    Ok(distinct_count)
+}
+
+fn count_distinct_rows_from_parquet<C>(
+    path: &Path,
+    row_count: usize,
+    columns: &[String],
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let spill = create_spilled_key_rows()?;
+    for_each_parquet_block(path, row_count, |start, block| {
+        ensure_not_cancelled(is_cancelled())?;
+        append_spilled_key_rows(&spill, block, columns, start)
+    })?;
+    count_distinct_spilled_key_rows(&spill, is_cancelled)
+}
+
+fn count_normalized_duplicate_rows_from_parquet<C>(
+    path: &Path,
+    row_count: usize,
+    exact_duplicate_row_count: usize,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    if row_count == 0 {
+        return Ok(0);
+    }
+    let spill_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
+    })?;
+    let bucket_paths = (0..NORMALIZED_DUPLICATE_BUCKETS)
+        .map(|bucket| {
+            spill_directory
+                .path()
+                .join(format!("source-fingerprints-{bucket:03}.bin"))
+        })
+        .collect::<Vec<_>>();
+    let mut writers = (0..NORMALIZED_DUPLICATE_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
+    for_each_parquet_block(path, row_count, |_, block| {
+        ensure_not_cancelled(is_cancelled())?;
+        let fingerprint_columns = normalized_fingerprint_columns(block.columns())?;
+        for row_index in 0..block.height() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let fingerprint = normalized_row_fingerprint(&fingerprint_columns, row_index)?;
+            let bucket = (fingerprint >> 120) as usize;
+            let writer = if let Some(writer) = writers[bucket].as_mut() {
+                writer
+            } else {
+                let file = File::create(&bucket_paths[bucket]).map_err(|error| {
+                    format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
+                })?;
+                writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+            };
+            writer.write_all(&fingerprint.to_le_bytes()).map_err(|error| {
+                format!("No se pudieron guardar las huellas temporales de duplicados parecidos: {error}")
+            })?;
+        }
+        Ok(())
+    })?;
+    for writer in writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}")
+        })?;
+    }
+    drop(writers);
+
+    let mut normalized_duplicate_row_count = 0usize;
+    for bucket_path in &bucket_paths {
+        ensure_not_cancelled(is_cancelled())?;
+        if !bucket_path.exists() {
+            continue;
+        }
+        let bytes = fs::metadata(bucket_path)
+            .map_err(|error| {
+                format!("No se pudo inspeccionar el almacenamiento temporal: {error}")
+            })?
+            .len();
+        if bytes % NORMALIZED_FINGERPRINT_BYTES as u64 != 0 {
+            return Err(
+                "El almacenamiento temporal de duplicados parecidos quedó incompleto.".to_owned(),
+            );
+        }
+        let fingerprint_count = usize::try_from(bytes / NORMALIZED_FINGERPRINT_BYTES as u64)
+            .map_err(|_| "El conteo de huellas temporales excede la capacidad local.".to_owned())?;
+        let file = File::open(bucket_path).map_err(|error| {
+            format!("No se pudo leer el almacenamiento temporal de duplicados parecidos: {error}")
+        })?;
+        let mut reader = BufReader::new(file);
+        let mut fingerprints = Vec::with_capacity(fingerprint_count);
+        let mut encoded = [0_u8; NORMALIZED_FINGERPRINT_BYTES];
+        for index in 0..fingerprint_count {
+            if index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            reader.read_exact(&mut encoded).map_err(|error| {
+                format!("No se pudo leer una huella temporal de duplicados parecidos: {error}")
+            })?;
+            fingerprints.push(u128::from_le_bytes(encoded));
+        }
+        fingerprints.sort_unstable();
+        normalized_duplicate_row_count = normalized_duplicate_row_count.saturating_add(
+            fingerprints
+                .windows(2)
+                .filter(|pair| pair[0] == pair[1])
+                .count(),
+        );
+    }
+    Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
+}
+
 #[cfg(test)]
 fn collect_spilled_signature_counts(
     spill: &SpilledKeyRows,
@@ -19120,40 +20401,76 @@ pub async fn get_dataset_profile(
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        materialize_loaded_dataset(dataset)?;
 
-        if let Some(profile) = &dataset.profile {
-            let has_enough_numeric_columns = profile
-                .columns
-                .iter()
-                .filter(|column| column.outlier_count.is_some())
-                .nth(1)
-                .is_some();
-            let has_group_candidate = profile.columns.iter().any(|column| {
-                column.empty_count.is_some()
-                    && column.suggested_type.is_none()
-                    && column.privacy_signal.is_none()
-                    && column.unique_count >= 2
-            });
-            let has_temporal_candidate = profile.columns.iter().any(|column| {
-                (column.data_type == "Date" || column.data_type.starts_with("Datetime"))
-                    || column.suggested_type.as_deref() == Some("date")
-            });
-            let expected_sampled_row_count = dataset.row_count.min(correlation_sample_rows);
-            let has_requested_numeric_correlations = profile
-                .numeric_correlations
-                .as_ref()
-                .is_some_and(|correlations| {
-                    correlations.sampled_row_count == expected_sampled_row_count
+        let cached_source_is_valid = if dataset.source_backed {
+            dataset.source_path.as_deref().is_some_and(|path| {
+                validate_dataset_file(path)
+                    .is_ok_and(|(_, source_size, _)| source_size == dataset.file_size_bytes)
+            })
+        } else {
+            true
+        };
+        if cached_source_is_valid {
+            if let Some(profile) = &dataset.profile {
+                let has_enough_numeric_columns = profile
+                    .columns
+                    .iter()
+                    .filter(|column| column.outlier_count.is_some())
+                    .nth(1)
+                    .is_some();
+                let has_group_candidate = profile.columns.iter().any(|column| {
+                    column.empty_count.is_some()
+                        && column.suggested_type.is_none()
+                        && column.privacy_signal.is_none()
+                        && column.unique_count >= 2
                 });
-            if (has_requested_numeric_correlations || !has_enough_numeric_columns)
-                && (profile.categorical_group_summaries.is_some() || !has_group_candidate)
-                && (profile.temporal_series.is_some() || !has_temporal_candidate)
-            {
-                send_progress(&on_progress, "profile", "Perfil disponible", 100);
-                return Ok(profile.clone());
+                let has_temporal_candidate = profile.columns.iter().any(|column| {
+                    (column.data_type == "Date" || column.data_type.starts_with("Datetime"))
+                        || column.suggested_type.as_deref() == Some("date")
+                });
+                let expected_sampled_row_count = dataset.row_count.min(correlation_sample_rows);
+                let has_requested_numeric_correlations = profile
+                    .numeric_correlations
+                    .as_ref()
+                    .is_some_and(|correlations| {
+                        correlations.sampled_row_count == expected_sampled_row_count
+                    });
+                if (has_requested_numeric_correlations || !has_enough_numeric_columns)
+                    && (profile.categorical_group_summaries.is_some() || !has_group_candidate)
+                    && (profile.temporal_series.is_some() || !has_temporal_candidate)
+                {
+                    send_progress(&on_progress, "profile", "Perfil disponible", 100);
+                    return Ok(profile.clone());
+                }
             }
         }
+
+        if dataset.source_backed {
+            let source_path = dataset
+                .source_path
+                .clone()
+                .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
+            let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
+            if source_size != dataset.file_size_bytes {
+                return Err("El archivo source-backed cambió después de la carga.".to_owned());
+            }
+            let profile = profile_source_backed_with_progress(
+                &source_path,
+                &extension,
+                source_size,
+                dataset.row_count,
+                |stage, percent| send_progress(&on_progress, "profile", stage, percent),
+                || {
+                    app.state::<DatasetState>()
+                        .profile_was_cancelled(generation)
+                },
+                correlation_sample_rows,
+            )?;
+            dataset.profile = Some(profile.clone());
+            return Ok(profile);
+        }
+
+        materialize_loaded_dataset(dataset)?;
 
         let profile = profile_dataset_with_progress(
             &dataset.frame,
@@ -25679,6 +26996,42 @@ mod tests {
             preview_value(dataset.frame.column("city").unwrap().get(0).unwrap()),
             Some("Santo Domingo".to_owned())
         );
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_profile_matches_the_in_memory_profile_without_retaining_rows() {
+        let path = temporary_csv(
+            "city,segment,amount,when\nSanto Domingo,Pyme,10,2025-01-01\nSanto Domingo,Pyme,20,2025-01-02\nSantiago,Pyme,30,2025-01-03\nSantiago,Pyme,30,2025-01-03\nLa Romana,Empresa,40,2025-01-04\nLa Romana,Empresa,50,2025-01-05\n",
+        );
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let expected = profile_dataset(&frame).expect("el perfil en memoria debe calcularse");
+        let (_, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let actual = profile_source_backed_with_progress(
+            &path,
+            "csv",
+            fs::metadata(&path).expect("la fuente debe existir").len(),
+            row_count,
+            |_, _| {},
+            || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )
+        .expect("el perfil source-backed debe calcularse");
+
+        assert_eq!(actual.row_count, expected.row_count);
+        assert_eq!(actual.duplicate_row_count, expected.duplicate_row_count);
+        assert_eq!(
+            actual.near_duplicate_row_count,
+            expected.near_duplicate_row_count
+        );
+        assert_eq!(actual.columns, expected.columns);
+        assert_eq!(
+            actual.categorical_group_summaries,
+            expected.categorical_group_summaries
+        );
+        assert_eq!(actual.temporal_series, expected.temporal_series);
+        assert!(actual.numeric_correlations.is_none());
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 

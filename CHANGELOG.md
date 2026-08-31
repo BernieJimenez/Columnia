@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-08-31
+
+### Mejorado
+
+- El perfilado de fuentes source-backed ya no materializa el dataset completo:
+  las filas duplicadas se indexan por cubetas temporales, cada columna se
+  procesa por bloques y las estadísticas numéricas usan corridas ordenadas en
+  disco para cuantiles, histogramas y atípicos.
+- Los resúmenes categóricos y temporales recorren solo la columna necesaria y
+  las correlaciones leen una muestra acotada directamente desde Parquet; se
+  conserva la semántica del perfil normal, cancelación cooperativa y validación
+  del tamaño de la fuente.
+- La suite Rust queda en 358 pruebas aprobadas, incluyendo la regresión de
+  paridad entre perfil source-backed y perfil en memoria.
+
 ## [0.65.0] - 2026-08-31
 
 ### Mejorado
