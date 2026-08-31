@@ -105,8 +105,11 @@ los artefactos de validación locales.
 - La comparación local conserva la segunda fuente en un snapshot Parquet
   temporal mientras está activa: conflictos y consolidación lo leen bajo
   demanda, DuckDB puede registrar directamente ambos snapshots en un JOIN y
-  el directorio se elimina al descartar la comparación. La primera lectura y
-  el resultado final de comparación siguen teniendo sus límites actuales.
+  el directorio se elimina al descartar la comparación. Cuando la fuente
+  comparada ya es Parquet, el archivo se copia secuencialmente y la comparación
+  calcula conteos, claves y la primera página de conflictos por bloques de 16K,
+  sin materializar otra copia completa; CSV, JSON y Excel conservan su camino
+  materializado.
 - La preparación de JOIN para DuckDB ya lee solo el esquema del snapshot
   comparado cuando existe un snapshot activo administrado, y no vuelve a
   materializar sus filas para validar el contrato. La ruta DuckDB tampoco

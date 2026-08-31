@@ -1335,9 +1335,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   comparado sin cargar sus filas otra vez y no hereda el límite de entradas del
   plan Polars; las consultas Polars simples sin comparación ya recorren por
   bloques el snapshot Parquet del cursor y conservan fallback ante snapshots
-  degradados o inconsistentes. Los `JOIN`, la comparación y el `DataFrame`
-  activo todavía no constituyen una ejecución completa fuera de RAM y requieren
-  esta expansión. Cuando el historial está degradado, el dataset no ha sido
+  degradados o inconsistentes. Los `JOIN` y el `DataFrame` activo todavía no
+  constituyen una ejecución completa fuera de RAM y requieren esta expansión.
+  La comparación inicial de una fuente Parquet ya cuenta y compara por bloques
+  después de copiar el archivo secuencialmente al snapshot administrado;
+  CSV/TSV/TXT, JSON y Excel conservan el camino materializado. Cuando el historial está degradado, el dataset no ha sido
   mutado y la fuente original es CSV, TSV, TXT delimitado o Parquet, DuckDB ya
   puede leerla directamente desde disco; un `JOIN` puede combinarla con el
   snapshot Parquet de la comparación sin reserializar el activo. Si la fuente
@@ -1346,8 +1348,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   La paginación de conflictos sobre un snapshot Parquet comparado también
   recorre bloques de 16K, conserva un índice temporal global de claves para
   mantener la semántica de duplicados y retiene solo una página y un bloque de
-  valores al construir la respuesta; la comparación inicial y el `DataFrame`
-  activo aún requieren materialización dentro de sus límites explícitos.
+  valores al construir la respuesta; la comparación inicial de fuentes no
+  Parquet y el `DataFrame` activo aún requieren materialización dentro de sus
+  límites explícitos.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
   para columnas personales detectadas durante la exportación.
 - [x] Extender detección, enmascarado/hash y modos de privacidad visibles a los
@@ -1374,8 +1377,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   lectura de filas restante a undo/redo. La comparación completa de
 filas y la comparación por claves particionan sus firmas exactas en 256 cubetas
 temporales y procesan multiconjuntos, resumen, nuevas claves y conflictos
-paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JOIN locales por claves ya ejecutan el plan Polars
-  con motor `streaming` después de su preflight; ese preflight también derrama las
+paginados por una cubeta a la vez, sin retener mapas globales en memoria. La
+comparación inicial de fuentes Parquet también puede construir sus índices y
+conflictos leyendo bloques de 16K desde el snapshot; las fuentes no Parquet y el
+dataset activo siguen materializados. Los JOIN locales por claves ya ejecutan el
+plan Polars con motor `streaming` después de su preflight; ese preflight también derrama las
   claves y cuenta por cubeta los productos de duplicidad con cancelación, pero su resultado sigue dentro
   de los límites explícitos. Los `JOIN` `INNER`/`LEFT` sin agregación procesan el
   lado `dataset` por bloques y conservan solo la página global, su conteo y un
@@ -1383,19 +1389,20 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   conservar el resultado unido completo. `FULL` recorre el lado activo por
   bloques y visita las filas derechas no emparejadas mediante un índice temporal
   de claves y bloques de 16K, sin materializar el anti-join derecho completo;
+  conserva la semántica SQL de nulos, duplicados y orden de entrada.
   la paginación de conflictos sobre un snapshot Parquet comparado también recorre
   bloques de 16K, conserva un índice temporal global de claves para mantener la
   semántica de duplicados y retiene solo una página y un bloque de valores al
-  construir la respuesta; la comparación inicial y el `DataFrame` activo aún
-  requieren materialización dentro de sus límites explícitos.
-  conserva la semántica SQL de nulos, duplicados y orden de entrada. El dataset
-  activo y la comparación siguen materializados y no equivale a ejecución fuera
-  de memoria general. La consulta Polars simple sin comparación
+  construir la respuesta; las fuentes de comparación no Parquet y el
+  `DataFrame` activo aún requieren materialización dentro de sus límites
+  explícitos. El dataset activo y las fuentes de comparación no Parquet siguen
+  materializados y esto no equivale a ejecución fuera de memoria general. La
+  consulta Polars simple sin comparación
   también lee el snapshot Parquet del cursor por bloques de 16K filas, cuenta
   coincidencias y conserva solo la página o los acumuladores; si el snapshot
-  falla vuelve al frame activo. Quedan fuera de esta slice los `JOIN`, la
-  comparación, las operaciones generales y el presupuesto integral fuera de
-  RAM.
+  falla vuelve al frame activo. Quedan fuera de esta slice los `JOIN` sobre un
+  dataset activo materializado, las otras fuentes de comparación, las
+  operaciones generales y el presupuesto integral fuera de RAM.
   `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
@@ -1979,6 +1986,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | I3 fija los perfiles Cargo `dev` y `test` sin símbolos de depuración para evitar `LNK1140` en el enlazado MSVC del binario Tauri; `npm run tauri dev` queda reproducible desde `Columnia` sin variables temporales y `release` mantiene su política independiente. | `src-tauri/Cargo.toml`, `README.md`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | I3 valida el benchmark WebView2 de dataset grande: un input sintético de 100 MiB y 819.137 filas completa carga, paginación, transformación y exportación; el pico observado queda en 691.789.824 B de working set y 460.587.008 B privados, con presupuesto y cleanup aprobados. La ejecución general fuera de RAM sigue pendiente. | `.local/validation/performance-webview2/20260831T031622Z`, `.local/validation/webview2-cdp/20260831T031624Z`, `.local/validation/performance-baseline/20260831T031959Z` |
 | 2026-08-30 | P1 amplía DuckDB para registrar directamente la fuente original CSV/TSV/TXT delimitada o Parquet cuando el historial está degradado: las consultas explícitas y los JOINs grandes pueden combinarla con el snapshot comparado sin crear una copia Parquet del activo; cualquier mutación invalida la referencia y conserva el fallback materializado. | `src-tauri/src/duckdb_query.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | P1 procesa la comparación inicial de una fuente Parquet por bloques: copia el archivo secuencialmente al snapshot temporal, cuenta filas por streaming y calcula intersección, claves y conflictos desde índices temporales; las fuentes no Parquet y el dataset activo conservan la materialización actual. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 
