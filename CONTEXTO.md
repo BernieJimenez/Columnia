@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.58.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.59.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; la importación M1 también puede publicar `history_snapshots` Parquet explícitos como revisiones durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 298 frontend y 350 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 298 frontend y 351 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-08-31, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la migración DataPrep conserva metadatos agregados de muestreo sin filas ni valores y tiene fixture v3 con round-trip de proyecto y actividad agregada; el inventario IPC registra 68 comandos de producción y 59 estructuras, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
@@ -68,6 +68,11 @@ calcula sus métricas, claves y conflictos paginados por bloques; `.xlsx` y
 `.xlsb` también generan el snapshot en bloques mediante el lector de celdas
 secuencial de Calamine; `.xls` y `.ods` siguen el camino materializado.
 
+Cuando el historial está degradado y la fuente original CSV, TSV, TXT delimitada
+o Parquet permanece intacta, las consultas compatibles elegidas como Polars
+intentan la ruta DuckDB desde disco antes de volver al `DataFrame`; esto incluye
+JOINs con snapshots comparados y conserva el fallback seguro ante incompatibilidades.
+
 Cuando se reabre una sesión DataPrep con metadatos de muestreo, Revisar muestra
 su estado y conteos agregados como contexto de compatibilidad. El perfil visible
 se recalcula sobre el dataset activo; no se transportan ni se presentan filas,
@@ -89,7 +94,7 @@ cobertura; no cambia las estadísticas agregadas restantes.
 
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 298 tests frontend y 346 tests Rust; los
+- Las suites locales actuales pasan: 298 tests frontend y 351 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
@@ -134,7 +139,7 @@ Usa esta prioridad cuando dos documentos parezcan contradecirse:
 3. `README.md` explica el producto y su uso actual.
 4. `ROADMAP.md` registra decisiones históricas, arquitectura objetivo y trabajo pendiente.
 
-No presentes como implementada una tecnología solo porque aparece en el roadmap. DuckDB ya forma parte de las dependencias de Cargo y ofrece la primera ruta opcional de consulta SQL local: reutiliza snapshots Parquet administrados de la revisión activa y de la comparación cuando existen, lee solo el esquema del snapshot comparado durante la preparación, recibe automáticamente los JOINs Polars que superan el límite de entradas cuando ambos snapshots están disponibles y conserva fallbacks temporales para estados degradados; el `DataFrame` activo, la ejecución incremental general, la comparación inicial de fuentes `.xls`/`.ods` y el procesamiento completo fuera de la RAM del dataset siguen pendientes. Para fuentes comparadas Parquet, delimitadas, JSON y libros `.xlsx`/`.xlsb`, la comparación inicial ya conserva un snapshot secuencial y calcula sus métricas, claves y conflictos paginados por bloques; `.xls`/`.ods` mantienen fallback eager. Las recetas lazy también combinan parseos de fecha con conversiones en columnas distintas y `split` con `merge` cuando las dependencias se conservan; los conflictos de fuentes `.xls`/`.ods` siguen en fallback eager o rechazo explícito.
+No presentes como implementada una tecnología solo porque aparece en el roadmap. DuckDB ya forma parte de las dependencias de Cargo y ofrece la primera ruta opcional de consulta SQL local: reutiliza snapshots Parquet administrados de la revisión activa y de la comparación cuando existen, lee solo el esquema del snapshot comparado durante la preparación, recibe automáticamente los JOINs Polars que superan el límite de entradas cuando ambos snapshots están disponibles y conserva fallbacks temporales para estados degradados; cuando el historial se degrada y la fuente original CSV/TSV/TXT delimitada o Parquet permanece intacta, las consultas compatibles elegidas como Polars también intentan DuckDB desde disco. El `DataFrame` activo, la ejecución incremental general, la comparación inicial de fuentes `.xls`/`.ods` y el procesamiento completo fuera de la RAM del dataset siguen pendientes. Para fuentes comparadas Parquet, delimitadas, JSON y libros `.xlsx`/`.xlsb`, la comparación inicial ya conserva un snapshot secuencial y calcula sus métricas, claves y conflictos paginados por bloques; `.xls`/`.ods` mantienen fallback eager. Las recetas lazy también combinan parseos de fecha con conversiones en columnas distintas y `split` con `merge` cuando las dependencias se conservan; los conflictos de fuentes `.xls`/`.ods` siguen en fallback eager o rechazo explícito.
 
 ## Modelo mental del sistema
 
@@ -833,6 +838,7 @@ Al actualizarlo:
 | 2026-08-30 | P1 habilita la comparación inicial de fuentes Parquet, delimitadas y JSON por bloques: conserva el snapshot secuencial, cuenta filas por streaming y calcula métricas, claves y conflictos sin materializar otra copia completa; Excel conserva el camino materializado. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 pagina conflictos desde snapshots Parquet comparados por bloques de 16K, conserva duplicados globales con un índice temporal y valida conteos/cambios del snapshot antes de responder; Excel y la ejecución general fuera de RAM permanecen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.58.0: la comparación inicial de libros XLSX/XLSB usa el lector secuencial de celdas de Calamine en dos pasadas y escribe snapshots Parquet por bloques de 16K; XLS/ODS conservan fallback porque Calamine no ofrece lectura lazy para esos formatos. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.59.0: las consultas compatibles elegidas como Polars caen automáticamente a DuckDB sobre la fuente original CSV/TSV/TXT delimitada o Parquet cuando el historial se degrada; los JOINs pueden combinar esa fuente con snapshots comparados sin reconstruir el activo desde el `DataFrame`. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 sirve la paginación de la muestra activa desde el snapshot Parquet del cursor con `slice` y colección streaming; los estados degradados conservan el fallback al `DataFrame`. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | P1 evita una segunda clonación completa al guardar proyectos: la copia aislada del dataset se entrega directamente al escritor `Parquet`, conservando la publicación atómica y la recuperación ante fallos; el benchmark fija el perfil de compilación reproducible y restaura el entorno del proceso. | `src-tauri/src/projects.rs`, `tools/benchmark-datasets.ps1`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La receta lazy/streaming incorpora parseos explícitos `Ymd`, `Dmy` y `Mdy`, y `Iso8601` sin offset o con sufijo UTC `Z`, para objetivos `Date`/`Datetime`, con trim y nulos preservados; offsets distintos de UTC, zonas horarias y operaciones avanzadas mantienen fallback eager. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |

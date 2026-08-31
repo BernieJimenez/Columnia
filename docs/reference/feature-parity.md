@@ -414,6 +414,12 @@ JSON del contrato nativo. Los libros XLSX/XLSB usan el lector secuencial de
 celdas de Calamine en dos pasadas y escriben el snapshot Parquet por bloques de
 16K; XLS/ODS todavía cargan la fuente comparada completa como fallback compatible.
 
+Cuando el historial del dataset activo se degrada por presupuesto y su fuente
+original CSV/TSV/TXT delimitada o Parquet no ha cambiado, las consultas
+compatibles elegidas como Polars pueden reutilizar DuckDB directamente desde
+disco, incluso al combinar la fuente con un snapshot comparado. Una consulta o
+fuente incompatible vuelve al `DataFrame` materializado sin mutarlo.
+
 La exportación reutiliza un único snapshot protegido para todos los destinos
 locales existentes. La detección usa el mismo catálogo agregado de señales de
 perfil, transforma a texto los identificadores numéricos cuando se solicita

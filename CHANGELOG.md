@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-08-31
+
+### Añadido
+
+- Cuando el historial se degrada por presupuesto y la fuente original CSV, TSV,
+  TXT delimitada o Parquet permanece intacta, una consulta compatible elegida
+  como Polars intenta automáticamente DuckDB desde disco, incluidos los JOINs
+  con snapshots comparados. Si la consulta o la fuente no son compatibles,
+  conserva el fallback materializado seguro.
+
 ## [0.58.0] - 2026-08-31
 
 ### Añadido

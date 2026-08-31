@@ -8662,10 +8662,10 @@ fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
             "El JSON debe ser un arreglo de objetos o contener un objeto por línea.".to_owned(),
         );
     }
-    let mut values =
+    let values =
         serde_json::Deserializer::from_reader(BufReader::new(file)).into_iter::<JsonValue>();
     let mut collected = JsonColumnNamesVisitor::default();
-    while let Some(value) = values.next() {
+    for value in values {
         let value = value.map_err(|error| format!("JSON Lines inválido: {error}"))?;
         match value {
             JsonValue::Object(record) => collected.add_record(&record),
@@ -15982,8 +15982,8 @@ fn common_row_count_from_spilled_indexes(
 ) -> Result<usize, String> {
     let mut common = 0usize;
     for bucket in 0..COMPARISON_KEY_BUCKETS {
-        let current_bucket = read_spilled_key_bucket(&current_signatures, bucket)?;
-        let compared_bucket = read_spilled_key_bucket(&compared_signatures, bucket)?;
+        let current_bucket = read_spilled_key_bucket(current_signatures, bucket)?;
+        let compared_bucket = read_spilled_key_bucket(compared_signatures, bucket)?;
         let bucket_common = current_bucket
             .iter()
             .fold(0usize, |total, (signature, group)| {
@@ -16467,7 +16467,7 @@ fn collect_key_conflicts_page_from_parquet(
     })?;
 
     for_each_parquet_block(compared_path, compared_row_count, |start, block| {
-        let block_rows = spill_key_rows(&block, key_columns)?;
+        let block_rows = spill_key_rows(block, key_columns)?;
         for bucket in 0..COMPARISON_KEY_BUCKETS {
             let current_bucket = read_spilled_key_bucket(&current_rows, bucket)?;
             let compared_bucket = read_spilled_key_bucket(&compared_rows, bucket)?;
@@ -16488,7 +16488,7 @@ fn collect_key_conflicts_page_from_parquet(
                     current_group.first_row_index,
                 )?;
                 let compared_payload =
-                    row_signature(&block, &shared_payload_columns, block_group.first_row_index)?;
+                    row_signature(block, &shared_payload_columns, block_group.first_row_index)?;
                 if current_payload == compared_payload {
                     continue;
                 }
@@ -17999,6 +17999,37 @@ pub async fn query_dataset(
                     }
                 }
             }
+            if !dataset.history.snapshots_enabled && current_snapshot.is_none() {
+                if let Some((current_path, current_format)) = current_file_source.as_ref() {
+                    let current_schema = dataset.frame.slice(0, 0);
+                    let compared_schema = compared_snapshot
+                        .as_ref()
+                        .map(|path| read_parquet_schema_frame(path))
+                        .transpose()?;
+                    if let Ok(spec) =
+                        prepare_duckdb_query(&query, &current_schema, compared_schema.as_ref())
+                    {
+                        let cancellation_app = query_app.clone();
+                        match crate::duckdb_query::execute_duckdb_query_from_file_sources(
+                            current_path,
+                            *current_format,
+                            compared_snapshot.as_deref(),
+                            &spec,
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .query_was_cancelled(generation)
+                            },
+                        ) {
+                            Ok(result) => return Ok(result),
+                            Err(error) if error == OPERATION_CANCELLED_MESSAGE => {
+                                return Err(error)
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+            }
             if comparison.is_none() && !local_query_has_join(&query) {
                 if let Some(path) = current_snapshot {
                     match execute_local_query_from_parquet_with_cancel(
@@ -18068,7 +18099,7 @@ pub async fn query_dataset(
             let cancellation_app = query_app.clone();
             let fallback_cancellation_app = query_app.clone();
             if let Some(path) = current_snapshot {
-                if let Some(compared_path) = compared_snapshot.as_deref() {
+                if let Some(compared_path) = compared_snapshot {
                     crate::duckdb_query::execute_duckdb_query_from_parquet_sources(
                         &path,
                         Some(compared_path),
@@ -18092,7 +18123,7 @@ pub async fn query_dataset(
                     )
                 }
             } else if let Some((path, format)) = current_file_source {
-                if let Some(compared_path) = compared_snapshot.as_deref() {
+                if let Some(compared_path) = compared_snapshot {
                     crate::duckdb_query::execute_duckdb_query_from_file_sources(
                         &path,
                         format,
@@ -25046,6 +25077,49 @@ mod tests {
         );
         assert!(current_path.is_file());
         drop(compared_directory);
+        fs::remove_file(current_path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn degraded_file_query_matches_the_materialized_query() {
+        let current_path = temporary_csv("id,name\n1,A\n2,B\n3,C\n");
+        let (current, _) = load_csv(&current_path).expect("el CSV debe cargar");
+        let mut dataset = loaded_dataset(current_path.clone(), current.clone());
+        dataset.history = HistoryManager::with_limits(&current, HISTORY_MAX_ENTRIES, 0)
+            .expect("el historial degradado debe inicializarse");
+        let (source_path, source_format) = current_duckdb_file_source(&dataset)
+            .expect("el archivo original debe poder consultarse desde DuckDB");
+        let query = "SELECT id, name FROM dataset LIMIT 2 OFFSET 1";
+        let spec = prepare_duckdb_query(query, &current, None)
+            .expect("la consulta compatible debe preparar su contrato DuckDB");
+        let disk_result = crate::duckdb_query::execute_duckdb_query_from_file(
+            &source_path,
+            source_format,
+            None,
+            &spec,
+            || false,
+        )
+        .expect("DuckDB debe consultar la fuente degradada");
+        let materialized_result = execute_local_query(&current, query)
+            .expect("la misma consulta debe ejecutarse sobre el frame");
+
+        assert_eq!(disk_result.row_count, materialized_result.row_count);
+        assert_eq!(disk_result.offset, materialized_result.offset);
+        assert_eq!(disk_result.rows, materialized_result.rows);
+        assert_eq!(
+            disk_result
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            materialized_result
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(disk_result.truncated, materialized_result.truncated);
+        assert!(!dataset.history.snapshots_enabled);
         fs::remove_file(current_path).expect("se debe limpiar el CSV temporal");
     }
 
