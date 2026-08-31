@@ -4,16 +4,20 @@ import type { DatasetPreview } from "../../bridge";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import {
   PAGE_SIZE,
+  QUERY_ENGINE_STORAGE_KEY,
   beginPageLoad,
   beginProfileAnalysis,
   completePageLoad,
   failPageLoad,
+  isDatasetQueryEngine,
   nextPageOffset,
   normalizePageOffset,
   pageRange,
   previousPageOffset,
+  readQueryEnginePreference,
   requestProfileCancellation,
   updateProfileProgress,
+  writeQueryEnginePreference,
 } from "./reviewModel";
 
 const dataset: DatasetPreview = {
@@ -26,6 +30,30 @@ const dataset: DatasetPreview = {
 };
 
 describe("reviewModel", () => {
+  it("valida y conserva el motor SQL elegido con Polars como fallback", () => {
+    const values = new Map<string, string>();
+    const storage: Storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+      clear: () => { values.clear(); },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() { return values.size; },
+    };
+
+    expect(isDatasetQueryEngine("polars")).toBe(true);
+    expect(isDatasetQueryEngine("duckdb")).toBe(true);
+    expect(isDatasetQueryEngine("sqlite")).toBe(false);
+    expect(readQueryEnginePreference(storage)).toBe("polars");
+
+    writeQueryEnginePreference("duckdb", storage);
+
+    expect(values.get(QUERY_ENGINE_STORAGE_KEY)).toBe("duckdb");
+    expect(readQueryEnginePreference(storage)).toBe("duckdb");
+    values.set(QUERY_ENGINE_STORAGE_KEY, "sqlite");
+    expect(readQueryEnginePreference(storage)).toBe("polars");
+  });
+
   it("mantiene la paginación contractual de 50 filas", () => {
     expect(PAGE_SIZE).toBe(50);
     expect(previousPageOffset(50)).toBe(0);

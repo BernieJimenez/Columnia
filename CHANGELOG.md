@@ -8,6 +8,9 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Revisar recuerda localmente el motor SQL elegido (`Polars` o `DuckDB`) entre
+  aperturas, valida cualquier valor persistido y vuelve a `Polars` si el
+  almacenamiento no está disponible o contiene una opción desconocida.
 - Revisar expone la cobertura agregada de análisis conservada al importar una
   sesión DataPrep: indica si el análisis fue muestreado y sus conteos de filas
   cuando están disponibles. El perfil actual se recalcula sobre el dataset

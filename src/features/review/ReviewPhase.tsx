@@ -25,7 +25,9 @@ import {
   nextPageOffset,
   pageRange,
   previousPageOffset,
+  readQueryEnginePreference,
   type ProfileStatus,
+  writeQueryEnginePreference,
 } from "./reviewModel";
 import type { ComparisonStatus } from "./compareModel";
 import type { JoinStatus } from "./joinModel";
@@ -569,7 +571,7 @@ function LocalQueryPanel({
 }) {
 
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
-  const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>("polars");
+  const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "loading"; cancelRequested: boolean }
@@ -721,7 +723,11 @@ function LocalQueryPanel({
           <select
             aria-label="Motor de consulta"
             value={queryEngine}
-            onChange={(event) => setQueryEngine(event.target.value as DatasetQueryEngine)}
+            onChange={(event) => {
+              const nextEngine = event.target.value as DatasetQueryEngine;
+              setQueryEngine(nextEngine);
+              writeQueryEnginePreference(nextEngine);
+            }}
           >
             <option value="polars">Polars · predeterminado</option>
             <option value="duckdb">DuckDB · SQL local</option>

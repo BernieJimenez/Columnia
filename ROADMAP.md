@@ -1449,8 +1449,9 @@ paginados por una cubeta a la vez, sin retener mapas globales en memoria. Los JO
   catálogos anteriores. La etapa activa del flujo también se conserva con
   fallback a Revisar y validación cerrada; Revisar ahora comunica la cobertura
   agregada de muestreo importada desde DataPrep, sin copiar filas, valores ni
-  resultados originales. Las muestras originales y otras preferencias de sesión
-  siguen pendientes. La importación M1 conserva además
+  resultados originales. Revisar también recuerda localmente el motor SQL
+  elegido con validación cerrada y fallback a Polars. Las muestras originales y
+  otras preferencias de sesión siguen pendientes. La importación M1 conserva además
   hasta cinco entradas de historial de ejecución cuando solo contienen estado,
   duración y filas; normaliza los estados reales `completed`/`failed` de
   DataPrep y sus aliases, interpreta `rows_out` como filas de salida, asigna IDs
@@ -1933,6 +1934,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 evita una segunda clonación completa al guardar proyectos: la copia aislada del dataset se entrega directamente al escritor Parquet, conservando la publicación atómica y la recuperación ante fallos; el benchmark fija el perfil de compilación reproducible y restaura el entorno del proceso. | `src-tauri/src/projects.rs`, `tools/benchmark-datasets.ps1`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 añade consultas Polars simples respaldadas por el snapshot Parquet del cursor: valida el esquema sin filas, cuenta coincidencias por bloques de 16K y relee solo la ventana o los bloques necesarios para agregaciones; comprueba el conteo exacto, respeta cancelación y vuelve al `DataFrame` activo ante snapshot inválido. `JOIN`, comparación, historial degradado y ejecución integral fuera de RAM conservan sus límites explícitos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | M1 expone en Revisar la cobertura agregada de análisis conservada en sesiones DataPrep reabiertas: estado muestreado y conteos de filas, con un límite visible que distingue metadatos de la muestra original no portable. | `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-30 | P1 persiste localmente la preferencia del motor SQL de Revisar (`Polars`/`DuckDB`), rechaza valores desconocidos y conserva `Polars` como fallback seguro sin ampliar el workspace ni el IPC. | `src/features/review/reviewModel.ts`, `src/features/review/ReviewPhase.tsx`, `src/features/review/reviewModel.test.ts`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a parseos explícitos de fecha `Ymd`, `Dmy` y `Mdy`, y a `Iso8601` sin offset o con sufijo UTC `Z`: conserva espacios exteriores, nulos y objetivos `Date`/`Datetime`, mientras offsets distintos de UTC y zonas horarias mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 expande la receta lazy/streaming a tratamientos IQR aislados (`cap`, `impute`, `drop`) sobre columnas numéricas, calculando umbrales y conteos después de filtros compatibles; las etapas que alteran valores mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-08-30 | P1 amplía la receta lazy/streaming para combinar parseos de fecha con conversiones en columnas distintas y ejecutar `split` y `merge` en una misma receta cuando se conservan sus dependencias; los conflictos de fuentes mantienen rechazo o fallback eager explícito. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
