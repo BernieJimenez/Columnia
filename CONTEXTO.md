@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.66.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.67.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; la importación M1 también puede publicar `history_snapshots` Parquet explícitos como revisiones durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 298 frontend y 358 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 298 frontend y 359 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-08-31, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la migración DataPrep conserva metadatos agregados de muestreo sin filas ni valores y tiene fixture v3 con round-trip de proyecto y actividad agregada; el inventario IPC registra 68 comandos de producción y 59 estructuras, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las consultas DuckDB fijan 512 MB de memoria, derrame privado de hasta 8 GB y cleanup por operación; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
@@ -300,6 +300,12 @@ las correlaciones a la muestra solicitada. Categorías y tendencias leen solo
 la columna necesaria. El resultado mantiene los mismos campos del perfil
 normal; el dataset solo se materializa cuando una operación posterior necesita
 mutarlo o publicar todas sus filas.
+
+En v0.67.0, la validación de calidad de reglas fila-a-fila y de esquema/conteo
+recorre esos snapshots por bloques y acumula únicamente los conteos de cada
+regla. La sesión source-backed conserva su esquema vacío, se comprueba el
+tamaño de la fuente antes y después y las reglas globales que necesitan estado
+completo mantienen el fallback materializado.
 
 ### Historial y atomicidad
 
@@ -859,6 +865,8 @@ Al actualizarlo:
 | 2026-08-31 | Versión 0.60.0: la promoción automática a DuckDB cubre todos los JOIN compatibles elegidos como Polars cuando el activo y la comparación tienen snapshots o fuentes de disco válidas, evitando la materialización eager innecesaria y manteniendo fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.61.0: la vista previa de un dataset intacto con historial degradado lee solo la página solicitada desde la fuente original Parquet o CSV/TSV/TXT, valida el tamaño de la fuente y la cantidad esperada de filas de la página, y conserva fallback al frame ante cambios o formatos no compatibles. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.62.0: la comparación inicial reutiliza el snapshot Parquet administrado del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando está disponible, compara ambos lados por bloques e índices temporales sin clonar el `DataFrame` activo y conserva fallback materializado ante inconsistencias. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.67.0: la validación source-backed recorre por bloques las reglas fila-a-fila y de esquema/conteo, comprueba cambios de tamaño y conserva fallback materializado para reglas globales; la paridad con memoria queda cubierta por regresión Rust. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.66.0: el perfilado source-backed derrama firmas exactas y normalizadas por cubetas, perfila columnas por bloques, ordena corridas numéricas en disco y limita categorías, tendencias y correlaciones a las columnas/muestras necesarias; la paridad con el perfil en memoria queda cubierta por regresión Rust. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.65.0: fuentes CSV/TSV/TXT delimitadas y Parquet de al menos 512 MiB abren source-backed con esquema, primera página y conteo desde disco; paginación/consultas compatibles evitan el `DataFrame` completo y las operaciones eager materializan bajo demanda con validación de cambios. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.64.0: las consultas y la conversión source-backed a snapshots Parquet comparten 512 MB de memoria, hasta 8 GB de derrame temporal privado y cleanup automático; la regresión delimitada verifica que el snapshot siga siendo legible. | `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 sirve la paginación de la muestra activa desde el snapshot Parquet del cursor con `slice` y colección streaming; los estados degradados conservan el fallback al `DataFrame` cuando la fuente original no puede leerse directamente. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |

@@ -6,6 +6,18 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-08-31
+
+### Mejorado
+
+- La validación de calidad de fuentes source-backed evalúa por bloques las
+  reglas fila-a-fila y las comprobaciones de esquema/conteo, sin materializar
+  el dataset completo ni mutar la sesión activa; comprueba el tamaño de la
+  fuente antes y después y conserva el fallback materializado para reglas
+  globales.
+- La suite Rust queda en 359 pruebas aprobadas, incluyendo la regresión de
+  paridad entre validación source-backed y validación en memoria.
+
 ## [0.66.0] - 2026-08-31
 
 ### Mejorado

@@ -15560,6 +15560,179 @@ fn quality_conditional_row_invalid(
     }
 }
 
+fn quality_rule_result(
+    rule: &QualityRule,
+    checked_count: usize,
+    invalid_count: usize,
+) -> QualityRuleResult {
+    let invalid_pct = if checked_count == 0 {
+        0.0
+    } else {
+        invalid_count as f64 * 100.0 / checked_count as f64
+    };
+    let passed = rule
+        .max_invalid
+        .is_none_or(|maximum| invalid_count <= maximum)
+        && rule
+            .max_invalid_pct
+            .is_none_or(|maximum| invalid_pct <= maximum);
+    QualityRuleResult {
+        column: rule.column.clone(),
+        kind: rule.kind,
+        max_invalid: rule.max_invalid,
+        max_invalid_pct: rule.max_invalid_pct,
+        min: rule.min,
+        max: rule.max,
+        values: rule.values.clone(),
+        reference_values: rule.reference_values.clone(),
+        baseline: rule.baseline.clone(),
+        direction: rule.direction,
+        expected: rule.expected,
+        aggregate: rule.aggregate,
+        tolerance_abs: rule.tolerance_abs,
+        tolerance_rel: rule.tolerance_rel,
+        threshold: rule.threshold,
+        pattern: rule.pattern.clone(),
+        dtype: rule.dtype.clone(),
+        columns: rule.columns.clone(),
+        operator: rule.operator,
+        min_date: rule.min_date.clone(),
+        max_date: rule.max_date.clone(),
+        when: rule.when.clone(),
+        then: rule.then.clone(),
+        allow_additional: rule.allow_additional,
+        required_order: rule.required_order.clone(),
+        checked_count,
+        invalid_count,
+        invalid_pct,
+        passed,
+    }
+}
+
+fn source_quality_rule_is_incremental(rule: &QualityRule) -> bool {
+    matches!(
+        rule.kind,
+        QualityRuleKind::NotNull
+            | QualityRuleKind::NonEmpty
+            | QualityRuleKind::NumericRange
+            | QualityRuleKind::AllowedValues
+            | QualityRuleKind::Regex
+            | QualityRuleKind::Dtype
+            | QualityRuleKind::ColumnCompare
+            | QualityRuleKind::ReferentialIntegrity
+            | QualityRuleKind::DateRange
+            | QualityRuleKind::Conditional
+            | QualityRuleKind::SchemaContract
+            | QualityRuleKind::RowCount
+    )
+}
+
+fn evaluate_source_quality_rules_with_cancel<C>(
+    source_path: &Path,
+    extension: &str,
+    expected_file_size: u64,
+    row_count: usize,
+    quality_rules: &[QualityRule],
+    is_cancelled: C,
+) -> Result<QualityValidationResult, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    validate_quality_rules_payload(quality_rules)?;
+    let (_snapshot_directory, snapshot_path) = source_profile_snapshot(source_path, extension)?;
+    let schema = read_parquet_schema_frame(&snapshot_path)?;
+
+    for rule in quality_rules {
+        ensure_not_cancelled(is_cancelled())?;
+        validate_quality_rule_definition(&schema, rule)?;
+    }
+
+    let mut counts = vec![(0_usize, 0_usize); quality_rules.len()];
+    let streaming_rule_indices = quality_rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| {
+            !matches!(
+                rule.kind,
+                QualityRuleKind::Dtype
+                    | QualityRuleKind::SchemaContract
+                    | QualityRuleKind::RowCount
+            )
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+
+    for (index, rule) in quality_rules.iter().enumerate() {
+        ensure_not_cancelled(is_cancelled())?;
+        match rule.kind {
+            QualityRuleKind::RowCount => {
+                let minimum_ok = rule.min.is_none_or(|minimum| row_count as f64 >= minimum);
+                let maximum_ok = rule.max.is_none_or(|maximum| row_count as f64 <= maximum);
+                counts[index] = (1, usize::from(!(minimum_ok && maximum_ok)));
+            }
+            QualityRuleKind::Dtype | QualityRuleKind::SchemaContract => {
+                let result = evaluate_quality_rules_with_cancel(
+                    &schema,
+                    std::slice::from_ref(rule),
+                    &is_cancelled,
+                )?;
+                let rule_result = result.rules.first().ok_or_else(|| {
+                    "La validación source-backed no devolvió la regla esperada.".to_owned()
+                })?;
+                counts[index] = (rule_result.checked_count, rule_result.invalid_count);
+            }
+            _ => {}
+        }
+    }
+
+    if !streaming_rule_indices.is_empty() {
+        let streaming_rules = streaming_rule_indices
+            .iter()
+            .map(|index| quality_rules[*index].clone())
+            .collect::<Vec<_>>();
+        let mut streaming_counts = vec![(0_usize, 0_usize); streaming_rules.len()];
+        for_each_parquet_block(&snapshot_path, row_count, |_, block| {
+            ensure_not_cancelled(is_cancelled())?;
+            let result =
+                evaluate_quality_rules_with_cancel(block, &streaming_rules, &is_cancelled)?;
+            for (index, rule_result) in result.rules.iter().enumerate() {
+                streaming_counts[index].0 = streaming_counts[index]
+                    .0
+                    .saturating_add(rule_result.checked_count);
+                streaming_counts[index].1 = streaming_counts[index]
+                    .1
+                    .saturating_add(rule_result.invalid_count);
+            }
+            Ok(())
+        })?;
+        for (streaming_index, rule_index) in streaming_rule_indices.iter().enumerate() {
+            counts[*rule_index] = streaming_counts[streaming_index];
+        }
+    }
+
+    ensure_not_cancelled(is_cancelled())?;
+    let results = quality_rules
+        .iter()
+        .enumerate()
+        .map(|(index, rule)| quality_rule_result(rule, counts[index].0, counts[index].1))
+        .collect::<Vec<_>>();
+    let failed_rules = results.iter().filter(|result| !result.passed).count();
+    let final_size = fs::metadata(source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la validación de calidad.".to_owned());
+    }
+    Ok(QualityValidationResult {
+        passed: failed_rules == 0,
+        row_count,
+        total_rules: results.len(),
+        failed_rules,
+        rules: results,
+    })
+}
+
 fn evaluate_quality_rules(
     frame: &DataFrame,
     quality_rules: &[QualityRule],
@@ -15931,48 +16104,7 @@ where
                 (row_count, invalid_count)
             }
         };
-        let invalid_pct = if checked_count == 0 {
-            0.0
-        } else {
-            invalid_count as f64 * 100.0 / checked_count as f64
-        };
-        let passed = rule
-            .max_invalid
-            .is_none_or(|maximum| invalid_count <= maximum)
-            && rule
-                .max_invalid_pct
-                .is_none_or(|maximum| invalid_pct <= maximum);
-        results.push(QualityRuleResult {
-            column: rule.column.clone(),
-            kind: rule.kind,
-            max_invalid: rule.max_invalid,
-            max_invalid_pct: rule.max_invalid_pct,
-            min: rule.min,
-            max: rule.max,
-            values: rule.values.clone(),
-            reference_values: rule.reference_values.clone(),
-            baseline: rule.baseline.clone(),
-            direction: rule.direction,
-            expected: rule.expected,
-            aggregate: rule.aggregate,
-            tolerance_abs: rule.tolerance_abs,
-            tolerance_rel: rule.tolerance_rel,
-            threshold: rule.threshold,
-            pattern: rule.pattern.clone(),
-            dtype: rule.dtype.clone(),
-            columns: rule.columns.clone(),
-            operator: rule.operator,
-            min_date: rule.min_date.clone(),
-            max_date: rule.max_date.clone(),
-            when: rule.when.clone(),
-            then: rule.then.clone(),
-            allow_additional: rule.allow_additional,
-            required_order: rule.required_order.clone(),
-            checked_count,
-            invalid_count,
-            invalid_pct,
-            passed,
-        });
+        results.push(quality_rule_result(rule, checked_count, invalid_count));
     }
     let failed_rules = results.iter().filter(|result| !result.passed).count();
     Ok(QualityValidationResult {
@@ -20499,6 +20631,43 @@ pub async fn validate_quality_rules(
     quality_rules: Vec<QualityRule>,
 ) -> Result<QualityValidationResult, String> {
     validate_quality_rules_payload(&quality_rules)?;
+    let source_context = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        current.as_ref().and_then(|dataset| {
+            dataset
+                .source_backed
+                .then(|| dataset.source_path.clone())
+                .flatten()
+                .map(|source_path| (source_path, dataset.file_size_bytes, dataset.row_count))
+        })
+    };
+    if quality_rules.iter().all(source_quality_rule_is_incremental) {
+        if let Some((source_path, expected_file_size, row_count)) = source_context {
+            return tauri::async_runtime::spawn_blocking(move || {
+                let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
+                if source_size != expected_file_size {
+                    return Err(
+                        "El archivo source-backed cambió desde la carga; vuelve a seleccionarlo."
+                            .to_owned(),
+                    );
+                }
+                evaluate_source_quality_rules_with_cancel(
+                    &source_path,
+                    &extension,
+                    expected_file_size,
+                    row_count,
+                    &quality_rules,
+                    || false,
+                )
+            })
+            .await
+            .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?;
+        }
+    }
     let frame = {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -27032,6 +27201,92 @@ mod tests {
         );
         assert_eq!(actual.temporal_series, expected.temporal_series);
         assert!(actual.numeric_correlations.is_none());
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_quality_validation_matches_the_in_memory_contract() {
+        let path = temporary_csv(
+            "status,code,amount,when,comment,country\nok,A,10,2024-01-01,ready,DO\nskip,B,20,2024-06-15,,US\nok,A,30,2025-01-01,valid,DO\n",
+        );
+        let frame = read_delimited_frame(&path, "csv").expect("el CSV debe leerse como texto");
+        let mut non_empty = quality_rule("comment", QualityRuleKind::NonEmpty);
+        non_empty.max_invalid = Some(1);
+        let mut allowed = quality_rule("status", QualityRuleKind::AllowedValues);
+        allowed.values = Some(vec!["ok".to_owned(), "skip".to_owned()]);
+        let mut regex = quality_rule("code", QualityRuleKind::Regex);
+        regex.pattern = Some("^[A-Z]$".to_owned());
+        let mut date_range = quality_rule("when", QualityRuleKind::DateRange);
+        date_range.min_date = Some("2024-01-01".to_owned());
+        date_range.max_date = Some("2024-12-31".to_owned());
+        date_range.max_invalid = Some(1);
+        let mut conditional = quality_rule("comment", QualityRuleKind::Conditional);
+        conditional.when = Some(QualityCondition {
+            column: "status".to_owned(),
+            operator: Some(QualityComparison::Eq),
+            value: Some("ok".to_owned()),
+        });
+        conditional.then = Some(Box::new(quality_rule("comment", QualityRuleKind::NonEmpty)));
+        let mut referential = quality_rule("country", QualityRuleKind::ReferentialIntegrity);
+        referential.columns = Some(vec!["country".to_owned()]);
+        referential.reference_values = Some(vec!["DO".to_owned(), "US".to_owned()]);
+        let mut dtype = quality_rule("status", QualityRuleKind::Dtype);
+        dtype.dtype = Some("string".to_owned());
+        let mut schema = quality_rule(QUALITY_DATASET_COLUMN, QualityRuleKind::SchemaContract);
+        schema.columns = Some(
+            ["status", "code", "amount", "when", "comment", "country"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        );
+        schema.required_order = Some(
+            schema
+                .columns
+                .clone()
+                .expect("el esquema debe tener columnas"),
+        );
+        let mut row_count = quality_rule(QUALITY_DATASET_COLUMN, QualityRuleKind::RowCount);
+        row_count.min = Some(3.0);
+        row_count.max = Some(3.0);
+        let rules = vec![
+            quality_rule("country", QualityRuleKind::NotNull),
+            non_empty,
+            allowed,
+            regex,
+            date_range,
+            conditional,
+            referential,
+            dtype,
+            schema,
+            row_count,
+        ];
+        let expected = evaluate_quality_rules(&frame, &rules)
+            .expect("la validación en memoria debe funcionar");
+        let actual = evaluate_source_quality_rules_with_cancel(
+            &path,
+            "csv",
+            fs::metadata(&path).expect("la fuente debe existir").len(),
+            frame.height(),
+            &rules,
+            || false,
+        )
+        .expect("la validación source-backed debe funcionar");
+
+        assert_eq!(actual.passed, expected.passed);
+        assert_eq!(actual.row_count, expected.row_count);
+        assert_eq!(actual.failed_rules, expected.failed_rules);
+        assert_eq!(actual.rules.len(), expected.rules.len());
+        for (actual_rule, expected_rule) in actual.rules.iter().zip(expected.rules.iter()) {
+            assert_eq!(actual_rule.kind, expected_rule.kind);
+            assert_eq!(actual_rule.checked_count, expected_rule.checked_count);
+            assert_eq!(actual_rule.invalid_count, expected_rule.invalid_count);
+            assert_eq!(actual_rule.passed, expected_rule.passed);
+        }
+
+        assert!(!source_quality_rule_is_incremental(&quality_rule(
+            "code",
+            QualityRuleKind::Unique,
+        )));
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 

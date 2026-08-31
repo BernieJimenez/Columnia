@@ -38,6 +38,14 @@ muestras necesarias. La salida mantiene el contrato del perfil normal; las
 transformaciones, validación y exportación todavía materializan cuando deben
 publicar todas las filas.
 
+Desde v0.67.0, la validación de calidad de fuentes source-backed también evita
+la materialización completa para reglas fila-a-fila (`not_null`, `non_empty`,
+`allowed_values`, `regex`, `date_range`, `conditional`, comparaciones y
+referencias) y comprobaciones de `dtype`, `schema_contract` y `row_count`.
+Los contratos globales que necesitan observar el conjunto completo conservan
+el fallback materializado explícito; en todos los casos se verifica que la
+fuente no haya cambiado durante la operación.
+
 La receta lazy/streaming también acepta `Iso8601` sin offset o con sufijo UTC
 `Z`; los offsets distintos de UTC conservan el fallback eager para mantener la
 conversión estricta a UTC.
