@@ -1635,6 +1635,7 @@ struct PendingSelection {
 struct PendingComparison {
     file_name: String,
     file_size_bytes: u64,
+    row_count: usize,
     _directory: tempfile::TempDir,
     snapshot_path: PathBuf,
     key_columns: Vec<String>,
@@ -3633,6 +3634,19 @@ fn local_query_has_join(query: &str) -> bool {
     query
         .split_whitespace()
         .any(|token| token.eq_ignore_ascii_case("join"))
+}
+
+fn should_route_large_snapshot_join_to_duckdb(
+    query: &str,
+    current_row_count: usize,
+    compared_row_count: usize,
+    has_current_snapshot: bool,
+    has_compared_snapshot: bool,
+) -> bool {
+    local_query_has_join(query)
+        && has_current_snapshot
+        && has_compared_snapshot
+        && current_row_count.saturating_add(compared_row_count) > LOCAL_QUERY_JOIN_MAX_INPUT_ROWS
 }
 
 fn execute_local_query_from_parquet_with_cancel<C>(
@@ -15957,6 +15971,7 @@ pub async fn compare_dataset(
             Some(PendingComparison {
                 file_name: compared_file_name,
                 file_size_bytes,
+                row_count: compared_frame.height(),
                 _directory: directory,
                 snapshot_path,
                 key_columns,
@@ -16697,6 +16712,45 @@ pub async fn query_dataset(
                 .then(|| dataset.history.entries.get(dataset.history.cursor))
                 .flatten()
                 .map(|entry| entry.path.clone());
+            let compared_snapshot = comparison
+                .as_ref()
+                .map(|pending| pending.snapshot_path.clone());
+            let compared_row_count = comparison
+                .as_ref()
+                .map(|pending| pending.row_count)
+                .unwrap_or_default();
+            if should_route_large_snapshot_join_to_duckdb(
+                &query,
+                dataset.frame.height(),
+                compared_row_count,
+                current_snapshot.is_some(),
+                compared_snapshot.is_some(),
+            ) {
+                let current_path = current_snapshot
+                    .as_ref()
+                    .expect("la ruta DuckDB requiere un snapshot activo");
+                let compared_path = compared_snapshot
+                    .as_ref()
+                    .expect("la ruta DuckDB requiere un snapshot comparado");
+                let current_schema = read_parquet_schema_frame(current_path).ok();
+                let compared_schema = read_parquet_schema_frame(compared_path).ok();
+                if let (Some(current_schema), Some(compared_schema)) =
+                    (current_schema.as_ref(), compared_schema.as_ref())
+                {
+                    let spec = prepare_duckdb_query(&query, current_schema, Some(compared_schema))?;
+                    let cancellation_app = query_app.clone();
+                    return crate::duckdb_query::execute_duckdb_query_from_parquet_sources(
+                        current_path,
+                        Some(compared_path),
+                        &spec,
+                        move || {
+                            cancellation_app
+                                .state::<DatasetState>()
+                                .query_was_cancelled(generation)
+                        },
+                    );
+                }
+            }
             if comparison.is_none() && !local_query_has_join(&query) {
                 if let Some(path) = current_snapshot {
                     match execute_local_query_from_parquet_with_cancel(
@@ -23695,6 +23749,36 @@ mod tests {
             .expect("DuckDB debe preparar el JOIN sin limitar la entrada por filas");
         assert_eq!(spec.limit, 1);
         assert!(spec.dataset_view_query.is_some());
+    }
+
+    #[test]
+    fn large_snapshot_joins_route_to_duckdb_only_when_both_snapshots_exist() {
+        let query = "SELECT id FROM dataset JOIN compared ON dataset.id = compared.id LIMIT 1";
+        let over_limit = LOCAL_QUERY_JOIN_MAX_INPUT_ROWS + 1;
+
+        assert!(should_route_large_snapshot_join_to_duckdb(
+            query, over_limit, 1, true, true
+        ));
+        assert!(!should_route_large_snapshot_join_to_duckdb(
+            query,
+            LOCAL_QUERY_JOIN_MAX_INPUT_ROWS.saturating_sub(1),
+            1,
+            true,
+            true,
+        ));
+        assert!(!should_route_large_snapshot_join_to_duckdb(
+            query, over_limit, 1, false, true
+        ));
+        assert!(!should_route_large_snapshot_join_to_duckdb(
+            query, over_limit, 1, true, false
+        ));
+        assert!(!should_route_large_snapshot_join_to_duckdb(
+            "SELECT id FROM dataset LIMIT 1",
+            over_limit,
+            1,
+            true,
+            true,
+        ));
     }
 
     #[test]

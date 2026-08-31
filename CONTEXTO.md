@@ -47,8 +47,11 @@ gates locales y no publica ni etiqueta.
 La consulta Polars simple sin comparación ya puede consumir el snapshot Parquet
 del cursor por bloques de 16K filas: valida el esquema, cuenta coincidencias y
 retiene solo la página o los acumuladores. Si el snapshot no coincide o no puede
-leerse, la sesión vuelve al `DataFrame` activo; `JOIN`, comparación, historial
-degradado y ejecución completa fuera de RAM siguen siendo límites explícitos.
+leerse, la sesión vuelve al `DataFrame` activo. Un JOIN que supera el límite de
+entradas se promueve automáticamente a DuckDB cuando existen los snapshots
+Parquet administrados de ambos lados; sin ellos conserva el rechazo seguro de
+Polars. La comparación, el historial degradado y la ejecución incremental
+general fuera de RAM siguen siendo límites explícitos.
 
 Cuando se reabre una sesión DataPrep con metadatos de muestreo, Revisar muestra
 su estado y conteos agregados como contexto de compatibilidad. El perfil visible
@@ -66,7 +69,7 @@ cobertura; no cambia las estadísticas agregadas restantes.
 
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 298 tests frontend y 339 tests Rust; los
+- Las suites locales actuales pasan: 298 tests frontend y 340 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
@@ -107,7 +110,7 @@ Usa esta prioridad cuando dos documentos parezcan contradecirse:
 3. `README.md` explica el producto y su uso actual.
 4. `ROADMAP.md` registra decisiones históricas, arquitectura objetivo y trabajo pendiente.
 
-No presentes como implementada una tecnología solo porque aparece en el roadmap. DuckDB ya forma parte de las dependencias de Cargo y ofrece la primera ruta opcional de consulta SQL local: reutiliza snapshots Parquet administrados de la revisión activa y de la comparación cuando existen, lee solo el esquema del snapshot comparado durante la preparación y conserva fallbacks temporales para estados degradados; el `DataFrame` activo, la ejecución incremental general y el procesamiento completo fuera de la RAM del dataset siguen pendientes. Las recetas lazy también combinan parseos de fecha con conversiones en columnas distintas y `split` con `merge` cuando las dependencias se conservan; los conflictos siguen en fallback eager o rechazo explícito.
+No presentes como implementada una tecnología solo porque aparece en el roadmap. DuckDB ya forma parte de las dependencias de Cargo y ofrece la primera ruta opcional de consulta SQL local: reutiliza snapshots Parquet administrados de la revisión activa y de la comparación cuando existen, lee solo el esquema del snapshot comparado durante la preparación, recibe automáticamente los JOINs Polars que superan el límite de entradas cuando ambos snapshots están disponibles y conserva fallbacks temporales para estados degradados; el `DataFrame` activo, la ejecución incremental general y el procesamiento completo fuera de la RAM del dataset siguen pendientes. Las recetas lazy también combinan parseos de fecha con conversiones en columnas distintas y `split` con `merge` cuando las dependencias se conservan; los conflictos siguen en fallback eager o rechazo explícito.
 
 ## Modelo mental del sistema
 
