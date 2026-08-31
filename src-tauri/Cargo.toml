@@ -25,7 +25,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 calamine = { version = "0.36.1", default-features = false, features = ["chrono"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
-duckdb = { version = "1.10505.0", default-features = false, features = ["bundled", "parquet"] }
+duckdb = { version = "1.10505.0", default-features = false, features = ["bundled", "json", "parquet"] }
 polars = { version = "0.55.2", default-features = false, features = ["csv", "fmt", "json", "parquet", "dtype-slim", "lazy", "regex", "strings", "concat_str", "semi_anti_join"] }
 rayon = "1.12"
 regex = "1"

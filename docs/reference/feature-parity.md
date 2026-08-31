@@ -406,11 +406,12 @@ dos bloques; la respuesta retiene solo la página solicitada y un bloque de valo
 para construir sus celdas. Se valida el conteo registrado y cualquier snapshot
 obsoleto o modificado se rechaza sin mutar el dataset.
 
-La comparación inicial de una fuente Parquet o delimitada (`CSV`, `TSV`, `TXT`)
+La comparación inicial de una fuente Parquet, delimitada (`CSV`, `TSV`, `TXT`) o JSON
 también conserva esta frontera: el snapshot se copia o genera secuencialmente,
 el conteo se obtiene por streaming y las métricas por filas, claves y conflictos
-se calculan por bloques de 16K. JSON y Excel todavía cargan la fuente comparada
-completa antes de calcular la comparación.
+se calculan por bloques de 16K. Los campos JSON anidados se serializan al texto
+JSON del contrato nativo. Excel todavía carga la fuente comparada completa antes
+de calcular la comparación.
 
 La exportación reutiliza un único snapshot protegido para todos los destinos
 locales existentes. La detección usa el mismo catálogo agregado de señales de

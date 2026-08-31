@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs::File,
     path::Path,
     sync::{
@@ -43,6 +44,7 @@ enum DatasetSource<'a> {
 pub(crate) enum DuckDbFileFormat {
     Parquet,
     Delimited { delimiter: u8 },
+    Json,
 }
 
 pub(crate) fn execute_duckdb_query<C>(
@@ -142,6 +144,7 @@ pub(crate) fn materialize_file_to_parquet(
     source_path: &Path,
     source_format: DuckDbFileFormat,
     destination: &Path,
+    column_order: Option<&[String]>,
 ) -> Result<(), String> {
     let connection = Connection::open_in_memory()
         .map_err(|error| format!("No se pudo iniciar DuckDB para el snapshot: {error}"))?;
@@ -150,8 +153,28 @@ pub(crate) fn materialize_file_to_parquet(
         .to_string_lossy()
         .replace('\\', "/")
         .replace('\'', "''");
+    let projection = if matches!(source_format, DuckDbFileFormat::Json) {
+        match column_order {
+            Some(columns) => json_projection(&connection, &source, columns)?,
+            None => "*".to_owned(),
+        }
+    } else {
+        column_order
+            .map(|columns| {
+                if columns.is_empty() {
+                    return Err("El JSON no contiene columnas utilizables.".to_owned());
+                }
+                Ok(columns
+                    .iter()
+                    .map(|column| quote_identifier(column))
+                    .collect::<Vec<_>>()
+                    .join(", "))
+            })
+            .transpose()?
+            .unwrap_or_else(|| "*".to_owned())
+    };
     let query = format!(
-        "SET preserve_insertion_order = true; COPY (SELECT * FROM {source}) TO '{destination}' (FORMAT PARQUET)"
+        "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
     );
     connection
         .execute_batch(&query)
@@ -400,7 +423,56 @@ fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
                 "read_csv_auto('{escaped_path}', header = true, all_varchar = true, delim = '{escaped_delimiter}')"
             )
         }
+        DuckDbFileFormat::Json => format!("read_json_auto('{escaped_path}')"),
     }
+}
+
+fn json_projection(
+    connection: &Connection,
+    source: &str,
+    columns: &[String],
+) -> Result<String, String> {
+    if columns.is_empty() {
+        return Err("El JSON no contiene columnas utilizables.".to_owned());
+    }
+    let mut statement = connection
+        .prepare(&format!("DESCRIBE SELECT * FROM {source}"))
+        .map_err(|error| format!("DuckDB no pudo inspeccionar el JSON: {error}"))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| format!("DuckDB no pudo inspeccionar el JSON: {error}"))?;
+    let mut nested_columns = HashSet::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| format!("DuckDB no pudo inspeccionar el JSON: {error}"))?
+    {
+        let name = row
+            .get::<_, String>(0)
+            .map_err(|error| format!("DuckDB no pudo inspeccionar el JSON: {error}"))?;
+        let data_type = row
+            .get::<_, String>(1)
+            .map_err(|error| format!("DuckDB no pudo inspeccionar el JSON: {error}"))?;
+        if data_type.contains("STRUCT")
+            || data_type.contains("LIST")
+            || data_type.contains("MAP")
+            || data_type.contains("UNION")
+            || data_type.contains("[]")
+        {
+            nested_columns.insert(name);
+        }
+    }
+    Ok(columns
+        .iter()
+        .map(|column| {
+            let identifier = quote_identifier(column);
+            if nested_columns.contains(column) {
+                format!("CAST(to_json({identifier}) AS VARCHAR) AS {identifier}")
+            } else {
+                identifier
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", "))
 }
 
 fn quote_identifier(value: &str) -> String {
@@ -570,6 +642,41 @@ mod tests {
             || false,
         )
         .expect("DuckDB debe consultar el CSV original");
+
+        assert_eq!(result.row_count, 2);
+        assert_eq!(
+            result.rows,
+            vec![vec![Some("Santiago".to_owned()), Some("20".to_owned())]]
+        );
+        assert!(path.is_file());
+        assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn queries_a_json_source_without_creating_a_snapshot() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let path = directory.path().join("current.json");
+        fs::write(
+            &path,
+            r#"[{"city":"Santo Domingo","value":10},{"city":"Santiago","value":20}]"#,
+        )
+        .expect("se debe escribir el JSON");
+        let spec = DuckDbQuerySpec {
+            bounded_query:
+                "SELECT city, value FROM dataset ORDER BY \"__columnia_order\" LIMIT 1 OFFSET 1"
+                    .to_owned(),
+            count_query: "SELECT COUNT(*) FROM (SELECT city, value FROM dataset) AS count_rows"
+                .to_owned(),
+            offset: 1,
+            limit: 1,
+            dataset_view_query: None,
+            current_order_column: Some("__columnia_order".to_owned()),
+            compared_order_column: None,
+        };
+
+        let result =
+            execute_duckdb_query_from_file(&path, DuckDbFileFormat::Json, None, &spec, || false)
+                .expect("DuckDB debe consultar el JSON original");
 
         assert_eq!(result.row_count, 2);
         assert_eq!(

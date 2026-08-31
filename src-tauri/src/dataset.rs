@@ -21,7 +21,10 @@ use polars::prelude::*;
 use rayon::prelude::*;
 use regex::Regex;
 use rusqlite::{params_from_iter, types::Value as SqlValue, Connection};
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{SeqAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use tauri::{ipc::Channel, AppHandle, Manager, State};
@@ -8156,6 +8159,102 @@ fn load_json_records(path: &Path) -> Result<DataFrame, String> {
     json_records_to_frame(&records)
 }
 
+#[derive(Default)]
+struct JsonColumnNamesVisitor {
+    names: Vec<String>,
+    seen: HashSet<String>,
+    records: usize,
+}
+
+impl JsonColumnNamesVisitor {
+    fn add_record(&mut self, record: &JsonMap<String, JsonValue>) {
+        for name in record.keys() {
+            if self.seen.insert(name.clone()) {
+                self.names.push(name.clone());
+            }
+        }
+        self.records = self.records.saturating_add(1);
+    }
+}
+
+impl<'de> Visitor<'de> for JsonColumnNamesVisitor {
+    type Value = Self;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("un arreglo JSON de objetos")
+    }
+
+    fn visit_seq<A>(mut self, mut sequence: A) -> Result<Self, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while let Some(record) = sequence.next_element::<JsonMap<String, JsonValue>>()? {
+            self.add_record(&record);
+        }
+        Ok(self)
+    }
+}
+
+fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
+    let mut probe = BufReader::new(
+        fs::File::open(path).map_err(|error| format!("No se pudo abrir el JSON: {error}"))?,
+    );
+    let first_byte = loop {
+        let mut byte = [0_u8; 1];
+        let read = probe
+            .read(&mut byte)
+            .map_err(|error| format!("El JSON no se puede leer: {error}"))?;
+        if read == 0 {
+            return Err("El archivo JSON está vacío.".to_owned());
+        }
+        if !byte[0].is_ascii_whitespace() {
+            break byte[0];
+        }
+    };
+    drop(probe);
+
+    let file =
+        fs::File::open(path).map_err(|error| format!("No se pudo abrir el JSON: {error}"))?;
+    if first_byte == b'[' {
+        let mut deserializer = serde_json::Deserializer::from_reader(BufReader::new(file));
+        let collected = deserializer
+            .deserialize_any(JsonColumnNamesVisitor::default())
+            .map_err(|error| format!("El JSON no es válido: {error}"))?;
+        deserializer
+            .end()
+            .map_err(|error| format!("El JSON no es válido: {error}"))?;
+        if collected.records == 0 || collected.names.is_empty() {
+            return Err("El JSON no contiene registros con campos.".to_owned());
+        }
+        return Ok(collected.names);
+    }
+
+    if first_byte != b'{' {
+        return Err(
+            "El JSON debe ser un arreglo de objetos o contener un objeto por línea.".to_owned(),
+        );
+    }
+    let mut values =
+        serde_json::Deserializer::from_reader(BufReader::new(file)).into_iter::<JsonValue>();
+    let mut collected = JsonColumnNamesVisitor::default();
+    while let Some(value) = values.next() {
+        let value = value.map_err(|error| format!("JSON Lines inválido: {error}"))?;
+        match value {
+            JsonValue::Object(record) => collected.add_record(&record),
+            _ => {
+                return Err(format!(
+                    "La línea JSON {} no contiene un objeto.",
+                    collected.records.saturating_add(1)
+                ))
+            }
+        }
+    }
+    if collected.records == 0 || collected.names.is_empty() {
+        return Err("El JSON no contiene registros con campos.".to_owned());
+    }
+    Ok(collected.names)
+}
+
 fn read_utf8_delimited_sample(path: &Path) -> Result<(String, bool), String> {
     let file_size = fs::metadata(path)
         .map_err(|error| format!("No se pudo inspeccionar el archivo delimitado: {error}"))?
@@ -15110,6 +15209,25 @@ fn persist_delimited_comparison_source_file(
         path,
         crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
         &temporary,
+        None,
+    )?;
+    let destination = directory.path().join("compared.parquet");
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
+    Ok((directory, destination))
+}
+
+fn persist_json_comparison_source_file(
+    path: &Path,
+) -> Result<(tempfile::TempDir, PathBuf), String> {
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = directory.path().join("compared.partial.parquet");
+    crate::duckdb_query::materialize_file_to_parquet(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Json,
+        &temporary,
+        Some(&json_record_column_names(path)?),
     )?;
     let destination = directory.path().join("compared.parquet");
     fs::rename(&temporary, &destination)
@@ -16555,36 +16673,38 @@ pub async fn compare_dataset(
         .unwrap_or("dataset")
         .to_owned();
     tauri::async_runtime::spawn_blocking(move || {
-        let (comparison, directory, snapshot_path, compared_row_count) =
-            if matches!(extension.as_str(), "parquet" | "csv" | "tsv" | "txt") {
-                let (directory, snapshot_path) = if extension == "parquet" {
-                    persist_comparison_source_file(&path)?
-                } else {
-                    persist_delimited_comparison_source_file(&path, &extension)?
-                };
-                let compared_row_count = parquet_row_count(&snapshot_path)?;
-                let comparison = compare_parquet_source(
-                    &current_frame,
-                    &current_file_name,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                )?;
-                (comparison, directory, snapshot_path, compared_row_count)
-            } else {
-                let compared_frame = load_compare_frame(&path, &extension)?;
-                let comparison = compare_frames(
-                    &current_frame,
-                    &current_file_name,
-                    &compared_frame,
-                    &compared_file_name,
-                    &key_columns,
-                )?;
-                let (directory, snapshot_path) = persist_comparison_snapshot(&compared_frame)?;
-                let compared_row_count = compared_frame.height();
-                (comparison, directory, snapshot_path, compared_row_count)
+        let (comparison, directory, snapshot_path, compared_row_count) = if matches!(
+            extension.as_str(),
+            "parquet" | "csv" | "tsv" | "txt" | "json"
+        ) {
+            let (directory, snapshot_path) = match extension.as_str() {
+                "parquet" => persist_comparison_source_file(&path)?,
+                "json" => persist_json_comparison_source_file(&path)?,
+                _ => persist_delimited_comparison_source_file(&path, &extension)?,
             };
+            let compared_row_count = parquet_row_count(&snapshot_path)?;
+            let comparison = compare_parquet_source(
+                &current_frame,
+                &current_file_name,
+                &snapshot_path,
+                &compared_file_name,
+                compared_row_count,
+                &key_columns,
+            )?;
+            (comparison, directory, snapshot_path, compared_row_count)
+        } else {
+            let compared_frame = load_compare_frame(&path, &extension)?;
+            let comparison = compare_frames(
+                &current_frame,
+                &current_file_name,
+                &compared_frame,
+                &compared_file_name,
+                &key_columns,
+            )?;
+            let (directory, snapshot_path) = persist_comparison_snapshot(&compared_frame)?;
+            let compared_row_count = compared_frame.height();
+            (comparison, directory, snapshot_path, compared_row_count)
+        };
         let state = app.state::<DatasetState>();
         *state
             .comparison
@@ -26344,6 +26464,56 @@ mod tests {
         drop(directory);
         fs::remove_file(current_path).expect("se debe limpiar el CSV activo");
         fs::remove_file(compared_path).expect("se debe limpiar el CSV comparado");
+    }
+
+    #[test]
+    fn compares_json_source_through_a_parquet_snapshot_without_changing_values() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let compared_path = directory.path().join("compared.json");
+        fs::write(
+            &compared_path,
+            r#"[{"id":1,"city":"Santo Domingo","total":10,"metadata":{"tier":"gold"},"tags":["a","b"]},{"id":2,"city":"Santiago","total":20,"metadata":{"tier":"silver"},"tags":["b"]},{"id":3,"city":"La Vega","total":30,"metadata":{"tier":"bronze"},"tags":[]}]"#,
+        )
+        .expect("se debe escribir el JSON comparado");
+        let current = df![
+            "id" => &[1_i64, 2],
+            "city" => &["Santo Domingo", "Santiago"],
+            "total" => &[10_i64, 25],
+            "metadata" => &[r#"{"tier":"gold"}"#, r#"{"tier":"silver"}"#],
+            "tags" => &[r#"["a","b"]"#, r#"["b"]"#]
+        ]
+        .expect("el dataset activo debe construirse");
+        let compared = load_json_records(&compared_path).expect("el JSON debe cargar");
+        let (snapshot_directory, snapshot_path) =
+            persist_json_comparison_source_file(&compared_path)
+                .expect("el JSON debe convertirse al snapshot temporal");
+        let restored = read_parquet_frame(&snapshot_path).expect("el snapshot debe ser legible");
+        let restored_in_source_order = restored
+            .select(compared.get_column_names())
+            .expect("el snapshot debe conservar todas las columnas");
+        assert!(restored_in_source_order.equals_missing(&compared));
+
+        let expected = compare_frames(
+            &current,
+            "activo.json",
+            &compared,
+            "comparado.json",
+            &["id".to_owned()],
+        )
+        .expect("la comparación JSON de referencia debe calcularse");
+        let actual = compare_parquet_source(
+            &current,
+            "activo.json",
+            &snapshot_path,
+            "comparado.json",
+            parquet_row_count(&snapshot_path).expect("el snapshot debe contar sus filas"),
+            &["id".to_owned()],
+        )
+        .expect("la comparación del snapshot JSON debe calcularse");
+        assert_eq!(actual, expected);
+
+        drop(snapshot_directory);
+        assert!(!snapshot_path.exists());
     }
 
     #[test]
