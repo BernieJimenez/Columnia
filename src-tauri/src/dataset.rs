@@ -15733,6 +15733,44 @@ where
     })
 }
 
+fn enforce_source_quality_with_cancel<C>(
+    source_path: &Path,
+    extension: &str,
+    expected_file_size: u64,
+    row_count: usize,
+    quality_rules: &[QualityRule],
+    allow_unvalidated: bool,
+    is_cancelled: C,
+) -> Result<Option<QualityValidationResult>, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    validate_quality_rules_payload(quality_rules)?;
+    if quality_rules.is_empty() {
+        return if allow_unvalidated {
+            Ok(None)
+        } else {
+            Err("La exportación sin reglas de calidad requiere confirmación explícita.".to_owned())
+        };
+    }
+    let validation = evaluate_source_quality_rules_with_cancel(
+        source_path,
+        extension,
+        expected_file_size,
+        row_count,
+        quality_rules,
+        is_cancelled,
+    )?;
+    if !validation.passed {
+        return Err(format!(
+            "La exportación fue bloqueada: {} de {} reglas de calidad fallaron.",
+            validation.failed_rules, validation.total_rules
+        ));
+    }
+    Ok(Some(validation))
+}
+
 fn evaluate_quality_rules(
     frame: &DataFrame,
     quality_rules: &[QualityRule],
@@ -16684,6 +16722,80 @@ where
         report,
         is_cancelled,
     )
+}
+
+fn export_source_backed_parquet_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    destination: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió después de la validación.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Err("El formato source-backed no se puede exportar a Parquet.".to_owned()),
+    };
+
+    report("Preparando archivo temporal", 10);
+    let scratch = tempfile::tempdir_in(parent)
+        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
+    let partial = scratch.path().join("dataset.partial.parquet");
+    report("Escribiendo dataset", 25);
+    crate::duckdb_query::materialize_file_to_parquet(&source_path, source_format, &partial, None)?;
+    ensure_not_cancelled(is_cancelled())?;
+
+    let mut generated = File::open(&partial)
+        .map_err(|error| format!("No se pudo leer el Parquet temporal: {error}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
+    std::io::copy(&mut generated, temporary.as_file_mut())
+        .map_err(|error| format!("No se pudo copiar el Parquet temporal: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
+    }
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+    let file_size_bytes = fs::metadata(&destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset.parquet")
+            .to_owned(),
+        file_size_bytes,
+        format: ExportFormat::Parquet.label(),
+        protected_column_count: 0,
+        protected_columns: Vec::new(),
+    })
 }
 
 fn export_frame_atomic_with_privacy<F, C>(
@@ -20698,6 +20810,106 @@ pub async fn export_dataset(
     validate_quality_rules_payload(&quality_rules)?;
     if let Some(recipe) = recipe.as_ref() {
         validate_stored_recipe(recipe)?;
+    }
+    let source_context = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        current.as_ref().and_then(|dataset| {
+            dataset.source_backed.then(|| {
+                dataset.source_path.clone().map(|source_path| {
+                    (
+                        source_path,
+                        dataset.file_name.clone(),
+                        dataset.file_size_bytes,
+                        dataset.row_count,
+                    )
+                })
+            })?
+        })
+    };
+    if format == ExportFormat::Parquet
+        && privacy_mode == PrivacyMode::None
+        && recipe.is_none()
+        && quality_rules.iter().all(source_quality_rule_is_incremental)
+    {
+        if let Some((source_path, file_name, expected_file_size, row_count)) = source_context {
+            let generation = app.state::<DatasetState>().begin_export();
+            let validation_app = app.clone();
+            let source_quality_rules = quality_rules.clone();
+            let validation_source_path = source_path.clone();
+            let _quality_validation = tauri::async_runtime::spawn_blocking(move || {
+                let (source_path, source_size, extension) =
+                    validate_dataset_file(&validation_source_path)?;
+                if source_size != expected_file_size {
+                    return Err(
+                        "El archivo source-backed cambió desde la carga; vuelve a seleccionarlo."
+                            .to_owned(),
+                    );
+                }
+                enforce_source_quality_with_cancel(
+                    &source_path,
+                    &extension,
+                    expected_file_size,
+                    row_count,
+                    &source_quality_rules,
+                    allow_unvalidated,
+                    || {
+                        validation_app
+                            .state::<DatasetState>()
+                            .export_was_cancelled(generation)
+                    },
+                )
+            })
+            .await
+            .map_err(|error| {
+                format!("La validación previa a la exportación se interrumpió: {error}")
+            })??;
+            ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
+
+            let stem = Path::new(&file_name)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("dataset");
+            send_progress(&on_progress, "export", "Esperando destino", 0);
+            let selection = app
+                .dialog()
+                .file()
+                .add_filter(format.label(), &[format.extension()])
+                .set_file_name(format!("{stem}-columnia.{}", format.extension()))
+                .blocking_save_file();
+            let Some(selection) = selection else {
+                return Ok(None);
+            };
+            let destination = path_with_extension(
+                selection
+                    .into_path()
+                    .map_err(|error| format!("No se pudo resolver el destino: {error}"))?,
+                format,
+            );
+            let export_state = app.clone();
+            let remembered_destination = destination.clone();
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                export_source_backed_parquet_atomic(
+                    &source_path,
+                    expected_file_size,
+                    &destination,
+                    |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                    || app.state::<DatasetState>().export_was_cancelled(generation),
+                )
+                .map(Some)
+            })
+            .await
+            .map_err(|error| format!("La exportación se interrumpió: {error}"))??;
+            if result.is_some() {
+                export_state
+                    .state::<DatasetState>()
+                    .remember_last_export(remembered_destination);
+            }
+            return Ok(result);
+        }
     }
     let (frame, suggested_name) = {
         let state = app.state::<DatasetState>();
@@ -27288,6 +27500,33 @@ mod tests {
             QualityRuleKind::Unique,
         )));
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_parquet_export_streams_through_a_private_snapshot() {
+        let source = temporary_csv("city,amount\nSanto Domingo,10\nSantiago,20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported.parquet");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut progress = Vec::new();
+        let result = export_source_backed_parquet_atomic(
+            &source,
+            expected_size,
+            &destination,
+            |stage, percent| progress.push((stage, percent)),
+            || false,
+        )
+        .expect("la exportación source-backed debe funcionar");
+        let exported = read_parquet_frame(&destination)
+            .expect("la salida Parquet debe poder leerse")
+            .height();
+
+        assert_eq!(result.format, "Parquet");
+        assert_eq!(result.protected_column_count, 0);
+        assert_eq!(exported, 2);
+        assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
     }
 
     #[test]

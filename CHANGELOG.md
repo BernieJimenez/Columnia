@@ -6,6 +6,20 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-08-31
+
+### Mejorado
+
+- La exportación Parquet de fuentes source-backed puede leer directamente la
+  fuente desde disco y publicar un archivo temporalmente aislado, sin
+  materializar el \`DataFrame\` activo, cuando no se solicita receta ni
+  protección adicional. La validación de calidad compatible se ejecuta antes
+  por bloques y la conversión respeta la frontera de recursos de DuckDB.
+- Se conserva la publicación atómica, la comprobación de cambios de la fuente,
+  la cancelación cooperativa entre etapas y el cleanup del snapshot temporal.
+- La suite Rust queda en 360 pruebas aprobadas, incluida la regresión de
+  exportación Parquet source-backed.
+
 ## [0.67.0] - 2026-08-31
 
 ### Mejorado
