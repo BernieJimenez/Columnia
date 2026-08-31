@@ -3,6 +3,13 @@
 Estado: preparación técnica completada; revisión jurídica y decisión de
 publicación pendientes.
 
+La ficha estructurada [`legal-distribution-decision.json`](./legal-distribution-decision.json)
+es la fuente de estado para el gate. Mientras conserve
+`status: "pending-legal-review"`, `npm run legal:check` valida los artefactos
+técnicos, pero cualquier perfil `Release` o `Package` se detiene antes de crear
+instaladores publicables. El estado solo puede pasar a `approved` después de que
+la persona responsable complete y revise todos los campos de la ficha.
+
 ## Qué se entrega
 
 - `LICENSE` contiene la licencia MIT del producto.
@@ -15,6 +22,15 @@ publicación pendientes.
 - El updater usa `tauri-plugin-updater`: la aplicación embebe solo la clave
   pública, exige firma minisign de Tauri y muestra versión, notas, tamaño,
   progreso y cancelación después de una acción explícita.
+
+## Campos que requieren aprobación
+
+La ficha no acepta valores implícitos. Deben completarse responsable, jurisdicción,
+contacto, mercados, canal, política de privacidad, retención, revisión de marca,
+revisión de avisos de terceros y distribución del updater. El gate técnico
+comprueba que existan los archivos, que el JSON sea válido y que no haya estados
+contradictorios; el gate de release exige además `status: "approved"` y valores
+no provisionales.
 
 ## Decisiones que debe cerrar la persona responsable
 
@@ -34,7 +50,7 @@ fuera del repositorio:
 
 ```powershell
 $env:COLUMNIA_UPDATER_ENDPOINT = "https://updates.example/columnia.json"
-$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.57.0/"
+$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.91.0/"
 $env:TAURI_SIGNING_PRIVATE_KEY = "C:\ruta-privada\columnia-updater.key"
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
 npm run release:updater:dry-run
@@ -72,7 +88,7 @@ sanitizada en el directorio indicado.
 
 ## Evidencia técnica
 
-Ejecuta `npm run notices:check`, `npm run network:check`,
+Ejecuta `npm run legal:check`, `npm run notices:check`, `npm run network:check`,
 `npm run installer:check`, `npm run updater:check` y revisa
 `docs/reference/ipc-inventory.json` antes de crear una release. `npm run
 release:dry-run` orquesta los gates sin firma; `npm run

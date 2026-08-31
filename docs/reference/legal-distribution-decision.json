@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "status": "pending-legal-review",
+  "lastReviewed": "2026-08-31",
+  "decision": {
+    "responsibleEntity": null,
+    "jurisdiction": null,
+    "contact": null,
+    "markets": [],
+    "channel": null,
+    "privacyPolicy": null,
+    "retentionPolicy": null,
+    "trademarkReview": null,
+    "thirdPartyNoticesReview": null,
+    "updaterDistributionReview": null
+  }
+}

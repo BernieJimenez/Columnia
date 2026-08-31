@@ -732,8 +732,14 @@ export function App() {
 
         <details className="sidebar__legal">
           <summary>Licencia y privacidad</summary>
-          <div className="sidebar__legal-content">
-            <p><strong>Columnia</strong> funciona localmente y no envía datasets a servicios externos.</p>
+          <div
+            className="sidebar__legal-content"
+            role="region"
+            aria-labelledby="legal-panel-title"
+            aria-describedby="legal-panel-summary"
+          >
+            <h2 id="legal-panel-title">Licencia y privacidad de Columnia</h2>
+            <p id="legal-panel-summary"><strong>Columnia</strong> funciona localmente y no envía datasets a servicios externos.</p>
             <p><strong>Versión:</strong> {status.kind === "ready" && status.info ? status.info.version : "no disponible"}</p>
             <h2>Licencia</h2>
             <p>El producto se distribuye bajo MIT. Las dependencias conservan sus avisos en <code>THIRD_PARTY_NOTICES.md</code>.</p>

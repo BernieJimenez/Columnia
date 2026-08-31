@@ -2,7 +2,7 @@
   "name": "columnia",
   "private": true,
   "license": "MIT",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "engines": {
     "node": ">=24.14.0 <25",
     "npm": ">=11.10.1 <12"
@@ -19,6 +19,8 @@
     "test:e2e:install": "playwright install chromium",
     "docs:check": "node tools/check-documentation.mjs",
     "governance:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-governance.ps1",
+    "legal:check": "node tools/check-legal-distribution.mjs",
+    "legal:release:check": "node tools/check-legal-distribution.mjs --require-signoff",
     "secrets:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-secrets.ps1",
     "notices:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/generate-third-party-notices.ps1 -Check",
     "toolchains:check": "node tools/check-toolchains.mjs",

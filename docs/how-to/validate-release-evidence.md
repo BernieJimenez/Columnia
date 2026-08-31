@@ -93,7 +93,7 @@ servirán los assets:
 
 ```powershell
 $env:COLUMNIA_UPDATER_ENDPOINT = "https://updates.example/columnia.json"
-$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.57.0/"
+$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.91.0/"
 $env:TAURI_SIGNING_PRIVATE_KEY = "C:\ruta-privada\columnia-updater.key"
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
 npm run release:updater:dry-run

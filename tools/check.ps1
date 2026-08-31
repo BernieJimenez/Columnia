@@ -184,6 +184,14 @@ try {
     Invoke-Checked "Repository governance" $ProjectRoot {
         & (Join-Path $ProjectRoot "tools\check-governance.ps1")
     }
+    Invoke-Checked "Legal distribution technical gate" $ProjectRoot {
+        & node tools/check-legal-distribution.mjs
+    }
+    if ($ReleaseLike) {
+        Invoke-Checked "Legal distribution sign-off" $ProjectRoot {
+            & node tools/check-legal-distribution.mjs --require-signoff
+        }
+    }
     Invoke-Checked "Rust format" $TauriRoot { cargo fmt -- --check }
     Invoke-Checked "Rust check" $TauriRoot { cargo check }
     Invoke-Checked "Frontend tests" $ProjectRoot { npm test -- --run }

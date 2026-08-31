@@ -18,6 +18,7 @@ const requiredFiles = [
   "AUDITORIA_PROFESIONAL_2026-08-28.md",
   "THREAT_MODEL.md",
   "docs/reference/ipc-inventory.json",
+  "docs/reference/legal-distribution-decision.json",
   "docs/explanation/local-first-architecture.md",
 ];
 const markdownRoots = ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", "ROADMAP.md", "CONTEXTO.md", "AUDITORIA_PROFESIONAL_2026-08-28.md", "THREAT_MODEL.md", "docs"];
@@ -73,6 +74,7 @@ try {
   const packageManifest = JSON.parse(await readUtf8("package.json"));
   const packageLock = JSON.parse(await readUtf8("package-lock.json"));
   const tauriConfig = JSON.parse(await readUtf8("src-tauri/tauri.conf.json"));
+  const legalDecision = JSON.parse(await readUtf8("docs/reference/legal-distribution-decision.json"));
   const cargoManifest = await readUtf8("src-tauri/Cargo.toml");
   const cargoLock = await readUtf8("src-tauri/Cargo.lock");
   const changelog = await readUtf8("CHANGELOG.md");
@@ -83,6 +85,9 @@ try {
   const cargoLockVersion = cargoPackageBlock?.match(/^version = "([^"]+)"$/m)?.[1];
   if (!version || packageLock.version !== version || packageLock.packages?.[""].version !== version || tauriConfig.version !== version || cargoVersion !== version || cargoLockVersion !== version) {
     fail("La versión de npm, lockfile, Cargo, Cargo.lock y Tauri no está sincronizada.");
+  }
+  if (legalDecision.schemaVersion !== 1 || !["pending-legal-review", "approved"].includes(legalDecision.status)) {
+    fail("La ficha legal/distribución debe usar schemaVersion 1 y un estado conocido.");
   }
   if (!changelog.includes(`[${version}]`)) fail(`CHANGELOG.md no contiene la versión ${version}.`);
   if (!changelog.includes("Tier 5")) fail("CHANGELOG.md no documenta el estado de Tier 5.");

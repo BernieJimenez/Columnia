@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-08-31
+
+### Añadido
+
+- Se incorpora una ficha estructurada de decisiones legales y de distribución,
+  con un gate técnico que exige completar la aprobación antes de los perfiles
+  `Release` y `Package`.
+- El panel accesible de licencia y privacidad expone una región etiquetada para
+  que el contenido sea descubrible por teclado y tecnologías de asistencia.
+
+### Mejorado
+
+- El inventario de avisos consolida paquetes repetidos por identidad y conserva
+  todas sus fuentes, rechazando filas incompletas, licencias desconocidas y
+  contradicciones.
+- La auditoría documental queda alineada con 995 dependencias, 65 comandos de
+  producción, 4 de depuración y 58 estructuras compartidas.
+
 ## [0.90.0] - 2026-08-31
 
 ### Eliminado

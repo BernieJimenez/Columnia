@@ -30,6 +30,7 @@ describe("contratos de accesibilidad de la interfaz", () => {
     expect(appSource).toMatch(/<main id="main-content" className="main-content" tabIndex=\{-1\}>/);
     expect(appSource).toContain('aria-current={activePhase === phase.id ? "step" : undefined}');
     expect(appSource).toContain("aria-busy={operationBusy}");
+    expect(appSource).toMatch(/role="region"\s+aria-labelledby="legal-panel-title"\s+aria-describedby="legal-panel-summary"/);
   });
 
   it("expone nombres accesibles para las acciones de proyectos y su estado ocupado", () => {

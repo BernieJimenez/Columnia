@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.90.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.91.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -20,15 +20,17 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 298 frontend y 363 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
-| Última revisión de este documento | 2026-08-31, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; el inventario IPC registra 65 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las consultas DuckDB fijan 512 MB de memoria, derrame privado de hasta 8 GB y cleanup por operación; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
+| Pruebas observadas | 271 frontend y 314 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Última revisión de este documento | 2026-08-31, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; el inventario IPC registra 65 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las consultas DuckDB fijan 512 MB de memoria, derrame privado de hasta 8 GB y cleanup por operación; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
 
 ### Estado verificable de Tier 5
 
 La implementación actual cerró técnicamente los gates de cobertura por capa,
 `SkipPackage`, zoom/reflow de 125% y 200%, inventario IPC, toolchains, notices,
 confinamiento batch, reintento del catálogo, reconciliación de generaciones y
-endurecimiento Playwright y updater autenticado. El fast-path de fingerprints normalizados mantiene
+endurecimiento Playwright y updater autenticado. El gate técnico legal/distribución
+valida la ficha estructurada y bloquea los perfiles `Release`/`Package` mientras
+falte aprobación jurídica. El fast-path de fingerprints normalizados mantiene
 la semántica de duplicados parecidos y reduce el `project-save` de 100 MiB a
 59.75 s en una corrida corta y el benchmark formal registra `project-save` en
 52.09 s con tres actualizaciones entre 56.37 y 57.31 s
@@ -90,7 +92,7 @@ cobertura; no cambia las estadísticas agregadas restantes.
 
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 298 tests frontend y 352 tests Rust; los
+- Las suites locales actuales pasan: 271 tests frontend y 314 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y
@@ -773,7 +775,7 @@ Consulta `ROADMAP.md` para el detalle, pero verifica cada casilla contra el cód
 
 1. **Motor monolítico**: `dataset.rs` concentra casi todo el dominio. Un cambio puede afectar carga, receta, historial y exportación; usa CodeGraph y ejecuta pruebas Rust completas.
 2. **Editor de recetas amplio**: las cuatro fases ya viven en módulos feature y `App.tsx` es un coordinador pequeño, pero `TransformRecipeEditor.tsx` reúne muchos subdominios de receta. Cualquier división futura debe preservar el orden, dependencias y confirmaciones destructivas.
-3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 57 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
+3. **Contratos duplicados con gate**: Rust y TypeScript todavía declaran contratos por separado, pero 58 estructuras tienen comparación automática de campos y tipos. Al añadir una estructura compartida nueva, debe incorporarse explícitamente a las listas del gate IPC.
 4. **Memoria**: los datasets no tienen un tope fijo de tamaño. Polars materializa el dataset y algunas operaciones crean candidatos completos, por lo que la capacidad efectiva depende de la RAM, el espacio disponible y los demás recursos del equipo.
 5. **Consumo de disco durable**: cada proyecto puede conservar generaciones e historial Parquet de hasta 12 revisiones/1 GiB; los límites por proyecto no forman un presupuesto global para todos los proyectos.
 6. **Cobertura de plataforma**: arranque y empaquetado están verificados en Windows; macOS y Linux aún requieren validación local real.

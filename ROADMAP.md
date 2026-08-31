@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.90.0`.
+- Versión actual del prototipo: `0.91.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1053,14 +1053,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.90.0
+## 8.1. Cola de ejecución recomendada desde v0.91.0
 
-1. **Migración de recetas sistema anterior:** completada en v0.53.0 para el núcleo
-   representable y ampliada en Unreleased con `find_replace` regex segura. El
-   selector importa pipelines v1–v3, valida los patrones con la sintaxis Rust y
-   conserva grupos de captura; booleanos personalizados y operaciones sin
-   equivalente siguen requiriendo revisión manual. La migración de sesiones,
-   reglas incrustadas, artefactos y round-trip completo permanece en M1.
+1. **Superficie de compatibilidad externa:** retirada en v0.90.0. El selector de
+   recetas y el catálogo de proyectos exponen únicamente contratos nativos de
+   Columnia; no se conserva una ruta de importación, replay o round-trip de otro
+   producto. Las futuras recetas deben ampliar el contrato nativo y sus pruebas,
+   sin reintroducir adaptadores externos.
 2. **Sistema visual y temas:** completado en v0.52.0. La barra lateral ofrece
    un selector persistente de tema `Sistema`, `Claro` y `Oscuro`; la preferencia
    se aplica antes de montar React, se conserva en almacenamiento local y mantiene
@@ -1660,6 +1659,11 @@ por el mero hecho de estar documentada aquí.
     ante diferencia con lockfiles.
   - **Esfuerzo:** alto
   - **Depende de:** revisión legal y decisión del canal de distribución
+  - **Resultado técnico 2026-08-31:** el generador consolida paquetes repetidos
+    por identidad, conserva todas sus fuentes y rechaza filas incompletas,
+    licencias `UNKNOWN` y licencias contradictorias. `npm run notices:check`
+    valida 995 identidades; la revisión legal del canal y los textos completos
+    que ese canal exija siguen pendientes.
 
 ### Prioridad media
 
@@ -1803,6 +1807,10 @@ por el mero hecho de estar documentada aquí.
     app instalada; revisión legal y pruebas de retención/borrado quedan anexadas.
   - **Esfuerzo:** medio
   - **Depende de:** T5-20 y definición de jurisdicción/canal
+  - **Resultado técnico 2026-08-31:** el panel lateral expone una región
+    etiquetada para licencia, avisos, privacidad, retención y borrado; la ficha
+    `legal-distribution-decision.json` y el gate de distribución bloquean
+    `Release`/`Package` mientras falten aprobación y canal.
 
 ### Prioridad baja
 
@@ -1822,6 +1830,7 @@ por el mero hecho de estar documentada aquí.
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
 | 2026-08-28 | Implementación técnica mayormente cerrada: T5-01–T5-17 y T5-19; T5-18/T5-20 siguen pendientes de aceptación legal y pruebas del canal. T5-06 queda cerrado con evidencia release ligada a commit limpio y baseline visual actualizado. El orquestador local y el updater firmado ya están implementados. | Código, cobertura, IPC, notices, toolchains, benchmark formal, Package firmado, smoke nativo, suite Rust y `fixtures/accessibility/release-evidence-baseline-v1.json` |
+| 2026-08-31 | Se cerró la protección técnica de T5-18/T5-20 sin falsear aprobación: la ficha jurídica es explícita y versionada, `legal:check` valida artefactos y `Release`/`Package` exigen sign-off; notices consolida 995 identidades sin `UNKNOWN` ni duplicados y el panel legal es una región accesible. Las decisiones de jurisdicción/canal y la prueba en VM/canal real siguen pendientes. | `docs/reference/legal-distribution-decision.json`, `tools/check-legal-distribution.mjs`, `tools/generate-third-party-notices.ps1`, `npm run notices:check`, `npm run legal:check` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
 | 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
 | 2026-08-28 | CDP funcional de ProjectsPanel y perf gate aprobados: 3 ciclos sostenidos, 470.25 MiB working set, 253.48 MiB privados y cleanup; accesibilidad visual 125%/200% y forced-colors aprobada. | `.local/validation/webview2-cdp/20260828T185215Z/summary.json`, `.local/validation/accessibility-visual/20260828T185137Z` |

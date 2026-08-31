@@ -15,9 +15,9 @@ if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
 function Normalize-License {
     param($License)
     if ($null -eq $License) { return "UNKNOWN" }
-    if ($License -is [string]) { return $License }
-    if ($License.type) { return [string]$License.type }
-    if ($License.name) { return [string]$License.name }
+    if ($License -is [string]) { return $License.Trim() }
+    if ($License.type) { return ([string]$License.type).Trim() }
+    if ($License.name) { return ([string]$License.name).Trim() }
     return "UNKNOWN"
 }
 
@@ -77,22 +77,40 @@ foreach ($Package in @($CargoPackages)) {
             version = [string]$Package.version
             license = Normalize-License $Package.license
             source = if ($Package.source) { [string]$Package.source } else { "Cargo.lock" }
-        })
+    })
 }
 
+$InvalidRows = @(
+    $Rows | Where-Object {
+        [string]::IsNullOrWhiteSpace([string]$_.ecosystem) -or
+        [string]::IsNullOrWhiteSpace([string]$_.name) -or
+        [string]::IsNullOrWhiteSpace([string]$_.version) -or
+        [string]::IsNullOrWhiteSpace([string]$_.source) -or
+        [string]::IsNullOrWhiteSpace([string]$_.license)
+    }
+)
+if ($InvalidRows.Count -gt 0) {
+    throw "El inventario de terceros contiene filas incompletas."
+}
 $UniqueRows = @(
     $Rows |
-        Group-Object -Property { "$($_.ecosystem)|$($_.name)|$($_.version)|$($_.source)" } |
+        Group-Object -Property { "$($_.ecosystem)|$($_.name)|$($_.version)" } |
         ForEach-Object {
             $Licenses = @($_.Group | ForEach-Object { [string]$_.license } | Sort-Object -Unique)
             if ($Licenses.Count -ne 1) {
                 throw "Se detectaron licencias contradictorias para el grupo $($_.Name)."
             }
-            $_.Group[0]
+            [ordered]@{
+                ecosystem = [string]$_.Group[0].ecosystem
+                name = [string]$_.Group[0].name
+                version = [string]$_.Group[0].version
+                license = $Licenses[0]
+                source = @($_.Group | ForEach-Object { [string]$_.source } | Sort-Object -Unique) -join "; "
+            }
         } |
         Sort-Object ecosystem, name, version, source
 )
-if (@($UniqueRows | Where-Object { [string]$_.license -eq "UNKNOWN" }).Count -gt 0) {
+if (@($UniqueRows | Where-Object { [string]$_.license -ieq "UNKNOWN" }).Count -gt 0) {
     throw "El inventario de terceros contiene licencias UNKNOWN; corrige los metadatos antes de distribuir."
 }
 $Lines = [System.Collections.Generic.List[string]]::new()
