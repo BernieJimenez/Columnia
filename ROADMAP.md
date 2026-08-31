@@ -17,7 +17,7 @@
   restauración completa de sesiones y la cobertura integral del round-trip hacia
   proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.59.0`.
+- Versión actual del prototipo: `0.60.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1054,7 +1054,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.59.0
+## 8.1. Cola de ejecución recomendada desde v0.60.0
 
 1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
    representable y ampliada en Unreleased con `find_replace` regex segura. El
@@ -1342,6 +1342,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   primero el mismo contrato restringido mediante DuckDB desde disco, incluidos
   los JOINs con un snapshot comparado, y vuelve al `DataFrame` solo si la
   consulta o la fuente no son compatibles.
+  Con snapshots administrados válidos, la misma promoción se aplica a todos los
+  JOIN compatibles, no solo a los que superan el umbral de entradas; así la ruta
+  Polars no materializa innecesariamente ambos datasets antes de consultar.
   La comparación inicial de fuentes Parquet, CSV/TSV/TXT delimitadas y JSON ya
   cuenta y compara por bloques después de conservar el snapshot administrado;
   los libros XLSX/XLSB también generan snapshots Parquet por bloques mediante
@@ -1996,6 +1999,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-30 | P1 procesa la comparación inicial de fuentes Parquet, delimitadas y JSON por bloques: copia o genera el snapshot temporal de forma secuencial, cuenta filas por streaming y calcula intersección, claves y conflictos desde índices temporales; Excel y el dataset activo conservan la materialización actual. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.58.0 procesa la comparación inicial de libros XLSX/XLSB con el lector secuencial de celdas de Calamine: detecta esquema en una pasada, escribe Parquet por bloques de 16K y compara desde snapshot; XLS/ODS conservan fallback compatible. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.59.0 permite que la consulta Polars use automáticamente DuckDB sobre la fuente original CSV/TSV/TXT delimitada o Parquet cuando el historial se degrada; las consultas compatibles, incluidos JOINs con snapshots comparados, evitan reconstruir la fuente desde el `DataFrame` y mantienen fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.60.0 promueve todos los JOIN compatibles elegidos por Polars a DuckDB cuando el activo y la comparación tienen snapshots o fuentes de disco válidas, no solo los JOIN grandes; la ruta evita materializar ambos datasets y conserva fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

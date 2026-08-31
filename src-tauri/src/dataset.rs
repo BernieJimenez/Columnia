@@ -3702,17 +3702,12 @@ fn local_query_has_join(query: &str) -> bool {
         .any(|token| token.eq_ignore_ascii_case("join"))
 }
 
-fn should_route_large_join_to_duckdb(
+fn should_route_join_to_duckdb(
     query: &str,
-    current_row_count: usize,
-    compared_row_count: usize,
     has_current_disk_source: bool,
     has_compared_disk_source: bool,
 ) -> bool {
-    local_query_has_join(query)
-        && has_current_disk_source
-        && has_compared_disk_source
-        && current_row_count.saturating_add(compared_row_count) > LOCAL_QUERY_JOIN_MAX_INPUT_ROWS
+    local_query_has_join(query) && has_current_disk_source && has_compared_disk_source
 }
 
 fn current_duckdb_file_source(
@@ -17948,14 +17943,8 @@ pub async fn query_dataset(
             let compared_snapshot = comparison
                 .as_ref()
                 .map(|pending| pending.snapshot_path.clone());
-            let compared_row_count = comparison
-                .as_ref()
-                .map(|pending| pending.row_count)
-                .unwrap_or_default();
-            if should_route_large_join_to_duckdb(
+            if should_route_join_to_duckdb(
                 &query,
-                dataset.frame.height(),
-                compared_row_count,
                 current_snapshot.is_some() || current_file_source.is_some(),
                 compared_snapshot.is_some(),
             ) {
@@ -17970,32 +17959,50 @@ pub async fn query_dataset(
                 if let (Some(current_schema), Some(compared_schema)) =
                     (current_schema.as_ref(), compared_schema.as_ref())
                 {
-                    let spec = prepare_duckdb_query(&query, current_schema, Some(compared_schema))?;
-                    let cancellation_app = query_app.clone();
-                    if let Some(current_path) = current_snapshot.as_ref() {
-                        return crate::duckdb_query::execute_duckdb_query_from_parquet_sources(
-                            current_path,
-                            Some(compared_path),
-                            &spec,
-                            move || {
-                                cancellation_app
-                                    .state::<DatasetState>()
-                                    .query_was_cancelled(generation)
-                            },
-                        );
-                    }
-                    if let Some((current_path, current_format)) = current_file_source.as_ref() {
-                        return crate::duckdb_query::execute_duckdb_query_from_file_sources(
-                            current_path,
-                            *current_format,
-                            Some(compared_path),
-                            &spec,
-                            move || {
-                                cancellation_app
-                                    .state::<DatasetState>()
-                                    .query_was_cancelled(generation)
-                            },
-                        );
+                    if let Ok(spec) =
+                        prepare_duckdb_query(&query, current_schema, Some(compared_schema))
+                    {
+                        let result = if let Some(current_path) = current_snapshot.as_ref() {
+                            let cancellation_app = query_app.clone();
+                            Some(
+                                crate::duckdb_query::execute_duckdb_query_from_parquet_sources(
+                                    current_path,
+                                    Some(compared_path),
+                                    &spec,
+                                    move || {
+                                        cancellation_app
+                                            .state::<DatasetState>()
+                                            .query_was_cancelled(generation)
+                                    },
+                                ),
+                            )
+                        } else if let Some((current_path, current_format)) =
+                            current_file_source.as_ref()
+                        {
+                            let cancellation_app = query_app.clone();
+                            Some(crate::duckdb_query::execute_duckdb_query_from_file_sources(
+                                current_path,
+                                *current_format,
+                                Some(compared_path),
+                                &spec,
+                                move || {
+                                    cancellation_app
+                                        .state::<DatasetState>()
+                                        .query_was_cancelled(generation)
+                                },
+                            ))
+                        } else {
+                            None
+                        };
+                        if let Some(result) = result {
+                            match result {
+                                Ok(result) => return Ok(result),
+                                Err(error) if error == OPERATION_CANCELLED_MESSAGE => {
+                                    return Err(error)
+                                }
+                                Err(_) => {}
+                            }
+                        }
                     }
                 }
             }
@@ -25145,30 +25152,14 @@ mod tests {
     }
 
     #[test]
-    fn large_joins_route_to_duckdb_only_when_both_disk_sources_exist() {
+    fn joins_route_to_duckdb_when_both_disk_sources_exist() {
         let query = "SELECT id FROM dataset JOIN compared ON dataset.id = compared.id LIMIT 1";
-        let over_limit = LOCAL_QUERY_JOIN_MAX_INPUT_ROWS + 1;
 
-        assert!(should_route_large_join_to_duckdb(
-            query, over_limit, 1, true, true
-        ));
-        assert!(!should_route_large_join_to_duckdb(
-            query,
-            LOCAL_QUERY_JOIN_MAX_INPUT_ROWS.saturating_sub(1),
-            1,
-            true,
-            true,
-        ));
-        assert!(!should_route_large_join_to_duckdb(
-            query, over_limit, 1, false, true
-        ));
-        assert!(!should_route_large_join_to_duckdb(
-            query, over_limit, 1, true, false
-        ));
-        assert!(!should_route_large_join_to_duckdb(
+        assert!(should_route_join_to_duckdb(query, true, true));
+        assert!(!should_route_join_to_duckdb(query, false, true));
+        assert!(!should_route_join_to_duckdb(query, true, false));
+        assert!(!should_route_join_to_duckdb(
             "SELECT id FROM dataset LIMIT 1",
-            over_limit,
-            1,
             true,
             true,
         ));

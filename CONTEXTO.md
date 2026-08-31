@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.59.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.60.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -47,10 +47,11 @@ gates locales y no publica ni etiqueta.
 La consulta Polars simple sin comparación ya puede consumir el snapshot Parquet
 del cursor por bloques de 16K filas: valida el esquema, cuenta coincidencias y
 retiene solo la página o los acumuladores. Si el snapshot no coincide o no puede
-leerse, la sesión vuelve al `DataFrame` activo. Un JOIN que supera el límite de
-entradas se promueve automáticamente a DuckDB cuando existen los snapshots
-Parquet administrados de ambos lados; cuando el historial está degradado, el
-dataset no ha sido mutado y la fuente original es CSV, TSV, TXT delimitado o
+leerse, la sesión vuelve al `DataFrame` activo. Todos los JOIN compatibles se
+promueven automáticamente a DuckDB cuando existen snapshots o fuentes de disco
+válidas de ambos lados, incluso por debajo del umbral de entradas. Cuando el
+historial está degradado, el dataset no ha sido mutado y la fuente original es
+CSV, TSV, TXT delimitado o
 Parquet, DuckDB también puede leer el activo directamente desde disco y combinarlo
 con el snapshot comparado. Si la fuente cambia o no es compatible, conserva el
 fallback materializado seguro. La ejecución incremental general fuera de RAM
@@ -839,6 +840,7 @@ Al actualizarlo:
 | 2026-08-30 | P1 pagina conflictos desde snapshots Parquet comparados por bloques de 16K, conserva duplicados globales con un índice temporal y valida conteos/cambios del snapshot antes de responder; Excel y la ejecución general fuera de RAM permanecen pendientes. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.58.0: la comparación inicial de libros XLSX/XLSB usa el lector secuencial de celdas de Calamine en dos pasadas y escribe snapshots Parquet por bloques de 16K; XLS/ODS conservan fallback porque Calamine no ofrece lectura lazy para esos formatos. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.59.0: las consultas compatibles elegidas como Polars caen automáticamente a DuckDB sobre la fuente original CSV/TSV/TXT delimitada o Parquet cuando el historial se degrada; los JOINs pueden combinar esa fuente con snapshots comparados sin reconstruir el activo desde el `DataFrame`. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.60.0: la promoción automática a DuckDB cubre todos los JOIN compatibles elegidos como Polars cuando el activo y la comparación tienen snapshots o fuentes de disco válidas, evitando la materialización eager innecesaria y manteniendo fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | P1 sirve la paginación de la muestra activa desde el snapshot Parquet del cursor con `slice` y colección streaming; los estados degradados conservan el fallback al `DataFrame`. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | P1 evita una segunda clonación completa al guardar proyectos: la copia aislada del dataset se entrega directamente al escritor `Parquet`, conservando la publicación atómica y la recuperación ante fallos; el benchmark fija el perfil de compilación reproducible y restaura el entorno del proceso. | `src-tauri/src/projects.rs`, `tools/benchmark-datasets.ps1`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-08-30 | La receta lazy/streaming incorpora parseos explícitos `Ymd`, `Dmy` y `Mdy`, y `Iso8601` sin offset o con sufijo UTC `Z`, para objetivos `Date`/`Datetime`, con trim y nulos preservados; offsets distintos de UTC, zonas horarias y operaciones avanzadas mantienen fallback eager. | `src-tauri/src/dataset.rs`, `ROADMAP.md`, `CHANGELOG.md` |

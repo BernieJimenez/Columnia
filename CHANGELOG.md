@@ -6,6 +6,15 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-08-31
+
+### Mejorado
+
+- Las consultas Polars con `JOIN` compatible usan automáticamente DuckDB cuando
+  el activo y la comparación tienen snapshots o fuentes de disco válidas,
+  incluso por debajo del umbral de datasets grandes. Se conserva el fallback
+  local seguro si alguna fuente no puede registrarse.
+
 ## [0.59.0] - 2026-08-31
 
 ### Añadido
