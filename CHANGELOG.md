@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-08-31
+
+### Mejorado
+
+- La ruta DuckDB de consultas locales configura por consulta un límite de
+  memoria de 512 MB y un directorio privado de derrame temporal de hasta 8 GB.
+  Esto permite que filtros, agregaciones y joins source-backed cedan memoria a
+  disco cuando el plan lo necesita, manteniendo cancelación, aislamiento y
+  cleanup automático.
+
 ## [0.62.0] - 2026-08-31
 
 ### Mejorado

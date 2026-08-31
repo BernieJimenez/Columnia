@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    fs::File,
+    fs::{self, File},
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -19,6 +19,8 @@ use polars::prelude::{DataFrame, ParquetWriter};
 use crate::dataset::{DatasetColumn, DatasetQueryResult, OPERATION_CANCELLED_MESSAGE};
 
 const QUERY_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const DUCKDB_MEMORY_LIMIT: &str = "512MB";
+const DUCKDB_MAX_TEMP_DIRECTORY_SIZE: &str = "8GB";
 
 pub(crate) struct DuckDbQuerySpec {
     pub(crate) bounded_query: String,
@@ -233,6 +235,7 @@ fn execute_query_with_connection(
 ) -> Result<DatasetQueryResult, String> {
     let directory = tempfile::tempdir()
         .map_err(|error| format!("No se pudo preparar el espacio temporal para DuckDB: {error}"))?;
+    configure_duckdb_resources(connection, directory.path())?;
     let current_path = directory.path().join("dataset.parquet");
     if let Some(dataset_view_query) = &spec.dataset_view_query {
         let compared = compared.ok_or_else(|| {
@@ -319,6 +322,22 @@ fn execute_query_with_connection(
         rows: result_rows,
         truncated: spec.offset.saturating_add(spec.limit) < row_count,
     })
+}
+
+fn configure_duckdb_resources(connection: &Connection, directory: &Path) -> Result<(), String> {
+    let spill_directory = directory.join("duckdb-spill");
+    fs::create_dir_all(&spill_directory)
+        .map_err(|error| format!("No se pudo preparar el derrame temporal de DuckDB: {error}"))?;
+    let escaped_spill_directory = spill_directory
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let query = format!(
+        "SET memory_limit = '{DUCKDB_MEMORY_LIMIT}'; SET max_temp_directory_size = '{DUCKDB_MAX_TEMP_DIRECTORY_SIZE}'; SET temp_directory = '{escaped_spill_directory}'; SET preserve_insertion_order = true;"
+    );
+    connection
+        .execute_batch(&query)
+        .map_err(|error| format!("DuckDB no pudo configurar sus límites de recursos: {error}"))
 }
 
 fn write_frame_snapshot(
@@ -746,6 +765,43 @@ mod tests {
         );
         assert!(current_path.is_file());
         assert!(compared_path.is_file());
+    }
+
+    #[test]
+    fn configures_bounded_memory_and_a_private_spill_directory() {
+        let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+
+        configure_duckdb_resources(&connection, directory.path())
+            .expect("DuckDB debe aceptar sus límites de recursos");
+
+        let memory_limit: String = connection
+            .query_row("SELECT current_setting('memory_limit')", [], |row| {
+                row.get(0)
+            })
+            .expect("se debe consultar el límite de memoria");
+        let temp_directory: String = connection
+            .query_row("SELECT current_setting('temp_directory')", [], |row| {
+                row.get(0)
+            })
+            .expect("se debe consultar el directorio de derrame");
+        let max_temp_directory_size: String = connection
+            .query_row(
+                "SELECT current_setting('max_temp_directory_size')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("se debe consultar el límite de disco temporal");
+
+        assert!(
+            memory_limit.contains("512") || memory_limit.contains("488"),
+            "límite de memoria inesperado: {memory_limit}"
+        );
+        assert!(temp_directory.contains("duckdb-spill"));
+        assert!(
+            max_temp_directory_size.to_ascii_lowercase().contains("gib"),
+            "límite de disco temporal inesperado: {max_temp_directory_size}"
+        );
     }
 
     #[test]

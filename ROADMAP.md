@@ -1103,9 +1103,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    que todavía requieren el camino eager.
 7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
    valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
-   temporales, con paginación, orden estable, agregaciones y joins seguros;
-   quedan el benchmark del motor, los datasets que excedan la RAM, consultas
-   más amplias y destinos de base de datos.
+   temporales, con paginación, orden estable, agregaciones y joins seguros.
+   Desde v0.63 cada consulta configura 512 MB de memoria y hasta 8 GB de
+   derrame temporal privado, de modo que los planes source-backed pueden
+   continuar procesando intermedios mayores que la memoria disponible. Quedan
+   el benchmark del motor, la validación con datasets que excedan la RAM,
+   consultas más amplias y destinos de base de datos.
 8. **Migración M1 desde `dataprepv1.1`:** la vertical de contratos de calidad
    ya produce en v0.55.0 un informe con conteos, advertencias, acciones manuales
    y hash del artefacto; v0.56.0 conserva las opciones de entrega compatibles de
@@ -1348,6 +1351,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   Con snapshots administrados válidos, la misma promoción se aplica a todos los
   JOIN compatibles, no solo a los que superan el umbral de entradas; así la ruta
   Polars no materializa innecesariamente ambos datasets antes de consultar.
+  La ruta DuckDB configura por operación un límite de 512 MB y un directorio
+  privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; esto
+  habilita la expansión fuera de RAM de los planes compatibles, pero aún
+  requiere benchmark sostenido y validación con datasets reales grandes.
   La comparación inicial de fuentes Parquet, CSV/TSV/TXT delimitadas y JSON
   reutiliza el snapshot Parquet administrado del activo cuando existe; si no,
   convierte una fuente original intacta compatible a un snapshot temporal y
@@ -2007,6 +2014,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-31 | Versión 0.60.0 promueve todos los JOIN compatibles elegidos por Polars a DuckDB cuando el activo y la comparación tienen snapshots o fuentes de disco válidas, no solo los JOIN grandes; la ruta evita materializar ambos datasets y conserva fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.61.0 extiende la paginación source-backed al historial degradado: un dataset intacto lee solo la ventana solicitada desde su fuente original Parquet o CSV/TSV/TXT, comprueba el tamaño de la fuente y la cantidad esperada de filas de la página, y vuelve al frame ante inconsistencias. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.62.0 extiende la comparación inicial source-backed al lado activo: reutiliza su snapshot Parquet o una fuente original Parquet/CSV/TSV/TXT intacta, compara ambos lados por bloques e índices temporales sin clonar el `DataFrame` y conserva fallback ante inconsistencias. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.63.0 configura DuckDB por consulta con 512 MB de memoria y hasta 8 GB de derrame temporal privado, preservando cancelación y cleanup para avanzar la ejecución source-backed fuera de RAM. | `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

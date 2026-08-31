@@ -590,9 +590,13 @@ crear otra copia del activo. Si la fuente cambia o no admite esa ruta, se usa
 el fallback materializado seguro. En la variante Polars `FULL`, las filas derechas no
 emparejadas se visitan por bloques de 16K usando un índice temporal de claves,
 por lo que no se materializa el anti-join derecho completo; `NULL` no se trata
-como una coincidencia y se conservan duplicados y orden de entrada. Los
-`DataFrame` fuente todavía se materializan y la ejecución general fuera de RAM
-continúa pendiente.
+como una coincidencia y se conservan duplicados y orden de entrada. Los planes
+DuckDB configuran por operación un límite de memoria de 512 MB, un directorio
+privado de derrame y un máximo de 8 GB temporales; la carpeta se elimina al
+terminar la consulta. Esto permite que los intermedios compatibles cedan
+memoria a disco, pero la carga inicial, el fallback Polars y las transformaciones
+generales todavía pueden materializar `DataFrame` y la ejecución completa fuera
+de RAM continúa pendiente.
 
 Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en
