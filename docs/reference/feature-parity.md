@@ -593,10 +593,12 @@ por lo que no se materializa el anti-join derecho completo; `NULL` no se trata
 como una coincidencia y se conservan duplicados y orden de entrada. Los planes
 DuckDB configuran por operación un límite de memoria de 512 MB, un directorio
 privado de derrame y un máximo de 8 GB temporales; la carpeta se elimina al
-terminar la consulta. Esto permite que los intermedios compatibles cedan
-memoria a disco, pero la carga inicial, el fallback Polars y las transformaciones
-generales todavía pueden materializar `DataFrame` y la ejecución completa fuera
-de RAM continúa pendiente.
+terminar la consulta. La misma frontera se aplica al convertir fuentes
+CSV/TSV/TXT delimitadas o JSON a snapshots Parquet temporales para comparación,
+evitando que la preparación source-backed use un presupuesto distinto. Esto
+permite que los intermedios compatibles cedan memoria a disco, pero la carga
+inicial, el fallback Polars y las transformaciones generales todavía pueden
+materializar `DataFrame` y la ejecución completa fuera de RAM continúa pendiente.
 
 Revisar conserva una actividad de las últimas cinco ejecuciones SQL: estado,
 duración y filas afectadas. Al guardar un proyecto, ese resumen se serializa en

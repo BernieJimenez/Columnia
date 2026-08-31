@@ -150,6 +150,10 @@ pub(crate) fn materialize_file_to_parquet(
 ) -> Result<(), String> {
     let connection = Connection::open_in_memory()
         .map_err(|error| format!("No se pudo iniciar DuckDB para el snapshot: {error}"))?;
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el espacio temporal para el snapshot DuckDB: {error}")
+    })?;
+    configure_duckdb_resources(&connection, resource_directory.path())?;
     let source = file_scan_expression(source_path, source_format);
     let destination = destination
         .to_string_lossy()
@@ -802,6 +806,39 @@ mod tests {
             max_temp_directory_size.to_ascii_lowercase().contains("gib"),
             "límite de disco temporal inesperado: {max_temp_directory_size}"
         );
+    }
+
+    #[test]
+    fn materializes_a_delimited_source_with_the_same_resource_boundary() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("source.csv");
+        let destination = directory.path().join("snapshot.parquet");
+        fs::write(&source, "city,value\nSanto Domingo,10\nSantiago,20\n")
+            .expect("se debe escribir la fuente delimitada");
+
+        materialize_file_to_parquet(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            &destination,
+            None,
+        )
+        .expect("DuckDB debe crear el snapshot delimitado");
+
+        let connection = Connection::open_in_memory().expect("DuckDB debe iniciar");
+        let escaped_path = destination
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let row_count: i64 = connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM read_parquet('{escaped_path}')"),
+                [],
+                |row| row.get(0),
+            )
+            .expect("el snapshot debe poder leerse");
+
+        assert_eq!(row_count, 2);
+        assert!(destination.is_file());
     }
 
     #[test]

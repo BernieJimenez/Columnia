@@ -1,6 +1,6 @@
 [package]
 name = "columnia"
-version = "0.63.0"
+version = "0.64.0"
 description = "Estación local para preparar datos confiables"
 license = "MIT"
 edition = "2021"

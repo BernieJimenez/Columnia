@@ -6,6 +6,17 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-08-31
+
+### Mejorado
+
+- La conversión source-backed de CSV, TSV, TXT delimitado y JSON a snapshots
+  Parquet reutiliza la frontera de recursos de DuckDB: 512 MB de memoria,
+  hasta 8 GB de derrame temporal privado y cleanup automático. Así la
+  preparación de snapshots no evade el presupuesto aplicado a las consultas.
+- La suite Rust cubre también la publicación y reapertura de un snapshot creado
+  desde una fuente delimitada bajo esa frontera.
+
 ## [0.63.0] - 2026-08-31
 
 ### Mejorado
