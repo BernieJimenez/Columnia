@@ -8,6 +8,11 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Revisar expone la cobertura agregada de análisis conservada al importar una
+  sesión DataPrep: indica si el análisis fue muestreado y sus conteos de filas
+  cuando están disponibles. El perfil actual se recalcula sobre el dataset
+  activo y la UI deja explícito que no se restauran filas, valores ni resultados
+  originales.
 - La migración de recetas DataPrep reconoce el campo `selected` que emiten los
   pipelines persistidos, además de `selected_cleaning_operations` y su alias
   camelCase; las operaciones se normalizan al catálogo determinista canónico y

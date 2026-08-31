@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; la importación M1 también puede publicar `history_snapshots` Parquet explícitos como revisiones durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 286 frontend y 337 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 295 frontend y 337 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-08-30, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la migración DataPrep conserva metadatos agregados de muestreo sin filas ni valores y tiene fixture v3 con round-trip de proyecto y actividad agregada; el inventario IPC registra 68 comandos de producción y 59 estructuras, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; faltan decisiones legales/operativas, VM limpia y validación del canal |
 
 ### Estado verificable de Tier 5
@@ -50,9 +50,14 @@ retiene solo la página o los acumuladores. Si el snapshot no coincide o no pued
 leerse, la sesión vuelve al `DataFrame` activo; `JOIN`, comparación, historial
 degradado y ejecución completa fuera de RAM siguen siendo límites explícitos.
 
+Cuando se reabre una sesión DataPrep con metadatos de muestreo, Revisar muestra
+su estado y conteos agregados como contexto de compatibilidad. El perfil visible
+se recalcula sobre el dataset activo; no se transportan ni se presentan filas,
+valores o resultados de la muestra original.
+
 ### Validación de la implementación Tier 5
 
-- Las suites locales actuales pasan: 286 tests frontend y 337 tests Rust; los
+- Las suites locales actuales pasan: 295 tests frontend y 337 tests Rust; los
   últimos perfiles `Full`/`Release` históricos también aprobaron build, cobertura,
   clippy, supply chain, SBOM e instalador.
 - El probe CDP funcional de ProjectsPanel mide 470.25 MiB de working set y

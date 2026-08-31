@@ -17,6 +17,7 @@ import type {
   CategoricalGroupSummary,
   TemporalSeriesSummary,
   SqlQueryHistoryEntry,
+  RecipeMigrationReport,
 } from "../../bridge";
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
@@ -30,6 +31,11 @@ import type { ComparisonStatus } from "./compareModel";
 import type { JoinStatus } from "./joinModel";
 
 const CONFLICT_PAGE_SIZE = 50;
+
+type ImportedSessionAnalysis = Pick<
+  NonNullable<RecipeMigrationReport["session"]>,
+  "analysisSampled" | "analysisSampleRowCount" | "analysisTotalRowCount"
+>;
 
 interface ReviewPhaseProps {
   datasetStatus: ReadyDatasetStatus;
@@ -54,6 +60,7 @@ interface ReviewPhaseProps {
   onJoin: (joinType: DatasetJoinType) => void;
   sqlHistory?: SqlQueryHistoryEntry[];
   onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
+  importedSessionAnalysis?: ImportedSessionAnalysis;
 }
 
 export function ReviewPhase({
@@ -79,6 +86,7 @@ export function ReviewPhase({
   onJoin,
   sqlHistory = [],
   onSqlHistoryChange = () => undefined,
+  importedSessionAnalysis,
 }: ReviewPhaseProps) {
   const comparisonActive = comparisonStatus.kind !== "idle" || joinStatus.kind !== "idle";
   const [comparisonOpen, setComparisonOpen] = useState(comparisonActive);
@@ -97,6 +105,7 @@ export function ReviewPhase({
           <p>Comprueba la estructura, la calidad y una muestra de los datos antes de modificarlos.</p>
         </div>
       </header>
+      {importedSessionAnalysis && <ImportedSessionAnalysisNotice metadata={importedSessionAnalysis} />}
       <ReviewTabList activeTab={reviewTab} onTabChange={onTabChange} />
 
       {reviewTab === "diagnosis" ? (
@@ -148,6 +157,34 @@ export function ReviewPhase({
         />
       </details>
     </>
+  );
+}
+
+function safeAnalysisRowCount(value: number | undefined): number | null {
+  return value !== undefined && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function ImportedSessionAnalysisNotice({ metadata }: { metadata: ImportedSessionAnalysis }) {
+  const sampledRowCount = safeAnalysisRowCount(metadata.analysisSampleRowCount);
+  const totalRowCount = safeAnalysisRowCount(metadata.analysisTotalRowCount);
+  const hasMetadata = metadata.analysisSampled !== undefined || sampledRowCount !== null || totalRowCount !== null;
+  if (!hasMetadata) return null;
+
+  const coverage = metadata.analysisSampled === true
+    ? "muestreado"
+    : metadata.analysisSampled === false
+      ? "completo"
+      : "registrado";
+  const rowCount = sampledRowCount === null
+    ? ""
+    : totalRowCount === null
+      ? ` · ${sampledRowCount.toLocaleString()} filas`
+      : ` · ${sampledRowCount.toLocaleString()} de ${totalRowCount.toLocaleString()} filas`;
+
+  return (
+    <p className="notice review-session-sample" role="status" aria-label="Cobertura del análisis importado">
+      <strong>Análisis importado desde DataPrep:</strong> cobertura {coverage}{rowCount}. El perfil de calidad se recalcula sobre el dataset activo; este resumen conserva solo metadatos agregados y no restaura filas, valores ni resultados originales.
+    </p>
   );
 }
 

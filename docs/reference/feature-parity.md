@@ -17,7 +17,7 @@ claro y esté cubierta por una prueba o evidencia local.
 | Comparación | Dataset secundario, consolidación y comparación por clave | Dataset secundario local, comparación por clave, consolidación segura, resolución por columna/valor paginada y joins Inner/Left/Full con historial | Parcial | Ampliar análisis exploratorio y equivalencias remotas |
 | Visualizaciones | Gráficos de análisis y diagnóstico | Barras accesibles de completitud, outliers, patrones de nulos, validación de formatos, grupos categóricos acotados, cobertura, calendario diario y tendencia temporal diaria/mensual/anual acotada y matriz de correlaciones numéricas, con tablas equivalentes | Parcial | Ampliar gráficos exploratorios, series temporales completas, filtros e interacciones |
 | Salidas | CSV, Excel, Parquet, JSON, SQL y destinos de base de datos | CSV, Parquet, JSON, SQL, Excel `.xlsx`, SQLite y bundle ZIP auditable locales, con publicación atómica y receta validada opcional dentro del bundle | Parcial | PostgreSQL/MySQL/SQL Server, políticas de tabla |
-| Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes locales sin rutas, arrastre nativo sin rutas en React y primera importación segura de sesiones DataPrep con validación previa | Parcial | Completar restauración de sesiones, round-trip, caché y actividad |
+| Proyectos | Sesiones, historial, caché, restauración y exportación | SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes locales sin rutas, arrastre nativo sin rutas en React y primera importación segura de sesiones DataPrep con validación previa; Revisar comunica la cobertura agregada de muestreo sin restaurar filas ni resultados | Parcial | Completar restauración de sesiones, muestras originales, preferencias, round-trip, caché y actividad |
 | Privacidad | Redacción, PII y operación local | Sin telemetría; detección agregada de PII, máscara/hash en los seis destinos locales, sanitización de recetas/reports/manifests y confirmación visible de columnas protegidas | Parcial | Extender contratos equivalentes a conectores remotos |
 | Escala | Lazy/incremental para entradas grandes | Lazy para recetas compatibles, incluidos parseos explícitos `Ymd`/`Dmy`/`Mdy`, conversiones en columnas distintas y combinaciones `split`/`merge`, tratamientos IQR aislados con filtros previos compatibles y proyección `keepColumns` que conserva sus dependencias; paginación de muestra source-backed desde snapshots Parquet del cursor con `slice`/streaming`; consultas Polars simples sin comparación que validan el esquema y recorren el snapshot por bloques, reteniendo solo la página o los acumuladores; historial durable que copia snapshots byte a byte, valida footer/esquema de revisiones no cursor y materializa solo el cursor, leyendo filas restantes bajo demanda en undo/redo; benchmark CLI validado hasta 256 MiB; perfiles Rayon persistentes; SQL local con Polars predeterminado o DuckDB opcional que reutiliza snapshots Parquet administrados del activo y la comparación y conserva fallback temporal, cancelación cooperativa, presupuesto de agregación y preflight de cardinalidad JOIN | Parcial | Ejecución incremental real fuera de RAM, JOIN/comparación general y presupuesto integral |
 
@@ -326,6 +326,12 @@ proyecto sin modificar el dataset activo. La primera vertical también importa
 una sesión sintética, la reabre, la valida y la exporta sin publicar rutas. La
 restauración completa y el round-trip con fixtures representativas siguen
 pendientes en M1.
+
+La revisión de una sesión DataPrep reabierta comunica ahora el estado de su
+muestreo y los conteos de filas cuando el manifiesto los aporta. Esta señal es
+solo contexto agregado: el perfil se recalcula sobre el dataset activo y no se
+importan filas, valores, resultados ni cachés de la muestra original. La
+restauración de esos artefactos y otras preferencias de sesión sigue pendiente.
 
 ## Tercera entrega de paridad: script SQL
 

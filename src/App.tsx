@@ -847,6 +847,9 @@ export function App() {
                 onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
                 sqlHistory={sqlHistory}
                 onSqlHistoryChange={setSqlHistory}
+                importedSessionAnalysis={recipeDraft?.migrationReport?.sourceFormat === "dataprep"
+                  ? recipeDraft.migrationReport.session
+                  : undefined}
               />
             )}
 
