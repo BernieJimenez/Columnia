@@ -6,6 +6,17 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-08-31
+
+### Mejorado
+
+- La comparación inicial reutiliza el snapshot Parquet administrado del dataset
+  activo cuando existe y, si no, convierte una fuente original Parquet o
+  CSV/TSV/TXT intacta a un snapshot temporal. Ambos lados se comparan por
+  bloques e índices temporales sin clonar el `DataFrame` activo; si una fuente
+  cambia o el camino source-backed falla, se conserva el fallback materializado
+  seguro, incluido el soporte compatible de XLS/ODS.
+
 ## [0.61.0] - 2026-08-31
 
 ### Mejorado

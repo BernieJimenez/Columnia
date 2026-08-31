@@ -17,7 +17,7 @@
   restauración completa de sesiones y la cobertura integral del round-trip hacia
   proyectos;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.61.0`.
+- Versión actual del prototipo: `0.62.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1054,7 +1054,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.60.0
+## 8.1. Cola de ejecución recomendada desde v0.62.0
 
 1. **Migración de recetas DataPrep:** completada en v0.53.0 para el núcleo
    representable y ampliada en Unreleased con `find_replace` regex segura. El
@@ -1348,10 +1348,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   Con snapshots administrados válidos, la misma promoción se aplica a todos los
   JOIN compatibles, no solo a los que superan el umbral de entradas; así la ruta
   Polars no materializa innecesariamente ambos datasets antes de consultar.
-  La comparación inicial de fuentes Parquet, CSV/TSV/TXT delimitadas y JSON ya
-  cuenta y compara por bloques después de conservar el snapshot administrado;
-  los libros XLSX/XLSB también generan snapshots Parquet por bloques mediante
-  el lector secuencial de Calamine. XLS/ODS conservan el fallback materializado.
+  La comparación inicial de fuentes Parquet, CSV/TSV/TXT delimitadas y JSON
+  reutiliza el snapshot Parquet administrado del activo cuando existe; si no,
+  convierte una fuente original intacta compatible a un snapshot temporal y
+  compara ambos lados por bloques. Los libros XLSX/XLSB también generan
+  snapshots Parquet por bloques mediante el lector secuencial de Calamine.
+  XLS/ODS y las fuentes incompatibles conservan el fallback materializado.
   Cuando el historial está degradado, el dataset está intacto y la fuente original es CSV, TSV, TXT delimitado o Parquet, DuckDB ya
   puede leerla directamente desde disco; un `JOIN` puede combinarla con el
   snapshot Parquet de la comparación sin reserializar el activo. Si la fuente
@@ -1360,8 +1362,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   La paginación de conflictos sobre un snapshot Parquet comparado también
   recorre bloques de 16K, conserva un índice temporal global de claves para
   mantener la semántica de duplicados y retiene solo una página y un bloque de
-  valores al construir la respuesta; las fuentes de comparación XLS/ODS y
-  el `DataFrame` activo aún requieren materialización dentro de sus límites
+  valores al construir la respuesta; XLS/ODS y las fuentes que no puedan
+  validarse conservan el fallback materializado dentro de sus límites
   explícitos.
 - [x] Añadir detección, enmascarado/hash SHA-256 y modos de privacidad visibles
   para columnas personales detectadas durante la exportación.
@@ -1392,8 +1394,9 @@ temporales y procesan multiconjuntos, resumen, nuevas claves y conflictos
 paginados por una cubeta a la vez, sin retener mapas globales en memoria. La
 comparación inicial de fuentes Parquet, delimitadas, JSON y XLSX/XLSB también
 puede construir sus índices y conflictos leyendo bloques de 16K desde el
-snapshot; XLS/ODS y el
-dataset activo siguen materializados. Los JOIN locales por claves ya ejecutan el
+snapshot; si el activo tiene un snapshot administrado o una fuente original
+compatible intacta, reutiliza también ese lado sin clonar su `DataFrame`; XLS/ODS
+y fuentes incompatibles mantienen materialización. Los JOIN locales por claves ya ejecutan el
 plan Polars con motor `streaming` después de su preflight; ese preflight también derrama las
   claves y cuenta por cubeta los productos de duplicidad con cancelación, pero su resultado sigue dentro
   de los límites explícitos. Los `JOIN` `INNER`/`LEFT` sin agregación procesan el
@@ -1406,10 +1409,9 @@ plan Polars con motor `streaming` después de su preflight; ese preflight tambi�
   La paginación de conflictos sobre un snapshot Parquet comparado también recorre
   bloques de 16K, conserva un índice temporal global de claves para mantener la
   semántica de duplicados y retiene solo una página y un bloque de valores al
-  construir la respuesta; las fuentes de comparación XLS/ODS y el
-  `DataFrame` activo aún requieren materialización dentro de sus límites
-  explícitos. El dataset activo y las fuentes de comparación XLS/ODS siguen
-  materializados y esto no equivale a ejecución fuera de memoria general. La
+construir la respuesta; XLS/ODS y fuentes inconsistentes mantienen
+materialización dentro de sus límites explícitos. Esta optimización de
+comparación no equivale a ejecución fuera de memoria general. La
   consulta Polars simple sin comparación
   también lee el snapshot Parquet del cursor por bloques de 16K filas, cuenta
   coincidencias y conserva solo la página o los acumuladores; si el snapshot
@@ -2004,6 +2006,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-31 | Versión 0.59.0 permite que la consulta Polars use automáticamente DuckDB sobre la fuente original CSV/TSV/TXT delimitada o Parquet cuando el historial se degrada; las consultas compatibles, incluidos JOINs con snapshots comparados, evitan reconstruir la fuente desde el `DataFrame` y mantienen fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.60.0 promueve todos los JOIN compatibles elegidos por Polars a DuckDB cuando el activo y la comparación tienen snapshots o fuentes de disco válidas, no solo los JOIN grandes; la ruta evita materializar ambos datasets y conserva fallback seguro. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.61.0 extiende la paginación source-backed al historial degradado: un dataset intacto lee solo la ventana solicitada desde su fuente original Parquet o CSV/TSV/TXT, comprueba el tamaño de la fuente y la cantidad esperada de filas de la página, y vuelve al frame ante inconsistencias. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.62.0 extiende la comparación inicial source-backed al lado activo: reutiliza su snapshot Parquet o una fuente original Parquet/CSV/TSV/TXT intacta, compara ambos lados por bloques e índices temporales sin clonar el `DataFrame` y conserva fallback ante inconsistencias. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 
 ### Decisiones cerradas que Tier 5 conserva
 

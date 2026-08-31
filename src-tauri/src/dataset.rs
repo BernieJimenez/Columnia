@@ -15915,6 +15915,204 @@ fn spill_parquet_rows(
     Ok(spill)
 }
 
+struct SpilledKeyPayloadRows {
+    _directory: tempfile::TempDir,
+    bucket_paths: Vec<PathBuf>,
+}
+
+#[derive(Clone)]
+struct KeyPayloadGroup {
+    first_row_index: usize,
+    count: usize,
+    payload: Option<String>,
+}
+
+fn create_spilled_key_payload_rows() -> Result<SpilledKeyPayloadRows, String> {
+    let directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de comparación por clave: {error}")
+    })?;
+    let bucket_paths = (0..COMPARISON_KEY_BUCKETS)
+        .map(|bucket| {
+            directory
+                .path()
+                .join(format!("payload-keys-{bucket:03}.bin"))
+        })
+        .collect::<Vec<_>>();
+    Ok(SpilledKeyPayloadRows {
+        _directory: directory,
+        bucket_paths,
+    })
+}
+
+fn append_spilled_key_payload_rows(
+    spill: &SpilledKeyPayloadRows,
+    frame: &DataFrame,
+    key_columns: &[String],
+    payload_columns: &[String],
+    row_offset: usize,
+) -> Result<(), String> {
+    let mut writers = (0..COMPARISON_KEY_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
+
+    for row_index in 0..frame.height() {
+        let key = row_signature(frame, key_columns, row_index)?;
+        let payload = row_signature(frame, payload_columns, row_index)?;
+        let bucket = comparison_key_bucket(&key);
+        let writer = if let Some(writer) = writers[bucket].as_mut() {
+            writer
+        } else {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&spill.bucket_paths[bucket])
+                .map_err(|error| {
+                    format!("No se pudo abrir el índice temporal de comparación por clave: {error}")
+                })?;
+            writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+        };
+        let key_bytes = key.as_bytes();
+        let payload_bytes = payload.as_bytes();
+        let key_length = u64::try_from(key_bytes.len()).map_err(|_| {
+            "La clave de comparación supera la capacidad del índice temporal.".to_owned()
+        })?;
+        let payload_length = u64::try_from(payload_bytes.len()).map_err(|_| {
+            "La carga de comparación supera la capacidad del índice temporal.".to_owned()
+        })?;
+        let row_number = row_offset
+            .checked_add(row_index)
+            .and_then(|index| u64::try_from(index).ok())
+            .ok_or_else(|| {
+                "El índice de fila supera la capacidad del índice temporal.".to_owned()
+            })?;
+        writer
+            .write_all(&key_length.to_le_bytes())
+            .and_then(|_| writer.write_all(&payload_length.to_le_bytes()))
+            .and_then(|_| writer.write_all(&row_number.to_le_bytes()))
+            .and_then(|_| writer.write_all(key_bytes))
+            .and_then(|_| writer.write_all(payload_bytes))
+            .map_err(|error| {
+                format!("No se pudo escribir el índice temporal de comparación por clave: {error}")
+            })?;
+    }
+
+    for writer in writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudo sincronizar el índice temporal de comparación por clave: {error}")
+        })?;
+    }
+    Ok(())
+}
+
+fn spill_parquet_key_payload_rows(
+    path: &Path,
+    row_count: usize,
+    key_columns: &[String],
+    payload_columns: &[String],
+) -> Result<SpilledKeyPayloadRows, String> {
+    let spill = create_spilled_key_payload_rows()?;
+    for_each_parquet_block(path, row_count, |start, block| {
+        append_spilled_key_payload_rows(&spill, block, key_columns, payload_columns, start)
+    })?;
+    Ok(spill)
+}
+
+fn for_each_spilled_key_payload_record<F>(
+    spill: &SpilledKeyPayloadRows,
+    bucket: usize,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(String, String, usize) -> Result<(), String>,
+{
+    let path = spill
+        .bucket_paths
+        .get(bucket)
+        .ok_or_else(|| "La cubeta del índice de comparación por clave no existe.".to_owned())?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let bytes = fs::metadata(path)
+        .map_err(|error| {
+            format!("No se pudo inspeccionar el índice temporal de comparación por clave: {error}")
+        })?
+        .len();
+    let record_header_bytes = (std::mem::size_of::<u64>() * 3) as u64;
+    if bytes < record_header_bytes {
+        return Err("El índice temporal de comparación por clave quedó incompleto.".to_owned());
+    }
+
+    let file = File::open(path).map_err(|error| {
+        format!("No se pudo leer el índice temporal de comparación por clave: {error}")
+    })?;
+    let mut reader = BufReader::new(file);
+    loop {
+        let mut first_byte = [0_u8; 1];
+        if reader.read(&mut first_byte).map_err(|error| {
+            format!("No se pudo leer el índice temporal de comparación por clave: {error}")
+        })? == 0
+        {
+            break;
+        }
+        let mut key_length_bytes = [0_u8; std::mem::size_of::<u64>()];
+        key_length_bytes[0] = first_byte[0];
+        reader.read_exact(&mut key_length_bytes[1..]).map_err(|_| {
+            "El índice temporal de comparación por clave quedó incompleto.".to_owned()
+        })?;
+        let key_length = usize::try_from(u64::from_le_bytes(key_length_bytes))
+            .map_err(|_| "La clave temporal excede la capacidad local.".to_owned())?;
+        let mut payload_length_bytes = [0_u8; std::mem::size_of::<u64>()];
+        reader.read_exact(&mut payload_length_bytes).map_err(|_| {
+            "El índice temporal de comparación por clave quedó incompleto.".to_owned()
+        })?;
+        let payload_length = usize::try_from(u64::from_le_bytes(payload_length_bytes))
+            .map_err(|_| "La carga temporal excede la capacidad local.".to_owned())?;
+        let mut row_bytes = [0_u8; std::mem::size_of::<u64>()];
+        reader.read_exact(&mut row_bytes).map_err(|_| {
+            "El índice temporal de comparación por clave quedó incompleto.".to_owned()
+        })?;
+        let row_index = usize::try_from(u64::from_le_bytes(row_bytes))
+            .map_err(|_| "El índice de fila temporal excede la capacidad local.".to_owned())?;
+        let mut key_bytes = vec![0_u8; key_length];
+        reader.read_exact(&mut key_bytes).map_err(|_| {
+            "El índice temporal de comparación por clave quedó incompleto.".to_owned()
+        })?;
+        let key = String::from_utf8(key_bytes)
+            .map_err(|_| "El índice temporal contiene una clave inválida.".to_owned())?;
+        let mut payload_bytes = vec![0_u8; payload_length];
+        reader.read_exact(&mut payload_bytes).map_err(|_| {
+            "El índice temporal de comparación por clave quedó incompleto.".to_owned()
+        })?;
+        let payload = String::from_utf8(payload_bytes)
+            .map_err(|_| "El índice temporal contiene una carga inválida.".to_owned())?;
+        visit(key, payload, row_index)?;
+    }
+    Ok(())
+}
+
+fn read_spilled_key_payload_bucket(
+    spill: &SpilledKeyPayloadRows,
+    bucket: usize,
+) -> Result<HashMap<String, KeyPayloadGroup>, String> {
+    let mut groups = HashMap::new();
+    for_each_spilled_key_payload_record(spill, bucket, |key, payload, row_index| {
+        let group = groups.entry(key).or_insert_with(|| KeyPayloadGroup {
+            first_row_index: row_index,
+            count: 0,
+            payload: Some(payload.clone()),
+        });
+        group.count = group
+            .count
+            .checked_add(1)
+            .ok_or_else(|| "La clave temporal supera la capacidad local.".to_owned())?;
+        if group.count > 1 {
+            group.payload = None;
+        }
+        Ok(())
+    })?;
+    Ok(groups)
+}
+
 fn for_each_spilled_key_record<F>(
     spill: &SpilledKeyRows,
     bucket: usize,
@@ -16050,6 +16248,19 @@ fn common_row_count_from_parquet(
     shared_columns: &[String],
 ) -> Result<usize, String> {
     let current_signatures = spill_key_rows(current, shared_columns)?;
+    let compared_signatures =
+        spill_parquet_rows(compared_path, compared_row_count, shared_columns)?;
+    common_row_count_from_spilled_indexes(&current_signatures, &compared_signatures)
+}
+
+fn common_row_count_between_parquet(
+    current_path: &Path,
+    current_row_count: usize,
+    compared_path: &Path,
+    compared_row_count: usize,
+    shared_columns: &[String],
+) -> Result<usize, String> {
+    let current_signatures = spill_parquet_rows(current_path, current_row_count, shared_columns)?;
     let compared_signatures =
         spill_parquet_rows(compared_path, compared_row_count, shared_columns)?;
     common_row_count_from_spilled_indexes(&current_signatures, &compared_signatures)
@@ -16265,6 +16476,81 @@ fn compare_keyed_parquet(
         Ok(())
     })?;
 
+    Ok(summary)
+}
+
+struct ParquetComparisonSource<'a> {
+    path: &'a Path,
+    row_count: usize,
+}
+
+fn compare_keyed_parquet_sources(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    current_schema: &DataFrame,
+    compared_schema: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+) -> Result<KeyComparisonSummary, String> {
+    validate_key_columns(current_schema, compared_schema, key_columns)?;
+    let shared_payload_columns = shared_columns
+        .iter()
+        .filter(|column| !key_columns.contains(column))
+        .cloned()
+        .collect::<Vec<_>>();
+    let current_rows = spill_parquet_key_payload_rows(
+        current.path,
+        current.row_count,
+        key_columns,
+        &shared_payload_columns,
+    )?;
+    let compared_rows = spill_parquet_key_payload_rows(
+        compared.path,
+        compared.row_count,
+        key_columns,
+        &shared_payload_columns,
+    )?;
+    let mut summary = KeyComparisonSummary::default();
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let current_bucket = read_spilled_key_payload_bucket(&current_rows, bucket)?;
+        let compared_bucket = read_spilled_key_payload_bucket(&compared_rows, bucket)?;
+        summary.matched_key_count += current_bucket
+            .keys()
+            .filter(|key| compared_bucket.contains_key(*key))
+            .count();
+        summary.current_only_key_count += current_bucket
+            .keys()
+            .filter(|key| !compared_bucket.contains_key(*key))
+            .count();
+        summary.compared_only_key_count += compared_bucket
+            .keys()
+            .filter(|key| !current_bucket.contains_key(*key))
+            .count();
+        summary.duplicate_key_count += current_bucket
+            .values()
+            .filter(|rows| rows.count > 1)
+            .count();
+        summary.duplicate_key_count += compared_bucket
+            .iter()
+            .filter(|(key, rows)| {
+                rows.count > 1
+                    && current_bucket
+                        .get(*key)
+                        .is_none_or(|current_rows| current_rows.count <= 1)
+            })
+            .count();
+        for (key, current_group) in current_bucket {
+            let Some(compared_group) = compared_bucket.get(&key) else {
+                continue;
+            };
+            if current_group.count == 1
+                && compared_group.count == 1
+                && current_group.payload != compared_group.payload
+            {
+                summary.conflicting_key_count += 1;
+            }
+        }
+    }
     Ok(summary)
 }
 
@@ -16636,6 +16922,173 @@ fn collect_key_conflicts_page_from_parquet(
             }
         }
     }
+    let page_end = offset.saturating_add(conflicts.len());
+    Ok((conflicts, total > page_end))
+}
+
+fn collect_key_conflicts_page_between_parquet(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    key_columns: &[String],
+    shared_columns: &[String],
+    offset: usize,
+    limit: usize,
+) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    let current_schema = read_parquet_schema_frame(current.path)?;
+    let compared_schema = read_parquet_schema_frame(compared.path)?;
+    validate_key_columns(&current_schema, &compared_schema, key_columns)?;
+    let shared_payload_columns = shared_columns
+        .iter()
+        .filter(|column| !key_columns.contains(column))
+        .cloned()
+        .collect::<Vec<_>>();
+    if shared_payload_columns.is_empty() {
+        return Ok((Vec::new(), false));
+    }
+
+    let current_rows = spill_parquet_key_payload_rows(
+        current.path,
+        current.row_count,
+        key_columns,
+        &shared_payload_columns,
+    )?;
+    let compared_rows = spill_parquet_key_payload_rows(
+        compared.path,
+        compared.row_count,
+        key_columns,
+        &shared_payload_columns,
+    )?;
+    let row_index_bytes = std::mem::size_of::<u64>() as u64;
+    let current_row_bytes = u64::try_from(current.row_count)
+        .map_err(|_| "El dataset activo supera la capacidad del índice temporal.".to_owned())?;
+    let mut conflict_markers = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+    conflict_markers
+        .set_len(current_row_bytes)
+        .map_err(|error| {
+            format!("No se pudo preparar el índice temporal de conflictos: {error}")
+        })?;
+    let mut conflict_rows = tempfile::tempfile().map_err(|error| {
+        format!("No se pudo preparar el índice temporal de conflictos: {error}")
+    })?;
+
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let current_bucket = read_spilled_key_payload_bucket(&current_rows, bucket)?;
+        let compared_bucket = read_spilled_key_payload_bucket(&compared_rows, bucket)?;
+        for (key, current_group) in current_bucket {
+            let Some(compared_group) = compared_bucket.get(&key) else {
+                continue;
+            };
+            if current_group.count != 1
+                || compared_group.count != 1
+                || current_group.payload == compared_group.payload
+            {
+                continue;
+            }
+            let marker_offset = u64::try_from(current_group.first_row_index).map_err(|_| {
+                "El índice de fila supera la capacidad del índice temporal.".to_owned()
+            })?;
+            let compared_offset = u64::try_from(current_group.first_row_index)
+                .ok()
+                .and_then(|index| index.checked_mul(row_index_bytes))
+                .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
+            let compared_row_index =
+                u64::try_from(compared_group.first_row_index).map_err(|_| {
+                    "El índice de fila supera la capacidad del índice temporal.".to_owned()
+                })?;
+            conflict_markers
+                .seek(SeekFrom::Start(marker_offset))
+                .and_then(|_| conflict_markers.write_all(&[1]))
+                .map_err(|error| {
+                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                })?;
+            conflict_rows
+                .seek(SeekFrom::Start(compared_offset))
+                .and_then(|_| conflict_rows.write_all(&compared_row_index.to_le_bytes()))
+                .map_err(|error| {
+                    format!("No se pudo escribir el índice temporal de conflictos: {error}")
+                })?;
+        }
+    }
+
+    conflict_markers
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| format!("No se pudo leer el índice temporal de conflictos: {error}"))?;
+    let mut marker_reader = BufReader::new(conflict_markers);
+    let mut conflicts = Vec::new();
+    let mut total = 0usize;
+    let mut cached_compared_start = None;
+    let mut cached_compared = None;
+    for_each_parquet_block(current.path, current.row_count, |start, current_block| {
+        for current_row_in_block in 0..current_block.height() {
+            let mut marker = [0_u8; 1];
+            marker_reader.read_exact(&mut marker).map_err(|error| {
+                format!("No se pudo leer el índice temporal de conflictos: {error}")
+            })?;
+            if marker[0] == 0 {
+                continue;
+            }
+            let current_row_index = start
+                .checked_add(current_row_in_block)
+                .ok_or_else(|| "El índice de fila supera la capacidad local.".to_owned())?;
+            let row_offset = u64::try_from(current_row_index)
+                .ok()
+                .and_then(|index| index.checked_mul(row_index_bytes))
+                .ok_or_else(|| "El índice de conflicto supera la capacidad local.".to_owned())?;
+            conflict_rows
+                .seek(SeekFrom::Start(row_offset))
+                .map_err(|error| {
+                    format!("No se pudo leer el índice temporal de conflictos: {error}")
+                })?;
+            let mut compared_row_bytes = [0_u8; std::mem::size_of::<u64>()];
+            conflict_rows
+                .read_exact(&mut compared_row_bytes)
+                .map_err(|error| {
+                    format!("No se pudo leer el índice temporal de conflictos: {error}")
+                })?;
+            let compared_row_index = usize::try_from(u64::from_le_bytes(compared_row_bytes))
+                .map_err(|_| "El índice de fila temporal excede la capacidad local.".to_owned())?;
+            if compared_row_index >= compared.row_count {
+                return Err(
+                    "El índice de conflicto apunta fuera del snapshot comparado.".to_owned(),
+                );
+            }
+            let compared_start = (compared_row_index / LOCAL_QUERY_BLOCK_ROWS)
+                .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+                .ok_or_else(|| "El índice del bloque excede la capacidad local.".to_owned())?;
+            if cached_compared_start != Some(compared_start) {
+                let length = LOCAL_QUERY_BLOCK_ROWS.min(compared.row_count - compared_start);
+                let block = read_parquet_query_block(compared.path, compared_start, length)?;
+                if block.height() != length {
+                    return Err("El snapshot comparado cambió durante la lectura.".to_owned());
+                }
+                cached_compared_start = Some(compared_start);
+                cached_compared = Some(block);
+            }
+            let compared_block = cached_compared
+                .as_ref()
+                .ok_or_else(|| "No se pudo conservar el bloque del conflicto.".to_owned())?;
+            let compared_row_in_block = compared_row_index - compared_start;
+            if let Some(mut conflict) = build_key_conflict(
+                current_block,
+                compared_block,
+                key_columns,
+                &shared_payload_columns,
+                current_row_in_block,
+                compared_row_in_block,
+            )? {
+                conflict.current_row_index = current_row_index;
+                conflict.compared_row_index = compared_row_index;
+                let conflict_index = total;
+                total = total.saturating_add(1);
+                if conflict_index >= offset && conflicts.len() < limit {
+                    conflicts.push(conflict);
+                }
+            }
+        }
+        Ok(())
+    })?;
     let page_end = offset.saturating_add(conflicts.len());
     Ok((conflicts, total > page_end))
 }
@@ -17140,13 +17593,134 @@ fn compare_parquet_source(
     })
 }
 
+fn compare_parquet_sources(
+    current_path: &Path,
+    current_file_name: &str,
+    current_row_count: usize,
+    compared_path: &Path,
+    compared_file_name: &str,
+    compared_row_count: usize,
+    key_columns: &[String],
+) -> Result<DatasetComparison, String> {
+    let current_schema = read_parquet_schema_frame(current_path)?;
+    let compared_schema = read_parquet_schema_frame(compared_path)?;
+    let current_columns = current_schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let compared_columns = compared_schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let shared_columns = current_columns
+        .iter()
+        .filter(|name| compared_columns.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let current_only_columns = current_columns
+        .iter()
+        .filter(|name| !compared_columns.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let compared_only_columns = compared_columns
+        .iter()
+        .filter(|name| !current_columns.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let schema_compatible = current_columns == compared_columns
+        && current_schema
+            .columns()
+            .iter()
+            .zip(compared_schema.columns())
+            .all(|(left, right)| left.dtype() == right.dtype());
+    let (common_row_count, current_only_row_count, compared_only_row_count) =
+        if shared_columns.is_empty() {
+            (0, current_row_count, compared_row_count)
+        } else {
+            let common = common_row_count_between_parquet(
+                current_path,
+                current_row_count,
+                compared_path,
+                compared_row_count,
+                &shared_columns,
+            )?;
+            (
+                common,
+                current_row_count.saturating_sub(common),
+                compared_row_count.saturating_sub(common),
+            )
+        };
+    let (key_summary, conflicts, conflicts_truncated) = if key_columns.is_empty() {
+        (KeyComparisonSummary::default(), Vec::new(), false)
+    } else {
+        let summary = compare_keyed_parquet_sources(
+            ParquetComparisonSource {
+                path: current_path,
+                row_count: current_row_count,
+            },
+            ParquetComparisonSource {
+                path: compared_path,
+                row_count: compared_row_count,
+            },
+            &current_schema,
+            &compared_schema,
+            key_columns,
+            &shared_columns,
+        )?;
+        let (conflicts, truncated) = collect_key_conflicts_page_between_parquet(
+            ParquetComparisonSource {
+                path: current_path,
+                row_count: current_row_count,
+            },
+            ParquetComparisonSource {
+                path: compared_path,
+                row_count: compared_row_count,
+            },
+            key_columns,
+            &shared_columns,
+            0,
+            MAX_CONFLICT_PREVIEW,
+        )?;
+        (summary, conflicts, truncated)
+    };
+    let can_consolidate = schema_compatible
+        && key_summary.conflicting_key_count == 0
+        && key_summary.duplicate_key_count == 0;
+
+    Ok(DatasetComparison {
+        current_file_name: current_file_name.to_owned(),
+        compared_file_name: compared_file_name.to_owned(),
+        current_row_count,
+        compared_row_count,
+        common_row_count,
+        current_only_row_count,
+        compared_only_row_count,
+        shared_columns,
+        current_only_columns,
+        compared_only_columns,
+        schema_compatible,
+        key_columns: key_columns.to_vec(),
+        matched_key_count: key_summary.matched_key_count,
+        current_only_key_count: key_summary.current_only_key_count,
+        compared_only_key_count: key_summary.compared_only_key_count,
+        conflicting_key_count: key_summary.conflicting_key_count,
+        duplicate_key_count: key_summary.duplicate_key_count,
+        conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
+        conflict_offset: 0,
+        conflicts_truncated,
+        can_consolidate,
+    })
+}
+
 #[tauri::command]
 pub async fn compare_dataset(
     app: AppHandle,
     key_columns: Option<Vec<String>>,
 ) -> Result<Option<DatasetComparison>, String> {
     let key_columns = normalize_key_columns(key_columns)?;
-    let (current_frame, current_file_name) = {
+    let (current_file_name, current_row_count, current_snapshot, current_source) = {
         let state = app.state::<DatasetState>();
         let current = state
             .current
@@ -17155,7 +17729,23 @@ pub async fn compare_dataset(
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        (dataset.frame.clone(), dataset.file_name.clone())
+        let current_snapshot = dataset
+            .history
+            .snapshots_enabled
+            .then(|| dataset.history.entries.get(dataset.history.cursor))
+            .flatten()
+            .map(|entry| entry.path.clone());
+        let current_source = current_duckdb_file_source(dataset).and_then(|(path, _)| {
+            dataset_extension(&path)
+                .ok()
+                .map(|extension| (path, extension))
+        });
+        (
+            dataset.file_name.clone(),
+            dataset.frame.height(),
+            current_snapshot,
+            current_source,
+        )
     };
     let selection = app
         .dialog()
@@ -17191,28 +17781,164 @@ pub async fn compare_dataset(
                 _ => persist_delimited_comparison_source_file(&path, &extension)?,
             };
             let compared_row_count = parquet_row_count(&snapshot_path)?;
-            let comparison = compare_parquet_source(
-                &current_frame,
-                &current_file_name,
-                &snapshot_path,
-                &compared_file_name,
-                compared_row_count,
-                &key_columns,
-            )?;
+            let comparison = if let Some(current_path) = current_snapshot.as_ref() {
+                compare_parquet_sources(
+                    current_path,
+                    &current_file_name,
+                    current_row_count,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                )
+            } else if let Some((current_path, current_extension)) = current_source.as_ref() {
+                let (_source_directory, source_snapshot_path) = match current_extension.as_str() {
+                    "parquet" => persist_comparison_source_file(current_path)?,
+                    "json" => persist_json_comparison_source_file(current_path)?,
+                    _ => persist_delimited_comparison_source_file(current_path, current_extension)?,
+                };
+                let current_source_row_count = parquet_row_count(&source_snapshot_path)?;
+                compare_parquet_sources(
+                    &source_snapshot_path,
+                    &current_file_name,
+                    current_source_row_count,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                )
+            } else {
+                let (current_frame, current_file_name) = {
+                    let state = app.state::<DatasetState>();
+                    let current = state.current.lock().map_err(|_| {
+                        "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                    })?;
+                    let dataset = current.as_ref().ok_or_else(|| {
+                        "No hay un dataset activo. Selecciona primero un archivo compatible."
+                            .to_owned()
+                    })?;
+                    (dataset.frame.clone(), dataset.file_name.clone())
+                };
+                compare_parquet_source(
+                    &current_frame,
+                    &current_file_name,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                )
+            };
+            let comparison = match comparison {
+                Ok(comparison) => comparison,
+                Err(_) => {
+                    let (current_frame, current_file_name) = {
+                        let state = app.state::<DatasetState>();
+                        let current = state.current.lock().map_err(|_| {
+                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                        })?;
+                        let dataset = current.as_ref().ok_or_else(|| {
+                            "No hay un dataset activo. Selecciona primero un archivo compatible."
+                                .to_owned()
+                        })?;
+                        (dataset.frame.clone(), dataset.file_name.clone())
+                    };
+                    compare_parquet_source(
+                        &current_frame,
+                        &current_file_name,
+                        &snapshot_path,
+                        &compared_file_name,
+                        compared_row_count,
+                        &key_columns,
+                    )?
+                }
+            };
             (comparison, directory, snapshot_path, compared_row_count)
         } else if spreadsheet_extensions(&extension) {
             let (directory, snapshot_path, compared_row_count) =
                 persist_spreadsheet_comparison_source_file(&path, &extension)?;
-            let comparison = compare_parquet_source(
-                &current_frame,
-                &current_file_name,
-                &snapshot_path,
-                &compared_file_name,
-                compared_row_count,
-                &key_columns,
-            )?;
+            let comparison = if let Some(current_path) = current_snapshot.as_ref() {
+                compare_parquet_sources(
+                    current_path,
+                    &current_file_name,
+                    current_row_count,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                )
+            } else if let Some((current_path, current_extension)) = current_source.as_ref() {
+                let (_source_directory, source_snapshot_path) = match current_extension.as_str() {
+                    "parquet" => persist_comparison_source_file(current_path)?,
+                    "json" => persist_json_comparison_source_file(current_path)?,
+                    _ => persist_delimited_comparison_source_file(current_path, current_extension)?,
+                };
+                let current_source_row_count = parquet_row_count(&source_snapshot_path)?;
+                compare_parquet_sources(
+                    &source_snapshot_path,
+                    &current_file_name,
+                    current_source_row_count,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                )
+            } else {
+                let (current_frame, current_file_name) = {
+                    let state = app.state::<DatasetState>();
+                    let current = state.current.lock().map_err(|_| {
+                        "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                    })?;
+                    let dataset = current.as_ref().ok_or_else(|| {
+                        "No hay un dataset activo. Selecciona primero un archivo compatible."
+                            .to_owned()
+                    })?;
+                    (dataset.frame.clone(), dataset.file_name.clone())
+                };
+                compare_parquet_source(
+                    &current_frame,
+                    &current_file_name,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                )
+            };
+            let comparison = match comparison {
+                Ok(comparison) => comparison,
+                Err(_) => {
+                    let (current_frame, current_file_name) = {
+                        let state = app.state::<DatasetState>();
+                        let current = state.current.lock().map_err(|_| {
+                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                        })?;
+                        let dataset = current.as_ref().ok_or_else(|| {
+                            "No hay un dataset activo. Selecciona primero un archivo compatible."
+                                .to_owned()
+                        })?;
+                        (dataset.frame.clone(), dataset.file_name.clone())
+                    };
+                    compare_parquet_source(
+                        &current_frame,
+                        &current_file_name,
+                        &snapshot_path,
+                        &compared_file_name,
+                        compared_row_count,
+                        &key_columns,
+                    )?
+                }
+            };
             (comparison, directory, snapshot_path, compared_row_count)
         } else {
+            let (current_frame, current_file_name) = {
+                let state = app.state::<DatasetState>();
+                let current = state.current.lock().map_err(|_| {
+                    "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                })?;
+                let dataset = current.as_ref().ok_or_else(|| {
+                    "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+                })?;
+                (dataset.frame.clone(), dataset.file_name.clone())
+            };
             let compared_frame = load_compare_frame(&path, &extension)?;
             let comparison = compare_frames(
                 &current_frame,
@@ -27048,6 +27774,49 @@ mod tests {
         drop(source_directory);
         assert!(!snapshot_path.exists());
         assert!(!source_path.exists());
+    }
+
+    #[test]
+    fn compares_two_parquet_sources_without_materializing_either_frame() {
+        let current = df![
+            "id" => &[1_i64, 2],
+            "value" => &["activo-1", "igual"]
+        ]
+        .expect("el frame activo debe ser válido");
+        let compared = df![
+            "id" => &[1_i64, 2],
+            "value" => &["comparado-1", "igual"]
+        ]
+        .expect("el frame comparado debe ser válido");
+        let (current_directory, current_path) = persist_comparison_snapshot(&current)
+            .expect("el snapshot activo debe poder escribirse");
+        let (compared_directory, compared_path) = persist_comparison_snapshot(&compared)
+            .expect("el snapshot comparado debe poder escribirse");
+
+        let result = compare_parquet_sources(
+            &current_path,
+            "activo.parquet",
+            current.height(),
+            &compared_path,
+            "comparado.parquet",
+            compared.height(),
+            &["id".to_owned()],
+        )
+        .expect("la comparación entre snapshots debe calcularse");
+
+        assert_eq!(result.common_row_count, 1);
+        assert_eq!(result.current_only_row_count, 1);
+        assert_eq!(result.compared_only_row_count, 1);
+        assert_eq!(result.matched_key_count, 2);
+        assert_eq!(result.conflicting_key_count, 1);
+        assert_eq!(result.conflicts.len(), 1);
+        assert_eq!(result.conflicts[0].key, vec![Some("1".to_owned())]);
+        assert_eq!(result.conflicts[0].cells[0].column, "value");
+
+        drop(compared_directory);
+        drop(current_directory);
+        assert!(!current_path.exists());
+        assert!(!compared_path.exists());
     }
 
     #[test]

@@ -407,12 +407,14 @@ para construir sus celdas. Se valida el conteo registrado y cualquier snapshot
 obsoleto o modificado se rechaza sin mutar el dataset.
 
 La comparación inicial de una fuente Parquet, delimitada (`CSV`, `TSV`, `TXT`) o JSON
-también conserva esta frontera: el snapshot se copia o genera secuencialmente,
-el conteo se obtiene por streaming y las métricas por filas, claves y conflictos
-se calculan por bloques de 16K. Los campos JSON anidados se serializan al texto
-JSON del contrato nativo. Los libros XLSX/XLSB usan el lector secuencial de
-celdas de Calamine en dos pasadas y escriben el snapshot Parquet por bloques de
-16K; XLS/ODS todavía cargan la fuente comparada completa como fallback compatible.
+también conserva esta frontera: el snapshot comparado se copia o genera
+secuencialmente y, cuando existe un snapshot administrado o una fuente original
+Parquet/CSV/TSV/TXT intacta del activo, ambos lados se comparan sin clonar el
+`DataFrame` activo. El conteo se obtiene por streaming y las métricas por filas,
+claves y conflictos se calculan por bloques de 16K. Los campos JSON anidados se
+serializan al texto JSON del contrato nativo. Los libros XLSX/XLSB usan el lector
+secuencial de celdas de Calamine en dos pasadas y escriben el snapshot Parquet por
+bloques de 16K; XLS/ODS o fuentes inconsistentes conservan el fallback compatible.
 
 Cuando el historial del dataset activo se degrada por presupuesto y su fuente
 original CSV/TSV/TXT delimitada o Parquet no ha cambiado, la vista previa y las consultas
