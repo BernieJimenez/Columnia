@@ -259,6 +259,18 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledWith("get_dataset_profile", {
       onProgress: expect.any(Channel),
+      correlationSampleRows: undefined,
+    });
+  });
+
+  it("envía el límite opcional de filas para correlaciones", async () => {
+    vi.mocked(invoke).mockResolvedValue({});
+
+    await getDatasetProfile(undefined, 10_000);
+
+    expect(invoke).toHaveBeenCalledWith("get_dataset_profile", {
+      onProgress: expect.any(Channel),
+      correlationSampleRows: 10_000,
     });
   });
 

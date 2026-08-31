@@ -9,6 +9,10 @@ import type { ReadyDatasetStatus } from "../load/loadModel";
 
 export const PAGE_SIZE = 50;
 export const QUERY_ENGINE_STORAGE_KEY = "columnia.review-query-engine";
+export const ANALYSIS_SAMPLE_ROW_OPTIONS = [10_000, 50_000, 100_000] as const;
+export type AnalysisSampleRows = (typeof ANALYSIS_SAMPLE_ROW_OPTIONS)[number];
+export const DEFAULT_ANALYSIS_SAMPLE_ROWS: AnalysisSampleRows = 100_000;
+export const ANALYSIS_SAMPLE_ROWS_STORAGE_KEY = "columnia.analysis-sample-rows";
 
 const QUERY_ENGINES: readonly DatasetQueryEngine[] = ["polars", "duckdb"];
 
@@ -45,6 +49,32 @@ export function writeQueryEnginePreference(
 ): void {
   try {
     storage?.setItem(QUERY_ENGINE_STORAGE_KEY, engine);
+  } catch {
+    // A restricted storage context must not make the interface unusable.
+  }
+}
+
+export function isAnalysisSampleRows(value: number | null | undefined): value is AnalysisSampleRows {
+  return value !== null && value !== undefined && ANALYSIS_SAMPLE_ROW_OPTIONS.includes(value as AnalysisSampleRows);
+}
+
+export function readAnalysisSampleRowsPreference(
+  storage: Storage | undefined = defaultStorage(),
+): AnalysisSampleRows {
+  try {
+    const stored = Number(storage?.getItem(ANALYSIS_SAMPLE_ROWS_STORAGE_KEY));
+    return isAnalysisSampleRows(stored) ? stored : DEFAULT_ANALYSIS_SAMPLE_ROWS;
+  } catch {
+    return DEFAULT_ANALYSIS_SAMPLE_ROWS;
+  }
+}
+
+export function writeAnalysisSampleRowsPreference(
+  sampleRows: AnalysisSampleRows,
+  storage: Storage | undefined = defaultStorage(),
+): void {
+  try {
+    storage?.setItem(ANALYSIS_SAMPLE_ROWS_STORAGE_KEY, String(sampleRows));
   } catch {
     // A restricted storage context must not make the interface unusable.
   }

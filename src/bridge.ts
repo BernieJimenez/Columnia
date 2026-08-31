@@ -873,9 +873,13 @@ export function queryDataset(
   return invoke<DatasetQueryResult>("query_dataset", { query, engine });
 }
 
-export function getDatasetProfile(onProgress?: ProgressHandler): Promise<DatasetProfile> {
+export function getDatasetProfile(
+  onProgress?: ProgressHandler,
+  correlationSampleRows?: number,
+): Promise<DatasetProfile> {
   return invoke<DatasetProfile>("get_dataset_profile", {
     onProgress: progressChannel(onProgress),
+    correlationSampleRows: correlationSampleRows,
   });
 }
 

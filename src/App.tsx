@@ -58,8 +58,10 @@ import {
   completePageLoad,
   failPageLoad,
   normalizePageOffset,
+  readAnalysisSampleRowsPreference,
   requestProfileCancellation,
   updateProfileProgress,
+  type AnalysisSampleRows,
   type ProfileStatus,
 } from "./features/review/reviewModel";
 import { ResourceMonitor } from "./components/ResourceMonitor";
@@ -157,6 +159,7 @@ export function App() {
   const [status, setStatus] = useState<AppStatus>(initialAppStatus);
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
+  const [analysisSampleRows, setAnalysisSampleRows] = useState<AnalysisSampleRows>(readAnalysisSampleRowsPreference);
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
   const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
   const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
@@ -439,7 +442,7 @@ export function App() {
     try {
       const profile = await getDatasetProfile((progress) => {
         setProfileStatus((current) => updateProfileProgress(current, progress));
-      });
+      }, analysisSampleRows);
       setProfileStatus({ kind: "ready", profile });
     } catch (error: unknown) {
       if (isCancellationError(error)) {
@@ -850,6 +853,8 @@ export function App() {
                 importedSessionAnalysis={recipeDraft?.migrationReport?.sourceFormat === "dataprep"
                   ? recipeDraft.migrationReport.session
                   : undefined}
+                analysisSampleRows={analysisSampleRows}
+                onAnalysisSampleRowsChange={setAnalysisSampleRows}
               />
             )}
 

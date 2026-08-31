@@ -448,6 +448,10 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .profile-region { max-height: 360px; margin-top: 16px; overflow: auto; border: 1px solid #b8c9c4; background: white; }
 .profile-region th:first-child { position: sticky; left: 0; z-index: 2; }
 .profile-note { margin: 8px 0 0; color: #627770; font-size: .78rem; }
+.quality-sample-control { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 14px; align-items: end; margin-top: 16px; padding: 12px 14px; border: 1px solid #ced9d5; background: #f2f6f4; }
+.quality-sample-control label { display: grid; gap: 5px; color: #47625f; font-size: .78rem; font-weight: 750; }
+.quality-sample-control select { width: 100%; min-height: 40px; padding: 7px 9px; border: 1px solid #afc2bd; border-radius: 3px; background: white; color: #18343a; }
+.quality-sample-control p { margin: 0; color: #627770; font-size: .78rem; line-height: 1.45; }
 .quality-summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 10px; margin: 16px 0 0; }
 .quality-summary div { padding: 12px 14px; border: 1px solid #ced9d5; background: #eef4f1; }
 .quality-summary dt { color: #627770; font-size: .72rem; font-weight: 750; letter-spacing: 0; text-transform: uppercase; }
@@ -834,6 +838,9 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .pagination button { border-color: #527078; background: #214249; color: #dce9e5; }
   .quality { border-color: #426067; }
   .profile-note { color: #b6c9c7; }
+  .quality-sample-control { border-color: #426067; background: #1d3b41; }
+  .quality-sample-control label, .quality-sample-control p { color: #b6c9c7; }
+  .quality-sample-control select { border-color: #526f75; background: #102c32; color: #e4eeeb; }
   .quality__header button { border-color: #7bd2c8; color: #7bd2c8; }
   .profile-region { border-color: #426067; background: #17343a; }
   .comparison-section { border-color: #426067; }
@@ -1859,6 +1866,7 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
   .transform-recipe__footer p { display: none; }
   .transform-recipe__footer button { width: 100%; }
   .quality-contract__actions { grid-template-columns: 1fr; }
+  .quality-sample-control { grid-template-columns: 1fr; }
   .quality-rule { grid-template-columns: 1fr; }
   .quality-temporal-trend__toolbar { align-items: stretch; flex-direction: column; gap: 9px; }
   .quality-temporal-trend__toolbar label { justify-content: space-between; }
@@ -2038,6 +2046,7 @@ html[data-columnia-zoom="2"] .flow-footer__actions button { width: 100%; white-s
   .metrics div,
   .export-panel,
   .quality-contract,
+  .quality-sample-control,
   .quality-visuals,
   .quality-chart,
   .quality-temporal-calendar,

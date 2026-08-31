@@ -218,6 +218,7 @@ const emptyDailyTemporalProfile: DatasetProfile = {
 describe("ReviewPhase", () => {
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
     const onAnalyzeQuality = vi.fn();
+    const onAnalysisSampleRowsChange = vi.fn();
     render(
       <ReviewPhase
         datasetStatus={createReadyDatasetStatus(dataset)}
@@ -240,6 +241,8 @@ describe("ReviewPhase", () => {
         joinType="inner"
         onJoinTypeChange={() => undefined}
         onJoin={() => undefined}
+        analysisSampleRows={50_000}
+        onAnalysisSampleRowsChange={onAnalysisSampleRowsChange}
       />,
     );
 
@@ -249,6 +252,11 @@ describe("ReviewPhase", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Analizar calidad" }));
     expect(onAnalyzeQuality).toHaveBeenCalledOnce();
+    expect(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" })).toHaveValue("50000");
+    fireEvent.change(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" }), {
+      target: { value: "10000" },
+    });
+    expect(onAnalysisSampleRowsChange).toHaveBeenCalledWith(10_000);
   });
 
   it("expone la cobertura agregada de una sesión DataPrep sin prometer la muestra original", () => {

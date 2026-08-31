@@ -22,11 +22,16 @@ import type {
 import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type { ReadyDatasetStatus } from "../load/loadModel";
 import {
+  ANALYSIS_SAMPLE_ROW_OPTIONS,
+  isAnalysisSampleRows,
   nextPageOffset,
   pageRange,
+  readAnalysisSampleRowsPreference,
   previousPageOffset,
   readQueryEnginePreference,
+  type AnalysisSampleRows,
   type ProfileStatus,
+  writeAnalysisSampleRowsPreference,
   writeQueryEnginePreference,
 } from "./reviewModel";
 import type { ComparisonStatus } from "./compareModel";
@@ -63,6 +68,8 @@ interface ReviewPhaseProps {
   sqlHistory?: SqlQueryHistoryEntry[];
   onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
   importedSessionAnalysis?: ImportedSessionAnalysis;
+  analysisSampleRows?: AnalysisSampleRows;
+  onAnalysisSampleRowsChange?: (sampleRows: AnalysisSampleRows) => void;
 }
 
 export function ReviewPhase({
@@ -89,9 +96,13 @@ export function ReviewPhase({
   sqlHistory = [],
   onSqlHistoryChange = () => undefined,
   importedSessionAnalysis,
+  analysisSampleRows,
+  onAnalysisSampleRowsChange = () => undefined,
 }: ReviewPhaseProps) {
   const comparisonActive = comparisonStatus.kind !== "idle" || joinStatus.kind !== "idle";
   const [comparisonOpen, setComparisonOpen] = useState(comparisonActive);
+  const [localAnalysisSampleRows, setLocalAnalysisSampleRows] = useState(readAnalysisSampleRowsPreference);
+  const selectedAnalysisSampleRows = analysisSampleRows ?? localAnalysisSampleRows;
 
   useEffect(() => {
     if (comparisonActive) setComparisonOpen(true);
@@ -120,6 +131,12 @@ export function ReviewPhase({
             comparisonAvailable={comparisonStatus.kind === "ready"}
             sqlHistory={sqlHistory}
             onSqlHistoryChange={onSqlHistoryChange}
+            analysisSampleRows={selectedAnalysisSampleRows}
+            onAnalysisSampleRowsChange={(sampleRows) => {
+              setLocalAnalysisSampleRows(sampleRows);
+              writeAnalysisSampleRowsPreference(sampleRows);
+              onAnalysisSampleRowsChange(sampleRows);
+            }}
           />
         </div>
       ) : (
@@ -514,6 +531,8 @@ function QualitySection({
   comparisonAvailable,
   sqlHistory,
   onSqlHistoryChange,
+  analysisSampleRows,
+  onAnalysisSampleRowsChange,
 }: {
   dataset: DatasetPreview;
   status: ProfileStatus;
@@ -522,6 +541,8 @@ function QualitySection({
   comparisonAvailable: boolean;
   sqlHistory: SqlQueryHistoryEntry[];
   onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
+  analysisSampleRows: AnalysisSampleRows;
+  onAnalysisSampleRowsChange: (sampleRows: AnalysisSampleRows) => void;
 }) {
   return (
     <section className="phase-section" aria-labelledby="quality-title">
@@ -537,6 +558,26 @@ function QualitySection({
         )}
       </div>
       <DatasetMetrics dataset={dataset} />
+      <div className="quality-sample-control">
+        <label>
+          Filas de muestra para correlaciones
+          <select
+            aria-label="Filas de muestra para correlaciones"
+            value={analysisSampleRows}
+            onChange={(event) => {
+              const nextSampleRows = Number(event.target.value);
+              if (isAnalysisSampleRows(nextSampleRows)) onAnalysisSampleRowsChange(nextSampleRows);
+            }}
+          >
+            {ANALYSIS_SAMPLE_ROW_OPTIONS.map((sampleRows) => (
+              <option key={sampleRows} value={sampleRows}>
+                {sampleRows.toLocaleString()} filas
+              </option>
+            ))}
+          </select>
+        </label>
+        <p>Se aplica al próximo análisis y solo limita la matriz de correlaciones numéricas; el resto del perfil conserva su cobertura agregada.</p>
+      </div>
       {status.kind === "loading" && (
         <OperationProgressView
           progress={status.progress}

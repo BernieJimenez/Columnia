@@ -3,20 +3,26 @@ import { describe, expect, it } from "vitest";
 import type { DatasetPreview } from "../../bridge";
 import { createReadyDatasetStatus } from "../load/loadModel";
 import {
+  ANALYSIS_SAMPLE_ROW_OPTIONS,
+  ANALYSIS_SAMPLE_ROWS_STORAGE_KEY,
+  DEFAULT_ANALYSIS_SAMPLE_ROWS,
   PAGE_SIZE,
   QUERY_ENGINE_STORAGE_KEY,
   beginPageLoad,
   beginProfileAnalysis,
   completePageLoad,
   failPageLoad,
+  isAnalysisSampleRows,
   isDatasetQueryEngine,
   nextPageOffset,
   normalizePageOffset,
   pageRange,
   previousPageOffset,
+  readAnalysisSampleRowsPreference,
   readQueryEnginePreference,
   requestProfileCancellation,
   updateProfileProgress,
+  writeAnalysisSampleRowsPreference,
   writeQueryEnginePreference,
 } from "./reviewModel";
 
@@ -52,6 +58,30 @@ describe("reviewModel", () => {
     expect(readQueryEnginePreference(storage)).toBe("duckdb");
     values.set(QUERY_ENGINE_STORAGE_KEY, "sqlite");
     expect(readQueryEnginePreference(storage)).toBe("polars");
+  });
+
+  it("valida y conserva el límite de muestra de correlaciones", () => {
+    const values = new Map<string, string>();
+    const storage: Storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+      clear: () => { values.clear(); },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() { return values.size; },
+    };
+
+    expect(ANALYSIS_SAMPLE_ROW_OPTIONS).toEqual([10_000, 50_000, 100_000]);
+    expect(isAnalysisSampleRows(50_000)).toBe(true);
+    expect(isAnalysisSampleRows(999)).toBe(false);
+    expect(readAnalysisSampleRowsPreference(storage)).toBe(DEFAULT_ANALYSIS_SAMPLE_ROWS);
+
+    writeAnalysisSampleRowsPreference(50_000, storage);
+
+    expect(values.get(ANALYSIS_SAMPLE_ROWS_STORAGE_KEY)).toBe("50000");
+    expect(readAnalysisSampleRowsPreference(storage)).toBe(50_000);
+    values.set(ANALYSIS_SAMPLE_ROWS_STORAGE_KEY, "999");
+    expect(readAnalysisSampleRowsPreference(storage)).toBe(DEFAULT_ANALYSIS_SAMPLE_ROWS);
   });
 
   it("mantiene la paginación contractual de 50 filas", () => {

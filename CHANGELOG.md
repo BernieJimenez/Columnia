@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Añadido
 
+- Revisar permite elegir el límite de filas usado por la matriz de correlaciones
+  numéricas (10.000, 50.000 o 100.000) y conserva la preferencia localmente;
+  Rust valida el rango de 1.000 a 100.000, invalida cachés con una cobertura
+  distinta y mantiene el resto del perfil agregado sin cambios.
 - Revisar recuerda localmente el motor SQL elegido (`Polars` o `DuckDB`) entre
   aperturas, valida cualquier valor persistido y vuelve a `Polars` si el
   almacenamiento no está disponible o contiene una opción desconocida.

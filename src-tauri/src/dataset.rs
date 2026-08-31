@@ -99,6 +99,7 @@ const NORMALIZED_DUPLICATE_BUCKETS: usize = 256;
 const NORMALIZED_FINGERPRINT_BYTES: usize = std::mem::size_of::<NormalizedRowFingerprint>();
 const NUMERIC_HISTOGRAM_BUCKETS: usize = 12;
 const MAX_NUMERIC_CORRELATION_COLUMNS: usize = 12;
+const MIN_NUMERIC_CORRELATION_SAMPLE_ROWS: usize = 1_000;
 const MAX_NUMERIC_CORRELATION_SAMPLE_ROWS: usize = 100_000;
 const MAX_CATEGORICAL_GROUP_COLUMNS: usize = 4;
 const MAX_CATEGORICAL_GROUPS: usize = 8;
@@ -5524,6 +5525,7 @@ fn numeric_correlation_matrix<C>(
     frame: &DataFrame,
     profiles: &[ColumnProfile],
     is_cancelled: &C,
+    sample_row_limit: usize,
 ) -> Result<Option<NumericCorrelationMatrix>, String>
 where
     C: Fn() -> bool + Sync,
@@ -5545,7 +5547,7 @@ where
     if row_count == 0 {
         return Ok(None);
     }
-    let sampled_row_count = row_count.min(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS);
+    let sampled_row_count = row_count.min(sample_row_limit);
     let mut values = Vec::with_capacity(numeric_columns.len());
     for (column_index, (column, _)) in numeric_columns.iter().enumerate() {
         let mut column_values = Vec::with_capacity(sampled_row_count);
@@ -5596,6 +5598,17 @@ where
     }))
 }
 
+fn validate_numeric_correlation_sample_rows(sample_rows: usize) -> Result<usize, String> {
+    if !(MIN_NUMERIC_CORRELATION_SAMPLE_ROWS..=MAX_NUMERIC_CORRELATION_SAMPLE_ROWS)
+        .contains(&sample_rows)
+    {
+        return Err(format!(
+            "La muestra de correlaciones debe estar entre {MIN_NUMERIC_CORRELATION_SAMPLE_ROWS} y {MAX_NUMERIC_CORRELATION_SAMPLE_ROWS} filas."
+        ));
+    }
+    Ok(sample_rows)
+}
+
 fn pearson_correlation(first: &[Option<f64>], second: &[Option<f64>]) -> (Option<f64>, usize) {
     let mut paired = Vec::new();
     for (first, second) in first.iter().zip(second) {
@@ -5633,6 +5646,7 @@ fn profile_dataset_with_progress<F, C>(
     frame: &DataFrame,
     mut report: F,
     is_cancelled: C,
+    correlation_sample_rows: usize,
 ) -> Result<DatasetProfile, String>
 where
     F: FnMut(&'static str, u8),
@@ -5772,7 +5786,8 @@ where
         None
     } else {
         report("Calculando correlaciones", 97);
-        let correlations = numeric_correlation_matrix(frame, &columns, &is_cancelled)?;
+        let correlations =
+            numeric_correlation_matrix(frame, &columns, &is_cancelled, correlation_sample_rows)?;
         report("Analizando columnas", 100);
         correlations
     };
@@ -5950,7 +5965,20 @@ where
 
 #[cfg(test)]
 fn profile_dataset(frame: &DataFrame) -> Result<DatasetProfile, String> {
-    profile_dataset_with_progress(frame, |_, _| {}, || false)
+    profile_dataset_with_progress(
+        frame,
+        |_, _| {},
+        || false,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+}
+
+#[cfg(test)]
+fn profile_dataset_with_sample_rows(
+    frame: &DataFrame,
+    sample_rows: usize,
+) -> Result<DatasetProfile, String> {
+    profile_dataset_with_progress(frame, |_, _| {}, || false, sample_rows)
 }
 
 fn dataset_preview(path: &Path, frame: &DataFrame) -> Result<DatasetPreview, String> {
@@ -16782,7 +16810,11 @@ pub async fn query_dataset(
 pub async fn get_dataset_profile(
     app: AppHandle,
     on_progress: Channel<OperationProgress>,
+    correlation_sample_rows: Option<usize>,
 ) -> Result<DatasetProfile, String> {
+    let correlation_sample_rows = validate_numeric_correlation_sample_rows(
+        correlation_sample_rows.unwrap_or(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS),
+    )?;
     let generation = app.state::<DatasetState>().begin_profile();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
@@ -16811,7 +16843,14 @@ pub async fn get_dataset_profile(
                 (column.data_type == "Date" || column.data_type.starts_with("Datetime"))
                     || column.suggested_type.as_deref() == Some("date")
             });
-            if (profile.numeric_correlations.is_some() || !has_enough_numeric_columns)
+            let expected_sampled_row_count = dataset.frame.height().min(correlation_sample_rows);
+            let has_requested_numeric_correlations = profile
+                .numeric_correlations
+                .as_ref()
+                .is_some_and(|correlations| {
+                    correlations.sampled_row_count == expected_sampled_row_count
+                });
+            if (has_requested_numeric_correlations || !has_enough_numeric_columns)
                 && (profile.categorical_group_summaries.is_some() || !has_group_candidate)
                 && (profile.temporal_series.is_some() || !has_temporal_candidate)
             {
@@ -16827,6 +16866,7 @@ pub async fn get_dataset_profile(
                 app.state::<DatasetState>()
                     .profile_was_cancelled(generation)
             },
+            correlation_sample_rows,
         )?;
         dataset.profile = Some(profile.clone());
         Ok(profile)
@@ -22243,7 +22283,12 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        let profile = profile_dataset_with_progress(&dataset.frame, report, is_cancelled)?;
+        let profile = profile_dataset_with_progress(
+            &dataset.frame,
+            report,
+            is_cancelled,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )?;
         dataset.profile = Some(profile.clone());
         Ok(profile)
     }
@@ -24510,6 +24555,41 @@ mod tests {
     }
 
     #[test]
+    fn numeric_correlations_honor_the_requested_sample_limit() {
+        let path = temporary_csv("first,second\n1,2\n2,4\n3,6\n4,8\n5,10\n6,12\n7,14\n8,16\n");
+        let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+        let profile =
+            profile_dataset_with_sample_rows(&frame, 2).expect("el perfil debe calcularse");
+        let correlations = profile
+            .numeric_correlations
+            .as_ref()
+            .expect("debe calcular correlaciones para dos columnas numéricas");
+        assert_eq!(correlations.sampled_row_count, 2);
+        assert_eq!(correlations.pairs[0].sample_count, 2);
+        assert_eq!(correlations.pairs[0].coefficient, Some(1.0));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn validates_numeric_correlation_sample_bounds() {
+        assert_eq!(
+            validate_numeric_correlation_sample_rows(MIN_NUMERIC_CORRELATION_SAMPLE_ROWS),
+            Ok(MIN_NUMERIC_CORRELATION_SAMPLE_ROWS)
+        );
+        assert_eq!(
+            validate_numeric_correlation_sample_rows(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS),
+            Ok(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS)
+        );
+        assert!(validate_numeric_correlation_sample_rows(0).is_err());
+        assert!(
+            validate_numeric_correlation_sample_rows(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS + 1)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn profiles_bounded_categorical_groups_and_keeps_private_columns_out() {
         let path = temporary_csv(
             "segment,email,status\nA,ana@example.com,ok\nA,beatriz@example.com,ok\nA,carlos@example.com,ok\nB,diana@example.com,ok\nB,elena@example.com,ok\nC,francisco@example.com,ok\n",
@@ -24701,6 +24781,7 @@ mod tests {
                 updates.push((stage, percent));
             },
             || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
         )
         .expect("el perfil debe calcularse");
 
@@ -24731,6 +24812,7 @@ mod tests {
                 let count = checks.fetch_add(1, Ordering::SeqCst) + 1;
                 count >= 2
             },
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
         )
         .expect_err("el perfil debe detenerse al cancelar");
 
