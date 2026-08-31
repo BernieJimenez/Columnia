@@ -6,6 +6,20 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed compuestas por renombres y selección/orden de
+  columnas ahora se convierten directamente desde CSV, TSV, TXT delimitado o
+  Parquet a un snapshot Parquet privado, sin materializar todas las filas en el
+  `DataFrame` activo.
+- El resultado conserva conteo, esquema, orden, preview y validación de la
+  fuente; las recetas que requieren transformar valores mantienen el fallback
+  eager explícito.
+- La suite Rust queda en 363 pruebas aprobadas, incluida la regresión de
+  paridad de la receta source-backed.
+
 ## [0.70.0] - 2026-08-31
 
 ### Mejorado

@@ -213,6 +213,32 @@ pub(crate) fn export_file_to_json(
     Ok(())
 }
 
+pub(crate) fn materialize_file_query_to_parquet(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    query: &str,
+    destination: &Path,
+) -> Result<(), String> {
+    let connection = Connection::open_in_memory().map_err(|error| {
+        format!("No se pudo iniciar DuckDB para la receta source-backed: {error}")
+    })?;
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el espacio temporal para la receta source-backed: {error}")
+    })?;
+    configure_duckdb_resources(&connection, resource_directory.path())?;
+    register_file_view(&connection, "dataset", source_path, source_format, None)?;
+    let destination = destination
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let statement = format!(
+        "SET preserve_insertion_order = true; COPY ({query}) TO '{destination}' (FORMAT PARQUET)"
+    );
+    connection
+        .execute_batch(&statement)
+        .map_err(|error| format!("DuckDB no pudo publicar la receta source-backed: {error}"))
+}
+
 fn execute_duckdb_query_with_source<C>(
     current: DatasetSource<'_>,
     compared: Option<DatasetSource<'_>>,

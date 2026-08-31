@@ -61,6 +61,13 @@ claves se derraman por cubetas temporales y los agregados fusionan estados
 sin materializar la fuente; se conservan conteos, semántica de nulos,
 cancelación cooperativa y la comprobación de cambios del archivo.
 
+Desde v0.80.0, una receta source-backed formada únicamente por renombres y
+selección/orden de columnas se convierte directamente desde CSV, TSV, TXT
+delimitado o Parquet a un snapshot Parquet privado administrado. El resultado
+conserva esquema, conteo, orden y preview sin llenar el `DataFrame`; las
+recetas que transforman valores mantienen el fallback eager con validación de
+cambios de la fuente.
+
 La receta lazy/streaming también acepta `Iso8601` sin offset o con sufijo UTC
 `Z`; los offsets distintos de UTC conservan el fallback eager para mantener la
 conversión estricta a UTC.
