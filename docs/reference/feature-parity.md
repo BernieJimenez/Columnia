@@ -54,6 +54,13 @@ validación de cambios y el cleanup. Recetas, privacidad y operaciones que
 necesitan transformar filas siguen materializando hasta completar su ruta
 incremental.
 
+Desde v0.70.0, la validación de calidad source-backed también procesa por
+bloques las reglas globales `unique`, `unique_together`, `monotonic`,
+`aggregate_check`, `aggregate_reconciliation` y `distribution_drift`. Las
+claves se derraman por cubetas temporales y los agregados fusionan estados
+sin materializar la fuente; se conservan conteos, semántica de nulos,
+cancelación cooperativa y la comprobación de cambios del archivo.
+
 La receta lazy/streaming también acepta `Iso8601` sin offset o con sufijo UTC
 `Z`; los offsets distintos de UTC conservan el fallback eager para mantener la
 conversión estricta a UTC.

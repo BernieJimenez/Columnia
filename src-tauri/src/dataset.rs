@@ -15624,6 +15624,12 @@ fn source_quality_rule_is_incremental(rule: &QualityRule) -> bool {
             | QualityRuleKind::Conditional
             | QualityRuleKind::SchemaContract
             | QualityRuleKind::RowCount
+            | QualityRuleKind::Unique
+            | QualityRuleKind::UniqueTogether
+            | QualityRuleKind::Monotonic
+            | QualityRuleKind::DistributionDrift
+            | QualityRuleKind::AggregateCheck
+            | QualityRuleKind::AggregateReconciliation
     )
 }
 
@@ -15658,6 +15664,12 @@ where
                 QualityRuleKind::Dtype
                     | QualityRuleKind::SchemaContract
                     | QualityRuleKind::RowCount
+                    | QualityRuleKind::Unique
+                    | QualityRuleKind::UniqueTogether
+                    | QualityRuleKind::Monotonic
+                    | QualityRuleKind::DistributionDrift
+                    | QualityRuleKind::AggregateCheck
+                    | QualityRuleKind::AggregateReconciliation
             )
         })
         .map(|(index, _)| index)
@@ -15681,6 +15693,105 @@ where
                     "La validación source-backed no devolvió la regla esperada.".to_owned()
                 })?;
                 counts[index] = (rule_result.checked_count, rule_result.invalid_count);
+            }
+            QualityRuleKind::Unique => {
+                let invalid_count = count_unique_invalid_from_parquet(
+                    &snapshot_path,
+                    row_count,
+                    &rule.column,
+                    &is_cancelled,
+                )?;
+                counts[index] = (row_count, invalid_count);
+            }
+            QualityRuleKind::UniqueTogether => {
+                let columns = rule.columns.as_deref().expect("columns validadas");
+                let invalid_count = count_duplicate_combinations_from_parquet(
+                    &snapshot_path,
+                    row_count,
+                    columns,
+                    &is_cancelled,
+                )?;
+                counts[index] = (row_count, invalid_count);
+            }
+            QualityRuleKind::Monotonic => {
+                let invalid_count = count_monotonic_invalid_from_parquet(
+                    &snapshot_path,
+                    row_count,
+                    &rule.column,
+                    rule.direction
+                        .unwrap_or(QualityMonotonicDirection::Increasing),
+                    &is_cancelled,
+                )?;
+                counts[index] = (row_count, invalid_count);
+            }
+            QualityRuleKind::DistributionDrift => {
+                let (count, sum, _, _) = quality_aggregate_observation_from_parquet(
+                    &snapshot_path,
+                    row_count,
+                    &rule.column,
+                    &is_cancelled,
+                )?;
+                let observed_mean = if count == 0 { 0.0 } else { sum / count as f64 };
+                let baseline_mean = quality_distribution_baseline_mean(rule)
+                    .expect("baseline validado para distribution_drift");
+                let threshold = rule.tolerance_abs.or(rule.threshold).unwrap_or(0.0);
+                counts[index] = (
+                    row_count,
+                    usize::from((observed_mean - baseline_mean).abs() > threshold),
+                );
+            }
+            QualityRuleKind::AggregateCheck | QualityRuleKind::AggregateReconciliation => {
+                let is_reconciliation = rule.kind == QualityRuleKind::AggregateReconciliation;
+                let has_column_pair = is_reconciliation
+                    && rule
+                        .columns
+                        .as_ref()
+                        .is_some_and(|columns| columns.len() >= 2);
+                if has_column_pair {
+                    let columns = rule.columns.as_deref().expect("columns validadas");
+                    let (_, left_sum, _, _) = quality_aggregate_observation_from_parquet(
+                        &snapshot_path,
+                        row_count,
+                        &columns[0],
+                        &is_cancelled,
+                    )?;
+                    let (_, right_sum, _, _) = quality_aggregate_observation_from_parquet(
+                        &snapshot_path,
+                        row_count,
+                        &columns[1],
+                        &is_cancelled,
+                    )?;
+                    let reference = left_sum.abs().max(right_sum.abs());
+                    let tolerance = quality_aggregate_tolerance(rule, reference);
+                    counts[index] = (
+                        row_count,
+                        usize::from((left_sum - right_sum).abs() > tolerance),
+                    );
+                } else {
+                    let aggregate = rule.aggregate.unwrap_or(QualityAggregate::Sum);
+                    let (count, sum, minimum, maximum) =
+                        quality_aggregate_observation_from_parquet(
+                            &snapshot_path,
+                            row_count,
+                            &rule.column,
+                            &is_cancelled,
+                        )?;
+                    let observed = match aggregate {
+                        QualityAggregate::Count => Some(count as f64),
+                        QualityAggregate::Sum => Some(sum),
+                        QualityAggregate::Min => minimum,
+                        QualityAggregate::Max => maximum,
+                    };
+                    let expected = quality_aggregate_expected(rule, aggregate)
+                        .expect("expected o referenceValues validados");
+                    let tolerance = quality_aggregate_tolerance(rule, expected);
+                    counts[index] = (
+                        row_count,
+                        usize::from(
+                            observed.is_none_or(|value| (value - expected).abs() > tolerance),
+                        ),
+                    );
+                }
             }
             _ => {}
         }
@@ -17946,6 +18057,145 @@ where
         append_spilled_key_rows(&spill, block, columns, start)
     })?;
     count_distinct_spilled_key_rows(&spill, is_cancelled)
+}
+
+fn count_unique_invalid_from_parquet<C>(
+    path: &Path,
+    row_count: usize,
+    column_name: &str,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let spill = create_spilled_key_rows()?;
+    let columns = vec![column_name.to_owned()];
+    let mut null_count = 0usize;
+    for_each_parquet_block(path, row_count, |start, block| {
+        ensure_not_cancelled(is_cancelled())?;
+        let column = block
+            .column(column_name)
+            .map_err(|error| format!("No se pudo evaluar unique source-backed: {error}"))?;
+        null_count = null_count
+            .checked_add(column.null_count())
+            .ok_or_else(|| "El conteo de nulos excede la capacidad local.".to_owned())?;
+        append_spilled_key_rows(&spill, block, &columns, start)
+    })?;
+    let distinct_count = count_distinct_spilled_key_rows(&spill, is_cancelled)?;
+    let distinct_non_null = distinct_count.saturating_sub(usize::from(null_count > 0));
+    Ok(row_count.saturating_sub(distinct_non_null))
+}
+
+fn count_duplicate_combinations_from_parquet<C>(
+    path: &Path,
+    row_count: usize,
+    columns: &[String],
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let spill = create_spilled_key_rows()?;
+    for_each_parquet_block(path, row_count, |start, block| {
+        ensure_not_cancelled(is_cancelled())?;
+        append_spilled_key_rows(&spill, block, columns, start)
+    })?;
+
+    let mut duplicate_count = 0usize;
+    for bucket in 0..COMPARISON_KEY_BUCKETS {
+        let groups = read_spilled_key_bucket_with_cancel(&spill, bucket, is_cancelled)?;
+        for group in groups.values() {
+            duplicate_count = duplicate_count
+                .checked_add(group.count.saturating_sub(1))
+                .ok_or_else(|| "El conteo de duplicados excede la capacidad local.".to_owned())?;
+        }
+    }
+    Ok(duplicate_count)
+}
+
+fn count_monotonic_invalid_from_parquet<C>(
+    path: &Path,
+    row_count: usize,
+    column_name: &str,
+    direction: QualityMonotonicDirection,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let mut previous: Option<AnyValue<'static>> = None;
+    let mut invalid_count = 0usize;
+    for_each_parquet_block(path, row_count, |_, block| {
+        let column = block
+            .column(column_name)
+            .map_err(|error| format!("No se pudo evaluar monotonic source-backed: {error}"))?;
+        for row_index in 0..column.len() {
+            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            let value = column
+                .get(row_index)
+                .map_err(|error| format!("No se pudo leer monotonic source-backed: {error}"))?;
+            if matches!(value, AnyValue::Null) {
+                previous = None;
+                continue;
+            }
+            if let Some(previous_value) = previous.as_ref() {
+                let invalid =
+                    match quality_monotonic_ordering(previous_value.clone(), value.clone()) {
+                        Some(ordering) => match direction {
+                            QualityMonotonicDirection::Increasing => {
+                                ordering == std::cmp::Ordering::Greater
+                            }
+                            QualityMonotonicDirection::Decreasing => {
+                                ordering == std::cmp::Ordering::Less
+                            }
+                        },
+                        None => true,
+                    };
+                invalid_count = invalid_count.saturating_add(usize::from(invalid));
+            }
+            previous = Some(value.into_static());
+        }
+        Ok(())
+    })?;
+    Ok(invalid_count)
+}
+
+fn quality_aggregate_observation_from_parquet<C>(
+    path: &Path,
+    row_count: usize,
+    column_name: &str,
+    is_cancelled: &C,
+) -> Result<(usize, f64, Option<f64>, Option<f64>), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let mut count = 0usize;
+    let mut sum = 0.0;
+    let mut minimum = None;
+    let mut maximum = None;
+    for_each_parquet_block(path, row_count, |_, block| {
+        let column = block
+            .column(column_name)
+            .map_err(|error| format!("No se pudo evaluar la agregación source-backed: {error}"))?;
+        let (block_count, block_sum, block_minimum, block_maximum) =
+            quality_aggregate_observation(column, block.height(), is_cancelled)?;
+        count = count.saturating_add(block_count);
+        sum += block_sum;
+        if let Some(value) = block_minimum {
+            minimum = Some(minimum.map_or(value, |current: f64| current.min(value)));
+        }
+        if let Some(value) = block_maximum {
+            maximum = Some(maximum.map_or(value, |current: f64| current.max(value)));
+        }
+        Ok(())
+    })?;
+    Ok((count, sum, minimum, maximum))
 }
 
 fn count_normalized_duplicate_rows_from_parquet<C>(
@@ -27539,6 +27789,15 @@ mod tests {
         let mut row_count = quality_rule(QUALITY_DATASET_COLUMN, QualityRuleKind::RowCount);
         row_count.min = Some(3.0);
         row_count.max = Some(3.0);
+        let unique = quality_rule("code", QualityRuleKind::Unique);
+        let mut unique_together = quality_rule("status", QualityRuleKind::UniqueTogether);
+        unique_together.columns = Some(vec!["status".to_owned(), "country".to_owned()]);
+        let monotonic = quality_rule("code", QualityRuleKind::Monotonic);
+        let mut aggregate = quality_rule("amount", QualityRuleKind::AggregateCheck);
+        aggregate.aggregate = Some(QualityAggregate::Sum);
+        aggregate.expected = Some(60.0);
+        let mut drift = quality_rule("amount", QualityRuleKind::DistributionDrift);
+        drift.baseline = Some(vec!["10".to_owned(), "20".to_owned(), "30".to_owned()]);
         let rules = vec![
             quality_rule("country", QualityRuleKind::NotNull),
             non_empty,
@@ -27550,6 +27809,11 @@ mod tests {
             dtype,
             schema,
             row_count,
+            unique,
+            unique_together,
+            monotonic,
+            aggregate,
+            drift,
         ];
         let expected = evaluate_quality_rules(&frame, &rules)
             .expect("la validación en memoria debe funcionar");
@@ -27574,7 +27838,7 @@ mod tests {
             assert_eq!(actual_rule.passed, expected_rule.passed);
         }
 
-        assert!(!source_quality_rule_is_incremental(&quality_rule(
+        assert!(source_quality_rule_is_incremental(&quality_rule(
             "code",
             QualityRuleKind::Unique,
         )));
@@ -27606,6 +27870,63 @@ mod tests {
         assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
         assert_eq!(directory.path().read_dir().unwrap().count(), 1);
         fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
+    #[test]
+    fn source_backed_global_quality_rules_count_duplicates_across_blocks() {
+        let row_count = LOCAL_QUERY_BLOCK_ROWS + 1;
+        let mut contents = String::from("id,group,ordered,amount\n");
+        for row_index in 0..row_count {
+            let id = if row_index == LOCAL_QUERY_BLOCK_ROWS {
+                "0".to_owned()
+            } else {
+                row_index.to_string()
+            };
+            let group = if row_index == LOCAL_QUERY_BLOCK_ROWS {
+                "segment-0".to_owned()
+            } else {
+                format!("segment-{row_index}")
+            };
+            let ordered = if row_index == LOCAL_QUERY_BLOCK_ROWS {
+                "0"
+            } else {
+                "a"
+            };
+            contents.push_str(&format!("{id},{group},{ordered},1\n"));
+        }
+        let path = temporary_csv(&contents);
+        let frame = read_delimited_frame(&path, "csv").expect("el CSV debe leerse como texto");
+        let unique = quality_rule("id", QualityRuleKind::Unique);
+        let mut unique_together = quality_rule("id", QualityRuleKind::UniqueTogether);
+        unique_together.columns = Some(vec!["id".to_owned(), "group".to_owned()]);
+        let monotonic = quality_rule("ordered", QualityRuleKind::Monotonic);
+        let mut aggregate = quality_rule("amount", QualityRuleKind::AggregateCheck);
+        aggregate.aggregate = Some(QualityAggregate::Sum);
+        aggregate.expected = Some(row_count as f64);
+        let rules = vec![unique, unique_together, monotonic, aggregate];
+
+        let expected = evaluate_quality_rules(&frame, &rules)
+            .expect("la validación en memoria debe funcionar");
+        let actual = evaluate_source_quality_rules_with_cancel(
+            &path,
+            "csv",
+            fs::metadata(&path).expect("la fuente debe existir").len(),
+            row_count,
+            &rules,
+            || false,
+        )
+        .expect("la validación global source-backed debe funcionar");
+
+        assert_eq!(actual.failed_rules, expected.failed_rules);
+        assert_eq!(
+            actual
+                .rules
+                .iter()
+                .map(|rule| rule.invalid_count)
+                .collect::<Vec<_>>(),
+            vec![1, 1, 1, 0]
+        );
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]

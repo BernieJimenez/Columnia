@@ -6,6 +6,18 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-08-31
+
+### Mejorado
+
+- La validación de calidad de fuentes source-backed ya no materializa el
+  dataset completo para reglas globales de unicidad simple/compuesta,
+  monotonicidad, agregación y deriva de distribución.
+- Las claves y acumuladores se procesan por bloques con derrama temporal
+  acotada, conservando la semántica de nulos, orden y cancelación cooperativa.
+- La suite Rust queda en 362 pruebas aprobadas, incluida una regresión que
+  verifica duplicados que cruzan el límite de un bloque.
+
 ## [0.69.0] - 2026-08-31
 
 ### Mejorado
