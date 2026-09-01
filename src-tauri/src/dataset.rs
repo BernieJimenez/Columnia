@@ -1361,6 +1361,65 @@ impl HistoryManager {
         Ok(())
     }
 
+    fn record_parquet(&mut self, source: &Path, label: &str) -> Result<(), String> {
+        self.current_label = label.to_owned();
+        if !self.snapshots_enabled {
+            return Ok(());
+        }
+
+        let mut temporary = tempfile::NamedTempFile::new_in(self.directory.path())
+            .map_err(|error| format!("No se pudo preparar el snapshot Parquet: {error}"))?;
+        let mut input = File::open(source)
+            .map_err(|error| format!("No se pudo leer el snapshot Parquet: {error}"))?;
+        std::io::copy(&mut input, temporary.as_file_mut()).map_err(|error| {
+            format!("No se pudo copiar el snapshot Parquet al historial: {error}")
+        })?;
+        temporary.as_file().sync_all().map_err(|error| {
+            format!("No se pudo sincronizar el snapshot Parquet del historial: {error}")
+        })?;
+        let bytes = temporary
+            .as_file()
+            .metadata()
+            .map_err(|error| format!("No se pudo verificar el snapshot Parquet: {error}"))?
+            .len();
+        if bytes > self.disk_budget_bytes {
+            drop(temporary);
+            self.disable_for_size(label, bytes);
+            return Ok(());
+        }
+
+        let destination = self
+            .directory
+            .path()
+            .join(format!("snapshot-{:020}.parquet", self.next_id));
+        temporary.persist(&destination).map_err(|error| {
+            format!(
+                "No se pudo publicar el snapshot Parquet del historial: {}",
+                error.error
+            )
+        })?;
+
+        let branch_start = self.cursor.saturating_add(1).min(self.entries.len());
+        let removed = self.entries.split_off(branch_start);
+        for entry in removed {
+            let _ = fs::remove_file(entry.path);
+        }
+        self.entries.push(HistoryEntry {
+            label: label.to_owned(),
+            path: destination,
+            bytes,
+        });
+        self.cursor = self.entries.len() - 1;
+        self.next_id = self.next_id.wrapping_add(1);
+
+        while self.entries.len() > self.max_entries || self.disk_bytes() > self.disk_budget_bytes {
+            let entry = self.entries.remove(0);
+            let _ = fs::remove_file(entry.path);
+            self.cursor = self.cursor.saturating_sub(1);
+        }
+        Ok(())
+    }
+
     fn restore(&self, index: usize) -> Result<DataFrame, String> {
         let entry = self
             .entries
@@ -7285,6 +7344,219 @@ fn remove_empty_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize),
         .map_err(|error| format!("No se pudieron eliminar las filas vacías: {error}"))?;
     let affected_row_count = frame.height().saturating_sub(cleaned.height());
     Ok((cleaned, affected_row_count))
+}
+
+fn source_backed_empty_row_projection(
+    schema: &DataFrame,
+    audit_label: &str,
+) -> Result<String, String> {
+    if schema.width() == 0 {
+        return Err("La fuente source-backed no contiene columnas utilizables.".to_owned());
+    }
+    let audit_literal = duckdb_string_literal(audit_label);
+    let projection = schema
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            if name.as_str() == "_cambios" {
+                format!(
+                    "CASE WHEN {identifier} IS NULL OR TRIM(CAST({identifier} AS VARCHAR)) = '' THEN {audit_literal} ELSE LEFT(CAST({identifier} AS VARCHAR) || '; ' || {audit_literal}, {MAX_AUDIT_CELL_CHARS}) END AS {identifier}"
+                )
+            } else {
+                identifier
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(projection.join(", "))
+}
+
+fn source_backed_empty_row_query(schema: &DataFrame) -> Result<String, String> {
+    if schema.width() == 0 {
+        return Err("La fuente source-backed no contiene columnas utilizables.".to_owned());
+    }
+    let conditions = schema
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            format!("COALESCE(TRIM(CAST({identifier} AS VARCHAR)), '') <> ''")
+        })
+        .collect::<Vec<_>>();
+    Ok(format!(
+        "SELECT * FROM dataset WHERE {}",
+        conditions.join(" OR ")
+    ))
+}
+
+fn initialize_source_backed_history(
+    dataset: &mut LoadedDataset,
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+) -> Result<bool, String> {
+    if dataset.history.snapshots_enabled {
+        return Ok(true);
+    }
+
+    let existing_snapshot = dataset.history.source_snapshot_path.clone();
+    let (snapshot_source, cleanup_snapshot_source) = if let Some(snapshot) = existing_snapshot {
+        (snapshot, false)
+    } else if matches!(
+        source_format,
+        crate::duckdb_query::DuckDbFileFormat::Parquet
+    ) {
+        (source_path.to_owned(), false)
+    } else {
+        let snapshot = dataset
+            .history
+            .directory
+            .path()
+            .join("source-initial.parquet");
+        if let Err(error) = crate::duckdb_query::materialize_file_to_parquet_with_projection(
+            source_path,
+            source_format,
+            &snapshot,
+            "*",
+            || false,
+        ) {
+            let _ = fs::remove_file(&snapshot);
+            return Err(error);
+        }
+        (snapshot, true)
+    };
+
+    dataset.history.snapshots_enabled = true;
+    dataset.history.degraded_reason = None;
+    dataset.history.entries.clear();
+    dataset.history.cursor = 0;
+    dataset.history.next_id = 0;
+    let record_result = dataset
+        .history
+        .record_parquet(&snapshot_source, "Dataset original");
+    if cleanup_snapshot_source {
+        let _ = fs::remove_file(snapshot_source);
+    }
+    record_result?;
+    Ok(dataset.history.snapshots_enabled)
+}
+
+fn remove_empty_rows_source_backed(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<DatasetMutation>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let original_source_path = dataset
+        .source_path
+        .clone()
+        .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
+    let (_, source_size_before, _) = validate_dataset_file(&original_source_path)?;
+    if source_size_before != dataset.file_size_bytes {
+        return Err("El archivo source-backed cambió antes de eliminar filas vacías.".to_owned());
+    }
+    let projection =
+        source_backed_empty_row_projection(&dataset.frame, "Eliminar filas completamente vacías")?;
+    let query = source_backed_empty_row_query(&dataset.frame)?;
+    let query = query.replacen("SELECT *", &format!("SELECT {projection}"), 1);
+    let temporary =
+        tempfile::NamedTempFile::with_suffix_in(".parquet", dataset.history.directory.path())
+            .map_err(|error| format!("No se pudo preparar la salida source-backed: {error}"))?;
+    let output_path = temporary.path().to_owned();
+    drop(temporary);
+    if crate::duckdb_query::materialize_file_query_to_parquet(
+        &source_path,
+        source_format,
+        &query,
+        &output_path,
+    )
+    .is_err()
+    {
+        let _ = fs::remove_file(&output_path);
+        return Ok(None);
+    }
+    let output_size = fs::metadata(&output_path)
+        .map_err(|error| format!("No se pudo verificar la limpieza source-backed: {error}"))?
+        .len();
+    let output_schema = read_parquet_schema_frame(&output_path)?;
+    let output_row_count = crate::duckdb_query::count_file_rows(
+        &output_path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+        || false,
+    )?;
+    if output_row_count > dataset.row_count {
+        let _ = fs::remove_file(&output_path);
+        return Err(
+            "La limpieza source-backed aumentó inesperadamente el conteo de filas.".to_owned(),
+        );
+    }
+    let page = if output_row_count == 0 {
+        output_schema.slice(0, 0)
+    } else {
+        collect_lazy_frame_streaming(
+            parquet_scan(&output_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa de la limpieza source-backed",
+        )?
+    };
+    let (_, source_size_after, _) = validate_dataset_file(&original_source_path)?;
+    if source_size_before != source_size_after {
+        let _ = fs::remove_file(&output_path);
+        return Err(
+            "El archivo source-backed cambió durante la eliminación de filas vacías.".to_owned(),
+        );
+    }
+    let affected_row_count = dataset.row_count.saturating_sub(output_row_count);
+    let preview = dataset_preview_from_schema_and_page(
+        &dataset.file_name,
+        if affected_row_count == 0 {
+            dataset.file_size_bytes
+        } else {
+            output_size
+        },
+        output_row_count,
+        &output_schema,
+        &page,
+    )?;
+    if affected_row_count == 0 {
+        let _ = fs::remove_file(&output_path);
+        return Ok(Some(DatasetMutation {
+            dataset: preview,
+            affected_row_count: 0,
+        }));
+    }
+
+    if !initialize_source_backed_history(dataset, &source_path, source_format)? {
+        let _ = fs::remove_file(&output_path);
+        return Ok(None);
+    }
+    dataset
+        .history
+        .record_parquet(&output_path, "Eliminar filas completamente vacías")?;
+    if !dataset.history.snapshots_enabled {
+        let _ = fs::remove_file(&output_path);
+        return Ok(None);
+    }
+    let current_path = dataset
+        .history
+        .entries
+        .last()
+        .map(|entry| entry.path.clone())
+        .ok_or_else(|| "No se pudo publicar la limpieza source-backed.".to_owned())?;
+    let current_size = fs::metadata(&current_path)
+        .map_err(|error| format!("No se pudo verificar el historial source-backed: {error}"))?
+        .len();
+    let _ = fs::remove_file(&output_path);
+    dataset.source_path = Some(current_path);
+    dataset.file_size_bytes = current_size;
+    dataset.row_count = output_row_count;
+    dataset.frame = output_schema;
+    dataset.source_backed = true;
+    dataset.history.source_snapshot_path = None;
+    dataset.history.current_label = "Eliminar filas completamente vacías".to_owned();
+    dataset.profile = None;
+    Ok(Some(DatasetMutation {
+        dataset: preview,
+        affected_row_count,
+    }))
 }
 
 fn leading_zero_code(value: &str) -> bool {
@@ -20318,6 +20590,11 @@ pub async fn remove_empty_rows(app: AppHandle) -> Result<DatasetMutation, String
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = remove_empty_rows_source_backed(dataset)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_empty_rows_from_frame(&dataset.frame)?;
         let preview = if affected_row_count > 0 {
@@ -28940,6 +29217,67 @@ mod tests {
             .expect_err("la apertura cancelada debe detenerse antes de escribir");
         assert_eq!(cancellation, OPERATION_CANCELLED_MESSAGE);
         assert!(!cancelled_snapshot.exists());
+    }
+
+    #[test]
+    fn removes_empty_rows_from_source_backed_snapshot_with_reversible_history() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("empty-rows.json");
+        fs::write(
+            &source,
+            r#"[{"id":1,"name":"Ana","_cambios":"Previo"},{"id":null,"name":"   ","_cambios":null},{"id":2,"name":"Luis","_cambios":null}]"#,
+        )
+        .expect("se debe escribir el JSON de filas vacías");
+        let source_snapshot = directory.path().join("source.parquet");
+        let (schema, _, row_count) = source_backed_json_load(&source, &source_snapshot, || false)
+            .expect("el JSON debe abrirse mediante snapshot");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        history.source_snapshot_path = Some(source_snapshot);
+        let mut dataset = LoadedDataset {
+            source_path: Some(source.clone()),
+            file_name: "empty-rows.json".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let mutation = remove_empty_rows_source_backed(&mut dataset)
+            .expect("la limpieza source-backed debe ejecutarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(mutation.affected_row_count, 1);
+        assert_eq!(mutation.dataset.row_count, 2);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert!(dataset.history.snapshots_enabled);
+        assert!(dataset.history.state().can_undo);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la limpieza debe conservar el snapshot actual");
+        let current =
+            read_parquet_frame(current_path).expect("el snapshot limpio debe ser legible");
+        assert_eq!(current.height(), 2);
+        assert_eq!(
+            current.column("name").unwrap().str().unwrap().get(1),
+            Some("Luis")
+        );
+        assert_eq!(
+            current.column("_cambios").unwrap().str().unwrap().get(0),
+            Some("Previo; Eliminar filas completamente vacías")
+        );
+
+        let undo = undo_dataset(&mut dataset).expect("la limpieza debe poder deshacerse");
+        assert_eq!(undo.dataset.row_count, 3);
+        assert!(!dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 3);
+        let redo = redo_dataset(&mut dataset).expect("la limpieza debe poder rehacerse");
+        assert_eq!(redo.dataset.row_count, 2);
+        assert!(!dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 2);
     }
 
     #[test]

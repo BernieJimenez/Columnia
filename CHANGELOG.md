@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.126.0] - 2026-09-01
+
+### Mejorado
+
+- `Eliminar filas completamente vacías` ya puede ejecutarse sobre datasets
+  source-backed desde DuckDB, publicando un snapshot Parquet sin cargar todas
+  las filas en el `DataFrame` activo.
+- La operación conserva la semántica de nulos, blancos y `_cambios`, y activa
+  snapshots de historial para mantener undo/redo reversible incluso después
+  de una apertura diferida.
+
+### Verificado
+
+- La regresión comprueba una fuente JSON, el snapshot limpio, el frame activo
+  sin filas y los ciclos undo/redo.
+- Si el snapshot no cabe en el presupuesto local, se mantiene el fallback
+  eager existente.
+
 ## [0.125.0] - 2026-09-01
 
 ### Mejorado
