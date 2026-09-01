@@ -100,6 +100,23 @@ where
     )
 }
 
+pub(crate) fn execute_duckdb_query_from_frame_and_parquet<C>(
+    current: &DataFrame,
+    compared_path: &Path,
+    spec: &DuckDbQuerySpec,
+    is_cancelled: C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_query_with_source(
+        DatasetSource::Frame(current),
+        Some(DatasetSource::Parquet(compared_path)),
+        spec,
+        is_cancelled,
+    )
+}
+
 pub(crate) fn execute_duckdb_query_from_file<C>(
     current_path: &Path,
     current_format: DuckDbFileFormat,

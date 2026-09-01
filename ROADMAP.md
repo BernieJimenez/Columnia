@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.106.0`.
+- Versión actual del prototipo: `0.107.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1391,9 +1391,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   filas y mantiene las filas derechas no emparejadas después de las activas,
   sin materializar el dataset para preparar la consulta. El benchmark sostenido
   y la validación con datasets reales grandes siguen siendo necesarios.
-  ruta parcial actual prepara el contrato DuckDB desde el esquema del snapshot
-  comparado sin cargar sus filas otra vez y no hereda el límite de entradas del
-  plan Polars; las consultas Polars simples sin comparación ya recorren por
+  La versión 0.107.0 añade una ruta parcial `DataFrame` activo + snapshot
+  comparado Parquet: evita materializar de nuevo todas las filas de la
+  comparación cuando el activo ya está transformado en memoria, y cubre el
+  camino explícito DuckDB y la promoción automática desde Polars. La
+  preparación también lee solo el esquema del snapshot comparado y no hereda
+  el límite de entradas del plan Polars; las consultas Polars simples sin comparación ya recorren por
   bloques el snapshot Parquet del cursor y conservan fallback ante snapshots
   degradados o inconsistentes. Los `JOIN` y el `DataFrame` activo todavía no
   constituyen una ejecución completa fuera de RAM y requieren esta expansión.
@@ -1899,6 +1902,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.103.0 persiste por proyecto la cobertura de filas de correlaciones (`10.000`, `50.000` o `100.000`), migra el catálogo SQLite a v9 y mantiene fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src/App.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.1 renombra el componente interno de vista previa a `DatasetPreviewPanel` para que el árbol activo no contenga coincidencias textuales con la marca retirada, sin alterar el contrato visible ni la funcionalidad. | `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-09-01 | Versión 0.107.0 añade la ruta DuckDB `DataFrame` activo + snapshot Parquet comparado para evitar materializar de nuevo el lado comparado en JOINs compatibles; Polars la promueve automáticamente, se conserva fallback seguro y una regresión comprueba paridad de filas, nulos y orden. La ejecución completa fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.106.0 persiste en SQLite v12 el formato de exportación, la protección de datos, las columnas clave de comparación y el tipo de JOIN; Rust valida listas cerradas, la reapertura filtra claves contra el snapshot restaurado y no se guardan muestras ni valores. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/delivery/DeliveryPhase.tsx`, `src/bridge.ts`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.2 corrige el orden global de `FULL JOIN` en consultas DuckDB source-backed: la preparación usa el conteo real del dataset activo aunque el esquema en memoria esté vacío, y una regresión ejecuta ambos snapshots Parquet sin materializar el activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.0 persiste por proyecto el perfil de rendimiento (`conservative`/`balanced`/`maximum`), migra el catálogo SQLite a v11, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores; la UI restaura el perfil y lo desvincula al cambiar de dataset. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/components/ResourceMonitor.tsx`, `src/features/projects/useProjectsController.ts`, `src/App.test.tsx`, `src/components/ResourceMonitor.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

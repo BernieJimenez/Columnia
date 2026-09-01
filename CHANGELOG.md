@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-09-01
+
+### Mejorado
+
+- Los `JOIN` DuckDB con una comparación Parquet activa pueden combinar el
+  `DataFrame` actual con el snapshot en disco, evitando materializar de nuevo
+  todas las filas comparadas.
+
+### Verificado
+
+- Polars promueve los `JOIN` compatibles cuando existe snapshot comparado y
+  conserva el fallback seguro si el contrato o la fuente no son válidos.
+- Una regresión comprueba paridad de filas, nulos y orden en un `LEFT JOIN`
+  entre un frame activo y un snapshot Parquet.
+
 ## [0.106.0] - 2026-09-01
 
 ### Mejorado

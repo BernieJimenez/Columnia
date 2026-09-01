@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL, perfil de rendimiento, formato de exportación, protección, claves de comparación y tipo de JOIN por proyecto | Implementada | Muestras y resultados derivados no portables |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, lectura por bloques, snapshots administrados, DuckDB opcional, `FULL JOIN` source-backed con orden global por conteo real, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
+| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, lectura por bloques, snapshots administrados, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, `FULL JOIN` source-backed con orden global por conteo real, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
 
 ## Contrato de calidad
 
@@ -81,6 +81,12 @@ Los tratamientos IQR source-backed calculan cuantiles sobre la fuente y aplican
 `cap`, `drop` o `impute` a columnas `Int64`/`Float64`, con baseline común,
 nulos preservados, validación de mínimo de valores, finitud y precisión, y
 contadores separados para celdas ajustadas, filas retiradas y filtros.
+Las consultas `JOIN` compatibles de Revisar pueden registrar un `DataFrame`
+activo junto con el snapshot Parquet de la comparación. Así se evita cargar de
+nuevo todas las filas comparadas cuando el activo ya está transformado; si la
+fuente no es compatible, se conserva el fallback materializado. La ejecución
+integral fuera de RAM sigue siendo un límite explícito.
+
 Las fechas ISO sin offset o con sufijo UTC `Z` también se convierten sobre la
 fuente; los offsets distintos de UTC, valores inválidos, partes de fecha con
 filtros previos, expresiones regulares y combinaciones no seguras usan un

@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.106.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.107.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -51,7 +51,11 @@ del cursor por bloques de 16K filas: valida el esquema, cuenta coincidencias y
 retiene solo la página o los acumuladores. Si el snapshot no coincide o no puede
 leerse, la sesión vuelve al `DataFrame` activo. Todos los JOIN compatibles se
 promueven automáticamente a DuckDB cuando existen snapshots o fuentes de disco
-válidas de ambos lados, incluso por debajo del umbral de entradas. Cuando el
+válidas de ambos lados, incluso por debajo del umbral de entradas. Desde
+v0.107.0, si solo la comparación tiene un snapshot Parquet y el activo ya es
+un `DataFrame` transformado, el mismo `JOIN` puede registrar el activo en una
+vista temporal y leer la comparación directamente desde disco, evitando
+materializar de nuevo todas sus filas. Cuando el
 historial está degradado, el dataset no ha sido mutado y la fuente original es
 CSV, TSV, TXT delimitado o
 Parquet, DuckDB también puede leer el activo directamente desde disco y combinarlo
@@ -894,6 +898,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.107.0: los JOINs DuckDB compatibles pueden combinar un `DataFrame` activo con el snapshot Parquet comparado, evitando materializar de nuevo sus filas; Polars promueve la ruta automáticamente, y una regresión verifica filas, nulos y orden. La ejecución completa fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.106.0: el workspace SQLite v12 persiste formato de exportación, protección de datos, claves de comparación y tipo de JOIN; Rust valida listas cerradas y la reapertura filtra claves contra el snapshot restaurado sin guardar muestras ni valores. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/delivery/DeliveryPhase.tsx`, `src/bridge.ts`, `src/App.test.tsx`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.103.0: la cobertura de filas de correlaciones se persiste por proyecto con validación cerrada, migración SQLite v9 y fallback local seguro para catálogos anteriores; la reapertura restaura la preferencia junto con la sesión de Revisar. | `src-tauri/src/projects.rs`, `src/App.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.104.0: el motor SQL elegido se persiste por proyecto con validación cerrada, migración SQLite v10 y fallback local seguro para catálogos anteriores; la reapertura restaura el motor junto con la sesión de Revisar. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |

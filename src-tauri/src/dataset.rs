@@ -3618,12 +3618,8 @@ fn local_query_has_join(query: &str) -> bool {
         .any(|token| token.eq_ignore_ascii_case("join"))
 }
 
-fn should_route_join_to_duckdb(
-    query: &str,
-    has_current_disk_source: bool,
-    has_compared_disk_source: bool,
-) -> bool {
-    local_query_has_join(query) && has_current_disk_source && has_compared_disk_source
+fn should_route_join_to_duckdb(query: &str, has_compared_disk_source: bool) -> bool {
+    local_query_has_join(query) && has_compared_disk_source
 }
 
 fn current_duckdb_file_source(
@@ -18115,11 +18111,7 @@ pub async fn query_dataset(
             let compared_snapshot = comparison
                 .as_ref()
                 .map(|pending| pending.snapshot_path.clone());
-            if should_route_join_to_duckdb(
-                &query,
-                current_snapshot.is_some() || current_file_source.is_some(),
-                compared_snapshot.is_some(),
-            ) {
+            if should_route_join_to_duckdb(&query, compared_snapshot.is_some()) {
                 let compared_path = compared_snapshot
                     .as_ref()
                     .expect("la ruta DuckDB requiere un snapshot comparado");
@@ -18167,7 +18159,19 @@ pub async fn query_dataset(
                                 },
                             ))
                         } else {
-                            None
+                            let cancellation_app = query_app.clone();
+                            Some(
+                                crate::duckdb_query::execute_duckdb_query_from_frame_and_parquet(
+                                    &dataset.frame,
+                                    compared_path,
+                                    &spec,
+                                    move || {
+                                        cancellation_app
+                                            .state::<DatasetState>()
+                                            .query_was_cancelled(generation)
+                                    },
+                                ),
+                            )
                         };
                         if let Some(result) = result {
                             match result {
@@ -18276,13 +18280,7 @@ pub async fn query_dataset(
             let current_frame = current_validation_frame.as_ref().unwrap_or(&dataset.frame);
             let compared_frame = comparison
                 .as_ref()
-                .map(|pending| {
-                    if current_snapshot.is_some() || current_file_source.is_some() {
-                        read_parquet_schema_frame(&pending.snapshot_path)
-                    } else {
-                        read_parquet_frame(&pending.snapshot_path)
-                    }
-                })
+                .map(|pending| read_parquet_schema_frame(&pending.snapshot_path))
                 .transpose()?;
             let compared = compared_frame.as_ref();
             let spec = prepare_duckdb_query_with_row_count(
@@ -18343,6 +18341,17 @@ pub async fn query_dataset(
                         },
                     )
                 }
+            } else if let Some(compared_path) = compared_snapshot {
+                crate::duckdb_query::execute_duckdb_query_from_frame_and_parquet(
+                    &dataset.frame,
+                    compared_path,
+                    &spec,
+                    move || {
+                        fallback_cancellation_app
+                            .state::<DatasetState>()
+                            .query_was_cancelled(generation)
+                    },
+                )
             } else {
                 crate::duckdb_query::execute_duckdb_query(
                     &dataset.frame,
@@ -28994,15 +29003,47 @@ mod tests {
     }
 
     #[test]
-    fn joins_route_to_duckdb_when_both_disk_sources_exist() {
+    fn duckdb_join_reads_compared_snapshot_without_materializing_it() {
+        let current = df!["id" => &[1_i64, 2, 3]].unwrap();
+        let compared = df!["id" => &[2_i64, 3], "segment" => &["B", "C"]].unwrap();
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let spec = prepare_duckdb_query_with_row_count(
+            "SELECT id, segment FROM dataset LEFT JOIN compared ON dataset.id = compared.id LIMIT 10",
+            &current.slice(0, 0),
+            Some(&compared.slice(0, 0)),
+            current.height(),
+        )
+        .expect("la consulta DuckDB debe validar el esquema del JOIN");
+
+        let result = crate::duckdb_query::execute_duckdb_query_from_frame_and_parquet(
+            &current,
+            &compared_path,
+            &spec,
+            || false,
+        )
+        .expect("DuckDB debe combinar el frame activo con el snapshot comparado");
+
+        assert_eq!(result.row_count, 3);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("1".to_owned()), None],
+                vec![Some("2".to_owned()), Some("B".to_owned())],
+                vec![Some("3".to_owned()), Some("C".to_owned())],
+            ]
+        );
+        drop(compared_directory);
+    }
+
+    #[test]
+    fn joins_route_to_duckdb_when_compared_snapshot_exists() {
         let query = "SELECT id FROM dataset JOIN compared ON dataset.id = compared.id LIMIT 1";
 
-        assert!(should_route_join_to_duckdb(query, true, true));
-        assert!(!should_route_join_to_duckdb(query, false, true));
-        assert!(!should_route_join_to_duckdb(query, true, false));
+        assert!(should_route_join_to_duckdb(query, true));
+        assert!(!should_route_join_to_duckdb(query, false));
         assert!(!should_route_join_to_duckdb(
             "SELECT id FROM dataset LIMIT 1",
-            true,
             true,
         ));
     }
