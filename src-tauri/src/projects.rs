@@ -20,7 +20,7 @@ use crate::dataset::{
 };
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 const ID_LENGTH: usize = 32;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
@@ -73,6 +73,8 @@ pub struct ProjectWorkspace {
     pub preview_offset: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_engine: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analysis_sample_rows: Option<usize>,
 }
@@ -148,6 +150,7 @@ struct StoredProject {
     review_tab: String,
     preview_offset: i64,
     active_phase: String,
+    query_engine: Option<String>,
     analysis_sample_rows: Option<i64>,
 }
 
@@ -287,13 +290,14 @@ impl ProjectStore {
                            profile_json TEXT,
                            profile_cache_sha256 TEXT,
                            sql_history_json TEXT NOT NULL DEFAULT '[]',
-                            review_tab TEXT NOT NULL DEFAULT 'diagnosis',
+                           review_tab TEXT NOT NULL DEFAULT 'diagnosis',
                            preview_offset INTEGER NOT NULL DEFAULT 0,
                            active_phase TEXT NOT NULL DEFAULT 'review',
+                           query_engine TEXT,
                            analysis_sample_rows INTEGER
                          );
                           CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                          PRAGMA user_version = 9;",
+                          PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -315,8 +319,9 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                            ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
                            ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                           ALTER TABLE projects ADD COLUMN query_engine TEXT;
                            ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                           PRAGMA user_version = 9;",
+                           PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -335,8 +340,9 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                            ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
                            ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                           ALTER TABLE projects ADD COLUMN query_engine TEXT;
                            ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                           PRAGMA user_version = 9;",
+                           PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -352,8 +358,9 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                          ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
                          ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         PRAGMA user_version = 9;",
+                         PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -368,8 +375,9 @@ impl ProjectStore {
                           ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                           ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
                           ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                          ALTER TABLE projects ADD COLUMN query_engine TEXT;
                           ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                          PRAGMA user_version = 9;",
+                          PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -383,8 +391,9 @@ impl ProjectStore {
                         "ALTER TABLE projects ADD COLUMN review_tab TEXT NOT NULL DEFAULT 'diagnosis';
                          ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
                          ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         PRAGMA user_version = 9;",
+                         PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -397,8 +406,9 @@ impl ProjectStore {
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN preview_offset INTEGER NOT NULL DEFAULT 0;
                          ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         PRAGMA user_version = 9;",
+                         PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -410,8 +420,9 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
+                         ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         PRAGMA user_version = 9;",
+                         PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -423,7 +434,20 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         PRAGMA user_version = 9;",
+                         ALTER TABLE projects ADD COLUMN query_engine TEXT;
+                         PRAGMA user_version = 10;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            9 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN query_engine TEXT;
+                         PRAGMA user_version = 10;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -512,6 +536,8 @@ impl ProjectStore {
             active.row_count,
         )?)?;
         let active_phase = active_phase_label(workspace.active_phase.as_deref())?.to_owned();
+        let query_engine =
+            validate_query_engine(workspace.query_engine.as_deref())?.map(str::to_owned);
         let analysis_sample_rows = validate_analysis_sample_rows(workspace.analysis_sample_rows)?
             .map(usize_to_i64)
             .transpose()?;
@@ -577,7 +603,7 @@ impl ProjectStore {
                  quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
                   history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
                  sql_history_json = ?13, review_tab = ?14, preview_offset = ?15,
-                 active_phase = ?16, analysis_sample_rows = ?17 WHERE id = ?18",
+                 active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18 WHERE id = ?19",
                 params![
                     name,
                     active.file_name,
@@ -595,6 +621,7 @@ impl ProjectStore {
                     review_tab,
                     preview_offset,
                     active_phase,
+                    query_engine,
                     analysis_sample_rows,
                     id
                 ],
@@ -605,8 +632,8 @@ impl ProjectStore {
                  (id, name, dataset_file_name, row_count, column_count, snapshot_name,
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
                    generation_name, history_manifest_json, profile_json, profile_cache_sha256,
-                    sql_history_json, review_tab, preview_offset, active_phase, analysis_sample_rows)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                    sql_history_json, review_tab, preview_offset, active_phase, query_engine, analysis_sample_rows)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 params![
                     id,
                     name,
@@ -625,6 +652,7 @@ impl ProjectStore {
                     review_tab,
                     preview_offset,
                     active_phase,
+                    query_engine,
                     analysis_sample_rows,
                 ],
             )
@@ -795,7 +823,7 @@ impl ProjectStore {
                         updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
                         generation_name, history_manifest_json, profile_json,
                          profile_cache_sha256, sql_history_json, review_tab, preview_offset,
-                         active_phase, analysis_sample_rows
+                         active_phase, query_engine, analysis_sample_rows
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -812,7 +840,8 @@ impl ProjectStore {
                         review_tab: row.get(15)?,
                         preview_offset: row.get(16)?,
                         active_phase: row.get(17)?,
-                        analysis_sample_rows: row.get(18)?,
+                        query_engine: row.get(18)?,
+                        analysis_sample_rows: row.get(19)?,
                     })
                 },
             )
@@ -1014,6 +1043,7 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
     let review_tab = parse_review_tab(&stored.review_tab)?;
     let preview_offset = parse_preview_offset(stored.preview_offset, stored.summary.row_count);
     let active_phase = parse_active_phase(&stored.active_phase)?;
+    let query_engine = parse_query_engine(stored.query_engine.clone())?;
     let analysis_sample_rows = parse_analysis_sample_rows(stored.analysis_sample_rows)?;
     Ok(ProjectWorkspace {
         quality_rules,
@@ -1022,6 +1052,7 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         review_tab,
         preview_offset,
         active_phase,
+        query_engine,
         analysis_sample_rows,
     })
 }
@@ -1052,6 +1083,19 @@ fn active_phase_label(phase: Option<&str>) -> Result<&'static str, String> {
 fn parse_active_phase(value: &str) -> Result<Option<String>, String> {
     let label = active_phase_label(Some(value))?;
     Ok((label != "review").then(|| label.to_owned()))
+}
+
+fn validate_query_engine(value: Option<&str>) -> Result<Option<&str>, String> {
+    match value {
+        None => Ok(None),
+        Some("polars" | "duckdb") => Ok(value),
+        Some(_) => Err("El motor de consulta guardado no es válido.".to_owned()),
+    }
+}
+
+fn parse_query_engine(value: Option<String>) -> Result<Option<String>, String> {
+    validate_query_engine(value.as_deref())?;
+    Ok(value)
 }
 
 fn validate_analysis_sample_rows(value: Option<usize>) -> Result<Option<usize>, String> {
@@ -1539,6 +1583,7 @@ mod tests {
             }],
             "reviewTab": "preview",
             "activePhase": "prepare",
+            "queryEngine": "duckdb",
             "analysisSampleRows": 50000
         }))
         .expect("el workspace de prueba debe ser válido")
@@ -1678,6 +1723,7 @@ mod tests {
         assert!(columns.contains(&"review_tab".to_owned()));
         assert!(columns.contains(&"preview_offset".to_owned()));
         assert!(columns.contains(&"active_phase".to_owned()));
+        assert!(columns.contains(&"query_engine".to_owned()));
         assert!(columns.contains(&"analysis_sample_rows".to_owned()));
     }
 
@@ -1709,6 +1755,7 @@ mod tests {
             .unwrap();
         assert!(columns.contains(&"preview_offset".to_owned()));
         assert!(columns.contains(&"active_phase".to_owned()));
+        assert!(columns.contains(&"query_engine".to_owned()));
         assert!(columns.contains(&"analysis_sample_rows".to_owned()));
     }
 
@@ -1739,6 +1786,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert!(columns.contains(&"active_phase".to_owned()));
+        assert!(columns.contains(&"query_engine".to_owned()));
         assert!(columns.contains(&"analysis_sample_rows".to_owned()));
     }
 
@@ -1769,6 +1817,36 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert!(columns.contains(&"analysis_sample_rows".to_owned()));
+        assert!(columns.contains(&"query_engine".to_owned()));
+    }
+
+    #[test]
+    fn migration_from_v9_adds_query_engine_without_requiring_dataset_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data-v9");
+        fs::create_dir_all(&root).unwrap();
+        Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                 PRAGMA user_version = 9;",
+            )
+            .unwrap();
+
+        let store = ProjectStore::initialize(root).unwrap();
+        let connection = store.connection().unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let columns = connection
+            .prepare("PRAGMA table_info(projects)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"query_engine".to_owned()));
     }
 
     #[test]
@@ -1778,7 +1856,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 10;")
+            .execute_batch("PRAGMA user_version = 11;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -2156,6 +2234,7 @@ mod tests {
             review_tab: Default::default(),
             preview_offset: Default::default(),
             active_phase: Default::default(),
+            query_engine: Default::default(),
             analysis_sample_rows: Default::default(),
         };
         assert!(store
@@ -2216,6 +2295,18 @@ mod tests {
                 Some(created.id.clone()),
                 "No publicado".to_owned(),
                 invalid_analysis_sample_rows,
+            )
+            .is_err());
+        let invalid_query_engine = ProjectWorkspace {
+            query_engine: Some("sqlite".to_owned()),
+            ..ProjectWorkspace::default()
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_query_engine,
             )
             .is_err());
         assert_eq!(store.list().unwrap(), vec![created]);

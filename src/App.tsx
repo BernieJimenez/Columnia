@@ -59,9 +59,11 @@ import {
   failPageLoad,
   normalizePageOffset,
   readAnalysisSampleRowsPreference,
+  readQueryEnginePreference,
   requestProfileCancellation,
   updateProfileProgress,
   writeAnalysisSampleRowsPreference,
+  writeQueryEnginePreference,
   type AnalysisSampleRows,
   type ProfileStatus,
 } from "./features/review/reviewModel";
@@ -93,6 +95,7 @@ import {
   type DatasetPreview,
   type ConflictResolution,
   type DatasetSourceInspection,
+  type DatasetQueryEngine,
   type OperationProgress,
   type SavedRecipe,
   type SampleDatasetDescriptor,
@@ -161,6 +164,7 @@ export function App() {
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [analysisSampleRows, setAnalysisSampleRows] = useState<AnalysisSampleRows>(readAnalysisSampleRowsPreference);
+  const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
   const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
   const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
@@ -208,6 +212,7 @@ export function App() {
       reviewTab,
       previewOffset: datasetStatus.kind === "ready" ? datasetStatus.pageOffset : 0,
       activePhase,
+      queryEngine,
       analysisSampleRows,
     },
     onActiveProjectDeleted: () => setSqlHistory([]),
@@ -238,6 +243,9 @@ export function App() {
       setRecipeSession((current) => current + 1);
       setReviewTab(workspace.reviewTab ?? "diagnosis");
       setActivePhase(workspace.activePhase ?? "review");
+      const selectedQueryEngine = workspace.queryEngine ?? readQueryEnginePreference();
+      setQueryEngine(selectedQueryEngine);
+      writeQueryEnginePreference(selectedQueryEngine);
       const sampleRows = workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference();
       setAnalysisSampleRows(sampleRows);
       writeAnalysisSampleRowsPreference(sampleRows);
@@ -859,6 +867,8 @@ export function App() {
                 onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
                 sqlHistory={sqlHistory}
                 onSqlHistoryChange={setSqlHistory}
+                queryEngine={queryEngine}
+                onQueryEngineChange={setQueryEngine}
                 analysisSampleRows={analysisSampleRows}
                 onAnalysisSampleRowsChange={setAnalysisSampleRows}
               />

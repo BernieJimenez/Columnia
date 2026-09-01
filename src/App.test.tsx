@@ -161,7 +161,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", analysisSampleRows: 100_000 },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000 },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -204,7 +204,7 @@ describe("App", () => {
     const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset,
-      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50, activePhase: "prepare", analysisSampleRows: 50_000 },
+      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50, activePhase: "prepare", queryEngine: "duckdb", analysisSampleRows: 50_000 },
       profile: { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
     });
     const pageSpy = vi.spyOn(bridge, "getDatasetPage").mockResolvedValue({
@@ -223,7 +223,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", analysisSampleRows: 100_000 },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000 },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
@@ -234,6 +234,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
     expect(screen.getByRole("tab", { name: "Vista previa" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Diagnóstico" }));
+    fireEvent.click(screen.getByText("Explorar con SQL local"));
+    expect(screen.getByRole("combobox", { name: "Motor de consulta" })).toHaveValue("duckdb");
     expect(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" })).toHaveValue("50000");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
     expect(await screen.findByRole("cell", { name: "lucia@example.com" })).toBeInTheDocument();

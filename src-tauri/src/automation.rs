@@ -1224,6 +1224,7 @@ pub fn project_save(
             review_tab: Default::default(),
             preview_offset: Default::default(),
             active_phase: Default::default(),
+            query_engine: Default::default(),
             analysis_sample_rows: Default::default(),
         },
     )

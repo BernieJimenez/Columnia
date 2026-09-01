@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-09-01
+
+### Mejorado
+
+- El motor SQL elegido en Revisar (`Polars` o `DuckDB`) se guarda por proyecto
+  y se restaura al abrirlo, manteniendo la preferencia local como fallback para
+  catálogos anteriores.
+
+### Verificado
+
+- SQLite migra el catálogo a v10 y Rust rechaza motores desconocidos antes de
+  publicar snapshots o sustituir el proyecto activo.
+- La reapertura conserva el motor junto con la pestaña, etapa, página y
+  cobertura de correlaciones del workspace.
+
 ## [0.103.0] - 2026-09-01
 
 ### Mejorado

@@ -61,6 +61,8 @@ interface ReviewPhaseProps {
   onJoin: (joinType: DatasetJoinType) => void;
   sqlHistory?: SqlQueryHistoryEntry[];
   onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
+  queryEngine?: DatasetQueryEngine;
+  onQueryEngineChange?: (engine: DatasetQueryEngine) => void;
   analysisSampleRows?: AnalysisSampleRows;
   onAnalysisSampleRowsChange?: (sampleRows: AnalysisSampleRows) => void;
 }
@@ -88,6 +90,8 @@ export function ReviewPhase({
   onJoin,
   sqlHistory = [],
   onSqlHistoryChange = () => undefined,
+  queryEngine,
+  onQueryEngineChange = () => undefined,
   analysisSampleRows,
   onAnalysisSampleRowsChange = () => undefined,
 }: ReviewPhaseProps) {
@@ -122,6 +126,8 @@ export function ReviewPhase({
             comparisonAvailable={comparisonStatus.kind === "ready"}
             sqlHistory={sqlHistory}
             onSqlHistoryChange={onSqlHistoryChange}
+            queryEngine={queryEngine}
+            onQueryEngineChange={onQueryEngineChange}
             analysisSampleRows={selectedAnalysisSampleRows}
             onAnalysisSampleRowsChange={(sampleRows) => {
               setLocalAnalysisSampleRows(sampleRows);
@@ -494,6 +500,8 @@ function QualitySection({
   comparisonAvailable,
   sqlHistory,
   onSqlHistoryChange,
+  queryEngine,
+  onQueryEngineChange,
   analysisSampleRows,
   onAnalysisSampleRowsChange,
 }: {
@@ -504,6 +512,8 @@ function QualitySection({
   comparisonAvailable: boolean;
   sqlHistory: SqlQueryHistoryEntry[];
   onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
+  queryEngine?: DatasetQueryEngine;
+  onQueryEngineChange: (engine: DatasetQueryEngine) => void;
   analysisSampleRows: AnalysisSampleRows;
   onAnalysisSampleRowsChange: (sampleRows: AnalysisSampleRows) => void;
 }) {
@@ -559,6 +569,8 @@ function QualitySection({
         comparisonAvailable={comparisonAvailable}
         queryHistory={sqlHistory}
         onQueryHistoryChange={onSqlHistoryChange}
+        queryEngine={queryEngine}
+        onQueryEngineChange={onQueryEngineChange}
       />
     </section>
   );
@@ -568,14 +580,19 @@ function LocalQueryPanel({
   comparisonAvailable,
   queryHistory: persistedQueryHistory,
   onQueryHistoryChange,
+  queryEngine,
+  onQueryEngineChange,
 }: {
   comparisonAvailable: boolean;
   queryHistory: SqlQueryHistoryEntry[];
   onQueryHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
+  queryEngine?: DatasetQueryEngine;
+  onQueryEngineChange: (engine: DatasetQueryEngine) => void;
 }) {
 
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
-  const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
+  const [localQueryEngine, setLocalQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
+  const selectedQueryEngine = queryEngine ?? localQueryEngine;
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "loading"; cancelRequested: boolean }
@@ -638,7 +655,7 @@ function LocalQueryPanel({
     queryStartedAtRef.current.set(requestId, Date.now());
     setState({ kind: "loading", cancelRequested: false });
     try {
-      const result = await queryDataset(query, queryEngine);
+      const result = await queryDataset(query, selectedQueryEngine);
       if (activeQueryRef.current !== requestId) return;
       if (cancelledQueryRef.current === requestId) {
         recordQueryHistory(requestId, "cancelled");
@@ -726,11 +743,12 @@ function LocalQueryPanel({
           Motor de consulta
           <select
             aria-label="Motor de consulta"
-            value={queryEngine}
+            value={selectedQueryEngine}
             onChange={(event) => {
               const nextEngine = event.target.value as DatasetQueryEngine;
-              setQueryEngine(nextEngine);
+              setLocalQueryEngine(nextEngine);
               writeQueryEnginePreference(nextEngine);
+              onQueryEngineChange(nextEngine);
             }}
           >
             <option value="polars">Polars · predeterminado</option>
