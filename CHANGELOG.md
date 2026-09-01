@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.119.0] - 2026-09-01
+
+### Mejorado
+
+- Las recetas source-backed ya ejecutan divisiones calculadas con operandos
+  literales o columnas directamente en DuckDB, incluyendo filtros y
+  reemplazos previos.
+- La división por cero se valida antes de publicar el snapshot; los nulos,
+  el orden, el conteo de columnas y el `DataFrame` activo vacío se conservan.
+
+### Verificado
+
+- La regresión compara la división por columna source-backed con eager y
+  confirma que una división por cero no publica ni materializa el dataset.
+
 ## [0.118.0] - 2026-09-01
 
 ### Mejorado

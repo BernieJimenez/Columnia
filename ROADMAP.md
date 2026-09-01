@@ -1137,8 +1137,8 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    Estas rutas conservan el orden de primer grupo, agrupan nulos, validan
    precisión, overflow, finitud y umbrales, y publican contadores separados de
    grupos, filas colapsadas, celdas ajustadas y filas retiradas. Los offsets
-   distintos de UTC, fechas inválidas, expresiones regulares o combinaciones no
-   seguras todavía materializan bajo demanda.
+   distintos de UTC, fechas inválidas o combinaciones no seguras todavía
+   materializan bajo demanda.
    Desde
    v0.68 la exportación Parquet sin receta
    ni privacidad adicional puede convertir la fuente directamente desde disco
@@ -1153,6 +1153,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    Desde v0.118, los reemplazos regex con grupos numéricos `$1`–`$9` y
    sustitución global también se ejecutan source-backed en DuckDB; las formas
    de sustitución no compatibles conservan el fallback eager.
+   Desde v0.119, las divisiones calculadas con operandos literales o columnas
+   validan ceros antes de publicar el snapshot y también conservan el fallback
+   eager para entradas no compatibles.
 7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
    valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
    temporales, con paginación, orden estable, agregaciones y joins seguros.
@@ -1557,13 +1560,18 @@ comparación no equivale a ejecución fuera de memoria general. La
    literales, conservando Unicode, nulos, coincidencias ausentes y resultados
    vacíos; desde v0.99 también normalizan correo, teléfono y dirección en
    DuckDB, con conteo exacto de celdas y extracciones posteriores sobre los
-   valores normalizados. ISO, reemplazo con regex y
-   operaciones no compatibles conservan materialización. `keep_columns` también puede proyectar dentro de
+   valores normalizados. Desde v0.102 los parseos ISO sin offset o con sufijo
+   UTC `Z` también se ejecutan en DuckDB; desde v0.118 los reemplazos regex
+   globales seguros con grupos `$1`–`$9` y desde v0.119 las divisiones
+   calculadas con validación previa también conservan la ruta source-backed.
+   Las operaciones no compatibles conservan materialización. `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
   cambios con una agregación streaming separada y preserva nulos, renombres y
-  casts a texto; el modo regex seguro conserva grupos de captura y valida el
-  patrón antes de construir el plan. La unión de columnas de texto conserva el orden de fuentes,
+   casts a texto; el modo regex seguro conserva grupos de captura y valida el
+   patrón antes de construir el plan. La división calculada source-backed
+   rechaza ceros antes de escribir y mantiene nulos como nulos. La unión de
+   columnas de texto conserva el orden de fuentes,
   omite nulos y mantiene nula la fila vacía, incluyendo casts numérico→texto
   validados antes de publicar. La división literal conserva el resto en el
   último destino y rellena destinos ausentes con nulos dentro del plan
@@ -1956,6 +1964,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.109.0 mantiene el esquema y la primera página source-backed en Polars, pero calcula el conteo total de CSV/TSV/TXT delimitado o Parquet mediante DuckDB con cancelación cooperativa; la regresión y el benchmark end-to-end confirman conteo exacto, frame activo vacío y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.110.0 extiende la exportación source-backed a CSV mediante DuckDB para fuentes CSV/TSV/TXT delimitadas o Parquet; conserva atomicidad, cancelación, validación de cambios, neutralización de fórmulas y no materializa el `DataFrame` activo en la ruta compatible. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-09-01 | Versión 0.119.0 extiende las recetas source-backed con división calculada por operando literal o columna en DuckDB; valida división por cero antes de publicar, conserva nulos y paridad eager, y mantiene el frame activo vacío. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.118.0 extiende las recetas source-backed con reemplazos regex globales y grupos numéricos `$1`–`$9` mediante DuckDB; conserva paridad eager, nulos, conteo de celdas y frame activo vacío, mientras las sustituciones no compatibles mantienen fallback. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.117.0 extiende la protección source-backed: `mask` y `hash` se aplican mediante una proyección DuckDB a un snapshot Parquet privado y los siete destinos locales lo transmiten sin materializar el `DataFrame` activo; se preservan nulos, columnas protegidas, cancelación y validación final de la fuente original. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.116.0 extiende la apertura source-backed a libros XLSX/XLSB grandes: Calamine detecta esquema y tipos en streaming, escribe un snapshot Parquet temporal por bloques y deja el `DataFrame` activo vacío; paginación, perfilado, consultas DuckDB y exportaciones compatibles reutilizan el snapshot con validación del libro original, y XLS/ODS conservan fallback materializado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

@@ -24254,7 +24254,7 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
                                 )
                         }))
                 }
-                CalculatedOperation::Divide => false,
+                CalculatedOperation::Divide => calculation.operand.is_some(),
             })
         && recipe.find_replace.as_ref().is_none_or(|replacement| {
             !replacement.find.contains('\0')
@@ -24726,6 +24726,7 @@ fn source_backed_projection_plan(
                         CalculatedOperation::Add
                             | CalculatedOperation::Subtract
                             | CalculatedOperation::Multiply
+                            | CalculatedOperation::Divide
                     ) =>
                 {
                     strict_f64(&operand.value, "El operando numérico")?;
@@ -25511,14 +25512,19 @@ fn duckdb_calculation_expression(
         }
         CalculatedOperation::Add
         | CalculatedOperation::Subtract
-        | CalculatedOperation::Multiply => {
+        | CalculatedOperation::Multiply
+        | CalculatedOperation::Divide => {
             let operand = calculation
                 .operand
                 .as_ref()
                 .ok_or_else(|| "La operación calculada requiere un operando.".to_owned())?;
             let operand = match operand.kind {
                 CalculatedOperandKind::Literal => {
-                    strict_f64(&operand.value, "El operando numérico")?.to_string()
+                    let value = strict_f64(&operand.value, "El operando numérico")?;
+                    if calculation.operation == CalculatedOperation::Divide && value == 0.0 {
+                        return Err("División por cero en el operando numérico.".to_owned());
+                    }
+                    value.to_string()
                 }
                 CalculatedOperandKind::Column => {
                     let operand_name = rename_map
@@ -25532,14 +25538,18 @@ fn duckdb_calculation_expression(
                 CalculatedOperation::Add => "+",
                 CalculatedOperation::Subtract => "-",
                 CalculatedOperation::Multiply => "*",
-                _ => unreachable!("el match exterior limita las operaciones source-backed"),
+                CalculatedOperation::Divide => "/",
+                _ => {
+                    unreachable!("el match exterior limita las operaciones numéricas source-backed")
+                }
+            };
+            let operand = if calculation.operation == CalculatedOperation::Divide {
+                format!("NULLIF({operand}, 0)")
+            } else {
+                operand
             };
             Ok(format!("{source} {operator} {operand}"))
         }
-        CalculatedOperation::Divide => Err(
-            "La división calculada requiere materializar la fuente para validar división por cero."
-                .to_owned(),
-        ),
         CalculatedOperation::Year => Ok(format!(
             "CAST(year(t.{}) AS INTEGER)",
             duckdb_identifier(source_name)
@@ -25821,17 +25831,48 @@ fn source_backed_projection_query(
     } else {
         "replaced"
     };
+    let calculation_input_source = if plan.replacement_columns.is_empty() {
+        filtered_source
+    } else {
+        "replaced"
+    };
+    let calculation_validation = recipe
+        .calculated_column
+        .as_ref()
+        .filter(|calculation| calculation.operation == CalculatedOperation::Divide)
+        .and_then(|calculation| {
+            let CalculatedOperand {
+                kind: CalculatedOperandKind::Column,
+                value,
+            } = calculation.operand.as_ref()?
+            else {
+                return None;
+            };
+            let source_name = rename_map
+                .get(&calculation.source)
+                .map(String::as_str)
+                .unwrap_or(calculation.source.as_str());
+            let operand_name = rename_map
+                .get(value)
+                .map(String::as_str)
+                .unwrap_or(value.as_str());
+            let source = format!("t.{}", duckdb_identifier(source_name));
+            let operand = format!("t.{}", duckdb_identifier(operand_name));
+            Some(format!(
+                "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{} SELECT CASE WHEN EXISTS (SELECT 1 FROM {calculation_input_source} AS t WHERE {source} IS NOT NULL AND {operand} IS NOT NULL AND CAST({operand} AS DOUBLE) = 0) THEN 1 ELSE 0 END",
+                renamed_expressions.join(", "),
+                transformed_expressions.join(", "),
+                filter_cte,
+                replacement_cte
+            ))
+        });
     let calculation_cte = if let Some(calculation) = &recipe.calculated_column {
         result_source = "calculated";
         format!(
             ", calculated AS (SELECT *, {} AS {} FROM {} AS t)",
             duckdb_calculation_expression(calculation, &rename_map)?,
             duckdb_identifier(&calculation.name),
-            if plan.replacement_columns.is_empty() {
-                filtered_source
-            } else {
-                "replaced"
-            }
+            calculation_input_source
         )
     } else {
         String::new()
@@ -26462,6 +26503,7 @@ fn source_backed_projection_query(
         group_input_count,
         group_validation,
         output_validation,
+        calculation_validation,
     })
 }
 
@@ -26476,6 +26518,7 @@ struct SourceBackedProjectionQueries {
     group_input_count: Option<String>,
     group_validation: Option<String>,
     output_validation: Option<String>,
+    calculation_validation: Option<String>,
 }
 
 fn apply_source_backed_projection_recipe(
@@ -26587,6 +26630,12 @@ fn apply_source_backed_projection_recipe(
                 "El resumen source-backed contiene claves, agregaciones o sumas no válidas."
                     .to_owned(),
             );
+        }
+    }
+    if let Some(query) = queries.calculation_validation.as_deref() {
+        let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
+        if invalid != 0 {
+            return Err("La división source-backed contiene división por cero.".to_owned());
         }
     }
     if let Some(query) = queries.outlier_validation.as_deref() {
@@ -28492,6 +28541,93 @@ mod tests {
         assert!(dataset.source_backed);
         assert_eq!(dataset.frame.height(), 0);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
+        let path = temporary_csv("left,right\n10,2\n9,3\n,4\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "ratio".to_owned(),
+                source: "left".to_owned(),
+                operation: CalculatedOperation::Divide,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Column,
+                    value: "right".to_owned(),
+                }),
+            }),
+            ..TransformRecipe::default()
+        };
+        assert!(source_backed_projection_recipe_supported(
+            &dataset.frame,
+            &recipe
+        ));
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la división eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la división source-backed debe publicarse");
+
+        assert_eq!(result.calculated_column_count, 1);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el resultado Parquet debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(
+            output.column("ratio").unwrap().f64().unwrap().get(0),
+            Some(5.0)
+        );
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+
+        let invalid_path = temporary_csv("left,right\n10,0\n");
+        let (invalid_schema, _, invalid_row_count) =
+            source_backed_load(&invalid_path, "csv", || false)
+                .expect("la fuente inválida debe inspeccionarse en disco");
+        let invalid_history =
+            HistoryManager::deferred().expect("el historial inválido debe inicializarse");
+        let invalid_size = fs::metadata(&invalid_path)
+            .expect("la fuente inválida debe existir")
+            .len();
+        let mut invalid_dataset = LoadedDataset {
+            source_path: Some(invalid_path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes: invalid_size,
+            row_count: invalid_row_count,
+            frame: invalid_schema,
+            source_backed: true,
+            profile: None,
+            history: invalid_history,
+        };
+        let error = apply_recipe_to_dataset(&mut invalid_dataset, &recipe)
+            .expect_err("la división por cero debe abortar antes de publicar");
+        assert!(error.contains("división por cero"));
+        assert!(invalid_dataset.source_backed);
+        assert_eq!(invalid_dataset.frame.height(), 0);
+        assert_eq!(
+            invalid_dataset.source_path.as_deref(),
+            Some(invalid_path.as_path())
+        );
+        fs::remove_file(invalid_path).expect("se debe limpiar el CSV inválido");
     }
 
     #[test]
