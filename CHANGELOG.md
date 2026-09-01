@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed pueden extraer tokens, dígitos, letras y segmentos
+  antes o después de un delimitador directamente en DuckDB, después de las
+  etapas compatibles de la receta, y publicar el snapshot Parquet resultante.
+- La extracción conserva la semántica eager para Unicode, nulos, coincidencias
+  ausentes, delimitadores Unicode y resultados vacíos, además de renombrados y
+  `keepColumns`.
+
+### Verificado
+
+- Una regresión compara las seis variantes de extracción source-backed con la
+  ruta eager usando una fuente Parquet con texto Unicode, nulos y segmentos
+  vacíos.
+
 ## [0.97.0] - 2026-08-31
 
 ### Mejorado

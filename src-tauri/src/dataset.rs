@@ -22904,7 +22904,8 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
         || recipe.calculated_column.is_some()
         || recipe.find_replace.is_some()
         || recipe.split_column.is_some()
-        || recipe.merge_columns.is_some())
+        || recipe.merge_columns.is_some()
+        || !recipe.text_extractions.is_empty())
         && recipe
             .date_parses
             .iter()
@@ -22949,10 +22950,17 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
         && recipe.split_column.as_ref().is_none_or(|split| {
             !split.delimiter.contains('\0') && split.names.iter().all(|name| !name.contains('\0'))
         })
+        && recipe.text_extractions.iter().all(|extraction| {
+            !extraction.name.contains('\0')
+                && extraction.source.chars().all(|character| character != '\0')
+                && extraction
+                    .delimiter
+                    .as_deref()
+                    .is_none_or(|delimiter| !delimiter.contains('\0'))
+        })
         && recipe.outlier_treatments.is_empty()
         && recipe.group_summary.is_none()
         && recipe.contact_normalizations.is_empty()
-        && recipe.text_extractions.is_empty()
 }
 
 struct SourceBackedProjectionPlan {
@@ -22966,6 +22974,7 @@ struct SourceBackedProjectionPlan {
     replacement_columns: Vec<String>,
     split_columns: Option<SourceBackedSplitPlan>,
     merge_columns: Option<SourceBackedMergePlan>,
+    text_extractions: Vec<SourceBackedTextExtractionPlan>,
     dropped_column_count: usize,
     kept_order_changed: bool,
 }
@@ -22982,6 +22991,13 @@ struct SourceBackedMergePlan {
     name: String,
     separator: String,
     drop_sources: bool,
+}
+
+struct SourceBackedTextExtractionPlan {
+    source: String,
+    kind: ExtractionKind,
+    name: String,
+    delimiter: Option<String>,
 }
 
 fn source_backed_projection_plan(
@@ -23433,6 +23449,100 @@ fn source_backed_projection_plan(
         None
     };
 
+    let text_extractions = if recipe.text_extractions.is_empty() {
+        Vec::new()
+    } else {
+        let mut unique_names = HashSet::new();
+        recipe
+            .text_extractions
+            .iter()
+            .map(|extraction| {
+                if extraction.name.trim().is_empty() || extraction.name != extraction.name.trim() {
+                    return Err(
+                        "El nombre extraído no puede estar vacío ni tener espacios exteriores."
+                            .to_owned(),
+                    );
+                }
+                if !unique_names.insert(extraction.name.as_str()) {
+                    return Err(format!(
+                        "La columna extraída '{}' está duplicada.",
+                        extraction.name
+                    ));
+                }
+                if output_columns.iter().any(|name| name == &extraction.name)
+                    || calculated_column_count > 0
+                        && recipe
+                            .calculated_column
+                            .as_ref()
+                            .is_some_and(|calculation| calculation.name == extraction.name)
+                    || split_columns.as_ref().is_some_and(|split| {
+                        split.names.iter().any(|name| name == &extraction.name)
+                    })
+                    || merge_columns
+                        .as_ref()
+                        .is_some_and(|merge| merge.name == extraction.name)
+                {
+                    return Err(format!(
+                        "La columna extraída '{}' ya existe.",
+                        extraction.name
+                    ));
+                }
+                let delimiter_based = matches!(
+                    extraction.kind,
+                    ExtractionKind::Before | ExtractionKind::After
+                );
+                if delimiter_based != extraction.delimiter.is_some() {
+                    return Err(format!(
+                        "La extracción '{}' {} delimitador.",
+                        extraction.name,
+                        if delimiter_based { "requiere" } else { "no acepta" }
+                    ));
+                }
+                if extraction.delimiter.as_deref().is_some_and(str::is_empty) {
+                    return Err("El delimitador de extracción no puede estar vacío.".to_owned());
+                }
+                let source_column = recipe_column(schema, &extraction.source)?;
+                let source = rename_map
+                    .get(&extraction.source)
+                    .cloned()
+                    .unwrap_or_else(|| extraction.source.clone());
+                if recipe.keep_columns.is_some()
+                    && !selected_columns.iter().any(|name| name == &source)
+                {
+                    return Err(format!(
+                        "La columna '{source}' requerida por extracción fue descartada por keepColumns."
+                    ));
+                }
+                if split_columns
+                    .as_ref()
+                    .is_some_and(|split| split.drop_source && split.source == source)
+                {
+                    return Err(format!(
+                        "La extracción necesita '{source}', pero la división la descartaría."
+                    ));
+                }
+                if merge_columns.as_ref().is_some_and(|merge| {
+                    merge.drop_sources && merge.sources.iter().any(|name| name == &source)
+                }) {
+                    return Err(format!(
+                        "La extracción necesita '{source}', pero la unión la descartaría."
+                    ));
+                }
+                if !text_after_cast(&source, source_column) {
+                    return Err(format!(
+                        "La columna '{source}' debe ser de texto para extraerse."
+                    ));
+                }
+                Ok(SourceBackedTextExtractionPlan {
+                    source,
+                    kind: extraction.kind,
+                    name: extraction.name.clone(),
+                    delimiter: extraction.delimiter.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+
     for filter in &recipe.filters {
         let effective = rename_map
             .get(&filter.column)
@@ -23506,6 +23616,7 @@ fn source_backed_projection_plan(
         replacement_columns,
         split_columns,
         merge_columns,
+        text_extractions,
         dropped_column_count,
         kept_order_changed,
     })
@@ -23668,6 +23779,61 @@ fn duckdb_calculation_expression(
             "CAST(day(t.{}) AS INTEGER)",
             duckdb_identifier(source_name)
         )),
+    }
+}
+
+fn source_backed_text_extraction_expression(
+    extraction: &SourceBackedTextExtractionPlan,
+) -> Result<String, String> {
+    let value = format!(
+        "CAST(t.{} AS VARCHAR)",
+        duckdb_identifier(&extraction.source)
+    );
+    match extraction.kind {
+        ExtractionKind::FirstToken
+        | ExtractionKind::LastToken
+        | ExtractionKind::Digits
+        | ExtractionKind::Letters => {
+            let pattern = match extraction.kind {
+                ExtractionKind::FirstToken => r"^\s*(\S+)",
+                ExtractionKind::LastToken => r"(\S+)\s*$",
+                ExtractionKind::Digits => r"([0-9]+)",
+                ExtractionKind::Letters => r"(\p{L}+)",
+                ExtractionKind::Before | ExtractionKind::After => {
+                    unreachable!("el match exterior limita las extracciones regex")
+                }
+            };
+            let pattern = duckdb_string_literal(pattern);
+            Ok(format!(
+                "CASE WHEN {value} IS NOT NULL AND regexp_matches({value}, {pattern}) THEN regexp_extract({value}, {pattern}, 1) ELSE NULL END AS {}",
+                duckdb_identifier(&extraction.name)
+            ))
+        }
+        ExtractionKind::Before | ExtractionKind::After => {
+            let delimiter = extraction.delimiter.as_deref().ok_or_else(|| {
+                "La extracción antes/después del delimitador requiere delimitador.".to_owned()
+            })?;
+            let delimiter = duckdb_string_literal(delimiter);
+            let position = format!("strpos({value}, {delimiter})");
+            let expression = match extraction.kind {
+                ExtractionKind::Before => {
+                    format!("left({value}, {position} - 1)")
+                }
+                ExtractionKind::After => {
+                    format!("substr({value}, {position} + length({delimiter}))")
+                }
+                ExtractionKind::FirstToken
+                | ExtractionKind::LastToken
+                | ExtractionKind::Digits
+                | ExtractionKind::Letters => {
+                    unreachable!("el match exterior limita las extracciones por delimitador")
+                }
+            };
+            Ok(format!(
+                "CASE WHEN {value} IS NOT NULL AND {position} > 0 THEN {expression} ELSE NULL END AS {}",
+                duckdb_identifier(&extraction.name)
+            ))
+        }
     }
 }
 
@@ -23897,6 +24063,21 @@ fn source_backed_projection_query(
     } else {
         String::new()
     };
+    let text_extraction_cte = if plan.text_extractions.is_empty() {
+        String::new()
+    } else {
+        let source = result_source;
+        let expressions = plan
+            .text_extractions
+            .iter()
+            .map(source_backed_text_extraction_expression)
+            .collect::<Result<Vec<_>, String>>()?;
+        result_source = "text_extracted";
+        format!(
+            ", text_extracted AS (SELECT *, {} FROM {source} AS t)",
+            expressions.join(", ")
+        )
+    };
     let mut output_columns = plan.selected_columns.clone();
     if let Some(calculation) = &recipe.calculated_column {
         output_columns.push(calculation.name.clone());
@@ -23913,12 +24094,17 @@ fn source_backed_projection_query(
         }
         output_columns.push(merge.name.clone());
     }
+    output_columns.extend(
+        plan.text_extractions
+            .iter()
+            .map(|extraction| extraction.name.clone()),
+    );
     let selected = output_columns
         .iter()
         .map(|column| format!("t.{}", duckdb_identifier(column)))
         .collect::<Vec<_>>();
     let output = format!(
-        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{} SELECT {} FROM {} AS t",
+        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{} SELECT {} FROM {} AS t",
         renamed_expressions.join(", "),
         transformed_expressions.join(", "),
         filter_cte,
@@ -23926,6 +24112,7 @@ fn source_backed_projection_query(
         calculation_cte,
         split_cte,
         merge_cte,
+        text_extraction_cte,
         selected.join(", "),
         result_source
     );
@@ -24004,6 +24191,7 @@ fn apply_source_backed_projection_recipe(
     let merge_dropped_source_count = plan.merge_columns.as_ref().map_or(0, |merge| {
         usize::from(merge.drop_sources) * merge.sources.len()
     });
+    let extracted_column_count = plan.text_extractions.len();
     let dropped_source_column_count = split_dropped_source_count + merge_dropped_source_count;
     let structural_change = plan.renamed_column_count
         + plan.converted_column_count
@@ -24011,6 +24199,7 @@ fn apply_source_backed_projection_recipe(
         + plan.calculated_column_count
         + split_column_count
         + merged_column_count
+        + extracted_column_count
         + dropped_source_column_count
         + plan.dropped_column_count
         + usize::from(plan.kept_order_changed)
@@ -24054,7 +24243,7 @@ fn apply_source_backed_projection_recipe(
             collapsed_row_count: 0,
             normalized_contact_cell_count: 0,
             normalized_contact_column_count: 0,
-            extracted_column_count: 0,
+            extracted_column_count,
             changed: false,
         });
     }
@@ -24143,7 +24332,7 @@ fn apply_source_backed_projection_recipe(
             collapsed_row_count: 0,
             normalized_contact_cell_count: 0,
             normalized_contact_column_count: 0,
-            extracted_column_count: 0,
+            extracted_column_count,
             changed: false,
         });
     }
@@ -24191,7 +24380,7 @@ fn apply_source_backed_projection_recipe(
         collapsed_row_count: 0,
         normalized_contact_cell_count: 0,
         normalized_contact_column_count: 0,
-        extracted_column_count: 0,
+        extracted_column_count,
         changed,
     })
 }
@@ -26237,6 +26426,149 @@ mod tests {
         assert_eq!(rows[2][2], None);
         assert_eq!(rows[3][3].as_deref(), Some(""));
         assert_eq!(rows[3][4], None);
+    }
+
+    #[test]
+    fn source_backed_text_extractions_match_eager_unicode_nulls_and_empty_segments() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("source.parquet");
+        let source_frame = DataFrame::new(
+            4,
+            vec![
+                Series::new(
+                    "text".into(),
+                    [
+                        Some("  José Pérez 123🙂resto"),
+                        Some("a🙂"),
+                        Some("🙂"),
+                        None,
+                    ],
+                )
+                .into_column(),
+                Series::new(
+                    "arabic".into(),
+                    [Some("١٢ abc 45"), Some(""), None, Some("١٢")],
+                )
+                .into_column(),
+            ],
+        )
+        .expect("el frame Parquet debe ser válido");
+        let mut parquet_frame = source_frame.clone();
+        let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
+        ParquetWriter::new(&mut file)
+            .finish(&mut parquet_frame)
+            .expect("se debe escribir el Parquet temporal");
+        let schema = read_parquet_schema_frame(&path).expect("se debe leer el esquema Parquet");
+        let row_count = source_frame.height();
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.parquet".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "text".to_owned(),
+                to: "description".to_owned(),
+            }],
+            keep_columns: Some(vec!["text".to_owned(), "arabic".to_owned()]),
+            text_extractions: vec![
+                TextExtraction {
+                    source: "text".to_owned(),
+                    kind: ExtractionKind::FirstToken,
+                    name: "first".to_owned(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "text".to_owned(),
+                    kind: ExtractionKind::LastToken,
+                    name: "last".to_owned(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "text".to_owned(),
+                    kind: ExtractionKind::Letters,
+                    name: "letters".to_owned(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "arabic".to_owned(),
+                    kind: ExtractionKind::Digits,
+                    name: "digits".to_owned(),
+                    delimiter: None,
+                },
+                TextExtraction {
+                    source: "text".to_owned(),
+                    kind: ExtractionKind::Before,
+                    name: "before".to_owned(),
+                    delimiter: Some("🙂".to_owned()),
+                },
+                TextExtraction {
+                    source: "text".to_owned(),
+                    kind: ExtractionKind::After,
+                    name: "after".to_owned(),
+                    delimiter: Some("🙂".to_owned()),
+                },
+                TextExtraction {
+                    source: "text".to_owned(),
+                    kind: ExtractionKind::Before,
+                    name: "missing".to_owned(),
+                    delimiter: Some("NO".to_owned()),
+                },
+            ],
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta source-backed debe publicar las extracciones");
+
+        assert!(dataset.source_backed);
+        assert_eq!(result.extracted_column_count, 7);
+        assert_eq!(
+            dataset.frame.get_column_names(),
+            [
+                "description",
+                "arabic",
+                "first",
+                "last",
+                "letters",
+                "digits",
+                "before",
+                "after",
+                "missing"
+            ]
+        );
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        assert!(output.equals_missing(&expected));
+        let rows = result.dataset.rows;
+        assert_eq!(rows[0][2].as_deref(), Some("José"));
+        assert_eq!(rows[0][3].as_deref(), Some("123🙂resto"));
+        assert_eq!(rows[0][4].as_deref(), Some("José"));
+        assert_eq!(rows[0][5].as_deref(), Some("45"));
+        assert_eq!(rows[0][6].as_deref(), Some("  José Pérez 123"));
+        assert_eq!(rows[0][7].as_deref(), Some("resto"));
+        assert_eq!(rows[0][8], None);
+        assert_eq!(rows[1][6].as_deref(), Some("a"));
+        assert_eq!(rows[1][7].as_deref(), Some(""));
+        assert_eq!(rows[2][6].as_deref(), Some(""));
+        assert_eq!(rows[2][7].as_deref(), Some(""));
+        assert_eq!(rows[3][2], None);
+        assert_eq!(rows[3][8], None);
+
+        fs::remove_file(path).expect("se debe limpiar el Parquet temporal");
     }
 
     #[test]
