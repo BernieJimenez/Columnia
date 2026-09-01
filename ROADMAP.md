@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.120.0`.
+- Versión actual del prototipo: `0.121.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1160,6 +1160,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    directamente a `current.parquet` mediante DuckDB, verifica el conteo real y
    mantiene el `DataFrame` activo en modo esquema-only; los proyectos normales
    conservan la ruta eager y su historial.
+   Desde v0.121, el parseo de fechas y la extracción de `year`, `month` o `day`
+   también pueden seguir a filtros dentro de la misma receta source-backed,
+   respetando el orden de etapas y la paridad con eager.
 7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
    valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
    temporales, con paginación, orden estable, agregaciones y joins seguros.
@@ -1968,6 +1971,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.109.0 mantiene el esquema y la primera página source-backed en Polars, pero calcula el conteo total de CSV/TSV/TXT delimitado o Parquet mediante DuckDB con cancelación cooperativa; la regresión y el benchmark end-to-end confirman conteo exacto, frame activo vacío y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.110.0 extiende la exportación source-backed a CSV mediante DuckDB para fuentes CSV/TSV/TXT delimitadas o Parquet; conserva atomicidad, cancelación, validación de cambios, neutralización de fórmulas y no materializa el `DataFrame` activo en la ruta compatible. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-09-01 | Versión 0.121.0 amplía las recetas source-backed para parsear fechas y extraer `year`, `month` o `day` después de filtros mediante DuckDB; la regresión comprueba orden de etapas, conteo, paridad eager y snapshot Parquet sin materializar el frame. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.120.0 evita materializar fuentes source-backed al guardar proyectos: DuckDB crea `current.parquet` directamente desde CSV/TSV/TXT delimitado o Parquet, se verifica el conteo y la sesión conserva el esquema vacío; la regresión cubre snapshot, filas y estado activo. | `src-tauri/src/dataset.rs`, `src-tauri/src/projects.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.119.0 extiende las recetas source-backed con división calculada por operando literal o columna en DuckDB; valida división por cero antes de publicar, conserva nulos y paridad eager, y mantiene el frame activo vacío. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.118.0 extiende las recetas source-backed con reemplazos regex globales y grupos numéricos `$1`–`$9` mediante DuckDB; conserva paridad eager, nulos, conteo de celdas y frame activo vacío, mientras las sustituciones no compatibles mantienen fallback. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

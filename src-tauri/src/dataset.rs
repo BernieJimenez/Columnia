@@ -24239,11 +24239,10 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
                 CalculatedOperation::Year
                 | CalculatedOperation::Month
                 | CalculatedOperation::Day => {
-                    recipe.filters.is_empty()
-                        && recipe
-                            .casts
-                            .iter()
-                            .all(|cast| cast.column != calculation.source)
+                    recipe
+                        .casts
+                        .iter()
+                        .all(|cast| cast.column != calculation.source)
                         && (recipe_column(schema, &calculation.source).is_ok_and(|column| {
                             matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None))
                         }) || recipe.date_parses.iter().any(|parse| {
@@ -28734,6 +28733,74 @@ mod tests {
             Some(invalid_path.as_path())
         );
         fs::remove_file(invalid_path).expect("se debe limpiar el CSV inválido");
+    }
+
+    #[test]
+    fn source_backed_date_parts_after_filters_match_eager() {
+        let path = temporary_csv("day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "day".to_owned(),
+                format: RecipeDateFormat::Dmy,
+                target: RecipeDateTarget::Date,
+            }],
+            filters: vec![RecipeFilter {
+                column: "amount".to_owned(),
+                operator: RecipeFilterOperator::Gt,
+                value: Some("10".to_owned()),
+            }],
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "year".to_owned(),
+                source: "day".to_owned(),
+                operation: CalculatedOperation::Year,
+                operand: None,
+            }),
+            ..TransformRecipe::default()
+        };
+        assert!(source_backed_projection_recipe_supported(
+            &dataset.frame,
+            &recipe
+        ));
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("las partes de fecha source-backed deben publicarse");
+
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el resultado Parquet debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(result.removed_row_count, 1);
+        assert_eq!(
+            output.column("year").unwrap().i32().unwrap().get(0),
+            Some(2025)
+        );
+        assert_eq!(
+            output.column("year").unwrap().i32().unwrap().get(1),
+            Some(2026)
+        );
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]

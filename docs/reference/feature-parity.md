@@ -88,9 +88,9 @@ fuente no es compatible, se conserva el fallback materializado. La ejecución
 integral fuera de RAM sigue siendo un límite explícito.
 
 Las fechas ISO sin offset o con sufijo UTC `Z` también se convierten sobre la
-fuente; los offsets distintos de UTC, valores inválidos, partes de fecha con
-filtros previos, expresiones regulares y combinaciones no seguras usan un
-fallback eager atómico y mantienen
+fuente, y las partes de fecha pueden seguir a filtros dentro de la misma receta;
+los offsets distintos de UTC, valores inválidos, expresiones regulares y
+combinaciones no seguras usan un fallback eager atómico y mantienen
 la recuperación del dataset anterior ante errores o cancelación.
 
 La exportación Bundle source-backed compatible escribe `dataset.csv` desde

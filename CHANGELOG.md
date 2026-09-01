@@ -6,6 +6,19 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.121.0] - 2026-09-01
+
+### Mejorado
+
+- Las recetas source-backed ya pueden parsear fechas y extraer `year`, `month`
+  o `day` después de aplicar filtros, manteniendo el orden de etapas de la ruta
+  eager sin materializar las filas.
+
+### Verificado
+
+- La regresión compara la combinación de parseo, filtro y componente de fecha
+  source-backed con eager, incluyendo conteo de filas y snapshot Parquet.
+
 ## [0.120.0] - 2026-09-01
 
 ### Mejorado
