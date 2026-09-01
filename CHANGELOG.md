@@ -6,6 +6,20 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.105.2] - 2026-09-01
+
+### Corregido
+
+- Las consultas DuckDB source-backed conservan el orden global de un `FULL
+  JOIN` cuando el esquema activo se mantiene sin filas en memoria; las filas
+  exclusivas del dataset comparado quedan después de las filas activas.
+
+### Verificado
+
+- La regresión ejecuta el `FULL JOIN` desde snapshots Parquet con esquemas
+  vacíos y comprueba conteo, nulos, columnas y orden sin materializar el
+  dataset activo para preparar la consulta.
+
 ## [0.105.1] - 2026-09-01
 
 ### Limpieza

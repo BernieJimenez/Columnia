@@ -2626,11 +2626,24 @@ fn local_query_without_window(query: &str) -> String {
         .unwrap_or_else(|| query.trim().to_owned())
 }
 
+#[cfg(test)]
 fn prepare_duckdb_query(
     query: &str,
     current: &DataFrame,
     compared: Option<&DataFrame>,
 ) -> Result<crate::duckdb_query::DuckDbQuerySpec, String> {
+    prepare_duckdb_query_with_row_count(query, current, compared, current.height())
+}
+
+fn prepare_duckdb_query_with_row_count(
+    query: &str,
+    current: &DataFrame,
+    compared: Option<&DataFrame>,
+    current_row_count: usize,
+) -> Result<crate::duckdb_query::DuckDbQuerySpec, String> {
+    // Source-backed schemas intentionally contain zero rows. Keep the real
+    // count separate so FULL JOIN rows from the right side sort after every
+    // active row without materializing the active dataset just to build SQL.
     let (plan, query_for_duckdb, dataset_view_query, current_order_column, compared_order_column) =
         if let Some(spec) = parse_local_join_query_spec_for_duckdb(query, current, compared)? {
             let compared = compared.expect("la especificación JOIN ya validó compared");
@@ -2662,6 +2675,7 @@ fn prepare_duckdb_query(
                 &empty_joined,
                 &current_order_column,
                 &compared_order_column,
+                current_row_count,
             )?;
             (
                 plan,
@@ -2802,6 +2816,7 @@ fn build_duckdb_join_view_query(
     joined_schema: &DataFrame,
     current_order_column: &str,
     compared_order_column: &str,
+    current_row_count: usize,
 ) -> Result<String, String> {
     let current_names = current
         .get_column_names()
@@ -2879,7 +2894,7 @@ fn build_duckdb_join_view_query(
         .join(" AND ");
     projections.push(format!(
         "CASE WHEN c.{current_order} IS NULL THEN {} + r.{compared_order} ELSE c.{current_order} END AS {current_order}",
-        current.height(),
+        current_row_count,
         current_order = duckdb_identifier(current_order_column),
         compared_order = duckdb_identifier(compared_order_column),
     ));
@@ -18116,9 +18131,12 @@ pub async fn query_dataset(
                 if let (Some(current_schema), Some(compared_schema)) =
                     (current_schema.as_ref(), compared_schema.as_ref())
                 {
-                    if let Ok(spec) =
-                        prepare_duckdb_query(&query, current_schema, Some(compared_schema))
-                    {
+                    if let Ok(spec) = prepare_duckdb_query_with_row_count(
+                        &query,
+                        current_schema,
+                        Some(compared_schema),
+                        dataset.row_count,
+                    ) {
                         let result = if let Some(current_path) = current_snapshot.as_ref() {
                             let cancellation_app = query_app.clone();
                             Some(
@@ -18170,9 +18188,12 @@ pub async fn query_dataset(
                         .as_ref()
                         .map(|path| read_parquet_schema_frame(path))
                         .transpose()?;
-                    if let Ok(spec) =
-                        prepare_duckdb_query(&query, &current_schema, compared_schema.as_ref())
-                    {
+                    if let Ok(spec) = prepare_duckdb_query_with_row_count(
+                        &query,
+                        &current_schema,
+                        compared_schema.as_ref(),
+                        dataset.row_count,
+                    ) {
                         let cancellation_app = query_app.clone();
                         match crate::duckdb_query::execute_duckdb_query_from_file_sources(
                             current_path,
@@ -18264,7 +18285,12 @@ pub async fn query_dataset(
                 })
                 .transpose()?;
             let compared = compared_frame.as_ref();
-            let spec = prepare_duckdb_query(&query, current_frame, compared)?;
+            let spec = prepare_duckdb_query_with_row_count(
+                &query,
+                current_frame,
+                compared,
+                dataset.row_count,
+            )?;
             let cancellation_app = query_app.clone();
             let fallback_cancellation_app = query_app.clone();
             if let Some(path) = current_snapshot {
@@ -28922,6 +28948,49 @@ mod tests {
             .expect("DuckDB debe preparar el JOIN sin limitar la entrada por filas");
         assert_eq!(spec.limit, 1);
         assert!(spec.dataset_view_query.is_some());
+    }
+
+    #[test]
+    fn source_backed_full_join_uses_the_real_active_row_count_for_ordering() {
+        let current = df!["id" => &[1_i64, 2]].unwrap();
+        let compared = df!["id" => &[2_i64, 3], "segment" => &["B", "C"]].unwrap();
+        let (current_directory, current_path) =
+            persist_comparison_snapshot(&current).expect("el snapshot activo debe escribirse");
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let current_schema = current.slice(0, 0);
+        let compared_schema = compared.slice(0, 0);
+        let spec = prepare_duckdb_query_with_row_count(
+            "SELECT id, segment FROM dataset FULL JOIN compared ON dataset.id = compared.id LIMIT 10",
+            &current_schema,
+            Some(&compared_schema),
+            current.height(),
+        )
+        .expect("la consulta DuckDB debe validar los esquemas source-backed");
+
+        let result = crate::duckdb_query::execute_duckdb_query_from_parquet_sources(
+            &current_path,
+            Some(&compared_path),
+            &spec,
+            || false,
+        )
+        .expect("DuckDB debe ejecutar el FULL JOIN desde snapshots source-backed");
+
+        assert_eq!(result.row_count, 3);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![Some("1".to_owned()), None],
+                vec![Some("2".to_owned()), Some("B".to_owned())],
+                vec![Some("3".to_owned()), Some("C".to_owned())],
+            ]
+        );
+        assert!(spec
+            .dataset_view_query
+            .as_deref()
+            .is_some_and(|query| query.contains("2 + r.")));
+        drop(current_directory);
+        drop(compared_directory);
     }
 
     #[test]

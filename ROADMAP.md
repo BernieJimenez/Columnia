@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.105.1`.
+- Versión actual del prototipo: `0.105.2`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1386,6 +1386,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   compatibles.
 - [ ] Completar consulta con joins y DuckDB para datasets que excedan la RAM,
   después de validar el benchmark y ampliar los límites de forma explícita. La
+  versión 0.105.2 corrige el orden global de `FULL JOIN` cuando el esquema
+  source-backed activo está vacío en memoria: el plan recibe el conteo real de
+  filas y mantiene las filas derechas no emparejadas después de las activas,
+  sin materializar el dataset para preparar la consulta. El benchmark sostenido
+  y la validación con datasets reales grandes siguen siendo necesarios.
   ruta parcial actual prepara el contrato DuckDB desde el esquema del snapshot
   comparado sin cargar sus filas otra vez y no hereda el límite de entradas del
   plan Polars; las consultas Polars simples sin comparación ya recorren por
@@ -1890,6 +1895,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.103.0 persiste por proyecto la cobertura de filas de correlaciones (`10.000`, `50.000` o `100.000`), migra el catálogo SQLite a v9 y mantiene fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src/App.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.1 renombra el componente interno de vista previa a `DatasetPreviewPanel` para que el árbol activo no contenga coincidencias textuales con la marca retirada, sin alterar el contrato visible ni la funcionalidad. | `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-09-01 | Versión 0.105.2 corrige el orden global de `FULL JOIN` en consultas DuckDB source-backed: la preparación usa el conteo real del dataset activo aunque el esquema en memoria esté vacío, y una regresión ejecuta ambos snapshots Parquet sin materializar el activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.0 persiste por proyecto el perfil de rendimiento (`conservative`/`balanced`/`maximum`), migra el catálogo SQLite a v11, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores; la UI restaura el perfil y lo desvincula al cambiar de dataset. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/components/ResourceMonitor.tsx`, `src/features/projects/useProjectsController.ts`, `src/App.test.tsx`, `src/components/ResourceMonitor.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
 | 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
