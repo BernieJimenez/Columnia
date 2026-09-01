@@ -8749,6 +8749,214 @@ fn source_backed_imputation(
     }))
 }
 
+struct SourceBackedDirectOutlierPlan {
+    name: String,
+    dtype: DataType,
+    lower: f64,
+    upper: f64,
+    median: f64,
+}
+
+fn source_backed_outlier_literal(value: f64) -> String {
+    format!("{value:.17}")
+}
+
+fn source_backed_direct_outlier_condition(name: &str, lower: f64, upper: f64) -> String {
+    let identifier = duckdb_identifier(name);
+    let value = format!("CAST({identifier} AS DOUBLE)");
+    format!(
+        "{identifier} IS NOT NULL AND ({value} < {} OR {value} > {})",
+        source_backed_outlier_literal(lower),
+        source_backed_outlier_literal(upper),
+    )
+}
+
+fn source_backed_direct_outlier(
+    dataset: &mut LoadedDataset,
+    action: OutlierAction,
+    label: &str,
+) -> Result<Option<TextCleaningResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let numeric_columns = dataset
+        .frame
+        .columns()
+        .iter()
+        .filter(|column| {
+            column.name() != "_cambios"
+                && matches!(column.dtype(), DataType::Int64 | DataType::Float64)
+        })
+        .map(|column| {
+            (
+                column.name().to_string(),
+                column.dtype().clone(),
+                column.dtype() == &DataType::Int64,
+            )
+        })
+        .collect::<Vec<_>>();
+    if numeric_columns.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+
+    let typed_columns = numeric_columns
+        .iter()
+        .map(|(name, _, integer)| (name.clone(), *integer))
+        .collect::<Vec<_>>();
+    let stats = match crate::duckdb_query::count_file_outlier_stats(
+        &source_path,
+        source_format,
+        &typed_columns,
+        || false,
+    ) {
+        Ok(stats) => stats,
+        Err(_) => return Ok(None),
+    };
+    let mut plans = Vec::new();
+    for ((name, dtype, _), stats) in numeric_columns.iter().zip(stats) {
+        if stats.non_finite_count > 0 || stats.precision_loss_count > 0 {
+            return Ok(None);
+        }
+        if stats.valid_count < 4 {
+            continue;
+        }
+        let (Some(q1), Some(q3), Some(median)) = (stats.q1, stats.q3, stats.median) else {
+            return Ok(None);
+        };
+        let iqr = q3 - q1;
+        let lower = q1 - 1.5 * iqr;
+        let upper = q3 + 1.5 * iqr;
+        if ![q1, q3, iqr, lower, upper, median]
+            .into_iter()
+            .all(f64::is_finite)
+        {
+            return Ok(None);
+        }
+        plans.push(SourceBackedDirectOutlierPlan {
+            name: name.clone(),
+            dtype: dtype.clone(),
+            lower,
+            upper,
+            median,
+        });
+    }
+    if plans.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+
+    let predicates = plans
+        .iter()
+        .map(|plan| source_backed_direct_outlier_condition(&plan.name, plan.lower, plan.upper))
+        .collect::<Vec<_>>();
+    let (affected_row_count, changed_counts) =
+        match crate::duckdb_query::count_file_predicate_matches(
+            &source_path,
+            source_format,
+            &predicates,
+            || false,
+        ) {
+            Ok(counts) => counts,
+            Err(_) => return Ok(None),
+        };
+    let changed_columns = plans
+        .iter()
+        .zip(changed_counts)
+        .filter(|(_, count)| *count > 0)
+        .map(|(plan, count)| ChangedTextColumn {
+            name: plan.name.clone(),
+            changed_cell_count: count,
+        })
+        .collect::<Vec<_>>();
+    let changed_cell_count = changed_columns
+        .iter()
+        .map(|column| column.changed_cell_count)
+        .sum::<usize>();
+    if changed_cell_count == 0 {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns,
+        }));
+    }
+
+    let projection = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            if name.as_str() == "_cambios" {
+                return source_backed_text_audit_expression(&identifier, label);
+            }
+            let Some(plan) = plans.iter().find(|plan| plan.name == name.as_str()) else {
+                return identifier;
+            };
+            let value = format!("CAST({identifier} AS DOUBLE)");
+            let condition = source_backed_direct_outlier_condition(
+                &plan.name,
+                plan.lower,
+                plan.upper,
+            );
+            let lower = source_backed_outlier_literal(plan.lower);
+            let upper = source_backed_outlier_literal(plan.upper);
+            let expression = match action {
+                OutlierAction::Cap => format!(
+                    "CASE WHEN {value} IS NULL THEN NULL WHEN {value} < {lower} THEN {lower} WHEN {value} > {upper} THEN {upper} ELSE {value} END"
+                ),
+                OutlierAction::Impute => {
+                    let replacement = if plan.dtype == DataType::Int64 {
+                        format!(
+                            "CAST({} AS BIGINT)",
+                            source_backed_outlier_literal(plan.median)
+                        )
+                    } else {
+                        source_backed_outlier_literal(plan.median)
+                    };
+                    let original = if plan.dtype == DataType::Int64 {
+                        identifier.clone()
+                    } else {
+                        value.clone()
+                    };
+                    format!(
+                        "CASE WHEN {value} IS NULL THEN NULL WHEN {condition} THEN {replacement} ELSE {original} END"
+                    )
+                }
+                OutlierAction::Drop => identifier.clone(),
+            };
+            format!("{expression} AS {identifier}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let where_clause = if action == OutlierAction::Drop {
+        format!(" WHERE NOT ({})", predicates.join(" OR "))
+    } else {
+        String::new()
+    };
+    let query = format!("SELECT {projection} FROM dataset{where_clause}");
+    let Some(mutation) =
+        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(TextCleaningResult {
+        dataset: mutation.dataset,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    }))
+}
+
 fn leading_zero_code(value: &str) -> bool {
     let value = value.trim().trim_start_matches(['+', '-']);
     value.starts_with('0')
@@ -22373,6 +22581,15 @@ pub async fn impute_outlier_values(app: AppHandle) -> Result<TextCleaningResult,
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = source_backed_direct_outlier(
+                dataset,
+                OutlierAction::Impute,
+                "Imputación de outliers",
+            )? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_outlier_values_in_frame(&dataset.frame)?;
@@ -22405,6 +22622,18 @@ fn apply_direct_outlier_mode(
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    if dataset.source_backed {
+        if let Some(result) = source_backed_direct_outlier(
+            dataset,
+            match mode {
+                OutlierMode::Cap => OutlierAction::Cap,
+                OutlierMode::Drop => OutlierAction::Drop,
+            },
+            label,
+        )? {
+            return Ok(result);
+        }
+    }
     materialize_loaded_dataset(dataset)?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         apply_outlier_mode(&dataset.frame, mode)?;
@@ -31108,6 +31337,79 @@ mod tests {
             current.column("category").unwrap().str().unwrap().get(1),
             Some("Desconocido")
         );
+    }
+
+    #[test]
+    fn source_backed_direct_outlier_modes_match_eager_without_rows_in_memory() {
+        for action in [
+            OutlierAction::Cap,
+            OutlierAction::Impute,
+            OutlierAction::Drop,
+        ] {
+            let path = temporary_csv("amount,group\n1,A\n2,A\n3,A\n4,A\n100,A\n");
+            let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+                .expect("la fuente debe inspeccionarse en disco");
+            let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+            let history =
+                HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+            let mut dataset = LoadedDataset {
+                source_path: Some(path.clone()),
+                file_name: "direct-outliers.csv".to_owned(),
+                file_size_bytes,
+                row_count,
+                frame: schema,
+                source_backed: true,
+                profile: None,
+                history,
+            };
+
+            source_backed_numeric_cast(&mut dataset)
+                .expect("la conversión numérica previa debe procesarse")
+                .expect("la fuente debe ser compatible");
+            let current_path = dataset
+                .source_path
+                .as_deref()
+                .expect("la conversión debe conservar un snapshot actual")
+                .to_owned();
+            let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+            let (expected, expected_rows, expected_cells) = match action {
+                OutlierAction::Cap => {
+                    let (frame, rows, cells, _) =
+                        apply_outlier_mode(&current, OutlierMode::Cap).unwrap();
+                    (frame, rows, cells)
+                }
+                OutlierAction::Impute => {
+                    let (frame, rows, cells, _) = impute_outlier_values_in_frame(&current).unwrap();
+                    (frame, rows, cells)
+                }
+                OutlierAction::Drop => {
+                    let (frame, rows, cells, _) =
+                        apply_outlier_mode(&current, OutlierMode::Drop).unwrap();
+                    (frame, rows, cells)
+                }
+            };
+
+            let label = match action {
+                OutlierAction::Cap => "Limitar outliers con IQR",
+                OutlierAction::Impute => "Imputación de outliers",
+                OutlierAction::Drop => "Eliminar filas atípicas",
+            };
+            let result = source_backed_direct_outlier(&mut dataset, action, label)
+                .expect("el tratamiento directo source-backed debe procesarse")
+                .expect("la fuente debe seguir siendo compatible");
+            assert!(dataset.source_backed);
+            assert_eq!(result.dataset.row_count, expected.height());
+            assert_eq!(result.affected_row_count, expected_rows);
+            assert_eq!(result.changed_cell_count, expected_cells);
+            assert_eq!(dataset.frame.height(), 0);
+            let output_path = dataset
+                .source_path
+                .as_deref()
+                .expect("el resultado debe conservar un snapshot actual");
+            let output = read_parquet_frame(output_path).expect("el resultado debe ser legible");
+            assert!(output.equals_missing(&expected));
+            fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+        }
     }
 
     #[test]

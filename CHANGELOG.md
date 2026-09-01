@@ -6,6 +6,26 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.135.0] - 2026-09-01
+
+### Mejorado
+
+- Las acciones directas `cap`, `impute` y `drop` de outliers ya pueden
+  calcular IQR, límites y medianas directamente sobre datasets source-backed
+  mediante DuckDB, sin materializar todas las filas en el `DataFrame` activo.
+- Las tres acciones conservan nulos, tipos cuando corresponde, orden y
+  fallback eager para fuentes incompatibles; `cap` mantiene la salida
+  `Float64` de la semántica existente y `impute` conserva `Int64`/`Float64`.
+- Los conteos de filas afectadas y celdas modificadas se calculan en disco,
+  las mutaciones publican snapshots Parquet reversibles y actualizan
+  `_cambios` cuando está activo.
+
+### Verificado
+
+- La regresión compara los tres modos directos source-backed con eager,
+  incluyendo tipos, nulos, conteos y permanencia del frame activo en
+  esquema-only.
+
 ## [0.134.0] - 2026-09-01
 
 ### Mejorado

@@ -995,6 +995,114 @@ where
     })
 }
 
+pub(crate) struct FileOutlierStats {
+    pub(crate) valid_count: usize,
+    pub(crate) non_finite_count: usize,
+    pub(crate) precision_loss_count: usize,
+    pub(crate) q1: Option<f64>,
+    pub(crate) q3: Option<f64>,
+    pub(crate) median: Option<f64>,
+}
+
+pub(crate) fn count_file_outlier_stats<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[(String, bool)],
+    is_cancelled: C,
+) -> Result<Vec<FileOutlierStats>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario IQR source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let select = columns
+            .iter()
+            .flat_map(|(column, integer)| {
+                let identifier = quote_identifier(column);
+                let value = format!("CAST({identifier} AS DOUBLE)");
+                let non_null = format!("{identifier} IS NOT NULL");
+                let finite = format!("{non_null} AND isfinite({value})");
+                let precision_loss = if *integer {
+                    format!("{non_null} AND abs({value}) > 9007199254740992")
+                } else {
+                    "FALSE".to_owned()
+                };
+                let valid = if *integer {
+                    format!("{finite} AND NOT ({precision_loss})")
+                } else {
+                    finite.clone()
+                };
+                let median = if *integer {
+                    format!("quantile_disc(CASE WHEN {valid} THEN {value} ELSE NULL END, 0.5)")
+                } else {
+                    format!("quantile_cont(CASE WHEN {valid} THEN {value} ELSE NULL END, 0.5)")
+                };
+                [
+                    format!("COUNT(*) FILTER (WHERE {valid})"),
+                    format!("COUNT(*) FILTER (WHERE {non_null} AND NOT isfinite({value}))"),
+                    format!("COUNT(*) FILTER (WHERE {precision_loss})"),
+                    format!("quantile_cont(CASE WHEN {valid} THEN {value} ELSE NULL END, 0.25)"),
+                    format!("quantile_cont(CASE WHEN {valid} THEN {value} ELSE NULL END, 0.75)"),
+                    median,
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection.prepare(&query).map_err(|error| {
+            format!("DuckDB no pudo preparar las estadísticas IQR source-backed: {error}")
+        })?;
+        let values = statement
+            .query_row([], |row| {
+                (0..columns.len())
+                    .map(|index| {
+                        Ok((
+                            row.get::<_, i64>(index * 6)?,
+                            row.get::<_, i64>(index * 6 + 1)?,
+                            row.get::<_, i64>(index * 6 + 2)?,
+                            row.get::<_, Option<f64>>(index * 6 + 3)?,
+                            row.get::<_, Option<f64>>(index * 6 + 4)?,
+                            row.get::<_, Option<f64>>(index * 6 + 5)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| {
+                format!("DuckDB no pudo calcular las estadísticas IQR source-backed: {error}")
+            })?;
+        values
+            .into_iter()
+            .map(
+                |(valid_count, non_finite_count, precision_loss_count, q1, q3, median)| {
+                    Ok(FileOutlierStats {
+                        valid_count: usize::try_from(valid_count)
+                            .map_err(|_| "El conteo IQR excede la capacidad local.".to_owned())?,
+                        non_finite_count: usize::try_from(non_finite_count).map_err(|_| {
+                            "El conteo de valores no finitos excede la capacidad local.".to_owned()
+                        })?,
+                        precision_loss_count: usize::try_from(precision_loss_count).map_err(
+                            |_| {
+                                "El conteo de pérdida de precisión excede la capacidad local."
+                                    .to_owned()
+                            },
+                        )?,
+                        q1,
+                        q3,
+                        median,
+                    })
+                },
+            )
+            .collect()
+    })
+}
+
 pub(crate) fn count_file_boolean_candidates<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,
