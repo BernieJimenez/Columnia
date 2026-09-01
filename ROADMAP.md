@@ -15,7 +15,9 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.133.0, la
+  I3/I5 conservan validaciones externas de plataforma. En v0.134.0, las
+  imputaciones conservadora y categórica también usan DuckDB source-backed
+  con conteos exactos y snapshots reversibles. En v0.133.0, la
   conversión numérica y la interpretación de fechas detectadas también usan
   DuckDB source-backed con las reglas eager de seguridad, conteos exactos y
   snapshots reversibles. En v0.132.0, la
@@ -33,7 +35,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.133.0`.
+- Versión actual del prototipo: `0.134.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1612,7 +1614,10 @@ comparación no equivale a ejecución fuera de memoria general. La
    interpretación de fechas detectadas también calculan estadísticas y
    proyectan resultados en DuckDB, conservando códigos con ceros iniciales,
    precisión, tolerancia de nulos y rango de años. Las operaciones no compatibles conservan
-   materialización.
+   materialización. Desde v0.134, las imputaciones conservadora y categórica
+   también calculan sus reemplazos y proyectan nulos directamente en DuckDB,
+   preservando el desempate de la moda, la mediana inferior, `Desconocido` y
+   los tipos físicos compatibles.
    `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
@@ -1997,6 +2002,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.134.0 ejecuta las imputaciones conservadora y categórica sobre fuentes source-backed con DuckDB; conserva moda/mediana de la ruta eager, `Desconocido`, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.133.0 ejecuta la conversión numérica y la interpretación de fechas detectadas sobre fuentes source-backed con DuckDB; conserva las reglas eager de seguridad, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.132.0 ejecuta la normalización de booleanos sobre fuentes source-backed con DuckDB; conserva el umbral eager, alias reconocidos, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.131.0 ejecuta recorte de espacios, normalización de texto y valores centinela sobre fuentes source-backed con DuckDB; conserva conteos exactos, snapshots reversibles y fallback eager para modos no equivalentes. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

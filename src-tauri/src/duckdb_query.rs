@@ -923,6 +923,78 @@ where
     })
 }
 
+pub(crate) struct FileImputationStats {
+    pub(crate) null_count: usize,
+    pub(crate) replacement: Option<String>,
+}
+
+pub(crate) fn count_file_imputation_stats<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[(String, bool)],
+    is_cancelled: C,
+) -> Result<Vec<FileImputationStats>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario de imputación source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let select = columns
+            .iter()
+            .flat_map(|(column, numeric)| {
+                let identifier = quote_identifier(column);
+                let null_count = format!("COUNT(*) FILTER (WHERE {identifier} IS NULL)");
+                let replacement = if *numeric {
+                    format!(
+                        "(SELECT CAST(quantile_disc(CAST({identifier} AS DOUBLE), 0.5) AS VARCHAR) FROM dataset WHERE {identifier} IS NOT NULL AND isfinite(CAST({identifier} AS DOUBLE)))"
+                    )
+                } else {
+                    format!(
+                        "(SELECT value FROM (SELECT CAST({identifier} AS VARCHAR) AS value, COUNT(*) AS occurrences, MIN(__source_row) AS first_row FROM (SELECT {identifier}, ROW_NUMBER() OVER () AS __source_row FROM dataset) numbered WHERE {identifier} IS NOT NULL AND TRIM(CAST({identifier} AS VARCHAR)) <> '' GROUP BY {identifier} HAVING COUNT(*) >= 2 ORDER BY occurrences DESC, first_row LIMIT 1) mode)"
+                    )
+                };
+                [null_count, replacement]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection.prepare(&query).map_err(|error| {
+            format!("DuckDB no pudo preparar la imputación source-backed: {error}")
+        })?;
+        let values = statement
+            .query_row([], |row| {
+                (0..columns.len())
+                    .map(|index| {
+                        Ok((
+                            row.get::<_, i64>(index * 2)?,
+                            row.get::<_, Option<String>>(index * 2 + 1)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| {
+                format!("DuckDB no pudo calcular la imputación source-backed: {error}")
+            })?;
+        values
+            .into_iter()
+            .map(|(null_count, replacement)| {
+                Ok(FileImputationStats {
+                    null_count: usize::try_from(null_count)
+                        .map_err(|_| "El conteo de nulos excede la capacidad local.".to_owned())?,
+                    replacement,
+                })
+            })
+            .collect()
+    })
+}
+
 pub(crate) fn count_file_boolean_candidates<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

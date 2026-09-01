@@ -6,6 +6,25 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.134.0] - 2026-09-01
+
+### Mejorado
+
+- `Imputación conservadora` ya puede calcular modas de texto y medianas
+  numéricas directamente sobre datasets source-backed mediante DuckDB, sin
+  materializar todas las filas en el `DataFrame` activo.
+- `Imputación categórica` ya rellena nulos source-backed con `Desconocido`
+  directamente sobre la fuente, conservando tipos, orden y columnas no
+  afectadas.
+- Ambas operaciones cuentan filas y celdas afectadas en disco, actualizan
+  `_cambios` cuando está activo, publican snapshots Parquet reversibles y
+  mantienen fallback eager si la fuente no es compatible.
+
+### Verificado
+
+- La regresión cubre la imputación categórica, la mediana numérica inferior,
+  snapshots sucesivos y permanencia del frame activo en modo esquema-only.
+
 ## [0.133.0] - 2026-09-01
 
 ### Mejorado

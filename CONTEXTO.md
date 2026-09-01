@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.133.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.134.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -20,10 +20,17 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | La suite local actual mantiene 272 pruebas frontend y suma las regresiones de privacidad, regex, división, guardado, fechas, apertura JSON y limpiezas source-backed a 364 pruebas Rust totales, con 363 aprobadas y 1 ignorada; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | La suite local actual mantiene 272 pruebas frontend y suma las regresiones de privacidad, regex, división, guardado, fechas, apertura JSON y limpiezas source-backed a 365 pruebas Rust totales, con 364 aprobadas y 1 ignorada; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-09-01, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; el inventario IPC registra 65 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, la página visible de la muestra, el motor SQL elegido, la cobertura de correlaciones, el perfil de rendimiento, el formato de exportación, la protección de datos, las claves de comparación y el tipo de JOIN elegido por proyecto, con fallback seguro y migración SQLite v12. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las aperturas grandes de `JSON`, `JSONL` y `NDJSON` generan snapshots Parquet privados de DuckDB y dejan el frame activo en modo esquema-only; las consultas DuckDB fijan 512 MB de memoria, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar, renombrar, convertir tipos, parsear fechas fijas e ISO seguras, extraer partes de fecha, reemplazar texto literal, dividir y unir columnas de texto, calcular columnas simples y aplicar tratamientos IQR directamente sobre CSV/TSV/TXT delimitado o Parquet; las exportaciones source-backed de Bundle, Excel `.xlsx` y SQLite transfieren datos desde DuckDB sin materializar el `DataFrame` activo y conservan atomicidad, cancelación, validación de cambios y cleanup; `npm run brand:check` inspecciona el árbol activo para impedir regresiones de nomenclatura; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
 
 ### Estado verificable de Tier 5
+
+La versión 0.134.0 ejecuta source-backed la imputación conservadora y la
+imputación categórica. DuckDB obtiene modas de texto con desempate por primera
+aparición y medianas inferiores para tipos numéricos, o usa `Desconocido` en
+la operación categórica; conserva tipos, orden, conteos exactos, snapshots
+reversibles y el frame activo en modo esquema-only. Las fuentes incompatibles
+mantienen el fallback eager.
 
 La versión 0.133.0 ejecuta source-backed la conversión numérica y la
 interpretación de fechas detectadas. DuckDB calcula estadísticas agregadas y
@@ -1040,6 +1047,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.134.0: las imputaciones conservadora y categórica se ejecutan source-backed con DuckDB, conservan moda/mediana de la ruta eager, `Desconocido`, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.133.0: la conversión numérica y la interpretación de fechas detectadas se ejecutan source-backed con DuckDB, conservan las reglas eager de seguridad, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.132.0: la normalización de booleanos se ejecuta source-backed con DuckDB, conserva el umbral eager, alias reconocidos, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.131.0: recorte, normalización de texto y valores centinela se ejecutan source-backed con DuckDB, conservan conteos exactos, snapshots reversibles y fallback eager para modos no equivalentes. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |

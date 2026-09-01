@@ -8585,6 +8585,170 @@ fn source_backed_date_parsing(
     }))
 }
 
+fn source_backed_numeric_imputation_type(dtype: &DataType) -> Option<&'static str> {
+    match dtype {
+        DataType::Int64 => Some("BIGINT"),
+        DataType::Float64 => Some("DOUBLE"),
+        _ => None,
+    }
+}
+
+fn source_backed_imputation_projection(
+    schema: &DataFrame,
+    replacements: &HashMap<String, String>,
+    numeric_types: &HashMap<String, &'static str>,
+    label: &str,
+) -> String {
+    schema
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            if name.as_str() == "_cambios" {
+                source_backed_text_audit_expression(&identifier, label)
+            } else if let Some(replacement) = replacements.get(name.as_str()) {
+                let replacement = duckdb_string_literal(replacement);
+                if let Some(dtype) = numeric_types.get(name.as_str()) {
+                    format!(
+                        "COALESCE({identifier}, CAST({replacement} AS {dtype})) AS {identifier}"
+                    )
+                } else {
+                    format!("COALESCE({identifier}, {replacement}) AS {identifier}")
+                }
+            } else {
+                identifier
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn source_backed_imputation(
+    dataset: &mut LoadedDataset,
+    categorical_only: bool,
+) -> Result<Option<TextCleaningResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let columns = dataset
+        .frame
+        .columns()
+        .iter()
+        .filter(|column| {
+            column.name() != "_cambios"
+                && if categorical_only {
+                    column.dtype() == &DataType::String
+                } else {
+                    column.dtype() == &DataType::String
+                        || source_backed_numeric_imputation_type(column.dtype()).is_some()
+                }
+        })
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+    let typed_columns = columns
+        .iter()
+        .map(|name| {
+            let numeric = !categorical_only
+                && dataset
+                    .frame
+                    .column(name)
+                    .ok()
+                    .and_then(|column| source_backed_numeric_imputation_type(column.dtype()))
+                    .is_some();
+            (name.clone(), numeric)
+        })
+        .collect::<Vec<_>>();
+    let stats = match crate::duckdb_query::count_file_imputation_stats(
+        &source_path,
+        source_format,
+        &typed_columns,
+        || false,
+    ) {
+        Ok(stats) => stats,
+        Err(_) => return Ok(None),
+    };
+    let mut replacements = HashMap::new();
+    let mut numeric_types = HashMap::new();
+    let mut changed_columns = Vec::new();
+    let mut predicates = Vec::new();
+    for ((name, numeric), stats) in typed_columns.iter().zip(stats) {
+        if stats.null_count == 0 {
+            continue;
+        }
+        let replacement = if categorical_only {
+            Some("Desconocido".to_owned())
+        } else {
+            stats.replacement
+        };
+        let Some(replacement) = replacement else {
+            continue;
+        };
+        replacements.insert(name.clone(), replacement);
+        if *numeric {
+            let dtype = dataset
+                .frame
+                .column(name)
+                .ok()
+                .and_then(|column| source_backed_numeric_imputation_type(column.dtype()))
+                .ok_or_else(|| format!("La columna numérica '{name}' no es compatible."))?;
+            numeric_types.insert(name.clone(), dtype);
+        }
+        predicates.push(format!("{} IS NULL", duckdb_identifier(name)));
+        changed_columns.push(ChangedTextColumn {
+            name: name.clone(),
+            changed_cell_count: stats.null_count,
+        });
+    }
+    if replacements.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+    let (affected_row_count, _) = match crate::duckdb_query::count_file_predicate_matches(
+        &source_path,
+        source_format,
+        &predicates,
+        || false,
+    ) {
+        Ok(counts) => counts,
+        Err(_) => return Ok(None),
+    };
+    let changed_cell_count = changed_columns
+        .iter()
+        .map(|column| column.changed_cell_count)
+        .sum::<usize>();
+    let label = if categorical_only {
+        "Imputación categórica"
+    } else {
+        "Imputación conservadora"
+    };
+    let projection =
+        source_backed_imputation_projection(&dataset.frame, &replacements, &numeric_types, label);
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) =
+        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(TextCleaningResult {
+        dataset: mutation.dataset,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    }))
+}
+
 fn leading_zero_code(value: &str) -> bool {
     let value = value.trim().trim_start_matches(['+', '-']);
     value.starts_with('0')
@@ -22139,6 +22303,11 @@ pub async fn impute_missing_values(app: AppHandle) -> Result<TextCleaningResult,
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = source_backed_imputation(dataset, false)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_missing_values_in_frame(&dataset.frame)?;
@@ -22169,6 +22338,11 @@ pub async fn impute_categorical_values(app: AppHandle) -> Result<TextCleaningRes
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = source_backed_imputation(dataset, true)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
             impute_categorical_values_in_frame(&dataset.frame)?;
@@ -30873,6 +31047,66 @@ mod tests {
         assert_eq!(
             current.column("amount").unwrap().i64().unwrap().get(2),
             Some(30)
+        );
+    }
+
+    #[test]
+    fn source_backed_imputation_matches_eager_replacements_without_rows_in_memory() {
+        let source = temporary_csv("amount,category\n10,x\n,\n30,x\n");
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "imputation.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        source_backed_numeric_cast(&mut dataset)
+            .expect("la conversión numérica previa debe procesarse")
+            .expect("la fuente debe ser compatible");
+        let categorical = source_backed_imputation(&mut dataset, true)
+            .expect("la imputación categórica source-backed debe procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(categorical.affected_row_count, 1);
+        assert_eq!(categorical.changed_cell_count, 1);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la imputación debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(
+            current.column("category").unwrap().str().unwrap().get(1),
+            Some("Desconocido")
+        );
+
+        let numeric = source_backed_imputation(&mut dataset, false)
+            .expect("la imputación conservadora source-backed debe procesarse")
+            .expect("la fuente debe seguir siendo compatible");
+        assert_eq!(numeric.affected_row_count, 1);
+        assert_eq!(numeric.changed_cell_count, 1);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la imputación numérica debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(
+            current.column("amount").unwrap().i64().unwrap().get(1),
+            Some(10)
+        );
+        assert_eq!(
+            current.column("category").unwrap().str().unwrap().get(1),
+            Some("Desconocido")
         );
     }
 
