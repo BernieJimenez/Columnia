@@ -6,6 +6,25 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.116.0] - 2026-09-01
+
+### Mejorado
+
+- Los libros XLSX/XLSB grandes ahora se abren source-backed: Calamine detecta
+  el esquema en streaming y escribe un snapshot Parquet temporal por bloques,
+  dejando el `DataFrame` activo vacío mientras se conservan la hoja, los tipos
+  y la primera página.
+- Paginación, perfilado, consultas DuckDB y exportaciones compatibles reutilizan
+  ese snapshot y vuelven a validar el tamaño del libro original; al materializar
+  una operación se lee el snapshot administrado, no se vuelve a cargar la hoja
+  completa de forma implícita.
+
+### Verificado
+
+- La regresión de XLSX comprueba snapshot legible, tipos, preview, acceso como
+  fuente Parquet, perfilado, materialización posterior, fuente intacta y
+  cleanup del almacenamiento temporal.
+
 ## [0.115.0] - 2026-09-01
 
 ### Mejorado

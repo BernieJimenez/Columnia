@@ -1190,6 +1190,7 @@ struct HistoryEntry {
 #[derive(Debug)]
 struct HistoryManager {
     directory: tempfile::TempDir,
+    source_snapshot_path: Option<PathBuf>,
     entries: Vec<HistoryEntry>,
     cursor: usize,
     snapshots_enabled: bool,
@@ -1206,6 +1207,7 @@ impl HistoryManager {
             .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
         Ok(Self {
             directory,
+            source_snapshot_path: None,
             entries: Vec::new(),
             cursor: 0,
             snapshots_enabled: false,
@@ -1232,6 +1234,7 @@ impl HistoryManager {
             .map_err(|error| format!("No se pudo crear el historial temporal: {error}"))?;
         let mut manager = Self {
             directory,
+            source_snapshot_path: None,
             entries: Vec::new(),
             cursor: 0,
             snapshots_enabled: true,
@@ -1387,6 +1390,7 @@ fn publish_candidate(
     // mutación. Después de publicar una candidata, las consultas deben usar
     // el snapshot/historial o el frame transformado, nunca el archivo viejo.
     dataset.source_path = None;
+    dataset.history.source_snapshot_path = None;
     dataset.row_count = candidate.height();
     dataset.frame = candidate;
     dataset.source_backed = false;
@@ -3624,14 +3628,28 @@ fn should_route_join_to_duckdb(query: &str, has_compared_disk_source: bool) -> b
     local_query_has_join(query) && has_compared_disk_source
 }
 
+fn current_source_backed_context(dataset: &LoadedDataset) -> Option<(PathBuf, u64, usize)> {
+    let source_path = dataset.source_path.as_ref()?;
+    let (canonical_source, source_size, _) = validate_dataset_file(source_path).ok()?;
+    if source_size != dataset.file_size_bytes {
+        return None;
+    }
+    if let Some(snapshot_path) = dataset.history.source_snapshot_path.as_ref() {
+        let (canonical_snapshot, snapshot_size, extension) =
+            validate_dataset_file(snapshot_path).ok()?;
+        if extension != "parquet" {
+            return None;
+        }
+        return Some((canonical_snapshot, snapshot_size, dataset.row_count));
+    }
+    Some((canonical_source, source_size, dataset.row_count))
+}
+
 fn current_duckdb_file_source(
     dataset: &LoadedDataset,
 ) -> Option<(PathBuf, crate::duckdb_query::DuckDbFileFormat)> {
-    let path = dataset.source_path.as_ref()?;
-    let (canonical, file_size, extension) = validate_dataset_file(path).ok()?;
-    if file_size != dataset.file_size_bytes {
-        return None;
-    }
+    let (canonical, _, _) = current_source_backed_context(dataset)?;
+    let extension = dataset_extension(&canonical).ok()?;
     let format = match extension.as_str() {
         "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
         "csv" | "tsv" | "txt" => {
@@ -8768,6 +8786,7 @@ fn visit_streamed_spreadsheet_cells<F>(
     path: &Path,
     sheet_name: &str,
     mut visit: F,
+    is_cancelled: impl Fn() -> bool,
 ) -> Result<(), String>
 where
     F: FnMut(Dimensions, (u32, u32), Data),
@@ -8780,10 +8799,16 @@ where
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
             let dimensions = reader.dimensions();
-            while let Some(cell) = reader
-                .next_cell()
-                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?
-            {
+            loop {
+                if is_cancelled() {
+                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                }
+                let Some(cell) = reader
+                    .next_cell()
+                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?
+                else {
+                    break;
+                };
                 visit(
                     dimensions,
                     cell.get_position(),
@@ -8796,10 +8821,16 @@ where
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
             let dimensions = reader.dimensions();
-            while let Some(cell) = reader
-                .next_cell()
-                .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?
-            {
+            loop {
+                if is_cancelled() {
+                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                }
+                let Some(cell) = reader
+                    .next_cell()
+                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?
+                else {
+                    break;
+                };
                 visit(
                     dimensions,
                     cell.get_position(),
@@ -8816,22 +8847,28 @@ fn spreadsheet_snapshot_plan_from_stream(
     path: &Path,
     sheet_name: &str,
     header_mode: SpreadsheetHeaderMode,
+    is_cancelled: impl Fn() -> bool,
 ) -> Result<SpreadsheetSnapshotPlan, String> {
     let mut builder = None;
     let mut builder_error = None;
-    visit_streamed_spreadsheet_cells(path, sheet_name, |dimensions, position, value| {
-        if builder.is_none() && builder_error.is_none() {
-            match SpreadsheetSnapshotPlanBuilder::new(dimensions, header_mode) {
-                Ok(value) => builder = Some(value),
-                Err(error) => builder_error = Some(error),
+    visit_streamed_spreadsheet_cells(
+        path,
+        sheet_name,
+        |dimensions, position, value| {
+            if builder.is_none() && builder_error.is_none() {
+                match SpreadsheetSnapshotPlanBuilder::new(dimensions, header_mode) {
+                    Ok(value) => builder = Some(value),
+                    Err(error) => builder_error = Some(error),
+                }
             }
-        }
-        if builder_error.is_none() {
-            if let Some(builder) = builder.as_mut() {
-                builder.visit(position, value);
+            if builder_error.is_none() {
+                if let Some(builder) = builder.as_mut() {
+                    builder.visit(position, value);
+                }
             }
-        }
-    })?;
+        },
+        is_cancelled,
+    )?;
     if let Some(error) = builder_error {
         return Err(error);
     }
@@ -8916,6 +8953,7 @@ fn write_streamed_spreadsheet_snapshot(
     sheet_name: &str,
     plan: &SpreadsheetSnapshotPlan,
     destination: &Path,
+    is_cancelled: impl Fn() -> bool,
 ) -> Result<(), String> {
     let mut workbook = open_workbook_auto(path)
         .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
@@ -8925,6 +8963,9 @@ fn write_streamed_spreadsheet_snapshot(
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
             write_streamed_spreadsheet_cells(destination, plan, || {
+                if is_cancelled() {
+                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                }
                 reader
                     .next_cell()
                     .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
@@ -8938,6 +8979,9 @@ fn write_streamed_spreadsheet_snapshot(
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
             write_streamed_spreadsheet_cells(destination, plan, || {
+                if is_cancelled() {
+                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                }
                 reader
                     .next_cell()
                     .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
@@ -9502,9 +9546,55 @@ where
     Ok((schema_frame, preview, row_count))
 }
 
+fn source_backed_spreadsheet_load<C>(
+    path: &Path,
+    sheet_name: &str,
+    header_mode: SpreadsheetHeaderMode,
+    snapshot_path: &Path,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview, usize), String>
+where
+    C: Fn() -> bool + Clone,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let plan = spreadsheet_snapshot_plan_from_stream(path, sheet_name, header_mode, &is_cancelled)?;
+    ensure_not_cancelled(is_cancelled())?;
+    write_streamed_spreadsheet_snapshot(path, sheet_name, &plan, snapshot_path, &is_cancelled)?;
+    ensure_not_cancelled(is_cancelled())?;
+    let schema_frame = read_parquet_schema_frame(snapshot_path)?;
+    let page = if plan.data_rows == 0 {
+        schema_frame.slice(0, 0)
+    } else {
+        collect_lazy_frame_streaming(
+            parquet_scan(snapshot_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa del libro source-backed",
+        )?
+    };
+    ensure_not_cancelled(is_cancelled())?;
+    let file_size_bytes = fs::metadata(path)
+        .map_err(|error| format!("No se pudieron leer los metadatos del libro: {error}"))?
+        .len();
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset.xlsx")
+        .to_owned();
+    let preview = dataset_preview_from_schema_and_page(
+        &file_name,
+        file_size_bytes,
+        plan.data_rows,
+        &schema_frame,
+        &page,
+    )?;
+    Ok((schema_frame, preview, plan.data_rows))
+}
+
 fn should_defer_source_load(extension: &str, file_size_bytes: u64) -> bool {
     file_size_bytes >= SOURCE_BACKED_LOAD_THRESHOLD_BYTES
-        && matches!(extension, "csv" | "tsv" | "txt" | "parquet")
+        && matches!(
+            extension,
+            "csv" | "tsv" | "txt" | "parquet" | "xlsx" | "xlsb"
+        )
 }
 
 fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String> {
@@ -9519,9 +9609,15 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     if file_size != dataset.file_size_bytes {
         return Err("El archivo source-backed cambió después de la carga.".to_owned());
     }
-    let frame = match extension.as_str() {
-        "csv" | "tsv" | "txt" => read_delimited_frame(&canonical, &extension)?,
-        "parquet" => read_parquet_frame(&canonical)?,
+    let materialized_path = dataset
+        .history
+        .source_snapshot_path
+        .as_deref()
+        .unwrap_or(&canonical);
+    let materialized_extension = dataset_extension(materialized_path)?;
+    let frame = match materialized_extension.as_str() {
+        "csv" | "tsv" | "txt" => read_delimited_frame(materialized_path, &extension)?,
+        "parquet" => read_parquet_frame(materialized_path)?,
         _ => return Err("El formato source-backed no se puede materializar.".to_owned()),
     };
     if frame.height() != dataset.row_count {
@@ -15753,9 +15849,13 @@ fn persist_spreadsheet_comparison_source_file(
         .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
     let temporary = directory.path().join("compared.partial.parquet");
     let row_count = if matches!(extension, "xlsx" | "xlsb") {
-        let plan =
-            spreadsheet_snapshot_plan_from_stream(path, sheet, SpreadsheetHeaderMode::FirstRow)?;
-        write_streamed_spreadsheet_snapshot(path, sheet, &plan, &temporary)?;
+        let plan = spreadsheet_snapshot_plan_from_stream(
+            path,
+            sheet,
+            SpreadsheetHeaderMode::FirstRow,
+            || false,
+        )?;
+        write_streamed_spreadsheet_snapshot(path, sheet, &plan, &temporary, || false)?;
         plan.data_rows
     } else {
         let mut workbook = open_workbook_auto(path)
@@ -18833,6 +18933,7 @@ pub async fn load_dataset_selection(
             );
         }
         let extension = dataset_extension(&pending.path)?;
+        let mut deferred_history = None;
         let (frame, preview, row_count, source_backed) = if spreadsheet_extensions(&extension) {
             let header_mode = header_mode
                 .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
@@ -18846,12 +18947,41 @@ pub async fn load_dataset_selection(
                 .get(index)
                 .ok_or_else(|| "La hoja seleccionada no existe en el libro.".to_owned())?;
             send_progress(&on_progress, "load", "Leyendo hoja", 25);
-            let frame = load_spreadsheet_sheet(&pending.path, sheet_name, header_mode)?;
-            ensure_not_cancelled(app.state::<DatasetState>().load_was_cancelled(generation))?;
-            send_progress(&on_progress, "load", "Preparando vista previa", 85);
-            let preview = dataset_preview(&pending.path, &frame)?;
-            let row_count = frame.height();
-            (frame, preview, row_count, false)
+            if should_defer_source_load(&extension, pending.file_size_bytes)
+                && matches!(extension.as_str(), "xlsx" | "xlsb")
+            {
+                let mut history = HistoryManager::deferred()?;
+                let snapshot_path = history.directory.path().join("source.parquet");
+                let cancellation_app = app.clone();
+                send_progress(
+                    &on_progress,
+                    "load",
+                    "Construyendo snapshot por bloques",
+                    35,
+                );
+                let (frame, preview, row_count) = source_backed_spreadsheet_load(
+                    &pending.path,
+                    sheet_name,
+                    header_mode,
+                    &snapshot_path,
+                    move || {
+                        cancellation_app
+                            .state::<DatasetState>()
+                            .load_was_cancelled(generation)
+                    },
+                )?;
+                history.source_snapshot_path = Some(snapshot_path);
+                deferred_history = Some(history);
+                send_progress(&on_progress, "load", "Preparando vista previa", 85);
+                (frame, preview, row_count, true)
+            } else {
+                let frame = load_spreadsheet_sheet(&pending.path, sheet_name, header_mode)?;
+                ensure_not_cancelled(app.state::<DatasetState>().load_was_cancelled(generation))?;
+                send_progress(&on_progress, "load", "Preparando vista previa", 85);
+                let preview = dataset_preview(&pending.path, &frame)?;
+                let row_count = frame.height();
+                (frame, preview, row_count, false)
+            }
         } else {
             if sheet_id.is_some() {
                 return Err("Este formato no utiliza hojas.".to_owned());
@@ -18888,7 +19018,7 @@ pub async fn load_dataset_selection(
         let state = app.state::<DatasetState>();
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
         let history = if source_backed {
-            HistoryManager::deferred()?
+            deferred_history.unwrap_or(HistoryManager::deferred()?)
         } else {
             HistoryManager::new(&frame)?
         };
@@ -19348,19 +19478,16 @@ pub async fn get_dataset_profile(
         }
 
         if dataset.source_backed {
-            let source_path = dataset
-                .source_path
-                .clone()
-                .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
-            let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
-            if source_size != dataset.file_size_bytes {
-                return Err("El archivo source-backed cambió después de la carga.".to_owned());
-            }
+            let (source_path, source_size, row_count) = current_source_backed_context(dataset)
+                .ok_or_else(|| {
+                    "La fuente source-backed cambió o ya no está disponible.".to_owned()
+                })?;
+            let extension = dataset_extension(&source_path)?;
             let profile = profile_source_backed_with_progress(
                 &source_path,
                 &extension,
                 source_size,
-                dataset.row_count,
+                row_count,
                 |stage, percent| send_progress(&on_progress, "profile", stage, percent),
                 || {
                     app.state::<DatasetState>()
@@ -19410,9 +19537,8 @@ pub async fn validate_quality_rules(
         current.as_ref().and_then(|dataset| {
             dataset
                 .source_backed
-                .then(|| dataset.source_path.clone())
+                .then(|| current_source_backed_context(dataset))
                 .flatten()
-                .map(|source_path| (source_path, dataset.file_size_bytes, dataset.row_count))
         })
     };
     if quality_rules.iter().all(source_quality_rule_is_incremental) {
@@ -19477,14 +19603,16 @@ pub async fn export_dataset(
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         current.as_ref().and_then(|dataset| {
             dataset.source_backed.then(|| {
-                dataset.source_path.clone().map(|source_path| {
-                    (
-                        source_path,
-                        dataset.file_name.clone(),
-                        dataset.file_size_bytes,
-                        dataset.row_count,
-                    )
-                })
+                current_source_backed_context(dataset).map(
+                    |(source_path, source_size, row_count)| {
+                        (
+                            source_path,
+                            dataset.file_name.clone(),
+                            source_size,
+                            row_count,
+                        )
+                    },
+                )
             })?
         })
     };
@@ -26439,6 +26567,7 @@ fn apply_source_backed_projection_recipe(
     dataset.row_count = output_row_count;
     dataset.frame = output_schema;
     dataset.source_backed = true;
+    dataset.history.source_snapshot_path = None;
     dataset.profile = None;
     dataset.history.current_label = "Aplicar receta de transformación".to_owned();
     if previous_source_path.as_deref().and_then(Path::parent)
@@ -27300,6 +27429,7 @@ fn restore_project_history(
     let next_id = entries.len() as u64;
     Ok(HistoryManager {
         directory,
+        source_snapshot_path: None,
         entries,
         cursor: history.cursor,
         snapshots_enabled: history.snapshots_enabled,
@@ -33871,6 +34001,103 @@ mod tests {
 
         drop(snapshot_directory);
         assert!(!snapshot_path.exists());
+    }
+
+    #[test]
+    fn loads_xlsx_through_a_source_backed_parquet_snapshot() {
+        assert!(should_defer_source_load(
+            "xlsx",
+            SOURCE_BACKED_LOAD_THRESHOLD_BYTES
+        ));
+        assert!(should_defer_source_load(
+            "xlsb",
+            SOURCE_BACKED_LOAD_THRESHOLD_BYTES
+        ));
+        assert!(!should_defer_source_load(
+            "xls",
+            SOURCE_BACKED_LOAD_THRESHOLD_BYTES
+        ));
+        let expected = df![
+            "id" => &[1_i64, 2, 3],
+            "name" => &["Ana", "Luis", "María"],
+            "amount" => &[10.5_f64, 20.0, 30.25],
+            "active" => &[true, false, true]
+        ]
+        .expect("el frame Excel debe construirse");
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("large.xlsx");
+        let mut output = File::create(&source).expect("se debe crear el libro Excel");
+        write_xlsx(&expected, &mut output, |_| {}, || false).expect("se debe escribir el libro");
+        output
+            .sync_all()
+            .expect("se debe sincronizar el libro Excel");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let cancelled_snapshot = history.directory.path().join("cancelled.parquet");
+        let cancellation = source_backed_spreadsheet_load(
+            &source,
+            "dataset",
+            SpreadsheetHeaderMode::FirstRow,
+            &cancelled_snapshot,
+            || true,
+        )
+        .expect_err("la apertura cancelada debe detenerse antes de escribir");
+        assert_eq!(cancellation, OPERATION_CANCELLED_MESSAGE);
+        assert!(!cancelled_snapshot.exists());
+        let snapshot_path = history.directory.path().join("source.parquet");
+        let (schema, preview, row_count) = source_backed_spreadsheet_load(
+            &source,
+            "dataset",
+            SpreadsheetHeaderMode::FirstRow,
+            &snapshot_path,
+            || false,
+        )
+        .expect("el libro debe convertirse por bloques");
+
+        assert_eq!(schema.height(), 0);
+        assert_eq!(row_count, expected.height());
+        assert_eq!(preview.file_name, "large.xlsx");
+        assert_eq!(preview.rows[1][1].as_deref(), Some("Luis"));
+        let restored = read_parquet_frame(&snapshot_path).expect("el snapshot debe ser legible");
+        assert!(restored.equals_missing(&expected));
+        let snapshot_size = fs::metadata(&snapshot_path)
+            .expect("el snapshot debe tener metadatos")
+            .len();
+        let profile = profile_source_backed_with_progress(
+            &snapshot_path,
+            "parquet",
+            snapshot_size,
+            row_count,
+            |_, _| {},
+            || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )
+        .expect("el perfil debe recorrer el snapshot source-backed");
+        assert_eq!(profile.row_count, row_count);
+
+        history.source_snapshot_path = Some(snapshot_path);
+        let mut dataset = LoadedDataset {
+            source_path: Some(source.clone()),
+            file_name: "large.xlsx".to_owned(),
+            file_size_bytes: expected_size,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let (query_path, query_format) = current_duckdb_file_source(&dataset)
+            .expect("el snapshot Excel debe quedar disponible para DuckDB");
+        assert_eq!(dataset_extension(&query_path).unwrap(), "parquet");
+        assert!(matches!(
+            query_format,
+            crate::duckdb_query::DuckDbFileFormat::Parquet
+        ));
+        materialize_loaded_dataset(&mut dataset).expect("el snapshot debe materializarse");
+        assert!(!dataset.source_backed);
+        assert!(dataset.frame.equals_missing(&expected));
+        assert_eq!(fs::metadata(&source).unwrap().len(), expected_size);
+        fs::remove_file(source).expect("se debe limpiar el libro Excel");
     }
 
     #[test]

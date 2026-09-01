@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL, perfil de rendimiento, formato de exportación, protección, claves de comparación y tipo de JOIN por proyecto | Implementada | Muestras y resultados derivados no portables |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/SQL/Excel/SQLite/Bundle source-backed, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
+| Escala | Lazy para recetas compatibles, apertura source-backed de XLSX/XLSB grandes mediante snapshot Parquet por bloques, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/SQL/Excel/SQLite/Bundle source-backed, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
 
 ## Contrato de calidad
 
@@ -106,6 +106,15 @@ texto literal; SQLite crea la tabla con el esquema detectado y confirma los
 insertos en una transacción. Ambas rutas validan el tamaño de la fuente,
 cancelación, publicación atómica y cleanup. Recetas, privacidad adicional y
 reglas no incrementales mantienen la ruta materializada.
+
+Los libros XLSX/XLSB grandes también pueden abrirse source-backed. Calamine
+recorre la hoja seleccionada en dos pasadas secuenciales: primero detecta
+encabezados, tipos y dimensiones; después escribe un snapshot Parquet temporal
+por bloques de 16K. La sesión conserva solo el esquema y la primera página en
+el `DataFrame` activo, mientras paginación, perfilado, consultas y exportaciones
+reutilizan el snapshot y verifican que el libro original mantenga su tamaño.
+XLS/ODS continúan usando el fallback materializado porque su lector no ofrece
+la misma lectura secuencial.
 
 ## Proyectos y almacenamiento
 
