@@ -126,5 +126,6 @@ Los contratos se cubren por capas:
 - `cargo test --manifest-path src-tauri/Cargo.toml --lib` valida el motor nativo.
 - `npm run build` valida tipos y bundle de producción.
 - `npm run docs:check` valida enlaces, versiones y ownership documental.
+- `npm run brand:check` evita que regresen referencias de marca retiradas al árbol activo.
 - `npm run ipc:check` compara el inventario IPC con `lib.rs` y el bridge.
 - `npm run verify:tier` orquesta los gates reproducibles del tier completo.

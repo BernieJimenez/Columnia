@@ -2,7 +2,7 @@
   "name": "columnia",
   "private": true,
   "license": "MIT",
-  "version": "0.113.0",
+  "version": "0.114.0",
   "engines": {
     "node": ">=24.14.0 <25",
     "npm": ">=11.10.1 <12"
@@ -12,6 +12,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "build": "tsc --noEmit && vite build",
+    "brand:check": "node tools/check-retired-brand.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage && node tools/check-coverage.mjs",

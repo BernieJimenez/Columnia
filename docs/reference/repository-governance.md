@@ -30,6 +30,7 @@ limpio antes de integrar.
 
 ```powershell
 npm run governance:check
+npm run brand:check
 .\tools\check.ps1 -Profile Fast
 .\tools\check.ps1 -Profile Full
 .\tools\check.ps1 -Profile Release

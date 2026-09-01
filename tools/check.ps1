@@ -175,6 +175,9 @@ try {
     Invoke-Checked "Documentation" $ProjectRoot {
         & node tools/check-documentation.mjs
     }
+    Invoke-Checked "Retired brand scan" $ProjectRoot {
+        & node tools/check-retired-brand.mjs
+    }
     Invoke-Checked "IPC inventory" $ProjectRoot {
         & node tools/check-ipc-inventory.mjs
     }

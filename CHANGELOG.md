@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.114.0] - 2026-09-01
+
+### Mejorado
+
+- Se añade `npm run brand:check`, un gate reproducible que inspecciona el árbol
+  activo y evita que reaparezcan referencias a la marca retirada en código,
+  documentación o archivos no ignorados.
+- La política distingue el árbol vigente del historial Git: los commits antiguos
+  no se reescriben ni se alteran con este cambio.
+
+### Verificado
+
+- El gate pasa sobre todos los archivos activos del repositorio y queda incluido
+  en la validación de esta versión.
+
 ## [0.113.0] - 2026-09-01
 
 ### Mejorado
