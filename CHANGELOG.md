@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.111.0] - 2026-09-01
+
+### Mejorado
+
+- La exportación source-backed a SQL usa DuckDB directamente sobre CSV, TSV,
+  TXT delimitado o Parquet cuando no hay receta, privacidad adicional ni reglas
+  de calidad no incrementales, sin materializar el `DataFrame` activo.
+- El script SQL conserva el esquema inferido, escapa valores textuales,
+  neutraliza tipos complejos mediante texto y publica `DROP`/`CREATE`/`INSERT`
+  dentro de una transacción portable.
+
+### Verificado
+
+- La salida SQL se genera con cancelación cooperativa, validación de cambios de
+  la fuente, scratch privado, copia temporal y publicación atómica; las rutas
+  que necesitan transformaciones o protección adicional conservan el camino
+  materializado.
+
 ## [0.110.0] - 2026-09-01
 
 ### Mejorado

@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     fs::{self, File},
+    io::{BufWriter, Write},
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -260,6 +261,120 @@ where
     })
 }
 
+pub(crate) fn export_file_to_sql_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation_with_cancel_state(is_cancelled, |connection, cancelled| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para la exportación SQL: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        let source = csv_export_scan_expression(source_path, source_format);
+        let source_columns = describe_source_columns(connection, &source)?;
+        let projection = source_columns
+            .iter()
+            .map(|(name, data_type)| {
+                let identifier = quote_identifier(name);
+                if is_sql_text_projection(data_type) {
+                    format!("CAST({identifier} AS VARCHAR) AS {identifier}")
+                } else {
+                    identifier
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let statement = format!("SELECT {projection} FROM {source}");
+        let mut query = connection
+            .prepare(&statement)
+            .map_err(|error| format!("DuckDB no pudo preparar la exportación SQL: {error}"))?;
+        let mut rows = query
+            .query([])
+            .map_err(|error| format!("DuckDB no pudo ejecutar la exportación SQL: {error}"))?;
+        let result_statement = rows
+            .as_ref()
+            .ok_or_else(|| "DuckDB no devolvió el esquema de la exportación SQL.".to_owned())?;
+        let columns = result_statement.column_names();
+        let sql_types = source_columns
+            .iter()
+            .map(|(_, data_type)| duckdb_sql_type(data_type))
+            .collect::<Vec<_>>();
+        let mut output = BufWriter::new(
+            File::create(destination)
+                .map_err(|error| format!("No se pudo crear la exportación SQL: {error}"))?,
+        );
+        writeln!(
+            output,
+            "-- Exportado por Columnia como script SQL portable."
+        )
+        .map_err(|error| format!("No se pudo escribir el encabezado SQL: {error}"))?;
+        writeln!(output, "BEGIN TRANSACTION;")
+            .map_err(|error| format!("No se pudo escribir el inicio SQL: {error}"))?;
+        writeln!(output, "DROP TABLE IF EXISTS \"dataset\";")
+            .map_err(|error| format!("No se pudo escribir la limpieza SQL: {error}"))?;
+        write!(output, "CREATE TABLE \"dataset\" (")
+            .map_err(|error| format!("No se pudo escribir el esquema SQL: {error}"))?;
+        for (index, column) in columns.iter().enumerate() {
+            if index > 0 {
+                write!(output, ", ")
+                    .map_err(|error| format!("No se pudo escribir el esquema SQL: {error}"))?;
+            }
+            write!(output, "{} {}", quote_identifier(column), sql_types[index])
+                .map_err(|error| format!("No se pudo escribir el esquema SQL: {error}"))?;
+        }
+        writeln!(output, ");")
+            .map_err(|error| format!("No se pudo cerrar el esquema SQL: {error}"))?;
+
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("DuckDB no pudo leer una fila SQL: {error}"))?
+        {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+            write!(output, "INSERT INTO \"dataset\" (")
+                .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+            for (index, column) in columns.iter().enumerate() {
+                if index > 0 {
+                    write!(output, ", ")
+                        .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+                }
+                write!(output, "{}", quote_identifier(column))
+                    .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+            }
+            write!(output, ") VALUES (")
+                .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+            for index in 0..columns.len() {
+                if index > 0 {
+                    write!(output, ", ")
+                        .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+                }
+                let value = row
+                    .get_ref(index)
+                    .map_err(|error| format!("No se pudo leer una columna SQL: {error}"))?;
+                write!(output, "{}", duckdb_sql_value(value)?)
+                    .map_err(|error| format!("No se pudo escribir una fila SQL: {error}"))?;
+            }
+            writeln!(output, ");")
+                .map_err(|error| format!("No se pudo cerrar una fila SQL: {error}"))?;
+        }
+        if cancelled.load(Ordering::Acquire) {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        writeln!(output, "COMMIT;")
+            .map_err(|error| format!("No se pudo escribir el cierre SQL: {error}"))?;
+        output
+            .flush()
+            .map_err(|error| format!("No se pudo sincronizar la exportación SQL: {error}"))?;
+        Ok(())
+    })
+}
+
 pub(crate) fn materialize_file_query_to_parquet(
     source_path: &Path,
     source_format: DuckDbFileFormat,
@@ -338,6 +453,17 @@ where
     C: Fn() -> bool + Send + 'static,
     F: FnOnce(&Connection) -> Result<T, String>,
 {
+    execute_duckdb_operation_with_cancel_state(is_cancelled, |connection, _| operation(connection))
+}
+
+fn execute_duckdb_operation_with_cancel_state<C, F, T>(
+    is_cancelled: C,
+    operation: F,
+) -> Result<T, String>
+where
+    C: Fn() -> bool + Send + 'static,
+    F: FnOnce(&Connection, &AtomicBool) -> Result<T, String>,
+{
     if is_cancelled() {
         return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
     }
@@ -359,7 +485,7 @@ where
         }
     });
 
-    let result = operation(&connection);
+    let result = operation(&connection, &cancelled);
     stop_watcher.store(true, Ordering::Release);
     let watcher_joined = watcher.join().is_ok();
 
@@ -618,20 +744,28 @@ fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
     format!("read_csv_auto('{escaped_path}', header = true, delim = '{escaped_delimiter}')")
 }
 
-fn csv_export_projection(connection: &Connection, source: &str) -> Result<String, String> {
+fn describe_source_columns(
+    connection: &Connection,
+    source: &str,
+) -> Result<Vec<(String, String)>, String> {
     let mut statement = connection
         .prepare(&format!("DESCRIBE SELECT * FROM {source}"))
-        .map_err(|error| format!("DuckDB no pudo inspeccionar la exportación CSV: {error}"))?;
+        .map_err(|error| format!("DuckDB no pudo inspeccionar la fuente exportable: {error}"))?;
     let columns = statement
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
-        .map_err(|error| format!("DuckDB no pudo inspeccionar las columnas CSV: {error}"))?
+        .map_err(|error| format!("DuckDB no pudo inspeccionar las columnas exportables: {error}"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("DuckDB no pudo leer las columnas CSV: {error}"))?;
+        .map_err(|error| format!("DuckDB no pudo leer las columnas exportables: {error}"))?;
     if columns.is_empty() {
-        return Err("La fuente no contiene columnas exportables a CSV.".to_owned());
+        return Err("La fuente no contiene columnas exportables.".to_owned());
     }
+    Ok(columns)
+}
+
+fn csv_export_projection(connection: &Connection, source: &str) -> Result<String, String> {
+    let columns = describe_source_columns(connection, source)?;
 
     Ok(columns
         .into_iter()
@@ -647,6 +781,97 @@ fn csv_export_projection(connection: &Connection, source: &str) -> Result<String
         })
         .collect::<Vec<_>>()
         .join(", "))
+}
+
+fn is_sql_text_projection(data_type: &str) -> bool {
+    let data_type = data_type.to_ascii_uppercase();
+    data_type.starts_with("DATE")
+        || data_type.starts_with("TIME")
+        || data_type.starts_with("TIMESTAMP")
+        || data_type.contains("STRUCT")
+        || data_type.contains("LIST")
+        || data_type.contains("MAP")
+        || data_type.contains("UNION")
+        || data_type.starts_with("ENUM")
+        || data_type.contains("[]")
+}
+
+fn duckdb_sql_type(data_type: &str) -> &'static str {
+    let data_type = data_type.to_ascii_uppercase();
+    if data_type.starts_with("BOOL") {
+        "BOOLEAN"
+    } else if data_type.contains("INT") {
+        "BIGINT"
+    } else if data_type.contains("FLOAT")
+        || data_type.contains("DOUBLE")
+        || data_type.contains("DECIMAL")
+        || data_type == "REAL"
+    {
+        "DOUBLE"
+    } else if data_type.starts_with("DATE") {
+        "DATE"
+    } else if data_type.starts_with("TIMESTAMP") {
+        "TIMESTAMP"
+    } else if data_type.starts_with("TIME") {
+        "TIME"
+    } else {
+        "TEXT"
+    }
+}
+
+fn duckdb_sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn duckdb_sql_value(value: ValueRef<'_>) -> Result<String, String> {
+    match value {
+        ValueRef::Null => Ok("NULL".to_owned()),
+        ValueRef::Boolean(value) => Ok(if value { "TRUE" } else { "FALSE" }.to_owned()),
+        ValueRef::TinyInt(value) => Ok(value.to_string()),
+        ValueRef::SmallInt(value) => Ok(value.to_string()),
+        ValueRef::Int(value) => Ok(value.to_string()),
+        ValueRef::BigInt(value) => Ok(value.to_string()),
+        ValueRef::HugeInt(value) => Ok(value.to_string()),
+        ValueRef::UTinyInt(value) => Ok(value.to_string()),
+        ValueRef::USmallInt(value) => Ok(value.to_string()),
+        ValueRef::UInt(value) => Ok(value.to_string()),
+        ValueRef::UBigInt(value) => Ok(value.to_string()),
+        ValueRef::UHugeInt(value) => Ok(value.to_string()),
+        ValueRef::Float(value) if value.is_finite() => Ok(value.to_string()),
+        ValueRef::Double(value) if value.is_finite() => Ok(value.to_string()),
+        ValueRef::Decimal(value) => Ok(value.to_string()),
+        ValueRef::Text(value) => Ok(duckdb_sql_string_literal(&String::from_utf8_lossy(value))),
+        ValueRef::Blob(value) | ValueRef::Geometry(value) => {
+            let mut hex = String::with_capacity(value.len().saturating_mul(2));
+            for byte in value {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+            Ok(format!("X'{hex}'"))
+        }
+        ValueRef::Float(_) | ValueRef::Double(_) => {
+            Err("SQL no puede representar valores numéricos no finitos.".to_owned())
+        }
+        ValueRef::Date32(value) => Ok(duckdb_sql_string_literal(&value.to_string())),
+        ValueRef::Time64(unit, value) | ValueRef::Timestamp(unit, value) => {
+            Ok(duckdb_sql_string_literal(&format_timestamp(unit, value)))
+        }
+        ValueRef::Interval {
+            months,
+            days,
+            nanos,
+        } => Ok(duckdb_sql_string_literal(&format!(
+            "{months} months {days} days {nanos} nanos"
+        ))),
+        ValueRef::Enum(..)
+        | ValueRef::List(..)
+        | ValueRef::Struct(..)
+        | ValueRef::Array(..)
+        | ValueRef::Map(..)
+        | ValueRef::Union(..) => {
+            Err("La exportación SQL no admite columnas anidadas en la fuente.".to_owned())
+        }
+        _ => Err("La exportación SQL encontró un tipo no compatible.".to_owned()),
+    }
 }
 
 fn json_projection(
@@ -994,6 +1219,35 @@ mod tests {
 
         assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn exports_a_delimited_source_to_sql_without_creating_a_snapshot() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("current.csv");
+        let destination = directory.path().join("exported.sql");
+        fs::write(&source, "name,amount\nO'Brien,10\n=1+1,-20\n")
+            .expect("se debe escribir la fuente delimitada");
+
+        export_file_to_sql_with_cancel(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            &destination,
+            || false,
+        )
+        .expect("DuckDB debe exportar la fuente delimitada a SQL");
+
+        let script = fs::read_to_string(&destination).expect("la salida SQL debe poder leerse");
+        assert!(script.contains("CREATE TABLE \"dataset\""));
+        assert!(script.contains("\"name\" TEXT"));
+        assert!(script.contains("\"amount\" BIGINT"));
+        assert!(script.contains("'O''Brien'"));
+        assert!(script.contains("'=1+1'"));
+        assert!(script.contains("-20"));
+        assert!(script.ends_with("COMMIT;\n"));
+        assert!(source.is_file());
+        assert!(destination.is_file());
+        assert!(!directory.path().join("dataset.parquet").exists());
     }
 
     #[test]

@@ -14398,6 +14398,83 @@ where
     })
 }
 
+fn export_source_backed_sql_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    destination: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió después de la validación.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Err("El formato source-backed no se puede exportar a SQL.".to_owned()),
+    };
+
+    report("Preparando archivo temporal", 10);
+    let scratch = tempfile::tempdir_in(parent)
+        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
+    let partial = scratch.path().join("dataset.partial.sql");
+    report("Escribiendo dataset", 25);
+    let export_cancellation = is_cancelled.clone();
+    crate::duckdb_query::export_file_to_sql_with_cancel(
+        &source_path,
+        source_format,
+        &partial,
+        export_cancellation,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
+    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
+    }
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+    let file_size_bytes = fs::metadata(&destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset.sql")
+            .to_owned(),
+        file_size_bytes,
+        format: ExportFormat::Sql.label(),
+        protected_column_count: 0,
+        protected_columns: Vec::new(),
+    })
+}
+
 fn export_source_backed_json_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
@@ -18672,7 +18749,7 @@ pub async fn export_dataset(
     };
     if matches!(
         format,
-        ExportFormat::Csv | ExportFormat::Json | ExportFormat::Parquet
+        ExportFormat::Csv | ExportFormat::Json | ExportFormat::Parquet | ExportFormat::Sql
     ) && privacy_mode == PrivacyMode::None
         && recipe.is_none()
         && quality_rules.iter().all(source_quality_rule_is_incremental)
@@ -18763,6 +18840,20 @@ pub async fn export_dataset(
                         |stage, percent| send_progress(&on_progress, "export", stage, percent),
                         || app.state::<DatasetState>().export_was_cancelled(generation),
                     ),
+                    ExportFormat::Sql => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_sql_atomic(
+                            &source_path,
+                            expected_file_size,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
                     _ => unreachable!("el filtro previo limita los formatos source-backed"),
                 };
                 result.map(Some)
@@ -28519,6 +28610,34 @@ mod tests {
         assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
         assert!(source.is_file());
         assert!(destination.is_file());
+    }
+
+    #[test]
+    fn source_backed_sql_export_streams_without_materializing_the_active_frame() {
+        let source = temporary_csv("name,amount\nO'Brien,10\nSantiago,20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported.sql");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut progress = Vec::new();
+        let result = export_source_backed_sql_atomic(
+            &source,
+            expected_size,
+            &destination,
+            |stage, percent| progress.push((stage, percent)),
+            || false,
+        )
+        .expect("la exportación SQL source-backed debe funcionar");
+
+        let script = fs::read_to_string(&destination).expect("la salida SQL debe poder leerse");
+        assert_eq!(result.format, "SQL");
+        assert_eq!(result.protected_column_count, 0);
+        assert!(script.contains("INSERT INTO \"dataset\""));
+        assert!(script.contains("'O''Brien'"));
+        assert!(script.contains("COMMIT;"));
+        assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert!(source.is_file());
+        assert!(destination.is_file());
+        assert!(!directory.path().join("dataset.parquet").exists());
     }
 
     #[test]
