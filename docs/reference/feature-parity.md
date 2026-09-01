@@ -123,6 +123,11 @@ Abrir un proyecto valida el perfil, las reglas, el esquema, el cursor y las
 revisiones antes de activar la sesión. El historial está limitado a doce
 revisiones y el registro SQL conserva solo estado, duración y filas afectadas.
 
+Desde v0.120, guardar un dataset source-backed delimitado o Parquet convierte
+la fuente directamente a `current.parquet` con DuckDB y verifica el conteo antes
+de publicar la generación. La sesión conserva el esquema vacío y el historial
+diferido, mientras que los proyectos materializados mantienen la ruta eager.
+
 La interfaz no recibe rutas internas. El workspace SQLite v12 conserva también
 el formato de exportación, la protección de datos, las columnas clave de
 comparación y el tipo de JOIN con validación cerrada; las claves se filtran

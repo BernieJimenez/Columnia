@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.120.0] - 2026-09-01
+
+### Mejorado
+
+- Guardar proyectos source-backed ahora convierte CSV/TSV/TXT delimitado y
+  Parquet directamente a un snapshot Parquet administrado con DuckDB, sin
+  materializar todas las filas en el `DataFrame` activo.
+- La validación conserva el conteo real de filas, la integridad del archivo y
+  la sesión source-backed; los proyectos normales mantienen la ruta eager y su
+  historial existente.
+
+### Verificado
+
+- La regresión comprueba que el snapshot contiene todas las filas mientras el
+  estado activo conserva el esquema vacío y `source_backed`.
+
 ## [0.119.0] - 2026-09-01
 
 ### Mejorado

@@ -679,7 +679,12 @@ impl ProjectStore {
             .transpose()
             .map_err(|_| "No se pudo validar el perfil del proyecto.".to_owned())?;
         let frame = std::mem::replace(&mut active.frame, DataFrame::empty());
-        write_generation(frame, &active.history, &generation_path)?;
+        write_generation(
+            frame,
+            active.current_snapshot_path.as_deref(),
+            &active.history,
+            &generation_path,
+        )?;
         let profile_cache_sha256 = active
             .profile
             .as_ref()
@@ -1602,6 +1607,7 @@ fn write_snapshot_owned(mut frame: DataFrame, destination: &Path) -> Result<(), 
 
 fn write_generation(
     frame: DataFrame,
+    current_snapshot_path: Option<&Path>,
     history: &ProjectHistoryCapture,
     destination: &Path,
 ) -> Result<(), String> {
@@ -1610,7 +1616,12 @@ fn write_generation(
     }
     let parent = destination.parent().ok_or_else(storage_error)?;
     let staging = tempfile::tempdir_in(parent).map_err(|_| storage_error())?;
-    write_snapshot_owned(frame, &staging.path().join("current.parquet"))?;
+    let current_target = staging.path().join("current.parquet");
+    if let Some(source) = current_snapshot_path {
+        copy_snapshot(source, &current_target)?;
+    } else {
+        write_snapshot_owned(frame, &current_target)?;
+    }
     for (index, entry) in history.entries.iter().enumerate() {
         let target = staging.path().join(format!("history-{index:03}.parquet"));
         let copied = fs::copy(&entry.path, &target).map_err(|_| storage_error())?;
@@ -1634,6 +1645,27 @@ fn write_generation(
         let _ = fs::remove_dir_all(destination);
         return Err(storage_error());
     }
+    Ok(())
+}
+
+fn copy_snapshot(source: &Path, destination: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(source).map_err(|_| storage_error())?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+        return Err(storage_error());
+    }
+    if destination.exists() {
+        return Err(storage_error());
+    }
+    let copied = fs::copy(source, destination).map_err(|_| storage_error())?;
+    if copied != metadata.len() {
+        return Err(storage_error());
+    }
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(destination)
+        .and_then(|file| file.sync_all())
+        .map_err(|_| storage_error())?;
     Ok(())
 }
 
@@ -1845,6 +1877,32 @@ mod tests {
 
         let second = ProjectStore::initialize(directory.path().join("data")).unwrap();
         assert!(second.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn generation_copies_a_streamed_current_snapshot_without_reencoding() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("current-source.parquet");
+        let destination = directory.path().join("generation");
+        write_snapshot(&frame(&[7, 8]), &source).expect("se debe escribir la fuente Parquet");
+        let (state, active_source) = active_state(directory.path(), &[7, 8], "input.parquet");
+        let active = state
+            .active_project_snapshot()
+            .expect("se debe capturar el dataset activo");
+
+        write_generation(
+            DataFrame::empty(),
+            Some(&source),
+            &active.history,
+            &destination,
+        )
+        .expect("la generación debe copiar el snapshot source-backed");
+
+        let copied = fs::read(destination.join("current.parquet"))
+            .expect("el snapshot copiado debe existir");
+        let original = fs::read(source).expect("la fuente debe seguir disponible");
+        assert_eq!(copied, original);
+        fs::remove_file(active_source).unwrap();
     }
 
     #[test]

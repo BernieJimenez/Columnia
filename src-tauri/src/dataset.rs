@@ -27434,6 +27434,7 @@ pub(crate) fn export_frame_for_automation_with_recipe(
 
 pub(crate) struct ActiveDatasetSnapshot {
     pub(crate) frame: DataFrame,
+    pub(crate) current_snapshot_path: Option<PathBuf>,
     pub(crate) file_name: String,
     pub(crate) row_count: usize,
     pub(crate) column_count: usize,
@@ -27775,12 +27776,59 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "Carga un dataset antes de guardar un proyecto.".to_owned())?;
-        materialize_loaded_dataset(dataset)?;
+        let current_snapshot_path = if dataset.source_backed {
+            let (source_path, source_format) =
+                current_duckdb_file_source(dataset).ok_or_else(|| {
+                    "La fuente source-backed ya no está disponible para guardar el proyecto."
+                        .to_owned()
+                })?;
+            let snapshot_path = tempfile::Builder::new()
+                .prefix("project-current-")
+                .suffix(".parquet")
+                .tempfile_in(dataset.history.directory.path())
+                .map_err(|_| {
+                    "No se pudo preparar el snapshot source-backed del proyecto.".to_owned()
+                })?
+                .into_temp_path()
+                .keep()
+                .map_err(|_| {
+                    "No se pudo preparar el snapshot source-backed del proyecto.".to_owned()
+                })?;
+            fs::remove_file(&snapshot_path).map_err(|_| {
+                "No se pudo preparar el snapshot source-backed del proyecto.".to_owned()
+            })?;
+            crate::duckdb_query::materialize_file_to_parquet(
+                &source_path,
+                source_format,
+                &snapshot_path,
+                None,
+            )?;
+            let snapshot_row_count = crate::duckdb_query::count_file_rows(
+                &snapshot_path,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                || false,
+            )?;
+            if snapshot_row_count != dataset.row_count {
+                return Err(
+                    "El conteo del dataset source-backed cambió durante el guardado.".to_owned(),
+                );
+            }
+            Some(snapshot_path)
+        } else {
+            materialize_loaded_dataset(dataset)?;
+            None
+        };
+        let frame = if let Some(snapshot_path) = current_snapshot_path.as_deref() {
+            read_parquet_schema_frame(snapshot_path)?
+        } else {
+            dataset.frame.clone()
+        };
         Ok(ActiveDatasetSnapshot {
-            frame: dataset.frame.clone(),
+            column_count: frame.width(),
+            frame,
+            current_snapshot_path,
             file_name: dataset.file_name.clone(),
             row_count: dataset.row_count,
-            column_count: dataset.frame.width(),
             profile: dataset.profile.clone(),
             history: capture_project_history(&dataset.history, &dataset.frame)?,
         })
@@ -28430,6 +28478,64 @@ mod tests {
         assert_eq!(preview.row_count, 2);
         assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
         assert_eq!(preview.rows[1][1].as_deref(), Some("28"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state() {
+        let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let state = DatasetState {
+            current: Mutex::new(Some(LoadedDataset {
+                source_path: Some(path.clone()),
+                file_name: "dataset.csv".to_owned(),
+                file_size_bytes,
+                row_count,
+                frame: schema,
+                source_backed: true,
+                profile: None,
+                history,
+            })),
+            ..DatasetState::default()
+        };
+
+        let snapshot = state
+            .active_project_snapshot()
+            .expect("el guardado debe crear un snapshot Parquet");
+        let snapshot_path = snapshot
+            .current_snapshot_path
+            .as_deref()
+            .expect("el dataset source-backed debe conservar su snapshot directo");
+        let output = read_parquet_frame(snapshot_path).expect("el snapshot debe ser legible");
+        assert_eq!(output.height(), row_count);
+        assert_eq!(output.width(), 2);
+        assert_eq!(
+            output.column("city").unwrap().str().unwrap().get(0),
+            Some("Santo Domingo")
+        );
+        assert_eq!(snapshot.frame.height(), 0);
+
+        let second_snapshot = state
+            .active_project_snapshot()
+            .expect("un segundo guardado debe crear otro snapshot temporal");
+        assert_ne!(
+            snapshot.current_snapshot_path,
+            second_snapshot.current_snapshot_path
+        );
+
+        let current = state
+            .current
+            .lock()
+            .expect("la sesión debe seguir disponible");
+        let dataset = current.as_ref().expect("el dataset debe seguir activo");
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        drop(current);
+        drop(second_snapshot);
+        drop(snapshot);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
