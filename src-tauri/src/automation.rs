@@ -1227,6 +1227,10 @@ pub fn project_save(
             query_engine: Default::default(),
             analysis_sample_rows: Default::default(),
             performance_profile: Default::default(),
+            export_format: Default::default(),
+            privacy_mode: Default::default(),
+            comparison_key_columns: Default::default(),
+            join_type: Default::default(),
         },
     )
     .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;

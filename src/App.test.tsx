@@ -164,7 +164,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced" },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner" },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -207,7 +207,7 @@ describe("App", () => {
     const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset,
-      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50, activePhase: "prepare", queryEngine: "duckdb", analysisSampleRows: 50_000, performanceProfile: "maximum" },
+      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50, activePhase: "prepare", queryEngine: "duckdb", analysisSampleRows: 50_000, performanceProfile: "maximum", exportFormat: "bundle", privacyMode: "hash", comparisonKeyColumns: ["email", "missing", "email"], joinType: "full" },
       profile: { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
     });
     const pageSpy = vi.spyOn(bridge, "getDatasetPage").mockResolvedValue({
@@ -226,7 +226,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced" },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner" },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
@@ -235,6 +235,9 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "clientes.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    const comparison = screen.getByRole("region", { name: "Comparar datasets" });
+    expect(within(comparison).getByRole("checkbox", { name: /email/ })).toBeChecked();
+    expect(within(comparison).getByRole("radio", { name: /^Full/ })).toBeChecked();
     expect(screen.getByRole("tab", { name: "Vista previa" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Diagnóstico" }));
     fireEvent.click(screen.getByText("Explorar con SQL local"));
@@ -249,6 +252,8 @@ describe("App", () => {
 
     await switchPhase("Entregar");
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("email");
+    expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("bundle");
+    expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("hash");
   });
 
   it("mantiene el perfil en idle cuando el proyecto no incluye uno durable", async () => {

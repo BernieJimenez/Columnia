@@ -34,6 +34,10 @@ interface DeliveryPhaseProps {
   recipeDraft?: SavedRecipe | null;
   contract: DeliveryContractState;
   exportState: DeliveryExportState;
+  exportFormat?: ExportFormat;
+  onExportFormatChange?: (format: ExportFormat) => void;
+  privacyMode?: PrivacyMode;
+  onPrivacyModeChange?: (mode: PrivacyMode) => void;
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
   onCancelExport: () => void;
@@ -44,18 +48,24 @@ export function DeliveryPhase({
   recipeDraft = null,
   contract,
   exportState,
+  exportFormat,
+  onExportFormatChange,
+  privacyMode,
+  onPrivacyModeChange,
   onContractAction,
   onExport,
   onCancelExport,
 }: DeliveryPhaseProps) {
-  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
-  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
+  const [localPrivacyMode, setLocalPrivacyMode] = useState<PrivacyMode>("none");
+  const [localExportFormat, setLocalExportFormat] = useState<ExportFormat>("csv");
   const [migrationState, setMigrationState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
     | { kind: "ready"; result: QualityMigrationResult }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const selectedPrivacyMode = privacyMode ?? localPrivacyMode;
+  const selectedExportFormat = exportFormat ?? localExportFormat;
   const [qualityFileState, setQualityFileState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
@@ -83,7 +93,7 @@ export function DeliveryPhase({
     excel: "Excel",
     sqlite: "SQLite",
     bundle: "Paquete ZIP",
-  }[exportFormat];
+  }[selectedExportFormat];
   const exportRequirement = contract.kind === "with_contract"
     ? "Valida y aprueba las reglas para habilitar la exportación."
     : "Confirma abajo que quieres exportar sin validar la calidad.";
@@ -266,10 +276,20 @@ export function DeliveryPhase({
   function requestExport(format: ExportFormat) {
     setOpenOutputState("idle");
     if (contract.kind === "with_contract") {
-      onExport({ format, privacyMode, validation: { kind: "contract", rules: contract.rules } });
+      onExport({ format, privacyMode: selectedPrivacyMode, validation: { kind: "contract", rules: contract.rules } });
     } else if (contract.confirmation === "confirmed") {
-      onExport({ format, privacyMode, validation: { kind: "explicitly_unvalidated" } });
+      onExport({ format, privacyMode: selectedPrivacyMode, validation: { kind: "explicitly_unvalidated" } });
     }
+  }
+
+  function changeExportFormat(format: ExportFormat) {
+    setLocalExportFormat(format);
+    onExportFormatChange?.(format);
+  }
+
+  function changePrivacyMode(mode: PrivacyMode) {
+    setLocalPrivacyMode(mode);
+    onPrivacyModeChange?.(mode);
   }
 
   async function revealLastExport() {
@@ -1020,8 +1040,8 @@ export function DeliveryPhase({
             Formato
             <select
               aria-label="Formato de exportación"
-              value={exportFormat}
-              onChange={(event) => setExportFormat(event.target.value as ExportFormat)}
+              value={selectedExportFormat}
+              onChange={(event) => changeExportFormat(event.target.value as ExportFormat)}
               disabled={busy}
             >
               <option value="csv">CSV</option>
@@ -1037,8 +1057,8 @@ export function DeliveryPhase({
             Protección de datos personales
             <select
               aria-label="Protección de datos personales"
-              value={privacyMode}
-              onChange={(event) => setPrivacyMode(event.target.value as PrivacyMode)}
+              value={selectedPrivacyMode}
+              onChange={(event) => changePrivacyMode(event.target.value as PrivacyMode)}
               disabled={busy}
             >
               <option value="none">Sin protección adicional</option>
@@ -1049,13 +1069,13 @@ export function DeliveryPhase({
           <button
             className="primary-action export-action"
             type="button"
-            onClick={() => requestExport(exportFormat)}
+            onClick={() => requestExport(selectedExportFormat)}
             disabled={busy || !exportAllowed}
           >
             Exportar {exportFormatLabel}
           </button>
         </div>
-        {exportFormat === "bundle" && (
+        {selectedExportFormat === "bundle" && (
           <p className="export-requirement" role="note">
             {recipeDraft
               ? "Este paquete incluirá recipe.json con la receta actual validada y su referencia en manifest.json."

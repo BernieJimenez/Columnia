@@ -20,10 +20,12 @@ use crate::dataset::{
 };
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 const ID_LENGTH: usize = 32;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
+const MAX_COMPARISON_KEY_COLUMNS: usize = 16;
+const MAX_COMPARISON_KEY_COLUMN_CHARS: usize = 256;
 const PREVIEW_PAGE_SIZE: usize = 50;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -79,6 +81,14 @@ pub struct ProjectWorkspace {
     pub analysis_sample_rows: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub performance_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comparison_key_columns: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -155,6 +165,10 @@ struct StoredProject {
     query_engine: Option<String>,
     analysis_sample_rows: Option<i64>,
     performance_profile: Option<String>,
+    export_format: Option<String>,
+    privacy_mode: Option<String>,
+    comparison_key_columns_json: String,
+    join_type: Option<String>,
 }
 
 struct ValidatedProject {
@@ -298,10 +312,14 @@ impl ProjectStore {
                            active_phase TEXT NOT NULL DEFAULT 'review',
                            query_engine TEXT,
                            analysis_sample_rows INTEGER,
-                           performance_profile TEXT
+                           performance_profile TEXT,
+                           export_format TEXT,
+                           privacy_mode TEXT,
+                           comparison_key_columns_json TEXT NOT NULL DEFAULT '[]',
+                           join_type TEXT
                          );
                           CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                          PRAGMA user_version = 11;",
+                          PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -326,7 +344,11 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
                            ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                           PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -348,7 +370,11 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN query_engine TEXT;
                            ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
                            ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                           PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -366,8 +392,12 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
                          ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                         PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN performance_profile TEXT;
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -384,8 +414,12 @@ impl ProjectStore {
                           ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
                           ALTER TABLE projects ADD COLUMN query_engine TEXT;
                           ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                          ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                          PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN performance_profile TEXT;
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -401,8 +435,12 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
                          ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                         PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN performance_profile TEXT;
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -417,8 +455,12 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
                          ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                         PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN performance_profile TEXT;
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -432,8 +474,12 @@ impl ProjectStore {
                         "ALTER TABLE projects ADD COLUMN active_phase TEXT NOT NULL DEFAULT 'review';
                          ALTER TABLE projects ADD COLUMN query_engine TEXT;
                          ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
-                         ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                         PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN performance_profile TEXT;
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -446,8 +492,12 @@ impl ProjectStore {
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN analysis_sample_rows INTEGER;
                          ALTER TABLE projects ADD COLUMN query_engine TEXT;
-                         ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                         PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN performance_profile TEXT;
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -459,8 +509,12 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN query_engine TEXT;
-                         ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                         PRAGMA user_version = 11;",
+                           ALTER TABLE projects ADD COLUMN performance_profile TEXT;
+                           ALTER TABLE projects ADD COLUMN export_format TEXT;
+                           ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                           ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                           ALTER TABLE projects ADD COLUMN join_type TEXT;
+                           PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -472,7 +526,26 @@ impl ProjectStore {
                 transaction
                     .execute_batch(
                         "ALTER TABLE projects ADD COLUMN performance_profile TEXT;
-                         PRAGMA user_version = 11;",
+                         ALTER TABLE projects ADD COLUMN export_format TEXT;
+                         ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                         ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                         ALTER TABLE projects ADD COLUMN join_type TEXT;
+                         PRAGMA user_version = 12;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            11 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN export_format TEXT;
+                         ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
+                         ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
+                         ALTER TABLE projects ADD COLUMN join_type TEXT;
+                         PRAGMA user_version = 12;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -569,6 +642,17 @@ impl ProjectStore {
         let performance_profile =
             validate_performance_profile(workspace.performance_profile.as_deref())?
                 .map(str::to_owned);
+        let export_format =
+            validate_export_format(workspace.export_format.as_deref())?.map(str::to_owned);
+        let privacy_mode =
+            validate_privacy_mode(workspace.privacy_mode.as_deref())?.map(str::to_owned);
+        let comparison_key_columns = validate_comparison_key_columns_for_frame(
+            &active.frame,
+            &workspace.comparison_key_columns,
+        )?;
+        let comparison_key_columns_json = serde_json::to_string(&comparison_key_columns)
+            .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
+        let join_type = validate_join_type(workspace.join_type.as_deref())?.map(str::to_owned);
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -632,7 +716,8 @@ impl ProjectStore {
                   history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
                  sql_history_json = ?13, review_tab = ?14, preview_offset = ?15,
                  active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18,
-                 performance_profile = ?19 WHERE id = ?20",
+                 performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
+                 comparison_key_columns_json = ?22, join_type = ?23 WHERE id = ?24",
                 params![
                     name,
                     active.file_name,
@@ -653,6 +738,10 @@ impl ProjectStore {
                     query_engine,
                     analysis_sample_rows,
                     performance_profile,
+                    export_format,
+                    privacy_mode,
+                    comparison_key_columns_json,
+                    join_type,
                     id
                 ],
             )
@@ -663,8 +752,9 @@ impl ProjectStore {
                   created_at, updated_at, last_opened_at, quality_rules_json, recipe_draft_json,
                    generation_name, history_manifest_json, profile_json, profile_cache_sha256,
                     sql_history_json, review_tab, preview_offset, active_phase, query_engine,
-                    analysis_sample_rows, performance_profile)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                    analysis_sample_rows, performance_profile, export_format, privacy_mode,
+                    comparison_key_columns_json, join_type)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
                 params![
                     id,
                     name,
@@ -686,6 +776,10 @@ impl ProjectStore {
                     query_engine,
                     analysis_sample_rows,
                     performance_profile,
+                    export_format,
+                    privacy_mode,
+                    comparison_key_columns_json,
+                    join_type,
                 ],
             )
         };
@@ -855,7 +949,8 @@ impl ProjectStore {
                         updated_at, snapshot_name, quality_rules_json, recipe_draft_json,
                         generation_name, history_manifest_json, profile_json,
                          profile_cache_sha256, sql_history_json, review_tab, preview_offset,
-                         active_phase, query_engine, analysis_sample_rows, performance_profile
+                         active_phase, query_engine, analysis_sample_rows, performance_profile,
+                         export_format, privacy_mode, comparison_key_columns_json, join_type
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -875,6 +970,10 @@ impl ProjectStore {
                         query_engine: row.get(18)?,
                         analysis_sample_rows: row.get(19)?,
                         performance_profile: row.get(20)?,
+                        export_format: row.get(21)?,
+                        privacy_mode: row.get(22)?,
+                        comparison_key_columns_json: row.get(23)?,
+                        join_type: row.get(24)?,
                     })
                 },
             )
@@ -1079,6 +1178,10 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
     let query_engine = parse_query_engine(stored.query_engine.clone())?;
     let analysis_sample_rows = parse_analysis_sample_rows(stored.analysis_sample_rows)?;
     let performance_profile = parse_performance_profile(stored.performance_profile.clone())?;
+    let export_format = parse_export_format(stored.export_format.clone())?;
+    let privacy_mode = parse_privacy_mode(stored.privacy_mode.clone())?;
+    let comparison_key_columns = parse_comparison_key_columns(&stored.comparison_key_columns_json)?;
+    let join_type = parse_join_type(stored.join_type.clone())?;
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
@@ -1089,6 +1192,10 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         query_engine,
         analysis_sample_rows,
         performance_profile,
+        export_format,
+        privacy_mode,
+        comparison_key_columns,
+        join_type,
     })
 }
 
@@ -1162,6 +1269,89 @@ fn validate_performance_profile(value: Option<&str>) -> Result<Option<&str>, Str
 fn parse_performance_profile(value: Option<String>) -> Result<Option<String>, String> {
     validate_performance_profile(value.as_deref())?;
     Ok(value)
+}
+
+fn validate_export_format(value: Option<&str>) -> Result<Option<&str>, String> {
+    match value {
+        None => Ok(None),
+        Some("csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle") => Ok(value),
+        Some(_) => Err("El formato de exportación guardado no es válido.".to_owned()),
+    }
+}
+
+fn parse_export_format(value: Option<String>) -> Result<Option<String>, String> {
+    validate_export_format(value.as_deref())?;
+    Ok(value)
+}
+
+fn validate_privacy_mode(value: Option<&str>) -> Result<Option<&str>, String> {
+    match value {
+        None => Ok(None),
+        Some("none" | "mask" | "hash") => Ok(value),
+        Some(_) => Err("La protección de datos guardada no es válida.".to_owned()),
+    }
+}
+
+fn parse_privacy_mode(value: Option<String>) -> Result<Option<String>, String> {
+    validate_privacy_mode(value.as_deref())?;
+    Ok(value)
+}
+
+fn validate_join_type(value: Option<&str>) -> Result<Option<&str>, String> {
+    match value {
+        None => Ok(None),
+        Some("inner" | "left" | "full") => Ok(value),
+        Some(_) => Err("El tipo de JOIN guardado no es válido.".to_owned()),
+    }
+}
+
+fn parse_join_type(value: Option<String>) -> Result<Option<String>, String> {
+    validate_join_type(value.as_deref())?;
+    Ok(value)
+}
+
+fn validate_comparison_key_columns_shape(columns: &[String]) -> Result<(), String> {
+    if columns.len() > MAX_COMPARISON_KEY_COLUMNS {
+        return Err(format!(
+            "La comparación admite como máximo {MAX_COMPARISON_KEY_COLUMNS} columnas clave."
+        ));
+    }
+    let mut seen = HashSet::with_capacity(columns.len());
+    for column in columns {
+        if column.is_empty() || column.chars().count() > MAX_COMPARISON_KEY_COLUMN_CHARS {
+            return Err("Una columna clave guardada no es válida.".to_owned());
+        }
+        if !seen.insert(column) {
+            return Err("Las columnas clave guardadas no pueden repetirse.".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn validate_comparison_key_columns_for_frame(
+    frame: &DataFrame,
+    columns: &[String],
+) -> Result<Vec<String>, String> {
+    validate_comparison_key_columns_shape(columns)?;
+    for column in columns {
+        if !frame
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == column)
+        {
+            return Err(format!(
+                "La columna clave '{column}' no existe en el dataset activo."
+            ));
+        }
+    }
+    Ok(columns.to_vec())
+}
+
+fn parse_comparison_key_columns(value: &str) -> Result<Vec<String>, String> {
+    let columns: Vec<String> = serde_json::from_str(value)
+        .map_err(|_| "Las columnas clave guardadas no son válidas.".to_owned())?;
+    validate_comparison_key_columns_shape(&columns)?;
+    Ok(columns)
 }
 
 fn validate_preview_offset(offset: Option<usize>, row_count: usize) -> Result<usize, String> {
@@ -1633,7 +1823,11 @@ mod tests {
             "activePhase": "prepare",
             "queryEngine": "duckdb",
             "analysisSampleRows": 50000,
-            "performanceProfile": "maximum"
+            "performanceProfile": "maximum",
+            "exportFormat": "parquet",
+            "privacyMode": "mask",
+            "comparisonKeyColumns": ["value"],
+            "joinType": "full"
         }))
         .expect("el workspace de prueba debe ser válido")
     }
@@ -1910,7 +2104,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 12;")
+            .execute_batch("PRAGMA user_version = 13;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -1976,6 +2170,38 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert!(columns.contains(&"performance_profile".to_owned()));
+    }
+
+    #[test]
+    fn migration_from_v11_adds_session_preferences_without_requiring_dataset_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data-v11");
+        fs::create_dir_all(&root).unwrap();
+        Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                 PRAGMA user_version = 11;",
+            )
+            .unwrap();
+
+        let store = ProjectStore::initialize(root).unwrap();
+        let connection = store.connection().unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let columns = connection
+            .prepare("PRAGMA table_info(projects)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"export_format".to_owned()));
+        assert!(columns.contains(&"privacy_mode".to_owned()));
+        assert!(columns.contains(&"comparison_key_columns_json".to_owned()));
+        assert!(columns.contains(&"join_type".to_owned()));
     }
 
     #[test]
@@ -2320,6 +2546,10 @@ mod tests {
             query_engine: Default::default(),
             analysis_sample_rows: Default::default(),
             performance_profile: Default::default(),
+            export_format: Default::default(),
+            privacy_mode: Default::default(),
+            comparison_key_columns: Default::default(),
+            join_type: Default::default(),
         };
         assert!(store
             .save(
@@ -2403,6 +2633,66 @@ mod tests {
                 Some(created.id.clone()),
                 "No publicado".to_owned(),
                 invalid_performance_profile,
+            )
+            .is_err());
+        let invalid_export_format = ProjectWorkspace {
+            export_format: Some("xml".to_owned()),
+            ..ProjectWorkspace::default()
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_export_format,
+            )
+            .is_err());
+        let invalid_privacy_mode = ProjectWorkspace {
+            privacy_mode: Some("encrypt".to_owned()),
+            ..ProjectWorkspace::default()
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_privacy_mode,
+            )
+            .is_err());
+        let invalid_join_type = ProjectWorkspace {
+            join_type: Some("outer".to_owned()),
+            ..ProjectWorkspace::default()
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_join_type,
+            )
+            .is_err());
+        let invalid_key_columns = ProjectWorkspace {
+            comparison_key_columns: vec!["value".to_owned(), "value".to_owned()],
+            ..ProjectWorkspace::default()
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                invalid_key_columns,
+            )
+            .is_err());
+        let missing_key_column = ProjectWorkspace {
+            comparison_key_columns: vec!["missing".to_owned()],
+            ..ProjectWorkspace::default()
+        };
+        assert!(store
+            .save(
+                &state,
+                Some(created.id.clone()),
+                "No publicado".to_owned(),
+                missing_key_column,
             )
             .is_err());
         assert_eq!(store.list().unwrap(), vec![created]);

@@ -16,7 +16,7 @@ de rutas fuera del repositorio.
 | Comparación | Dataset secundario local, comparación por clave, consolidación segura y joins `INNER`/`LEFT`/`FULL` | Implementada | Ampliar análisis comparativo |
 | Visualizaciones | Completitud, outliers, patrones de nulos, formatos, grupos, calendario, tendencia temporal y correlaciones, con tablas equivalentes | Implementada | Ampliar interacciones |
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
-| Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL y perfil de rendimiento por proyecto | Implementada | Preferencias de workspace más amplias |
+| Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL, perfil de rendimiento, formato de exportación, protección, claves de comparación y tipo de JOIN por proyecto | Implementada | Muestras y resultados derivados no portables |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
 | Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, lectura por bloques, snapshots administrados, DuckDB opcional, `FULL JOIN` source-backed con orden global por conteo real, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
 
@@ -94,7 +94,11 @@ Abrir un proyecto valida el perfil, las reglas, el esquema, el cursor y las
 revisiones antes de activar la sesión. El historial está limitado a doce
 revisiones y el registro SQL conserva solo estado, duración y filas afectadas.
 
-La interfaz no recibe rutas internas. La cobertura de correlaciones se conserva
+La interfaz no recibe rutas internas. El workspace SQLite v12 conserva también
+el formato de exportación, la protección de datos, las columnas clave de
+comparación y el tipo de JOIN con validación cerrada; las claves se filtran
+contra el esquema restaurado y no se guardan muestras ni valores. La cobertura
+de correlaciones se conserva
 por proyecto con opciones cerradas de 10.000, 50.000 o 100.000 filas; el motor
 SQL por proyecto acepta únicamente `polars` o `duckdb`; el perfil de rendimiento
 por proyecto acepta únicamente `conservative`, `balanced` o `maximum`; y los

@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.106.0] - 2026-09-01
+
+### Mejorado
+
+- El workspace durable de cada proyecto conserva y restaura el formato de
+  exportación, la protección de datos personales, las columnas clave de
+  comparación y el tipo de `JOIN`.
+- Las claves restauradas se filtran contra las columnas del snapshot activo,
+  sin reactivar selecciones obsoletas ni guardar muestras o valores privados.
+
+### Verificado
+
+- SQLite migra el catálogo a v12 y Rust valida los cuatro contratos con listas
+  cerradas antes de publicar snapshots o reemplazar el proyecto.
+- Los catálogos anteriores usan los valores locales seguros y la reapertura
+  conserva compatibilidad con sus workspaces existentes.
+
 ## [0.105.2] - 2026-09-01
 
 ### Corregido

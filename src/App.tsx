@@ -96,8 +96,10 @@ import {
   type ConflictResolution,
   type DatasetSourceInspection,
   type DatasetQueryEngine,
+  type ExportFormat,
   type OperationProgress,
   type PerformanceProfile,
+  type PrivacyMode,
   type SavedRecipe,
   type SampleDatasetDescriptor,
   type SqlQueryHistoryEntry,
@@ -175,6 +177,8 @@ export function App() {
   const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
   const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
   const [joinType, setJoinType] = useState<DatasetJoinType>("inner");
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
+  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
   const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
   const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   const [activePhase, setActivePhase] = useState<ActivePhase>("load");
@@ -194,6 +198,9 @@ export function App() {
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
+      setJoinType("inner");
+      setExportFormat("csv");
+      setPrivacyMode("none");
       void clearDatasetComparison().catch(() => undefined);
     },
     onProfileInvalidated: () => setProfileStatus({ kind: "idle" }),
@@ -221,12 +228,26 @@ export function App() {
       queryEngine,
       analysisSampleRows,
       performanceProfile,
+      exportFormat,
+      privacyMode,
+      comparisonKeyColumns,
+      joinType,
     },
     onActiveProjectDeleted: () => {
       setSqlHistory([]);
       setPerformanceProfile(readPerformanceProfile());
+      setComparisonKeyColumns([]);
+      setJoinType("inner");
+      setExportFormat("csv");
+      setPrivacyMode("none");
     },
-    onActiveProjectUnlinked: () => setPerformanceProfile(readPerformanceProfile()),
+    onActiveProjectUnlinked: () => {
+      setPerformanceProfile(readPerformanceProfile());
+      setComparisonKeyColumns([]);
+      setJoinType("inner");
+      setExportFormat("csv");
+      setPrivacyMode("none");
+    },
     onProjectOpened: async ({ dataset, workspace, profile }) => {
       const initialDataset = createReadyDatasetStatus(dataset);
       setDatasetStatus(initialDataset);
@@ -246,8 +267,15 @@ export function App() {
       setDeliveryContract(deliveryContractFromRules(workspace.qualityRules));
       setExportStatus({ kind: "idle" });
       setComparisonStatus(clearComparison());
-      setComparisonKeyColumns([]);
+      const availableColumns = new Set(dataset.columns.map((column) => column.name));
+      const restoredKeyColumns = (workspace.comparisonKeyColumns ?? []).filter(
+        (column, index, columns) => availableColumns.has(column) && columns.indexOf(column) === index,
+      );
+      setComparisonKeyColumns(restoredKeyColumns);
       setJoinStatus(clearJoin());
+      setJoinType(workspace.joinType ?? "inner");
+      setExportFormat(workspace.exportFormat ?? "csv");
+      setPrivacyMode(workspace.privacyMode ?? "none");
       await clearDatasetComparison().catch(() => undefined);
       setRecipeDraft(workspace.recipeDraft);
       setSqlHistory(workspace.sqlHistory ?? []);
@@ -379,6 +407,9 @@ export function App() {
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
+      setJoinType("inner");
+      setExportFormat("csv");
+      setPrivacyMode("none");
       await clearDatasetComparison().catch(() => undefined);
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
@@ -525,6 +556,9 @@ export function App() {
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
+      setJoinType("inner");
+      setExportFormat("csv");
+      setPrivacyMode("none");
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
       setSqlHistory([]);
@@ -547,6 +581,9 @@ export function App() {
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
+      setJoinType("inner");
+      setExportFormat("csv");
+      setPrivacyMode("none");
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
       setSqlHistory([]);
@@ -942,6 +979,10 @@ export function App() {
                 recipeDraft={recipeDraft}
                 contract={deliveryContract}
                 exportState={exportStatus}
+                exportFormat={exportFormat}
+                onExportFormatChange={setExportFormat}
+                privacyMode={privacyMode}
+                onPrivacyModeChange={setPrivacyMode}
                 onContractAction={updateDeliveryContract}
                 onExport={exportActiveDataset}
                 onCancelExport={() => cancelActiveOperation("export")}

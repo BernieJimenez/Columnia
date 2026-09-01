@@ -643,6 +643,10 @@ export interface ProjectWorkspace {
   queryEngine?: DatasetQueryEngine;
   analysisSampleRows?: 10_000 | 50_000 | 100_000;
   performanceProfile?: PerformanceProfile;
+  exportFormat?: ExportFormat;
+  privacyMode?: PrivacyMode;
+  comparisonKeyColumns?: string[];
+  joinType?: DatasetJoinType;
 }
 
 export type ProjectReviewTab = "diagnosis" | "preview";

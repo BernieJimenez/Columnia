@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.105.2`.
+- Versión actual del prototipo: `0.106.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1590,8 +1590,12 @@ comparación no equivale a ejecución fuera de memoria general. La
   local seguro y fuerzan el recálculo si la caché no coincide. El perfil de
   rendimiento (`conservative`, `balanced` o `maximum`) también se persiste por
   proyecto en SQLite v11; los catálogos anteriores vuelven al perfil local y
-  los cambios de dataset no arrastran el perfil de otro proyecto. Las muestras
-  originales y otras preferencias de sesión siguen pendientes. La importación M1 conserva además
+  los cambios de dataset no arrastran el perfil de otro proyecto. La versión
+  0.106.0 añade al workspace SQLite v12 el formato de exportación, la protección
+  de datos, las columnas clave de comparación y el tipo de JOIN; sus valores se
+  validan con listas cerradas y las claves se filtran contra el esquema
+  restaurado. Las muestras originales y las preferencias que contienen datos
+  o resultados derivados siguen fuera del contrato por privacidad. La importación M1 conserva además
   hasta cinco entradas de historial de ejecución cuando solo contienen estado,
   duración y filas; normaliza los estados reales `completed`/`failed` de
   sistema anterior y sus aliases, interpreta `rows_out` como filas de salida, asigna IDs
@@ -1895,6 +1899,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.103.0 persiste por proyecto la cobertura de filas de correlaciones (`10.000`, `50.000` o `100.000`), migra el catálogo SQLite a v9 y mantiene fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src/App.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.1 renombra el componente interno de vista previa a `DatasetPreviewPanel` para que el árbol activo no contenga coincidencias textuales con la marca retirada, sin alterar el contrato visible ni la funcionalidad. | `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-09-01 | Versión 0.106.0 persiste en SQLite v12 el formato de exportación, la protección de datos, las columnas clave de comparación y el tipo de JOIN; Rust valida listas cerradas, la reapertura filtra claves contra el snapshot restaurado y no se guardan muestras ni valores. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/delivery/DeliveryPhase.tsx`, `src/bridge.ts`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.2 corrige el orden global de `FULL JOIN` en consultas DuckDB source-backed: la preparación usa el conteo real del dataset activo aunque el esquema en memoria esté vacío, y una regresión ejecuta ambos snapshots Parquet sin materializar el activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.0 persiste por proyecto el perfil de rendimiento (`conservative`/`balanced`/`maximum`), migra el catálogo SQLite a v11, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores; la UI restaura el perfil y lo desvincula al cambiar de dataset. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/components/ResourceMonitor.tsx`, `src/features/projects/useProjectsController.ts`, `src/App.test.tsx`, `src/components/ResourceMonitor.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
