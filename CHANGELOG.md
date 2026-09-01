@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-09-01
+
+### Mejorado
+
+- La cobertura de filas usada por las correlaciones (`10.000`, `50.000` o
+  `100.000`) se guarda y restaura dentro del workspace durable de cada proyecto.
+- Los catálogos anteriores conservan compatibilidad: cuando no tienen esta
+  preferencia, Columnia usa el valor local seguro y lo incorpora al guardar.
+
+### Verificado
+
+- SQLite migra el catálogo a v9 y rechaza valores de cobertura fuera del
+  conjunto permitido sin sustituir el proyecto activo.
+- La reapertura desde el catálogo restaura la preferencia junto con la pestaña,
+  etapa y página visible de Revisar.
+
 ## [0.102.0] - 2026-09-01
 
 ### Mejorado

@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.102.0`.
+- Versión actual del prototipo: `0.103.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1053,7 +1053,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.102.0
+## 8.1. Cola de ejecución recomendada desde v0.103.0
 
 1. **Superficie de compatibilidad externa:** retirada en v0.90.0. El selector de
    recetas y el catálogo de proyectos exponen únicamente contratos nativos de
@@ -1578,10 +1578,11 @@ comparación no equivale a ejecución fuera de memoria general. La
   fallback a Revisar y validación cerrada; Revisar ahora comunica la cobertura
   agregada de muestreo importada desde sistema anterior, sin copiar filas, valores ni
   resultados originales. Revisar también recuerda localmente el motor SQL
-  elegido con validación cerrada y fallback a Polars. Las muestras originales y
-  otras preferencias de sesión siguen pendientes; la matriz de correlaciones ya
-  permite elegir una cobertura acotada de 10.000, 50.000 o 100.000 filas y
-  fuerza el recálculo si la caché no coincide. La importación M1 conserva además
+  elegido con validación cerrada y fallback a Polars. La cobertura elegida para
+  la matriz de correlaciones se persiste por proyecto con las opciones acotadas
+  de 10.000, 50.000 o 100.000 filas; los catálogos anteriores vuelven al valor
+  local seguro y fuerzan el recálculo si la caché no coincide. Las muestras
+  originales y otras preferencias de sesión siguen pendientes. La importación M1 conserva además
   hasta cinco entradas de historial de ejecución cuando solo contienen estado,
   duración y filas; normaliza los estados reales `completed`/`failed` de
   sistema anterior y sus aliases, interpreta `rows_out` como filas de salida, asigna IDs
@@ -1882,6 +1883,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.100.0 añade resúmenes source-backed por grupo en DuckDB para `sum`, `mean`, `min`, `max`, `count` y `count_unique`; conserva orden estable de primer grupo, claves nulas, límites de tipo y validaciones de finitud/precisión/overflow, publica un snapshot Parquet sin materializar el `DataFrame` activo y compara salida y contadores con eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.101.0 añade tratamientos IQR source-backed `cap`, `drop` e `impute` en DuckDB; calcula un baseline común posterior a filtros, conserva nulos y tipos cuando corresponde, valida mínimo de valores/precisión/finitud/umbrales y compara los tres modos y sus contadores con eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.102.0 añade fechas ISO source-backed sin offset o con sufijo UTC `Z` en DuckDB; conserva la conversión estricta y mantiene fallback eager para offsets no UTC o valores inválidos, con regresiones de paridad. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-09-01 | Versión 0.103.0 persiste por proyecto la cobertura de filas de correlaciones (`10.000`, `50.000` o `100.000`), migra el catálogo SQLite a v9 y mantiene fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src/App.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
 | 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
 | 2026-08-28 | CDP funcional de ProjectsPanel y perf gate aprobados: 3 ciclos sostenidos, 470.25 MiB working set, 253.48 MiB privados y cleanup; accesibilidad visual 125%/200% y forced-colors aprobada. | `.local/validation/webview2-cdp/20260828T185215Z/summary.json`, `.local/validation/accessibility-visual/20260828T185137Z` |

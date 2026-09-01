@@ -61,6 +61,7 @@ import {
   readAnalysisSampleRowsPreference,
   requestProfileCancellation,
   updateProfileProgress,
+  writeAnalysisSampleRowsPreference,
   type AnalysisSampleRows,
   type ProfileStatus,
 } from "./features/review/reviewModel";
@@ -207,6 +208,7 @@ export function App() {
       reviewTab,
       previewOffset: datasetStatus.kind === "ready" ? datasetStatus.pageOffset : 0,
       activePhase,
+      analysisSampleRows,
     },
     onActiveProjectDeleted: () => setSqlHistory([]),
     onProjectOpened: async ({ dataset, workspace, profile }) => {
@@ -236,6 +238,9 @@ export function App() {
       setRecipeSession((current) => current + 1);
       setReviewTab(workspace.reviewTab ?? "diagnosis");
       setActivePhase(workspace.activePhase ?? "review");
+      const sampleRows = workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference();
+      setAnalysisSampleRows(sampleRows);
+      writeAnalysisSampleRowsPreference(sampleRows);
     },
   });
   const deliveryDatasetFingerprint = datasetStatus.kind === "ready"

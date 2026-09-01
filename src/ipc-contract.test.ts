@@ -381,6 +381,11 @@ function normalizeTypescriptFieldType(
   const array = genericContents(compact, "Array");
   if (array !== null) return `array<${normalizeTypescriptFieldType(array, aliases, visited)}>`;
 
+  const numericLiteral = /^-?(?:\d[\d_]*(?:\.\d[\d_]*)?|\.\d[\d_]*)$/;
+  if (compact.includes("|") && compact.split("|").every((part) => numericLiteral.test(part.trim()))) {
+    return "number";
+  }
+
   const union = splitTopLevel(compact, "|").filter(Boolean);
   if (union.length > 1) {
     const nullable = union.some((part) => part === "null" || part === "undefined");
@@ -395,7 +400,7 @@ function normalizeTypescriptFieldType(
   }
 
   if (/^(["']).*\1$/.test(compact)) return "string";
-  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(compact)) return "number";
+  if (/^-?(?:\d[\d_]*(?:\.\d[\d_]*)?|\.\d[\d_]*)$/.test(compact)) return "number";
   return compact;
 }
 

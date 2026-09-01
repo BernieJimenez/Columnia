@@ -640,6 +640,7 @@ export interface ProjectWorkspace {
   reviewTab?: ProjectReviewTab;
   previewOffset?: number;
   activePhase?: ProjectActivePhase;
+  analysisSampleRows?: 10_000 | 50_000 | 100_000;
 }
 
 export type ProjectReviewTab = "diagnosis" | "preview";

@@ -1224,6 +1224,7 @@ pub fn project_save(
             review_tab: Default::default(),
             preview_offset: Default::default(),
             active_phase: Default::default(),
+            analysis_sample_rows: Default::default(),
         },
     )
     .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;

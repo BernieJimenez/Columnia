@@ -16,7 +16,7 @@ de rutas fuera del repositorio.
 | Comparación | Dataset secundario local, comparación por clave, consolidación segura y joins `INNER`/`LEFT`/`FULL` | Implementada | Ampliar análisis comparativo |
 | Visualizaciones | Completitud, outliers, patrones de nulos, formatos, grupos, calendario, tendencia temporal y correlaciones, con tablas equivalentes | Implementada | Ampliar interacciones |
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
-| Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes y reapertura segura | Implementada | Preferencias de workspace más amplias |
+| Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura y cobertura de correlaciones por proyecto | Implementada | Preferencias de workspace más amplias |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
 | Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, lectura por bloques, snapshots administrados, DuckDB opcional, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM |
 
@@ -94,7 +94,9 @@ Abrir un proyecto valida el perfil, las reglas, el esquema, el cursor y las
 revisiones antes de activar la sesión. El historial está limitado a doce
 revisiones y el registro SQL conserva solo estado, duración y filas afectadas.
 
-La interfaz no recibe rutas internas. Los selectores nativos, la canonicalización
+La interfaz no recibe rutas internas. La cobertura de correlaciones se conserva
+por proyecto con opciones cerradas de 10.000, 50.000 o 100.000 filas; los
+catálogos anteriores usan la preferencia local segura. Los selectores nativos, la canonicalización
 de archivos y la política de escritura atómica viven en la capa Rust.
 
 ## Verificación
