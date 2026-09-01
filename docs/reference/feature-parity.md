@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL, perfil de rendimiento, formato de exportación, protección, claves de comparación y tipo de JOIN por proyecto | Implementada | Muestras y resultados derivados no portables |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, apertura source-backed de JSON/JSONL/NDJSON/XLSX/XLSB grandes mediante snapshots Parquet privados por bloques, limpieza source-backed de filas vacías con historial reversible, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal y regex con grupos `$1`–`$9`/división calculada/división de texto/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, protección `mask`/`hash` mediante snapshot DuckDB, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/SQL/Excel/SQLite/Bundle source-backed, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
+| Escala | Lazy para recetas compatibles, apertura source-backed de JSON/JSONL/NDJSON/XLSX/XLSB grandes mediante snapshots Parquet privados por bloques, limpiezas source-backed de filas vacías, duplicados y columnas con historial reversible, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal y regex con grupos `$1`–`$9`/división calculada/división de texto/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, protección `mask`/`hash` mediante snapshot DuckDB, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/SQL/Excel/SQLite/Bundle source-backed, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
 
 ## Contrato de calidad
 
@@ -130,6 +130,14 @@ source-backed compatible: DuckDB filtra filas cuyos valores son nulos o texto
 en blanco, publica un snapshot Parquet y conserva `_cambios` con la etiqueta de
 la operación. El historial se inicializa copiando la fuente actual por disco,
 por lo que undo/redo sigue disponible sin llenar el `DataFrame` activo.
+
+Las acciones `remove_duplicates`, `remove_constant_columns`,
+`remove_empty_columns` y `remove_high_null_columns` comparten esa frontera:
+DuckDB conserva la primera aparición de cada fila, calcula conteos agregados de
+valores distintos y nulos, y publica solo el snapshot Parquet resultante. El
+orden, `_cambios`, el mínimo de una columna utilizable y el historial reversible
+se mantienen; si la fuente o el presupuesto no son compatibles, se conserva el
+fallback eager.
 
 ## Proyectos y almacenamiento
 

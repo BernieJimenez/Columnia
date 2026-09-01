@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.127.0] - 2026-09-01
+
+### Mejorado
+
+- `Eliminar filas duplicadas` y las limpiezas de columnas constantes,
+  completamente vacías o con alta nulidad ya pueden ejecutarse sobre datasets
+  source-backed mediante DuckDB, sin cargar todas las filas en el `DataFrame`
+  activo.
+- Las limpiezas publican snapshots Parquet privados, conservan el orden de
+  aparición, `_cambios` y el límite de una columna utilizable, con fallback
+  eager cuando la fuente o el presupuesto no son compatibles.
+
+### Verificado
+
+- La regresión cubre duplicados, las tres políticas de columnas, la etiqueta
+  acumulada de `_cambios`, snapshots legibles y undo del último cambio.
+
 ## [0.126.0] - 2026-09-01
 
 ### Mejorado

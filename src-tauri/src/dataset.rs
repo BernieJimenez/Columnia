@@ -7346,20 +7346,16 @@ fn remove_empty_rows_from_frame(frame: &DataFrame) -> Result<(DataFrame, usize),
     Ok((cleaned, affected_row_count))
 }
 
-fn source_backed_empty_row_projection(
-    schema: &DataFrame,
-    audit_label: &str,
-) -> Result<String, String> {
-    if schema.width() == 0 {
+fn source_backed_projection(columns: &[String], audit_label: &str) -> Result<String, String> {
+    if columns.is_empty() {
         return Err("La fuente source-backed no contiene columnas utilizables.".to_owned());
     }
     let audit_literal = duckdb_string_literal(audit_label);
-    let projection = schema
-        .get_column_names()
+    let projection = columns
         .iter()
         .map(|name| {
             let identifier = duckdb_identifier(name);
-            if name.as_str() == "_cambios" {
+            if name == "_cambios" {
                 format!(
                     "CASE WHEN {identifier} IS NULL OR TRIM(CAST({identifier} AS VARCHAR)) = '' THEN {audit_literal} ELSE LEFT(CAST({identifier} AS VARCHAR) || '; ' || {audit_literal}, {MAX_AUDIT_CELL_CHARS}) END AS {identifier}"
                 )
@@ -7369,6 +7365,18 @@ fn source_backed_empty_row_projection(
         })
         .collect::<Vec<_>>();
     Ok(projection.join(", "))
+}
+
+fn source_backed_empty_row_projection(
+    schema: &DataFrame,
+    audit_label: &str,
+) -> Result<String, String> {
+    let columns = schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    source_backed_projection(&columns, audit_label)
 }
 
 fn source_backed_empty_row_query(schema: &DataFrame) -> Result<String, String> {
@@ -7386,6 +7394,36 @@ fn source_backed_empty_row_query(schema: &DataFrame) -> Result<String, String> {
     Ok(format!(
         "SELECT * FROM dataset WHERE {}",
         conditions.join(" OR ")
+    ))
+}
+
+fn source_backed_duplicate_query(schema: &DataFrame, projection: &str) -> Result<String, String> {
+    if schema.width() == 0 {
+        return Err("La fuente source-backed no contiene columnas utilizables.".to_owned());
+    }
+    let columns = schema
+        .get_column_names()
+        .iter()
+        .map(|name| duckdb_identifier(name))
+        .collect::<Vec<_>>();
+    let schema_names = schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<Vec<_>>();
+    let mut order_name = "__columnia_row_order".to_owned();
+    while schema_names.iter().any(|name| *name == order_name) {
+        order_name.push('_');
+    }
+    let mut rank_name = "__columnia_duplicate_rank".to_owned();
+    while schema_names.iter().any(|name| *name == rank_name) || rank_name == order_name {
+        rank_name.push('_');
+    }
+    let order_column = duckdb_identifier(&order_name);
+    let rank_column = duckdb_identifier(&rank_name);
+    Ok(format!(
+        "SELECT {projection} FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY {} ORDER BY {order_column}) AS {rank_column} FROM (SELECT dataset.*, ROW_NUMBER() OVER () AS {order_column} FROM dataset) AS ordered) AS ranked WHERE {rank_column} = 1 ORDER BY {order_column}",
+        columns.join(", ")
     ))
 }
 
@@ -7440,33 +7478,31 @@ fn initialize_source_backed_history(
     Ok(dataset.history.snapshots_enabled)
 }
 
-fn remove_empty_rows_source_backed(
+fn publish_source_backed_query(
     dataset: &mut LoadedDataset,
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    query: &str,
+    label: &str,
 ) -> Result<Option<DatasetMutation>, String> {
-    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
-        return Ok(None);
-    };
     let original_source_path = dataset
         .source_path
         .clone()
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
     let (_, source_size_before, _) = validate_dataset_file(&original_source_path)?;
     if source_size_before != dataset.file_size_bytes {
-        return Err("El archivo source-backed cambió antes de eliminar filas vacías.".to_owned());
+        return Err("El archivo source-backed cambió antes de aplicar la limpieza.".to_owned());
     }
-    let projection =
-        source_backed_empty_row_projection(&dataset.frame, "Eliminar filas completamente vacías")?;
-    let query = source_backed_empty_row_query(&dataset.frame)?;
-    let query = query.replacen("SELECT *", &format!("SELECT {projection}"), 1);
+
     let temporary =
         tempfile::NamedTempFile::with_suffix_in(".parquet", dataset.history.directory.path())
             .map_err(|error| format!("No se pudo preparar la salida source-backed: {error}"))?;
     let output_path = temporary.path().to_owned();
     drop(temporary);
     if crate::duckdb_query::materialize_file_query_to_parquet(
-        &source_path,
+        source_path,
         source_format,
-        &query,
+        query,
         &output_path,
     )
     .is_err()
@@ -7474,8 +7510,9 @@ fn remove_empty_rows_source_backed(
         let _ = fs::remove_file(&output_path);
         return Ok(None);
     }
+
     let output_size = fs::metadata(&output_path)
-        .map_err(|error| format!("No se pudo verificar la limpieza source-backed: {error}"))?
+        .map_err(|error| format!("No se pudo verificar la salida source-backed: {error}"))?
         .len();
     let output_schema = read_parquet_schema_frame(&output_path)?;
     let output_row_count = crate::duckdb_query::count_file_rows(
@@ -7489,6 +7526,20 @@ fn remove_empty_rows_source_backed(
             "La limpieza source-backed aumentó inesperadamente el conteo de filas.".to_owned(),
         );
     }
+
+    let output_columns = output_schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<Vec<_>>();
+    let current_columns = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<Vec<_>>();
+    let schema_changed = output_columns != current_columns;
+    let affected_row_count = dataset.row_count.saturating_sub(output_row_count);
     let page = if output_row_count == 0 {
         output_schema.slice(0, 0)
     } else {
@@ -7500,37 +7551,29 @@ fn remove_empty_rows_source_backed(
     let (_, source_size_after, _) = validate_dataset_file(&original_source_path)?;
     if source_size_before != source_size_after {
         let _ = fs::remove_file(&output_path);
-        return Err(
-            "El archivo source-backed cambió durante la eliminación de filas vacías.".to_owned(),
-        );
+        return Err("El archivo source-backed cambió durante la limpieza.".to_owned());
     }
-    let affected_row_count = dataset.row_count.saturating_sub(output_row_count);
-    let preview = dataset_preview_from_schema_and_page(
-        &dataset.file_name,
-        if affected_row_count == 0 {
-            dataset.file_size_bytes
-        } else {
-            output_size
-        },
-        output_row_count,
-        &output_schema,
-        &page,
-    )?;
-    if affected_row_count == 0 {
+
+    if affected_row_count == 0 && !schema_changed {
         let _ = fs::remove_file(&output_path);
         return Ok(Some(DatasetMutation {
-            dataset: preview,
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
             affected_row_count: 0,
         }));
     }
 
-    if !initialize_source_backed_history(dataset, &source_path, source_format)? {
+    let preview = dataset_preview_from_schema_and_page(
+        &dataset.file_name,
+        output_size,
+        output_row_count,
+        &output_schema,
+        &page,
+    )?;
+    if !initialize_source_backed_history(dataset, source_path, source_format)? {
         let _ = fs::remove_file(&output_path);
         return Ok(None);
     }
-    dataset
-        .history
-        .record_parquet(&output_path, "Eliminar filas completamente vacías")?;
+    dataset.history.record_parquet(&output_path, label)?;
     if !dataset.history.snapshots_enabled {
         let _ = fs::remove_file(&output_path);
         return Ok(None);
@@ -7551,11 +7594,157 @@ fn remove_empty_rows_source_backed(
     dataset.frame = output_schema;
     dataset.source_backed = true;
     dataset.history.source_snapshot_path = None;
-    dataset.history.current_label = "Eliminar filas completamente vacías".to_owned();
+    dataset.history.current_label = label.to_owned();
     dataset.profile = None;
     Ok(Some(DatasetMutation {
         dataset: preview,
         affected_row_count,
+    }))
+}
+
+fn remove_empty_rows_source_backed(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<DatasetMutation>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let projection =
+        source_backed_empty_row_projection(&dataset.frame, "Eliminar filas completamente vacías")?;
+    let query = source_backed_empty_row_query(&dataset.frame)?;
+    let query = query.replacen("SELECT *", &format!("SELECT {projection}"), 1);
+    publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Eliminar filas completamente vacías",
+    )
+}
+
+#[derive(Clone, Copy)]
+enum SourceBackedColumnCleanup {
+    Constant,
+    Empty,
+    HighNull,
+}
+
+fn source_backed_removable_columns(
+    dataset: &LoadedDataset,
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    cleanup: SourceBackedColumnCleanup,
+) -> Result<Vec<String>, String> {
+    if dataset.row_count == 0 || dataset.frame.width() <= 1 {
+        return Ok(Vec::new());
+    }
+    let columns = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let null_counts =
+        crate::duckdb_query::count_file_nulls(source_path, source_format, &columns, || false)?;
+    let distinct_counts = if matches!(cleanup, SourceBackedColumnCleanup::Constant) {
+        Some(crate::duckdb_query::count_file_distinct_non_null(
+            source_path,
+            source_format,
+            &columns,
+            || false,
+        )?)
+    } else {
+        None
+    };
+    let mut candidates = columns
+        .iter()
+        .enumerate()
+        .filter_map(|(index, column)| {
+            if column == "_cambios" {
+                return None;
+            }
+            let null_count = null_counts[index];
+            let removable = match cleanup {
+                SourceBackedColumnCleanup::Constant => {
+                    distinct_counts.as_ref()?.get(index).copied()? <= 1
+                        && null_count < dataset.row_count
+                }
+                SourceBackedColumnCleanup::Empty => null_count == dataset.row_count,
+                SourceBackedColumnCleanup::HighNull => {
+                    null_count > 0
+                        && null_count < dataset.row_count
+                        && null_count.saturating_mul(100)
+                            >= dataset
+                                .row_count
+                                .saturating_mul(HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE)
+                }
+            };
+            removable.then(|| column.clone())
+        })
+        .collect::<Vec<_>>();
+    candidates.truncate(dataset.frame.width().saturating_sub(1));
+    Ok(candidates)
+}
+
+fn remove_duplicates_source_backed(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<DatasetMutation>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let projection =
+        source_backed_empty_row_projection(&dataset.frame, "Eliminar filas duplicadas")?;
+    let query = source_backed_duplicate_query(&dataset.frame, &projection)?;
+    publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Eliminar filas duplicadas",
+    )
+}
+
+fn remove_columns_source_backed(
+    dataset: &mut LoadedDataset,
+    cleanup: SourceBackedColumnCleanup,
+    label: &str,
+) -> Result<Option<ColumnRemovalResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let removed_columns =
+        match source_backed_removable_columns(dataset, &source_path, source_format, cleanup) {
+            Ok(columns) => columns,
+            Err(_) => return Ok(None),
+        };
+    if removed_columns.is_empty() {
+        return Ok(Some(ColumnRemovalResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            removed_column_count: 0,
+            removed_columns,
+        }));
+    }
+    let remaining_columns = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .filter(|name| {
+            !removed_columns
+                .iter()
+                .any(|removed| removed == name.as_str())
+        })
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let projection = source_backed_projection(&remaining_columns, label)?;
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) =
+        publish_source_backed_query(dataset, &source_path, source_format, &query, label)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(ColumnRemovalResult {
+        dataset: mutation.dataset,
+        removed_column_count: removed_columns.len(),
+        removed_columns,
     }))
 }
 
@@ -7578,6 +7767,7 @@ fn remove_constant_columns_from_frame(
     let candidates = frame
         .columns()
         .iter()
+        .filter(|column| column.name() != "_cambios")
         .filter_map(|column| {
             let null_count = column.null_count();
             let unique_count = column
@@ -7620,6 +7810,7 @@ fn remove_empty_columns_from_frame(frame: &DataFrame) -> Result<(DataFrame, Vec<
     let candidates = frame
         .columns()
         .iter()
+        .filter(|column| column.name() != "_cambios")
         .filter(|column| column.null_count() == frame.height())
         .map(|column| column.name().to_string())
         .collect::<Vec<_>>();
@@ -7658,6 +7849,7 @@ fn remove_high_null_columns_from_frame(
     let candidates = frame
         .columns()
         .iter()
+        .filter(|column| column.name() != "_cambios")
         .filter(|column| {
             let null_count = column.null_count();
             null_count > 0
@@ -20532,6 +20724,11 @@ pub async fn remove_duplicates(app: AppHandle) -> Result<DatasetMutation, String
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = remove_duplicates_source_backed(dataset)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_duplicate_rows(&dataset.frame)?;
 
@@ -20649,6 +20846,15 @@ pub async fn remove_constant_columns(app: AppHandle) -> Result<ColumnRemovalResu
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = remove_columns_source_backed(
+                dataset,
+                SourceBackedColumnCleanup::Constant,
+                "Eliminar columnas constantes",
+            )? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_constant_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
@@ -20677,6 +20883,15 @@ pub async fn remove_empty_columns(app: AppHandle) -> Result<ColumnRemovalResult,
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = remove_columns_source_backed(
+                dataset,
+                SourceBackedColumnCleanup::Empty,
+                "Eliminar columnas completamente vacías",
+            )? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_empty_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
@@ -20705,6 +20920,15 @@ pub async fn remove_high_null_columns(app: AppHandle) -> Result<ColumnRemovalRes
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = remove_columns_source_backed(
+                dataset,
+                SourceBackedColumnCleanup::HighNull,
+                "Eliminar columnas con alta nulidad",
+            )? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_high_null_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
@@ -29278,6 +29502,98 @@ mod tests {
         assert_eq!(redo.dataset.row_count, 2);
         assert!(!dataset.source_backed);
         assert_eq!(dataset.frame.height(), 2);
+    }
+
+    #[test]
+    fn source_backed_cleanups_remove_duplicates_and_columns_with_reversible_history() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("cleanup.json");
+        fs::write(
+            &source,
+            r#"[
+                {"id":1,"name":"Ana","constant":"same","empty":null,"sparse":"keep","_cambios":"base-1"},
+                {"id":1,"name":"Ana","constant":"same","empty":null,"sparse":"keep","_cambios":"base-1"},
+                {"id":2,"name":"Luis","constant":"same","empty":null,"sparse":null,"_cambios":"base-2"},
+                {"id":3,"name":"Marta","constant":"same","empty":null,"sparse":null,"_cambios":"base-3"},
+                {"id":4,"name":"Pablo","constant":"same","empty":null,"sparse":null,"_cambios":"base-4"},
+                {"id":5,"name":"Rosa","constant":"same","empty":null,"sparse":null,"_cambios":"base-5"}
+            ]"#,
+        )
+        .expect("se debe escribir el JSON de limpieza");
+        let source_snapshot = directory.path().join("source.parquet");
+        let (schema, _, row_count) = source_backed_json_load(&source, &source_snapshot, || false)
+            .expect("el JSON debe abrirse mediante snapshot");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        history.source_snapshot_path = Some(source_snapshot);
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "cleanup.json".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let duplicates = remove_duplicates_source_backed(&mut dataset)
+            .expect("los duplicados source-backed deben procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(duplicates.affected_row_count, 1);
+        assert_eq!(duplicates.dataset.row_count, 5);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+
+        let high_null = remove_columns_source_backed(
+            &mut dataset,
+            SourceBackedColumnCleanup::HighNull,
+            "Eliminar columnas con alta nulidad",
+        )
+        .expect("las columnas con alta nulidad deben procesarse")
+        .expect("la fuente debe ser compatible");
+        assert_eq!(high_null.removed_columns, vec!["sparse"]);
+
+        let constants = remove_columns_source_backed(
+            &mut dataset,
+            SourceBackedColumnCleanup::Constant,
+            "Eliminar columnas constantes",
+        )
+        .expect("las columnas constantes deben procesarse")
+        .expect("la fuente debe ser compatible");
+        assert_eq!(constants.removed_columns, vec!["constant"]);
+
+        let empty = remove_columns_source_backed(
+            &mut dataset,
+            SourceBackedColumnCleanup::Empty,
+            "Eliminar columnas completamente vacías",
+        )
+        .expect("las columnas vacías deben procesarse")
+        .expect("la fuente debe ser compatible");
+        assert_eq!(empty.removed_columns, vec!["empty"]);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la limpieza debe conservar el snapshot actual")
+            .to_owned();
+        let current =
+            read_parquet_frame(&current_path).expect("el snapshot final debe ser legible");
+        assert_eq!(current.get_column_names(), &["id", "name", "_cambios"]);
+        assert_eq!(current.height(), 5);
+        assert_eq!(
+            current.column("_cambios").unwrap().str().unwrap().get(0),
+            Some("base-1; Eliminar filas duplicadas; Eliminar columnas con alta nulidad; Eliminar columnas constantes; Eliminar columnas completamente vacías")
+        );
+        assert!(dataset.history.state().can_undo);
+
+        let undo = undo_dataset(&mut dataset).expect("la última limpieza debe poder deshacerse");
+        assert_eq!(undo.dataset.row_count, 5);
+        assert!(!dataset.source_backed);
+        assert!(dataset
+            .frame
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "empty"));
     }
 
     #[test]

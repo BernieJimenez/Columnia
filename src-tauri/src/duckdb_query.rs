@@ -519,6 +519,43 @@ where
     })
 }
 
+pub(crate) fn count_file_distinct_non_null<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[String],
+    is_cancelled: C,
+) -> Result<Vec<usize>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario de valores source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        columns
+            .iter()
+            .map(|column| {
+                let identifier = quote_identifier(column);
+                let query = format!("SELECT COUNT(DISTINCT {identifier}) FROM dataset");
+                let count: i64 = connection
+                    .query_row(&query, [], |row| row.get(0))
+                    .map_err(|error| {
+                        format!(
+                            "DuckDB no pudo contar los valores distintos de la columna {column}: {error}"
+                        )
+                    })?;
+                usize::try_from(count).map_err(|_| {
+                    format!(
+                        "El conteo de valores distintos de la columna {column} excede la capacidad local."
+                    )
+                })
+            })
+            .collect()
+    })
+}
+
 pub(crate) fn stream_file_rows<C, F>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

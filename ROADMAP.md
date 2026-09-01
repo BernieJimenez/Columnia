@@ -15,8 +15,11 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.126.0`.
+  I3/I5 conservan validaciones externas de plataforma. En v0.127.0, las
+  limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
+  también tienen ejecución source-backed con DuckDB, snapshots Parquet
+  reversibles y fallback eager seguro.
+- Versión actual del prototipo: `0.127.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1971,6 +1974,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.127.0 ejecuta duplicados y limpiezas de columnas constantes, vacías o con alta nulidad sobre fuentes source-backed con DuckDB; conserva orden, `_cambios`, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.126.0 ejecuta la eliminación de filas completamente vacías sobre fuentes source-backed con DuckDB, conserva `_cambios`, activa historial reversible por Parquet y mantiene fallback eager si el presupuesto de disco no alcanza. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.125.0 abre `JSON`, `JSONL` y `NDJSON` grandes mediante snapshots Parquet privados de DuckDB; conserva esquema, preview y conteo sin materializar el frame activo, valida cancelación e integridad de la fuente y reutiliza el snapshot en recetas source-backed. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.124.0 extiende los filtros temporales a `Eq`/`Neq` sobre `Date` y `Datetime`; eager, Polars lazy y DuckDB source-backed usan literales ISO 8601 y la regresión cubre unidad temporal, paridad y snapshot. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
