@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed pueden extraer año, mes y día después de un
+  parseo de fecha fijo (`YMD`, `DMY` o `MDY`) directamente en DuckDB.
+- La ruta valida que la fuente sea una fecha compatible, conserve la
+  dependencia en `keepColumns` y mantenga el fallback materializado para
+  filtros, conversiones conflictivas o fechas no representables.
+
+### Verificado
+
+- Una regresión compara año, mes y día source-backed con la ruta eager y
+  confirma que el resultado publicado mantiene el snapshot Parquet privado.
+
 ## [0.93.0] - 2026-08-31
 
 ### Mejorado

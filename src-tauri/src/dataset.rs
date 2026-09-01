@@ -22895,7 +22895,7 @@ fn apply_recipe_to_frame(
     apply_eager_recipe_to_frame(source, recipe)
 }
 
-fn source_backed_projection_recipe_supported(recipe: &TransformRecipe) -> bool {
+fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &TransformRecipe) -> bool {
     (!recipe.renames.is_empty()
         || recipe.keep_columns.is_some()
         || !recipe.filters.is_empty()
@@ -22906,15 +22906,34 @@ fn source_backed_projection_recipe_supported(recipe: &TransformRecipe) -> bool {
             .date_parses
             .iter()
             .all(|parse| !matches!(parse.format, RecipeDateFormat::Iso8601))
-        && recipe.calculated_column.as_ref().is_none_or(|calculation| {
-            matches!(
-                calculation.operation,
+        && recipe
+            .calculated_column
+            .as_ref()
+            .is_none_or(|calculation| match calculation.operation {
                 CalculatedOperation::Add
-                    | CalculatedOperation::Subtract
-                    | CalculatedOperation::Multiply
-                    | CalculatedOperation::Concat
-            )
-        })
+                | CalculatedOperation::Subtract
+                | CalculatedOperation::Multiply
+                | CalculatedOperation::Concat => true,
+                CalculatedOperation::Year
+                | CalculatedOperation::Month
+                | CalculatedOperation::Day => {
+                    recipe.filters.is_empty()
+                        && recipe
+                            .casts
+                            .iter()
+                            .all(|cast| cast.column != calculation.source)
+                        && (recipe_column(schema, &calculation.source).is_ok_and(|column| {
+                            matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None))
+                        }) || recipe.date_parses.iter().any(|parse| {
+                            parse.column == calculation.source
+                                && matches!(
+                                    parse.target,
+                                    RecipeDateTarget::Date | RecipeDateTarget::Datetime
+                                )
+                        }))
+                }
+                CalculatedOperation::Divide => false,
+            })
         && recipe.find_replace.is_none()
         && recipe.split_column.is_none()
         && recipe.merge_columns.is_none()
@@ -23095,16 +23114,38 @@ fn source_backed_projection_plan(
                 calculation.name
             ));
         }
+        let source_column = recipe_column(schema, &calculation.source)?;
         let unary = matches!(
             calculation.operation,
             CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day
         );
         if unary {
-            return Err(
-                "Las partes de fecha calculadas requieren materializar la fuente.".to_owned(),
-            );
+            if calculation.operand.is_some() {
+                return Err("year, month y day no aceptan operando.".to_owned());
+            }
+            let source_name = rename_map
+                .get(&calculation.source)
+                .cloned()
+                .unwrap_or_else(|| calculation.source.clone());
+            let source_is_date = matches!(
+                source_column.dtype(),
+                DataType::Date | DataType::Datetime(_, None)
+            ) || date_columns.contains(&source_name);
+            if !source_is_date {
+                return Err(format!(
+                    "La columna '{}' debe ser date o datetime para extraer componentes.",
+                    calculation.source
+                ));
+            }
+            if cast_columns.contains(&source_name) {
+                return Err(format!(
+                    "La columna '{}' no puede convertirse y usarse como fecha en la misma receta.",
+                    calculation.source
+                ));
+            }
+        } else if calculation.operand.is_none() {
+            return Err("La operación calculada requiere un operando.".to_owned());
         }
-        let source_column = recipe_column(schema, &calculation.source)?;
         if matches!(
             calculation.operation,
             CalculatedOperation::Add
@@ -23157,7 +23198,7 @@ fn source_backed_projection_plan(
                 }
                 _ => {}
             }
-        } else {
+        } else if !unary {
             return Err("La operación calculada requiere un operando.".to_owned());
         }
         1
@@ -23335,12 +23376,12 @@ fn duckdb_calculation_expression(
         .map(String::as_str)
         .unwrap_or(calculation.source.as_str());
     let source = format!("CAST(t.{} AS DOUBLE)", duckdb_identifier(source_name));
-    let operand = calculation
-        .operand
-        .as_ref()
-        .ok_or_else(|| "La operación calculada requiere un operando.".to_owned())?;
     match calculation.operation {
         CalculatedOperation::Concat => {
+            let operand = calculation
+                .operand
+                .as_ref()
+                .ok_or_else(|| "La operación calculada requiere un operando.".to_owned())?;
             let source = format!("CAST(t.{} AS VARCHAR)", duckdb_identifier(source_name));
             let operand = match operand.kind {
                 CalculatedOperandKind::Literal => duckdb_string_literal(&operand.value),
@@ -23357,6 +23398,10 @@ fn duckdb_calculation_expression(
         CalculatedOperation::Add
         | CalculatedOperation::Subtract
         | CalculatedOperation::Multiply => {
+            let operand = calculation
+                .operand
+                .as_ref()
+                .ok_or_else(|| "La operación calculada requiere un operando.".to_owned())?;
             let operand = match operand.kind {
                 CalculatedOperandKind::Literal => {
                     strict_f64(&operand.value, "El operando numérico")?.to_string()
@@ -23381,9 +23426,18 @@ fn duckdb_calculation_expression(
             "La división calculada requiere materializar la fuente para validar división por cero."
                 .to_owned(),
         ),
-        CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day => {
-            Err("Las partes de fecha calculadas requieren materializar la fuente.".to_owned())
-        }
+        CalculatedOperation::Year => Ok(format!(
+            "CAST(year(t.{}) AS INTEGER)",
+            duckdb_identifier(source_name)
+        )),
+        CalculatedOperation::Month => Ok(format!(
+            "CAST(month(t.{}) AS INTEGER)",
+            duckdb_identifier(source_name)
+        )),
+        CalculatedOperation::Day => Ok(format!(
+            "CAST(day(t.{}) AS INTEGER)",
+            duckdb_identifier(source_name)
+        )),
     }
 }
 
@@ -24807,7 +24861,7 @@ fn apply_recipe_to_dataset(
     recipe: &TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
     validate_recipe_structure(recipe)?;
-    if dataset.source_backed && source_backed_projection_recipe_supported(recipe) {
+    if dataset.source_backed && source_backed_projection_recipe_supported(&dataset.frame, recipe) {
         return apply_source_backed_projection_recipe(dataset, recipe);
     }
     materialize_loaded_dataset(dataset)?;
@@ -25435,6 +25489,68 @@ mod tests {
         assert!(output.equals_missing(&expected));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
+        for (operation, name, expected_value) in [
+            (CalculatedOperation::Year, "year", "2024"),
+            (CalculatedOperation::Month, "month", "1"),
+            (CalculatedOperation::Day, "day", "2"),
+        ] {
+            let path = temporary_csv("when\n2024-01-02\n");
+            let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+            let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+                .expect("la fuente debe inspeccionarse en disco");
+            let history =
+                HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+            let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+            let mut dataset = LoadedDataset {
+                source_path: Some(path.clone()),
+                file_name: "dataset.csv".to_owned(),
+                file_size_bytes,
+                row_count,
+                frame: schema,
+                source_backed: true,
+                profile: None,
+                history,
+            };
+            let recipe = TransformRecipe {
+                date_parses: vec![RecipeDateParse {
+                    column: "when".to_owned(),
+                    format: RecipeDateFormat::Ymd,
+                    target: RecipeDateTarget::Date,
+                }],
+                calculated_column: Some(CalculatedColumnRecipe {
+                    name: name.to_owned(),
+                    source: "when".to_owned(),
+                    operation,
+                    operand: None,
+                }),
+                ..TransformRecipe::default()
+            };
+            let expected = apply_recipe_to_frame(&source_frame, &recipe)
+                .expect("la receta eager debe ser válida")
+                .0;
+
+            let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+                .expect("la receta source-backed debe publicar partes de fecha");
+
+            assert!(dataset.source_backed);
+            assert_eq!(result.parsed_date_column_count, 1);
+            assert_eq!(result.calculated_column_count, 1);
+            assert_eq!(dataset.frame.get_column_names(), ["when", name]);
+            let output_path = dataset
+                .source_path
+                .as_deref()
+                .expect("el resultado debe conservar una fuente Parquet");
+            let output =
+                read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+            assert!(output.equals_missing(&expected));
+            assert_eq!(result.dataset.rows[0][1].as_deref(), Some(expected_value));
+
+            fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+        }
     }
 
     #[test]

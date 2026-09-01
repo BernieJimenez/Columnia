@@ -10,7 +10,7 @@ Ejecuta el flujo desde un árbol limpio y conserva la evidencia generada:
 
 ```powershell
 $env:COLUMNIA_UPDATER_ENDPOINT = "https://updates.example/columnia.json"
-$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.93.0/"
+$env:COLUMNIA_UPDATER_ASSET_BASE_URL = "https://downloads.example/columnia/0.94.0/"
 $env:TAURI_SIGNING_PRIVATE_KEY = "C:\ruta-privada\columnia-updater.key"
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
 npm run release:updater:dry-run
@@ -26,7 +26,7 @@ Después de subir el manifiesto y el instalador, vuelve a descargarlos desde el
 canal real:
 
 ```powershell
-npm run updater:verify-published -- --manifest-url https://updates.example/columnia.json --output-dir .local/validation/published-assets/20260828T000000Z --target windows-x86_64 --expected-version 0.93.0
+npm run updater:verify-published -- --manifest-url https://updates.example/columnia.json --output-dir .local/validation/published-assets/20260828T000000Z --target windows-x86_64 --expected-version 0.94.0
 ```
 
 La verificación exige HTTPS, descarga el manifiesto y el instalador, valida
