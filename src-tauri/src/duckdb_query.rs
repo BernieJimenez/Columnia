@@ -239,6 +239,24 @@ pub(crate) fn materialize_file_query_to_parquet(
         .map_err(|error| format!("DuckDB no pudo publicar la receta source-backed: {error}"))
 }
 
+pub(crate) fn query_file_scalar(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    query: &str,
+) -> Result<i64, String> {
+    let connection = Connection::open_in_memory().map_err(|error| {
+        format!("No se pudo iniciar DuckDB para el conteo source-backed: {error}")
+    })?;
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el espacio temporal para el conteo source-backed: {error}")
+    })?;
+    configure_duckdb_resources(&connection, resource_directory.path())?;
+    register_file_view(&connection, "dataset", source_path, source_format, None)?;
+    connection
+        .query_row(query, [], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("DuckDB no pudo contar los cambios source-backed: {error}"))
+}
+
 fn execute_duckdb_query_with_source<C>(
     current: DatasetSource<'_>,
     compared: Option<DatasetSource<'_>>,

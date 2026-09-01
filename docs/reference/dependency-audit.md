@@ -1,6 +1,6 @@
 # Inventario local de dependencias y auditorías
 
-Snapshot técnico actualizado el **2026-08-31** sobre `0.94.0`, rama `master`. Este archivo
+Snapshot técnico actualizado el **2026-08-31** sobre `0.95.0`, rama `master`. Este archivo
 es una lista local reproducible, no una aprobación permanente de actualizar a
 la última versión. Antes de cambiar una dependencia, ejecuta los comandos de la
 tabla y registra el resultado en el mismo cambio.

@@ -53,13 +53,14 @@ identificadores opacos y resultados agregados.
 Las operaciones compatibles con el plan lazy se ejecutan sobre fuentes y
 snapshots sin clonar innecesariamente el dataset completo. Las recetas
 source-backed que combinan selección/renombrado con hasta tres filtros, casts,
-fechas fijas (`YMD`, `DMY`, `MDY`), partes de fecha (`Year`, `Month`, `Day`) y
-cálculos simples (`Add`, `Subtract`, `Multiply`, `Concat`) también se ejecutan
-directamente sobre la fuente mediante DuckDB y publican un snapshot Parquet
-privado, conservando conteo, orden y nulos. Las divisiones, fechas ISO, partes
-de fecha con filtros previos y combinaciones no seguras usan un fallback eager
-atómico y mantienen la recuperación del dataset anterior ante errores o
-cancelación.
+fechas fijas (`YMD`, `DMY`, `MDY`), partes de fecha (`Year`, `Month`, `Day`),
+reemplazo literal y cálculos simples (`Add`, `Subtract`, `Multiply`, `Concat`)
+también se ejecutan directamente sobre la fuente mediante DuckDB y publican un
+snapshot Parquet privado, conservando conteo, orden y nulos. El reemplazo se
+aplica después de los filtros y publica su conteo exacto de celdas modificadas.
+Las divisiones, fechas ISO, partes de fecha con filtros previos, expresiones
+regulares y combinaciones no seguras usan un fallback eager atómico y mantienen
+la recuperación del dataset anterior ante errores o cancelación.
 
 ## Proyectos y almacenamiento
 

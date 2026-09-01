@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed ejecutan búsqueda y reemplazo literal sobre la
+  fuente mediante DuckDB después de aplicar filtros y antes de proyectar o
+  calcular columnas.
+- La ruta conserva renombrados, `keepColumns`, nulos y columnas convertidas a
+  texto, y obtiene el conteo exacto de celdas modificadas con una consulta
+  acotada adicional.
+
+### Verificado
+
+- Una regresión compara filtro, renombrado y reemplazo contra la receta eager,
+  incluyendo un literal con apóstrofe y el orden de las operaciones.
+- Las expresiones regulares y los literales con caracteres no válidos mantienen
+  el fallback existente para no cambiar su semántica.
+
 ## [0.94.0] - 2026-08-31
 
 ### Mejorado
