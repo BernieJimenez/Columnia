@@ -22902,7 +22902,8 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
         || !recipe.casts.is_empty()
         || !recipe.date_parses.is_empty()
         || recipe.calculated_column.is_some()
-        || recipe.find_replace.is_some())
+        || recipe.find_replace.is_some()
+        || recipe.merge_columns.is_some())
         && recipe
             .date_parses
             .iter()
@@ -22940,8 +22941,11 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
                 && !replacement.find.contains('\0')
                 && !replacement.replace.contains('\0')
         })
+        && recipe
+            .merge_columns
+            .as_ref()
+            .is_none_or(|merge| !merge.name.contains('\0') && !merge.separator.contains('\0'))
         && recipe.split_column.is_none()
-        && recipe.merge_columns.is_none()
         && recipe.outlier_treatments.is_empty()
         && recipe.group_summary.is_none()
         && recipe.contact_normalizations.is_empty()
@@ -22957,8 +22961,16 @@ struct SourceBackedProjectionPlan {
     parsed_date_column_count: usize,
     calculated_column_count: usize,
     replacement_columns: Vec<String>,
+    merge_columns: Option<SourceBackedMergePlan>,
     dropped_column_count: usize,
     kept_order_changed: bool,
+}
+
+struct SourceBackedMergePlan {
+    sources: Vec<String>,
+    name: String,
+    separator: String,
+    drop_sources: bool,
 }
 
 fn source_backed_projection_plan(
@@ -23212,24 +23224,25 @@ fn source_backed_projection_plan(
         0
     };
 
+    let text_after_cast = |source_name: &str, source_column: &Column| {
+        recipe
+            .casts
+            .iter()
+            .find(|cast| {
+                rename_map
+                    .get(&cast.column)
+                    .map(String::as_str)
+                    .unwrap_or(cast.column.as_str())
+                    == source_name
+            })
+            .map(|cast| cast.target == RecipeCastTarget::String)
+            .unwrap_or(source_column.dtype() == &DataType::String)
+    };
+
     let replacement_columns = if let Some(replacement) = &recipe.find_replace {
         if replacement.find.is_empty() {
             return Err("El texto buscado no puede estar vacío.".to_owned());
         }
-        let text_after_cast = |source_name: &str, source_column: &Column| {
-            recipe
-                .casts
-                .iter()
-                .find(|cast| {
-                    rename_map
-                        .get(&cast.column)
-                        .map(String::as_str)
-                        .unwrap_or(cast.column.as_str())
-                        == source_name
-                })
-                .map(|cast| cast.target == RecipeCastTarget::String)
-                .unwrap_or(source_column.dtype() == &DataType::String)
-        };
         match replacement.scope {
             FindReplaceScope::Column => {
                 let column = replacement
@@ -23276,6 +23289,66 @@ fn source_backed_projection_plan(
         }
     } else {
         Vec::new()
+    };
+
+    let merge_columns = if let Some(merge) = &recipe.merge_columns {
+        if !(2..=16).contains(&merge.sources.len()) {
+            return Err("La unión requiere entre 2 y 16 columnas fuente.".into());
+        }
+        if merge.name.trim().is_empty() || merge.name != merge.name.trim() {
+            return Err(
+                "El nombre de la columna unida no puede estar vacío ni tener espacios exteriores."
+                    .into(),
+            );
+        }
+        if output_columns.iter().any(|name| name == &merge.name) {
+            return Err(format!("La columna unida '{}' ya existe.", merge.name));
+        }
+        if recipe
+            .calculated_column
+            .as_ref()
+            .is_some_and(|calculation| calculation.name == merge.name)
+        {
+            return Err(format!("La columna unida '{}' ya existe.", merge.name));
+        }
+        let mut unique_sources = HashSet::new();
+        let sources = merge
+            .sources
+            .iter()
+            .map(|source_name| {
+                if !unique_sources.insert(source_name) {
+                    return Err(format!(
+                        "La columna fuente '{source_name}' está duplicada."
+                    ));
+                }
+                let source_column = recipe_column(schema, source_name)?;
+                let effective_name = rename_map
+                    .get(source_name)
+                    .cloned()
+                    .unwrap_or_else(|| source_name.clone());
+                if recipe.keep_columns.is_some()
+                    && !selected_columns.iter().any(|name| name == &effective_name)
+                {
+                    return Err(format!(
+                        "La columna '{effective_name}' requerida por merge fue descartada por keepColumns."
+                    ));
+                }
+                if !text_after_cast(&effective_name, source_column) {
+                    return Err(format!(
+                        "La columna '{effective_name}' debe ser de texto para unirse."
+                    ));
+                }
+                Ok(effective_name)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Some(SourceBackedMergePlan {
+            sources,
+            name: merge.name.clone(),
+            separator: merge.separator.clone(),
+            drop_sources: merge.drop_sources,
+        })
+    } else {
+        None
     };
 
     for filter in &recipe.filters {
@@ -23349,6 +23422,7 @@ fn source_backed_projection_plan(
         parsed_date_column_count,
         calculated_column_count,
         replacement_columns,
+        merge_columns,
         dropped_column_count,
         kept_order_changed,
     })
@@ -23658,29 +23732,74 @@ fn source_backed_projection_query(
             filtered_source
         )
     };
-    let result_source = if plan.replacement_columns.is_empty() {
+    let mut result_source = if plan.replacement_columns.is_empty() {
         filtered_source
     } else {
         "replaced"
     };
-    let mut selected = plan
-        .selected_columns
+    let calculation_cte = if let Some(calculation) = &recipe.calculated_column {
+        result_source = "calculated";
+        format!(
+            ", calculated AS (SELECT *, {} AS {} FROM {} AS t)",
+            duckdb_calculation_expression(calculation, &rename_map)?,
+            duckdb_identifier(&calculation.name),
+            if plan.replacement_columns.is_empty() {
+                filtered_source
+            } else {
+                "replaced"
+            }
+        )
+    } else {
+        String::new()
+    };
+    let merge_cte = if let Some(merge) = &plan.merge_columns {
+        let source_expressions = merge
+            .sources
+            .iter()
+            .map(|column| format!("CAST(t.{} AS VARCHAR)", duckdb_identifier(column)))
+            .collect::<Vec<_>>();
+        let any_source_present = source_expressions
+            .iter()
+            .map(|expression| format!("{expression} IS NOT NULL"))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let joined = format!(
+            "concat_ws({}, {})",
+            duckdb_string_literal(&merge.separator),
+            source_expressions.join(", ")
+        );
+        let merge_expression = format!(
+            "CASE WHEN {any_source_present} THEN {joined} ELSE NULL END AS {}",
+            duckdb_identifier(&merge.name)
+        );
+        let source = result_source;
+        result_source = "merged";
+        format!(", merged AS (SELECT *, {merge_expression} FROM {source} AS t)")
+    } else {
+        String::new()
+    };
+    let mut output_columns = plan.selected_columns.clone();
+    if let Some(calculation) = &recipe.calculated_column {
+        output_columns.push(calculation.name.clone());
+    }
+    if let Some(merge) = &plan.merge_columns {
+        if merge.drop_sources {
+            output_columns.retain(|column| !merge.sources.iter().any(|source| source == column));
+        }
+        output_columns.push(merge.name.clone());
+    }
+    let selected = output_columns
         .iter()
         .map(|column| format!("t.{}", duckdb_identifier(column)))
         .collect::<Vec<_>>();
-    if let Some(calculation) = &recipe.calculated_column {
-        selected.push(format!(
-            "{} AS {}",
-            duckdb_calculation_expression(calculation, &rename_map)?,
-            duckdb_identifier(&calculation.name)
-        ));
-    }
     let output = format!(
-        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{} SELECT {} FROM {} AS t",
+        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{} SELECT {} FROM {} AS t",
         renamed_expressions.join(", "),
         transformed_expressions.join(", "),
         filter_cte,
         replacement_cte,
+        calculation_cte,
+        merge_cte,
         selected.join(", "),
         result_source
     );
@@ -23751,6 +23870,10 @@ fn apply_source_backed_projection_recipe(
         + plan.converted_column_count
         + plan.parsed_date_column_count
         + plan.calculated_column_count
+        + usize::from(plan.merge_columns.is_some())
+        + plan.merge_columns.as_ref().map_or(0, |merge| {
+            usize::from(merge.drop_sources) * merge.sources.len()
+        })
         + plan.dropped_column_count
         + usize::from(plan.kept_order_changed)
         > 0;
@@ -23783,8 +23906,10 @@ fn apply_source_backed_projection_recipe(
             replaced_cell_count: 0,
             dropped_column_count: plan.dropped_column_count,
             split_column_count: 0,
-            merged_column_count: 0,
-            dropped_source_column_count: 0,
+            merged_column_count: plan.merge_columns.as_ref().map_or(0, |_| 1),
+            dropped_source_column_count: plan.merge_columns.as_ref().map_or(0, |merge| {
+                usize::from(merge.drop_sources) * merge.sources.len()
+            }),
             adjusted_outlier_cell_count: 0,
             outlier_removed_row_count: 0,
             outlier_column_count: 0,
@@ -23920,8 +24045,10 @@ fn apply_source_backed_projection_recipe(
         replaced_cell_count,
         dropped_column_count: plan.dropped_column_count,
         split_column_count: 0,
-        merged_column_count: 0,
-        dropped_source_column_count: 0,
+        merged_column_count: plan.merge_columns.as_ref().map_or(0, |_| 1),
+        dropped_source_column_count: plan.merge_columns.as_ref().map_or(0, |merge| {
+            usize::from(merge.drop_sources) * merge.sources.len()
+        }),
         adjusted_outlier_cell_count: 0,
         outlier_removed_row_count: 0,
         outlier_column_count: 0,
@@ -25778,6 +25905,101 @@ mod tests {
         assert_eq!(result.dataset.rows[0][0].as_deref(), Some("Xmar"));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_merge_matches_eager_order_nulls_empty_strings_and_casts() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("source.parquet");
+        let source_frame = DataFrame::new(
+            3,
+            vec![
+                Series::new("first".into(), [Some("A"), None, None]).into_column(),
+                Series::new("second".into(), [Some(""), Some("B"), None]).into_column(),
+                Series::new("number".into(), [Some(12_i64), Some(34), Some(56)]).into_column(),
+                Series::new("tag".into(), ["x", "y", "z"]).into_column(),
+            ],
+        )
+        .expect("el frame Parquet debe ser válido");
+        let mut parquet_frame = source_frame.clone();
+        let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
+        ParquetWriter::new(&mut file)
+            .finish(&mut parquet_frame)
+            .expect("se debe escribir el Parquet temporal");
+        let schema = read_parquet_schema_frame(&path).expect("se debe leer el esquema Parquet");
+        let row_count = source_frame.height();
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "number".to_owned(),
+                to: "count".to_owned(),
+            }],
+            casts: vec![RecipeCast {
+                column: "number".to_owned(),
+                target: RecipeCastTarget::String,
+            }],
+            keep_columns: Some(vec![
+                "tag".to_owned(),
+                "first".to_owned(),
+                "second".to_owned(),
+                "number".to_owned(),
+            ]),
+            merge_columns: Some(MergeColumnsRecipe {
+                sources: vec!["first".to_owned(), "second".to_owned(), "number".to_owned()],
+                name: "joined".to_owned(),
+                separator: "|".to_owned(),
+                drop_sources: true,
+            }),
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta source-backed debe publicar la unión");
+
+        assert!(dataset.source_backed);
+        assert_eq!(
+            (
+                result.renamed_column_count,
+                result.converted_column_count,
+                result.merged_column_count,
+                result.dropped_source_column_count
+            ),
+            (1, 1, 1, 3)
+        );
+        assert_eq!(dataset.frame.get_column_names(), ["tag", "joined"]);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(
+            result
+                .dataset
+                .rows
+                .iter()
+                .map(|row| row[1].clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("A||12".to_owned()),
+                Some("B|34".to_owned()),
+                Some("56".to_owned()),
+            ]
+        );
     }
 
     #[test]

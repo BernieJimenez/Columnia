@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed pueden unir entre dos y dieciséis columnas de
+  texto directamente en DuckDB, después de filtros, casts y reemplazos
+  compatibles, y publican el resultado en un snapshot Parquet privado.
+- La unión conserva el orden de las fuentes, nulos, cadenas vacías, separador,
+  renombrados, `keepColumns` y el conteo de columnas eliminadas por
+  `dropSources`.
+
+### Verificado
+
+- Una regresión compara la unión source-backed con la ruta eager usando una
+  fuente Parquet con valores nulos, cadenas vacías y una columna numérica
+  convertida a texto.
+
 ## [0.95.0] - 2026-08-31
 
 ### Mejorado
