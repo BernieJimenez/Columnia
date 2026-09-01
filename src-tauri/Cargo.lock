@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "columnia"
-version = "0.114.0"
+version = "0.115.0"
 dependencies = [
  "calamine",
  "chrono",

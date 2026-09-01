@@ -486,6 +486,66 @@ where
     })
 }
 
+pub(crate) fn stream_file_rows<C, F>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    mut on_row: F,
+    is_cancelled: C,
+) -> Result<Vec<DatasetColumn>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+    F: FnMut(&[Option<String>]) -> Result<(), String>,
+{
+    execute_duckdb_operation_with_cancel_state(is_cancelled, |connection, cancelled| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!(
+                "No se pudo preparar el espacio temporal para transmitir el dataset source-backed: {error}"
+            )
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let mut statement = connection
+            .prepare("SELECT * FROM dataset")
+            .map_err(|error| {
+                format!("DuckDB no pudo preparar la transmisión source-backed: {error}")
+            })?;
+        let mut rows = statement.query([]).map_err(|error| {
+            format!("DuckDB no pudo iniciar la transmisión source-backed: {error}")
+        })?;
+        let result_statement = rows
+            .as_ref()
+            .ok_or_else(|| "DuckDB no devolvió metadatos del dataset source-backed.".to_owned())?;
+        let columns = result_statement
+            .column_names()
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| DatasetColumn {
+                name,
+                data_type: format!("{:?}", result_statement.column_type(index)),
+            })
+            .collect::<Vec<_>>();
+        while let Some(row) = rows
+            .next()
+            .map_err(|error| format!("DuckDB no pudo transmitir una fila source-backed: {error}"))?
+        {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+            let values = (0..columns.len())
+                .map(|index| {
+                    row.get_ref(index)
+                        .map_err(|error| {
+                            format!("DuckDB no pudo leer una celda source-backed: {error}")
+                        })
+                        .and_then(value_to_preview)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            on_row(&values)?;
+        }
+        Ok(columns)
+    })
+}
+
 fn execute_duckdb_operation<C, F, T>(is_cancelled: C, operation: F) -> Result<T, String>
 where
     C: Fn() -> bool + Send + 'static,

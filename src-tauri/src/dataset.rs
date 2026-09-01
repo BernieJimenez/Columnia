@@ -13923,6 +13923,273 @@ fn xlsx_cell(column_index: usize, row_index: usize, value: AnyValue<'_>) -> Resu
     Ok(cell)
 }
 
+fn xlsx_source_cell(
+    column_index: usize,
+    row_index: usize,
+    data_type: &DataType,
+    value: Option<&str>,
+) -> Result<String, String> {
+    let reference = format!("{}{}", xlsx_column_name(column_index), row_index + 1);
+    let Some(value) = value else {
+        return Ok(format!("<c r=\"{reference}\"/>"));
+    };
+    let numeric = matches!(
+        data_type,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+    );
+    if numeric {
+        if value.parse::<i128>().is_ok() {
+            return Ok(format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"));
+        }
+    } else if matches!(data_type, DataType::Float32 | DataType::Float64) {
+        let number = value.parse::<f64>().map_err(|_| {
+            "Excel no puede representar un valor de punto flotante source-backed inválido."
+                .to_owned()
+        })?;
+        if !number.is_finite() {
+            return Err("Excel no puede representar valores numéricos no finitos.".to_owned());
+        }
+        return Ok(format!("<c r=\"{reference}\" t=\"n\"><v>{value}</v></c>"));
+    } else if matches!(data_type, DataType::Boolean) {
+        if ["true", "1"]
+            .iter()
+            .any(|candidate| value.eq_ignore_ascii_case(candidate))
+        {
+            return Ok(format!("<c r=\"{reference}\" t=\"b\"><v>1</v></c>"));
+        }
+        if ["false", "0"]
+            .iter()
+            .any(|candidate| value.eq_ignore_ascii_case(candidate))
+        {
+            return Ok(format!("<c r=\"{reference}\" t=\"b\"><v>0</v></c>"));
+        }
+    }
+    Ok(format!(
+        "<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>",
+        xml_escape(value)
+    ))
+}
+
+fn write_source_backed_xlsx<F, C>(
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    schema: &DataFrame,
+    row_count: usize,
+    output: &mut File,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(u8),
+    C: Fn() -> bool + Send + 'static,
+{
+    if schema.width() == 0 {
+        return Err("Excel requiere al menos una columna.".to_owned());
+    }
+    const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#;
+    const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
+    const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
+    const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
+    const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs></styleSheet>"#;
+
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut archive = ZipWriter::new(output);
+    for (name, contents) in [
+        ("[Content_Types].xml", CONTENT_TYPES),
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", WORKBOOK),
+        ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS),
+        ("xl/styles.xml", STYLES),
+    ] {
+        archive
+            .start_file(name, options)
+            .map_err(|error| format!("No se pudo preparar el libro Excel: {error}"))?;
+        archive
+            .write_all(contents.as_bytes())
+            .map_err(|error| format!("No se pudo escribir el libro Excel: {error}"))?;
+    }
+    archive
+        .start_file("xl/worksheets/sheet1.xml", options)
+        .map_err(|error| format!("No se pudo preparar la hoja Excel: {error}"))?;
+    archive
+        .write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#)
+        .map_err(|error| format!("No se pudo escribir la hoja Excel: {error}"))?;
+    let last_cell = format!(
+        "<dimension ref=\"A1:{}{}\"/><sheetData>",
+        xlsx_column_name(schema.width() - 1),
+        row_count + 1
+    );
+    archive
+        .write_all(last_cell.as_bytes())
+        .map_err(|error| format!("No se pudo escribir las dimensiones Excel: {error}"))?;
+    archive
+        .write_all(b"<row r=\"1\">")
+        .map_err(|error| format!("No se pudo escribir el encabezado Excel: {error}"))?;
+    for (column_index, column) in schema.columns().iter().enumerate() {
+        let header = xlsx_cell(column_index, 0, AnyValue::String(column.name().as_str()))?;
+        archive
+            .write_all(header.as_bytes())
+            .map_err(|error| format!("No se pudo escribir el encabezado Excel: {error}"))?;
+    }
+    archive
+        .write_all(b"</row>")
+        .map_err(|error| format!("No se pudo cerrar el encabezado Excel: {error}"))?;
+
+    let mut streamed_rows = 0_usize;
+    let streamed_columns = crate::duckdb_query::stream_file_rows(
+        source_path,
+        source_format,
+        |values| {
+            if values.len() != schema.width() {
+                return Err("La transmisión source-backed devolvió un ancho inesperado.".to_owned());
+            }
+            let row_index = streamed_rows;
+            archive
+                .write_all(format!("<row r=\"{}\">", row_index + 2).as_bytes())
+                .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
+            for (column_index, (column, value)) in
+                schema.columns().iter().zip(values.iter()).enumerate()
+            {
+                let cell = xlsx_source_cell(
+                    column_index,
+                    row_index + 1,
+                    column.dtype(),
+                    value.as_deref(),
+                )?;
+                archive
+                    .write_all(cell.as_bytes())
+                    .map_err(|error| format!("No se pudo escribir una fila Excel: {error}"))?;
+            }
+            archive
+                .write_all(b"</row>")
+                .map_err(|error| format!("No se pudo cerrar una fila Excel: {error}"))?;
+            streamed_rows = streamed_rows.saturating_add(1);
+            let percent = if row_count == 0 {
+                85
+            } else {
+                30 + (streamed_rows
+                    .saturating_mul(55)
+                    .checked_div(row_count)
+                    .unwrap_or_default()) as u8
+            };
+            report(percent.min(85));
+            Ok(())
+        },
+        is_cancelled,
+    )?;
+    let expected_columns = schema
+        .columns()
+        .iter()
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    let actual_columns = streamed_columns
+        .iter()
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    if actual_columns != expected_columns {
+        return Err(
+            "La transmisión source-backed devolvió columnas distintas al esquema.".to_owned(),
+        );
+    }
+    if streamed_rows != row_count {
+        return Err(
+            "El conteo del dataset source-backed cambió durante la exportación.".to_owned(),
+        );
+    }
+    archive
+        .write_all(b"</sheetData></worksheet>")
+        .map_err(|error| format!("No se pudo cerrar la hoja Excel: {error}"))?;
+    archive
+        .finish()
+        .map_err(|error| format!("No se pudo finalizar el libro Excel: {error}"))?;
+    report(85);
+    Ok(())
+}
+
+fn export_source_backed_xlsx_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    row_count: usize,
+    destination: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió después de la validación.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Err("El formato source-backed no se puede exportar a Excel.".to_owned()),
+    };
+    let schema = source_scan(&source_path, &extension)?
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
+    let schema_frame = DataFrame::empty_with_schema(&schema);
+    report("Preparando archivo temporal", 10);
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
+    report("Escribiendo dataset", 25);
+    write_source_backed_xlsx(
+        &source_path,
+        source_format,
+        &schema_frame,
+        row_count,
+        temporary.as_file_mut(),
+        |percent| report("Escribiendo Excel", percent),
+        is_cancelled.clone(),
+    )?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
+    }
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+    let file_size_bytes = fs::metadata(&destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset.xlsx")
+            .to_owned(),
+        file_size_bytes,
+        format: ExportFormat::Excel.label(),
+        protected_column_count: 0,
+        protected_columns: Vec::new(),
+    })
+}
+
 fn write_xlsx<F, C>(
     frame: &DataFrame,
     output: &mut File,
@@ -14146,6 +14413,241 @@ where
         .map_err(|error| format!("No se pudo versionar la base SQLite: {error}"))?;
     report(85);
     Ok(())
+}
+
+fn sqlite_source_value(data_type: &DataType, value: Option<&str>) -> Result<SqlValue, String> {
+    let Some(value) = value else {
+        return Ok(SqlValue::Null);
+    };
+    match data_type {
+        DataType::Boolean => {
+            if value.eq_ignore_ascii_case("true") || value == "1" {
+                Ok(SqlValue::Integer(1))
+            } else if value.eq_ignore_ascii_case("false") || value == "0" {
+                Ok(SqlValue::Integer(0))
+            } else {
+                Err("SQLite recibió un booleano source-backed inválido.".to_owned())
+            }
+        }
+        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => value
+            .parse::<i64>()
+            .map(SqlValue::Integer)
+            .map_err(|_| "SQLite recibió un entero source-backed inválido.".to_owned()),
+        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
+            let number = value
+                .parse::<u64>()
+                .map_err(|_| "SQLite recibió un entero source-backed inválido.".to_owned())?;
+            Ok(i64::try_from(number)
+                .map(SqlValue::Integer)
+                .unwrap_or_else(|_| SqlValue::Text(value.to_owned())))
+        }
+        DataType::Float32 | DataType::Float64 => {
+            let number = value
+                .parse::<f64>()
+                .map_err(|_| "SQLite recibió un decimal source-backed inválido.".to_owned())?;
+            if !number.is_finite() {
+                return Err("SQLite no puede representar valores numéricos no finitos.".to_owned());
+            }
+            Ok(SqlValue::Real(number))
+        }
+        _ => Ok(SqlValue::Text(value.to_owned())),
+    }
+}
+
+fn write_source_backed_sqlite<F, C>(
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    schema: &DataFrame,
+    expected_row_count: usize,
+    path: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    F: FnMut(u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    if schema.width() == 0 {
+        return Err("SQLite requiere al menos una columna.".to_owned());
+    }
+    let mut connection = Connection::open(path)
+        .map_err(|error| format!("No se pudo crear la base SQLite: {error}"))?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("No se pudo iniciar la transacción SQLite: {error}"))?;
+    transaction
+        .execute_batch("DROP TABLE IF EXISTS \"dataset\";")
+        .map_err(|error| format!("No se pudo preparar la tabla SQLite: {error}"))?;
+    let definition = schema
+        .columns()
+        .iter()
+        .map(|column| {
+            format!(
+                "{} {}",
+                sql_identifier(column.name().as_str()),
+                sqlite_type(column.dtype())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    transaction
+        .execute_batch(&format!("CREATE TABLE \"dataset\" ({definition});"))
+        .map_err(|error| format!("No se pudo crear la tabla SQLite: {error}"))?;
+    let placeholders = (0..schema.width())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let columns = schema
+        .columns()
+        .iter()
+        .map(|column| sql_identifier(column.name().as_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut statement = transaction
+        .prepare(&format!(
+            "INSERT INTO \"dataset\" ({columns}) VALUES ({placeholders});"
+        ))
+        .map_err(|error| format!("No se pudo preparar la inserción SQLite: {error}"))?;
+    let mut streamed_rows = 0_usize;
+    let row_cancellation = is_cancelled.clone();
+    let streamed_columns = crate::duckdb_query::stream_file_rows(
+        source_path,
+        source_format,
+        |values| {
+            ensure_not_cancelled(row_cancellation())?;
+            if values.len() != schema.width() {
+                return Err("La transmisión source-backed devolvió un ancho inesperado.".to_owned());
+            }
+            let sqlite_values = schema
+                .columns()
+                .iter()
+                .zip(values.iter())
+                .map(|(column, value)| sqlite_source_value(column.dtype(), value.as_deref()))
+                .collect::<Result<Vec<_>, _>>()?;
+            statement
+                .execute(params_from_iter(sqlite_values))
+                .map_err(|error| {
+                    format!("No se pudo insertar la fila {streamed_rows} en SQLite: {error}")
+                })?;
+            streamed_rows = streamed_rows.saturating_add(1);
+            let percent = if expected_row_count == 0 {
+                85
+            } else {
+                30 + (streamed_rows
+                    .saturating_mul(55)
+                    .checked_div(expected_row_count)
+                    .unwrap_or_default()) as u8
+            };
+            report(percent.min(85));
+            Ok(())
+        },
+        is_cancelled,
+    )?;
+    drop(statement);
+    let expected_columns = schema
+        .columns()
+        .iter()
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    let actual_columns = streamed_columns
+        .iter()
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    if actual_columns != expected_columns {
+        return Err(
+            "La transmisión source-backed devolvió columnas distintas al esquema.".to_owned(),
+        );
+    }
+    if streamed_rows != expected_row_count {
+        return Err(
+            "El conteo del dataset source-backed cambió durante la exportación.".to_owned(),
+        );
+    }
+    transaction
+        .commit()
+        .map_err(|error| format!("No se pudo confirmar la base SQLite: {error}"))?;
+    connection
+        .execute_batch("PRAGMA user_version = 1;")
+        .map_err(|error| format!("No se pudo versionar la base SQLite: {error}"))?;
+    report(85);
+    Ok(())
+}
+
+fn export_source_backed_sqlite_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    row_count: usize,
+    destination: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió después de la validación.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Err("El formato source-backed no se puede exportar a SQLite.".to_owned()),
+    };
+    let schema = source_scan(&source_path, &extension)?
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
+    let schema_frame = DataFrame::empty_with_schema(&schema);
+    report("Preparando archivo temporal", 10);
+    let temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
+    report("Escribiendo dataset", 25);
+    write_source_backed_sqlite(
+        &source_path,
+        source_format,
+        &schema_frame,
+        row_count,
+        temporary.path(),
+        |percent| report("Escribiendo SQLite", percent),
+        is_cancelled.clone(),
+    )?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
+    }
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+    let file_size_bytes = fs::metadata(&destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset.sqlite")
+            .to_owned(),
+        file_size_bytes,
+        format: ExportFormat::Sqlite.label(),
+        protected_column_count: 0,
+        protected_columns: Vec::new(),
+    })
 }
 
 fn privacy_safe_frame(
@@ -18992,6 +19494,8 @@ pub async fn export_dataset(
             | ExportFormat::Json
             | ExportFormat::Parquet
             | ExportFormat::Sql
+            | ExportFormat::Excel
+            | ExportFormat::Sqlite
             | ExportFormat::Bundle
     ) && privacy_mode == PrivacyMode::None
         && recipe.is_none()
@@ -19097,6 +19601,36 @@ pub async fn export_dataset(
                             },
                         )
                     }
+                    ExportFormat::Excel => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_xlsx_atomic(
+                            &source_path,
+                            expected_file_size,
+                            row_count,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
+                    ExportFormat::Sqlite => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_sqlite_atomic(
+                            &source_path,
+                            expected_file_size,
+                            row_count,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
                     ExportFormat::Bundle => {
                         let cancellation_app = app.clone();
                         export_source_backed_bundle_atomic(
@@ -19113,7 +19647,6 @@ pub async fn export_dataset(
                             },
                         )
                     }
-                    _ => unreachable!("el filtro previo limita los formatos source-backed"),
                 };
                 result.map(Some)
             })
@@ -28869,6 +29402,91 @@ mod tests {
         assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
         assert!(source.is_file());
         assert!(destination.is_file());
+    }
+
+    #[test]
+    fn source_backed_xlsx_export_streams_rows_without_materializing_the_active_frame() {
+        let source = temporary_csv("name,amount\nO'Brien,10\n=SUM(A1:A2),20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported.xlsx");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut progress = Vec::new();
+        let result = export_source_backed_xlsx_atomic(
+            &source,
+            expected_size,
+            2,
+            &destination,
+            |stage, percent| progress.push((stage, percent)),
+            || false,
+        )
+        .expect("la exportación Excel source-backed debe funcionar");
+
+        let bytes = fs::read(&destination).expect("el XLSX debe existir");
+        assert_eq!(&bytes[..2], b"PK");
+        let mut archive = ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut sheet = String::new();
+        archive
+            .by_name("xl/worksheets/sheet1.xml")
+            .unwrap()
+            .read_to_string(&mut sheet)
+            .unwrap();
+        assert!(sheet.contains("O&apos;Brien"));
+        assert!(sheet.contains("=SUM(A1:A2)"));
+        assert!(sheet.contains("t=\"inlineStr\""));
+        let mut workbook = open_workbook_auto(&destination).expect("el XLSX debe poder reabrirse");
+        let range = workbook
+            .worksheet_range("dataset")
+            .expect("la hoja dataset debe existir");
+        assert_eq!(
+            range.get((0, 0)).map(ToString::to_string).as_deref(),
+            Some("name")
+        );
+        assert_eq!(
+            range.get((2, 0)).map(ToString::to_string).as_deref(),
+            Some("=SUM(A1:A2)")
+        );
+        assert_eq!(result.format, "Excel");
+        assert_eq!(result.protected_column_count, 0);
+        assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert!(source.is_file());
+        assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
+    #[test]
+    fn source_backed_sqlite_export_streams_rows_without_materializing_the_active_frame() {
+        let source = temporary_csv("name,amount\nO'Brien,10\n,20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported.sqlite");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut progress = Vec::new();
+        let result = export_source_backed_sqlite_atomic(
+            &source,
+            expected_size,
+            2,
+            &destination,
+            |stage, percent| progress.push((stage, percent)),
+            || false,
+        )
+        .expect("la exportación SQLite source-backed debe funcionar");
+
+        let connection = Connection::open(&destination).expect("la base SQLite debe abrirse");
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM dataset", [], |row| row.get(0))
+            .unwrap();
+        let name: Option<String> = connection
+            .query_row("SELECT name FROM dataset WHERE amount = '10'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(name.as_deref(), Some("O'Brien"));
+        assert_eq!(result.format, "SQLite");
+        assert_eq!(result.protected_column_count, 0);
+        assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert!(source.is_file());
+        assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
     }
 
     #[test]

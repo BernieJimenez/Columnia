@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.115.0] - 2026-09-01
+
+### Mejorado
+
+- La exportación source-backed compatible a Excel escribe `.xlsx` por filas
+  desde DuckDB para fuentes CSV/TSV/TXT delimitadas o Parquet, conservando el
+  esquema y los tipos tabulares sin materializar el `DataFrame` activo.
+- La exportación source-backed compatible a SQLite crea la tabla y sus tipos
+  desde el esquema detectado, inserta en una transacción y publica el archivo
+  de forma atómica; ambas salidas conservan cancelación, validación de cambios
+  de la fuente y cleanup ante errores.
+
+### Verificado
+
+- Las regresiones Rust reabren el `.xlsx` y el SQLite generados, comprueban
+  tipos, filas, texto que parece fórmula, fuente intacta y ausencia de
+  artefactos temporales.
+
 ## [0.114.0] - 2026-09-01
 
 ### Mejorado
