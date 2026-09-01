@@ -7484,6 +7484,7 @@ fn publish_source_backed_query(
     source_format: crate::duckdb_query::DuckDbFileFormat,
     query: &str,
     label: &str,
+    force_publish: bool,
 ) -> Result<Option<DatasetMutation>, String> {
     let original_source_path = dataset
         .source_path
@@ -7554,7 +7555,7 @@ fn publish_source_backed_query(
         return Err("El archivo source-backed cambió durante la limpieza.".to_owned());
     }
 
-    if affected_row_count == 0 && !schema_changed {
+    if !force_publish && affected_row_count == 0 && !schema_changed {
         let _ = fs::remove_file(&output_path);
         return Ok(Some(DatasetMutation {
             dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
@@ -7618,6 +7619,7 @@ fn remove_empty_rows_source_backed(
         source_format,
         &query,
         "Eliminar filas completamente vacías",
+        false,
     )
 }
 
@@ -7724,6 +7726,7 @@ fn remove_duplicates_source_backed(
         source_format,
         &query,
         "Eliminar filas duplicadas",
+        false,
     )
 }
 
@@ -7761,7 +7764,7 @@ fn remove_columns_source_backed(
     let projection = source_backed_projection(&remaining_columns, label)?;
     let query = format!("SELECT {projection} FROM dataset");
     let Some(mutation) =
-        publish_source_backed_query(dataset, &source_path, source_format, &query, label)?
+        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
     else {
         return Ok(None);
     };
@@ -7769,6 +7772,100 @@ fn remove_columns_source_backed(
         dataset: mutation.dataset,
         removed_column_count: removed_columns.len(),
         removed_columns,
+    }))
+}
+
+fn source_backed_mask_projection(
+    schema: &DataFrame,
+    personal_columns: &[String],
+    audit_label: &str,
+) -> Result<String, String> {
+    if schema.width() == 0 {
+        return Err("La fuente source-backed no contiene columnas utilizables.".to_owned());
+    }
+    let audit_literal = duckdb_string_literal(audit_label);
+    let mask_literal = duckdb_string_literal(REDACTED_VALUE);
+    Ok(schema
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            if name.as_str() == "_cambios" {
+                format!(
+                    "CASE WHEN {identifier} IS NULL OR TRIM(CAST({identifier} AS VARCHAR)) = '' THEN {audit_literal} ELSE LEFT(CAST({identifier} AS VARCHAR) || '; ' || {audit_literal}, {MAX_AUDIT_CELL_CHARS}) END AS {identifier}"
+                )
+            } else if personal_columns.iter().any(|column| column == name.as_str()) {
+                format!(
+                    "CASE WHEN {identifier} IS NULL THEN NULL ELSE {mask_literal} END AS {identifier}"
+                )
+            } else {
+                identifier
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", "))
+}
+
+fn mask_personal_values_source_backed(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<PersonalDataMaskResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let personal_columns = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .filter(|name| name.as_str() != "_cambios" && is_personal_privacy_signal(name))
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    if personal_columns.is_empty() {
+        return Ok(Some(PersonalDataMaskResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            changed_cell_count: 0,
+            changed_column_count: 0,
+        }));
+    }
+    let changed_counts = match crate::duckdb_query::count_file_values_not_equal(
+        &source_path,
+        source_format,
+        &personal_columns,
+        REDACTED_VALUE,
+        || false,
+    ) {
+        Ok(counts) => counts,
+        Err(_) => return Ok(None),
+    };
+    let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
+    let changed_column_count = changed_counts.iter().filter(|count| **count > 0).count();
+    if changed_cell_count == 0 {
+        return Ok(Some(PersonalDataMaskResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            changed_cell_count: 0,
+            changed_column_count: 0,
+        }));
+    }
+    let projection = source_backed_mask_projection(
+        &dataset.frame,
+        &personal_columns,
+        "Proteger valores personales detectados",
+    )?;
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Proteger valores personales detectados",
+        true,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(PersonalDataMaskResult {
+        dataset: mutation.dataset,
+        changed_cell_count,
+        changed_column_count,
     }))
 }
 
@@ -21064,6 +21161,11 @@ pub async fn mask_personal_values(app: AppHandle) -> Result<PersonalDataMaskResu
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = mask_personal_values_source_backed(dataset)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (masked, changed_cell_count, changed_column_count) =
             mask_personal_values_from_frame(&dataset.frame)?;
@@ -29705,6 +29807,68 @@ mod tests {
             .get_column_names()
             .iter()
             .any(|name| name.as_str() == "email"));
+    }
+
+    #[test]
+    fn source_backed_personal_mask_counts_changes_without_materializing_rows() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("mask.json");
+        fs::write(
+            &source,
+            r#"[
+                {"email":"[REDACTED]","name":"Ana","amount":10,"_cambios":"base-1"},
+                {"email":"luis@example.com","name":"Luis","amount":20,"_cambios":"base-2"}
+            ]"#,
+        )
+        .expect("se debe escribir el JSON de máscara");
+        let source_snapshot = directory.path().join("source.parquet");
+        let (schema, _, row_count) = source_backed_json_load(&source, &source_snapshot, || false)
+            .expect("el JSON debe abrirse mediante snapshot");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        history.source_snapshot_path = Some(source_snapshot);
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "mask.json".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let result = mask_personal_values_source_backed(&mut dataset)
+            .expect("la máscara source-backed debe procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(result.changed_cell_count, 3);
+        assert_eq!(result.changed_column_count, 2);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la máscara debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(
+            current.column("email").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(
+            current.column("email").unwrap().str().unwrap().get(1),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(
+            current.column("_cambios").unwrap().str().unwrap().get(0),
+            Some("base-1; Proteger valores personales detectados")
+        );
+        let undo = undo_dataset(&mut dataset).expect("la máscara debe poder deshacerse");
+        assert_eq!(undo.dataset.row_count, 2);
+        assert_eq!(
+            dataset.frame.column("email").unwrap().str().unwrap().get(1),
+            Some("luis@example.com")
+        );
     }
 
     #[test]

@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.129.0] - 2026-09-01
+
+### Mejorado
+
+- `Proteger valores personales detectados` ya puede ejecutarse sobre datasets
+  source-backed mediante DuckDB, sin cargar todas las filas en el `DataFrame`
+  activo.
+- La máscara conserva nulos, ignora valores ya `[REDACTED]`, actualiza
+  `_cambios`, publica un snapshot Parquet reversible y mantiene el contrato IPC
+  agregado de celdas y columnas modificadas.
+
+### Verificado
+
+- La regresión cubre conteo exacto, columnas personales, valores redactados,
+  trazabilidad, snapshot legible y undo.
+
 ## [0.128.0] - 2026-09-01
 
 ### Mejorado
