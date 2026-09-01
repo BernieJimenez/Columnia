@@ -3656,6 +3656,7 @@ fn current_duckdb_file_source(
             let delimiter = detect_delimiter(&canonical, &extension).ok()?;
             crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
         }
+        "json" | "jsonl" | "ndjson" => crate::duckdb_query::DuckDbFileFormat::Json,
         _ => return None,
     };
     Some((canonical, format))
@@ -9546,6 +9547,67 @@ where
     Ok((schema_frame, preview, row_count))
 }
 
+fn source_backed_json_load<C>(
+    path: &Path,
+    snapshot_path: &Path,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview, usize), String>
+where
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let source_size_before = fs::metadata(path)
+        .map_err(|error| format!("No se pudieron leer los metadatos del JSON: {error}"))?
+        .len();
+    if let Err(error) = crate::duckdb_query::materialize_file_to_parquet_with_projection(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Json,
+        snapshot_path,
+        "*",
+        is_cancelled.clone(),
+    ) {
+        let _ = fs::remove_file(snapshot_path);
+        return Err(error);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    let source_size_after = fs::metadata(path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos del JSON: {error}"))?
+        .len();
+    if source_size_before != source_size_after {
+        let _ = fs::remove_file(snapshot_path);
+        return Err("El archivo JSON cambió durante la creación del snapshot.".to_owned());
+    }
+    let schema = read_parquet_schema_frame(snapshot_path)?;
+    let row_count = crate::duckdb_query::count_file_rows(
+        snapshot_path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+        is_cancelled.clone(),
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let page = if row_count == 0 {
+        schema.slice(0, 0)
+    } else {
+        collect_lazy_frame_streaming(
+            parquet_scan(snapshot_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa JSON source-backed",
+        )?
+    };
+    ensure_not_cancelled(is_cancelled())?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset.json")
+        .to_owned();
+    let preview = dataset_preview_from_schema_and_page(
+        &file_name,
+        source_size_after,
+        row_count,
+        &schema,
+        &page,
+    )?;
+    Ok((schema, preview, row_count))
+}
+
 fn source_backed_spreadsheet_load<C>(
     path: &Path,
     sheet_name: &str,
@@ -9593,7 +9655,7 @@ fn should_defer_source_load(extension: &str, file_size_bytes: u64) -> bool {
     file_size_bytes >= SOURCE_BACKED_LOAD_THRESHOLD_BYTES
         && matches!(
             extension,
-            "csv" | "tsv" | "txt" | "parquet" | "xlsx" | "xlsb"
+            "csv" | "tsv" | "txt" | "json" | "jsonl" | "ndjson" | "parquet" | "xlsx" | "xlsb"
         )
 }
 
@@ -9617,6 +9679,7 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     let materialized_extension = dataset_extension(materialized_path)?;
     let frame = match materialized_extension.as_str() {
         "csv" | "tsv" | "txt" => read_delimited_frame(materialized_path, &extension)?,
+        "json" | "jsonl" | "ndjson" => load_json_records(materialized_path)?,
         "parquet" => read_parquet_frame(materialized_path)?,
         _ => return Err("El formato source-backed no se puede materializar.".to_owned()),
     };
@@ -19078,12 +19141,29 @@ pub async fn load_dataset_selection(
                     25,
                 );
                 let cancellation_app = app.clone();
-                let (frame, preview, row_count) =
-                    source_backed_load(&pending.path, &extension, move || {
-                        cancellation_app
-                            .state::<DatasetState>()
-                            .load_was_cancelled(generation)
-                    })?;
+                let cancellation = move || {
+                    cancellation_app
+                        .state::<DatasetState>()
+                        .load_was_cancelled(generation)
+                };
+                let result = if matches!(extension.as_str(), "json" | "jsonl" | "ndjson") {
+                    let mut history = HistoryManager::deferred()?;
+                    let snapshot_path = history.directory.path().join("source.parquet");
+                    send_progress(
+                        &on_progress,
+                        "load",
+                        "Construyendo snapshot JSON por bloques",
+                        35,
+                    );
+                    let result =
+                        source_backed_json_load(&pending.path, &snapshot_path, cancellation)?;
+                    history.source_snapshot_path = Some(snapshot_path);
+                    deferred_history = Some(history);
+                    result
+                } else {
+                    source_backed_load(&pending.path, &extension, cancellation)?
+                };
+                let (frame, preview, row_count) = result;
                 send_progress(&on_progress, "load", "Preparando vista previa", 85);
                 (frame, preview, row_count, true)
             } else {
@@ -26788,23 +26868,44 @@ fn apply_source_backed_projection_recipe(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
-    let source_path = dataset
+    let source_reference = dataset
         .source_path
         .as_deref()
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    let (original_source_path, source_size, original_extension) =
+        validate_dataset_file(source_reference)?;
     if source_size != dataset.file_size_bytes {
         return Err("El archivo source-backed cambió después de la carga.".to_owned());
     }
-    let source_format = match extension.as_str() {
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        "csv" | "tsv" | "txt" => {
-            let delimiter = detect_delimiter(&source_path, &extension)?;
-            crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+    let (source_path, source_format, extension) = if let Some(snapshot_path) =
+        dataset.history.source_snapshot_path.as_deref()
+    {
+        let (snapshot_path, _, snapshot_extension) = validate_dataset_file(snapshot_path)?;
+        if snapshot_extension != "parquet" {
+            return Err("El snapshot source-backed no es un Parquet válido.".to_owned());
         }
-        _ => {
-            return Err("La receta source-backed requiere una fuente compatible.".to_owned());
-        }
+        (
+            snapshot_path,
+            crate::duckdb_query::DuckDbFileFormat::Parquet,
+            snapshot_extension,
+        )
+    } else {
+        let source_format = match original_extension.as_str() {
+            "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+            "csv" | "tsv" | "txt" => {
+                let delimiter = detect_delimiter(&original_source_path, &original_extension)?;
+                crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+            }
+            "json" | "jsonl" | "ndjson" => crate::duckdb_query::DuckDbFileFormat::Json,
+            _ => {
+                return Err("La receta source-backed requiere una fuente compatible.".to_owned());
+            }
+        };
+        (
+            original_source_path.clone(),
+            source_format,
+            original_extension.clone(),
+        )
     };
     let schema = dataset.frame.clone();
     let plan = source_backed_projection_plan(&schema, recipe)?;
@@ -27011,7 +27112,7 @@ fn apply_source_backed_projection_recipe(
         })
         .transpose()?
         .unwrap_or(0);
-    let (_, current_source_size, _) = validate_dataset_file(&source_path)?;
+    let (_, current_source_size, _) = validate_dataset_file(&original_source_path)?;
     if current_source_size != dataset.file_size_bytes {
         let _ = fs::remove_file(&output_path);
         return Err("El archivo source-backed cambió durante la receta.".to_owned());
@@ -28289,6 +28390,7 @@ fn source_backed_iso8601_values_are_supported(
             let delimiter = detect_delimiter(&source_path, &extension)?;
             crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
         }
+        "json" | "jsonl" | "ndjson" => crate::duckdb_query::DuckDbFileFormat::Json,
         _ => {
             return Err("La receta source-backed requiere una fuente compatible.".to_owned());
         }
@@ -28742,6 +28844,102 @@ mod tests {
         assert_eq!(preview.rows[0][0].as_deref(), Some("Santo Domingo"));
         assert_eq!(preview.rows[1][1].as_deref(), Some("28"));
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn loads_json_variants_through_private_parquet_snapshots() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let variants = [
+            ("json", r#"[{"id":1,"name":"Ana"},{"id":2,"name":"Luis"}]"#),
+            (
+                "jsonl",
+                "{\"id\":1,\"name\":\"Ana\"}\n{\"id\":2,\"name\":\"Luis\"}\n",
+            ),
+            (
+                "ndjson",
+                "{\"id\":1,\"name\":\"Ana\"}\n{\"id\":2,\"name\":\"Luis\"}\n",
+            ),
+        ];
+
+        for (extension, contents) in variants {
+            assert!(should_defer_source_load(
+                extension,
+                SOURCE_BACKED_LOAD_THRESHOLD_BYTES
+            ));
+            let source = directory.path().join(format!("large.{extension}"));
+            fs::write(&source, contents).expect("se debe escribir el JSON temporal");
+            let snapshot = directory.path().join(format!("{extension}.parquet"));
+            let (schema, preview, row_count) =
+                source_backed_json_load(&source, &snapshot, || false)
+                    .expect("el JSON debe abrirse mediante snapshot");
+
+            assert_eq!(schema.height(), 0);
+            assert_eq!(schema.width(), 2);
+            assert_eq!(row_count, 2);
+            assert_eq!(preview.row_count, 2);
+            assert_eq!(preview.rows[0][1].as_deref(), Some("Ana"));
+            assert_eq!(preview.rows[1][1].as_deref(), Some("Luis"));
+            let restored = read_parquet_frame(&snapshot).expect("el snapshot debe ser legible");
+            assert_eq!(restored.height(), 2);
+            assert_eq!(restored.width(), 2);
+        }
+
+        let recipe_source = directory.path().join("recipe.json");
+        fs::write(
+            &recipe_source,
+            r#"[{"id":1,"name":"Ana"},{"id":2,"name":"Luis"}]"#,
+        )
+        .expect("se debe escribir el JSON de receta");
+        let recipe_snapshot = directory.path().join("recipe.parquet");
+        let (schema, _, row_count) =
+            source_backed_json_load(&recipe_source, &recipe_snapshot, || false)
+                .expect("el JSON de receta debe abrirse mediante snapshot");
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let file_size_bytes = fs::metadata(&recipe_source)
+            .expect("la fuente de receta debe existir")
+            .len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(recipe_source.clone()),
+            file_name: "recipe.json".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        dataset.history.source_snapshot_path = Some(recipe_snapshot.clone());
+        let recipe = TransformRecipe {
+            filters: vec![RecipeFilter {
+                column: "id".to_owned(),
+                operator: RecipeFilterOperator::Eq,
+                value: Some("2".to_owned()),
+            }],
+            ..TransformRecipe::default()
+        };
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta JSON source-backed debe publicarse");
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar un snapshot Parquet");
+        let output = read_parquet_frame(output_path).expect("la receta debe escribir Parquet");
+        assert_eq!(result.removed_row_count, 1);
+        assert_eq!(output.height(), 1);
+        assert_eq!(
+            output.column("name").unwrap().str().unwrap().get(0),
+            Some("Luis")
+        );
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+
+        let cancelled_source = directory.path().join("cancelled.json");
+        fs::write(&cancelled_source, variants[0].1).expect("se debe escribir el JSON cancelado");
+        let cancelled_snapshot = directory.path().join("cancelled.parquet");
+        let cancellation = source_backed_json_load(&cancelled_source, &cancelled_snapshot, || true)
+            .expect_err("la apertura cancelada debe detenerse antes de escribir");
+        assert_eq!(cancellation, OPERATION_CANCELLED_MESSAGE);
+        assert!(!cancelled_snapshot.exists());
     }
 
     #[test]

@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL, perfil de rendimiento, formato de exportación, protección, claves de comparación y tipo de JOIN por proyecto | Implementada | Muestras y resultados derivados no portables |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, apertura source-backed de XLSX/XLSB grandes mediante snapshot Parquet por bloques, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal y regex con grupos `$1`–`$9`/división calculada/división de texto/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, protección `mask`/`hash` mediante snapshot DuckDB, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/SQL/Excel/SQLite/Bundle source-backed, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
+| Escala | Lazy para recetas compatibles, apertura source-backed de JSON/JSONL/NDJSON/XLSX/XLSB grandes mediante snapshots Parquet privados por bloques, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal y regex con grupos `$1`–`$9`/división calculada/división de texto/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, protección `mask`/`hash` mediante snapshot DuckDB, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/SQL/Excel/SQLite/Bundle source-backed, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
 
 ## Contrato de calidad
 
@@ -117,6 +117,13 @@ el `DataFrame` activo, mientras paginación, perfilado, consultas y exportacione
 reutilizan el snapshot y verifican que el libro original mantenga su tamaño.
 XLS/ODS continúan usando el fallback materializado porque su lector no ofrece
 la misma lectura secuencial.
+
+Los archivos `JSON`, `JSONL` y `NDJSON` grandes también se abren
+source-backed. DuckDB los convierte a un snapshot Parquet privado mediante una
+proyección completa en disco; la sesión conserva solo el esquema y la primera
+página, mientras el conteo, la paginación, las consultas, los proyectos y las
+recetas compatibles reutilizan el snapshot. La apertura es cancelable y valida
+que el archivo original no cambie durante la conversión.
 
 ## Proyectos y almacenamiento
 

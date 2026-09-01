@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.124.0`.
+- Versión actual del prototipo: `0.125.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1171,6 +1171,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    Desde v0.124, `Eq` y `Neq` usan el valor temporal real para columnas `Date`
    y `Datetime` en las tres rutas, sin depender de la unidad interna o del
    texto formateado.
+   Desde v0.125, la apertura diferida de `JSON`, `JSONL` y `NDJSON` grandes
+   construye un snapshot Parquet privado con DuckDB, conserva esquema y
+   preview sin llenar el `DataFrame` activo, y reutiliza ese snapshot para
+   paginación, consultas, proyectos y recetas source-backed.
 7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
    valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
    temporales, con paginación, orden estable, agregaciones y joins seguros.
@@ -1963,6 +1967,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.125.0 abre `JSON`, `JSONL` y `NDJSON` grandes mediante snapshots Parquet privados de DuckDB; conserva esquema, preview y conteo sin materializar el frame activo, valida cancelación e integridad de la fuente y reutiliza el snapshot en recetas source-backed. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.124.0 extiende los filtros temporales a `Eq`/`Neq` sobre `Date` y `Datetime`; eager, Polars lazy y DuckDB source-backed usan literales ISO 8601 y la regresión cubre unidad temporal, paridad y snapshot. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.123.0 mantiene parseo de fecha, filtros ISO 8601 y extracción de `year`, `month` o `day` en un único plan Polars lazy/streaming; la validación y la regresión confirman el orden de etapas, conteo y tipos sin materialización eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.122.0 amplía los filtros ordenados de recetas a `Date`/`Datetime` con literales ISO 8601 en eager, Polars lazy y DuckDB source-backed; la regresión compara límites, unidades, conteo, nulos y snapshot Parquet. | `src-tauri/src/dataset.rs`, `src/features/prepare/TransformRecipeEditor.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

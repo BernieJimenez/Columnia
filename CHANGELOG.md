@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.125.0] - 2026-09-01
+
+### Mejorado
+
+- La apertura diferida de `JSON`, `JSONL` y `NDJSON` grandes crea un snapshot
+  Parquet privado mediante DuckDB, conservando solo el esquema y la primera
+  página en el `DataFrame` activo.
+- El snapshot permite contar filas y reutilizar paginación, consultas,
+  proyectos y recetas source-backed sin cargar todas las filas del archivo
+  estructurado en memoria.
+
+### Verificado
+
+- Una regresión cubre los tres sufijos, preview, conteo, snapshot legible y
+  cancelación sin residuos.
+- La carga valida que el archivo original conserve su tamaño durante la
+  creación del snapshot.
+
 ## [0.124.0] - 2026-09-01
 
 ### Mejorado
