@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.118.0] - 2026-09-01
+
+### Mejorado
+
+- Las recetas source-backed ya ejecutan reemplazos regex seguros en DuckDB
+  usando la misma proyección por bloques que los reemplazos literales.
+- Se conservan reemplazos globales, grupos de captura `$1`–`$9`, nulos,
+  conteo de celdas modificadas y `DataFrame` activo vacío; las sustituciones
+  con sintaxis no compatible mantienen fallback eager.
+
+### Verificado
+
+- La regresión compara regex source-backed y eager, comprueba captura,
+  conteo, Parquet resultante y ausencia de materialización del frame activo.
+
 ## [0.117.0] - 2026-09-01
 
 ### Mejorado

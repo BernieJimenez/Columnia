@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.117.0`.
+- Versión actual del prototipo: `0.118.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1150,6 +1150,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    un snapshot Parquet privado y reutilizan la misma transmisión para CSV,
    JSON, Parquet, SQL, Excel, SQLite y Bundle; se preservan nulos, columnas
    protegidas, cancelación y validación final de la fuente original.
+   Desde v0.118, los reemplazos regex con grupos numéricos `$1`–`$9` y
+   sustitución global también se ejecutan source-backed en DuckDB; las formas
+   de sustitución no compatibles conservan el fallback eager.
 7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
    valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
    temporales, con paginación, orden estable, agregaciones y joins seguros.
@@ -1953,6 +1956,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.109.0 mantiene el esquema y la primera página source-backed en Polars, pero calcula el conteo total de CSV/TSV/TXT delimitado o Parquet mediante DuckDB con cancelación cooperativa; la regresión y el benchmark end-to-end confirman conteo exacto, frame activo vacío y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.110.0 extiende la exportación source-backed a CSV mediante DuckDB para fuentes CSV/TSV/TXT delimitadas o Parquet; conserva atomicidad, cancelación, validación de cambios, neutralización de fórmulas y no materializa el `DataFrame` activo en la ruta compatible. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-09-01 | Versión 0.118.0 extiende las recetas source-backed con reemplazos regex globales y grupos numéricos `$1`–`$9` mediante DuckDB; conserva paridad eager, nulos, conteo de celdas y frame activo vacío, mientras las sustituciones no compatibles mantienen fallback. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.117.0 extiende la protección source-backed: `mask` y `hash` se aplican mediante una proyección DuckDB a un snapshot Parquet privado y los siete destinos locales lo transmiten sin materializar el `DataFrame` activo; se preservan nulos, columnas protegidas, cancelación y validación final de la fuente original. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.116.0 extiende la apertura source-backed a libros XLSX/XLSB grandes: Calamine detecta esquema y tipos en streaming, escribe un snapshot Parquet temporal por bloques y deja el `DataFrame` activo vacío; paginación, perfilado, consultas DuckDB y exportaciones compatibles reutilizan el snapshot con validación del libro original, y XLS/ODS conservan fallback materializado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.115.0 extiende la exportación source-backed a Excel `.xlsx` y SQLite para fuentes CSV/TSV/TXT delimitadas o Parquet: DuckDB transfiere las filas por streaming, conserva esquema y tipos, publica de forma atómica y comprueba cancelación, cambios de la fuente y cleanup; las regresiones reabren ambos destinos sin materializar el `DataFrame` activo. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

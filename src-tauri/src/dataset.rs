@@ -24257,9 +24257,11 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
                 CalculatedOperation::Divide => false,
             })
         && recipe.find_replace.as_ref().is_none_or(|replacement| {
-            !replacement.regex
-                && !replacement.find.contains('\0')
+            !replacement.find.contains('\0')
                 && !replacement.replace.contains('\0')
+                && (!replacement.regex
+                    || (Regex::new(&replacement.find).is_ok()
+                        && source_backed_regex_replacement(&replacement.replace).is_ok()))
         })
         && recipe
             .merge_columns
@@ -25313,6 +25315,65 @@ fn duckdb_string_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+fn source_backed_regex_replacement(value: &str) -> Result<String, String> {
+    let mut output = String::with_capacity(value.len());
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            return Err(
+                "La sustitución regex source-backed no admite barras invertidas literales."
+                    .to_owned(),
+            );
+        }
+        if character != '$' {
+            output.push(character);
+            continue;
+        }
+        match characters.next() {
+            Some('$') => output.push('$'),
+            Some(group @ '1'..='9') => {
+                output.push('\\');
+                output.push(group);
+            }
+            Some('{') => {
+                let group = characters.next();
+                if !matches!(group, Some('1'..='9')) || characters.next() != Some('}') {
+                    return Err(
+                        "La sustitución regex source-backed solo admite grupos $1 a $9.".to_owned(),
+                    );
+                }
+                output.push('\\');
+                output.push(group.expect("se validó el grupo regex"));
+            }
+            _ => return Err(
+                "La sustitución regex source-backed solo admite texto literal y grupos $1 a $9."
+                    .to_owned(),
+            ),
+        }
+    }
+    Ok(output)
+}
+
+fn source_backed_replace_expression(
+    value: &str,
+    replacement: &FindReplaceRecipe,
+) -> Result<String, String> {
+    if replacement.regex {
+        let replacement_text = source_backed_regex_replacement(&replacement.replace)?;
+        Ok(format!(
+            "regexp_replace(CAST({value} AS VARCHAR), {}, {}, 'g')",
+            duckdb_string_literal(&replacement.find),
+            duckdb_string_literal(&replacement_text)
+        ))
+    } else {
+        Ok(format!(
+            "replace(CAST({value} AS VARCHAR), {}, {})",
+            duckdb_string_literal(&replacement.find),
+            duckdb_string_literal(&replacement.replace)
+        ))
+    }
+}
+
 fn source_backed_filter_expression(
     filter: &RecipeFilter,
     rename_map: &HashMap<String, String>,
@@ -25733,23 +25794,22 @@ fn source_backed_projection_query(
         let expressions = plan
             .output_columns
             .iter()
-            .map(|column| {
+            .map(|column| -> Result<String, String> {
                 let identifier = duckdb_identifier(column);
                 if plan
                     .replacement_columns
                     .iter()
                     .any(|target| target == column)
                 {
-                    format!(
-                        "replace(CAST(t.{identifier} AS VARCHAR), {}, {}) AS {identifier}",
-                        duckdb_string_literal(&replacement.find),
-                        duckdb_string_literal(&replacement.replace)
-                    )
+                    Ok(format!(
+                        "{} AS {identifier}",
+                        source_backed_replace_expression(&format!("t.{identifier}"), replacement,)?
+                    ))
                 } else {
-                    format!("t.{identifier} AS {identifier}")
+                    Ok(format!("t.{identifier} AS {identifier}"))
                 }
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, String>>()?;
         format!(
             ", replaced AS (SELECT {} FROM {} AS t)",
             expressions.join(", "),
@@ -26266,15 +26326,14 @@ fn source_backed_projection_query(
         let changed_terms = plan
             .replacement_columns
             .iter()
-            .map(|column| {
+            .map(|column| -> Result<String, String> {
                 let identifier = duckdb_identifier(column);
-                format!(
-                    "CASE WHEN t.{identifier} IS DISTINCT FROM replace(CAST(t.{identifier} AS VARCHAR), {}, {}) THEN 1 ELSE 0 END",
-                    duckdb_string_literal(&replacement.find),
-                    duckdb_string_literal(&replacement.replace)
-                )
+                Ok(format!(
+                    "CASE WHEN t.{identifier} IS DISTINCT FROM {} THEN 1 ELSE 0 END",
+                    source_backed_replace_expression(&format!("t.{identifier}"), replacement,)?
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, String>>()?;
         Some(format!(
             "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){} SELECT CAST(COALESCE(SUM({}), 0) AS BIGINT) FROM {} AS t",
             renamed_expressions.join(", "),
@@ -28377,6 +28436,61 @@ mod tests {
         assert_eq!(result.dataset.row_count, source_frame.height());
         assert!(!dataset.history.state().can_undo);
 
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
+        let path = temporary_csv("text,city\nAna-01,Santo Domingo\nLuis-02,Santiago\n,La Vega\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            find_replace: Some(FindReplaceRecipe {
+                scope: FindReplaceScope::Column,
+                column: Some("text".to_owned()),
+                find: r"([A-Za-z]+)-(\d+)".to_owned(),
+                replace: "$2:$1".to_owned(),
+                regex: true,
+            }),
+            ..TransformRecipe::default()
+        };
+        assert!(source_backed_projection_recipe_supported(
+            &dataset.frame,
+            &recipe
+        ));
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta regex source-backed debe publicarse");
+
+        assert_eq!(result.replaced_cell_count, 2);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el resultado Parquet debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(
+            output.column("text").unwrap().str().unwrap().get(0),
+            Some("01:Ana")
+        );
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
