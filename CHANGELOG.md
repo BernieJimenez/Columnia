@@ -6,6 +6,15 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.108.0] - 2026-09-01
+
+### Verificado
+
+- Se incorpora `perf:duckdb:join`, un benchmark opt-in que genera una fuente
+  CSV temporal de al menos 512 MiB, ejecuta un `LEFT JOIN` source-backed desde
+  DuckDB, conserva el frame activo sin filas y valida conteo, paginación,
+  working set de 512 MiB y cleanup sin guardar datos del benchmark.
+
 ## [0.107.0] - 2026-09-01
 
 ### Mejorado

@@ -2,7 +2,7 @@
   "name": "columnia",
   "private": true,
   "license": "MIT",
-  "version": "0.107.0",
+  "version": "0.108.0",
   "engines": {
     "node": ">=24.14.0 <25",
     "npm": ">=11.10.1 <12"
@@ -49,6 +49,7 @@
     "perf:summary": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/summarize-performance.ps1",
     "perf:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-performance-baseline.ps1",
     "perf:benchmark": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-datasets.ps1",
+    "perf:duckdb:join": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-duckdb-join.ps1",
     "perf:webview2": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-webview2-dataset.ps1",
     "verify:experience": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-experience.ps1",
     "verify:tier": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-tier.ps1",

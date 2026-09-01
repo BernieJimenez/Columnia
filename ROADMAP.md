@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.107.0`.
+- Versión actual del prototipo: `0.108.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1412,6 +1412,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; esto
   habilita la expansión fuera de RAM de los planes compatibles, pero aún
   requiere benchmark sostenido y validación con datasets reales grandes.
+  La versión 0.108.0 incorpora `npm run perf:duckdb:join`: una corrida
+  reproducible de una fuente CSV temporal de 512 MiB y 1.810.432 filas ejecuta
+  un `LEFT JOIN` directo desde DuckDB, conserva el frame activo vacío y valida
+  conteo, paginación, working set de 512 MiB y cleanup. Esta evidencia cubre
+  la ruta source-backed concreta, pero no cierra el presupuesto global de la
+  aplicación ni la ejecución integral fuera de RAM.
   Desde v0.65.0, la apertura de fuentes CSV/TSV/TXT delimitadas y Parquet de al
   menos 512 MiB conserva solo esquema, primera página y conteo; las consultas
   y páginas compatibles pueden seguir en disco, mientras las operaciones que
@@ -1902,6 +1908,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.103.0 persiste por proyecto la cobertura de filas de correlaciones (`10.000`, `50.000` o `100.000`), migra el catálogo SQLite a v9 y mantiene fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src/App.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.1 renombra el componente interno de vista previa a `DatasetPreviewPanel` para que el árbol activo no contenga coincidencias textuales con la marca retirada, sin alterar el contrato visible ni la funcionalidad. | `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-09-01 | Versión 0.108.0 añade `perf:duckdb:join`, un benchmark opt-in de una fuente CSV temporal de 512 MiB y 1.810.432 filas; ejecuta un LEFT JOIN source-backed desde DuckDB, conserva el frame activo vacío, valida conteo/paginación/working set de 512 MiB y confirma cleanup. La ejecución integral fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `tools/benchmark-duckdb-join.ps1`, `package.json`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.107.0 añade la ruta DuckDB `DataFrame` activo + snapshot Parquet comparado para evitar materializar de nuevo el lado comparado en JOINs compatibles; Polars la promueve automáticamente, se conserva fallback seguro y una regresión comprueba paridad de filas, nulos y orden. La ejecución completa fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.106.0 persiste en SQLite v12 el formato de exportación, la protección de datos, las columnas clave de comparación y el tipo de JOIN; Rust valida listas cerradas, la reapertura filtra claves contra el snapshot restaurado y no se guardan muestras ni valores. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/delivery/DeliveryPhase.tsx`, `src/bridge.ts`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.105.2 corrige el orden global de `FULL JOIN` en consultas DuckDB source-backed: la preparación usa el conteo real del dataset activo aunque el esquema en memoria esté vacío, y una regresión ejecuta ambos snapshots Parquet sin materializar el activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

@@ -26722,8 +26722,8 @@ pub async fn apply_transform_recipe(
 mod tests {
     use std::{
         fs::{self, File},
-        io::Write,
-        time::{SystemTime, UNIX_EPOCH},
+        io::{BufWriter, Write},
+        time::{Instant, SystemTime, UNIX_EPOCH},
     };
 
     use super::*;
@@ -29034,6 +29034,139 @@ mod tests {
             ]
         );
         drop(compared_directory);
+    }
+
+    fn write_duckdb_join_benchmark_csv(path: &Path, target_bytes: u64) -> (usize, u64) {
+        let file = File::create(path).expect("la fuente del benchmark debe poder crearse");
+        let mut writer = BufWriter::with_capacity(1024 * 1024, file);
+        let payload = "x".repeat(256);
+        writer
+            .write_all(b"id,name,amount,payload\n")
+            .expect("el encabezado del benchmark debe escribirse");
+        let mut row_count = 0;
+        let mut written_bytes = 0;
+        while written_bytes < target_bytes {
+            for _ in 0..8192 {
+                row_count += 1;
+                writeln!(
+                    writer,
+                    "id-{row_count},Synthetic name {row_count},123.45,{payload}"
+                )
+                .expect("las filas del benchmark deben escribirse");
+            }
+            writer
+                .flush()
+                .expect("el benchmark debe vaciar sus bloques");
+            written_bytes = writer
+                .get_ref()
+                .metadata()
+                .expect("la fuente del benchmark debe conservar sus metadatos")
+                .len();
+        }
+        writer
+            .flush()
+            .expect("la fuente del benchmark debe sincronizarse");
+        let written_bytes = fs::metadata(path)
+            .expect("la fuente del benchmark debe existir")
+            .len();
+        (row_count, written_bytes)
+    }
+
+    #[test]
+    #[ignore = "benchmark opt-in de escala; ejecutado por perf:duckdb:join"]
+    fn duckdb_source_backed_join_handles_large_file() {
+        let target_mib = std::env::var("COLUMNIA_DUCKDB_JOIN_TARGET_MIB")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(512);
+        let target_bytes = target_mib
+            .checked_mul(1024 * 1024)
+            .expect("el objetivo del benchmark debe caber en bytes");
+        let directory = tempfile::tempdir().expect("se debe crear el directorio del benchmark");
+        let current_path = directory.path().join("current.csv");
+        let started = Instant::now();
+        let (row_count, file_size_bytes) =
+            write_duckdb_join_benchmark_csv(&current_path, target_bytes);
+        assert!(file_size_bytes >= target_bytes);
+        let current_frame = df![
+            "id" => Vec::<String>::new(),
+            "name" => Vec::<String>::new(),
+            "amount" => Vec::<String>::new(),
+            "payload" => Vec::<String>::new()
+        ]
+        .expect("el esquema source-backed del benchmark debe construirse");
+        let loaded_row_count = row_count;
+        assert_eq!(current_frame.height(), 0);
+        assert_eq!(loaded_row_count, row_count);
+        let compared = df![
+            "id" => &["id-1", "id-2", "id-3", "id-unmatched"],
+            "segment" => &["A", "B", "C", "Z"]
+        ]
+        .expect("la comparación del benchmark debe construirse");
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let dataset = LoadedDataset {
+            source_path: Some(current_path.clone()),
+            file_name: "current.csv".to_owned(),
+            file_size_bytes,
+            row_count: loaded_row_count,
+            frame: current_frame,
+            source_backed: true,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+        };
+        let (source_path, source_format) = current_duckdb_file_source(&dataset)
+            .expect("la fuente grande debe poder registrarse en DuckDB");
+        let compared_schema = read_parquet_schema_frame(&compared_path)
+            .expect("el esquema comparado debe leerse sin materializar sus filas");
+        let spec = prepare_duckdb_query_with_row_count(
+            "SELECT id, segment FROM dataset LEFT JOIN compared ON dataset.id = compared.id LIMIT 3",
+            &dataset.frame,
+            Some(&compared_schema),
+            dataset.row_count,
+        )
+        .expect("el JOIN del benchmark debe validar sus esquemas");
+        let result = crate::duckdb_query::execute_duckdb_query_from_file_sources(
+            &source_path,
+            source_format,
+            Some(&compared_path),
+            &spec,
+            || false,
+        )
+        .expect("DuckDB debe consultar la fuente grande desde disco");
+
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(result.row_count, row_count);
+        assert_eq!(result.rows.len(), 3);
+        assert_eq!(
+            result.rows[0],
+            vec![Some("id-1".to_owned()), Some("A".to_owned())]
+        );
+        assert_eq!(
+            result.rows[2],
+            vec![Some("id-3".to_owned()), Some("C".to_owned())]
+        );
+        let source_backed_frame_rows = dataset.frame.height();
+        let elapsed_ms = started.elapsed().as_millis();
+        let current_root = directory.path().to_path_buf();
+        drop(dataset);
+        drop(compared_directory);
+        drop(directory);
+        let cleanup_verified = !current_root.exists();
+        assert!(cleanup_verified);
+        println!(
+            "DUCKDB_JOIN_BENCHMARK:{}",
+            serde_json::json!({
+                "targetMiB": target_mib,
+                "fileSizeBytes": file_size_bytes,
+                "rowCount": row_count,
+                "resultRowCount": result.row_count,
+                "pageRows": result.rows.len(),
+                "sourceBackedFrameRows": source_backed_frame_rows,
+                "elapsedMs": elapsed_ms,
+                "cleanupVerified": cleanup_verified
+            })
+        );
     }
 
     #[test]
