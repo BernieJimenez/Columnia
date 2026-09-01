@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.102.0] - 2026-09-01
+
+### Mejorado
+
+- Las recetas source-backed interpretan fechas ISO seguras (`YYYY-MM-DD`,
+  fecha-hora sin offset y sufijo UTC `Z`) directamente sobre CSV, TSV, TXT
+  delimitado o Parquet mediante DuckDB.
+- Los valores con offsets distintos de UTC o ISO inválidos conservan el
+  fallback eager para mantener la semántica estricta y no convertir errores en
+  nulos.
+
+### Verificado
+
+- Regresiones comparan fechas ISO ingenuas/UTC con eager y comprueban el
+  fallback para offsets no UTC.
+
 ## [0.101.0] - 2026-09-01
 
 ### Mejorado

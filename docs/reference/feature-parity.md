@@ -81,8 +81,10 @@ Los tratamientos IQR source-backed calculan cuantiles sobre la fuente y aplican
 `cap`, `drop` o `impute` a columnas `Int64`/`Float64`, con baseline común,
 nulos preservados, validación de mínimo de valores, finitud y precisión, y
 contadores separados para celdas ajustadas, filas retiradas y filtros.
-Las fechas ISO, partes de fecha con filtros previos, expresiones regulares y
-combinaciones no seguras usan un fallback eager atómico y mantienen
+Las fechas ISO sin offset o con sufijo UTC `Z` también se convierten sobre la
+fuente; los offsets distintos de UTC, valores inválidos, partes de fecha con
+filtros previos, expresiones regulares y combinaciones no seguras usan un
+fallback eager atómico y mantienen
 la recuperación del dataset anterior ante errores o cancelación.
 
 ## Proyectos y almacenamiento

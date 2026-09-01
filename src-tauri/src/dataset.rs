@@ -22909,10 +22909,15 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
         || !recipe.text_extractions.is_empty()
         || recipe.group_summary.is_some()
         || !recipe.outlier_treatments.is_empty())
-        && recipe
-            .date_parses
-            .iter()
-            .all(|parse| !matches!(parse.format, RecipeDateFormat::Iso8601))
+        && recipe.date_parses.iter().all(|parse| {
+            matches!(
+                parse.format,
+                RecipeDateFormat::Ymd
+                    | RecipeDateFormat::Dmy
+                    | RecipeDateFormat::Mdy
+                    | RecipeDateFormat::Iso8601
+            )
+        })
         && recipe
             .calculated_column
             .as_ref()
@@ -24059,9 +24064,31 @@ fn duckdb_date_format(format: RecipeDateFormat) -> Result<&'static str, String> 
         RecipeDateFormat::Ymd => Ok("%Y-%m-%d"),
         RecipeDateFormat::Dmy => Ok("%d/%m/%Y"),
         RecipeDateFormat::Mdy => Ok("%m/%d/%Y"),
-        RecipeDateFormat::Iso8601 => {
-            Err("Las fechas ISO requieren materializar la fuente.".to_owned())
-        }
+        RecipeDateFormat::Iso8601 => Err("ISO no usa un formato único.".to_owned()),
+    }
+}
+
+fn duckdb_iso8601_expression(column: &str, target: RecipeDateTarget) -> String {
+    let raw = format!("TRIM(CAST({column} AS VARCHAR))");
+    let without_utc_suffix = format!(
+        "CASE WHEN RIGHT({raw}, 1) = 'Z' THEN SUBSTR({raw}, 1, LENGTH({raw}) - 1) ELSE {raw} END"
+    );
+    let value = format!("NULLIF({without_utc_suffix}, '')");
+    let parsed = [
+        "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+    ]
+    .into_iter()
+    .map(|format| format!("try_strptime({value}, {})", duckdb_string_literal(format)))
+    .collect::<Vec<_>>()
+    .join(", ");
+    let parsed = format!("COALESCE({parsed})");
+    match target {
+        RecipeDateTarget::Date => format!("CAST({parsed} AS DATE)"),
+        RecipeDateTarget::Datetime => parsed,
     }
 }
 
@@ -24070,6 +24097,9 @@ fn duckdb_date_expression(
     format: RecipeDateFormat,
     target: RecipeDateTarget,
 ) -> Result<String, String> {
+    if format == RecipeDateFormat::Iso8601 {
+        return Ok(duckdb_iso8601_expression(column, target));
+    }
     let parsed = format!(
         "strptime(NULLIF(TRIM(CAST({column} AS VARCHAR)), ''), {})",
         duckdb_string_literal(duckdb_date_format(format)?)
@@ -26492,12 +26522,71 @@ pub async fn inspect_sample_dataset(
     inspect_dataset_path(&app, path).await
 }
 
+fn source_backed_iso8601_values_are_supported(
+    dataset: &LoadedDataset,
+    recipe: &TransformRecipe,
+) -> Result<bool, String> {
+    let iso_columns = recipe
+        .date_parses
+        .iter()
+        .filter(|parse| {
+            parse.format == RecipeDateFormat::Iso8601
+                && recipe_column(&dataset.frame, &parse.column).is_ok_and(|column| {
+                    !matches!(
+                        (column.dtype(), parse.target),
+                        (DataType::Date, RecipeDateTarget::Date)
+                            | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    if iso_columns.is_empty() {
+        return Ok(true);
+    }
+    let source_path = dataset
+        .source_path
+        .as_deref()
+        .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != dataset.file_size_bytes {
+        return Err("El archivo source-backed cambió después de la carga.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        "csv" | "tsv" | "txt" => {
+            let delimiter = detect_delimiter(&source_path, &extension)?;
+            crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+        }
+        _ => {
+            return Err("La receta source-backed requiere una fuente compatible.".to_owned());
+        }
+    };
+    let invalid_terms = iso_columns
+        .iter()
+        .map(|parse| {
+            let identifier = duckdb_identifier(&parse.column);
+            let value =
+                duckdb_iso8601_expression(&format!("t.{identifier}"), RecipeDateTarget::Datetime);
+            format!("CASE WHEN t.{identifier} IS NOT NULL AND {value} IS NULL THEN 1 ELSE 0 END")
+        })
+        .collect::<Vec<_>>();
+    let query = format!(
+        "SELECT CAST(COALESCE(SUM({}), 0) AS BIGINT) FROM dataset AS t",
+        invalid_terms.join(" + ")
+    );
+    let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, &query)?;
+    Ok(invalid == 0)
+}
+
 fn apply_recipe_to_dataset(
     dataset: &mut LoadedDataset,
     recipe: &TransformRecipe,
 ) -> Result<TransformRecipeResult, String> {
     validate_recipe_structure(recipe)?;
-    if dataset.source_backed && source_backed_projection_recipe_supported(&dataset.frame, recipe) {
+    if dataset.source_backed
+        && source_backed_projection_recipe_supported(&dataset.frame, recipe)
+        && source_backed_iso8601_values_are_supported(dataset, recipe)?
+    {
         return apply_source_backed_projection_recipe(dataset, recipe);
     }
     materialize_loaded_dataset(dataset)?;
@@ -27379,6 +27468,95 @@ mod tests {
 
             fs::remove_file(path).expect("se debe limpiar el CSV temporal");
         }
+    }
+
+    #[test]
+    fn source_backed_iso8601_matches_eager_for_naive_and_utc_values() {
+        for target in [RecipeDateTarget::Datetime, RecipeDateTarget::Date] {
+            let path =
+                temporary_csv("when\n2025-12-31\n2025-12-31T23:15:30.125\n2025-12-31T23:15:30Z\n");
+            let (source_frame, _) = load_csv(&path).expect("el CSV ISO debe cargar");
+            let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+                .expect("la fuente ISO debe inspeccionarse en disco");
+            let history =
+                HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+            let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+            let mut dataset = LoadedDataset {
+                source_path: Some(path.clone()),
+                file_name: "dataset.csv".to_owned(),
+                file_size_bytes,
+                row_count,
+                frame: schema,
+                source_backed: true,
+                profile: None,
+                history,
+            };
+            let recipe = TransformRecipe {
+                date_parses: vec![RecipeDateParse {
+                    column: "when".to_owned(),
+                    format: RecipeDateFormat::Iso8601,
+                    target,
+                }],
+                ..TransformRecipe::default()
+            };
+            let expected = apply_recipe_to_frame(&source_frame, &recipe)
+                .expect("la receta eager ISO debe ser válida")
+                .0;
+
+            let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+                .expect("la receta ISO source-backed debe publicarse");
+
+            assert!(dataset.source_backed);
+            assert_eq!(result.parsed_date_column_count, 1);
+            let output_path = dataset
+                .source_path
+                .as_deref()
+                .expect("el resultado debe conservar una fuente Parquet");
+            let output = read_parquet_frame(output_path).expect("el Parquet ISO debe leerse");
+            assert!(output.equals_missing(&expected));
+
+            fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+        }
+    }
+
+    #[test]
+    fn source_backed_iso8601_falls_back_for_non_utc_offsets() {
+        let path = temporary_csv("when\n2025-12-31T23:15:30+02:00\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV con offset debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente con offset debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "when".to_owned(),
+                format: RecipeDateFormat::Iso8601,
+                target: RecipeDateTarget::Datetime,
+            }],
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager con offset debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("el fallback eager ISO debe publicarse");
+
+        assert!(!dataset.source_backed);
+        assert_eq!(result.parsed_date_column_count, 1);
+        assert!(dataset.frame.equals_missing(&expected));
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]
