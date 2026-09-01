@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.124.0] - 2026-09-01
+
+### Mejorado
+
+- Los filtros `Eq` y `Neq` sobre columnas `Date` y `Datetime` aceptan
+  literales ISO 8601 y comparan el valor temporal real en eager, Polars lazy y
+  DuckDB source-backed, sin depender de la representación textual o de la
+  unidad interna del timestamp.
+
+### Verificado
+
+- La regresión cubre igualdad y desigualdad sobre una fecha parseada a
+  `Datetime`, compara la salida source-backed con eager y confirma que el
+  `DataFrame` activo permanece vacío.
+
 ## [0.123.0] - 2026-09-01
 
 ### Mejorado

@@ -21039,6 +21039,14 @@ fn recipe_filter_is_ordered(operator: RecipeFilterOperator) -> bool {
     )
 }
 
+fn recipe_filter_uses_temporal_literal(operator: RecipeFilterOperator) -> bool {
+    recipe_filter_is_ordered(operator)
+        || matches!(
+            operator,
+            RecipeFilterOperator::Eq | RecipeFilterOperator::Neq
+        )
+}
+
 fn parse_recipe_filter_datetime(value: &str, column: &str) -> Result<NaiveDateTime, String> {
     parse_recipe_datetime(value, RecipeDateFormat::Iso8601).map_err(|_| {
         format!("El valor del filtro para '{column}' debe ser una fecha ISO 8601 válida.")
@@ -21176,7 +21184,7 @@ fn apply_recipe_filters(
         }
 
         let column_dtype = recipe_column(&frame, name)?.dtype();
-        let temporal_literal = if recipe_filter_is_ordered(filter.operator)
+        let temporal_literal = if recipe_filter_uses_temporal_literal(filter.operator)
             && matches!(
                 column_dtype,
                 polars::prelude::DataType::Date | polars::prelude::DataType::Datetime(_, None)
@@ -21242,8 +21250,22 @@ fn apply_recipe_filters(
             .map(|(row, value)| match filter.operator {
                 RecipeFilterOperator::IsNull => value.is_none(),
                 RecipeFilterOperator::NotNull => value.is_some(),
-                RecipeFilterOperator::Eq => value.as_deref() == Some(literal),
-                RecipeFilterOperator::Neq => value.as_deref().is_some_and(|value| value != literal),
+                RecipeFilterOperator::Eq => temporal_values.as_ref().map_or_else(
+                    || value.as_deref() == Some(literal),
+                    |values| {
+                        values[row].is_some_and(|value| {
+                            value == temporal_literal.expect("el filtro requiere una fecha")
+                        })
+                    },
+                ),
+                RecipeFilterOperator::Neq => temporal_values.as_ref().map_or_else(
+                    || value.as_deref().is_some_and(|value| value != literal),
+                    |values| {
+                        values[row].is_some_and(|value| {
+                            value != temporal_literal.expect("el filtro requiere una fecha")
+                        })
+                    },
+                ),
                 RecipeFilterOperator::Contains => value
                     .as_deref()
                     .is_some_and(|value| value.to_lowercase().contains(&needle)),
@@ -22747,18 +22769,17 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
     }
 
     for filter in &recipe.filters {
-        if !matches!(
-            filter.operator,
-            RecipeFilterOperator::Gt
-                | RecipeFilterOperator::Lt
-                | RecipeFilterOperator::Gte
-                | RecipeFilterOperator::Lte
-        ) {
-            continue;
-        }
         let name = filter.column.as_str();
         let column = recipe_column(source, name)?;
         let date_parse = recipe.date_parses.iter().find(|parse| parse.column == name);
+        let native_temporal =
+            matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None));
+        if !recipe_filter_is_ordered(filter.operator)
+            && !(recipe_filter_uses_temporal_literal(filter.operator) && date_parse.is_some())
+            && !native_temporal
+        {
+            continue;
+        }
         let values = strict_column_text(column)?;
         for (row, value) in values.iter().enumerate() {
             if let Some(value) = value {
@@ -22778,7 +22799,7 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
                             name
                         )
                     })?;
-                } else {
+                } else if recipe_filter_is_ordered(filter.operator) {
                     strict_f64(
                         value,
                         &format!("La fila {} de la columna '{name}'", row + 1),
@@ -22923,6 +22944,32 @@ fn lazy_filter_expression(
     Ok(match filter.operator {
         RecipeFilterOperator::IsNull => value.is_null(),
         RecipeFilterOperator::NotNull => value.is_not_null(),
+        RecipeFilterOperator::Eq | RecipeFilterOperator::Neq
+            if matches!(column_dtype, DataType::Date | DataType::Datetime(_, None)) =>
+        {
+            let datetime = parse_recipe_filter_datetime(literal, effective_name)?;
+            let (value, literal) = match column_dtype {
+                DataType::Date => {
+                    let epoch =
+                        NaiveDate::from_ymd_opt(1970, 1, 1).expect("la época Unix es válida");
+                    let days =
+                        i32::try_from((datetime.date() - epoch).num_days()).map_err(|_| {
+                            "La fecha del filtro está fuera del rango admitido.".to_owned()
+                        })?;
+                    (value.cast(DataType::Int32), lit(days))
+                }
+                DataType::Datetime(unit, None) => (
+                    value.cast(DataType::Int64),
+                    lit(datetime_timestamp_in_unit(datetime, *unit)?),
+                ),
+                _ => unreachable!("el match exterior limita esta rama a fechas"),
+            };
+            if filter.operator == RecipeFilterOperator::Eq {
+                value.eq(literal)
+            } else {
+                value.neq(literal)
+            }
+        }
         RecipeFilterOperator::Eq => value.cast(DataType::String).eq(lit(literal.to_owned())),
         RecipeFilterOperator::Neq => value.cast(DataType::String).neq(lit(literal.to_owned())),
         RecipeFilterOperator::Contains => value
@@ -25444,7 +25491,7 @@ fn source_backed_projection_plan(
         if literal.contains('\0') {
             return Err("El valor del filtro contiene un carácter no válido.".to_owned());
         }
-        if recipe_filter_is_ordered(filter.operator) {
+        if recipe_filter_uses_temporal_literal(filter.operator) {
             let dtype = source_backed_target_dtype(schema, &filter.column, recipe, &rename_map)?;
             if matches!(&dtype, DataType::Date | DataType::Datetime(_, None)) {
                 parse_recipe_filter_datetime(literal, &filter.column)?;
@@ -25453,7 +25500,7 @@ fn source_backed_projection_plan(
                     "La comparación de '{}' no admite fechas con zona horaria.",
                     filter.column
                 ));
-            } else {
+            } else if recipe_filter_is_ordered(filter.operator) {
                 strict_f64(literal, "El valor del filtro")?;
             }
         }
@@ -25558,6 +25605,28 @@ fn source_backed_filter_expression(
     let expression = match filter.operator {
         RecipeFilterOperator::IsNull => format!("{column} IS NULL"),
         RecipeFilterOperator::NotNull => format!("{column} IS NOT NULL"),
+        RecipeFilterOperator::Eq | RecipeFilterOperator::Neq
+            if matches!(dtype, DataType::Date | DataType::Datetime(_, None)) =>
+        {
+            let datetime = parse_recipe_filter_datetime(literal, &filter.column)?;
+            let operator = if filter.operator == RecipeFilterOperator::Eq {
+                "="
+            } else {
+                "<>"
+            };
+            let literal = match dtype {
+                DataType::Date => format!(
+                    "DATE {}",
+                    duckdb_string_literal(&datetime.date().format("%Y-%m-%d").to_string())
+                ),
+                DataType::Datetime(_, None) => format!(
+                    "TIMESTAMP {}",
+                    duckdb_string_literal(&datetime.format("%Y-%m-%d %H:%M:%S%.f").to_string(),)
+                ),
+                _ => unreachable!("el match exterior limita esta rama a fechas"),
+            };
+            format!("{column} {operator} {literal}")
+        }
         RecipeFilterOperator::Eq => format!(
             "CAST({column} AS VARCHAR) = {}",
             duckdb_string_literal(literal)
@@ -29058,6 +29127,73 @@ mod tests {
         assert_eq!(result.removed_row_count, 2);
         assert_eq!(output.height(), 2);
         assert_eq!(output.column("day").unwrap().dtype(), &DataType::Date);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_date_equality_filters_match_eager() {
+        let path = temporary_csv(
+            "day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n01/03/2026,40\n",
+        );
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "day".to_owned(),
+                format: RecipeDateFormat::Dmy,
+                target: RecipeDateTarget::Datetime,
+            }],
+            filters: vec![
+                RecipeFilter {
+                    column: "day".to_owned(),
+                    operator: RecipeFilterOperator::Eq,
+                    value: Some("2026-01-01".to_owned()),
+                },
+                RecipeFilter {
+                    column: "day".to_owned(),
+                    operator: RecipeFilterOperator::Neq,
+                    value: Some("2026-03-01".to_owned()),
+                },
+            ],
+            ..TransformRecipe::default()
+        };
+        assert!(source_backed_projection_recipe_supported(
+            &dataset.frame,
+            &recipe
+        ));
+        let expected = apply_eager_recipe_to_frame(&source_frame, &recipe)
+            .expect("la igualdad de fecha eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la igualdad de fecha source-backed debe publicarse");
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el resultado Parquet debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(result.removed_row_count, 3);
+        assert_eq!(output.height(), 1);
+        assert!(matches!(
+            output.column("day").unwrap().dtype(),
+            DataType::Datetime(_, None)
+        ));
         assert!(dataset.source_backed);
         assert_eq!(dataset.frame.height(), 0);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
