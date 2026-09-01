@@ -14217,6 +14217,36 @@ where
     )
 }
 
+fn copy_file_with_cancel<C, W>(
+    source_path: &Path,
+    destination: &mut W,
+    is_cancelled: C,
+) -> Result<u64, String>
+where
+    C: Fn() -> bool,
+    W: Write,
+{
+    let mut source = File::open(source_path)
+        .map_err(|error| format!("No se pudo leer el archivo temporal: {error}"))?;
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut copied = 0_u64;
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let read = source
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo leer el archivo temporal: {error}"))?;
+        if read == 0 {
+            return Ok(copied);
+        }
+        destination
+            .write_all(&buffer[..read])
+            .map_err(|error| format!("No se pudo copiar el archivo temporal: {error}"))?;
+        copied = copied
+            .checked_add(read as u64)
+            .ok_or_else(|| "El tamaño de la exportación excede la capacidad local.".to_owned())?;
+    }
+}
+
 fn export_source_backed_parquet_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
@@ -14286,6 +14316,83 @@ where
             .to_owned(),
         file_size_bytes,
         format: ExportFormat::Parquet.label(),
+        protected_column_count: 0,
+        protected_columns: Vec::new(),
+    })
+}
+
+fn export_source_backed_csv_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    destination: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió después de la validación.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Err("El formato source-backed no se puede exportar a CSV.".to_owned()),
+    };
+
+    report("Preparando archivo temporal", 10);
+    let scratch = tempfile::tempdir_in(parent)
+        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
+    let partial = scratch.path().join("dataset.partial.csv");
+    report("Escribiendo dataset", 25);
+    let export_cancellation = is_cancelled.clone();
+    crate::duckdb_query::export_file_to_csv_with_cancel(
+        &source_path,
+        source_format,
+        &partial,
+        export_cancellation,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
+    copy_file_with_cancel(&partial, temporary.as_file_mut(), is_cancelled.clone())?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
+    }
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+    let file_size_bytes = fs::metadata(&destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset.csv")
+            .to_owned(),
+        file_size_bytes,
+        format: ExportFormat::Csv.label(),
         protected_column_count: 0,
         protected_columns: Vec::new(),
     })
@@ -18563,8 +18670,10 @@ pub async fn export_dataset(
             })?
         })
     };
-    if matches!(format, ExportFormat::Json | ExportFormat::Parquet)
-        && privacy_mode == PrivacyMode::None
+    if matches!(
+        format,
+        ExportFormat::Csv | ExportFormat::Json | ExportFormat::Parquet
+    ) && privacy_mode == PrivacyMode::None
         && recipe.is_none()
         && quality_rules.iter().all(source_quality_rule_is_incremental)
     {
@@ -18625,19 +18734,38 @@ pub async fn export_dataset(
             let export_state = app.clone();
             let remembered_destination = destination.clone();
             let result = tauri::async_runtime::spawn_blocking(move || {
-                let export = match format {
-                    ExportFormat::Json => export_source_backed_json_atomic,
-                    ExportFormat::Parquet => export_source_backed_parquet_atomic,
+                let result = match format {
+                    ExportFormat::Csv => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_csv_atomic(
+                            &source_path,
+                            expected_file_size,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
+                    ExportFormat::Json => export_source_backed_json_atomic(
+                        &source_path,
+                        expected_file_size,
+                        &destination,
+                        |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                        || app.state::<DatasetState>().export_was_cancelled(generation),
+                    ),
+                    ExportFormat::Parquet => export_source_backed_parquet_atomic(
+                        &source_path,
+                        expected_file_size,
+                        &destination,
+                        |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                        || app.state::<DatasetState>().export_was_cancelled(generation),
+                    ),
                     _ => unreachable!("el filtro previo limita los formatos source-backed"),
                 };
-                export(
-                    &source_path,
-                    expected_file_size,
-                    &destination,
-                    |stage, percent| send_progress(&on_progress, "export", stage, percent),
-                    || app.state::<DatasetState>().export_was_cancelled(generation),
-                )
-                .map(Some)
+                result.map(Some)
             })
             .await
             .map_err(|error| format!("La exportación se interrumpió: {error}"))??;
@@ -28364,6 +28492,33 @@ mod tests {
         assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
         assert_eq!(directory.path().read_dir().unwrap().count(), 1);
         fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
+    #[test]
+    fn source_backed_csv_export_streams_without_materializing_the_active_frame() {
+        let source = temporary_csv("city,amount\nSanto Domingo,10\nSantiago,20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported.csv");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut progress = Vec::new();
+        let result = export_source_backed_csv_atomic(
+            &source,
+            expected_size,
+            &destination,
+            |stage, percent| progress.push((stage, percent)),
+            || false,
+        )
+        .expect("la exportación CSV source-backed debe funcionar");
+        let exported = read_delimited_frame(&destination, "csv")
+            .expect("la salida CSV debe poder leerse")
+            .height();
+
+        assert_eq!(result.format, "CSV");
+        assert_eq!(result.protected_column_count, 0);
+        assert_eq!(exported, 2);
+        assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert!(source.is_file());
+        assert!(destination.is_file());
     }
 
     #[test]

@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.110.0] - 2026-09-01
+
+### Mejorado
+
+- La exportación source-backed a CSV usa DuckDB directamente sobre CSV, TSV,
+  TXT delimitado o Parquet, conserva la publicación atómica y evita cargar el
+  `DataFrame` completo cuando no hay receta, privacidad adicional ni reglas no
+  incrementales.
+
+### Verificado
+
+- La ruta CSV aplica cancelación cooperativa durante la conversión y copia
+  temporal, valida que la fuente no cambie y neutraliza prefijos de fórmulas de
+  hoja de cálculo antes de publicar el archivo.
+
 ## [0.109.0] - 2026-09-01
 
 ### Mejorado

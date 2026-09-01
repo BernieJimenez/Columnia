@@ -230,6 +230,36 @@ pub(crate) fn export_file_to_json(
     Ok(())
 }
 
+pub(crate) fn export_file_to_csv_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para la exportación CSV: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        let source = csv_export_scan_expression(source_path, source_format);
+        let destination = destination
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let projection = csv_export_projection(connection, &source)?;
+        let query = format!(
+            "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT CSV, HEADER, DELIMITER ',')"
+        );
+        connection
+            .execute_batch(&query)
+            .map_err(|error| format!("DuckDB no pudo crear la exportación CSV: {error}"))?;
+        Ok(())
+    })
+}
+
 pub(crate) fn materialize_file_query_to_parquet(
     source_path: &Path,
     source_format: DuckDbFileFormat,
@@ -575,6 +605,50 @@ fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
     }
 }
 
+fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
+    let DuckDbFileFormat::Delimited { delimiter } = format else {
+        return file_scan_expression(path, format);
+    };
+    let escaped_path = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let delimiter = char::from(delimiter);
+    let escaped_delimiter = delimiter.to_string().replace('\'', "''");
+    format!("read_csv_auto('{escaped_path}', header = true, delim = '{escaped_delimiter}')")
+}
+
+fn csv_export_projection(connection: &Connection, source: &str) -> Result<String, String> {
+    let mut statement = connection
+        .prepare(&format!("DESCRIBE SELECT * FROM {source}"))
+        .map_err(|error| format!("DuckDB no pudo inspeccionar la exportación CSV: {error}"))?;
+    let columns = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| format!("DuckDB no pudo inspeccionar las columnas CSV: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("DuckDB no pudo leer las columnas CSV: {error}"))?;
+    if columns.is_empty() {
+        return Err("La fuente no contiene columnas exportables a CSV.".to_owned());
+    }
+
+    Ok(columns
+        .into_iter()
+        .map(|(name, data_type)| {
+            let identifier = quote_identifier(&name);
+            if data_type.to_ascii_uppercase().starts_with("VARCHAR") {
+                format!(
+                    "CASE WHEN left({identifier}, 1) IN ('=', '+', '-', '@', chr(9), chr(10), chr(13)) THEN chr(39) || {identifier} ELSE {identifier} END AS {identifier}"
+                )
+            } else {
+                identifier
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", "))
+}
+
 fn json_projection(
     connection: &Connection,
     source: &str,
@@ -866,6 +940,60 @@ mod tests {
         );
         assert!(path.is_file());
         assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn exports_a_delimited_source_to_csv_without_creating_a_snapshot() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("current.tsv");
+        let destination = directory.path().join("exported.csv");
+        fs::write(&source, "city\tvalue\nSanto Domingo\t10\n=1+1\t-20\n")
+            .expect("se debe escribir la fuente delimitada");
+
+        export_file_to_csv_with_cancel(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b'\t' },
+            &destination,
+            || false,
+        )
+        .expect("DuckDB debe exportar la fuente delimitada a CSV");
+
+        let lines = fs::read_to_string(&destination)
+            .expect("la salida CSV debe poder leerse")
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            vec![
+                "city,value".to_owned(),
+                "Santo Domingo,10".to_owned(),
+                "'=1+1,-20".to_owned()
+            ]
+        );
+        assert!(source.is_file());
+        assert!(destination.is_file());
+        assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn csv_export_honors_initial_cancellation() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("current.csv");
+        let destination = directory.path().join("exported.csv");
+        fs::write(&source, "city,value\nSanto Domingo,10\n")
+            .expect("se debe escribir la fuente CSV");
+
+        let error = export_file_to_csv_with_cancel(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            &destination,
+            || true,
+        )
+        .expect_err("una exportación cancelada no debe iniciar DuckDB");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+        assert!(!destination.exists());
     }
 
     #[test]

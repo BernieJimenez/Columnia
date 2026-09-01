@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.109.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.110.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -20,7 +20,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 272 frontend y 335 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | 272 frontend y 339 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-09-01, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; el inventario IPC registra 65 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, la página visible de la muestra, el motor SQL elegido, la cobertura de correlaciones, el perfil de rendimiento, el formato de exportación, la protección de datos, las claves de comparación y el tipo de JOIN elegido por proyecto, con fallback seguro y migración SQLite v12. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las consultas DuckDB fijan 512 MB de memoria, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar, renombrar, convertir tipos, parsear fechas fijas e ISO seguras, extraer partes de fecha, reemplazar texto literal, dividir y unir columnas de texto, calcular columnas simples y aplicar tratamientos IQR directamente sobre CSV/TSV/TXT delimitado o Parquet; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
 
 ### Estado verificable de Tier 5
@@ -94,6 +94,13 @@ cancelación cooperativa de la operación, no crea un snapshot intermedio y
 mantiene el `DataFrame` activo sin filas. Esto reduce la retención de la apertura
 sin presentar todavía la ejecución integral del `DataFrame` fuera de RAM como
 resuelta.
+
+Desde v0.110.0, la exportación source-backed a CSV también usa DuckDB para
+convertir directamente CSV/TSV/TXT delimitado o Parquet cuando no hay receta,
+privacidad adicional ni reglas de calidad no incrementales. La salida se crea
+en un temporal, neutraliza prefijos de fórmulas de hoja de cálculo, comprueba
+cancelación y cambios de la fuente y se publica atómicamente; las rutas que
+necesitan transformaciones o protecciones adicionales conservan materialización.
 
 La preferencia del motor SQL de Revisar (`Polars`/`DuckDB`) se conserva por
 proyecto en el workspace SQLite v12, con validación cerrada y fallback a la
@@ -914,6 +921,7 @@ Al actualizarlo:
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
 | 2026-09-01 | Versión 0.109.0: la apertura source-backed conserva esquema y primera página en Polars, cuenta filas con DuckDB y cancelación cooperativa, y la regresión end-to-end confirma conteo exacto, frame activo vacío y cleanup en una fuente CSV de al menos 512 MiB. La ejecución integral fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+| 2026-09-01 | Versión 0.110.0: la exportación source-backed a CSV usa DuckDB sobre fuentes delimitadas o Parquet, conserva cancelación, neutralización de fórmulas, validación de cambios y publicación atómica sin materializar el `DataFrame` activo en la ruta compatible. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.108.0: se añade el benchmark opt-in `perf:duckdb:join` para una fuente CSV temporal de 512 MiB; DuckDB conserva el frame source-backed vacío, comprueba conteo/paginación y el working set queda bajo 512 MiB con cleanup confirmado. La ejecución integral fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `tools/benchmark-duckdb-join.ps1`, `package.json`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.107.0: los JOINs DuckDB compatibles pueden combinar un `DataFrame` activo con el snapshot Parquet comparado, evitando materializar de nuevo sus filas; Polars promueve la ruta automáticamente, y una regresión verifica filas, nulos y orden. La ejecución completa fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.106.0: el workspace SQLite v12 persiste formato de exportación, protección de datos, claves de comparación y tipo de JOIN; Rust valida listas cerradas y la reapertura filtra claves contra el snapshot restaurado sin guardar muestras ni valores. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/delivery/DeliveryPhase.tsx`, `src/bridge.ts`, `src/App.test.tsx`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
