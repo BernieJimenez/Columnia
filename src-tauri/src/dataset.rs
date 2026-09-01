@@ -22905,6 +22905,7 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
         || recipe.find_replace.is_some()
         || recipe.split_column.is_some()
         || recipe.merge_columns.is_some()
+        || !recipe.contact_normalizations.is_empty()
         || !recipe.text_extractions.is_empty())
         && recipe
             .date_parses
@@ -22958,9 +22959,12 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
                     .as_deref()
                     .is_none_or(|delimiter| !delimiter.contains('\0'))
         })
+        && recipe
+            .contact_normalizations
+            .iter()
+            .all(|normalization| !normalization.column.contains('\0'))
         && recipe.outlier_treatments.is_empty()
         && recipe.group_summary.is_none()
-        && recipe.contact_normalizations.is_empty()
 }
 
 struct SourceBackedProjectionPlan {
@@ -22974,6 +22978,7 @@ struct SourceBackedProjectionPlan {
     replacement_columns: Vec<String>,
     split_columns: Option<SourceBackedSplitPlan>,
     merge_columns: Option<SourceBackedMergePlan>,
+    contact_normalizations: Vec<SourceBackedContactNormalizationPlan>,
     text_extractions: Vec<SourceBackedTextExtractionPlan>,
     dropped_column_count: usize,
     kept_order_changed: bool,
@@ -22998,6 +23003,11 @@ struct SourceBackedTextExtractionPlan {
     kind: ExtractionKind,
     name: String,
     delimiter: Option<String>,
+}
+
+struct SourceBackedContactNormalizationPlan {
+    column: String,
+    kind: ContactKind,
 }
 
 fn source_backed_projection_plan(
@@ -23449,6 +23459,60 @@ fn source_backed_projection_plan(
         None
     };
 
+    let contact_normalizations = if recipe.contact_normalizations.is_empty() {
+        Vec::new()
+    } else {
+        let mut unique_columns = HashSet::new();
+        recipe
+            .contact_normalizations
+            .iter()
+            .map(|normalization| {
+                if !unique_columns.insert(normalization.column.as_str()) {
+                    return Err(format!(
+                        "La columna '{}' tiene más de una normalización de contacto.",
+                        normalization.column
+                    ));
+                }
+                let source_column = recipe_column(schema, &normalization.column)?;
+                let column = rename_map
+                    .get(&normalization.column)
+                    .cloned()
+                    .unwrap_or_else(|| normalization.column.clone());
+                if recipe.keep_columns.is_some()
+                    && !selected_columns.iter().any(|name| name == &column)
+                {
+                    return Err(format!(
+                        "La columna '{column}' requerida por contactos fue descartada por keepColumns."
+                    ));
+                }
+                if split_columns
+                    .as_ref()
+                    .is_some_and(|split| split.drop_source && split.source == column)
+                {
+                    return Err(format!(
+                        "La normalización necesita '{column}', pero la división la descartaría."
+                    ));
+                }
+                if merge_columns.as_ref().is_some_and(|merge| {
+                    merge.drop_sources && merge.sources.iter().any(|source| source == &column)
+                }) {
+                    return Err(format!(
+                        "La normalización necesita '{column}', pero la unión la descartaría."
+                    ));
+                }
+                if !text_after_cast(&column, source_column) {
+                    return Err(format!(
+                        "La columna '{column}' debe ser de texto para normalizar contactos."
+                    ));
+                }
+                Ok(SourceBackedContactNormalizationPlan {
+                    column,
+                    kind: normalization.kind,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+
     let text_extractions = if recipe.text_extractions.is_empty() {
         Vec::new()
     } else {
@@ -23616,6 +23680,7 @@ fn source_backed_projection_plan(
         replacement_columns,
         split_columns,
         merge_columns,
+        contact_normalizations,
         text_extractions,
         dropped_column_count,
         kept_order_changed,
@@ -23834,6 +23899,35 @@ fn source_backed_text_extraction_expression(
                 duckdb_identifier(&extraction.name)
             ))
         }
+    }
+}
+
+fn source_backed_contact_normalization_expression(
+    normalization: &SourceBackedContactNormalizationPlan,
+) -> String {
+    let value = format!(
+        "CAST(t.{} AS VARCHAR)",
+        duckdb_identifier(&normalization.column)
+    );
+    let trimmed = format!(
+        "regexp_replace({value}, {}, '', 'g')",
+        duckdb_string_literal(r"^[\s\p{Z}]+|[\s\p{Z}]+$")
+    );
+    match normalization.kind {
+        ContactKind::Email => format!("lower({trimmed})"),
+        ContactKind::Phone => {
+            let digits = format!(
+                "regexp_replace({value}, {}, '', 'g')",
+                duckdb_string_literal(r"[^0-9]+")
+            );
+            format!(
+                "CASE WHEN {value} IS NULL THEN NULL WHEN left({trimmed}, 1) = '+' THEN '+' || {digits} ELSE {digits} END"
+            )
+        }
+        ContactKind::Address => format!(
+            "trim(regexp_replace({value}, {}, ' ', 'g'))",
+            duckdb_string_literal(r"[\s\p{Z}]+")
+        ),
     }
 }
 
@@ -24063,21 +24157,6 @@ fn source_backed_projection_query(
     } else {
         String::new()
     };
-    let text_extraction_cte = if plan.text_extractions.is_empty() {
-        String::new()
-    } else {
-        let source = result_source;
-        let expressions = plan
-            .text_extractions
-            .iter()
-            .map(source_backed_text_extraction_expression)
-            .collect::<Result<Vec<_>, String>>()?;
-        result_source = "text_extracted";
-        format!(
-            ", text_extracted AS (SELECT *, {} FROM {source} AS t)",
-            expressions.join(", ")
-        )
-    };
     let mut output_columns = plan.selected_columns.clone();
     if let Some(calculation) = &recipe.calculated_column {
         output_columns.push(calculation.name.clone());
@@ -24094,6 +24173,49 @@ fn source_backed_projection_query(
         }
         output_columns.push(merge.name.clone());
     }
+    let contact_input_source = result_source;
+    let contact_normalization_cte = if plan.contact_normalizations.is_empty() {
+        String::new()
+    } else {
+        let expressions = output_columns
+            .iter()
+            .map(|column| {
+                let identifier = duckdb_identifier(column);
+                if let Some(normalization) = plan
+                    .contact_normalizations
+                    .iter()
+                    .find(|normalization| normalization.column == *column)
+                {
+                    format!(
+                        "{} AS {identifier}",
+                        source_backed_contact_normalization_expression(normalization)
+                    )
+                } else {
+                    format!("t.{identifier} AS {identifier}")
+                }
+            })
+            .collect::<Vec<_>>();
+        result_source = "normalized_contacts";
+        format!(
+            ", normalized_contacts AS (SELECT {} FROM {contact_input_source} AS t)",
+            expressions.join(", ")
+        )
+    };
+    let text_extraction_cte = if plan.text_extractions.is_empty() {
+        String::new()
+    } else {
+        let source = result_source;
+        let expressions = plan
+            .text_extractions
+            .iter()
+            .map(source_backed_text_extraction_expression)
+            .collect::<Result<Vec<_>, String>>()?;
+        result_source = "text_extracted";
+        format!(
+            ", text_extracted AS (SELECT *, {} FROM {source} AS t)",
+            expressions.join(", ")
+        )
+    };
     output_columns.extend(
         plan.text_extractions
             .iter()
@@ -24104,7 +24226,7 @@ fn source_backed_projection_query(
         .map(|column| format!("t.{}", duckdb_identifier(column)))
         .collect::<Vec<_>>();
     let output = format!(
-        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{} SELECT {} FROM {} AS t",
+        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{}{} SELECT {} FROM {} AS t",
         renamed_expressions.join(", "),
         transformed_expressions.join(", "),
         filter_cte,
@@ -24112,6 +24234,7 @@ fn source_backed_projection_query(
         calculation_cte,
         split_cte,
         merge_cte,
+        contact_normalization_cte,
         text_extraction_cte,
         selected.join(", "),
         result_source
@@ -24144,15 +24267,44 @@ fn source_backed_projection_query(
             filtered_source
         ))
     };
+    let normalization_count = if plan.contact_normalizations.is_empty() {
+        None
+    } else {
+        let changed_terms = plan
+            .contact_normalizations
+            .iter()
+            .map(|normalization| {
+                let identifier = duckdb_identifier(&normalization.column);
+                format!(
+                    "CASE WHEN t.{identifier} IS DISTINCT FROM {} THEN 1 ELSE 0 END",
+                    source_backed_contact_normalization_expression(normalization)
+                )
+            })
+            .collect::<Vec<_>>();
+        Some(format!(
+            "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{} SELECT CAST(COALESCE(SUM({}), 0) AS BIGINT) FROM {} AS t",
+            renamed_expressions.join(", "),
+            transformed_expressions.join(", "),
+            filter_cte,
+            replacement_cte,
+            calculation_cte,
+            split_cte,
+            merge_cte,
+            changed_terms.join(" + "),
+            contact_input_source
+        ))
+    };
     Ok(SourceBackedProjectionQueries {
         output,
         replacement_count,
+        normalization_count,
     })
 }
 
 struct SourceBackedProjectionQueries {
     output: String,
     replacement_count: Option<String>,
+    normalization_count: Option<String>,
 }
 
 fn apply_source_backed_projection_recipe(
@@ -24191,6 +24343,7 @@ fn apply_source_backed_projection_recipe(
     let merge_dropped_source_count = plan.merge_columns.as_ref().map_or(0, |merge| {
         usize::from(merge.drop_sources) * merge.sources.len()
     });
+    let normalized_contact_column_count = plan.contact_normalizations.len();
     let extracted_column_count = plan.text_extractions.len();
     let dropped_source_column_count = split_dropped_source_count + merge_dropped_source_count;
     let structural_change = plan.renamed_column_count
@@ -24205,7 +24358,11 @@ fn apply_source_backed_projection_recipe(
         + usize::from(plan.kept_order_changed)
         > 0;
 
-    if !structural_change && recipe.filters.is_empty() && recipe.find_replace.is_none() {
+    if !structural_change
+        && recipe.filters.is_empty()
+        && recipe.find_replace.is_none()
+        && recipe.contact_normalizations.is_empty()
+    {
         let page_frame = collect_lazy_frame_streaming(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
             "No se pudo leer la vista previa source-backed",
@@ -24242,7 +24399,7 @@ fn apply_source_backed_projection_recipe(
             aggregated_column_count: 0,
             collapsed_row_count: 0,
             normalized_contact_cell_count: 0,
-            normalized_contact_column_count: 0,
+            normalized_contact_column_count,
             extracted_column_count,
             changed: false,
         });
@@ -24292,13 +24449,26 @@ fn apply_source_backed_projection_recipe(
         })
         .transpose()?
         .unwrap_or(0);
+    let normalized_contact_cell_count = queries
+        .normalization_count
+        .as_deref()
+        .map(|query| {
+            let count = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
+            usize::try_from(count)
+                .map_err(|_| "El conteo de normalizaciones excede el límite de memoria.".to_owned())
+        })
+        .transpose()?
+        .unwrap_or(0);
     let (_, current_source_size, _) = validate_dataset_file(&source_path)?;
     if current_source_size != dataset.file_size_bytes {
         let _ = fs::remove_file(&output_path);
         return Err("El archivo source-backed cambió durante la receta.".to_owned());
     }
     let removed_row_count = dataset.row_count.saturating_sub(output_row_count);
-    let changed = structural_change || removed_row_count > 0 || replaced_cell_count > 0;
+    let changed = structural_change
+        || removed_row_count > 0
+        || replaced_cell_count > 0
+        || normalized_contact_cell_count > 0;
     if !changed {
         let _ = fs::remove_file(&output_path);
         let page_frame = collect_lazy_frame_streaming(
@@ -24331,7 +24501,7 @@ fn apply_source_backed_projection_recipe(
             aggregated_column_count: 0,
             collapsed_row_count: 0,
             normalized_contact_cell_count: 0,
-            normalized_contact_column_count: 0,
+            normalized_contact_column_count,
             extracted_column_count,
             changed: false,
         });
@@ -24378,8 +24548,8 @@ fn apply_source_backed_projection_recipe(
         group_count: 0,
         aggregated_column_count: 0,
         collapsed_row_count: 0,
-        normalized_contact_cell_count: 0,
-        normalized_contact_column_count: 0,
+        normalized_contact_cell_count,
+        normalized_contact_column_count,
         extracted_column_count,
         changed,
     })
@@ -26567,6 +26737,138 @@ mod tests {
         assert_eq!(rows[2][7].as_deref(), Some(""));
         assert_eq!(rows[3][2], None);
         assert_eq!(rows[3][8], None);
+
+        fs::remove_file(path).expect("se debe limpiar el Parquet temporal");
+    }
+
+    #[test]
+    fn source_backed_contact_normalizations_match_eager_and_feed_extractions() {
+        let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("source.parquet");
+        let source_frame = DataFrame::new(
+            4,
+            vec![
+                Series::new(
+                    "email".into(),
+                    [
+                        Some("\u{a0}A@B.COM\u{a0}"),
+                        None,
+                        Some("i\u{307}@EXAMPLE.COM"),
+                        Some("ok@example.com"),
+                    ],
+                )
+                .into_column(),
+                Series::new(
+                    "phone".into(),
+                    [
+                        Some("\u{a0}+1 (809) 555-01\u{a0}"),
+                        Some("809-12"),
+                        None,
+                        Some("+"),
+                    ],
+                )
+                .into_column(),
+                Series::new(
+                    "address".into(),
+                    [
+                        Some(" Calle\u{a0}Uno\nNorte "),
+                        Some(" 12 "),
+                        None,
+                        Some("ok"),
+                    ],
+                )
+                .into_column(),
+            ],
+        )
+        .expect("el frame Parquet debe ser válido");
+        let mut parquet_frame = source_frame.clone();
+        let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
+        ParquetWriter::new(&mut file)
+            .finish(&mut parquet_frame)
+            .expect("se debe escribir el Parquet temporal");
+        let schema = read_parquet_schema_frame(&path).expect("se debe leer el esquema Parquet");
+        let row_count = source_frame.height();
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.parquet".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "email".to_owned(),
+                to: "mail".to_owned(),
+            }],
+            keep_columns: Some(vec![
+                "email".to_owned(),
+                "phone".to_owned(),
+                "address".to_owned(),
+            ]),
+            contact_normalizations: vec![
+                ContactNormalization {
+                    column: "email".to_owned(),
+                    kind: ContactKind::Email,
+                },
+                ContactNormalization {
+                    column: "phone".to_owned(),
+                    kind: ContactKind::Phone,
+                },
+                ContactNormalization {
+                    column: "address".to_owned(),
+                    kind: ContactKind::Address,
+                },
+            ],
+            text_extractions: vec![TextExtraction {
+                source: "email".to_owned(),
+                kind: ExtractionKind::Before,
+                name: "user".to_owned(),
+                delimiter: Some("@".to_owned()),
+            }],
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta source-backed debe publicar los contactos");
+
+        assert!(dataset.source_backed);
+        assert_eq!(
+            (
+                result.normalized_contact_cell_count,
+                result.normalized_contact_column_count,
+                result.extracted_column_count
+            ),
+            (6, 3, 1)
+        );
+        assert_eq!(
+            dataset.frame.get_column_names(),
+            ["mail", "phone", "address", "user"]
+        );
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        assert!(output.equals_missing(&expected));
+        let rows = result.dataset.rows;
+        assert_eq!(rows[0][0].as_deref(), Some("a@b.com"));
+        assert_eq!(rows[0][1].as_deref(), Some("+180955501"));
+        assert_eq!(rows[0][2].as_deref(), Some("Calle Uno Norte"));
+        assert_eq!(rows[0][3].as_deref(), Some("a"));
+        assert_eq!(rows[1][0], None);
+        assert_eq!(rows[1][1].as_deref(), Some("80912"));
+        assert_eq!(rows[1][2].as_deref(), Some("12"));
+        assert_eq!(rows[2][3].as_deref(), Some("i\u{307}"));
+        assert_eq!(rows[3][0].as_deref(), Some("ok@example.com"));
+        assert_eq!(rows[3][1].as_deref(), Some("+"));
 
         fs::remove_file(path).expect("se debe limpiar el Parquet temporal");
     }

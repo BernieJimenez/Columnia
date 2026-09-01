@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.98.0`.
+- Versión actual del prototipo: `0.99.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1053,7 +1053,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.98.0
+## 8.1. Cola de ejecución recomendada desde v0.99.0
 
 1. **Superficie de compatibilidad externa:** retirada en v0.90.0. El selector de
    recetas y el catálogo de proyectos exponen únicamente contratos nativos de
@@ -1483,7 +1483,9 @@ comparación no equivale a ejecución fuera de memoria general. La
    `dropSource`; desde v0.98 también ejecutan las seis extracciones textuales
    de tokens, dígitos, letras y segmentos antes/después de delimitadores
    literales, conservando Unicode, nulos, coincidencias ausentes y resultados
-   vacíos. ISO, regex y
+   vacíos; desde v0.99 también normalizan correo, teléfono y dirección en
+   DuckDB, con conteo exacto de celdas y extracciones posteriores sobre los
+   valores normalizados. ISO, reemplazo con regex y
    operaciones no compatibles conservan materialización. `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
@@ -1864,6 +1866,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-31 | Versión 0.96.0 añade unión de dos a dieciséis columnas de texto source-backed en DuckDB; conserva orden, nulos, cadenas vacías, separador, casts numérico→texto, `keepColumns` y `dropSources`, con una regresión de paridad contra eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.97.0 añade división de columnas de texto source-backed en DuckDB; conserva delimitadores Unicode, segmentos vacíos, nulos, resto final, `keepColumns`, renombrados y `dropSource`, con paridad contra eager y unión posterior. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.98.0 añade extracciones textuales source-backed de tokens, dígitos, letras Unicode y segmentos antes/después de delimitadores literales en DuckDB; conserva nulos, coincidencias ausentes, resultados vacíos, renombrados y `keepColumns`, con paridad contra eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.99.0 añade normalización de correo, teléfono y dirección source-backed en DuckDB; conserva nulos, espacios Unicode, prefijos telefónicos y conteos exactos, y permite extracciones posteriores sobre los valores normalizados con paridad contra eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
 | 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
 | 2026-08-28 | CDP funcional de ProjectsPanel y perf gate aprobados: 3 ciclos sostenidos, 470.25 MiB working set, 253.48 MiB privados y cleanup; accesibilidad visual 125%/200% y forced-colors aprobada. | `.local/validation/webview2-cdp/20260828T185215Z/summary.json`, `.local/validation/accessibility-visual/20260828T185137Z` |

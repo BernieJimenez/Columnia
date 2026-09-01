@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed pueden normalizar correo, teléfono y dirección
+  directamente en DuckDB, después de filtros y etapas estructurales compatibles,
+  y publicar el snapshot Parquet resultante.
+- La normalización conserva nulos, espacios Unicode, prefijos telefónicos,
+  renombrados y `keepColumns`, y las extracciones textuales posteriores pueden
+  consumir los valores normalizados.
+
+### Verificado
+
+- Una regresión compara los tres tipos de contacto y una extracción posterior
+  con la ruta eager, incluyendo conteo exacto de celdas modificadas.
+
 ## [0.98.0] - 2026-08-31
 
 ### Mejorado
