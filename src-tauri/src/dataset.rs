@@ -8005,9 +8005,13 @@ fn source_backed_text_expression(identifier: &str, mode: TextCleaningMode) -> Op
                 "CASE WHEN {normalized} IN ({values}) THEN NULL ELSE {identifier} END"
             ))
         }
-        TextCleaningMode::Booleans
-        | TextCleaningMode::FixEncoding
-        | TextCleaningMode::NullifyInvalidTypes => None,
+        TextCleaningMode::Booleans => {
+            let normalized = source_backed_normalized_text_expression(identifier, true);
+            Some(format!(
+                "CASE WHEN {normalized} IN ('true', 'yes', 'si') THEN 'true' WHEN {normalized} IN ('false', 'no') THEN 'false' ELSE {identifier} END"
+            ))
+        }
+        TextCleaningMode::FixEncoding | TextCleaningMode::NullifyInvalidTypes => None,
     }
 }
 
@@ -8018,9 +8022,7 @@ fn source_backed_text_cleaning_columns(
 ) -> Option<Vec<String>> {
     if matches!(
         mode,
-        TextCleaningMode::Booleans
-            | TextCleaningMode::FixEncoding
-            | TextCleaningMode::NullifyInvalidTypes
+        TextCleaningMode::FixEncoding | TextCleaningMode::NullifyInvalidTypes
     ) {
         return None;
     }
@@ -8049,6 +8051,49 @@ fn source_backed_text_cleaning_columns(
         return None;
     }
     Some(columns)
+}
+
+fn source_backed_boolean_candidate_columns(
+    dataset: &LoadedDataset,
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+) -> Option<Vec<String>> {
+    let columns = dataset
+        .frame
+        .columns()
+        .iter()
+        .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Some(Vec::new());
+    }
+    let normalized = columns
+        .iter()
+        .map(|name| {
+            (
+                name.clone(),
+                source_backed_normalized_text_expression(&duckdb_identifier(name), true),
+            )
+        })
+        .collect::<Vec<_>>();
+    let counts = crate::duckdb_query::count_file_boolean_candidates(
+        source_path,
+        source_format,
+        &normalized,
+        || false,
+    )
+    .ok()?;
+    Some(
+        columns
+            .into_iter()
+            .zip(counts)
+            .filter(|(_, (non_empty, recognized))| {
+                *non_empty >= 3 && recognized.saturating_mul(100) >= non_empty.saturating_mul(90)
+            })
+            .map(|(name, _)| name)
+            .collect(),
+    )
 }
 
 fn source_backed_text_audit_expression(identifier: &str, audit_label: &str) -> String {
@@ -8107,10 +8152,22 @@ fn source_backed_text_cleaning(
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
     };
-    let Some(selected_columns) =
-        source_backed_text_cleaning_columns(dataset, selected_columns, mode)
-    else {
-        return Ok(None);
+    let selected_columns = if matches!(mode, TextCleaningMode::Booleans) {
+        if selected_columns.is_some() {
+            return Ok(None);
+        }
+        let Some(columns) =
+            source_backed_boolean_candidate_columns(dataset, &source_path, source_format)
+        else {
+            return Ok(None);
+        };
+        columns
+    } else {
+        let Some(columns) = source_backed_text_cleaning_columns(dataset, selected_columns, mode)
+        else {
+            return Ok(None);
+        };
+        columns
     };
     let label = match mode {
         TextCleaningMode::Trim => "Recortar espacios",
@@ -30349,6 +30406,47 @@ mod tests {
             current.column("notes").unwrap().str().unwrap().get(1),
             Some("cafe")
         );
+    }
+
+    #[test]
+    fn source_backed_boolean_normalization_preserves_the_candidate_threshold() {
+        let source = temporary_csv(
+            "flag,note\nYES,a\nno,b\nSí,c\ntrue,d\nfalse,e\nyes,f\nno,g\nTRUE,h\nFalse,i\nmaybe,j\n",
+        );
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "boolean.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let normalized =
+            source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::Booleans)
+                .expect("la normalización booleana source-backed debe procesarse")
+                .expect("la fuente debe ser compatible");
+        assert_eq!(normalized.affected_row_count, 7);
+        assert_eq!(normalized.changed_cell_count, 7);
+        assert_eq!(normalized.changed_columns[0].name, "flag");
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la normalización debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        let flag = current.column("flag").unwrap().str().unwrap();
+        assert_eq!(flag.get(0), Some("true"));
+        assert_eq!(flag.get(1), Some("false"));
+        assert_eq!(flag.get(2), Some("true"));
+        assert_eq!(flag.get(9), Some("maybe"));
     }
 
     #[test]

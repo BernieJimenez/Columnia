@@ -660,6 +660,67 @@ where
     })
 }
 
+pub(crate) fn count_file_boolean_candidates<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    normalized_expressions: &[(String, String)],
+    is_cancelled: C,
+) -> Result<Vec<(usize, usize)>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if normalized_expressions.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario de booleanos source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let recognized = ["true", "yes", "si", "false", "no"]
+            .into_iter()
+            .map(duckdb_sql_string_literal)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let select = normalized_expressions
+            .iter()
+            .flat_map(|(_, expression)| {
+                [
+                    format!(
+                        "COUNT(*) FILTER (WHERE {expression} IS NOT NULL AND {expression} <> '')"
+                    ),
+                    format!("COUNT(*) FILTER (WHERE {expression} IN ({recognized}))"),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection.prepare(&query).map_err(|error| {
+            format!("DuckDB no pudo preparar la detección de booleanos: {error}")
+        })?;
+        let counts = statement
+            .query_row([], |row| {
+                (0..normalized_expressions.len() * 2)
+                    .map(|index| row.get::<_, i64>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo contar candidatos booleanos: {error}"))?;
+        counts
+            .chunks_exact(2)
+            .map(|counts| {
+                let non_empty = usize::try_from(counts[0]).map_err(|_| {
+                    "El conteo de valores booleanos excede la capacidad local.".to_owned()
+                })?;
+                let recognized = usize::try_from(counts[1]).map_err(|_| {
+                    "El conteo de booleanos reconocidos excede la capacidad local.".to_owned()
+                })?;
+                Ok((non_empty, recognized))
+            })
+            .collect()
+    })
+}
+
 pub(crate) fn stream_file_rows<C, F>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

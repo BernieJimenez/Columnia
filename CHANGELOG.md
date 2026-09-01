@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.132.0] - 2026-09-01
+
+### Mejorado
+
+- `Normalizar booleanos` ya puede detectar y transformar columnas candidatas
+  directamente sobre datasets source-backed mediante DuckDB, sin materializar
+  todas las filas en el `DataFrame` activo.
+- La detección conserva el umbral eager del 90%, reconoce alias Unicode y de
+  mayúsculas, mantiene los valores no reconocidos, actualiza `_cambios` y
+  publica snapshots Parquet reversibles.
+
+### Verificado
+
+- La regresión cubre el umbral de candidatos, alias `Sí`, valores no
+  booleanos, conteos exactos y permanencia del frame en modo esquema-only.
+
 ## [0.131.0] - 2026-09-01
 
 ### Mejorado

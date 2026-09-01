@@ -15,7 +15,9 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.131.0, el
+  I3/I5 conservan validaciones externas de plataforma. En v0.132.0, la
+  normalización de booleanos también usa DuckDB source-backed con el umbral
+  eager, conteos exactos y snapshots reversibles. En v0.131.0, el
   recorte, la normalización de texto y los valores centinela también usan
   DuckDB source-backed con conteos exactos y snapshots reversibles. En
   v0.130.0, la
@@ -28,7 +30,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.131.0`.
+- Versión actual del prototipo: `0.132.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1601,7 +1603,9 @@ comparación no equivale a ejecución fuera de memoria general. La
    calculadas con validación previa también conservan la ruta source-backed;
    desde v0.131 el recorte de espacios, la normalización de texto y los
    valores centinela también se proyectan sobre la fuente con conteos exactos
-   y snapshots reversibles. Las operaciones no compatibles conservan
+   y snapshots reversibles; desde v0.132 la normalización de booleanos
+   clasifica candidatos en DuckDB con el umbral eager del 90% y transforma
+   únicamente alias reconocidos. Las operaciones no compatibles conservan
    materialización.
    `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
@@ -1987,6 +1991,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.132.0 ejecuta la normalización de booleanos sobre fuentes source-backed con DuckDB; conserva el umbral eager, alias reconocidos, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.131.0 ejecuta recorte de espacios, normalización de texto y valores centinela sobre fuentes source-backed con DuckDB; conserva conteos exactos, snapshots reversibles y fallback eager para modos no equivalentes. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.130.0 ejecuta la normalización de nombres y la activación de `_cambios` sobre fuentes source-backed con DuckDB; conserva colisiones, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.129.0 ejecuta la máscara de valores personales source-backed sobre DuckDB; conserva conteos agregados, `_cambios`, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
