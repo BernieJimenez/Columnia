@@ -261,36 +261,61 @@ pub(crate) fn query_file_scalar(
     source_format: DuckDbFileFormat,
     query: &str,
 ) -> Result<i64, String> {
-    let connection = Connection::open_in_memory().map_err(|error| {
-        format!("No se pudo iniciar DuckDB para el conteo source-backed: {error}")
-    })?;
-    let resource_directory = tempfile::tempdir().map_err(|error| {
-        format!("No se pudo preparar el espacio temporal para el conteo source-backed: {error}")
-    })?;
-    configure_duckdb_resources(&connection, resource_directory.path())?;
-    register_file_view(&connection, "dataset", source_path, source_format, None)?;
-    connection
-        .query_row(query, [], |row| row.get::<_, i64>(0))
-        .map_err(|error| format!("DuckDB no pudo contar los cambios source-backed: {error}"))
+    query_file_scalar_with_cancel(source_path, source_format, query, || false)
 }
 
-fn execute_duckdb_query_with_source<C>(
-    current: DatasetSource<'_>,
-    compared: Option<DatasetSource<'_>>,
-    spec: &DuckDbQuerySpec,
+fn query_file_scalar_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    query: &str,
     is_cancelled: C,
-) -> Result<DatasetQueryResult, String>
+) -> Result<i64, String>
 where
     C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para el conteo source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        connection
+            .query_row(query, [], |row| row.get::<_, i64>(0))
+            .map_err(|error| format!("DuckDB no pudo contar los cambios source-backed: {error}"))
+    })
+}
+
+pub(crate) fn count_file_rows<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    is_cancelled: C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    let count = query_file_scalar_with_cancel(
+        source_path,
+        source_format,
+        "SELECT COUNT(*) FROM dataset",
+        is_cancelled,
+    )?;
+    usize::try_from(count)
+        .map_err(|_| "El conteo de filas source-backed excede la capacidad local.".to_owned())
+}
+
+fn execute_duckdb_operation<C, F, T>(is_cancelled: C, operation: F) -> Result<T, String>
+where
+    C: Fn() -> bool + Send + 'static,
+    F: FnOnce(&Connection) -> Result<T, String>,
 {
     if is_cancelled() {
         return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
     }
+    let connection = Connection::open_in_memory()
+        .map_err(|error| format!("No se pudo iniciar DuckDB para la operación: {error}"))?;
+    let interrupt = connection.interrupt_handle();
     let cancelled = Arc::new(AtomicBool::new(false));
     let stop_watcher = Arc::new(AtomicBool::new(false));
-    let connection = Connection::open_in_memory()
-        .map_err(|error| format!("No se pudo iniciar DuckDB para la consulta: {error}"))?;
-    let interrupt = connection.interrupt_handle();
     let watcher_cancelled = Arc::clone(&cancelled);
     let watcher_stop = Arc::clone(&stop_watcher);
     let watcher = thread::spawn(move || {
@@ -304,7 +329,7 @@ where
         }
     });
 
-    let result = execute_query_with_connection(&connection, current, compared, spec);
+    let result = operation(&connection);
     stop_watcher.store(true, Ordering::Release);
     let watcher_joined = watcher.join().is_ok();
 
@@ -315,6 +340,20 @@ where
         return Err("El monitor de cancelación de DuckDB terminó inesperadamente.".to_owned());
     }
     result
+}
+
+fn execute_duckdb_query_with_source<C>(
+    current: DatasetSource<'_>,
+    compared: Option<DatasetSource<'_>>,
+    spec: &DuckDbQuerySpec,
+    is_cancelled: C,
+) -> Result<DatasetQueryResult, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        execute_query_with_connection(connection, current, compared, spec)
+    })
 }
 
 fn execute_query_with_connection(
@@ -759,6 +798,39 @@ mod tests {
         );
         assert!(path.is_file());
         assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn counts_a_delimited_source_without_creating_a_snapshot() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let path = directory.path().join("current.csv");
+        fs::write(&path, "city,value\nSanto Domingo,10\nSantiago,20\n")
+            .expect("se debe escribir el CSV");
+
+        let count = count_file_rows(
+            &path,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            || false,
+        )
+        .expect("DuckDB debe contar el CSV original");
+
+        assert_eq!(count, 2);
+        assert!(path.is_file());
+        assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn count_cancels_before_opening_the_source() {
+        let missing_path = std::path::Path::new("missing-source.csv");
+
+        let error = count_file_rows(
+            missing_path,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            || true,
+        )
+        .expect_err("el conteo debe respetar la cancelación inicial");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
     }
 
     #[test]

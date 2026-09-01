@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.109.0] - 2026-09-01
+
+### Mejorado
+
+- La apertura source-backed conserva el esquema y la primera página con Polars,
+  pero calcula el conteo total directamente desde el archivo mediante DuckDB,
+  con cancelación cooperativa y sin materializar las filas en el `DataFrame`
+  activo.
+
+### Verificado
+
+- El benchmark end-to-end de `perf:duckdb:join` mantiene una fuente CSV temporal
+  de al menos 512 MiB, comprueba el conteo exacto, un `LEFT JOIN`, la paginación,
+  el frame source-backed vacío y el cleanup dentro del presupuesto de 512 MiB.
+
 ## [0.108.0] - 2026-09-01
 
 ### Verificado

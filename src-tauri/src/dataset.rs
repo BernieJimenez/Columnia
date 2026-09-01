@@ -9452,32 +9452,13 @@ fn source_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
     }
 }
 
-fn row_count_from_scan(plan: LazyFrame, context: &str) -> Result<usize, String> {
-    let result = collect_lazy_frame_streaming(plan.select([len().alias("__row_count")]), context)?;
-    let value = result
-        .column("__row_count")
-        .map_err(|error| format!("No se pudo leer el conteo de filas: {error}"))?
-        .get(0)
-        .map_err(|error| format!("No se pudo leer el conteo de filas: {error}"))?;
-    match value {
-        AnyValue::UInt8(value) => Ok(value.into()),
-        AnyValue::UInt16(value) => Ok(value.into()),
-        AnyValue::UInt32(value) => Ok(value as usize),
-        AnyValue::UInt64(value) => usize::try_from(value)
-            .map_err(|_| "El conteo de filas excede la capacidad local.".to_owned()),
-        AnyValue::UInt128(value) => usize::try_from(value)
-            .map_err(|_| "El conteo de filas excede la capacidad local.".to_owned()),
-        _ => Err("El lector devolvió un conteo de filas inesperado.".to_owned()),
-    }
-}
-
 fn source_backed_load<C>(
     path: &Path,
     extension: &str,
     is_cancelled: C,
 ) -> Result<(DataFrame, DatasetPreview, usize), String>
 where
-    C: Fn() -> bool,
+    C: Fn() -> bool + Clone + Send + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
     let mut schema_plan = source_scan(path, extension)?;
@@ -9486,10 +9467,15 @@ where
         .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
     ensure_not_cancelled(is_cancelled())?;
     let schema_frame = DataFrame::empty_with_schema(&schema);
-    let row_count = row_count_from_scan(
-        source_scan(path, extension)?,
-        "No se pudo contar el dataset source-backed",
-    )?;
+    let source_format = match extension {
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(path, extension)?,
+        },
+        _ => return Err("El formato no admite un conteo source-backed.".to_owned()),
+    };
+    let row_count =
+        crate::duckdb_query::count_file_rows(path, source_format, is_cancelled.clone())?;
     ensure_not_cancelled(is_cancelled())?;
     let page = collect_lazy_frame_streaming(
         source_scan(path, extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
@@ -17959,9 +17945,12 @@ pub async fn load_dataset_selection(
                     "Inspeccionando estructura en disco",
                     25,
                 );
+                let cancellation_app = app.clone();
                 let (frame, preview, row_count) =
-                    source_backed_load(&pending.path, &extension, || {
-                        app.state::<DatasetState>().load_was_cancelled(generation)
+                    source_backed_load(&pending.path, &extension, move || {
+                        cancellation_app
+                            .state::<DatasetState>()
+                            .load_was_cancelled(generation)
                     })?;
                 send_progress(&on_progress, "load", "Preparando vista previa", 85);
                 (frame, preview, row_count, true)
@@ -25320,9 +25309,10 @@ fn apply_source_backed_projection_recipe(
         .map_err(|error| format!("No se pudo verificar la receta source-backed: {error}"))?
         .len();
     let output_schema = read_parquet_schema_frame(&output_path)?;
-    let output_row_count = row_count_from_scan(
-        parquet_scan(&output_path)?,
-        "No se pudo contar el resultado de la receta source-backed",
+    let output_row_count = crate::duckdb_query::count_file_rows(
+        &output_path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+        || false,
     )?;
     if output_row_count > dataset.row_count {
         let _ = fs::remove_file(&output_path);
@@ -29088,14 +29078,9 @@ mod tests {
         let (row_count, file_size_bytes) =
             write_duckdb_join_benchmark_csv(&current_path, target_bytes);
         assert!(file_size_bytes >= target_bytes);
-        let current_frame = df![
-            "id" => Vec::<String>::new(),
-            "name" => Vec::<String>::new(),
-            "amount" => Vec::<String>::new(),
-            "payload" => Vec::<String>::new()
-        ]
-        .expect("el esquema source-backed del benchmark debe construirse");
-        let loaded_row_count = row_count;
+        let (current_frame, _preview, loaded_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente grande debe abrirse source-backed");
         assert_eq!(current_frame.height(), 0);
         assert_eq!(loaded_row_count, row_count);
         let compared = df![
