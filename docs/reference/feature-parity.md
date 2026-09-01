@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes y reapertura segura | Implementada | Preferencias de workspace más amplias |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/unión de texto, lectura por bloques, snapshots administrados, DuckDB opcional, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM |
+| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión de texto, lectura por bloques, snapshots administrados, DuckDB opcional, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM |
 
 ## Contrato de calidad
 
@@ -58,11 +58,14 @@ reemplazo literal y cálculos simples (`Add`, `Subtract`, `Multiply`, `Concat`)
 también se ejecutan directamente sobre la fuente mediante DuckDB y publican un
 snapshot Parquet privado, conservando conteo, orden y nulos. El reemplazo se
 aplica después de los filtros y publica su conteo exacto de celdas modificadas.
+La división source-backed de una columna de texto en dos a dieciséis destinos
+conserva delimitadores Unicode, segmentos vacíos, nulos y el resto en el último
+destino; también respeta `keepColumns`, renombrados y `dropSource`.
 La unión source-backed de dos a dieciséis columnas de texto también conserva el
 orden de las fuentes, nulos, cadenas vacías, separador y `dropSources`, incluso
 cuando una fuente numérica se convierte explícitamente a texto.
-Las divisiones, fechas ISO, partes de fecha con filtros previos, expresiones
-regulares y combinaciones no seguras usan un fallback eager atómico y mantienen
+Las fechas ISO, partes de fecha con filtros previos, expresiones regulares y
+combinaciones no seguras usan un fallback eager atómico y mantienen
 la recuperación del dataset anterior ante errores o cancelación.
 
 ## Proyectos y almacenamiento

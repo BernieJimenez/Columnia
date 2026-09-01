@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.96.0`.
+- Versión actual del prototipo: `0.97.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1053,7 +1053,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.96.0
+## 8.1. Cola de ejecución recomendada desde v0.97.0
 
 1. **Superficie de compatibilidad externa:** retirada en v0.90.0. El selector de
    recetas y el catálogo de proyectos exponen únicamente contratos nativos de
@@ -1123,8 +1123,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    después del filtro y antes de proyectar, con conteo exacto de celdas cambiadas;
    desde v0.96 también une de dos a dieciséis columnas de texto sobre la fuente,
    conserva nulos, cadenas vacías, separador y orden, y respeta
-   `keepColumns`/`dropSources` con casts numérico→texto.
-   División, ISO y las demás recetas todavía
+   `keepColumns`/`dropSources` con casts numérico→texto; desde v0.97 también
+   divide una columna de texto en dos a dieciséis destinos, conserva el resto
+   final, segmentos vacíos, delimitadores Unicode y `dropSource`, y puede
+   encadenar una unión posterior.
+   ISO y las demás recetas todavía
    materializan bajo demanda. Desde
    v0.68 la exportación Parquet sin receta
    ni privacidad adicional puede convertir la fuente directamente desde disco
@@ -1475,7 +1478,9 @@ comparación no equivale a ejecución fuera de memoria general. La
    desde v0.95 también ejecutan reemplazo literal sobre la fuente después de
    filtros, con conteo exacto de celdas modificadas; desde v0.96 también pueden
    unir columnas de texto sobre la fuente, conservando nulos, cadenas vacías,
-   orden, separador y `dropSources`. División, ISO, regex y
+   orden, separador y `dropSources`; desde v0.97 la división literal también
+   conserva delimitadores Unicode, segmentos vacíos, nulos, resto final y
+   `dropSource`. ISO, regex y
    operaciones no compatibles conservan materialización. `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
@@ -1854,6 +1859,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-08-31 | Versión 0.94.0 añade partes de fecha `Year`/`Month`/`Day` a las recetas source-backed cuando la fuente se parsea con una fecha fija sin filtros previos; valida dependencias y publica el snapshot Parquet con paridad eager, manteniendo fallback para ISO, filtros previos y conflictos de conversión. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.95.0 añade reemplazo literal source-backed después de filtros y antes de la proyección: DuckDB publica el snapshot y una consulta escalar obtiene el conteo exacto de celdas cambiadas; regex y caracteres no válidos conservan fallback. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.96.0 añade unión de dos a dieciséis columnas de texto source-backed en DuckDB; conserva orden, nulos, cadenas vacías, separador, casts numérico→texto, `keepColumns` y `dropSources`, con una regresión de paridad contra eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-08-31 | Versión 0.97.0 añade división de columnas de texto source-backed en DuckDB; conserva delimitadores Unicode, segmentos vacíos, nulos, resto final, `keepColumns`, renombrados y `dropSource`, con paridad contra eager y unión posterior. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
 | 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
 | 2026-08-28 | CDP funcional de ProjectsPanel y perf gate aprobados: 3 ciclos sostenidos, 470.25 MiB working set, 253.48 MiB privados y cleanup; accesibilidad visual 125%/200% y forced-colors aprobada. | `.local/validation/webview2-cdp/20260828T185215Z/summary.json`, `.local/validation/accessibility-visual/20260828T185137Z` |

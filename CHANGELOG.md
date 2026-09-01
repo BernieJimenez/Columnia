@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed pueden dividir una columna de texto en entre dos y
+  dieciséis destinos directamente en DuckDB, después de filtros, casts,
+  reemplazos y cálculos compatibles, y publicar el snapshot Parquet resultante.
+- La división conserva delimitadores Unicode, segmentos vacíos, nulos, el resto
+  en el último destino, `keepColumns`, renombrados y `dropSource`; también puede
+  alimentar una unión posterior dentro de la misma consulta.
+
+### Verificado
+
+- Una regresión compara la división y unión source-backed con la ruta eager
+  usando una fuente Parquet con resto, valores nulos y segmentos vacíos.
+
 ## [0.96.0] - 2026-08-31
 
 ### Mejorado
