@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed amplían su ejecución directa en DuckDB a casts,
+  parseo de fechas `YMD`, `DMY` y `MDY`, y columnas calculadas de suma, resta,
+  multiplicación y concatenación.
+- La ruta conserva renombres, filtros, orden, `keepColumns`, nulos y la
+  publicación atómica en un snapshot Parquet privado; las divisiones, partes
+  de fecha y formatos ISO continúan en el fallback materializado para preservar
+  sus validaciones estrictas.
+
+### Verificado
+
+- La regresión nueva compara la combinación de renombrado, cast, fecha y cálculo
+  contra la receta eager sin materializar las filas del dataset source-backed.
+- La suite Rust completa queda en 316 pruebas aprobadas.
+
 ## [0.92.0] - 2026-08-31
 
 ### Mejorado

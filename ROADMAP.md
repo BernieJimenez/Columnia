@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.92.0`.
+- Versión actual del prototipo: `0.93.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1053,7 +1053,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.92.0
+## 8.1. Cola de ejecución recomendada desde v0.93.0
 
 1. **Superficie de compatibilidad externa:** retirada en v0.90.0. El selector de
    recetas y el catálogo de proyectos exponen únicamente contratos nativos de
@@ -1116,8 +1116,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    conservando esquema, conteo, orden y preview sin llenar el `DataFrame`; desde
    v0.92 esa ruta también combina hasta tres filtros con selección/renombrado,
    aplica el filtro en DuckDB sobre la fuente y conserva el conteo exacto de
-   filas eliminadas y la semántica de nulos. Las recetas que transforman valores
-   todavía materializan bajo demanda. Desde
+   filas eliminadas y la semántica de nulos; desde v0.93 añade casts, parseo de
+   fechas fijas `YMD`/`DMY`/`MDY` y cálculos de suma, resta, multiplicación o
+   concatenación. División, partes de fecha, ISO y las demás recetas todavía
+   materializan bajo demanda. Desde
    v0.68 la exportación Parquet sin receta
    ni privacidad adicional puede convertir la fuente directamente desde disco
    con publicación atómica; desde v0.69 JSON sin receta ni privacidad adicional
@@ -1460,9 +1462,10 @@ comparación no equivale a ejecución fuera de memoria general. La
    `keepColumns` proyectan directamente a un Parquet privado administrado,
    conservando el esquema, conteo, orden y preview sin llenar el `DataFrame`;
    desde v0.92 también pueden aplicar hasta tres filtros con esa misma frontera
-   source-backed. Las recetas que transforman valores todavía materializan bajo
-   demanda.
-  `keep_columns` también puede proyectar dentro de
+   source-backed; desde v0.93 las recetas source-backed también aplican casts, parseo de fechas
+   fijas `YMD`/`DMY`/`MDY` y cálculos de suma, resta, multiplicación o
+   concatenación directamente con DuckDB; división, partes de fecha, ISO y
+   operaciones no compatibles conservan materialización. `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
   cambios con una agregación streaming separada y preserva nulos, renombres y
@@ -1836,6 +1839,7 @@ por el mero hecho de estar documentada aquí.
 | --- | --- | --- |
 | 2026-08-28 | Implementación técnica mayormente cerrada: T5-01–T5-17 y T5-19; T5-18/T5-20 siguen pendientes de aceptación legal y pruebas del canal. T5-06 queda cerrado con evidencia release ligada a commit limpio y baseline visual actualizado. El orquestador local y el updater firmado ya están implementados. | Código, cobertura, IPC, notices, toolchains, benchmark formal, Package firmado, smoke nativo, suite Rust y `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-31 | Se cerró la protección técnica de T5-18/T5-20 sin falsear aprobación: la ficha jurídica es explícita y versionada, `legal:check` valida artefactos y `Release`/`Package` exigen sign-off; notices consolida 995 identidades sin `UNKNOWN` ni duplicados y el panel legal es una región accesible. Las decisiones de jurisdicción/canal y la prueba en VM/canal real siguen pendientes. | `docs/reference/legal-distribution-decision.json`, `tools/check-legal-distribution.mjs`, `tools/generate-third-party-notices.ps1`, `npm run notices:check`, `npm run legal:check` |
+| 2026-08-31 | Versión 0.93.0 amplía las recetas source-backed: casts, fechas fijas `YMD`/`DMY`/`MDY` y cálculos de suma, resta, multiplicación o concatenación se ejecutan en DuckDB por etapas y publican un snapshot Parquet privado; división, partes de fecha, ISO y operaciones no compatibles mantienen el fallback eager. La paridad con la ruta eager queda cubierta por regresión Rust. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-28 | Benchmark corto post-optimización aprobado: 100 MiB, 876,544 filas, `project-save` 59.75 s, actualización 58.84 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T180520Z/summary.json` |
 | 2026-08-28 | Benchmark formal final aprobado: 100 MiB, 876,544 filas, `project-save` en 52.09 s y tres actualizaciones durables entre 56.37 y 57.31 s, reapertura/exportación y cleanup confirmados. | `.local/validation/performance-benchmark/20260828T184531Z/summary.json` |
 | 2026-08-28 | CDP funcional de ProjectsPanel y perf gate aprobados: 3 ciclos sostenidos, 470.25 MiB working set, 253.48 MiB privados y cleanup; accesibilidad visual 125%/200% y forced-colors aprobada. | `.local/validation/webview2-cdp/20260828T185215Z/summary.json`, `.local/validation/accessibility-visual/20260828T185137Z` |

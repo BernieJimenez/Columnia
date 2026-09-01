@@ -22896,10 +22896,25 @@ fn apply_recipe_to_frame(
 }
 
 fn source_backed_projection_recipe_supported(recipe: &TransformRecipe) -> bool {
-    (!recipe.renames.is_empty() || recipe.keep_columns.is_some() || !recipe.filters.is_empty())
-        && recipe.casts.is_empty()
-        && recipe.date_parses.is_empty()
-        && recipe.calculated_column.is_none()
+    (!recipe.renames.is_empty()
+        || recipe.keep_columns.is_some()
+        || !recipe.filters.is_empty()
+        || !recipe.casts.is_empty()
+        || !recipe.date_parses.is_empty()
+        || recipe.calculated_column.is_some())
+        && recipe
+            .date_parses
+            .iter()
+            .all(|parse| !matches!(parse.format, RecipeDateFormat::Iso8601))
+        && recipe.calculated_column.as_ref().is_none_or(|calculation| {
+            matches!(
+                calculation.operation,
+                CalculatedOperation::Add
+                    | CalculatedOperation::Subtract
+                    | CalculatedOperation::Multiply
+                    | CalculatedOperation::Concat
+            )
+        })
         && recipe.find_replace.is_none()
         && recipe.split_column.is_none()
         && recipe.merge_columns.is_none()
@@ -22914,6 +22929,9 @@ struct SourceBackedProjectionPlan {
     output_columns: Vec<String>,
     selected_columns: Vec<String>,
     renamed_column_count: usize,
+    converted_column_count: usize,
+    parsed_date_column_count: usize,
+    calculated_column_count: usize,
     dropped_column_count: usize,
     kept_order_changed: bool,
 }
@@ -23005,6 +23023,148 @@ fn source_backed_projection_plan(
         output_columns.clone()
     };
 
+    let mut cast_columns = HashSet::new();
+    let mut converted_column_count = 0;
+    for cast in &recipe.casts {
+        let effective = rename_map
+            .get(&cast.column)
+            .cloned()
+            .unwrap_or_else(|| cast.column.clone());
+        if !cast_columns.insert(effective) {
+            return Err(format!(
+                "La columna '{}' aparece en más de una conversión.",
+                cast.column
+            ));
+        }
+        let column = recipe_column(schema, &cast.column)?;
+        let already_target = matches!(
+            (column.dtype(), cast.target),
+            (DataType::String, RecipeCastTarget::String)
+                | (DataType::Int64, RecipeCastTarget::Integer)
+                | (DataType::Float64, RecipeCastTarget::Decimal)
+                | (DataType::Boolean, RecipeCastTarget::Boolean)
+        );
+        converted_column_count += usize::from(!already_target);
+    }
+
+    let mut date_columns = HashSet::new();
+    let mut parsed_date_column_count = 0;
+    for parse in &recipe.date_parses {
+        let effective = rename_map
+            .get(&parse.column)
+            .cloned()
+            .unwrap_or_else(|| parse.column.clone());
+        if cast_columns.contains(&effective) {
+            return Err(format!(
+                "La columna '{}' no puede convertirse y parsearse como fecha en la misma receta.",
+                parse.column
+            ));
+        }
+        if !date_columns.insert(effective) {
+            return Err(format!(
+                "La columna '{}' aparece en más de un parseo de fecha.",
+                parse.column
+            ));
+        }
+        let column = recipe_column(schema, &parse.column)?;
+        let already_target = matches!(
+            (column.dtype(), parse.target),
+            (DataType::Date, RecipeDateTarget::Date)
+                | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
+        );
+        if !already_target {
+            if column.dtype() != &DataType::String {
+                return Err(format!(
+                    "La columna '{}' debe ser de texto para parsearse como fecha.",
+                    parse.column
+                ));
+            }
+            parsed_date_column_count += 1;
+        }
+    }
+
+    let calculated_column_count = if let Some(calculation) = &recipe.calculated_column {
+        if calculation.name.trim().is_empty() || calculation.name != calculation.name.trim() {
+            return Err(
+                "El nombre calculado no puede estar vacío ni tener espacios exteriores.".into(),
+            );
+        }
+        if output_columns.iter().any(|name| name == &calculation.name) {
+            return Err(format!(
+                "La columna calculada '{}' ya existe.",
+                calculation.name
+            ));
+        }
+        let unary = matches!(
+            calculation.operation,
+            CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day
+        );
+        if unary {
+            return Err(
+                "Las partes de fecha calculadas requieren materializar la fuente.".to_owned(),
+            );
+        }
+        let source_column = recipe_column(schema, &calculation.source)?;
+        if matches!(
+            calculation.operation,
+            CalculatedOperation::Add
+                | CalculatedOperation::Subtract
+                | CalculatedOperation::Multiply
+                | CalculatedOperation::Divide
+        ) && source_column.dtype() == &DataType::Boolean
+        {
+            return Err(format!(
+                "La columna fuente calculada '{}' debe ser numérica.",
+                calculation.source
+            ));
+        }
+        let source_name = rename_map
+            .get(&calculation.source)
+            .cloned()
+            .unwrap_or_else(|| calculation.source.clone());
+        if recipe.keep_columns.is_some()
+            && !selected_columns.iter().any(|name| name == &source_name)
+        {
+            return Err(format!(
+                "La columna fuente calculada '{source_name}' fue descartada por keepColumns."
+            ));
+        }
+        if let Some(operand) = &calculation.operand {
+            match operand.kind {
+                CalculatedOperandKind::Literal
+                    if matches!(
+                        calculation.operation,
+                        CalculatedOperation::Add
+                            | CalculatedOperation::Subtract
+                            | CalculatedOperation::Multiply
+                    ) =>
+                {
+                    strict_f64(&operand.value, "El operando numérico")?;
+                }
+                CalculatedOperandKind::Column => {
+                    let operand_name = rename_map
+                        .get(&operand.value)
+                        .cloned()
+                        .unwrap_or_else(|| operand.value.clone());
+                    recipe_column(schema, &operand.value)?;
+                    if recipe.keep_columns.is_some()
+                        && !selected_columns.iter().any(|name| name == &operand_name)
+                    {
+                        return Err(format!(
+                            "La columna operando calculada '{operand_name}' fue descartada por keepColumns."
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        } else {
+            return Err("La operación calculada requiere un operando.".to_owned());
+        }
+        1
+    } else {
+        0
+    };
+
     for filter in &recipe.filters {
         let effective = rename_map
             .get(&filter.column)
@@ -23072,6 +23232,9 @@ fn source_backed_projection_plan(
         output_columns,
         selected_columns,
         renamed_column_count,
+        converted_column_count,
+        parsed_date_column_count,
+        calculated_column_count,
         dropped_column_count,
         kept_order_changed,
     })
@@ -23128,6 +23291,102 @@ fn source_backed_filter_expression(
     Ok(expression)
 }
 
+fn duckdb_cast_type(target: RecipeCastTarget) -> &'static str {
+    match target {
+        RecipeCastTarget::String => "VARCHAR",
+        RecipeCastTarget::Integer => "BIGINT",
+        RecipeCastTarget::Decimal => "DOUBLE",
+        RecipeCastTarget::Boolean => "BOOLEAN",
+    }
+}
+
+fn duckdb_date_format(format: RecipeDateFormat) -> Result<&'static str, String> {
+    match format {
+        RecipeDateFormat::Ymd => Ok("%Y-%m-%d"),
+        RecipeDateFormat::Dmy => Ok("%d/%m/%Y"),
+        RecipeDateFormat::Mdy => Ok("%m/%d/%Y"),
+        RecipeDateFormat::Iso8601 => {
+            Err("Las fechas ISO requieren materializar la fuente.".to_owned())
+        }
+    }
+}
+
+fn duckdb_date_expression(
+    column: &str,
+    format: RecipeDateFormat,
+    target: RecipeDateTarget,
+) -> Result<String, String> {
+    let parsed = format!(
+        "strptime(NULLIF(TRIM(CAST({column} AS VARCHAR)), ''), {})",
+        duckdb_string_literal(duckdb_date_format(format)?)
+    );
+    Ok(match target {
+        RecipeDateTarget::Date => format!("CAST({parsed} AS DATE)"),
+        RecipeDateTarget::Datetime => parsed,
+    })
+}
+
+fn duckdb_calculation_expression(
+    calculation: &CalculatedColumnRecipe,
+    rename_map: &HashMap<String, String>,
+) -> Result<String, String> {
+    let source_name = rename_map
+        .get(&calculation.source)
+        .map(String::as_str)
+        .unwrap_or(calculation.source.as_str());
+    let source = format!("CAST(t.{} AS DOUBLE)", duckdb_identifier(source_name));
+    let operand = calculation
+        .operand
+        .as_ref()
+        .ok_or_else(|| "La operación calculada requiere un operando.".to_owned())?;
+    match calculation.operation {
+        CalculatedOperation::Concat => {
+            let source = format!("CAST(t.{} AS VARCHAR)", duckdb_identifier(source_name));
+            let operand = match operand.kind {
+                CalculatedOperandKind::Literal => duckdb_string_literal(&operand.value),
+                CalculatedOperandKind::Column => {
+                    let operand_name = rename_map
+                        .get(&operand.value)
+                        .map(String::as_str)
+                        .unwrap_or(operand.value.as_str());
+                    format!("CAST(t.{} AS VARCHAR)", duckdb_identifier(operand_name))
+                }
+            };
+            Ok(format!("{source} || {operand}"))
+        }
+        CalculatedOperation::Add
+        | CalculatedOperation::Subtract
+        | CalculatedOperation::Multiply => {
+            let operand = match operand.kind {
+                CalculatedOperandKind::Literal => {
+                    strict_f64(&operand.value, "El operando numérico")?.to_string()
+                }
+                CalculatedOperandKind::Column => {
+                    let operand_name = rename_map
+                        .get(&operand.value)
+                        .map(String::as_str)
+                        .unwrap_or(operand.value.as_str());
+                    format!("CAST(t.{} AS DOUBLE)", duckdb_identifier(operand_name))
+                }
+            };
+            let operator = match calculation.operation {
+                CalculatedOperation::Add => "+",
+                CalculatedOperation::Subtract => "-",
+                CalculatedOperation::Multiply => "*",
+                _ => unreachable!("el match exterior limita las operaciones source-backed"),
+            };
+            Ok(format!("{source} {operator} {operand}"))
+        }
+        CalculatedOperation::Divide => Err(
+            "La división calculada requiere materializar la fuente para validar división por cero."
+                .to_owned(),
+        ),
+        CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day => {
+            Err("Las partes de fecha calculadas requieren materializar la fuente.".to_owned())
+        }
+    }
+}
+
 fn source_backed_projection_query(
     schema: &DataFrame,
     recipe: &TransformRecipe,
@@ -23138,7 +23397,7 @@ fn source_backed_projection_query(
         .iter()
         .map(|rename| (rename.from.clone(), rename.to.clone()))
         .collect::<HashMap<_, _>>();
-    let expressions = plan
+    let renamed_expressions = plan
         .source_columns
         .iter()
         .zip(&plan.output_columns)
@@ -23154,27 +23413,110 @@ fn source_backed_projection_query(
             }
         })
         .collect::<Vec<_>>();
+    let cast_targets = recipe
+        .casts
+        .iter()
+        .filter_map(|cast| {
+            let column = recipe_column(schema, &cast.column).ok()?;
+            let already_target = matches!(
+                (column.dtype(), cast.target),
+                (DataType::String, RecipeCastTarget::String)
+                    | (DataType::Int64, RecipeCastTarget::Integer)
+                    | (DataType::Float64, RecipeCastTarget::Decimal)
+                    | (DataType::Boolean, RecipeCastTarget::Boolean)
+            );
+            if already_target {
+                None
+            } else {
+                let effective = rename_map
+                    .get(&cast.column)
+                    .cloned()
+                    .unwrap_or_else(|| cast.column.clone());
+                Some((effective, cast.target))
+            }
+        })
+        .collect::<HashMap<_, _>>();
+    let date_targets = recipe
+        .date_parses
+        .iter()
+        .filter_map(|parse| {
+            let column = recipe_column(schema, &parse.column).ok()?;
+            let already_target = matches!(
+                (column.dtype(), parse.target),
+                (DataType::Date, RecipeDateTarget::Date)
+                    | (DataType::Datetime(_, _), RecipeDateTarget::Datetime)
+            );
+            if already_target {
+                None
+            } else {
+                let effective = rename_map
+                    .get(&parse.column)
+                    .cloned()
+                    .unwrap_or_else(|| parse.column.clone());
+                Some((effective, (parse.format, parse.target)))
+            }
+        })
+        .collect::<HashMap<_, _>>();
+    let transformed_expressions = plan
+        .output_columns
+        .iter()
+        .map(|column| -> Result<String, String> {
+            let input = format!("t.{}", duckdb_identifier(column));
+            let expression = if let Some(target) = cast_targets.get(column) {
+                format!(
+                    "CAST({input} AS {}) AS {}",
+                    duckdb_cast_type(*target),
+                    duckdb_identifier(column)
+                )
+            } else if let Some((format, target)) = date_targets.get(column) {
+                format!(
+                    "{} AS {}",
+                    duckdb_date_expression(&input, *format, *target)?,
+                    duckdb_identifier(column)
+                )
+            } else {
+                format!("{input} AS {}", duckdb_identifier(column))
+            };
+            Ok(expression)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let filters = recipe
         .filters
         .iter()
         .map(|filter| source_backed_filter_expression(filter, &rename_map))
         .collect::<Result<Vec<_>, _>>()?;
-    let where_clause = if filters.is_empty() {
+    let filtered_source = if filters.is_empty() {
+        "transformed"
+    } else {
+        "filtered"
+    };
+    let filter_cte = if filters.is_empty() {
         String::new()
     } else {
-        format!(" WHERE {}", filters.join(" AND "))
+        format!(
+            ", filtered AS (SELECT * FROM transformed AS t WHERE {})",
+            filters.join(" AND ")
+        )
     };
-    let selected = plan
+    let mut selected = plan
         .selected_columns
         .iter()
         .map(|column| format!("t.{}", duckdb_identifier(column)))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect::<Vec<_>>();
+    if let Some(calculation) = &recipe.calculated_column {
+        selected.push(format!(
+            "{} AS {}",
+            duckdb_calculation_expression(calculation, &rename_map)?,
+            duckdb_identifier(&calculation.name)
+        ));
+    }
     Ok(format!(
-        "WITH transformed AS (SELECT {} FROM dataset) SELECT {} FROM transformed AS t{}",
-        expressions.join(", "),
-        selected,
-        where_clause
+        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){} SELECT {} FROM {} AS t",
+        renamed_expressions.join(", "),
+        transformed_expressions.join(", "),
+        filter_cte,
+        selected.join(", "),
+        filtered_source
     ))
 }
 
@@ -23203,6 +23545,9 @@ fn apply_source_backed_projection_recipe(
     let schema = dataset.frame.clone();
     let plan = source_backed_projection_plan(&schema, recipe)?;
     let structural_change = plan.renamed_column_count
+        + plan.converted_column_count
+        + plan.parsed_date_column_count
+        + plan.calculated_column_count
         + plan.dropped_column_count
         + usize::from(plan.kept_order_changed)
         > 0;
@@ -23228,10 +23573,10 @@ fn apply_source_backed_projection_recipe(
         return Ok(TransformRecipeResult {
             dataset: preview,
             renamed_column_count: plan.renamed_column_count,
-            converted_column_count: 0,
-            parsed_date_column_count: 0,
+            converted_column_count: plan.converted_column_count,
+            parsed_date_column_count: plan.parsed_date_column_count,
             removed_row_count: 0,
-            calculated_column_count: 0,
+            calculated_column_count: plan.calculated_column_count,
             replaced_cell_count: 0,
             dropped_column_count: plan.dropped_column_count,
             split_column_count: 0,
@@ -23350,10 +23695,10 @@ fn apply_source_backed_projection_recipe(
     Ok(TransformRecipeResult {
         dataset: preview,
         renamed_column_count: plan.renamed_column_count,
-        converted_column_count: 0,
-        parsed_date_column_count: 0,
+        converted_column_count: plan.converted_column_count,
+        parsed_date_column_count: plan.parsed_date_column_count,
         removed_row_count,
-        calculated_column_count: 0,
+        calculated_column_count: plan.calculated_column_count,
         replaced_cell_count: 0,
         dropped_column_count: plan.dropped_column_count,
         split_column_count: 0,
@@ -25006,6 +25351,89 @@ mod tests {
         assert!(output.equals_missing(&expected));
         assert_eq!(result.dataset.row_count, 1);
         assert_eq!(result.dataset.rows[0][0].as_deref(), Some("Santo Domingo"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
+        let path = temporary_csv(
+            "amount,when,city\n10,2024-01-02,Santo Domingo\n20,2024-02-03,Santiago\n",
+        );
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            renames: vec![
+                RecipeRename {
+                    from: "amount".to_owned(),
+                    to: "revenue".to_owned(),
+                },
+                RecipeRename {
+                    from: "when".to_owned(),
+                    to: "event_date".to_owned(),
+                },
+            ],
+            casts: vec![RecipeCast {
+                column: "amount".to_owned(),
+                target: RecipeCastTarget::Decimal,
+            }],
+            date_parses: vec![RecipeDateParse {
+                column: "when".to_owned(),
+                format: RecipeDateFormat::Ymd,
+                target: RecipeDateTarget::Date,
+            }],
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "total".to_owned(),
+                source: "amount".to_owned(),
+                operation: CalculatedOperation::Add,
+                operand: Some(CalculatedOperand {
+                    kind: CalculatedOperandKind::Literal,
+                    value: "5".to_owned(),
+                }),
+            }),
+            keep_columns: Some(vec![
+                "amount".to_owned(),
+                "when".to_owned(),
+                "city".to_owned(),
+            ]),
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta source-backed debe publicarse");
+
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.row_count, 2);
+        assert_eq!(
+            dataset.frame.get_column_names(),
+            ["revenue", "event_date", "city", "total"]
+        );
+        assert_eq!(result.renamed_column_count, 2);
+        assert_eq!(result.converted_column_count, 1);
+        assert_eq!(result.parsed_date_column_count, 1);
+        assert_eq!(result.calculated_column_count, 1);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        assert!(output.equals_missing(&expected));
+
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 

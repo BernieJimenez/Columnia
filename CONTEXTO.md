@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.92.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.93.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -20,8 +20,8 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, y página visible de la muestra durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos; la CSP de producción bloquea conexiones remotas |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | 271 frontend y 314 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
-| Última revisión de este documento | 2026-08-31, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; el inventario IPC registra 65 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las consultas DuckDB fijan 512 MB de memoria, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar y renombrar directamente sobre CSV/TSV/TXT delimitado o Parquet; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
+| Pruebas observadas | 271 frontend y 316 Rust aprobadas en la suite local actual; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Última revisión de este documento | 2026-08-31, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR confirmables para limitar/eliminar outliers, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; el inventario IPC registra 65 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, además de la página visible de la muestra, con fallback seguro y migración SQLite v8. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las consultas DuckDB fijan 512 MB de memoria, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar, renombrar, convertir tipos, parsear fechas fijas y calcular columnas simples directamente sobre CSV/TSV/TXT delimitado o Parquet; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
 
 ### Estado verificable de Tier 5
 
@@ -327,14 +327,13 @@ El dataset conserva esquema, conteo, orden y preview sin llenar el
 materializa con validación de tamaño y conteo, y las recetas que transforman
 valores mantienen el fallback eager.
 
-En v0.92.0, esa ruta admite además hasta tres filtros combinados con selección
-y renombrado. El plan usa una CTE para aplicar los nombres efectivos, valida los
-operadores antes de consultar, ejecuta comparaciones numéricas y textuales sobre
-la fuente con DuckDB y publica solo el resultado Parquet. El conteo de filas
-eliminadas, el orden, los nulos, el escape de literales y la paridad con la
-ruta eager quedan cubiertos por pruebas; casts, fechas, cálculos y operaciones
-que cambian valores continúan usando el fallback materializado hasta su propia
-expansión incremental.
+En v0.92.0, esa ruta admitió hasta tres filtros combinados con selección y
+renombrado. En v0.93.0, el mismo plan añade casts, fechas fijas `YMD`, `DMY` y
+`MDY`, y columnas calculadas de suma, resta, multiplicación y concatenación.
+DuckDB conserva las etapas de renombrado, transformación, filtro y proyección,
+publica solo el resultado Parquet y mantiene la paridad eager; división, partes
+de fecha y fechas ISO siguen materializándose para conservar sus validaciones
+estrictas.
 
 ### Historial y atomicidad
 
@@ -839,6 +838,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-08-31 | Versión 0.93.0: las recetas source-backed amplían la ejecución directa en DuckDB a casts, fechas fijas `YMD`/`DMY`/`MDY` y cálculos de suma, resta, multiplicación o concatenación; la regresión Rust comprueba paridad con la ruta eager y división, partes de fecha, ISO y operaciones no compatibles conservan fallback materializado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-30 | M1 expone la importación de sesiones sistema anterior desde Proyectos con selector nativo, progreso por etapas y cancelación cooperativa; el controlador abre el proyecto publicado solo después del commit atómico. | `src/features/projects/ProjectsPanel.tsx`, `src/features/projects/useProjectsController.ts`, `docs/reference/feature-parity.md` |
 | 2026-08-29 | P1 añade protección reversible de valores personales detectados: una confirmación sustituye por `[REDACTED]` los valores no nulos de correo, teléfono, dirección y nombre, conserva columnas, números, nulos e `_cambios`, publica solo conteos agregados y deja los identificadores como acción separada. El inventario IPC queda en 64 comandos de producción y 58 estructuras. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
 | 2026-08-29 | P1 expone `parse_dates` como acción directa de Preparar: las columnas de texto con formato dominante cerrado pasan a `Datetime`, las ambiguas se conservan, el impacto es agregado y la mutación queda disponible para Deshacer/Rehacer. El inventario IPC queda en 65 comandos de producción y la suite frontend en 284 pruebas. | `src-tauri/src/dataset.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `src/features/prepare/PreparePhase.tsx`, `src/features/prepare/usePrepareController.ts`, `docs/reference/ipc-inventory.json` |
