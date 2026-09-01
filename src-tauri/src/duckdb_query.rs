@@ -660,6 +660,269 @@ where
     })
 }
 
+pub(crate) fn count_file_predicate_matches<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    predicates: &[String],
+    is_cancelled: C,
+) -> Result<(usize, Vec<usize>), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if predicates.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario de predicados source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let select = std::iter::once(format!(
+            "COUNT(*) FILTER (WHERE {})",
+            predicates.join(" OR ")
+        ))
+        .chain(
+            predicates
+                .iter()
+                .map(|predicate| format!("COUNT(*) FILTER (WHERE {predicate})")),
+        )
+        .collect::<Vec<_>>()
+        .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection
+            .prepare(&query)
+            .map_err(|error| format!("DuckDB no pudo preparar el conteo de predicados: {error}"))?;
+        let counts = statement
+            .query_row([], |row| {
+                (0..=predicates.len())
+                    .map(|index| row.get::<_, i64>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo contar los predicados: {error}"))?;
+        let counts = counts
+            .into_iter()
+            .map(|count| {
+                usize::try_from(count)
+                    .map_err(|_| "El conteo de predicados excede la capacidad local.".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (affected_row_count, matches) = counts
+            .split_first()
+            .ok_or_else(|| "DuckDB no devolvió el conteo de predicados.".to_owned())?;
+        Ok((*affected_row_count, matches.to_vec()))
+    })
+}
+
+pub(crate) struct FileNumericCandidateStats {
+    pub(crate) non_null_count: usize,
+    pub(crate) integer_count: usize,
+    pub(crate) float_count: usize,
+    pub(crate) leading_zero_count: usize,
+    pub(crate) decimal_token_count: usize,
+    pub(crate) precision_loss_count: usize,
+}
+
+pub(crate) fn count_file_numeric_candidate_stats<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[String],
+    is_cancelled: C,
+) -> Result<Vec<FileNumericCandidateStats>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario numérico source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let select = columns
+            .iter()
+            .flat_map(|column| {
+                let identifier = quote_identifier(column);
+                let trimmed = format!("TRIM(CAST({identifier} AS VARCHAR))");
+                let integer = format!("TRY_CAST({trimmed} AS BIGINT)");
+                let floating = format!("TRY_CAST({trimmed} AS DOUBLE)");
+                let finite = format!("{floating} IS NOT NULL AND isfinite({floating})");
+                let leading_zero = format!(
+                    "regexp_matches({trimmed}, {})",
+                    duckdb_sql_string_literal(r"^[+-]?0[0-9]")
+                );
+                let decimal_token = format!(
+                    "strpos({trimmed}, '.') > 0 OR strpos(lower({trimmed}), 'e') > 0"
+                );
+                let precision_loss = format!(
+                    "{finite} AND ABS({floating}) > 9007199254740992 AND TRUNC({floating}) = {floating}"
+                );
+                [
+                    format!("COUNT(*) FILTER (WHERE {identifier} IS NOT NULL)"),
+                    format!(
+                        "COUNT(*) FILTER (WHERE {identifier} IS NOT NULL AND {integer} IS NOT NULL)"
+                    ),
+                    format!(
+                        "COUNT(*) FILTER (WHERE {identifier} IS NOT NULL AND {finite})"
+                    ),
+                    format!(
+                        "COUNT(*) FILTER (WHERE {identifier} IS NOT NULL AND {leading_zero})"
+                    ),
+                    format!(
+                        "COUNT(*) FILTER (WHERE {identifier} IS NOT NULL AND ({decimal_token}))"
+                    ),
+                    format!(
+                        "COUNT(*) FILTER (WHERE {identifier} IS NOT NULL AND {precision_loss})"
+                    ),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection
+            .prepare(&query)
+            .map_err(|error| format!("DuckDB no pudo preparar la inferencia numérica: {error}"))?;
+        let counts = statement
+            .query_row([], |row| {
+                (0..columns.len() * 6)
+                    .map(|index| row.get::<_, i64>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo calcular la inferencia numérica: {error}"))?;
+        counts
+            .chunks_exact(6)
+            .map(|counts| {
+                let values = counts
+                    .iter()
+                    .map(|count| {
+                        usize::try_from(*count)
+                            .map_err(|_| "El conteo numérico excede la capacidad local.".to_owned())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(FileNumericCandidateStats {
+                    non_null_count: values[0],
+                    integer_count: values[1],
+                    float_count: values[2],
+                    leading_zero_count: values[3],
+                    decimal_token_count: values[4],
+                    precision_loss_count: values[5],
+                })
+            })
+            .collect()
+    })
+}
+
+pub(crate) fn sample_file_column_values(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    column: &str,
+    limit: usize,
+) -> Result<Vec<String>, String> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let connection = Connection::open_in_memory().map_err(|error| {
+        format!("No se pudo iniciar DuckDB para muestrear la columna source-backed: {error}")
+    })?;
+    let resource_directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el muestreo source-backed: {error}"))?;
+    configure_duckdb_resources(&connection, resource_directory.path())?;
+    register_file_view(&connection, "dataset", source_path, source_format, None)?;
+    let identifier = quote_identifier(column);
+    let query = format!(
+        "SELECT CAST({identifier} AS VARCHAR) FROM dataset WHERE {identifier} IS NOT NULL LIMIT {limit}"
+    );
+    let mut statement = connection
+        .prepare(&query)
+        .map_err(|error| format!("DuckDB no pudo preparar el muestreo source-backed: {error}"))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| format!("DuckDB no pudo muestrear la columna source-backed: {error}"))?;
+    let mut values = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| format!("DuckDB no pudo leer la muestra source-backed: {error}"))?
+    {
+        values.push(
+            row.get::<_, String>(0)
+                .map_err(|error| format!("DuckDB no pudo leer un valor de la muestra: {error}"))?,
+        );
+    }
+    Ok(values)
+}
+
+pub(crate) struct FileDateParseStats {
+    pub(crate) non_null_count: usize,
+    pub(crate) parsed_count: usize,
+    pub(crate) in_range_count: usize,
+}
+
+pub(crate) fn count_file_date_parse_stats<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    parsed_expressions: &[(String, String)],
+    is_cancelled: C,
+) -> Result<Vec<FileDateParseStats>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if parsed_expressions.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario de fechas source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let select = parsed_expressions
+            .iter()
+            .flat_map(|(column, parsed)| {
+                let identifier = quote_identifier(column);
+                [
+                    format!("COUNT(*) FILTER (WHERE {identifier} IS NOT NULL)"),
+                    format!("COUNT(*) FILTER (WHERE ({parsed}) IS NOT NULL)"),
+                    format!(
+                        "COUNT(*) FILTER (WHERE ({parsed}) IS NOT NULL AND EXTRACT(YEAR FROM ({parsed})) BETWEEN 1900 AND 2100)"
+                    ),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection
+            .prepare(&query)
+            .map_err(|error| format!("DuckDB no pudo preparar la inferencia de fechas: {error}"))?;
+        let counts = statement
+            .query_row([], |row| {
+                (0..parsed_expressions.len() * 3)
+                    .map(|index| row.get::<_, i64>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo calcular la inferencia de fechas: {error}"))?;
+        counts
+            .chunks_exact(3)
+            .map(|counts| {
+                let values = counts
+                    .iter()
+                    .map(|count| {
+                        usize::try_from(*count).map_err(|_| {
+                            "El conteo de fechas excede la capacidad local.".to_owned()
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(FileDateParseStats {
+                    non_null_count: values[0],
+                    parsed_count: values[1],
+                    in_range_count: values[2],
+                })
+            })
+            .collect()
+    })
+}
+
 pub(crate) fn count_file_boolean_candidates<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

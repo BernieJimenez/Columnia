@@ -8229,6 +8229,362 @@ fn source_backed_text_cleaning(
     }))
 }
 
+fn source_backed_numeric_cast(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<TextCleaningResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let columns = dataset
+        .frame
+        .columns()
+        .iter()
+        .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+    let stats = match crate::duckdb_query::count_file_numeric_candidate_stats(
+        &source_path,
+        source_format,
+        &columns,
+        || false,
+    ) {
+        Ok(stats) => stats,
+        Err(_) => return Ok(None),
+    };
+    let mut conversions = Vec::<(String, String, String)>::new();
+    for (name, stats) in columns.iter().zip(stats) {
+        if stats.non_null_count == 0
+            || privacy_signal(name) == Some("identifier")
+            || stats.leading_zero_count > 0
+        {
+            continue;
+        }
+        let identifier = duckdb_identifier(name);
+        let trimmed = format!("TRIM(CAST({identifier} AS VARCHAR))");
+        if stats.decimal_token_count == 0
+            && stats.integer_count.saturating_mul(10) > stats.non_null_count.saturating_mul(9)
+        {
+            let expression = format!("TRY_CAST({trimmed} AS BIGINT)");
+            conversions.push((
+                name.clone(),
+                expression.clone(),
+                format!("({expression}) IS NOT NULL"),
+            ));
+            continue;
+        }
+        if stats.float_count.saturating_mul(10) <= stats.non_null_count.saturating_mul(9) {
+            continue;
+        }
+        if stats.precision_loss_count > 0 {
+            return Err(format!(
+                "La columna '{name}' contiene números que perderían precisión al convertirse."
+            ));
+        }
+        let floating = format!("TRY_CAST({trimmed} AS DOUBLE)");
+        let expression = format!(
+            "CASE WHEN {floating} IS NOT NULL AND isfinite({floating}) THEN {floating} ELSE NULL END"
+        );
+        conversions.push((
+            name.clone(),
+            expression.clone(),
+            format!("({expression}) IS NOT NULL"),
+        ));
+    }
+    if conversions.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+    let predicates = conversions
+        .iter()
+        .map(|(_, _, predicate)| predicate.clone())
+        .collect::<Vec<_>>();
+    let (affected_row_count, changed_counts) =
+        match crate::duckdb_query::count_file_predicate_matches(
+            &source_path,
+            source_format,
+            &predicates,
+            || false,
+        ) {
+            Ok(counts) => counts,
+            Err(_) => return Ok(None),
+        };
+    let changed_columns = conversions
+        .iter()
+        .zip(changed_counts)
+        .filter(|(_, count)| *count > 0)
+        .map(|((name, _, _), count)| ChangedTextColumn {
+            name: name.clone(),
+            changed_cell_count: count,
+        })
+        .collect::<Vec<_>>();
+    let changed_cell_count = changed_columns
+        .iter()
+        .map(|column| column.changed_cell_count)
+        .sum::<usize>();
+    if changed_cell_count == 0 {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns,
+        }));
+    }
+    let projection = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            if name.as_str() == "_cambios" {
+                source_backed_text_audit_expression(&identifier, "Convertir números detectados")
+            } else if let Some((_, expression, _)) = conversions
+                .iter()
+                .find(|(column, _, _)| column == name.as_str())
+            {
+                format!("{expression} AS {identifier}")
+            } else {
+                identifier
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Convertir números detectados",
+        true,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(TextCleaningResult {
+        dataset: mutation.dataset,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    }))
+}
+
+fn source_backed_inferred_date_expression(
+    identifier: &str,
+    format: InferredDateFormat,
+) -> Option<String> {
+    let formats: &[&str] = match format {
+        InferredDateFormat::Ymd => &["%Y-%m-%d"],
+        InferredDateFormat::DmySlash => &["%d/%m/%Y"],
+        InferredDateFormat::MdySlash => &["%m/%d/%Y"],
+        InferredDateFormat::DmyDash => &["%d-%m-%Y"],
+        InferredDateFormat::YmdSlash => &["%Y/%m/%d"],
+        InferredDateFormat::DmyShort => &["%d %b %Y"],
+        InferredDateFormat::DmyLong => &["%d %B %Y"],
+        InferredDateFormat::CompactYmd => &["%Y%m%d"],
+        InferredDateFormat::DmyShortDash => &["%d-%b-%Y"],
+        InferredDateFormat::MdyShort => &["%b %d, %Y"],
+        InferredDateFormat::MdyLong => &["%B %d, %Y"],
+        InferredDateFormat::YmdTime => &["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"],
+        InferredDateFormat::YmdSpaceTime => &["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"],
+        InferredDateFormat::DmySlashTime => &["%d/%m/%Y %H:%M"],
+        InferredDateFormat::Iso8601 => {
+            return Some(duckdb_iso8601_expression(
+                identifier,
+                RecipeDateTarget::Datetime,
+            ));
+        }
+    };
+    let value = format!("NULLIF(TRIM(CAST({identifier} AS VARCHAR)), '')");
+    let parsed = formats
+        .iter()
+        .map(|format| format!("try_strptime({value}, {})", duckdb_string_literal(format)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!("COALESCE({parsed})"))
+}
+
+fn source_backed_date_parsing(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<TextCleaningResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let columns = dataset
+        .frame
+        .columns()
+        .iter()
+        .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+
+    let mut candidates = Vec::<(String, String, usize)>::new();
+    for name in &columns {
+        let sample = match crate::duckdb_query::sample_file_column_values(
+            &source_path,
+            source_format,
+            name,
+            50,
+        ) {
+            Ok(sample) => sample,
+            Err(_) => return Ok(None),
+        };
+        if sample.is_empty() {
+            continue;
+        }
+        let Some(inferred_format) = INFERRED_DATE_FORMATS.iter().copied().find(|format| {
+            let parsed = sample
+                .iter()
+                .filter_map(|value| parse_inferred_datetime(value, *format))
+                .collect::<Vec<_>>();
+            parsed.len().saturating_mul(100) > sample.len().saturating_mul(80)
+                && parsed
+                    .iter()
+                    .all(|value| (1900..=2100).contains(&value.year()))
+        }) else {
+            continue;
+        };
+        let identifier = duckdb_identifier(name);
+        let Some(expression) = source_backed_inferred_date_expression(&identifier, inferred_format)
+        else {
+            return Ok(None);
+        };
+        candidates.push((name.clone(), expression, sample.len()));
+    }
+    if candidates.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+
+    let candidate_expressions = candidates
+        .iter()
+        .map(|(name, expression, _)| (name.clone(), expression.clone()))
+        .collect::<Vec<_>>();
+    let stats = match crate::duckdb_query::count_file_date_parse_stats(
+        &source_path,
+        source_format,
+        &candidate_expressions,
+        || false,
+    ) {
+        Ok(stats) => stats,
+        Err(_) => return Ok(None),
+    };
+    let conversions = candidates
+        .into_iter()
+        .zip(stats)
+        .filter(|((_, _, sample_len), stats)| {
+            let extra_null_count = stats.non_null_count.saturating_sub(stats.parsed_count);
+            stats.parsed_count.saturating_mul(100) > sample_len.saturating_mul(80)
+                && extra_null_count.saturating_mul(100) <= dataset.row_count.saturating_mul(1)
+                && stats.in_range_count == stats.parsed_count
+        })
+        .map(|((name, expression, _), stats)| (name, expression, stats.parsed_count))
+        .collect::<Vec<_>>();
+    if conversions.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+    let predicates = conversions
+        .iter()
+        .map(|(_, expression, _)| format!("({expression}) IS NOT NULL"))
+        .collect::<Vec<_>>();
+    let (affected_row_count, changed_counts) =
+        match crate::duckdb_query::count_file_predicate_matches(
+            &source_path,
+            source_format,
+            &predicates,
+            || false,
+        ) {
+            Ok(counts) => counts,
+            Err(_) => return Ok(None),
+        };
+    let changed_columns = conversions
+        .iter()
+        .zip(changed_counts)
+        .filter(|(_, count)| *count > 0)
+        .map(|((name, _, _), count)| ChangedTextColumn {
+            name: name.clone(),
+            changed_cell_count: count,
+        })
+        .collect::<Vec<_>>();
+    let changed_cell_count = changed_columns
+        .iter()
+        .map(|column| column.changed_cell_count)
+        .sum::<usize>();
+    if changed_cell_count == 0 {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns,
+        }));
+    }
+    let projection = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            if name.as_str() == "_cambios" {
+                source_backed_text_audit_expression(&identifier, "Interpretar fechas detectadas")
+            } else if let Some((_, expression, _)) = conversions
+                .iter()
+                .find(|(column, _, _)| column == name.as_str())
+            {
+                format!("{expression} AS {identifier}")
+            } else {
+                identifier
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Interpretar fechas detectadas",
+        true,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(TextCleaningResult {
+        dataset: mutation.dataset,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    }))
+}
+
 fn leading_zero_code(value: &str) -> bool {
     let value = value.trim().trim_start_matches(['+', '-']);
     value.starts_with('0')
@@ -21643,6 +21999,11 @@ fn apply_date_parsing(app: AppHandle) -> Result<TextCleaningResult, String> {
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    if dataset.source_backed {
+        if let Some(result) = source_backed_date_parsing(dataset)? {
+            return Ok(result);
+        }
+    }
     materialize_loaded_dataset(dataset)?;
     let (parsed, affected_row_count, changed_cell_count, changed_columns) =
         parse_inferred_date_columns(&dataset.frame)?;
@@ -21669,6 +22030,11 @@ fn apply_numeric_cast(app: AppHandle) -> Result<TextCleaningResult, String> {
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    if dataset.source_backed {
+        if let Some(result) = source_backed_numeric_cast(dataset)? {
+            return Ok(result);
+        }
+    }
     materialize_loaded_dataset(dataset)?;
     let (cast, affected_row_count, changed_cell_count, changed_columns) =
         cast_inferred_numeric_columns(&dataset.frame)?;
@@ -30447,6 +30813,67 @@ mod tests {
         assert_eq!(flag.get(1), Some("false"));
         assert_eq!(flag.get(2), Some("true"));
         assert_eq!(flag.get(9), Some("maybe"));
+    }
+
+    #[test]
+    fn source_backed_inferred_numeric_and_date_casts_keep_safe_columns_lazy() {
+        let source = temporary_csv(
+            "amount,when,code\n10,2024-01-02,001\n20,2024-02-03,002\n30,2024-03-04,003\n",
+        );
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "inferred.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let numeric = source_backed_numeric_cast(&mut dataset)
+            .expect("la conversión numérica source-backed debe procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(numeric.affected_row_count, 3);
+        assert_eq!(numeric.changed_cell_count, 3);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la conversión numérica debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(current.column("amount").unwrap().dtype(), &DataType::Int64);
+        assert_eq!(current.column("code").unwrap().dtype(), &DataType::String);
+        assert_eq!(
+            current.column("code").unwrap().str().unwrap().get(0),
+            Some("001")
+        );
+
+        let dates = source_backed_date_parsing(&mut dataset)
+            .expect("la interpretación de fechas source-backed debe procesarse")
+            .expect("la fuente debe seguir siendo compatible");
+        assert_eq!(dates.affected_row_count, 3);
+        assert_eq!(dates.changed_cell_count, 3);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la interpretación debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert!(matches!(
+            current.column("when").unwrap().dtype(),
+            DataType::Datetime(_, None)
+        ));
+        assert_eq!(
+            current.column("amount").unwrap().i64().unwrap().get(2),
+            Some(30)
+        );
     }
 
     #[test]

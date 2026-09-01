@@ -6,6 +6,26 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.133.0] - 2026-09-01
+
+### Mejorado
+
+- `Convertir números detectados` ya puede analizar y convertir columnas
+  numéricas source-backed directamente en DuckDB, sin materializar todas las
+  filas en el `DataFrame` activo.
+- `Interpretar fechas detectadas` ya puede inferir formatos fijos e ISO segura
+  sobre fuentes source-backed, con el mismo umbral conservador de la ruta
+  eager, tolerancia de nulos y validación de años 1900–2100.
+- Ambas operaciones conservan identificadores y códigos con ceros iniciales,
+  cuentan filas y celdas afectadas en disco, publican snapshots Parquet
+  reversibles y mantienen fallback eager si la fuente no es compatible.
+
+### Verificado
+
+- La regresión cubre conversión numérica y temporal source-backed, tipos
+  publicados, preservación de códigos con ceros iniciales y permanencia del
+  frame activo en modo esquema-only.
+
 ## [0.132.0] - 2026-09-01
 
 ### Mejorado
