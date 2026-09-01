@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.130.0] - 2026-09-01
+
+### Mejorado
+
+- `Normalizar nombres de columnas` y `Activar trazabilidad por fila` ya pueden
+  ejecutarse sobre datasets source-backed mediante DuckDB, sin materializar
+  todas las filas en el `DataFrame` activo.
+- La normalización conserva el orden, resuelve colisiones de nombres con la
+  misma regla eager y publica snapshots Parquet reversibles; la trazabilidad
+  añade `_cambios` como columna de texto nula y mantiene fallback seguro.
+
+### Verificado
+
+- La regresión cubre nombres normalizados, colisiones, snapshot source-backed,
+  activación de `_cambios` y ciclos undo/redo.
+
 ## [0.129.0] - 2026-09-01
 
 ### Mejorado

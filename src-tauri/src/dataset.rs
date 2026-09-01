@@ -7869,6 +7869,109 @@ fn mask_personal_values_source_backed(
     }))
 }
 
+fn source_backed_rename_projection(
+    schema: &DataFrame,
+    names: &[String],
+    audit_label: &str,
+) -> Result<String, String> {
+    if schema.width() != names.len() || names.is_empty() {
+        return Err("La fuente source-backed no contiene un esquema renombrable.".to_owned());
+    }
+    let audit_literal = duckdb_string_literal(audit_label);
+    Ok(schema
+        .get_column_names()
+        .iter()
+        .zip(names)
+        .map(|(original, renamed)| {
+            let source = duckdb_identifier(original);
+            let destination = duckdb_identifier(renamed);
+            if original.as_str() == "_cambios" {
+                format!(
+                    "CASE WHEN {source} IS NULL OR TRIM(CAST({source} AS VARCHAR)) = '' THEN {audit_literal} ELSE LEFT(CAST({source} AS VARCHAR) || '; ' || {audit_literal}, {MAX_AUDIT_CELL_CHARS}) END AS {destination}"
+                )
+            } else if original.as_str() == renamed {
+                source
+            } else {
+                format!("{source} AS {destination}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", "))
+}
+
+fn normalize_column_names_source_backed(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<ColumnNormalizationResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let (names, renames) = normalized_column_names(&dataset.frame);
+    if renames.is_empty() {
+        return Ok(Some(ColumnNormalizationResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            renamed_column_count: 0,
+            renames,
+        }));
+    }
+    let projection =
+        source_backed_rename_projection(&dataset.frame, &names, "Normalizar nombres de columnas")?;
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Normalizar nombres de columnas",
+        true,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(ColumnNormalizationResult {
+        dataset: mutation.dataset,
+        renamed_column_count: renames.len(),
+        renames,
+    }))
+}
+
+fn enable_row_audit_source_backed(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<DatasetMutation>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    if dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .any(|name| name.as_str() == "_cambios")
+    {
+        return Ok(Some(DatasetMutation {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+        }));
+    }
+    let mut projection = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .map(|name| duckdb_identifier(name))
+        .collect::<Vec<_>>();
+    projection.push(format!(
+        "CAST(NULL AS VARCHAR) AS {}",
+        duckdb_identifier("_cambios")
+    ));
+    let query = format!("SELECT {} FROM dataset", projection.join(", "));
+    publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Activar trazabilidad por fila",
+        true,
+    )
+}
+
 fn leading_zero_code(value: &str) -> bool {
     let value = value.trim().trim_start_matches(['+', '-']);
     value.starts_with('0')
@@ -20940,6 +21043,11 @@ pub async fn enable_row_audit(app: AppHandle) -> Result<DatasetMutation, String>
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = enable_row_audit_source_backed(dataset)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (candidate, added) = add_audit_column_to_frame(&dataset.frame)?;
         let preview = if added {
@@ -21195,6 +21303,11 @@ pub async fn normalize_column_names(app: AppHandle) -> Result<ColumnNormalizatio
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = normalize_column_names_source_backed(dataset)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (names, renames) = normalized_column_names(&dataset.frame);
 
@@ -29869,6 +29982,74 @@ mod tests {
             dataset.frame.column("email").unwrap().str().unwrap().get(1),
             Some("luis@example.com")
         );
+    }
+
+    #[test]
+    fn source_backed_schema_changes_normalize_names_and_enable_audit_reversibly() {
+        let source = temporary_csv("Customer ID,customer-id,Name\na-1,1,Ana\nb-2,2,Luis\n");
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "headers.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let normalized = normalize_column_names_source_backed(&mut dataset)
+            .expect("la normalización source-backed debe procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(normalized.renamed_column_count, 3);
+        assert_eq!(normalized.renames[0].from, "Customer ID");
+        assert_eq!(normalized.renames[0].to, "customer_id");
+        assert_eq!(normalized.renames[1].to, "customer_id_2");
+
+        let audit = enable_row_audit_source_backed(&mut dataset)
+            .expect("la trazabilidad source-backed debe procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(audit.dataset.row_count, 2);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la trazabilidad debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(
+            current.get_column_names(),
+            &["customer_id", "customer_id_2", "name", "_cambios"]
+        );
+        assert_eq!(
+            current.column("customer_id").unwrap().str().unwrap().get(0),
+            Some("a-1")
+        );
+        assert_eq!(
+            current.column("_cambios").unwrap().str().unwrap().get(0),
+            None
+        );
+
+        let undo = undo_dataset(&mut dataset).expect("la trazabilidad debe poder deshacerse");
+        assert_eq!(undo.dataset.row_count, 2);
+        assert!(!dataset.source_backed);
+        assert!(!dataset
+            .frame
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "_cambios"));
+        let redo = redo_dataset(&mut dataset).expect("la trazabilidad debe poder rehacerse");
+        assert_eq!(redo.dataset.row_count, 2);
+        assert!(dataset
+            .frame
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "_cambios"));
     }
 
     #[test]

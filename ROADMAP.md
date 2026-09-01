@@ -15,7 +15,9 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.129.0, la máscara
+  I3/I5 conservan validaciones externas de plataforma. En v0.130.0, la
+  normalización de nombres y la activación de `_cambios` también usan DuckDB
+  source-backed con snapshots reversibles. En v0.129.0, la máscara
   de valores personales source-backed también usa DuckDB, conserva conteos
   agregados y snapshots reversibles. En v0.128.0, el retiro
   de columnas identificadoras y personales detectadas también usa DuckDB
@@ -23,7 +25,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.129.0`.
+- Versión actual del prototipo: `0.130.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1978,6 +1980,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.130.0 ejecuta la normalización de nombres y la activación de `_cambios` sobre fuentes source-backed con DuckDB; conserva colisiones, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.129.0 ejecuta la máscara de valores personales source-backed sobre DuckDB; conserva conteos agregados, `_cambios`, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.128.0 ejecuta el retiro de columnas identificadoras y personales detectadas sobre fuentes source-backed con DuckDB; conserva `_cambios`, snapshots reversibles, el contrato IPC agregado y fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.127.0 ejecuta duplicados y limpiezas de columnas constantes, vacías o con alta nulidad sobre fuentes source-backed con DuckDB; conserva orden, `_cambios`, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
