@@ -6,6 +6,14 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.105.1] - 2026-09-01
+
+### Limpieza
+
+- El componente interno de vista previa ahora usa el nombre neutral
+  `DatasetPreviewPanel`, evitando coincidencias con la marca retirada en
+  búsquedas del repositorio.
+
 ## [0.105.0] - 2026-09-01
 
 ### Mejorado

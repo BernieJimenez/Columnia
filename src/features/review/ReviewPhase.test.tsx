@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DatasetPreview, DatasetProfile, DatasetQueryResult } from "../../bridge";
 import * as bridge from "../../bridge";
-import { DataPreview, ReviewPhase } from "./ReviewPhase";
+import { DatasetPreviewPanel, ReviewPhase } from "./ReviewPhase";
 import { createReadyDatasetStatus } from "../load/loadModel";
 
 afterEach(() => {
@@ -764,7 +764,7 @@ describe("ReviewPhase", () => {
   it("anuncia el rango, representa null y solicita saltos exactos de 50", () => {
     const onPageChange = vi.fn();
     render(
-      <DataPreview
+      <DatasetPreviewPanel
         dataset={dataset}
         pageOffset={50}
         pageLoading={false}

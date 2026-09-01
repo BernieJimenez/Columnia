@@ -138,7 +138,7 @@ export function ReviewPhase({
         </div>
       ) : (
         <div id="review-preview-panel" role="tabpanel" aria-labelledby="review-preview-tab">
-          <DataPreview
+          <DatasetPreviewPanel
             dataset={datasetStatus.dataset}
             pageOffset={datasetStatus.pageOffset}
             pageLoading={datasetStatus.pageLoading}
@@ -837,7 +837,7 @@ function LocalQueryResult({ result }: { result: DatasetQueryResult }) {
   );
 }
 
-interface DataPreviewProps {
+interface DatasetPreviewProps {
   dataset: DatasetPreview;
   pageOffset: number;
   pageLoading: boolean;
@@ -845,13 +845,13 @@ interface DataPreviewProps {
   onPageChange: (offset: number) => void;
 }
 
-export function DataPreview({
+export function DatasetPreviewPanel({
   dataset,
   pageOffset,
   pageLoading,
   pageError,
   onPageChange,
-}: DataPreviewProps) {
+}: DatasetPreviewProps) {
   const { end: pageEnd, hasPrevious, hasNext } = pageRange(dataset, pageOffset);
 
   return (
