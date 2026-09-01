@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.117.0] - 2026-09-01
+
+### Mejorado
+
+- Las exportaciones source-backed con protección `mask` o `hash` ya generan
+  un snapshot Parquet protegido mediante DuckDB y transmiten desde él a los
+  siete destinos locales, sin materializar el `DataFrame` activo.
+- La protección conserva nulos, devuelve las columnas protegidas y mantiene
+  la misma semántica de detección que las exportaciones materializadas.
+- Las exportaciones source-backed vuelven a comprobar la fuente original al
+  terminar, incluso cuando el trabajo utiliza un snapshot derivado de un libro
+  XLSX/XLSB.
+
+### Verificado
+
+- La regresión de privacidad source-backed cubre máscara, SHA-256, nulos,
+  columnas no protegidas, snapshot Parquet y fuente original intacta.
+
 ## [0.116.0] - 2026-09-01
 
 ### Mejorado

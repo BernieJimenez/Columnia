@@ -14796,6 +14796,87 @@ fn privacy_safe_frame(
     Ok((safe, protected_columns))
 }
 
+fn source_backed_privacy_snapshot<C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    destination: &Path,
+    mode: PrivacyMode,
+    is_cancelled: C,
+) -> Result<Vec<String>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if mode == PrivacyMode::None {
+        return Err("La protección source-backed requiere un modo explícito.".to_owned());
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió antes de protegerse.".to_owned());
+    }
+    let schema = source_scan(&source_path, &extension)?
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el esquema para proteger la fuente: {error}"))?;
+    let schema_frame = DataFrame::empty_with_schema(&schema);
+    let protected_columns = schema_frame
+        .columns()
+        .iter()
+        .filter(|column| privacy_signal(column.name()).is_some())
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    if protected_columns.is_empty() {
+        return Ok(protected_columns);
+    }
+    let source_format = match extension.as_str() {
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        _ => return Err("El formato source-backed no admite protección incremental.".to_owned()),
+    };
+    let projection = schema_frame
+        .columns()
+        .iter()
+        .map(|column| {
+            let identifier = duckdb_identifier(column.name().as_str());
+            if !protected_columns.iter().any(|name| name == column.name().as_str()) {
+                return identifier;
+            }
+            match mode {
+                PrivacyMode::Mask => format!(
+                    "CASE WHEN {identifier} IS NULL THEN NULL ELSE {} END AS {identifier}",
+                    sql_string_literal(REDACTED_VALUE)
+                ),
+                PrivacyMode::Hash => format!(
+                    "CASE WHEN {identifier} IS NULL THEN NULL ELSE sha256(CAST({identifier} AS VARCHAR)) END AS {identifier}"
+                ),
+                PrivacyMode::None => unreachable!("se validó un modo de privacidad explícito"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    crate::duckdb_query::materialize_file_to_parquet_with_projection(
+        &source_path,
+        source_format,
+        destination,
+        &projection,
+        is_cancelled,
+    )?;
+    let snapshot_size = fs::metadata(destination)
+        .map_err(|error| format!("No se pudo verificar el snapshot protegido: {error}"))?
+        .len();
+    if snapshot_size == 0 {
+        return Err("El snapshot protegido quedó vacío.".to_owned());
+    }
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la protección.".to_owned());
+    }
+    Ok(protected_columns)
+}
+
 fn export_frame_atomic<F, C>(
     frame: &DataFrame,
     destination: &Path,
@@ -19602,18 +19683,19 @@ pub async fn export_dataset(
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         current.as_ref().and_then(|dataset| {
-            dataset.source_backed.then(|| {
-                current_source_backed_context(dataset).map(
-                    |(source_path, source_size, row_count)| {
-                        (
-                            source_path,
-                            dataset.file_name.clone(),
-                            source_size,
-                            row_count,
-                        )
-                    },
-                )
-            })?
+            if !dataset.source_backed {
+                return None;
+            }
+            let (source_path, source_size, row_count) = current_source_backed_context(dataset)?;
+            let original_source_path = dataset.source_path.as_ref()?.clone();
+            Some((
+                source_path,
+                dataset.file_name.clone(),
+                source_size,
+                row_count,
+                original_source_path,
+                dataset.file_size_bytes,
+            ))
         })
     };
     if matches!(
@@ -19629,12 +19711,29 @@ pub async fn export_dataset(
         && recipe.is_none()
         && quality_rules.iter().all(source_quality_rule_is_incremental)
     {
-        if let Some((source_path, file_name, expected_file_size, row_count)) = source_context {
+        if let Some((
+            source_path,
+            file_name,
+            expected_file_size,
+            row_count,
+            original_source_path,
+            expected_original_file_size,
+        )) = source_context
+        {
             let generation = app.state::<DatasetState>().begin_export();
             let validation_app = app.clone();
             let source_quality_rules = quality_rules.clone();
             let validation_source_path = source_path.clone();
+            let validation_original_source_path = original_source_path.clone();
             let quality_validation = tauri::async_runtime::spawn_blocking(move || {
+                let (_, original_source_size, _) =
+                    validate_dataset_file(&validation_original_source_path)?;
+                if original_source_size != expected_original_file_size {
+                    return Err(
+                        "El archivo source-backed original cambió desde la carga; vuelve a seleccionarlo."
+                            .to_owned(),
+                    );
+                }
                 let (source_path, source_size, extension) =
                     validate_dataset_file(&validation_source_path)?;
                 if source_size != expected_file_size {
@@ -19685,13 +19784,49 @@ pub async fn export_dataset(
             );
             let export_state = app.clone();
             let remembered_destination = destination.clone();
+            let export_original_source_path = original_source_path.clone();
             let result = tauri::async_runtime::spawn_blocking(move || {
+                let mut effective_source_path = source_path.clone();
+                let mut effective_source_size = expected_file_size;
+                let mut protected_columns = Vec::new();
+                let _privacy_scratch = if privacy_mode == PrivacyMode::None {
+                    None
+                } else {
+                    let scratch = tempfile::tempdir_in(destination.parent().ok_or_else(|| {
+                        "No se pudo resolver la carpeta de exportación.".to_owned()
+                    })?)
+                    .map_err(|error| {
+                        format!("No se pudo preparar el snapshot protegido: {error}")
+                    })?;
+                    let privacy_snapshot = scratch.path().join("protected.parquet");
+                    let cancellation_app = app.clone();
+                    protected_columns = source_backed_privacy_snapshot(
+                        &source_path,
+                        expected_file_size,
+                        &privacy_snapshot,
+                        privacy_mode,
+                        move || {
+                            cancellation_app
+                                .state::<DatasetState>()
+                                .export_was_cancelled(generation)
+                        },
+                    )?;
+                    if !protected_columns.is_empty() {
+                        effective_source_size = fs::metadata(&privacy_snapshot)
+                            .map_err(|error| {
+                                format!("No se pudo verificar el snapshot protegido: {error}")
+                            })?
+                            .len();
+                        effective_source_path = privacy_snapshot;
+                    }
+                    Some(scratch)
+                };
                 let result = match format {
                     ExportFormat::Csv => {
                         let cancellation_app = app.clone();
                         export_source_backed_csv_atomic(
-                            &source_path,
-                            expected_file_size,
+                            &effective_source_path,
+                            effective_source_size,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
@@ -19702,15 +19837,15 @@ pub async fn export_dataset(
                         )
                     }
                     ExportFormat::Json => export_source_backed_json_atomic(
-                        &source_path,
-                        expected_file_size,
+                        &effective_source_path,
+                        effective_source_size,
                         &destination,
                         |stage, percent| send_progress(&on_progress, "export", stage, percent),
                         || app.state::<DatasetState>().export_was_cancelled(generation),
                     ),
                     ExportFormat::Parquet => export_source_backed_parquet_atomic(
-                        &source_path,
-                        expected_file_size,
+                        &effective_source_path,
+                        effective_source_size,
                         &destination,
                         |stage, percent| send_progress(&on_progress, "export", stage, percent),
                         || app.state::<DatasetState>().export_was_cancelled(generation),
@@ -19718,8 +19853,8 @@ pub async fn export_dataset(
                     ExportFormat::Sql => {
                         let cancellation_app = app.clone();
                         export_source_backed_sql_atomic(
-                            &source_path,
-                            expected_file_size,
+                            &effective_source_path,
+                            effective_source_size,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
@@ -19732,8 +19867,8 @@ pub async fn export_dataset(
                     ExportFormat::Excel => {
                         let cancellation_app = app.clone();
                         export_source_backed_xlsx_atomic(
-                            &source_path,
-                            expected_file_size,
+                            &effective_source_path,
+                            effective_source_size,
                             row_count,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
@@ -19747,8 +19882,8 @@ pub async fn export_dataset(
                     ExportFormat::Sqlite => {
                         let cancellation_app = app.clone();
                         export_source_backed_sqlite_atomic(
-                            &source_path,
-                            expected_file_size,
+                            &effective_source_path,
+                            effective_source_size,
                             row_count,
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
@@ -19762,8 +19897,8 @@ pub async fn export_dataset(
                     ExportFormat::Bundle => {
                         let cancellation_app = app.clone();
                         export_source_backed_bundle_atomic(
-                            &source_path,
-                            expected_file_size,
+                            &effective_source_path,
+                            effective_source_size,
                             row_count,
                             quality_validation.as_ref(),
                             &destination,
@@ -19776,7 +19911,19 @@ pub async fn export_dataset(
                         )
                     }
                 };
-                result.map(Some)
+                let result = result?;
+                let (_, final_original_source_size, _) =
+                    validate_dataset_file(&export_original_source_path)?;
+                if final_original_source_size != expected_original_file_size {
+                    return Err(
+                        "El archivo source-backed original cambió durante la exportación."
+                            .to_owned(),
+                    );
+                }
+                let mut result = result;
+                result.protected_column_count = protected_columns.len();
+                result.protected_columns = protected_columns;
+                Ok(Some(result))
             })
             .await
             .map_err(|error| format!("La exportación se interrumpió: {error}"))??;
@@ -32193,6 +32340,66 @@ mod tests {
             privacy_safe_frame(&frame, PrivacyMode::None).unwrap();
         assert_eq!(unprotected, frame);
         assert!(protected_columns.is_empty());
+    }
+
+    #[test]
+    fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() {
+        let source =
+            temporary_csv("email,identifier,city\nana@example.com,42,Santo Domingo\n,7,Santiago\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let expected_size = fs::metadata(&source)
+            .expect("la fuente source-backed debe existir")
+            .len();
+        let masked_path = directory.path().join("masked.parquet");
+        let masked_columns = source_backed_privacy_snapshot(
+            &source,
+            expected_size,
+            &masked_path,
+            PrivacyMode::Mask,
+            || false,
+        )
+        .expect("la protección source-backed debe crear un snapshot");
+        assert_eq!(masked_columns, vec!["email", "identifier"]);
+        let masked = read_parquet_frame(&masked_path).expect("el snapshot protegido debe abrir");
+        assert_eq!(masked.height(), 2);
+        assert_eq!(
+            masked.column("email").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
+        assert!(masked.column("email").unwrap().get(1).unwrap().is_null());
+        assert_eq!(
+            masked.column("identifier").unwrap().str().unwrap().get(0),
+            Some(REDACTED_VALUE)
+        );
+        assert_eq!(
+            masked.column("city").unwrap().str().unwrap().get(0),
+            Some("Santo Domingo")
+        );
+
+        let hashed_path = directory.path().join("hashed.parquet");
+        let hashed_columns = source_backed_privacy_snapshot(
+            &source,
+            expected_size,
+            &hashed_path,
+            PrivacyMode::Hash,
+            || false,
+        )
+        .expect("el hash source-backed debe crear un snapshot");
+        assert_eq!(hashed_columns, masked_columns);
+        let hashed = read_parquet_frame(&hashed_path).expect("el snapshot hash debe abrir");
+        let expected_email_hash = format!("{:x}", Sha256::digest(b"ana@example.com"));
+        let expected_identifier_hash = format!("{:x}", Sha256::digest(b"42"));
+        assert_eq!(
+            hashed.column("email").unwrap().str().unwrap().get(0),
+            Some(expected_email_hash.as_str())
+        );
+        assert!(hashed.column("email").unwrap().get(1).unwrap().is_null());
+        assert_eq!(
+            hashed.column("identifier").unwrap().str().unwrap().get(0),
+            Some(expected_identifier_hash.as_str())
+        );
+        assert!(source.is_file());
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
     }
 
     #[test]
