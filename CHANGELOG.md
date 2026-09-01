@@ -6,6 +6,25 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-09-01
+
+### Mejorado
+
+- Las recetas source-backed pueden agrupar y resumir directamente sobre CSV,
+  TSV, TXT delimitado o Parquet mediante DuckDB, después de filtros y etapas
+  estructurales compatibles.
+- Los resúmenes conservan el primer orden de aparición, agrupan valores nulos
+  juntos y soportan `sum`, `mean`, `min`, `max`, `count` y `count_unique`, con
+  validación de precisión, overflow y valores numéricos no finitos.
+- El resultado se publica como snapshot Parquet privado sin llenar el
+  `DataFrame` activo y reporta grupos, agregaciones, filas eliminadas y filas
+  colapsadas con contadores separados.
+
+### Verificado
+
+- Una regresión compara la salida source-backed con la ruta eager, incluyendo
+  grupos estables, clave nula, agregaciones mixtas y contadores de resultado.
+
 ## [0.99.0] - 2026-08-31
 
 ### Mejorado

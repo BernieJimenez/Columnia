@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes y reapertura segura | Implementada | Preferencias de workspace más amplias |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos, lectura por bloques, snapshots administrados, DuckDB opcional, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM |
+| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal/división/unión/extracción de texto/normalización de contactos/resúmenes por grupo, lectura por bloques, snapshots administrados, DuckDB opcional, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM |
 
 ## Contrato de calidad
 
@@ -72,6 +72,11 @@ Las normalizaciones source-backed de correo, teléfono y dirección se aplican
 después de las etapas estructurales compatibles, conservan nulos, espacios
 Unicode y prefijos telefónicos, y calculan el conteo exacto de celdas cambiadas;
 las extracciones posteriores observan esos valores normalizados.
+Los resúmenes source-backed por grupo se ejecutan después de esas etapas cuando
+la receta es compatible: conservan el primer orden de aparición, agrupan claves
+nulas y soportan `sum`, `mean`, `min`, `max`, `count` y `count_unique`, con
+validación de tipos, precisión, overflow y valores no finitos. El snapshot
+publicado mantiene contadores separados para grupos y filas colapsadas.
 Las fechas ISO, partes de fecha con filtros previos, expresiones regulares y
 combinaciones no seguras usan un fallback eager atómico y mantienen
 la recuperación del dataset anterior ante errores o cancelación.

@@ -22906,7 +22906,8 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
         || recipe.split_column.is_some()
         || recipe.merge_columns.is_some()
         || !recipe.contact_normalizations.is_empty()
-        || !recipe.text_extractions.is_empty())
+        || !recipe.text_extractions.is_empty()
+        || recipe.group_summary.is_some())
         && recipe
             .date_parses
             .iter()
@@ -22964,7 +22965,6 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
             .iter()
             .all(|normalization| !normalization.column.contains('\0'))
         && recipe.outlier_treatments.is_empty()
-        && recipe.group_summary.is_none()
 }
 
 struct SourceBackedProjectionPlan {
@@ -22980,6 +22980,7 @@ struct SourceBackedProjectionPlan {
     merge_columns: Option<SourceBackedMergePlan>,
     contact_normalizations: Vec<SourceBackedContactNormalizationPlan>,
     text_extractions: Vec<SourceBackedTextExtractionPlan>,
+    group_summary: Option<SourceBackedGroupSummaryPlan>,
     dropped_column_count: usize,
     kept_order_changed: bool,
 }
@@ -23008,6 +23009,174 @@ struct SourceBackedTextExtractionPlan {
 struct SourceBackedContactNormalizationPlan {
     column: String,
     kind: ContactKind,
+}
+
+struct SourceBackedGroupSummaryPlan {
+    group_by: Vec<String>,
+    group_dtypes: Vec<DataType>,
+    aggregations: Vec<SourceBackedSummaryAggregationPlan>,
+}
+
+struct SourceBackedSummaryAggregationPlan {
+    column: String,
+    output: String,
+    operation: SummaryOperation,
+    dtype: DataType,
+}
+
+fn source_backed_target_dtype(
+    schema: &DataFrame,
+    column: &str,
+    recipe: &TransformRecipe,
+    rename_map: &HashMap<String, String>,
+) -> Result<DataType, String> {
+    let source_column = recipe_column(schema, column)?;
+    let effective = rename_map.get(column).map(String::as_str).unwrap_or(column);
+    if let Some(cast) = recipe.casts.iter().find(|cast| {
+        rename_map
+            .get(&cast.column)
+            .map(String::as_str)
+            .unwrap_or(cast.column.as_str())
+            == effective
+    }) {
+        return Ok(match cast.target {
+            RecipeCastTarget::String => DataType::String,
+            RecipeCastTarget::Integer => DataType::Int64,
+            RecipeCastTarget::Decimal => DataType::Float64,
+            RecipeCastTarget::Boolean => DataType::Boolean,
+        });
+    }
+    if let Some(parse) = recipe.date_parses.iter().find(|parse| {
+        rename_map
+            .get(&parse.column)
+            .map(String::as_str)
+            .unwrap_or(parse.column.as_str())
+            == effective
+    }) {
+        return Ok(match parse.target {
+            RecipeDateTarget::Date => DataType::Date,
+            RecipeDateTarget::Datetime => DataType::Datetime(TimeUnit::Milliseconds, None),
+        });
+    }
+    Ok(source_column.dtype().clone())
+}
+
+fn source_backed_group_summary_plan(
+    summary: &GroupSummaryRecipe,
+    rename_map: &HashMap<String, String>,
+    available_columns: &[String],
+    available_types: &HashMap<String, DataType>,
+) -> Result<SourceBackedGroupSummaryPlan, String> {
+    if summary.group_by.is_empty() || summary.group_by.len() > 8 {
+        return Err("Agrupar requiere entre 1 y 8 columnas clave.".into());
+    }
+    if summary.aggregations.is_empty() || summary.aggregations.len() > 32 {
+        return Err("Resumir requiere entre 1 y 32 agregaciones.".into());
+    }
+
+    let effective_name = |name: &str| {
+        rename_map
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_owned())
+    };
+    let groups = summary
+        .group_by
+        .iter()
+        .map(|name| effective_name(name))
+        .collect::<Vec<_>>();
+    let mut group_dtypes = Vec::with_capacity(groups.len());
+    let mut group_unique = HashSet::new();
+    for name in &groups {
+        if !group_unique.insert(name.clone()) {
+            return Err(format!("La clave de grupo '{name}' está duplicada."));
+        }
+        if !available_columns.iter().any(|column| column == name) {
+            return Err(format!(
+                "La columna '{name}' requerida por agrupar no sobrevivió las etapas anteriores."
+            ));
+        }
+        if !available_types.contains_key(name) {
+            return Err(format!(
+                "No se pudo inferir el tipo de la clave de grupo '{name}'."
+            ));
+        }
+        group_dtypes.push(
+            available_types
+                .get(name)
+                .expect("la presencia del tipo fue validada")
+                .clone(),
+        );
+    }
+
+    let mut aggregation_unique = HashSet::new();
+    let mut output_names = HashSet::new();
+    let aggregations = summary
+        .aggregations
+        .iter()
+        .map(|aggregation| {
+            let name = effective_name(&aggregation.column);
+            if !aggregation_unique.insert((name.clone(), aggregation.operation)) {
+                return Err(format!(
+                    "La agregación '{}_{}' está duplicada.",
+                    name,
+                    aggregation.operation.suffix()
+                ));
+            }
+            if !available_columns.iter().any(|column| column == &name) {
+                return Err(format!(
+                    "La columna '{name}' requerida por resumir no sobrevivió las etapas anteriores."
+                ));
+            }
+            let dtype = available_types.get(&name).ok_or_else(|| {
+                format!("No se pudo inferir el tipo de la columna '{name}' para resumir.")
+            })?;
+            match aggregation.operation {
+                SummaryOperation::Sum | SummaryOperation::Mean
+                    if !matches!(dtype, DataType::Int64 | DataType::Float64) =>
+                {
+                    return Err(format!(
+                        "La agregación {} requiere que '{name}' sea Int64 o Float64.",
+                        aggregation.operation.suffix()
+                    ));
+                }
+                SummaryOperation::Min | SummaryOperation::Max
+                    if !matches!(
+                        dtype,
+                        DataType::Int64
+                            | DataType::Float64
+                            | DataType::String
+                            | DataType::Date
+                            | DataType::Datetime(_, _)
+                    ) =>
+                {
+                    return Err(format!(
+                        "La agregación {} no admite el tipo de '{name}'.",
+                        aggregation.operation.suffix()
+                    ));
+                }
+                _ => {}
+            }
+            let output = format!("{}_{}", name, aggregation.operation.suffix());
+            if group_unique.contains(&output) || !output_names.insert(output.clone()) {
+                return Err(format!(
+                    "El nombre de salida '{output}' colisiona con otra columna."
+                ));
+            }
+            Ok(SourceBackedSummaryAggregationPlan {
+                column: name,
+                output,
+                operation: aggregation.operation,
+                dtype: dtype.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(SourceBackedGroupSummaryPlan {
+        group_by: groups,
+        group_dtypes,
+        aggregations,
+    })
 }
 
 fn source_backed_projection_plan(
@@ -23607,6 +23776,93 @@ fn source_backed_projection_plan(
             .collect::<Result<Vec<_>, String>>()?
     };
 
+    let mut available_types = source_columns
+        .iter()
+        .zip(&output_columns)
+        .map(|(source_name, output_name)| {
+            (
+                output_name.clone(),
+                source_backed_target_dtype(schema, source_name, recipe, &rename_map)
+                    .expect("las columnas fuente ya fueron validadas"),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    if let Some(calculation) = &recipe.calculated_column {
+        let dtype = match calculation.operation {
+            CalculatedOperation::Concat => DataType::String,
+            CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day => {
+                DataType::Int32
+            }
+            CalculatedOperation::Add
+            | CalculatedOperation::Subtract
+            | CalculatedOperation::Multiply
+            | CalculatedOperation::Divide => DataType::Float64,
+        };
+        available_types.insert(calculation.name.clone(), dtype);
+    }
+    if let Some(split) = &split_columns {
+        available_types.extend(
+            split
+                .names
+                .iter()
+                .cloned()
+                .map(|name| (name, DataType::String)),
+        );
+    }
+    if let Some(merge) = &merge_columns {
+        available_types.insert(merge.name.clone(), DataType::String);
+    }
+    for normalization in &contact_normalizations {
+        available_types.insert(normalization.column.clone(), DataType::String);
+    }
+    available_types.extend(
+        text_extractions
+            .iter()
+            .map(|extraction| (extraction.name.clone(), DataType::String)),
+    );
+
+    let mut available_columns = selected_columns.clone();
+    if let Some(calculation) = &recipe.calculated_column {
+        available_columns.push(calculation.name.clone());
+    }
+    if let Some(split) = &split_columns {
+        if split.drop_source {
+            available_columns.retain(|column| column != &split.source);
+        }
+        available_columns.extend(split.names.iter().cloned());
+    }
+    if let Some(merge) = &merge_columns {
+        if merge.drop_sources {
+            available_columns.retain(|column| !merge.sources.iter().any(|source| source == column));
+        }
+        available_columns.push(merge.name.clone());
+    }
+    if split_columns
+        .as_ref()
+        .is_some_and(|split| split.drop_source)
+    {
+        available_types.remove(&split_columns.as_ref().expect("split está presente").source);
+    }
+    if let Some(merge) = &merge_columns {
+        if merge.drop_sources {
+            for source in &merge.sources {
+                available_types.remove(source);
+            }
+        }
+    }
+    let group_summary = recipe
+        .group_summary
+        .as_ref()
+        .map(|summary| {
+            source_backed_group_summary_plan(
+                summary,
+                &rename_map,
+                &available_columns,
+                &available_types,
+            )
+        })
+        .transpose()?;
+
     for filter in &recipe.filters {
         let effective = rename_map
             .get(&filter.column)
@@ -23682,6 +23938,7 @@ fn source_backed_projection_plan(
         merge_columns,
         contact_normalizations,
         text_extractions,
+        group_summary,
         dropped_column_count,
         kept_order_changed,
     })
@@ -23929,6 +24186,25 @@ fn source_backed_contact_normalization_expression(
             duckdb_string_literal(r"[\s\p{Z}]+")
         ),
     }
+}
+
+fn source_backed_summary_aggregate_expression(
+    aggregation: &SourceBackedSummaryAggregationPlan,
+) -> String {
+    let identifier = duckdb_identifier(&aggregation.column);
+    let value = format!("t.{identifier}");
+    let expression = match aggregation.operation {
+        SummaryOperation::Sum if aggregation.dtype == DataType::Int64 => {
+            format!("CAST(SUM({value}) AS BIGINT)")
+        }
+        SummaryOperation::Sum => format!("SUM({value})"),
+        SummaryOperation::Mean => format!("AVG({value})"),
+        SummaryOperation::Min => format!("MIN({value})"),
+        SummaryOperation::Max => format!("MAX({value})"),
+        SummaryOperation::Count => "COUNT(*)".to_owned(),
+        SummaryOperation::CountUnique => format!("COUNT(DISTINCT {value})"),
+    };
+    format!("{expression} AS {}", duckdb_identifier(&aggregation.output))
 }
 
 fn source_backed_projection_query(
@@ -24221,12 +24497,8 @@ fn source_backed_projection_query(
             .iter()
             .map(|extraction| extraction.name.clone()),
     );
-    let selected = output_columns
-        .iter()
-        .map(|column| format!("t.{}", duckdb_identifier(column)))
-        .collect::<Vec<_>>();
-    let output = format!(
-        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{}{} SELECT {} FROM {} AS t",
+    let pre_group_ctes = format!(
+        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{}{}",
         renamed_expressions.join(", "),
         transformed_expressions.join(", "),
         filter_cte,
@@ -24235,9 +24507,189 @@ fn source_backed_projection_query(
         split_cte,
         merge_cte,
         contact_normalization_cte,
-        text_extraction_cte,
-        selected.join(", "),
-        result_source
+        text_extraction_cte
+    );
+    let group_input_source = result_source;
+    let mut final_ctes = pre_group_ctes.clone();
+    let mut final_source = result_source;
+    let mut final_columns = output_columns;
+    let mut final_order_column = None;
+    let mut group_input_count = None;
+    let mut group_validation = None;
+    let mut output_validation = None;
+    if let Some(summary) = &plan.group_summary {
+        const GROUP_ORDER_COLUMN: &str = "__columnia_group_order";
+        if final_columns
+            .iter()
+            .any(|column| column == GROUP_ORDER_COLUMN)
+        {
+            return Err(format!(
+                "La receta no puede usar la columna reservada '{GROUP_ORDER_COLUMN}' para agrupar."
+            ));
+        }
+        let order_identifier = duckdb_identifier(GROUP_ORDER_COLUMN);
+        final_ctes.push_str(&format!(
+            ", ordered AS (SELECT *, row_number() OVER () AS {order_identifier} FROM {group_input_source} AS t)"
+        ));
+        let group_select = summary
+            .group_by
+            .iter()
+            .map(|column| {
+                let identifier = duckdb_identifier(column);
+                format!("t.{identifier} AS {identifier}")
+            })
+            .chain(
+                summary
+                    .aggregations
+                    .iter()
+                    .map(source_backed_summary_aggregate_expression),
+            )
+            .chain(std::iter::once(format!(
+                "MIN(t.{order_identifier}) AS {order_identifier}"
+            )))
+            .collect::<Vec<_>>();
+        let group_by = summary
+            .group_by
+            .iter()
+            .map(|column| format!("t.{}", duckdb_identifier(column)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        final_ctes.push_str(&format!(
+            ", grouped AS (SELECT {} FROM ordered AS t GROUP BY {})",
+            group_select.join(", "),
+            group_by
+        ));
+        final_source = "grouped";
+        final_order_column = Some(GROUP_ORDER_COLUMN);
+        final_columns = summary
+            .group_by
+            .iter()
+            .cloned()
+            .chain(
+                summary
+                    .aggregations
+                    .iter()
+                    .map(|aggregation| aggregation.output.clone()),
+            )
+            .collect();
+
+        group_input_count = Some(format!(
+            "{pre_group_ctes} SELECT CAST(COUNT(*) AS BIGINT) FROM {group_input_source}"
+        ));
+
+        let mut invalid_input_terms = Vec::new();
+        for (column, dtype) in summary.group_by.iter().zip(&summary.group_dtypes) {
+            if dtype == &DataType::Float64 {
+                let identifier = duckdb_identifier(column);
+                invalid_input_terms.push(format!(
+                    "t.{identifier} IS NOT NULL AND NOT isfinite(CAST(t.{identifier} AS DOUBLE))"
+                ));
+            }
+        }
+        let mut integer_sum_overflow_terms = Vec::new();
+        for aggregation in &summary.aggregations {
+            let identifier = duckdb_identifier(&aggregation.column);
+            if aggregation.dtype == DataType::Float64
+                && matches!(
+                    aggregation.operation,
+                    SummaryOperation::Sum
+                        | SummaryOperation::Mean
+                        | SummaryOperation::Min
+                        | SummaryOperation::Max
+                        | SummaryOperation::CountUnique
+                )
+            {
+                invalid_input_terms.push(format!(
+                    "t.{identifier} IS NOT NULL AND NOT isfinite(CAST(t.{identifier} AS DOUBLE))"
+                ));
+            }
+            if aggregation.dtype == DataType::Int64
+                && aggregation.operation == SummaryOperation::Mean
+            {
+                invalid_input_terms.push(format!(
+                    "t.{identifier} IS NOT NULL AND abs(CAST(t.{identifier} AS DOUBLE)) > 9007199254740992"
+                ));
+            }
+            if aggregation.dtype == DataType::Int64
+                && aggregation.operation == SummaryOperation::Sum
+            {
+                integer_sum_overflow_terms.push(format!(
+                    "SUM(CAST(t.{identifier} AS HUGEINT)) > 9223372036854775807 OR SUM(CAST(t.{identifier} AS HUGEINT)) < -9223372036854775808"
+                ));
+            }
+        }
+        let raw_validation = if invalid_input_terms.is_empty() {
+            "FALSE".to_owned()
+        } else {
+            format!(
+                "EXISTS (SELECT 1 FROM {group_input_source} AS t WHERE {})",
+                invalid_input_terms.join(" OR ")
+            )
+        };
+        let overflow_validation = if integer_sum_overflow_terms.is_empty() {
+            "FALSE".to_owned()
+        } else {
+            format!(
+                "EXISTS (SELECT 1 FROM {group_input_source} AS t GROUP BY {group_by} HAVING {})",
+                integer_sum_overflow_terms.join(" OR ")
+            )
+        };
+        if raw_validation != "FALSE" || overflow_validation != "FALSE" {
+            group_validation = Some(format!(
+                "{pre_group_ctes} SELECT CASE WHEN {raw_validation} OR {overflow_validation} THEN 1 ELSE 0 END"
+            ));
+        }
+
+        let output_invalid_terms = summary
+            .group_by
+            .iter()
+            .zip(&summary.group_dtypes)
+            .filter(|(_, dtype)| **dtype == DataType::Float64)
+            .map(|(column, _)| {
+                let identifier = duckdb_identifier(column);
+                format!(
+                    "t.{identifier} IS NOT NULL AND NOT isfinite(CAST(t.{identifier} AS DOUBLE))"
+                )
+            })
+            .chain(
+                summary
+                    .aggregations
+                    .iter()
+                    .filter(|aggregation| {
+                        aggregation.dtype == DataType::Float64
+                            && matches!(
+                                aggregation.operation,
+                                SummaryOperation::Sum
+                                    | SummaryOperation::Mean
+                                    | SummaryOperation::Min
+                                    | SummaryOperation::Max
+                            )
+                    })
+                    .map(|aggregation| {
+                        let identifier = duckdb_identifier(&aggregation.output);
+                        format!(
+                            "t.{identifier} IS NOT NULL AND NOT isfinite(CAST(t.{identifier} AS DOUBLE))"
+                        )
+                    }),
+            )
+            .collect::<Vec<_>>();
+        if !output_invalid_terms.is_empty() {
+            output_validation = Some(format!(
+                "SELECT CASE WHEN EXISTS (SELECT 1 FROM dataset AS t WHERE {}) THEN 1 ELSE 0 END",
+                output_invalid_terms.join(" OR ")
+            ));
+        }
+    }
+    let selected = final_columns
+        .iter()
+        .map(|column| format!("t.{}", duckdb_identifier(column)))
+        .collect::<Vec<_>>();
+    let order_clause = final_order_column
+        .map(|column| format!(" ORDER BY t.{}", duckdb_identifier(column)))
+        .unwrap_or_default();
+    let output = format!(
+        "{final_ctes} SELECT {} FROM {final_source} AS t{order_clause}",
+        selected.join(", ")
     );
     let replacement_count = if plan.replacement_columns.is_empty() {
         None
@@ -24298,6 +24750,9 @@ fn source_backed_projection_query(
         output,
         replacement_count,
         normalization_count,
+        group_input_count,
+        group_validation,
+        output_validation,
     })
 }
 
@@ -24305,6 +24760,9 @@ struct SourceBackedProjectionQueries {
     output: String,
     replacement_count: Option<String>,
     normalization_count: Option<String>,
+    group_input_count: Option<String>,
+    group_validation: Option<String>,
+    output_validation: Option<String>,
 }
 
 fn apply_source_backed_projection_recipe(
@@ -24356,12 +24814,14 @@ fn apply_source_backed_projection_recipe(
         + dropped_source_column_count
         + plan.dropped_column_count
         + usize::from(plan.kept_order_changed)
+        + usize::from(plan.group_summary.is_some())
         > 0;
 
     if !structural_change
         && recipe.filters.is_empty()
         && recipe.find_replace.is_none()
         && recipe.contact_normalizations.is_empty()
+        && recipe.group_summary.is_none()
     {
         let page_frame = collect_lazy_frame_streaming(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
@@ -24406,6 +24866,25 @@ fn apply_source_backed_projection_recipe(
     }
 
     let queries = source_backed_projection_query(&schema, recipe)?;
+    if let Some(query) = queries.group_validation.as_deref() {
+        let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
+        if invalid != 0 {
+            return Err(
+                "El resumen source-backed contiene claves, agregaciones o sumas no válidas."
+                    .to_owned(),
+            );
+        }
+    }
+    let group_summary_input_rows = queries
+        .group_input_count
+        .as_deref()
+        .map(|query| {
+            let count = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
+            usize::try_from(count).map_err(|_| {
+                "El conteo de filas para agrupar excede el límite de memoria.".to_owned()
+            })
+        })
+        .transpose()?;
     let temporary =
         tempfile::NamedTempFile::with_suffix_in(".parquet", dataset.history.directory.path())
             .map_err(|error| {
@@ -24439,6 +24918,17 @@ fn apply_source_backed_projection_recipe(
             "La receta source-backed aumentó inesperadamente el conteo de filas.".to_owned(),
         );
     }
+    if let Some(query) = queries.output_validation.as_deref() {
+        let invalid = crate::duckdb_query::query_file_scalar(
+            &output_path,
+            crate::duckdb_query::DuckDbFileFormat::Parquet,
+            query,
+        )?;
+        if invalid != 0 {
+            let _ = fs::remove_file(&output_path);
+            return Err("El resumen source-backed produjo un valor numérico no finito.".to_owned());
+        }
+    }
     let replaced_cell_count = queries
         .replacement_count
         .as_deref()
@@ -24464,7 +24954,17 @@ fn apply_source_backed_projection_recipe(
         let _ = fs::remove_file(&output_path);
         return Err("El archivo source-backed cambió durante la receta.".to_owned());
     }
-    let removed_row_count = dataset.row_count.saturating_sub(output_row_count);
+    let removed_row_count = group_summary_input_rows
+        .map(|input_rows| dataset.row_count.saturating_sub(input_rows))
+        .unwrap_or_else(|| dataset.row_count.saturating_sub(output_row_count));
+    let group_count = usize::from(plan.group_summary.is_some()) * output_row_count;
+    let aggregated_column_count = plan
+        .group_summary
+        .as_ref()
+        .map_or(0, |summary| summary.aggregations.len());
+    let collapsed_row_count = group_summary_input_rows
+        .map(|input_rows| input_rows.saturating_sub(output_row_count))
+        .unwrap_or(0);
     let changed = structural_change
         || removed_row_count > 0
         || replaced_cell_count > 0
@@ -24545,9 +25045,9 @@ fn apply_source_backed_projection_recipe(
         adjusted_outlier_cell_count: 0,
         outlier_removed_row_count: 0,
         outlier_column_count: 0,
-        group_count: 0,
-        aggregated_column_count: 0,
-        collapsed_row_count: 0,
+        group_count,
+        aggregated_column_count,
+        collapsed_row_count,
         normalized_contact_cell_count,
         normalized_contact_column_count,
         extracted_column_count,
@@ -26189,6 +26689,86 @@ mod tests {
         assert!(output.equals_missing(&expected));
         assert_eq!(result.dataset.row_count, 1);
         assert_eq!(result.dataset.rows[0][0].as_deref(), Some("Santo Domingo"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
+        let path = temporary_csv("group,amount\nA,10\nB,5\nA,20\n,7\nB,\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "amount".to_owned(),
+                target: RecipeCastTarget::Integer,
+            }],
+            group_summary: Some(GroupSummaryRecipe {
+                group_by: vec!["group".to_owned()],
+                aggregations: vec![
+                    SummaryAggregation {
+                        column: "amount".to_owned(),
+                        operation: SummaryOperation::Sum,
+                    },
+                    SummaryAggregation {
+                        column: "amount".to_owned(),
+                        operation: SummaryOperation::Mean,
+                    },
+                    SummaryAggregation {
+                        column: "amount".to_owned(),
+                        operation: SummaryOperation::Count,
+                    },
+                    SummaryAggregation {
+                        column: "amount".to_owned(),
+                        operation: SummaryOperation::CountUnique,
+                    },
+                    SummaryAggregation {
+                        column: "amount".to_owned(),
+                        operation: SummaryOperation::Min,
+                    },
+                    SummaryAggregation {
+                        column: "amount".to_owned(),
+                        operation: SummaryOperation::Max,
+                    },
+                ],
+            }),
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("el resumen source-backed debe publicarse");
+
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.row_count, 3);
+        assert_eq!(result.group_count, 3);
+        assert_eq!(result.aggregated_column_count, 6);
+        assert_eq!(result.collapsed_row_count, 2);
+        assert_eq!(result.removed_row_count, 0);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(result.dataset.rows[0][0].as_deref(), Some("A"));
+        assert_eq!(result.dataset.rows[2][0], None);
+
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
