@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.101.0] - 2026-09-01
+
+### Mejorado
+
+- Los tratamientos IQR source-backed (`cap`, `drop` e `impute`) se ejecutan
+  directamente sobre CSV, TSV, TXT delimitado o Parquet mediante DuckDB,
+  después de filtros y etapas compatibles.
+- La ruta calcula un baseline común, conserva nulos y tipos cuando corresponde,
+  valida mínimo de valores, finitud, precisión y umbrales, y separa los
+  contadores de celdas ajustadas, filas retiradas y filas eliminadas por filtros.
+
+### Verificado
+
+- Regresiones comparan los tres modos IQR con eager y comprueban el baseline
+  posterior a filtros y la separación de contadores.
+
 ## [0.100.0] - 2026-09-01
 
 ### Mejorado

@@ -22907,7 +22907,8 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
         || recipe.merge_columns.is_some()
         || !recipe.contact_normalizations.is_empty()
         || !recipe.text_extractions.is_empty()
-        || recipe.group_summary.is_some())
+        || recipe.group_summary.is_some()
+        || !recipe.outlier_treatments.is_empty())
         && recipe
             .date_parses
             .iter()
@@ -22964,7 +22965,6 @@ fn source_backed_projection_recipe_supported(schema: &DataFrame, recipe: &Transf
             .contact_normalizations
             .iter()
             .all(|normalization| !normalization.column.contains('\0'))
-        && recipe.outlier_treatments.is_empty()
 }
 
 struct SourceBackedProjectionPlan {
@@ -22980,6 +22980,7 @@ struct SourceBackedProjectionPlan {
     merge_columns: Option<SourceBackedMergePlan>,
     contact_normalizations: Vec<SourceBackedContactNormalizationPlan>,
     text_extractions: Vec<SourceBackedTextExtractionPlan>,
+    outlier_treatments: Vec<SourceBackedOutlierPlan>,
     group_summary: Option<SourceBackedGroupSummaryPlan>,
     dropped_column_count: usize,
     kept_order_changed: bool,
@@ -23009,6 +23010,12 @@ struct SourceBackedTextExtractionPlan {
 struct SourceBackedContactNormalizationPlan {
     column: String,
     kind: ContactKind,
+}
+
+struct SourceBackedOutlierPlan {
+    column: String,
+    action: OutlierAction,
+    dtype: DataType,
 }
 
 struct SourceBackedGroupSummaryPlan {
@@ -23850,6 +23857,48 @@ fn source_backed_projection_plan(
             }
         }
     }
+    let outlier_treatments = if recipe.outlier_treatments.is_empty() {
+        Vec::new()
+    } else {
+        if recipe.outlier_treatments.len() > 16 {
+            return Err("La receta admite como máximo 16 tratamientos de atípicos.".into());
+        }
+        let mut unique_columns = HashSet::new();
+        recipe
+            .outlier_treatments
+            .iter()
+            .map(|treatment| {
+                if !unique_columns.insert(treatment.column.as_str()) {
+                    return Err(format!(
+                        "La columna '{}' tiene más de un tratamiento de atípicos.",
+                        treatment.column
+                    ));
+                }
+                let column = rename_map
+                    .get(&treatment.column)
+                    .cloned()
+                    .unwrap_or_else(|| treatment.column.clone());
+                let dtype = available_types.get(&column).cloned().ok_or_else(|| {
+                    format!(
+                        "La columna '{column}' para tratar atípicos no sobrevivió las etapas estructurales."
+                    )
+                })?;
+                if !matches!(&dtype, DataType::Int64 | DataType::Float64) {
+                    return Err(format!(
+                        "La columna '{column}' debe ser Int64 o Float64 para tratar valores numéricos."
+                    ));
+                }
+                if treatment.action == OutlierAction::Cap {
+                    available_types.insert(column.clone(), DataType::Float64);
+                }
+                Ok(SourceBackedOutlierPlan {
+                    column,
+                    action: treatment.action,
+                    dtype,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
     let group_summary = recipe
         .group_summary
         .as_ref()
@@ -23938,6 +23987,7 @@ fn source_backed_projection_plan(
         merge_columns,
         contact_normalizations,
         text_extractions,
+        outlier_treatments,
         group_summary,
         dropped_column_count,
         kept_order_changed,
@@ -24207,6 +24257,21 @@ fn source_backed_summary_aggregate_expression(
     format!("{expression} AS {}", duckdb_identifier(&aggregation.output))
 }
 
+fn source_backed_outlier_alias(index: usize, metric: &str) -> String {
+    duckdb_identifier(&format!("__columnia_outlier_{metric}_{index}"))
+}
+
+fn source_backed_outlier_value(plan: &SourceBackedOutlierPlan) -> String {
+    format!("CAST(t.{} AS DOUBLE)", duckdb_identifier(&plan.column))
+}
+
+fn source_backed_outlier_condition(plan: &SourceBackedOutlierPlan, index: usize) -> String {
+    let value = source_backed_outlier_value(plan);
+    let lower = source_backed_outlier_alias(index, "lower");
+    let upper = source_backed_outlier_alias(index, "upper");
+    format!("{value} IS NOT NULL AND ({value} < s.{lower} OR {value} > s.{upper})")
+}
+
 fn source_backed_projection_query(
     schema: &DataFrame,
     recipe: &TransformRecipe,
@@ -24449,6 +24514,165 @@ fn source_backed_projection_query(
         }
         output_columns.push(merge.name.clone());
     }
+    let outlier_input_source = result_source;
+    let pre_outlier_ctes = format!(
+        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}",
+        renamed_expressions.join(", "),
+        transformed_expressions.join(", "),
+        filter_cte,
+        replacement_cte,
+        calculation_cte,
+        split_cte,
+        merge_cte
+    );
+    let outlier_quantile_cte = if plan.outlier_treatments.is_empty() {
+        String::new()
+    } else {
+        let expressions = plan
+            .outlier_treatments
+            .iter()
+            .enumerate()
+            .flat_map(|(index, treatment)| {
+                let value = format!("CAST(t.{} AS DOUBLE)", duckdb_identifier(&treatment.column));
+                let median = if treatment.dtype == DataType::Int64 {
+                    format!("quantile_disc({value}, 0.5)")
+                } else {
+                    format!("quantile_cont({value}, 0.5)")
+                };
+                [
+                    format!(
+                        "quantile_cont({value}, 0.25) AS {}",
+                        source_backed_outlier_alias(index, "q1")
+                    ),
+                    format!(
+                        "quantile_cont({value}, 0.75) AS {}",
+                        source_backed_outlier_alias(index, "q3")
+                    ),
+                    format!(
+                        "{median} AS {}",
+                        source_backed_outlier_alias(index, "median")
+                    ),
+                    format!(
+                        "COUNT(t.{}) AS {}",
+                        duckdb_identifier(&treatment.column),
+                        source_backed_outlier_alias(index, "valid_count")
+                    ),
+                ]
+            })
+            .collect::<Vec<_>>();
+        format!(
+            ", outlier_quantiles AS (SELECT {} FROM {outlier_input_source} AS t)",
+            expressions.join(", ")
+        )
+    };
+    let outlier_stats_cte = if plan.outlier_treatments.is_empty() {
+        String::new()
+    } else {
+        let expressions = plan
+            .outlier_treatments
+            .iter()
+            .enumerate()
+            .flat_map(|(index, _)| {
+                let q1 = source_backed_outlier_alias(index, "q1");
+                let q3 = source_backed_outlier_alias(index, "q3");
+                let median = source_backed_outlier_alias(index, "median");
+                [
+                    format!("q.{q1} AS {q1}"),
+                    format!("q.{q3} AS {q3}"),
+                    format!(
+                        "q.{q1} - 1.5 * (q.{q3} - q.{q1}) AS {}",
+                        source_backed_outlier_alias(index, "lower")
+                    ),
+                    format!(
+                        "q.{q3} + 1.5 * (q.{q3} - q.{q1}) AS {}",
+                        source_backed_outlier_alias(index, "upper")
+                    ),
+                    format!("q.{median} AS {median}"),
+                    format!(
+                        "q.{} AS {}",
+                        source_backed_outlier_alias(index, "valid_count"),
+                        source_backed_outlier_alias(index, "valid_count")
+                    ),
+                ]
+            })
+            .collect::<Vec<_>>();
+        format!(
+            ", outlier_stats AS (SELECT {} FROM outlier_quantiles AS q)",
+            expressions.join(", ")
+        )
+    };
+    let outlier_cte = if plan.outlier_treatments.is_empty() {
+        String::new()
+    } else {
+        let expressions = output_columns
+            .iter()
+            .map(|column| {
+                let identifier = duckdb_identifier(column);
+                plan.outlier_treatments
+                    .iter()
+                    .enumerate()
+                    .find(|(_, treatment)| treatment.column == *column)
+                    .map_or_else(
+                        || format!("t.{identifier} AS {identifier}"),
+                        |(index, treatment)| {
+                            let value = format!("CAST(t.{identifier} AS DOUBLE)");
+                            let condition = source_backed_outlier_condition(treatment, index);
+                            let lower = format!(
+                                "s.{}",
+                                source_backed_outlier_alias(index, "lower")
+                            );
+                            let upper = format!(
+                                "s.{}",
+                                source_backed_outlier_alias(index, "upper")
+                            );
+                            let median = format!(
+                                "s.{}",
+                                source_backed_outlier_alias(index, "median")
+                            );
+                            let expression = match treatment.action {
+                                OutlierAction::Cap => format!(
+                                    "CASE WHEN {value} IS NULL THEN NULL WHEN {value} < {lower} THEN {lower} WHEN {value} > {upper} THEN {upper} ELSE {value} END"
+                                ),
+                                OutlierAction::Impute => {
+                                    let replacement = if treatment.dtype == DataType::Int64 {
+                                        format!("CAST({median} AS BIGINT)")
+                                    } else {
+                                        median
+                                    };
+                                    let original = if treatment.dtype == DataType::Int64 {
+                                        format!("t.{identifier}")
+                                    } else {
+                                        value.clone()
+                                    };
+                                    format!(
+                                        "CASE WHEN {value} IS NULL THEN NULL WHEN {condition} THEN {replacement} ELSE {original} END"
+                                    )
+                                }
+                                OutlierAction::Drop => format!("t.{identifier}"),
+                            };
+                            format!("{expression} AS {identifier}")
+                        },
+                    )
+            })
+            .collect::<Vec<_>>();
+        let drop_conditions = plan
+            .outlier_treatments
+            .iter()
+            .enumerate()
+            .filter(|(_, treatment)| treatment.action == OutlierAction::Drop)
+            .map(|(index, treatment)| source_backed_outlier_condition(treatment, index))
+            .collect::<Vec<_>>();
+        let where_clause = if drop_conditions.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE NOT ({})", drop_conditions.join(" OR "))
+        };
+        result_source = "outliers";
+        format!(
+            "{outlier_quantile_cte}{outlier_stats_cte}, outliers AS (SELECT {} FROM {outlier_input_source} AS t CROSS JOIN outlier_stats AS s{where_clause})",
+            expressions.join(", ")
+        )
+    };
     let contact_input_source = result_source;
     let contact_normalization_cte = if plan.contact_normalizations.is_empty() {
         String::new()
@@ -24498,7 +24722,7 @@ fn source_backed_projection_query(
             .map(|extraction| extraction.name.clone()),
     );
     let pre_group_ctes = format!(
-        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{}{}",
+        "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{}{}{}",
         renamed_expressions.join(", "),
         transformed_expressions.join(", "),
         filter_cte,
@@ -24506,6 +24730,7 @@ fn source_backed_projection_query(
         calculation_cte,
         split_cte,
         merge_cte,
+        outlier_cte,
         contact_normalization_cte,
         text_extraction_cte
     );
@@ -24734,7 +24959,7 @@ fn source_backed_projection_query(
             })
             .collect::<Vec<_>>();
         Some(format!(
-            "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{} SELECT CAST(COALESCE(SUM({}), 0) AS BIGINT) FROM {} AS t",
+            "WITH renamed AS (SELECT {} FROM dataset), transformed AS (SELECT {} FROM renamed AS t){}{}{}{}{}{} SELECT CAST(COALESCE(SUM({}), 0) AS BIGINT) FROM {} AS t",
             renamed_expressions.join(", "),
             transformed_expressions.join(", "),
             filter_cte,
@@ -24742,14 +24967,99 @@ fn source_backed_projection_query(
             calculation_cte,
             split_cte,
             merge_cte,
+            outlier_cte,
             changed_terms.join(" + "),
             contact_input_source
+        ))
+    };
+    let outlier_validation = if plan.outlier_treatments.is_empty() {
+        None
+    } else {
+        let mut invalid_terms = Vec::new();
+        for (index, treatment) in plan.outlier_treatments.iter().enumerate() {
+            let identifier = duckdb_identifier(&treatment.column);
+            if treatment.dtype == DataType::Float64 {
+                invalid_terms.push(format!(
+                    "EXISTS (SELECT 1 FROM {outlier_input_source} AS t WHERE t.{identifier} IS NOT NULL AND NOT isfinite(CAST(t.{identifier} AS DOUBLE)))"
+                ));
+            } else {
+                invalid_terms.push(format!(
+                    "EXISTS (SELECT 1 FROM {outlier_input_source} AS t WHERE t.{identifier} IS NOT NULL AND abs(CAST(t.{identifier} AS DOUBLE)) > 9007199254740992)"
+                ));
+            }
+            let q1 = source_backed_outlier_alias(index, "q1");
+            let q3 = source_backed_outlier_alias(index, "q3");
+            let median = source_backed_outlier_alias(index, "median");
+            let lower = source_backed_outlier_alias(index, "lower");
+            let upper = source_backed_outlier_alias(index, "upper");
+            let valid_count = source_backed_outlier_alias(index, "valid_count");
+            invalid_terms.push(format!(
+                "EXISTS (SELECT 1 FROM outlier_stats AS s WHERE s.{valid_count} < 4 OR NOT isfinite(CAST(s.{q1} AS DOUBLE)) OR NOT isfinite(CAST(s.{q3} AS DOUBLE)) OR NOT isfinite(CAST(s.{median} AS DOUBLE)) OR NOT isfinite(CAST(s.{lower} AS DOUBLE)) OR NOT isfinite(CAST(s.{upper} AS DOUBLE)))"
+            ));
+        }
+        Some(format!(
+            "{pre_outlier_ctes}{outlier_quantile_cte}{outlier_stats_cte} SELECT CASE WHEN {} THEN 1 ELSE 0 END",
+            invalid_terms.join(" OR ")
+        ))
+    };
+    let outlier_adjusted_count = if plan.outlier_treatments.is_empty() {
+        None
+    } else {
+        let changed_terms = plan
+            .outlier_treatments
+            .iter()
+            .enumerate()
+            .filter(|(_, treatment)| treatment.action != OutlierAction::Drop)
+            .map(|(index, treatment)| {
+                format!(
+                    "CASE WHEN {} THEN 1 ELSE 0 END",
+                    source_backed_outlier_condition(treatment, index)
+                )
+            })
+            .collect::<Vec<_>>();
+        if changed_terms.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "{pre_outlier_ctes}{outlier_quantile_cte}{outlier_stats_cte} SELECT CAST(COALESCE(SUM({}), 0) AS BIGINT) FROM {outlier_input_source} AS t CROSS JOIN outlier_stats AS s",
+                changed_terms.join(" + ")
+            ))
+        }
+    };
+    let outlier_removed_count = if plan.outlier_treatments.is_empty() {
+        None
+    } else {
+        let drop_conditions = plan
+            .outlier_treatments
+            .iter()
+            .enumerate()
+            .filter(|(_, treatment)| treatment.action == OutlierAction::Drop)
+            .map(|(index, treatment)| source_backed_outlier_condition(treatment, index))
+            .collect::<Vec<_>>();
+        if drop_conditions.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "{pre_outlier_ctes}{outlier_quantile_cte}{outlier_stats_cte} SELECT CAST(COUNT(*) AS BIGINT) FROM {outlier_input_source} AS t CROSS JOIN outlier_stats AS s WHERE {}",
+                drop_conditions.join(" OR ")
+            ))
+        }
+    };
+    let input_row_count = if plan.outlier_treatments.is_empty() && plan.group_summary.is_none() {
+        None
+    } else {
+        Some(format!(
+            "{pre_group_ctes} SELECT CAST(COUNT(*) AS BIGINT) FROM {filtered_source}"
         ))
     };
     Ok(SourceBackedProjectionQueries {
         output,
         replacement_count,
         normalization_count,
+        outlier_adjusted_count,
+        outlier_removed_count,
+        outlier_validation,
+        input_row_count,
         group_input_count,
         group_validation,
         output_validation,
@@ -24760,6 +25070,10 @@ struct SourceBackedProjectionQueries {
     output: String,
     replacement_count: Option<String>,
     normalization_count: Option<String>,
+    outlier_adjusted_count: Option<String>,
+    outlier_removed_count: Option<String>,
+    outlier_validation: Option<String>,
+    input_row_count: Option<String>,
     group_input_count: Option<String>,
     group_validation: Option<String>,
     output_validation: Option<String>,
@@ -24821,6 +25135,7 @@ fn apply_source_backed_projection_recipe(
         && recipe.filters.is_empty()
         && recipe.find_replace.is_none()
         && recipe.contact_normalizations.is_empty()
+        && recipe.outlier_treatments.is_empty()
         && recipe.group_summary.is_none()
     {
         let page_frame = collect_lazy_frame_streaming(
@@ -24875,6 +25190,38 @@ fn apply_source_backed_projection_recipe(
             );
         }
     }
+    if let Some(query) = queries.outlier_validation.as_deref() {
+        let invalid = crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
+        if invalid != 0 {
+            return Err(
+                "Los tratamientos IQR source-backed requieren al menos cuatro valores finitos y dentro de precisión segura."
+                    .to_owned(),
+            );
+        }
+    }
+    let scalar_count = |query: Option<&String>, message: &str| {
+        query
+            .map(|query| {
+                let count =
+                    crate::duckdb_query::query_file_scalar(&source_path, source_format, query)?;
+                usize::try_from(count).map_err(|_| message.to_owned())
+            })
+            .transpose()
+    };
+    let adjusted_outlier_cell_count = scalar_count(
+        queries.outlier_adjusted_count.as_ref(),
+        "El conteo de celdas atípicas ajustadas excede el límite de memoria.",
+    )?
+    .unwrap_or(0);
+    let outlier_removed_row_count = scalar_count(
+        queries.outlier_removed_count.as_ref(),
+        "El conteo de filas atípicas retiradas excede el límite de memoria.",
+    )?
+    .unwrap_or(0);
+    let filtered_input_row_count = scalar_count(
+        queries.input_row_count.as_ref(),
+        "El conteo de filas de entrada excede el límite de memoria.",
+    )?;
     let group_summary_input_rows = queries
         .group_input_count
         .as_deref()
@@ -24923,7 +25270,10 @@ fn apply_source_backed_projection_recipe(
             &output_path,
             crate::duckdb_query::DuckDbFileFormat::Parquet,
             query,
-        )?;
+        )
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&output_path);
+        })?;
         if invalid != 0 {
             let _ = fs::remove_file(&output_path);
             return Err("El resumen source-backed produjo un valor numérico no finito.".to_owned());
@@ -24954,7 +25304,7 @@ fn apply_source_backed_projection_recipe(
         let _ = fs::remove_file(&output_path);
         return Err("El archivo source-backed cambió durante la receta.".to_owned());
     }
-    let removed_row_count = group_summary_input_rows
+    let removed_row_count = filtered_input_row_count
         .map(|input_rows| dataset.row_count.saturating_sub(input_rows))
         .unwrap_or_else(|| dataset.row_count.saturating_sub(output_row_count));
     let group_count = usize::from(plan.group_summary.is_some()) * output_row_count;
@@ -24968,7 +25318,9 @@ fn apply_source_backed_projection_recipe(
     let changed = structural_change
         || removed_row_count > 0
         || replaced_cell_count > 0
-        || normalized_contact_cell_count > 0;
+        || normalized_contact_cell_count > 0
+        || adjusted_outlier_cell_count > 0
+        || outlier_removed_row_count > 0;
     if !changed {
         let _ = fs::remove_file(&output_path);
         let page_frame = collect_lazy_frame_streaming(
@@ -24996,7 +25348,7 @@ fn apply_source_backed_projection_recipe(
             dropped_source_column_count,
             adjusted_outlier_cell_count: 0,
             outlier_removed_row_count: 0,
-            outlier_column_count: 0,
+            outlier_column_count: plan.outlier_treatments.len(),
             group_count: 0,
             aggregated_column_count: 0,
             collapsed_row_count: 0,
@@ -25042,9 +25394,9 @@ fn apply_source_backed_projection_recipe(
         split_column_count,
         merged_column_count,
         dropped_source_column_count,
-        adjusted_outlier_cell_count: 0,
-        outlier_removed_row_count: 0,
-        outlier_column_count: 0,
+        adjusted_outlier_cell_count,
+        outlier_removed_row_count,
+        outlier_column_count: plan.outlier_treatments.len(),
         group_count,
         aggregated_column_count,
         collapsed_row_count,
@@ -26768,6 +27120,118 @@ mod tests {
         assert!(output.equals_missing(&expected));
         assert_eq!(result.dataset.rows[0][0].as_deref(), Some("A"));
         assert_eq!(result.dataset.rows[2][0], None);
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
+        for (action, expected_adjusted, expected_removed, expected_rows) in [
+            (OutlierAction::Cap, 1, 0, 5),
+            (OutlierAction::Impute, 1, 0, 5),
+            (OutlierAction::Drop, 0, 1, 4),
+        ] {
+            let path = temporary_csv("amount,group\n1,A\n2,A\n3,A\n4,A\n100,A\n");
+            let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+            let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+                .expect("la fuente debe inspeccionarse en disco");
+            let history =
+                HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+            let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+            let mut dataset = LoadedDataset {
+                source_path: Some(path.clone()),
+                file_name: "dataset.csv".to_owned(),
+                file_size_bytes,
+                row_count,
+                frame: schema,
+                source_backed: true,
+                profile: None,
+                history,
+            };
+            let recipe = TransformRecipe {
+                casts: vec![RecipeCast {
+                    column: "amount".to_owned(),
+                    target: RecipeCastTarget::Integer,
+                }],
+                outlier_treatments: vec![OutlierTreatment {
+                    column: "amount".to_owned(),
+                    action,
+                }],
+                ..TransformRecipe::default()
+            };
+            let expected = apply_recipe_to_frame(&source_frame, &recipe)
+                .expect("la receta eager debe ser válida")
+                .0;
+
+            let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+                .expect("el tratamiento IQR source-backed debe publicarse");
+
+            assert_eq!(result.adjusted_outlier_cell_count, expected_adjusted);
+            assert_eq!(result.outlier_removed_row_count, expected_removed);
+            assert_eq!(result.outlier_column_count, 1);
+            assert_eq!(result.dataset.row_count, expected_rows);
+            let output_path = dataset
+                .source_path
+                .as_deref()
+                .expect("el resultado debe conservar una fuente Parquet");
+            let output =
+                read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+            assert!(output.equals_missing(&expected));
+
+            fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+        }
+    }
+
+    #[test]
+    fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
+        let path = temporary_csv("amount,group\n1,A\n2,A\n3,A\n4,A\n100,A\n100,B\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            casts: vec![RecipeCast {
+                column: "amount".to_owned(),
+                target: RecipeCastTarget::Integer,
+            }],
+            filters: vec![RecipeFilter {
+                column: "group".to_owned(),
+                operator: RecipeFilterOperator::Eq,
+                value: Some("A".to_owned()),
+            }],
+            outlier_treatments: vec![OutlierTreatment {
+                column: "amount".to_owned(),
+                action: OutlierAction::Drop,
+            }],
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("el tratamiento IQR source-backed debe respetar filtros");
+
+        assert_eq!(result.removed_row_count, 1);
+        assert_eq!(result.outlier_removed_row_count, 1);
+        assert_eq!(result.dataset.row_count, 4);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        assert!(output.equals_missing(&expected));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
