@@ -46,6 +46,8 @@ const SOURCE_BACKED_LOAD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
 const LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX: &str =
     "No se pudo usar el snapshot Parquet para la consulta local:";
+const SOURCE_BACKED_QUERY_ERROR: &str =
+    "La consulta source-backed no pudo ejecutarse sin materializar el dataset; revisa que la consulta sea compatible con el motor DuckDB y que la fuente siga intacta.";
 const MAX_CONFLICT_PREVIEW: usize = 50;
 const HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE: usize = 80;
 const SENTINEL_VALUES: &[&str] = &[
@@ -18281,6 +18283,7 @@ pub async fn query_dataset(
                 .flatten()
                 .map(|entry| entry.path.clone());
             let current_file_source = current_duckdb_file_source(dataset);
+            let source_backed_query = dataset.source_backed;
             let compared_snapshot = comparison
                 .as_ref()
                 .map(|pending| pending.snapshot_path.clone());
@@ -18406,6 +18409,9 @@ pub async fn query_dataset(
                     }
                 }
             }
+            if source_backed_query {
+                return Err(SOURCE_BACKED_QUERY_ERROR.to_owned());
+            }
             materialize_loaded_dataset(dataset)?;
             let compared_frame = comparison
                 .as_ref()
@@ -18441,10 +18447,10 @@ pub async fn query_dataset(
                 .then(|| dataset.history.entries.get(dataset.history.cursor))
                 .flatten()
                 .map(|entry| entry.path.clone());
-            let mut current_file_source = current_duckdb_file_source(dataset);
-            if dataset.source_backed && current_file_source.is_none() {
-                materialize_loaded_dataset(dataset)?;
-                current_file_source = current_duckdb_file_source(dataset);
+            let current_file_source = current_duckdb_file_source(dataset);
+            if dataset.source_backed && current_file_source.is_none() && current_snapshot.is_none()
+            {
+                return Err(SOURCE_BACKED_QUERY_ERROR.to_owned());
             }
             let current_validation_frame = current_snapshot
                 .as_deref()
@@ -29300,6 +29306,87 @@ mod tests {
         drop(compared_directory);
     }
 
+    #[test]
+    fn source_backed_file_queries_support_all_join_types_without_a_snapshot() {
+        let source = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+        let (compared_directory, compared_path) = persist_comparison_snapshot(
+            &df![
+                "id" => &["2", "3"],
+                "segment" => &["B", "C"]
+            ]
+            .expect("la comparación debe construirse"),
+        )
+        .expect("el snapshot comparado debe escribirse");
+        let (current_frame, _, row_count) =
+            source_backed_load(&source, "csv", || false).expect("la fuente debe abrirse");
+        assert_eq!(current_frame.height(), 0);
+
+        for (join_keyword, expected_row_count, expected_rows) in [
+            (
+                "INNER JOIN",
+                1,
+                vec![vec![Some("2".to_owned()), Some("B".to_owned())]],
+            ),
+            (
+                "LEFT JOIN",
+                2,
+                vec![
+                    vec![Some("1".to_owned()), None],
+                    vec![Some("2".to_owned()), Some("B".to_owned())],
+                ],
+            ),
+            (
+                "FULL JOIN",
+                3,
+                vec![
+                    vec![Some("1".to_owned()), None],
+                    vec![Some("2".to_owned()), Some("B".to_owned())],
+                    vec![Some("3".to_owned()), Some("C".to_owned())],
+                ],
+            ),
+        ] {
+            let query = format!(
+                "SELECT id, segment FROM dataset {join_keyword} compared ON dataset.id = compared.id LIMIT 10"
+            );
+            let compared_schema = read_parquet_schema_frame(&compared_path)
+                .expect("el esquema comparado debe poder leerse");
+            let spec = prepare_duckdb_query_with_row_count(
+                &query,
+                &current_frame,
+                Some(&compared_schema),
+                row_count,
+            )
+            .expect("la consulta debe validarse");
+            let (source_path, source_format) = current_duckdb_file_source(&LoadedDataset {
+                source_path: Some(source.clone()),
+                file_name: "source.csv".to_owned(),
+                file_size_bytes: fs::metadata(&source).unwrap().len(),
+                row_count,
+                frame: current_frame.clone(),
+                source_backed: true,
+                profile: None,
+                history: HistoryManager::deferred().unwrap(),
+            })
+            .expect("la fuente debe conservarse disponible");
+            let result = crate::duckdb_query::execute_duckdb_query_from_file_sources(
+                &source_path,
+                source_format,
+                Some(&compared_path),
+                &spec,
+                || false,
+            )
+            .expect("DuckDB debe ejecutar el JOIN desde la fuente original");
+            assert_eq!(result.row_count, expected_row_count);
+            assert_eq!(result.rows, expected_rows);
+        }
+
+        assert_eq!(current_frame.height(), 0);
+        assert!(source.is_file());
+        assert!(!source.with_file_name("source.parquet").exists());
+        drop(compared_directory);
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
     fn write_duckdb_join_benchmark_csv(path: &Path, target_bytes: u64) -> (usize, u64) {
         let file = File::create(path).expect("la fuente del benchmark debe poder crearse");
         let mut writer = BufWriter::with_capacity(1024 * 1024, file);
@@ -29378,33 +29465,48 @@ mod tests {
             .expect("la fuente grande debe poder registrarse en DuckDB");
         let compared_schema = read_parquet_schema_frame(&compared_path)
             .expect("el esquema comparado debe leerse sin materializar sus filas");
-        let spec = prepare_duckdb_query_with_row_count(
-            "SELECT id, segment FROM dataset LEFT JOIN compared ON dataset.id = compared.id LIMIT 3",
-            &dataset.frame,
-            Some(&compared_schema),
-            dataset.row_count,
-        )
-        .expect("el JOIN del benchmark debe validar sus esquemas");
-        let result = crate::duckdb_query::execute_duckdb_query_from_file_sources(
-            &source_path,
-            source_format,
-            Some(&compared_path),
-            &spec,
-            || false,
-        )
-        .expect("DuckDB debe consultar la fuente grande desde disco");
+        let mut join_results = Vec::new();
+        for (join_keyword, expected_row_count) in [
+            ("INNER JOIN", 3_usize),
+            ("LEFT JOIN", row_count),
+            ("FULL JOIN", row_count + 1),
+        ] {
+            let query = format!(
+                "SELECT id, segment FROM dataset {join_keyword} compared ON dataset.id = compared.id LIMIT 3"
+            );
+            let spec = prepare_duckdb_query_with_row_count(
+                &query,
+                &dataset.frame,
+                Some(&compared_schema),
+                dataset.row_count,
+            )
+            .expect("el JOIN del benchmark debe validar sus esquemas");
+            let result = crate::duckdb_query::execute_duckdb_query_from_file_sources(
+                &source_path,
+                source_format,
+                Some(&compared_path),
+                &spec,
+                || false,
+            )
+            .expect("DuckDB debe consultar la fuente grande desde disco");
 
-        assert_eq!(dataset.frame.height(), 0);
-        assert_eq!(result.row_count, row_count);
-        assert_eq!(result.rows.len(), 3);
-        assert_eq!(
-            result.rows[0],
-            vec![Some("id-1".to_owned()), Some("A".to_owned())]
-        );
-        assert_eq!(
-            result.rows[2],
-            vec![Some("id-3".to_owned()), Some("C".to_owned())]
-        );
+            assert_eq!(dataset.frame.height(), 0);
+            assert_eq!(result.row_count, expected_row_count);
+            assert_eq!(result.rows.len(), 3);
+            assert_eq!(
+                result.rows[0],
+                vec![Some("id-1".to_owned()), Some("A".to_owned())]
+            );
+            assert_eq!(
+                result.rows[2],
+                vec![Some("id-3".to_owned()), Some("C".to_owned())]
+            );
+            join_results.push(serde_json::json!({
+                "joinType": join_keyword,
+                "resultRowCount": result.row_count,
+                "pageRows": result.rows.len()
+            }));
+        }
         let source_backed_frame_rows = dataset.frame.height();
         let elapsed_ms = started.elapsed().as_millis();
         let current_root = directory.path().to_path_buf();
@@ -29419,8 +29521,9 @@ mod tests {
                 "targetMiB": target_mib,
                 "fileSizeBytes": file_size_bytes,
                 "rowCount": row_count,
-                "resultRowCount": result.row_count,
-                "pageRows": result.rows.len(),
+                "resultRowCount": row_count,
+                "pageRows": 3,
+                "joinResults": join_results,
                 "sourceBackedFrameRows": source_backed_frame_rows,
                 "elapsedMs": elapsed_ms,
                 "cleanupVerified": cleanup_verified

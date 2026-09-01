@@ -155,6 +155,23 @@ try {
     if ([int64]$Metrics.resultRowCount -ne [int64]$Metrics.rowCount) {
         throw "El conteo del JOIN no coincide con el conteo de la fuente."
     }
+    if ($null -eq $Metrics.joinResults -or @($Metrics.joinResults).Count -ne 3) {
+        throw "El benchmark no devolvió los tres tipos de JOIN esperados."
+    }
+    foreach ($JoinResult in @($Metrics.joinResults)) {
+        $ExpectedRows = switch ([string]$JoinResult.joinType) {
+            "INNER JOIN" { 3 }
+            "LEFT JOIN" { [int64]$Metrics.rowCount }
+            "FULL JOIN" { [int64]$Metrics.rowCount + 1 }
+            default { throw "Tipo de JOIN no reconocido en el benchmark: $($JoinResult.joinType)." }
+        }
+        if ([int64]$JoinResult.resultRowCount -ne $ExpectedRows) {
+            throw "El conteo del $($JoinResult.joinType) no coincide con el esperado."
+        }
+        if ([int64]$JoinResult.pageRows -ne 3) {
+            throw "La página del $($JoinResult.joinType) no conserva tres filas."
+        }
+    }
     if ([int64]$Metrics.sourceBackedFrameRows -ne 0) {
         throw "El benchmark materializó el frame source-backed."
     }

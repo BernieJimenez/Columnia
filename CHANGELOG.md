@@ -6,6 +6,25 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-09-01
+
+### Mejorado
+
+- Las consultas locales source-backed compatibles ya mantienen la ejecución en
+  DuckDB cuando la fuente supera el umbral de apertura: `INNER`, `LEFT` y
+  `FULL JOIN` leen desde disco y solo conservan la página solicitada y los
+  acumuladores necesarios.
+- El camino de Polars deja de materializar silenciosamente un dataset
+  source-backed cuando la consulta DuckDB no puede ejecutarse; devuelve un
+  error explícito para proteger el presupuesto de memoria y la integridad de
+  la fuente.
+
+### Verificado
+
+- El benchmark reproducible de 512 MiB cubre los tres tipos de JOIN, conteos
+  exactos, paginación, frame activo vacío, working set de 200.925.184 bytes y
+  cleanup confirmado.
+
 ## [0.111.0] - 2026-09-01
 
 ### Mejorado
