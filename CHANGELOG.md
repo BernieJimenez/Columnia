@@ -6,6 +6,20 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.123.0] - 2026-09-01
+
+### Mejorado
+
+- Las recetas lazy/streaming ya pueden parsear una fecha, filtrarla con
+  límites ISO 8601 y extraer `year`, `month` o `day` en la misma ejecución.
+  El filtro se aplica antes del cálculo y evita degradar innecesariamente a la
+  ruta eager.
+
+### Verificado
+
+- Una regresión cubre parseo DMY, dos límites temporales, extracción de año,
+  conteo de filas y tipos del resultado dentro del plan lazy.
+
 ## [0.122.0] - 2026-09-01
 
 ### Mejorado

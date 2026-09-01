@@ -22715,14 +22715,19 @@ fn lazy_recipe_supported(source: &DataFrame, recipe: &TransformRecipe) -> bool {
             ) || (matches!(
                 calculation.operation,
                 CalculatedOperation::Year | CalculatedOperation::Month | CalculatedOperation::Day
-            ) && recipe.filters.is_empty()
-                && recipe
-                    .casts
-                    .iter()
-                    .all(|cast| cast.column != calculation.source)
-                && recipe_column(source, &calculation.source).is_ok_and(|column| {
+            ) && recipe
+                .casts
+                .iter()
+                .all(|cast| cast.column != calculation.source)
+                && (recipe_column(source, &calculation.source).is_ok_and(|column| {
                     matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None))
-                }))
+                }) || recipe.date_parses.iter().any(|parse| {
+                    parse.column == calculation.source
+                        && matches!(
+                            parse.target,
+                            RecipeDateTarget::Date | RecipeDateTarget::Datetime
+                        )
+                })))
         })
 }
 
@@ -22796,7 +22801,17 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
             });
         }
         if unary {
-            validate_date_parts_column(recipe_column(source, &calculation.source)?)?;
+            let source_column = recipe_column(source, &calculation.source)?;
+            let parsed_as_date = recipe.date_parses.iter().any(|parse| {
+                parse.column == calculation.source
+                    && matches!(
+                        parse.target,
+                        RecipeDateTarget::Date | RecipeDateTarget::Datetime
+                    )
+            });
+            if !parsed_as_date {
+                validate_date_parts_column(source_column)?;
+            }
         }
         if matches!(
             calculation.operation,
@@ -35182,6 +35197,69 @@ mod tests {
             outcome.0.column("when").unwrap().get(2),
             Ok(AnyValue::Null)
         ));
+    }
+
+    #[test]
+    fn lazy_recipe_filters_parsed_dates_before_extracting_year() {
+        let frame = DataFrame::new(
+            4,
+            vec![
+                Series::new(
+                    "when".into(),
+                    [
+                        Some("31/12/2025"),
+                        Some("01/01/2026"),
+                        Some("15/02/2026"),
+                        None::<&str>,
+                    ],
+                )
+                .into_column(),
+                Series::new("value".into(), [1_i64, 2, 3, 4]).into_column(),
+            ],
+        )
+        .expect("el frame filtrable de fechas debe ser válido");
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "when".into(),
+                format: RecipeDateFormat::Dmy,
+                target: RecipeDateTarget::Date,
+            }],
+            filters: vec![
+                RecipeFilter {
+                    column: "when".into(),
+                    operator: RecipeFilterOperator::Gte,
+                    value: Some("2026-01-01".into()),
+                },
+                RecipeFilter {
+                    column: "when".into(),
+                    operator: RecipeFilterOperator::Lt,
+                    value: Some("2026-03-01".into()),
+                },
+            ],
+            calculated_column: Some(CalculatedColumnRecipe {
+                name: "year".into(),
+                source: "when".into(),
+                operation: CalculatedOperation::Year,
+                operand: None,
+            }),
+            ..Default::default()
+        };
+
+        assert!(lazy_recipe_supported(&frame, &recipe));
+        let outcome = apply_recipe_to_frame(&frame, &recipe)
+            .expect("el filtro temporal y la extracción deben compartir el plan lazy");
+
+        assert_eq!((outcome.3, outcome.4, outcome.5), (1, 2, 1));
+        assert_eq!(outcome.0.height(), 2);
+        assert_eq!(outcome.0.column("when").unwrap().dtype(), &DataType::Date);
+        assert_eq!(outcome.0.column("year").unwrap().dtype(), &DataType::Int32);
+        let rows = dataset_page(&outcome.0, 0, 10)
+            .expect("la página filtrada debe ser válida")
+            .rows;
+        assert_eq!(rows[0][0].as_deref(), Some("2026-01-01"));
+        assert_eq!(rows[0][2].as_deref(), Some("2026"));
+        assert_eq!(rows[1][0].as_deref(), Some("2026-02-15"));
+        assert_eq!(rows[1][2].as_deref(), Some("2026"));
     }
 
     #[test]
