@@ -26,6 +26,8 @@ export interface ResourceMonitorProps {
   pollIntervalMs?: number;
   fetchPerformanceSettings?: () => Promise<PerformanceSettings>;
   setPerformanceProfile?: (profile: PerformanceProfile) => Promise<PerformanceSettings>;
+  performanceProfile?: PerformanceProfile;
+  onPerformanceProfileChange?: (profile: PerformanceProfile) => void;
 }
 
 function clampMeter(value: number, maximum: number): number {
@@ -64,13 +66,15 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   pollIntervalMs = 2000,
   fetchPerformanceSettings = defaultFetchPerformanceSettings,
   setPerformanceProfile = defaultApplyPerformanceProfile,
+  performanceProfile: controlledPerformanceProfile,
+  onPerformanceProfileChange,
 }: ResourceMonitorProps) {
   const [state, setState] = useState<ResourceMonitorState>(
     enabled ? { kind: "loading" } : { kind: "disabled" },
   );
   const [performance, setPerformance] = useState<PerformanceSettings | null>(null);
   const [performanceProfile, setPerformanceProfileState] = useState<PerformanceProfile>(() =>
-    readPerformanceProfile(),
+    controlledPerformanceProfile ?? readPerformanceProfile(),
   );
   const [performanceStatus, setPerformanceStatus] = useState<"idle" | "loading" | "ready" | "error">(
     "idle",
@@ -104,14 +108,20 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   }, [enabled, fetchUsage, pollIntervalMs]);
 
   useEffect(() => {
+    if (controlledPerformanceProfile !== undefined) {
+      setPerformanceProfileState(controlledPerformanceProfile);
+    }
+  }, [controlledPerformanceProfile]);
+
+  useEffect(() => {
     if (!enabled) {
       setPerformanceStatus("idle");
       return;
     }
 
     let cancelled = false;
-    const preferredProfile = readPerformanceProfile();
-    const hasStoredPreference = hasPerformanceProfilePreference();
+    const preferredProfile = controlledPerformanceProfile ?? readPerformanceProfile();
+    const hasStoredPreference = controlledPerformanceProfile !== undefined || hasPerformanceProfilePreference();
     setPerformanceProfileState(preferredProfile);
     setPerformanceStatus("loading");
 
@@ -146,11 +156,12 @@ export const ResourceMonitor = memo(function ResourceMonitor({
     return () => {
       cancelled = true;
     };
-  }, [enabled, fetchPerformanceSettings, setPerformanceProfile]);
+  }, [controlledPerformanceProfile, enabled, fetchPerformanceSettings, setPerformanceProfile]);
 
   const choosePerformanceProfile = (nextProfile: PerformanceProfile) => {
     setPerformanceProfileState(nextProfile);
-    writePerformanceProfile(nextProfile);
+    if (controlledPerformanceProfile === undefined) writePerformanceProfile(nextProfile);
+    onPerformanceProfileChange?.(nextProfile);
     if (!enabled) return;
 
     setPerformanceStatus("loading");

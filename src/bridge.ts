@@ -642,6 +642,7 @@ export interface ProjectWorkspace {
   activePhase?: ProjectActivePhase;
   queryEngine?: DatasetQueryEngine;
   analysisSampleRows?: 10_000 | 50_000 | 100_000;
+  performanceProfile?: PerformanceProfile;
 }
 
 export type ProjectReviewTab = "diagnosis" | "preview";

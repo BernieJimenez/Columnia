@@ -114,4 +114,52 @@ describe("ResourceMonitor", () => {
     expect(await screen.findByText("Activo: 8 hilos")).toBeInTheDocument();
     expect(window.localStorage.getItem("columnia.performance-profile")).toBe("maximum");
   });
+
+  it("restaura un perfil controlado por el workspace sin sobrescribir la preferencia local", async () => {
+    const fetchUsage = vi.fn().mockResolvedValue({
+      processCpuPercentage: 0,
+      systemCpuPercentage: 0,
+      logicalCpuCount: 8,
+      processMemoryBytes: 0,
+      systemMemoryUsedBytes: 0,
+      systemMemoryTotalBytes: 1,
+    });
+    const settings = {
+      requestedProfile: "balanced" as const,
+      activeProfile: "balanced" as const,
+      requestedThreads: 4,
+      activeThreads: 4,
+      applied: true,
+      locked: false,
+      reason: null,
+    };
+    const fetchPerformanceSettings = vi.fn().mockResolvedValue(settings);
+    const setPerformanceProfile = vi.fn().mockResolvedValue({
+      ...settings,
+      requestedProfile: "maximum" as const,
+      activeProfile: "maximum" as const,
+      requestedThreads: 8,
+      activeThreads: 8,
+    });
+    const onPerformanceProfileChange = vi.fn();
+
+    render(
+      <ResourceMonitor
+        enabled
+        fetchUsage={fetchUsage}
+        fetchPerformanceSettings={fetchPerformanceSettings}
+        setPerformanceProfile={setPerformanceProfile}
+        performanceProfile="maximum"
+        onPerformanceProfileChange={onPerformanceProfileChange}
+      />,
+    );
+
+    const select = await screen.findByLabelText("Modo de rendimiento");
+    expect(select).toHaveValue("maximum");
+    await waitFor(() => expect(setPerformanceProfile).toHaveBeenCalledWith("maximum"));
+
+    fireEvent.change(select, { target: { value: "conservative" } });
+    expect(onPerformanceProfileChange).toHaveBeenCalledWith("conservative");
+    expect(window.localStorage.getItem("columnia.performance-profile")).toBeNull();
+  });
 });

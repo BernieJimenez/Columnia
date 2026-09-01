@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.105.0] - 2026-09-01
+
+### Mejorado
+
+- El perfil de rendimiento (`Ahorro`, `Equilibrado` o `Máximo`) se guarda por
+  proyecto y se restaura al abrirlo; los proyectos antiguos mantienen la
+  preferencia local como fallback.
+
+### Verificado
+
+- SQLite migra el catálogo a v11 y Rust rechaza perfiles desconocidos antes de
+  publicar snapshots o sustituir el proyecto activo.
+- El cambio de dataset o el borrado del proyecto devuelve el monitor a la
+  preferencia local, sin sobrescribirla desde un workspace ajeno.
+
 ## [0.104.0] - 2026-09-01
 
 ### Mejorado

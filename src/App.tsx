@@ -97,11 +97,16 @@ import {
   type DatasetSourceInspection,
   type DatasetQueryEngine,
   type OperationProgress,
+  type PerformanceProfile,
   type SavedRecipe,
   type SampleDatasetDescriptor,
   type SqlQueryHistoryEntry,
   type SpreadsheetHeaderMode,
 } from "./bridge";
+import {
+  readPerformanceProfile,
+  writePerformanceProfile,
+} from "./features/settings/performanceModel";
 
 type AppStatus =
   | { kind: "loading" }
@@ -165,6 +170,7 @@ export function App() {
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>({ kind: "idle" });
   const [analysisSampleRows, setAnalysisSampleRows] = useState<AnalysisSampleRows>(readAnalysisSampleRowsPreference);
   const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
+  const [performanceProfile, setPerformanceProfile] = useState<PerformanceProfile>(readPerformanceProfile);
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
   const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
   const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
@@ -214,8 +220,13 @@ export function App() {
       activePhase,
       queryEngine,
       analysisSampleRows,
+      performanceProfile,
     },
-    onActiveProjectDeleted: () => setSqlHistory([]),
+    onActiveProjectDeleted: () => {
+      setSqlHistory([]);
+      setPerformanceProfile(readPerformanceProfile());
+    },
+    onActiveProjectUnlinked: () => setPerformanceProfile(readPerformanceProfile()),
     onProjectOpened: async ({ dataset, workspace, profile }) => {
       const initialDataset = createReadyDatasetStatus(dataset);
       setDatasetStatus(initialDataset);
@@ -249,6 +260,8 @@ export function App() {
       const sampleRows = workspace.analysisSampleRows ?? readAnalysisSampleRowsPreference();
       setAnalysisSampleRows(sampleRows);
       writeAnalysisSampleRowsPreference(sampleRows);
+      const selectedPerformanceProfile = workspace.performanceProfile ?? readPerformanceProfile();
+      setPerformanceProfile(selectedPerformanceProfile);
     },
   });
   const deliveryDatasetFingerprint = datasetStatus.kind === "ready"
@@ -734,7 +747,14 @@ export function App() {
         >
           <summary>Preferencias y recursos</summary>
           <div className="sidebar__utilities-content">
-            <ResourceMonitor enabled={status.kind === "ready"} />
+            <ResourceMonitor
+              enabled={status.kind === "ready"}
+              performanceProfile={performanceProfile}
+              onPerformanceProfileChange={(profile) => {
+                setPerformanceProfile(profile);
+                if (!projects.activeProject) writePerformanceProfile(profile);
+              }}
+            />
             <ThemeSwitcher />
             <UpdatePanel
               enabled={status.kind === "ready" && status.info?.updaterConfigured === true}

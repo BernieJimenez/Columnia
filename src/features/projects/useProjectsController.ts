@@ -25,6 +25,7 @@ interface ProjectsControllerOptions {
   workspace: ProjectWorkspace;
   onProjectOpened: (result: ProjectOpenResult) => Promise<void> | void;
   onActiveProjectDeleted?: () => void;
+  onActiveProjectUnlinked?: () => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -43,6 +44,7 @@ export function useProjectsController({
   workspace,
   onProjectOpened,
   onActiveProjectDeleted,
+  onActiveProjectUnlinked,
 }: ProjectsControllerOptions) {
   const [catalog, setCatalog] = useState<ProjectCatalogState>({ kind: "unavailable" });
   const [operation, setOperation] = useState<ProjectOperationState>({ kind: "idle" });
@@ -153,7 +155,10 @@ export function useProjectsController({
     requestDelete: (project: ProjectSummary) => setDeletion({ kind: "confirming", project }),
     cancelDelete: () => setDeletion({ kind: "idle" }),
     confirmDelete,
-    unlinkActiveProject: () => setActiveProject(null),
+    unlinkActiveProject: () => {
+      setActiveProject(null);
+      onActiveProjectUnlinked?.();
+    },
     clearFeedback: () => setOperation({ kind: "idle" }),
   };
 }

@@ -71,6 +71,7 @@ describe("App", () => {
       workspace: {
         qualityRules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
         recipeDraft: draft,
+        performanceProfile: "maximum",
       },
       profile: {
         rowCount: 1,
@@ -115,6 +116,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Preferencias y recursos"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Modo de rendimiento" })).toHaveValue("balanced"));
     await switchPhase("Entregar");
     expect(screen.getByRole("radio", { name: /^Validar calidad/ })).not.toBeChecked();
     await switchPhase("Preparar");
@@ -161,7 +164,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000 },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced" },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -204,7 +207,7 @@ describe("App", () => {
     const openSpy = vi.spyOn(bridge, "openProject").mockResolvedValue({
       project,
       dataset,
-      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50, activePhase: "prepare", queryEngine: "duckdb", analysisSampleRows: 50_000 },
+      workspace: { qualityRules: [{ column: "email", kind: "not_null", maxInvalid: 0 }], recipeDraft: null, reviewTab: "preview", previewOffset: 50, activePhase: "prepare", queryEngine: "duckdb", analysisSampleRows: 50_000, performanceProfile: "maximum" },
       profile: { rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] },
     });
     const pageSpy = vi.spyOn(bridge, "getDatasetPage").mockResolvedValue({
@@ -223,7 +226,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000 },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced" },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
@@ -237,6 +240,8 @@ describe("App", () => {
     fireEvent.click(screen.getByText("Explorar con SQL local"));
     expect(screen.getByRole("combobox", { name: "Motor de consulta" })).toHaveValue("duckdb");
     expect(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" })).toHaveValue("50000");
+    fireEvent.click(screen.getByText("Preferencias y recursos"));
+    expect(screen.getByRole("combobox", { name: "Modo de rendimiento" })).toHaveValue("maximum");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
     expect(await screen.findByRole("cell", { name: "lucia@example.com" })).toBeInTheDocument();
     expect(screen.getByText(/Filas 51–51 de 75/)).toBeInTheDocument();
