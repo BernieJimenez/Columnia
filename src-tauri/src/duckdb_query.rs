@@ -597,6 +597,69 @@ where
     })
 }
 
+pub(crate) fn count_file_expression_changes<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    expressions: &[(String, String)],
+    is_cancelled: C,
+) -> Result<(usize, Vec<usize>), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if expressions.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario de cambios source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let predicates = expressions
+            .iter()
+            .map(|(column, expression)| {
+                format!(
+                    "{} IS DISTINCT FROM ({expression})",
+                    quote_identifier(column)
+                )
+            })
+            .collect::<Vec<_>>();
+        let select = std::iter::once(format!(
+            "COUNT(*) FILTER (WHERE {})",
+            predicates.join(" OR ")
+        ))
+        .chain(
+            predicates
+                .iter()
+                .map(|predicate| format!("COUNT(*) FILTER (WHERE {predicate})")),
+        )
+        .collect::<Vec<_>>()
+        .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection
+            .prepare(&query)
+            .map_err(|error| format!("DuckDB no pudo preparar el conteo de cambios: {error}"))?;
+        let counts = statement
+            .query_row([], |row| {
+                (0..=expressions.len())
+                    .map(|index| row.get::<_, i64>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| format!("DuckDB no pudo contar los cambios: {error}"))?;
+        let counts = counts
+            .into_iter()
+            .map(|count| {
+                usize::try_from(count)
+                    .map_err(|_| "El conteo de cambios excede la capacidad local.".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (affected_row_count, changed_cell_counts) = counts
+            .split_first()
+            .ok_or_else(|| "DuckDB no devolvió el conteo de cambios.".to_owned())?;
+        Ok((*affected_row_count, changed_cell_counts.to_vec()))
+    })
+}
+
 pub(crate) fn stream_file_rows<C, F>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.131.0] - 2026-09-01
+
+### Mejorado
+
+- `Recortar espacios`, `Normalizar texto` y `Normalizar valores centinela` ya
+  pueden ejecutarse sobre datasets source-backed mediante DuckDB, sin
+  materializar todas las filas en el `DataFrame` activo.
+- Las tres limpiezas conservan nulos, orden y columnas no seleccionadas,
+  calculan celdas y filas afectadas en disco, actualizan `_cambios` cuando está
+  activo y publican snapshots Parquet reversibles.
+
+### Verificado
+
+- La regresión cubre recorte seleccionado, centinelas, normalización Unicode,
+  eliminación de acentos, conteos exactos y permanencia del frame en modo
+  esquema-only.
+
 ## [0.130.0] - 2026-09-01
 
 ### Mejorado

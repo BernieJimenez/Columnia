@@ -7972,6 +7972,206 @@ fn enable_row_audit_source_backed(
     )
 }
 
+fn source_backed_normalized_text_expression(identifier: &str, remove_accents: bool) -> String {
+    let collapsed = format!(
+        "trim(regexp_replace(CAST({identifier} AS VARCHAR), {}, ' ', 'g'))",
+        duckdb_string_literal(r"[\s\p{Z}]+"),
+    );
+    let lowered = format!("lower({collapsed})");
+    if remove_accents {
+        format!("strip_accents({lowered})")
+    } else {
+        lowered
+    }
+}
+
+fn source_backed_text_expression(identifier: &str, mode: TextCleaningMode) -> Option<String> {
+    match mode {
+        TextCleaningMode::Trim => Some(format!(
+            "trim(regexp_replace(CAST({identifier} AS VARCHAR), {}, '', 'g'))",
+            duckdb_string_literal(r"^[\s\p{Z}]+|[\s\p{Z}]+$"),
+        )),
+        TextCleaningMode::Normalize { remove_accents } => Some(
+            source_backed_normalized_text_expression(identifier, remove_accents),
+        ),
+        TextCleaningMode::Sentinels => {
+            let normalized = source_backed_normalized_text_expression(identifier, true);
+            let values = SENTINEL_VALUES
+                .iter()
+                .map(|value| duckdb_string_literal(value))
+                .collect::<Vec<_>>()
+                .join(", ");
+            Some(format!(
+                "CASE WHEN {normalized} IN ({values}) THEN NULL ELSE {identifier} END"
+            ))
+        }
+        TextCleaningMode::Booleans
+        | TextCleaningMode::FixEncoding
+        | TextCleaningMode::NullifyInvalidTypes => None,
+    }
+}
+
+fn source_backed_text_cleaning_columns(
+    dataset: &LoadedDataset,
+    selected_columns: Option<&[String]>,
+    mode: TextCleaningMode,
+) -> Option<Vec<String>> {
+    if matches!(
+        mode,
+        TextCleaningMode::Booleans
+            | TextCleaningMode::FixEncoding
+            | TextCleaningMode::NullifyInvalidTypes
+    ) {
+        return None;
+    }
+    let columns = selected_columns.map_or_else(
+        || {
+            dataset
+                .frame
+                .columns()
+                .iter()
+                .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+                .map(|column| column.name().to_string())
+                .collect::<Vec<_>>()
+        },
+        |columns| columns.to_vec(),
+    );
+    if selected_columns.is_some() && columns.is_empty() {
+        return None;
+    }
+    if columns.iter().any(|name| {
+        name == "_cambios"
+            || dataset
+                .frame
+                .column(name)
+                .map_or(true, |column| column.dtype() != &DataType::String)
+    }) {
+        return None;
+    }
+    Some(columns)
+}
+
+fn source_backed_text_audit_expression(identifier: &str, audit_label: &str) -> String {
+    let audit_literal = duckdb_string_literal(audit_label);
+    format!(
+        "CASE WHEN {identifier} IS NULL OR TRIM(CAST({identifier} AS VARCHAR)) = '' THEN {audit_literal} ELSE LEFT(CAST({identifier} AS VARCHAR) || '; ' || {audit_literal}, {MAX_AUDIT_CELL_CHARS}) END AS {identifier}"
+    )
+}
+
+fn source_backed_text_cleaning_projection(
+    schema: &DataFrame,
+    selected_columns: &[String],
+    mode: TextCleaningMode,
+    audit_label: &str,
+) -> Result<(String, Vec<(String, String)>), String> {
+    let mut expressions = Vec::with_capacity(selected_columns.len());
+    let mut projection = Vec::with_capacity(schema.width());
+    for name in schema.get_column_names() {
+        let identifier = duckdb_identifier(name);
+        if name.as_str() == "_cambios" {
+            projection.push(source_backed_text_audit_expression(
+                &identifier,
+                audit_label,
+            ));
+            continue;
+        }
+        let Some(expression) = source_backed_text_expression(&identifier, mode) else {
+            return Err(
+                "La limpieza de texto source-backed no es compatible con este modo.".to_owned(),
+            );
+        };
+        if selected_columns
+            .iter()
+            .any(|selected| selected == name.as_str())
+        {
+            projection.push(format!("{expression} AS {identifier}"));
+        } else {
+            projection.push(identifier.clone());
+        }
+    }
+    for name in selected_columns {
+        let identifier = duckdb_identifier(name);
+        let expression = source_backed_text_expression(&identifier, mode).ok_or_else(|| {
+            "La limpieza de texto source-backed no es compatible con este modo.".to_owned()
+        })?;
+        expressions.push((name.clone(), expression));
+    }
+    Ok((projection.join(", "), expressions))
+}
+
+fn source_backed_text_cleaning(
+    dataset: &mut LoadedDataset,
+    selected_columns: Option<&[String]>,
+    mode: TextCleaningMode,
+) -> Result<Option<TextCleaningResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let Some(selected_columns) =
+        source_backed_text_cleaning_columns(dataset, selected_columns, mode)
+    else {
+        return Ok(None);
+    };
+    let label = match mode {
+        TextCleaningMode::Trim => "Recortar espacios",
+        TextCleaningMode::Normalize { .. } => "Normalizar texto",
+        TextCleaningMode::Sentinels => "Normalizar valores centinela",
+        TextCleaningMode::Booleans => "Normalizar booleanos",
+        TextCleaningMode::FixEncoding => "Corregir codificación UTF-8",
+        TextCleaningMode::NullifyInvalidTypes => "Apartar tipos incompatibles",
+    };
+    if selected_columns.is_empty() {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns: Vec::new(),
+        }));
+    }
+    let (projection, expressions) =
+        source_backed_text_cleaning_projection(&dataset.frame, &selected_columns, mode, label)?;
+    let (affected_row_count, changed_counts) =
+        match crate::duckdb_query::count_file_expression_changes(
+            &source_path,
+            source_format,
+            &expressions,
+            || false,
+        ) {
+            Ok(counts) => counts,
+            Err(_) => return Ok(None),
+        };
+    let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
+    let changed_columns = selected_columns
+        .iter()
+        .zip(changed_counts)
+        .filter(|(_, changed_cell_count)| *changed_cell_count > 0)
+        .map(|(name, changed_cell_count)| ChangedTextColumn {
+            name: name.clone(),
+            changed_cell_count,
+        })
+        .collect::<Vec<_>>();
+    if changed_cell_count == 0 {
+        return Ok(Some(TextCleaningResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            affected_row_count: 0,
+            changed_cell_count: 0,
+            changed_columns,
+        }));
+    }
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) =
+        publish_source_backed_query(dataset, &source_path, source_format, &query, label, true)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(TextCleaningResult {
+        dataset: mutation.dataset,
+        affected_row_count,
+        changed_cell_count,
+        changed_columns,
+    }))
+}
+
 fn leading_zero_code(value: &str) -> bool {
     let value = value.trim().trim_start_matches(['+', '-']);
     value.starts_with('0')
@@ -21344,6 +21544,13 @@ fn apply_text_cleaning(
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    if dataset.source_backed {
+        if let Some(result) =
+            source_backed_text_cleaning(dataset, selected_columns.as_deref(), mode)?
+        {
+            return Ok(result);
+        }
+    }
     materialize_loaded_dataset(dataset)?;
     let (cleaned, affected_row_count, changed_cell_count, changed_columns) =
         clean_text_columns(&dataset.frame, selected_columns.as_deref(), mode)?;
@@ -30050,6 +30257,98 @@ mod tests {
             .get_column_names()
             .iter()
             .any(|name| name.as_str() == "_cambios"));
+    }
+
+    #[test]
+    fn source_backed_text_cleaning_streams_trim_sentinels_and_normalization() {
+        let source = temporary_csv(
+            "name,notes,amount\n\"  Ana  \",N/A,1\n\" Bob \",\"  Café  \",2\nLuis,?,3\n",
+        );
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "text.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        enable_row_audit_source_backed(&mut dataset)
+            .expect("la trazabilidad debe poder activarse antes de limpiar texto")
+            .expect("la fuente debe ser compatible");
+
+        let trimmed = source_backed_text_cleaning(
+            &mut dataset,
+            Some(&["name".to_owned(), "notes".to_owned()]),
+            TextCleaningMode::Trim,
+        )
+        .expect("el recorte source-backed debe procesarse")
+        .expect("la fuente debe ser compatible");
+        assert_eq!(trimmed.affected_row_count, 2);
+        assert_eq!(trimmed.changed_cell_count, 3);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el recorte debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(
+            current.column("name").unwrap().str().unwrap().get(0),
+            Some("Ana")
+        );
+        assert_eq!(
+            current.column("notes").unwrap().str().unwrap().get(1),
+            Some("Café")
+        );
+        assert_eq!(
+            current.column("_cambios").unwrap().str().unwrap().get(0),
+            Some("Recortar espacios")
+        );
+
+        let sentinels =
+            source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::Sentinels)
+                .expect("los centinelas source-backed deben procesarse")
+                .expect("la fuente debe seguir siendo compatible");
+        assert_eq!(sentinels.affected_row_count, 2);
+        assert_eq!(sentinels.changed_cell_count, 2);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("los centinelas deben conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(current.column("notes").unwrap().str().unwrap().get(0), None);
+        assert_eq!(current.column("notes").unwrap().str().unwrap().get(2), None);
+
+        let normalized = source_backed_text_cleaning(
+            &mut dataset,
+            Some(&["notes".to_owned()]),
+            TextCleaningMode::Normalize {
+                remove_accents: true,
+            },
+        )
+        .expect("la normalización source-backed debe procesarse")
+        .expect("la fuente debe seguir siendo compatible");
+        assert_eq!(normalized.affected_row_count, 1);
+        assert_eq!(normalized.changed_cell_count, 1);
+        assert_eq!(dataset.frame.height(), 0);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la normalización debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(
+            current.column("notes").unwrap().str().unwrap().get(1),
+            Some("cafe")
+        );
     }
 
     #[test]
