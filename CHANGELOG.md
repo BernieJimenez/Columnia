@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.113.0] - 2026-09-01
+
+### Mejorado
+
+- La exportación source-backed compatible a Bundle ZIP usa DuckDB para escribir
+  `dataset.csv` directamente desde CSV/TSV/TXT delimitado o Parquet, sin
+  materializar el `DataFrame` activo.
+- El Bundle construye `dictionary.json` con tipos y conteos de nulos calculados
+  por agregaciones en disco, conserva el reporte de calidad incremental cuando
+  existe y publica hashes del dataset, diccionario y reporte en un manifest.
+
+### Verificado
+
+- La regresión Rust confirma dataset, diccionario, conteos de nulos, publicación
+  atómica, fuente intacta y ausencia de artefactos temporales privados.
+
 ## [0.112.0] - 2026-09-01
 
 ### Mejorado

@@ -14551,6 +14551,239 @@ where
     })
 }
 
+fn export_source_backed_bundle_atomic<F, C>(
+    source_path: &Path,
+    expected_file_size: u64,
+    row_count: usize,
+    quality_validation: Option<&QualityValidationResult>,
+    destination: &Path,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<ExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = canonicalize_write_destination(destination, "la exportación")?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "No se pudo resolver la carpeta de exportación.".to_owned())?;
+    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
+    if source_size != expected_file_size {
+        return Err("El archivo source-backed cambió después de la validación.".to_owned());
+    }
+    let source_format = match extension.as_str() {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&source_path, &extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Err("El formato source-backed no se puede exportar a un Bundle.".to_owned()),
+    };
+    let schema = source_scan(&source_path, &extension)?
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
+    let schema_frame = DataFrame::empty_with_schema(&schema);
+    let column_names = schema_frame
+        .columns()
+        .iter()
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+
+    report("Preparando archivo temporal", 10);
+    let scratch = tempfile::tempdir_in(parent)
+        .map_err(|error| format!("No se pudo preparar el archivo temporal: {error}"))?;
+    let dataset_path = scratch.path().join("dataset.partial.csv");
+    report("Escribiendo dataset", 25);
+    crate::duckdb_query::export_file_to_csv_with_cancel(
+        &source_path,
+        source_format,
+        &dataset_path,
+        is_cancelled.clone(),
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Preparando diccionario", 35);
+    let null_counts = crate::duckdb_query::count_file_nulls(
+        &source_path,
+        source_format,
+        &column_names,
+        is_cancelled.clone(),
+    )?;
+    if null_counts.len() != column_names.len() {
+        return Err(
+            "DuckDB no devolvió todos los conteos del diccionario source-backed.".to_owned(),
+        );
+    }
+    let dictionary = BundleDictionary {
+        format: "columnia-dictionary".to_owned(),
+        version: 1,
+        columns: schema_frame
+            .columns()
+            .iter()
+            .zip(null_counts)
+            .map(|(column, null_count)| BundleDictionaryColumn {
+                name: column.name().to_string(),
+                data_type: column.dtype().to_string(),
+                null_count,
+            })
+            .collect(),
+    };
+    let dictionary_bytes = bundle_json_bytes(&dictionary, "el diccionario")?;
+    let dictionary_sha256 = format!("{:x}", Sha256::digest(&dictionary_bytes));
+    let quality_bytes = quality_validation
+        .map(|validation| {
+            let report = BundleQualityReport {
+                format: "columnia-quality-report".to_owned(),
+                version: 1,
+                passed: validation.passed,
+                row_count: validation.row_count,
+                total_rules: validation.total_rules,
+                failed_rules: validation.failed_rules,
+                rules: validation
+                    .rules
+                    .iter()
+                    .map(|rule| BundleQualityRuleReport {
+                        column: rule.column.clone(),
+                        kind: rule.kind,
+                        checked_count: rule.checked_count,
+                        invalid_count: rule.invalid_count,
+                        invalid_pct: rule.invalid_pct,
+                        passed: rule.passed,
+                    })
+                    .collect(),
+            };
+            bundle_json_bytes(&report, "el reporte de calidad")
+        })
+        .transpose()?;
+    let quality_manifest = quality_bytes.as_ref().map(|bytes| BundleFileManifest {
+        path: "quality-report.json".to_owned(),
+        bytes: bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(bytes)),
+    });
+    let mut dataset_file = File::open(&dataset_path)
+        .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
+    let (dataset_bytes, dataset_sha256) = hash_and_rewind(&mut dataset_file)?;
+    let manifest = BundleManifest {
+        format: "columnia-bundle".to_owned(),
+        version: 1,
+        dataset_file: "dataset.csv".to_owned(),
+        dataset_format: "csv".to_owned(),
+        row_count,
+        column_count: schema_frame.width(),
+        dictionary_file: "dictionary.json".to_owned(),
+        quality_report_file: quality_bytes
+            .as_ref()
+            .map(|_| "quality-report.json".to_owned()),
+        recipe_file: None,
+        files: [
+            BundleFileManifest {
+                path: "dataset.csv".to_owned(),
+                bytes: dataset_bytes,
+                sha256: dataset_sha256,
+            },
+            BundleFileManifest {
+                path: "dictionary.json".to_owned(),
+                bytes: dictionary_bytes.len() as u64,
+                sha256: dictionary_sha256,
+            },
+        ]
+        .into_iter()
+        .chain(quality_manifest)
+        .collect(),
+    };
+    let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
+    ensure_not_cancelled(is_cancelled())?;
+    report("Empaquetando archivos", 50);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("No se pudo preparar la publicación temporal: {error}"))?;
+    let mut archive = ZipWriter::new(temporary.as_file_mut());
+    archive
+        .start_file("dataset.csv", options)
+        .map_err(|error| format!("No se pudo preparar el dataset del paquete: {error}"))?;
+    let mut copied = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let read = dataset_file
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo leer el dataset del paquete: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        archive
+            .write_all(&buffer[..read])
+            .map_err(|error| format!("No se pudo empaquetar el dataset: {error}"))?;
+        copied = copied.saturating_add(read as u64);
+        let percent = if dataset_bytes == 0 {
+            65
+        } else {
+            50 + (copied
+                .saturating_mul(15)
+                .checked_div(dataset_bytes)
+                .unwrap_or(0) as u8)
+                .min(15)
+        };
+        report("Empaquetando dataset", percent);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    archive
+        .start_file("dictionary.json", options)
+        .map_err(|error| format!("No se pudo preparar el diccionario del paquete: {error}"))?;
+    archive
+        .write_all(&dictionary_bytes)
+        .map_err(|error| format!("No se pudo empaquetar el diccionario del paquete: {error}"))?;
+    if let Some(quality_bytes) = quality_bytes {
+        ensure_not_cancelled(is_cancelled())?;
+        archive
+            .start_file("quality-report.json", options)
+            .map_err(|error| format!("No se pudo preparar el reporte de calidad: {error}"))?;
+        archive
+            .write_all(&quality_bytes)
+            .map_err(|error| format!("No se pudo empaquetar el reporte de calidad: {error}"))?;
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    archive
+        .start_file("manifest.json", options)
+        .map_err(|error| format!("No se pudo preparar el manifest del paquete: {error}"))?;
+    archive
+        .write_all(&manifest_bytes)
+        .map_err(|error| format!("No se pudo empaquetar el manifest: {error}"))?;
+    archive
+        .finish()
+        .map_err(|error| format!("No se pudo cerrar el paquete: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar la exportación: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let final_source_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudieron verificar los metadatos source-backed: {error}"))?
+        .len();
+    if final_source_size != expected_file_size {
+        return Err("El archivo source-backed cambió durante la exportación.".to_owned());
+    }
+    report("Publicando archivo completo", 90);
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar la exportación: {}", error.error))?;
+    let file_size_bytes = fs::metadata(&destination)
+        .map_err(|error| format!("No se pudo verificar la exportación: {error}"))?
+        .len();
+    report("Exportación lista", 100);
+    Ok(ExportResult {
+        file_name: destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("dataset.zip")
+            .to_owned(),
+        file_size_bytes,
+        format: ExportFormat::Bundle.label(),
+        protected_column_count: 0,
+        protected_columns: Vec::new(),
+    })
+}
+
 fn export_frame_atomic_with_privacy<F, C>(
     frame: &DataFrame,
     destination: &Path,
@@ -18755,7 +18988,11 @@ pub async fn export_dataset(
     };
     if matches!(
         format,
-        ExportFormat::Csv | ExportFormat::Json | ExportFormat::Parquet | ExportFormat::Sql
+        ExportFormat::Csv
+            | ExportFormat::Json
+            | ExportFormat::Parquet
+            | ExportFormat::Sql
+            | ExportFormat::Bundle
     ) && privacy_mode == PrivacyMode::None
         && recipe.is_none()
         && quality_rules.iter().all(source_quality_rule_is_incremental)
@@ -18765,7 +19002,7 @@ pub async fn export_dataset(
             let validation_app = app.clone();
             let source_quality_rules = quality_rules.clone();
             let validation_source_path = source_path.clone();
-            let _quality_validation = tauri::async_runtime::spawn_blocking(move || {
+            let quality_validation = tauri::async_runtime::spawn_blocking(move || {
                 let (source_path, source_size, extension) =
                     validate_dataset_file(&validation_source_path)?;
                 if source_size != expected_file_size {
@@ -18851,6 +19088,22 @@ pub async fn export_dataset(
                         export_source_backed_sql_atomic(
                             &source_path,
                             expected_file_size,
+                            &destination,
+                            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+                            move || {
+                                cancellation_app
+                                    .state::<DatasetState>()
+                                    .export_was_cancelled(generation)
+                            },
+                        )
+                    }
+                    ExportFormat::Bundle => {
+                        let cancellation_app = app.clone();
+                        export_source_backed_bundle_atomic(
+                            &source_path,
+                            expected_file_size,
+                            row_count,
+                            quality_validation.as_ref(),
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
@@ -28730,6 +28983,48 @@ mod tests {
             JsonValue::String("Santo Domingo".to_owned())
         );
         assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
+    #[test]
+    fn source_backed_bundle_streams_dataset_and_builds_dictionary_without_rows_in_memory() {
+        let source = temporary_csv("city,amount\nSanto Domingo,10\n,20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported.zip");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut progress = Vec::new();
+        let result = export_source_backed_bundle_atomic(
+            &source,
+            expected_size,
+            2,
+            None,
+            &destination,
+            |stage, percent| progress.push((stage, percent)),
+            || false,
+        )
+        .expect("el Bundle source-backed debe publicarse");
+
+        let bytes = fs::read(&destination).expect("el Bundle debe existir");
+        let mut archive = ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        for name in ["dataset.csv", "dictionary.json", "manifest.json"] {
+            assert!(archive.by_name(name).is_ok(), "falta {name} en el Bundle");
+        }
+        let mut dictionary = String::new();
+        archive
+            .by_name("dictionary.json")
+            .unwrap()
+            .read_to_string(&mut dictionary)
+            .unwrap();
+        let dictionary: JsonValue = serde_json::from_str(&dictionary).unwrap();
+        assert_eq!(dictionary["columns"][0]["name"], "city");
+        assert_eq!(dictionary["columns"][0]["nullCount"], 1);
+        assert_eq!(dictionary["columns"][1]["name"], "amount");
+        assert_eq!(dictionary["columns"][1]["nullCount"], 0);
+        assert_eq!(result.format, "Paquete Columnia");
+        assert_eq!(result.protected_column_count, 0);
+        assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
+        assert!(source.is_file());
         assert_eq!(directory.path().read_dir().unwrap().count(), 1);
         fs::remove_file(source).expect("se debe limpiar la fuente temporal");
     }

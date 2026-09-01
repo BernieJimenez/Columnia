@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.112.0`.
+- Versión actual del prototipo: `0.113.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1438,6 +1438,12 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   el plan no es compatible se rechaza la materialización implícita en vez de
   ocultar un pico de memoria. El benchmark de 512 MiB confirma la ruta, pero
   la ejecución integral fuera de RAM de todas las operaciones sigue pendiente.
+  La versión 0.113.0 extiende la misma frontera a Bundle ZIP cuando no hay
+  receta, privacidad adicional ni reglas de calidad no incrementales: DuckDB
+  escribe `dataset.csv` desde la fuente, calcula los nulos del diccionario por
+  agregación, y el paquete publica manifest y hashes junto con el reporte de
+  calidad incremental opcional. Excel, SQLite, recetas, privacidad adicional,
+  reglas no incrementales y la ejecución integral fuera de RAM siguen pendientes.
   Desde v0.65.0, la apertura de fuentes CSV/TSV/TXT delimitadas y Parquet de al
   menos 512 MiB conserva solo esquema, primera página y conteo; las consultas
   y páginas compatibles pueden seguir en disco, mientras las operaciones que
@@ -1929,6 +1935,7 @@ por el mero hecho de estar documentada aquí.
 | 2026-09-01 | Versión 0.104.0 persiste por proyecto el motor SQL elegido (`polars`/`duckdb`), migra el catálogo SQLite a v10, rechaza valores desconocidos y conserva fallback local seguro para catálogos anteriores, con regresiones de reapertura y validación cerrada. | `src-tauri/src/projects.rs`, `src-tauri/src/automation.rs`, `src/App.tsx`, `src/features/review/ReviewPhase.tsx`, `src/App.test.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.109.0 mantiene el esquema y la primera página source-backed en Polars, pero calcula el conteo total de CSV/TSV/TXT delimitado o Parquet mediante DuckDB con cancelación cooperativa; la regresión y el benchmark end-to-end confirman conteo exacto, frame activo vacío y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.110.0 extiende la exportación source-backed a CSV mediante DuckDB para fuentes CSV/TSV/TXT delimitadas o Parquet; conserva atomicidad, cancelación, validación de cambios, neutralización de fórmulas y no materializa el `DataFrame` activo en la ruta compatible. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
+| 2026-09-01 | Versión 0.113.0 extiende la exportación source-backed a Bundle ZIP para fuentes CSV/TSV/TXT delimitadas o Parquet: DuckDB escribe `dataset.csv`, calcula nulos del diccionario sin materializar el `DataFrame` activo y publica calidad incremental, manifest con hashes, cancelación y atomicidad; la regresión confirma fuente intacta y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.112.0 endurece consultas source-backed: `INNER`, `LEFT` y `FULL JOIN` ejecutan directamente desde la fuente con DuckDB y el fallback que materializaría silenciosamente se convierte en error explícito; el benchmark de 512 MiB valida conteos, paginación, frame vacío, working set y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `tools/benchmark-duckdb-join.ps1`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.111.0 extiende la exportación source-backed a SQL mediante DuckDB para fuentes CSV/TSV/TXT delimitadas o Parquet; escribe esquema y literales escapados en una transacción, conserva cancelación, validación de cambios y publicación atómica sin materializar el `DataFrame` activo en la ruta compatible. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.108.0 añade `perf:duckdb:join`, un benchmark opt-in de una fuente CSV temporal de 512 MiB y 1.810.432 filas; ejecuta un LEFT JOIN source-backed desde DuckDB, conserva el frame activo vacío, valida conteo/paginación/working set de 512 MiB y confirma cleanup. La ejecución integral fuera de RAM sigue pendiente. | `src-tauri/src/dataset.rs`, `tools/benchmark-duckdb-join.ps1`, `package.json`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

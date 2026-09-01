@@ -448,6 +448,44 @@ where
         .map_err(|_| "El conteo de filas source-backed excede la capacidad local.".to_owned())
 }
 
+pub(crate) fn count_file_nulls<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[String],
+    is_cancelled: C,
+) -> Result<Vec<usize>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!(
+                "No se pudo preparar el espacio temporal para el diccionario source-backed: {error}"
+            )
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        columns
+            .iter()
+            .map(|column| {
+                let identifier = quote_identifier(column);
+                let query = format!("SELECT COUNT(*) FROM dataset WHERE {identifier} IS NULL");
+                let count: i64 =
+                    connection
+                        .query_row(&query, [], |row| row.get(0))
+                        .map_err(|error| {
+                            format!(
+                                "DuckDB no pudo contar los nulos de la columna {column}: {error}"
+                            )
+                        })?;
+                usize::try_from(count).map_err(|_| {
+                    format!("El conteo de nulos de la columna {column} excede la capacidad local.")
+                })
+            })
+            .collect()
+    })
+}
+
 fn execute_duckdb_operation<C, F, T>(is_cancelled: C, operation: F) -> Result<T, String>
 where
     C: Fn() -> bool + Send + 'static,
