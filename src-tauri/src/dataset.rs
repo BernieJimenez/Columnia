@@ -7626,6 +7626,8 @@ enum SourceBackedColumnCleanup {
     Constant,
     Empty,
     HighNull,
+    Identifier,
+    Personal,
 }
 
 fn source_backed_removable_columns(
@@ -7643,8 +7645,22 @@ fn source_backed_removable_columns(
         .iter()
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
-    let null_counts =
-        crate::duckdb_query::count_file_nulls(source_path, source_format, &columns, || false)?;
+    let needs_null_counts = matches!(
+        cleanup,
+        SourceBackedColumnCleanup::Constant
+            | SourceBackedColumnCleanup::Empty
+            | SourceBackedColumnCleanup::HighNull
+    );
+    let null_counts = if needs_null_counts {
+        Some(crate::duckdb_query::count_file_nulls(
+            source_path,
+            source_format,
+            &columns,
+            || false,
+        )?)
+    } else {
+        None
+    };
     let distinct_counts = if matches!(cleanup, SourceBackedColumnCleanup::Constant) {
         Some(crate::duckdb_query::count_file_distinct_non_null(
             source_path,
@@ -7662,7 +7678,11 @@ fn source_backed_removable_columns(
             if column == "_cambios" {
                 return None;
             }
-            let null_count = null_counts[index];
+            let null_count = null_counts
+                .as_ref()
+                .and_then(|counts| counts.get(index))
+                .copied()
+                .unwrap_or_default();
             let removable = match cleanup {
                 SourceBackedColumnCleanup::Constant => {
                     distinct_counts.as_ref()?.get(index).copied()? <= 1
@@ -7677,6 +7697,10 @@ fn source_backed_removable_columns(
                                 .row_count
                                 .saturating_mul(HIGH_NULL_COLUMN_THRESHOLD_PERCENTAGE)
                 }
+                SourceBackedColumnCleanup::Identifier => {
+                    matches!(privacy_signal(column), Some("identifier"))
+                }
+                SourceBackedColumnCleanup::Personal => is_personal_privacy_signal(column),
             };
             removable.then(|| column.clone())
         })
@@ -20959,6 +20983,15 @@ pub async fn remove_identifier_columns(app: AppHandle) -> Result<ColumnRemovalRe
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = remove_columns_source_backed(
+                dataset,
+                SourceBackedColumnCleanup::Identifier,
+                "Retirar columnas identificadoras",
+            )? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_identifier_columns_from_frame(&dataset.frame)?;
         let preview = if removed_columns.is_empty() {
@@ -20989,6 +21022,16 @@ pub async fn remove_personal_columns(app: AppHandle) -> Result<ColumnRemovalResu
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(mut result) = remove_columns_source_backed(
+                dataset,
+                SourceBackedColumnCleanup::Personal,
+                "Retirar datos personales detectados",
+            )? {
+                result.removed_columns.clear();
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, removed_columns) = remove_personal_columns_from_frame(&dataset.frame)?;
         let removed_column_count = removed_columns.len();
@@ -29594,6 +29637,74 @@ mod tests {
             .get_column_names()
             .iter()
             .any(|name| name.as_str() == "empty"));
+    }
+
+    #[test]
+    fn source_backed_privacy_column_cleanup_keeps_audit_and_history() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let source = directory.path().join("privacy-cleanup.json");
+        fs::write(
+            &source,
+            r#"[
+                {"customer_id":"a-1","email":"ana@example.com","amount":10,"_cambios":"base-1"},
+                {"customer_id":"b-2","email":"luis@example.com","amount":20,"_cambios":"base-2"}
+            ]"#,
+        )
+        .expect("se debe escribir el JSON de privacidad");
+        let source_snapshot = directory.path().join("source.parquet");
+        let (schema, _, row_count) = source_backed_json_load(&source, &source_snapshot, || false)
+            .expect("el JSON debe abrirse mediante snapshot");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let mut history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        history.source_snapshot_path = Some(source_snapshot);
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "privacy-cleanup.json".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let identifiers = remove_columns_source_backed(
+            &mut dataset,
+            SourceBackedColumnCleanup::Identifier,
+            "Retirar columnas identificadoras",
+        )
+        .expect("las columnas identificadoras deben procesarse")
+        .expect("la fuente debe ser compatible");
+        assert_eq!(identifiers.removed_columns, vec!["customer_id"]);
+
+        let personal = remove_columns_source_backed(
+            &mut dataset,
+            SourceBackedColumnCleanup::Personal,
+            "Retirar datos personales detectados",
+        )
+        .expect("las columnas personales deben procesarse")
+        .expect("la fuente debe ser compatible");
+        assert_eq!(personal.removed_columns, vec!["email"]);
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la limpieza debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        assert_eq!(current.get_column_names(), &["amount", "_cambios"]);
+        assert_eq!(
+            current.column("_cambios").unwrap().str().unwrap().get(0),
+            Some("base-1; Retirar columnas identificadoras; Retirar datos personales detectados")
+        );
+        assert!(dataset.history.state().can_undo);
+
+        let undo = undo_dataset(&mut dataset).expect("el retiro personal debe poder deshacerse");
+        assert_eq!(undo.dataset.row_count, 2);
+        assert!(dataset
+            .frame
+            .get_column_names()
+            .iter()
+            .any(|name| name.as_str() == "email"));
     }
 
     #[test]

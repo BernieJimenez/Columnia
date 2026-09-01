@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.128.0] - 2026-09-01
+
+### Mejorado
+
+- `Retirar columnas identificadoras` y `Retirar datos personales detectados`
+  ya pueden ejecutarse sobre datasets source-backed sin materializar todas las
+  filas en el `DataFrame` activo.
+- Ambas acciones publican snapshots Parquet privados, conservan `_cambios`,
+  el límite de una columna utilizable y el historial reversible, y mantienen
+  el fallback eager para fuentes no compatibles.
+
+### Verificado
+
+- La regresión cubre la detección por categorías, la eliminación de `customer_id`
+  y `email`, la trazabilidad acumulada y undo sobre el snapshot publicado.
+
 ## [0.127.0] - 2026-09-01
 
 ### Mejorado
