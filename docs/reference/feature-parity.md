@@ -18,7 +18,7 @@ de rutas fuera del repositorio.
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes y reapertura segura | Implementada | Preferencias de workspace más amplias |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, lectura source-backed por bloques, snapshots administrados, DuckDB opcional, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM |
+| Escala | Lazy para recetas compatibles, recetas source-backed de proyección/filtros, lectura por bloques, snapshots administrados, DuckDB opcional, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM |
 
 ## Contrato de calidad
 
@@ -51,8 +51,11 @@ filas y valores permanecen en Rust; React recibe únicamente metadatos acotados,
 identificadores opacos y resultados agregados.
 
 Las operaciones compatibles con el plan lazy se ejecutan sobre fuentes y
-snapshots sin clonar innecesariamente el dataset completo. Cuando una
-combinación no es segura para lazy, Columnia usa un fallback eager atómico y
+snapshots sin clonar innecesariamente el dataset completo. Las recetas
+source-backed que combinan selección/renombrado con hasta tres filtros también
+se ejecutan directamente sobre la fuente mediante DuckDB y publican un snapshot
+Parquet privado, conservando conteo, orden y nulos. Cuando una combinación no es
+segura para lazy o source-backed, Columnia usa un fallback eager atómico y
 mantiene la recuperación del dataset anterior ante errores o cancelación.
 
 ## Proyectos y almacenamiento

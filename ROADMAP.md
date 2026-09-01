@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.91.0`.
+- Versión actual del prototipo: `0.92.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1053,7 +1053,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   posterior es ampliar la cobertura a datasets mayores, historial integral y
   casos difíciles de Excel.
 
-## 8.1. Cola de ejecución recomendada desde v0.91.0
+## 8.1. Cola de ejecución recomendada desde v0.92.0
 
 1. **Superficie de compatibilidad externa:** retirada en v0.90.0. El selector de
    recetas y el catálogo de proyectos exponen únicamente contratos nativos de
@@ -1111,10 +1111,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    validación de tamaño y conteo; desde v0.70 la validación source-backed de
    reglas globales de unicidad, monotonicidad, agregados y deriva también
    recorre la fuente por bloques con cubetas/acumuladores temporales; desde
-   v0.71 las recetas compuestas únicamente por renombres y `keepColumns`
+   v0.80 las recetas source-backed compuestas únicamente por renombres y `keepColumns`
    proyectan directamente desde la fuente a un Parquet privado administrado,
-   conservando esquema, conteo, orden y preview sin llenar el `DataFrame`; las
-   recetas que transforman valores todavía materializan bajo demanda. Desde
+   conservando esquema, conteo, orden y preview sin llenar el `DataFrame`; desde
+   v0.92 esa ruta también combina hasta tres filtros con selección/renombrado,
+   aplica el filtro en DuckDB sobre la fuente y conserva el conteo exacto de
+   filas eliminadas y la semántica de nulos. Las recetas que transforman valores
+   todavía materializan bajo demanda. Desde
    v0.68 la exportación Parquet sin receta
    ni privacidad adicional puede convertir la fuente directamente desde disco
    con publicación atómica; desde v0.69 JSON sin receta ni privacidad adicional
@@ -1452,11 +1455,13 @@ comparación no equivale a ejecución fuera de memoria general. La
   coincidencias y conserva solo la página o los acumuladores; si el snapshot
   falla vuelve al frame activo. Quedan fuera de esta slice los `JOIN` sobre un
   dataset activo materializado, las otras fuentes de comparación, las
-  operaciones generales y el presupuesto integral fuera de RAM. Desde v0.71,
+  operaciones generales y el presupuesto integral fuera de RAM. Desde v0.80,
    las recetas source-backed compuestas únicamente por renombres y
    `keepColumns` proyectan directamente a un Parquet privado administrado,
    conservando el esquema, conteo, orden y preview sin llenar el `DataFrame`;
-   las recetas que transforman valores todavía materializan bajo demanda.
+   desde v0.92 también pueden aplicar hasta tres filtros con esa misma frontera
+   source-backed. Las recetas que transforman valores todavía materializan bajo
+   demanda.
   `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus

@@ -22896,10 +22896,9 @@ fn apply_recipe_to_frame(
 }
 
 fn source_backed_projection_recipe_supported(recipe: &TransformRecipe) -> bool {
-    (!recipe.renames.is_empty() || recipe.keep_columns.is_some())
+    (!recipe.renames.is_empty() || recipe.keep_columns.is_some() || !recipe.filters.is_empty())
         && recipe.casts.is_empty()
         && recipe.date_parses.is_empty()
-        && recipe.filters.is_empty()
         && recipe.calculated_column.is_none()
         && recipe.find_replace.is_none()
         && recipe.split_column.is_none()
@@ -22910,29 +22909,240 @@ fn source_backed_projection_recipe_supported(recipe: &TransformRecipe) -> bool {
         && recipe.text_extractions.is_empty()
 }
 
+struct SourceBackedProjectionPlan {
+    source_columns: Vec<String>,
+    output_columns: Vec<String>,
+    selected_columns: Vec<String>,
+    renamed_column_count: usize,
+    dropped_column_count: usize,
+    kept_order_changed: bool,
+}
+
+fn source_backed_projection_plan(
+    schema: &DataFrame,
+    recipe: &TransformRecipe,
+) -> Result<SourceBackedProjectionPlan, String> {
+    if recipe.filters.len() > 3 {
+        return Err("La receta admite como máximo tres filtros combinados con AND.".into());
+    }
+    if !lazy_renames_have_no_cycles(recipe) {
+        return Err("Los renombrados contienen un ciclo.".to_owned());
+    }
+
+    let mut rename_map = HashMap::new();
+    let mut rename_sources = HashSet::new();
+    for rename in &recipe.renames {
+        if rename.from.trim().is_empty() || rename.to.trim().is_empty() {
+            return Err("Los nombres de columna no pueden estar vacíos.".to_owned());
+        }
+        if rename.to != rename.to.trim() {
+            return Err(
+                "El nuevo nombre de columna no puede tener espacios exteriores.".to_owned(),
+            );
+        }
+        if !rename_sources.insert(rename.from.as_str()) {
+            return Err(format!(
+                "La columna '{}' aparece en más de un renombrado.",
+                rename.from
+            ));
+        }
+        recipe_column(schema, &rename.from)?;
+        rename_map.insert(rename.from.clone(), rename.to.clone());
+    }
+
+    let source_columns = schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let output_columns = source_columns
+        .iter()
+        .map(|name| {
+            rename_map
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| name.clone())
+        })
+        .collect::<Vec<_>>();
+    let mut unique_output_columns = HashSet::new();
+    if output_columns
+        .iter()
+        .any(|name| !unique_output_columns.insert(name.as_str()))
+    {
+        return Err("Los renombrados producirían nombres de columna duplicados.".to_owned());
+    }
+
+    let renamed_column_count = source_columns
+        .iter()
+        .zip(&output_columns)
+        .filter(|(before, after)| before != after)
+        .count();
+    let selected_columns = if let Some(keep_columns) = &recipe.keep_columns {
+        if keep_columns.is_empty() {
+            return Err("Debes conservar al menos una columna.".into());
+        }
+        let mut selected = Vec::with_capacity(keep_columns.len());
+        let mut seen = HashSet::new();
+        for name in keep_columns {
+            let effective = rename_map
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| name.clone());
+            if !output_columns.iter().any(|column| column == &effective) {
+                return Err(format!(
+                    "La columna '{effective}' no existe en la selección source-backed."
+                ));
+            }
+            if !seen.insert(effective.clone()) {
+                return Err(format!(
+                    "La columna '{name}' aparece más de una vez en la selección."
+                ));
+            }
+            selected.push(effective);
+        }
+        selected
+    } else {
+        output_columns.clone()
+    };
+
+    for filter in &recipe.filters {
+        let effective = rename_map
+            .get(&filter.column)
+            .cloned()
+            .unwrap_or_else(|| filter.column.clone());
+        if !output_columns.iter().any(|column| column == &effective) {
+            return Err(format!(
+                "La columna '{}' no existe para el filtro source-backed.",
+                filter.column
+            ));
+        }
+        let unary = matches!(
+            filter.operator,
+            RecipeFilterOperator::IsNull | RecipeFilterOperator::NotNull
+        );
+        if unary != filter.value.is_none() {
+            return Err(format!(
+                "El filtro '{}' {} un valor.",
+                filter.column,
+                if unary { "no acepta" } else { "requiere" }
+            ));
+        }
+        let literal = filter.value.as_deref().unwrap_or_default();
+        if matches!(
+            filter.operator,
+            RecipeFilterOperator::Gt
+                | RecipeFilterOperator::Lt
+                | RecipeFilterOperator::Gte
+                | RecipeFilterOperator::Lte
+                | RecipeFilterOperator::Contains
+                | RecipeFilterOperator::NotContains
+        ) && literal.is_empty()
+        {
+            return Err(format!(
+                "El filtro '{}' requiere un valor no vacío.",
+                filter.column
+            ));
+        }
+        if literal.contains('\0') {
+            return Err("El valor del filtro contiene un carácter no válido.".to_owned());
+        }
+        if matches!(
+            filter.operator,
+            RecipeFilterOperator::Gt
+                | RecipeFilterOperator::Lt
+                | RecipeFilterOperator::Gte
+                | RecipeFilterOperator::Lte
+        ) {
+            strict_f64(literal, "El valor del filtro")?;
+            if let Ok(column) = recipe_column(schema, &filter.column) {
+                if matches!(column.dtype(), DataType::Date | DataType::Datetime(_, _)) {
+                    return Err(format!(
+                        "La comparación numérica de '{}' no admite fechas en este hito.",
+                        filter.column
+                    ));
+                }
+            }
+        }
+    }
+
+    let dropped_column_count = output_columns.len().saturating_sub(selected_columns.len());
+    let kept_order_changed = output_columns != selected_columns;
+    Ok(SourceBackedProjectionPlan {
+        source_columns,
+        output_columns,
+        selected_columns,
+        renamed_column_count,
+        dropped_column_count,
+        kept_order_changed,
+    })
+}
+
+fn duckdb_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn source_backed_filter_expression(
+    filter: &RecipeFilter,
+    rename_map: &HashMap<String, String>,
+) -> Result<String, String> {
+    let effective = rename_map
+        .get(&filter.column)
+        .map(String::as_str)
+        .unwrap_or(filter.column.as_str());
+    let column = format!("t.{}", duckdb_identifier(effective));
+    let literal = filter.value.as_deref().unwrap_or_default();
+    let expression = match filter.operator {
+        RecipeFilterOperator::IsNull => format!("{column} IS NULL"),
+        RecipeFilterOperator::NotNull => format!("{column} IS NOT NULL"),
+        RecipeFilterOperator::Eq => format!(
+            "CAST({column} AS VARCHAR) = {}",
+            duckdb_string_literal(literal)
+        ),
+        RecipeFilterOperator::Neq => format!(
+            "CAST({column} AS VARCHAR) <> {}",
+            duckdb_string_literal(literal)
+        ),
+        RecipeFilterOperator::Contains => format!(
+            "strpos(lower(CAST({column} AS VARCHAR)), lower({})) > 0",
+            duckdb_string_literal(literal)
+        ),
+        RecipeFilterOperator::NotContains => format!(
+            "strpos(lower(CAST({column} AS VARCHAR)), lower({})) = 0",
+            duckdb_string_literal(literal)
+        ),
+        RecipeFilterOperator::Gt
+        | RecipeFilterOperator::Lt
+        | RecipeFilterOperator::Gte
+        | RecipeFilterOperator::Lte => {
+            let numeric_literal = strict_f64(literal, "El valor del filtro")?;
+            let operator = match filter.operator {
+                RecipeFilterOperator::Gt => ">",
+                RecipeFilterOperator::Lt => "<",
+                RecipeFilterOperator::Gte => ">=",
+                RecipeFilterOperator::Lte => "<=",
+                _ => unreachable!("el match exterior limita los operadores numéricos"),
+            };
+            format!("CAST({column} AS DOUBLE) {operator} {numeric_literal}")
+        }
+    };
+    Ok(expression)
+}
+
 fn source_backed_projection_query(
     schema: &DataFrame,
     recipe: &TransformRecipe,
 ) -> Result<String, String> {
-    let selected_columns = recipe.keep_columns.clone().unwrap_or_else(|| {
-        schema
-            .get_column_names()
-            .iter()
-            .map(|name| name.to_string())
-            .collect()
-    });
-    if selected_columns.is_empty() {
-        return Err("Debes conservar al menos una columna.".to_owned());
-    }
-    let expressions = selected_columns
+    let plan = source_backed_projection_plan(schema, recipe)?;
+    let rename_map = recipe
+        .renames
         .iter()
-        .map(|source_name| {
-            let output_name = recipe
-                .renames
-                .iter()
-                .find(|rename| rename.from == *source_name)
-                .map(|rename| rename.to.as_str())
-                .unwrap_or(source_name.as_str());
+        .map(|rename| (rename.from.clone(), rename.to.clone()))
+        .collect::<HashMap<_, _>>();
+    let expressions = plan
+        .source_columns
+        .iter()
+        .zip(&plan.output_columns)
+        .map(|(source_name, output_name)| {
             if output_name == source_name {
                 duckdb_identifier(source_name)
             } else {
@@ -22944,7 +23154,28 @@ fn source_backed_projection_query(
             }
         })
         .collect::<Vec<_>>();
-    Ok(format!("SELECT {} FROM dataset", expressions.join(", ")))
+    let filters = recipe
+        .filters
+        .iter()
+        .map(|filter| source_backed_filter_expression(filter, &rename_map))
+        .collect::<Result<Vec<_>, _>>()?;
+    let where_clause = if filters.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", filters.join(" AND "))
+    };
+    let selected = plan
+        .selected_columns
+        .iter()
+        .map(|column| format!("t.{}", duckdb_identifier(column)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "WITH transformed AS (SELECT {} FROM dataset) SELECT {} FROM transformed AS t{}",
+        expressions.join(", "),
+        selected,
+        where_clause
+    ))
 }
 
 fn apply_source_backed_projection_recipe(
@@ -22970,48 +23201,13 @@ fn apply_source_backed_projection_recipe(
         }
     };
     let schema = dataset.frame.clone();
-    let (
-        _candidate,
-        renamed_column_count,
-        converted_column_count,
-        parsed_date_column_count,
-        removed_row_count,
-        calculated_column_count,
-        replaced_cell_count,
-        dropped_column_count,
-        kept_order_changed,
-        split_column_count,
-        merged_column_count,
-        dropped_source_column_count,
-        adjusted_outlier_cell_count,
-        outlier_removed_row_count,
-        outlier_column_count,
-        group_count,
-        aggregated_column_count,
-        collapsed_row_count,
-        normalized_contact_cell_count,
-        normalized_contact_column_count,
-        extracted_column_count,
-    ) = apply_eager_recipe_to_frame(&schema, recipe)?;
-    let changed = renamed_column_count
-        + converted_column_count
-        + parsed_date_column_count
-        + removed_row_count
-        + calculated_column_count
-        + replaced_cell_count
-        + dropped_column_count
-        + usize::from(kept_order_changed)
-        + split_column_count
-        + merged_column_count
-        + dropped_source_column_count
-        + adjusted_outlier_cell_count
-        + outlier_removed_row_count
-        + usize::from(recipe.group_summary.is_some())
-        + normalized_contact_cell_count
-        + extracted_column_count
+    let plan = source_backed_projection_plan(&schema, recipe)?;
+    let structural_change = plan.renamed_column_count
+        + plan.dropped_column_count
+        + usize::from(plan.kept_order_changed)
         > 0;
 
-    if !changed {
+    if !structural_change && recipe.filters.is_empty() {
         let page_frame = collect_lazy_frame_streaming(
             source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
             "No se pudo leer la vista previa source-backed",
@@ -23031,26 +23227,26 @@ fn apply_source_backed_projection_recipe(
         )?;
         return Ok(TransformRecipeResult {
             dataset: preview,
-            renamed_column_count,
-            converted_column_count,
-            parsed_date_column_count,
-            removed_row_count,
-            calculated_column_count,
-            replaced_cell_count,
-            dropped_column_count,
-            split_column_count,
-            merged_column_count,
-            dropped_source_column_count,
-            adjusted_outlier_cell_count,
-            outlier_removed_row_count,
-            outlier_column_count,
-            group_count,
-            aggregated_column_count,
-            collapsed_row_count,
-            normalized_contact_cell_count,
-            normalized_contact_column_count,
-            extracted_column_count,
-            changed,
+            renamed_column_count: plan.renamed_column_count,
+            converted_column_count: 0,
+            parsed_date_column_count: 0,
+            removed_row_count: 0,
+            calculated_column_count: 0,
+            replaced_cell_count: 0,
+            dropped_column_count: plan.dropped_column_count,
+            split_column_count: 0,
+            merged_column_count: 0,
+            dropped_source_column_count: 0,
+            adjusted_outlier_cell_count: 0,
+            outlier_removed_row_count: 0,
+            outlier_column_count: 0,
+            group_count: 0,
+            aggregated_column_count: 0,
+            collapsed_row_count: 0,
+            normalized_contact_cell_count: 0,
+            normalized_contact_column_count: 0,
+            extracted_column_count: 0,
+            changed: false,
         });
     }
 
@@ -23082,11 +23278,50 @@ fn apply_source_backed_projection_recipe(
         parquet_scan(&output_path)?,
         "No se pudo contar el resultado de la receta source-backed",
     )?;
-    if output_row_count != dataset.row_count {
+    if output_row_count > dataset.row_count {
         let _ = fs::remove_file(&output_path);
         return Err(
-            "La proyección source-backed cambió inesperadamente el conteo de filas.".to_owned(),
+            "La receta source-backed aumentó inesperadamente el conteo de filas.".to_owned(),
         );
+    }
+    let removed_row_count = dataset.row_count.saturating_sub(output_row_count);
+    let changed = structural_change || removed_row_count > 0;
+    if !changed {
+        let _ = fs::remove_file(&output_path);
+        let page_frame = collect_lazy_frame_streaming(
+            source_scan(&source_path, &extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa source-backed",
+        )?;
+        let preview = dataset_preview_from_schema_and_page(
+            &dataset.file_name,
+            dataset.file_size_bytes,
+            dataset.row_count,
+            &schema,
+            &page_frame,
+        )?;
+        return Ok(TransformRecipeResult {
+            dataset: preview,
+            renamed_column_count: plan.renamed_column_count,
+            converted_column_count: 0,
+            parsed_date_column_count: 0,
+            removed_row_count: 0,
+            calculated_column_count: 0,
+            replaced_cell_count: 0,
+            dropped_column_count: plan.dropped_column_count,
+            split_column_count: 0,
+            merged_column_count: 0,
+            dropped_source_column_count: 0,
+            adjusted_outlier_cell_count: 0,
+            outlier_removed_row_count: 0,
+            outlier_column_count: 0,
+            group_count: 0,
+            aggregated_column_count: 0,
+            collapsed_row_count: 0,
+            normalized_contact_cell_count: 0,
+            normalized_contact_column_count: 0,
+            extracted_column_count: 0,
+            changed: false,
+        });
     }
     let page = dataset_page_from_parquet(&output_path, output_row_count, 0, PREVIEW_ROW_LIMIT)?;
     let page_frame = read_parquet_query_block(&output_path, 0, page.rows.len())?;
@@ -23114,25 +23349,25 @@ fn apply_source_backed_projection_recipe(
     }
     Ok(TransformRecipeResult {
         dataset: preview,
-        renamed_column_count,
-        converted_column_count,
-        parsed_date_column_count,
+        renamed_column_count: plan.renamed_column_count,
+        converted_column_count: 0,
+        parsed_date_column_count: 0,
         removed_row_count,
-        calculated_column_count,
-        replaced_cell_count,
-        dropped_column_count,
-        split_column_count,
-        merged_column_count,
-        dropped_source_column_count,
-        adjusted_outlier_cell_count,
-        outlier_removed_row_count,
-        outlier_column_count,
-        group_count,
-        aggregated_column_count,
-        collapsed_row_count,
-        normalized_contact_cell_count,
-        normalized_contact_column_count,
-        extracted_column_count,
+        calculated_column_count: 0,
+        replaced_cell_count: 0,
+        dropped_column_count: plan.dropped_column_count,
+        split_column_count: 0,
+        merged_column_count: 0,
+        dropped_source_column_count: 0,
+        adjusted_outlier_cell_count: 0,
+        outlier_removed_row_count: 0,
+        outlier_column_count: 0,
+        group_count: 0,
+        aggregated_column_count: 0,
+        collapsed_row_count: 0,
+        normalized_contact_cell_count: 0,
+        normalized_contact_column_count: 0,
+        extracted_column_count: 0,
         changed,
     })
 }
@@ -24705,6 +24940,124 @@ mod tests {
         assert_eq!(result.dataset.row_count, source_frame.height());
         assert!(!dataset.history.state().can_undo);
 
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
+        let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\nLa Vega,25\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            renames: vec![RecipeRename {
+                from: "city".to_owned(),
+                to: "location".to_owned(),
+            }],
+            filters: vec![
+                RecipeFilter {
+                    column: "temperature".to_owned(),
+                    operator: RecipeFilterOperator::Gte,
+                    value: Some("28".to_owned()),
+                },
+                RecipeFilter {
+                    column: "city".to_owned(),
+                    operator: RecipeFilterOperator::Contains,
+                    value: Some("dom".to_owned()),
+                },
+            ],
+            keep_columns: Some(vec!["city".to_owned(), "temperature".to_owned()]),
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta source-backed debe publicarse");
+
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.row_count, 1);
+        assert_eq!(
+            dataset.frame.get_column_names(),
+            ["location", "temperature"]
+        );
+        assert_eq!(result.removed_row_count, 2);
+        assert_eq!(result.renamed_column_count, 1);
+        assert_eq!(result.dropped_column_count, 0);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(result.dataset.row_count, 1);
+        assert_eq!(result.dataset.rows[0][0].as_deref(), Some("Santo Domingo"));
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_text_and_null_filters_keep_eager_semantics() {
+        let path = temporary_csv("name,tag\nO'Reilly,\nOmar,customer\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            filters: vec![
+                RecipeFilter {
+                    column: "name".to_owned(),
+                    operator: RecipeFilterOperator::Eq,
+                    value: Some("O'Reilly".to_owned()),
+                },
+                RecipeFilter {
+                    column: "tag".to_owned(),
+                    operator: RecipeFilterOperator::IsNull,
+                    value: None,
+                },
+            ],
+            keep_columns: Some(vec!["name".to_owned()]),
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("la receta eager debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta source-backed debe publicarse");
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+
+        assert!(output.equals_missing(&expected));
+        assert_eq!(result.removed_row_count, 1);
+        assert_eq!(result.dataset.rows[0][0].as_deref(), Some("O'Reilly"));
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 

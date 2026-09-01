@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-08-31
+
+### Mejorado
+
+- Las recetas source-backed pueden combinar hasta tres filtros con selección y
+  renombrado de columnas. DuckDB ejecuta el plan directamente sobre CSV/TSV/TXT
+  delimitado o Parquet y publica un snapshot Parquet privado sin materializar
+  todas las filas en el `DataFrame` activo.
+- La nueva ruta valida operadores, valores numéricos, nombres finales, columnas
+  duplicadas y cambios de la fuente, y conserva el conteo exacto de filas
+  eliminadas, el orden y la semántica de nulos.
+
+### Verificado
+
+- La regresión source-backed compara filtros numéricos, texto con apóstrofes y
+  nulos contra la receta eager; la suite Rust completa queda en 314 pruebas.
+
 ## [0.91.0] - 2026-08-31
 
 ### Añadido
