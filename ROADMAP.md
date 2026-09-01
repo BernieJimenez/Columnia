@@ -16,7 +16,7 @@
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
   I3/I5 conservan validaciones externas de plataforma.
-- Versión actual del prototipo: `0.121.0`.
+- Versión actual del prototipo: `0.122.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1162,7 +1162,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    conservan la ruta eager y su historial.
    Desde v0.121, el parseo de fechas y la extracción de `year`, `month` o `day`
    también pueden seguir a filtros dentro de la misma receta source-backed,
-   respetando el orden de etapas y la paridad con eager.
+   respetando el orden de etapas y la paridad con eager. Desde v0.122, los
+   filtros ordenados de columnas `Date` y `Datetime` aceptan literales ISO 8601
+   directamente en eager, Polars lazy y DuckDB source-backed, sin convertirlos
+   a números ni materializar la fuente compatible.
 7. **DuckDB y operaciones multidataset:** la primera ruta opcional de DuckDB ya
    valida y ejecuta la consulta SQL local restringida sobre snapshots Parquet
    temporales, con paginación, orden estable, agregaciones y joins seguros.
@@ -1955,6 +1958,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.122.0 amplía los filtros ordenados de recetas a `Date`/`Datetime` con literales ISO 8601 en eager, Polars lazy y DuckDB source-backed; la regresión compara límites, unidades, conteo, nulos y snapshot Parquet. | `src-tauri/src/dataset.rs`, `src/features/prepare/TransformRecipeEditor.tsx`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-08-28 | Implementación técnica mayormente cerrada: T5-01–T5-17 y T5-19; T5-18/T5-20 siguen pendientes de aceptación legal y pruebas del canal. T5-06 queda cerrado con evidencia release ligada a commit limpio y baseline visual actualizado. El orquestador local y el updater firmado ya están implementados. | Código, cobertura, IPC, notices, toolchains, benchmark formal, Package firmado, smoke nativo, suite Rust y `fixtures/accessibility/release-evidence-baseline-v1.json` |
 | 2026-08-31 | Se cerró la protección técnica de T5-18/T5-20 sin falsear aprobación: la ficha jurídica es explícita y versionada, `legal:check` valida artefactos y `Release`/`Package` exigen sign-off; notices consolida 995 identidades sin `UNKNOWN` ni duplicados y el panel legal es una región accesible. Las decisiones de jurisdicción/canal y la prueba en VM/canal real siguen pendientes. | `docs/reference/legal-distribution-decision.json`, `tools/check-legal-distribution.mjs`, `tools/generate-third-party-notices.ps1`, `npm run notices:check`, `npm run legal:check` |
 | 2026-08-31 | Versión 0.93.0 amplía las recetas source-backed: casts, fechas fijas `YMD`/`DMY`/`MDY` y cálculos de suma, resta, multiplicación o concatenación se ejecutan en DuckDB por etapas y publican un snapshot Parquet privado; división, partes de fecha, ISO y operaciones no compatibles mantienen el fallback eager. La paridad con la ruta eager queda cubierta por regresión Rust. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

@@ -568,8 +568,8 @@ export function TransformRecipeEditor({
           <p className="recipe-hint">
             Todas las condiciones deben cumplirse. Puedes añadir hasta 3 filtros. Mayor que,
             menor que, mayor o igual y menor o igual son comparaciones numéricas estrictas; para
-            fechas, extrae primero año, mes o día. La comparación directa de fechas se incorporará
-            cuando exista conversión compatible.
+            columnas de fecha aceptan literales ISO 8601 como AAAA-MM-DD o
+            AAAA-MM-DDTHH:mm:ss.
           </p>
           {filters.map((filter, index) => {
             const unary = ["is_null", "not_null"].includes(filter.operator);

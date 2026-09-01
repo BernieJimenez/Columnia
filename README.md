@@ -458,6 +458,11 @@ validando el esquema después de las etapas estructurales. Las partes calculadas
 de año, mes y día también pueden usarse como claves sobre `Date` y `Datetime` sin
 zona horaria cuando no hay filtros previos.
 
+Los filtros ordenados sobre columnas `Date` y `Datetime` aceptan literales ISO
+8601 (`AAAA-MM-DD` o `AAAA-MM-DDTHH:mm:ss`) y conservan los límites inclusivos
+o exclusivos en las rutas eager, lazy y source-backed. Esto permite filtrar por
+fecha directamente sin convertir primero la columna en componentes numéricos.
+
 La receta también admite hasta tres **filtros AND** y una **columna calculada**.
 Como los filtros pueden eliminar filas, Columnia muestra una confirmación antes
 de ejecutar. Los cálculos aceptan otra columna o un valor fijo de forma

@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.122.0] - 2026-09-01
+
+### Mejorado
+
+- Los filtros ordenados sobre columnas `Date` y `Datetime` aceptan literales
+  ISO 8601 y se ejecutan directamente en la ruta source-backed de DuckDB.
+  La ruta eager y el plan lazy usan la misma semántica temporal, incluidos
+  parseos de fecha previos y unidades de tiempo compatibles.
+- Preparar ya documenta el formato esperado para filtrar fechas sin obligar a
+  convertirlas previamente en columnas de año, mes o día.
+
+### Verificado
+
+- Una regresión compara filtros inclusivos y exclusivos de rango temporal,
+  conteo, tipo `Date`, orden y snapshot Parquet contra la ruta eager.
+
 ## [0.121.0] - 2026-09-01
 
 ### Mejorado

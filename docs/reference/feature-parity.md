@@ -89,6 +89,8 @@ integral fuera de RAM sigue siendo un límite explícito.
 
 Las fechas ISO sin offset o con sufijo UTC `Z` también se convierten sobre la
 fuente, y las partes de fecha pueden seguir a filtros dentro de la misma receta;
+los filtros ordenados sobre columnas `Date` y `Datetime` aceptan literales ISO
+8601 y mantienen límites inclusivos/exclusivos tanto en eager como en DuckDB;
 los offsets distintos de UTC, valores inválidos, expresiones regulares y
 combinaciones no seguras usan un fallback eager atómico y mantienen
 la recuperación del dataset anterior ante errores o cancelación.

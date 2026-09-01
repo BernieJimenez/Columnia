@@ -1313,7 +1313,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
-    expect(screen.getByText(/comparaciones numéricas estrictas/)).toHaveTextContent(/extrae primero año, mes o día/);
+    expect(screen.getByText(/comparaciones numéricas estrictas/)).toHaveTextContent(/literales ISO 8601/);
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir filtro AND" }));
     fireEvent.change(screen.getByLabelText("Columna del filtro 1"), { target: { value: "estado" } });
     fireEvent.change(screen.getByLabelText("Operador del filtro 1"), { target: { value: "not_null" } });

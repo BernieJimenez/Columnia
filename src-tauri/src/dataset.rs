@@ -21029,6 +21029,33 @@ fn parse_recipe_datetime(value: &str, format: RecipeDateFormat) -> Result<NaiveD
         .map_err(|_| ())
 }
 
+fn recipe_filter_is_ordered(operator: RecipeFilterOperator) -> bool {
+    matches!(
+        operator,
+        RecipeFilterOperator::Gt
+            | RecipeFilterOperator::Lt
+            | RecipeFilterOperator::Gte
+            | RecipeFilterOperator::Lte
+    )
+}
+
+fn parse_recipe_filter_datetime(value: &str, column: &str) -> Result<NaiveDateTime, String> {
+    parse_recipe_datetime(value, RecipeDateFormat::Iso8601).map_err(|_| {
+        format!("El valor del filtro para '{column}' debe ser una fecha ISO 8601 válida.")
+    })
+}
+
+fn datetime_timestamp_in_unit(value: NaiveDateTime, unit: TimeUnit) -> Result<i64, String> {
+    match unit {
+        TimeUnit::Nanoseconds => value
+            .and_utc()
+            .timestamp_nanos_opt()
+            .ok_or_else(|| "La fecha del filtro está fuera del rango admitido.".to_owned()),
+        TimeUnit::Microseconds => Ok(value.and_utc().timestamp_micros()),
+        TimeUnit::Milliseconds => Ok(value.and_utc().timestamp_millis()),
+    }
+}
+
 fn strict_date_column(
     column: &Column,
     format: RecipeDateFormat,
@@ -21148,25 +21175,45 @@ fn apply_recipe_filters(
             ));
         }
 
-        let numeric_literal = if matches!(
-            filter.operator,
-            RecipeFilterOperator::Gt
-                | RecipeFilterOperator::Lt
-                | RecipeFilterOperator::Gte
-                | RecipeFilterOperator::Lte
-        ) {
-            if matches!(
-                recipe_column(&frame, name)?.dtype(),
-                polars::prelude::DataType::Date | polars::prelude::DataType::Datetime(_, _)
+        let column_dtype = recipe_column(&frame, name)?.dtype();
+        let temporal_literal = if recipe_filter_is_ordered(filter.operator)
+            && matches!(
+                column_dtype,
+                polars::prelude::DataType::Date | polars::prelude::DataType::Datetime(_, None)
             ) {
-                return Err(format!(
-                    "La comparación numérica de '{name}' no admite fechas en este hito."
-                ));
-            }
-            Some(strict_f64(literal, "El valor del filtro")?)
+            Some(parse_recipe_filter_datetime(literal, name)?)
         } else {
             None
         };
+        let numeric_literal =
+            if recipe_filter_is_ordered(filter.operator) && temporal_literal.is_none() {
+                Some(strict_f64(literal, "El valor del filtro")?)
+            } else {
+                None
+            };
+        let temporal_values = temporal_literal
+            .as_ref()
+            .map(|_| {
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(row, value)| {
+                        value
+                            .as_deref()
+                            .map(|value| {
+                                parse_recipe_filter_datetime(value, name).map_err(|_| {
+                                    format!(
+                                        "La fila {} de la columna '{}' contiene una fecha no válida.",
+                                        row + 1,
+                                        name
+                                    )
+                                })
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .transpose()?;
         let numeric_values = if numeric_literal.is_some() {
             Some(
                 values
@@ -21203,14 +21250,58 @@ fn apply_recipe_filters(
                 RecipeFilterOperator::NotContains => value
                     .as_deref()
                     .is_some_and(|value| !value.to_lowercase().contains(&needle)),
-                RecipeFilterOperator::Gt => numeric_values.as_ref().unwrap()[row]
-                    .is_some_and(|value| value > numeric_literal.unwrap()),
-                RecipeFilterOperator::Lt => numeric_values.as_ref().unwrap()[row]
-                    .is_some_and(|value| value < numeric_literal.unwrap()),
-                RecipeFilterOperator::Gte => numeric_values.as_ref().unwrap()[row]
-                    .is_some_and(|value| value >= numeric_literal.unwrap()),
-                RecipeFilterOperator::Lte => numeric_values.as_ref().unwrap()[row]
-                    .is_some_and(|value| value <= numeric_literal.unwrap()),
+                RecipeFilterOperator::Gt => temporal_values.as_ref().map_or_else(
+                    || {
+                        numeric_values.as_ref().expect("el filtro requiere números")[row]
+                            .is_some_and(|value| {
+                                value > numeric_literal.expect("el filtro requiere un literal")
+                            })
+                    },
+                    |values| {
+                        values[row].is_some_and(|value| {
+                            value > temporal_literal.expect("el filtro requiere una fecha")
+                        })
+                    },
+                ),
+                RecipeFilterOperator::Lt => temporal_values.as_ref().map_or_else(
+                    || {
+                        numeric_values.as_ref().expect("el filtro requiere números")[row]
+                            .is_some_and(|value| {
+                                value < numeric_literal.expect("el filtro requiere un literal")
+                            })
+                    },
+                    |values| {
+                        values[row].is_some_and(|value| {
+                            value < temporal_literal.expect("el filtro requiere una fecha")
+                        })
+                    },
+                ),
+                RecipeFilterOperator::Gte => temporal_values.as_ref().map_or_else(
+                    || {
+                        numeric_values.as_ref().expect("el filtro requiere números")[row]
+                            .is_some_and(|value| {
+                                value >= numeric_literal.expect("el filtro requiere un literal")
+                            })
+                    },
+                    |values| {
+                        values[row].is_some_and(|value| {
+                            value >= temporal_literal.expect("el filtro requiere una fecha")
+                        })
+                    },
+                ),
+                RecipeFilterOperator::Lte => temporal_values.as_ref().map_or_else(
+                    || {
+                        numeric_values.as_ref().expect("el filtro requiere números")[row]
+                            .is_some_and(|value| {
+                                value <= numeric_literal.expect("el filtro requiere un literal")
+                            })
+                    },
+                    |values| {
+                        values[row].is_some_and(|value| {
+                            value <= temporal_literal.expect("el filtro requiere una fecha")
+                        })
+                    },
+                ),
             })
             .collect::<Vec<_>>();
         combined_mask
@@ -22661,13 +22752,33 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
             continue;
         }
         let name = filter.column.as_str();
-        let values = strict_column_text(recipe_column(source, name)?)?;
+        let column = recipe_column(source, name)?;
+        let date_parse = recipe.date_parses.iter().find(|parse| parse.column == name);
+        let values = strict_column_text(column)?;
         for (row, value) in values.iter().enumerate() {
             if let Some(value) = value {
-                strict_f64(
-                    value,
-                    &format!("La fila {} de la columna '{name}'", row + 1),
-                )?;
+                if let Some(parse) = date_parse {
+                    parse_recipe_datetime(value, parse.format).map_err(|_| {
+                        format!(
+                            "La fila {} de la columna '{}' contiene una fecha no válida.",
+                            row + 1,
+                            name
+                        )
+                    })?;
+                } else if matches!(column.dtype(), DataType::Date | DataType::Datetime(_, None)) {
+                    parse_recipe_filter_datetime(value, name).map_err(|_| {
+                        format!(
+                            "La fila {} de la columna '{}' contiene una fecha no válida.",
+                            row + 1,
+                            name
+                        )
+                    })?;
+                } else {
+                    strict_f64(
+                        value,
+                        &format!("La fila {} de la columna '{name}'", row + 1),
+                    )?;
+                }
             }
         }
     }
@@ -22761,7 +22872,7 @@ fn validate_lazy_recipe_inputs(source: &DataFrame, recipe: &TransformRecipe) -> 
 }
 
 fn lazy_filter_expression(
-    frame: &DataFrame,
+    column_dtype: &DataType,
     filter: &RecipeFilter,
     effective_name: &str,
 ) -> Result<Expr, String> {
@@ -22816,22 +22927,43 @@ fn lazy_filter_expression(
         | RecipeFilterOperator::Lt
         | RecipeFilterOperator::Gte
         | RecipeFilterOperator::Lte => {
-            if matches!(
-                recipe_column(frame, effective_name)?.dtype(),
-                DataType::Date | DataType::Datetime(_, _)
-            ) {
-                return Err(format!(
-                    "La comparación numérica de '{effective_name}' no admite fechas en este hito."
-                ));
-            }
-            let numeric_literal = strict_f64(literal, "El valor del filtro")?;
-            let value = value.strict_cast(DataType::Float64);
-            match filter.operator {
-                RecipeFilterOperator::Gt => value.gt(lit(numeric_literal)),
-                RecipeFilterOperator::Lt => value.lt(lit(numeric_literal)),
-                RecipeFilterOperator::Gte => value.gt_eq(lit(numeric_literal)),
-                RecipeFilterOperator::Lte => value.lt_eq(lit(numeric_literal)),
-                _ => unreachable!("el match exterior limita esta rama a comparaciones numéricas"),
+            if matches!(column_dtype, DataType::Date | DataType::Datetime(_, None)) {
+                let datetime = parse_recipe_filter_datetime(literal, effective_name)?;
+                let (value, literal) = match column_dtype {
+                    DataType::Date => {
+                        let epoch =
+                            NaiveDate::from_ymd_opt(1970, 1, 1).expect("la época Unix es válida");
+                        let days =
+                            i32::try_from((datetime.date() - epoch).num_days()).map_err(|_| {
+                                "La fecha del filtro está fuera del rango admitido.".to_owned()
+                            })?;
+                        (value.cast(DataType::Int32), lit(days))
+                    }
+                    DataType::Datetime(unit, None) => (
+                        value.cast(DataType::Int64),
+                        lit(datetime_timestamp_in_unit(datetime, *unit)?),
+                    ),
+                    _ => unreachable!("el match exterior limita esta rama a fechas"),
+                };
+                match filter.operator {
+                    RecipeFilterOperator::Gt => value.gt(literal),
+                    RecipeFilterOperator::Lt => value.lt(literal),
+                    RecipeFilterOperator::Gte => value.gt_eq(literal),
+                    RecipeFilterOperator::Lte => value.lt_eq(literal),
+                    _ => unreachable!("el match exterior limita esta rama a comparaciones"),
+                }
+            } else {
+                let numeric_literal = strict_f64(literal, "El valor del filtro")?;
+                let value = value.strict_cast(DataType::Float64);
+                match filter.operator {
+                    RecipeFilterOperator::Gt => value.gt(lit(numeric_literal)),
+                    RecipeFilterOperator::Lt => value.lt(lit(numeric_literal)),
+                    RecipeFilterOperator::Gte => value.gt_eq(lit(numeric_literal)),
+                    RecipeFilterOperator::Lte => value.lt_eq(lit(numeric_literal)),
+                    _ => {
+                        unreachable!("el match exterior limita esta rama a comparaciones numéricas")
+                    }
+                }
             }
         }
     })
@@ -23469,7 +23601,34 @@ fn apply_lazy_recipe_to_frame(
 
     for filter in &recipe.filters {
         let effective_name = remapped_name(&filter.column, &rename_map);
-        plan = plan.filter(lazy_filter_expression(source, filter, effective_name)?);
+        let mut filter_dtype = recipe_column(source, &filter.column)?.dtype().clone();
+        if let Some(cast) = recipe
+            .casts
+            .iter()
+            .find(|cast| remapped_name(&cast.column, &rename_map) == effective_name)
+        {
+            filter_dtype = match cast.target {
+                RecipeCastTarget::String => DataType::String,
+                RecipeCastTarget::Integer => DataType::Int64,
+                RecipeCastTarget::Decimal => DataType::Float64,
+                RecipeCastTarget::Boolean => DataType::Boolean,
+            };
+        }
+        if let Some(parse) = recipe
+            .date_parses
+            .iter()
+            .find(|parse| remapped_name(&parse.column, &rename_map) == effective_name)
+        {
+            filter_dtype = match parse.target {
+                RecipeDateTarget::Date => DataType::Date,
+                RecipeDateTarget::Datetime => DataType::Datetime(TimeUnit::Milliseconds, None),
+            };
+        }
+        plan = plan.filter(lazy_filter_expression(
+            &filter_dtype,
+            filter,
+            effective_name,
+        )?);
     }
 
     let replaced_cell_count = if let Some(find_replace) = &recipe.find_replace {
@@ -25270,21 +25429,17 @@ fn source_backed_projection_plan(
         if literal.contains('\0') {
             return Err("El valor del filtro contiene un carácter no válido.".to_owned());
         }
-        if matches!(
-            filter.operator,
-            RecipeFilterOperator::Gt
-                | RecipeFilterOperator::Lt
-                | RecipeFilterOperator::Gte
-                | RecipeFilterOperator::Lte
-        ) {
-            strict_f64(literal, "El valor del filtro")?;
-            if let Ok(column) = recipe_column(schema, &filter.column) {
-                if matches!(column.dtype(), DataType::Date | DataType::Datetime(_, _)) {
-                    return Err(format!(
-                        "La comparación numérica de '{}' no admite fechas en este hito.",
-                        filter.column
-                    ));
-                }
+        if recipe_filter_is_ordered(filter.operator) {
+            let dtype = source_backed_target_dtype(schema, &filter.column, recipe, &rename_map)?;
+            if matches!(&dtype, DataType::Date | DataType::Datetime(_, None)) {
+                parse_recipe_filter_datetime(literal, &filter.column)?;
+            } else if matches!(&dtype, DataType::Datetime(_, Some(_))) {
+                return Err(format!(
+                    "La comparación de '{}' no admite fechas con zona horaria.",
+                    filter.column
+                ));
+            } else {
+                strict_f64(literal, "El valor del filtro")?;
             }
         }
     }
@@ -25377,6 +25532,7 @@ fn source_backed_replace_expression(
 fn source_backed_filter_expression(
     filter: &RecipeFilter,
     rename_map: &HashMap<String, String>,
+    dtype: &DataType,
 ) -> Result<String, String> {
     let effective = rename_map
         .get(&filter.column)
@@ -25407,7 +25563,6 @@ fn source_backed_filter_expression(
         | RecipeFilterOperator::Lt
         | RecipeFilterOperator::Gte
         | RecipeFilterOperator::Lte => {
-            let numeric_literal = strict_f64(literal, "El valor del filtro")?;
             let operator = match filter.operator {
                 RecipeFilterOperator::Gt => ">",
                 RecipeFilterOperator::Lt => "<",
@@ -25415,7 +25570,29 @@ fn source_backed_filter_expression(
                 RecipeFilterOperator::Lte => "<=",
                 _ => unreachable!("el match exterior limita los operadores numéricos"),
             };
-            format!("CAST({column} AS DOUBLE) {operator} {numeric_literal}")
+            if matches!(dtype, DataType::Date | DataType::Datetime(_, None)) {
+                let datetime = parse_recipe_filter_datetime(literal, &filter.column)?;
+                let literal = match dtype {
+                    DataType::Date => format!(
+                        "DATE {}",
+                        duckdb_string_literal(&datetime.date().format("%Y-%m-%d").to_string())
+                    ),
+                    DataType::Datetime(_, None) => format!(
+                        "TIMESTAMP {}",
+                        duckdb_string_literal(&datetime.format("%Y-%m-%d %H:%M:%S%.f").to_string(),)
+                    ),
+                    _ => unreachable!("el match exterior limita esta rama a fechas"),
+                };
+                format!("{column} {operator} {literal}")
+            } else if matches!(dtype, DataType::Datetime(_, Some(_))) {
+                return Err(format!(
+                    "La comparación de '{}' no admite fechas con zona horaria.",
+                    filter.column
+                ));
+            } else {
+                let numeric_literal = strict_f64(literal, "El valor del filtro")?;
+                format!("CAST({column} AS DOUBLE) {operator} {numeric_literal}")
+            }
         }
     };
     Ok(expression)
@@ -25778,7 +25955,10 @@ fn source_backed_projection_query(
     let filters = recipe
         .filters
         .iter()
-        .map(|filter| source_backed_filter_expression(filter, &rename_map))
+        .map(|filter| {
+            let dtype = source_backed_target_dtype(schema, &filter.column, recipe, &rename_map)?;
+            source_backed_filter_expression(filter, &rename_map, &dtype)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let filtered_source = if filters.is_empty() {
         "transformed"
@@ -28798,6 +28978,71 @@ mod tests {
             output.column("year").unwrap().i32().unwrap().get(1),
             Some(2026)
         );
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_date_range_filters_match_eager() {
+        let path = temporary_csv(
+            "day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n01/03/2026,40\n",
+        );
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "day".to_owned(),
+                format: RecipeDateFormat::Dmy,
+                target: RecipeDateTarget::Date,
+            }],
+            filters: vec![
+                RecipeFilter {
+                    column: "day".to_owned(),
+                    operator: RecipeFilterOperator::Gte,
+                    value: Some("2026-01-01".to_owned()),
+                },
+                RecipeFilter {
+                    column: "day".to_owned(),
+                    operator: RecipeFilterOperator::Lt,
+                    value: Some("2026-03-01".to_owned()),
+                },
+            ],
+            ..TransformRecipe::default()
+        };
+        assert!(source_backed_projection_recipe_supported(
+            &dataset.frame,
+            &recipe
+        ));
+        let expected = apply_recipe_to_frame(&source_frame, &recipe)
+            .expect("el filtro de fechas eager debe ser válido")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("el filtro de fechas source-backed debe publicarse");
+
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el resultado Parquet debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(result.removed_row_count, 2);
+        assert_eq!(output.height(), 2);
+        assert_eq!(output.column("day").unwrap().dtype(), &DataType::Date);
         assert!(dataset.source_backed);
         assert_eq!(dataset.frame.height(), 0);
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
