@@ -1423,6 +1423,13 @@ body { color: var(--text-primary); background: var(--canvas); }
 .export-format select, .privacy-mode select { min-width: 0; width: 100%; min-height: 44px; padding: 7px 9px; }
 .export-action { min-width: 138px; }
 .export-requirement { grid-column: 2; margin: -4px 0 0; color: var(--text-secondary); font-size: .875rem; }
+.database-target { grid-column: 1 / -1; display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-subtle); }
+.database-target legend { padding: 0 5px; color: var(--text-primary); font-weight: 750; }
+.database-target p { margin: 0; color: var(--text-secondary); font-size: .875rem; }
+.database-target label { display: grid; gap: 5px; color: var(--text-secondary); font-size: .875rem; font-weight: 750; }
+.database-target input, .database-target select { min-height: 44px; width: 100%; padding: 7px 9px; }
+.database-target__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.database-target .notice { margin: 0; }
 
 .projects { padding: 20px 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
 
@@ -1451,7 +1458,7 @@ body { color: var(--text-primary); background: var(--canvas); }
   .sidebar__utilities-content { display: grid; grid-template-columns: minmax(0, .8fr) minmax(260px, 1.2fr); gap: 16px; }
   .sidebar__utilities-content .resource-monitor, .sidebar__utilities-content .theme-switcher { grid-column: auto; }
   .export-panel { grid-template-columns: 1fr; align-items: stretch; }
-  .export-controls, .export-requirement { grid-column: 1; }
+  .export-controls, .export-requirement, .database-target { grid-column: 1; }
 }
 
 @media (max-width: 700px) {
@@ -1510,6 +1517,7 @@ body { color: var(--text-primary); background: var(--canvas); }
   .transform-recipe__group-status { grid-column: 1; grid-row: 2; max-width: none; text-align: left; white-space: normal; }
   .transform-recipe__group-summary::after { grid-column: 2; grid-row: 1 / 3; }
   .export-controls { grid-template-columns: 1fr; }
+  .database-target__grid { grid-template-columns: 1fr; }
   .export-action { width: 100%; }
   .local-query__actions button { width: 100%; }
   .recipe-migration-report__header,

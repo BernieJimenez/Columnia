@@ -350,13 +350,19 @@ Los campos ausentes quedan como nulos y los objetos o arreglos anidados se conse
 como texto JSON, sin aplanarlos ni descartar su contenido silenciosamente.
 
 Desde **Entregar**, el dataset activo puede exportarse a CSV, JSON, Parquet, SQL,
-Excel o SQLite. Rust abre
+Excel o SQLite, o entregarse a PostgreSQL, MySQL y SQL Server mediante ODBC.
+Para una base remota, instala el controlador ODBC del motor y pega su cadena de
+conexión en la vista; Rust abre
 el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
 El destino se reemplaza únicamente después de completar y sincronizar la
 escritura; cancelar o fallar conserva cualquier archivo anterior.
 Después de una exportación exitosa, Entregar permite abrir la carpeta del
 output: Rust conserva temporalmente el destino, lo revalida antes de abrirlo y
 la ruta no se entrega a React.
+La entrega ODBC no usa selector de archivos: prueba `SELECT 1`, valida el
+esquema y la tabla, y permite `create_only`, `append` o `replace`. Las filas se
+envían por lotes dentro de una transacción; las credenciales solo viven durante
+la llamada y la entrega remota puede requerir materializar el dataset activo.
 Antes de exportar puede definirse un **contrato de calidad** de hasta dieciséis
 reglas exactas. Incluye reglas básicas, `allowed_values`, `regex`, `dtype`,
 unicidad compuesta, comparación entre columnas, integridad referencial,

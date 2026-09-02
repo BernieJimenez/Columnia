@@ -6,6 +6,25 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.146.0] - 2026-09-01
+
+### Añadido
+
+- Entrega directa a PostgreSQL, MySQL y SQL Server mediante el controlador
+  ODBC instalado en el equipo.
+- La entrega remota incluye prueba de conexión `SELECT 1`, creación exclusiva,
+  anexado y reemplazo explícito de tabla, con inserciones por lotes y
+  transacción ODBC.
+
+### Seguridad
+
+- Las cadenas de conexión, incluidas las contraseñas, solo se mantienen en
+  memoria durante la prueba o entrega; no se guardan en proyectos ni se
+  incluyen en errores sanitizados.
+- Esquemas y tablas se validan antes de generar DDL para evitar inyección en
+  identificadores; los valores se escapan por tipo antes de enviarse al
+  controlador.
+
 ## [0.145.0] - 2026-09-01
 
 ### Mejorado

@@ -187,7 +187,7 @@ dependencies = [
  "arrow-ord",
  "arrow-schema",
  "arrow-select",
- "atoi",
+ "atoi 2.0.0",
  "base64 0.22.1",
  "chrono",
  "comfy-table",
@@ -457,6 +457,15 @@ name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f28d99ec8bfea296261ca1af174f24225171fea9664ba9003cbebee704810528"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "atoi"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7a8bbe9949e43a1edaa043038c68703b04774156afdfb62ba2cef5bf93d67be"
 dependencies = [
  "num-traits",
 ]
@@ -877,11 +886,12 @@ dependencies = [
 
 [[package]]
 name = "columnia"
-version = "0.145.0"
+version = "0.146.0"
 dependencies = [
  "calamine",
  "chrono",
  "duckdb",
+ "odbc-api",
  "polars",
  "rayon",
  "regex",
@@ -3491,6 +3501,25 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-time",
 ]
+
+[[package]]
+name = "odbc-api"
+version = "29.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efbf786f321712df749f34b99279334e45383b50d40c173ba5597894c21d1d34"
+dependencies = [
+ "atoi 3.1.0",
+ "log",
+ "odbc-sys",
+ "thiserror 2.0.20",
+ "widestring",
+]
+
+[[package]]
+name = "odbc-sys"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "245cb4fe8236df4fd352ba96075d754233c6509d654d9f1c1482158b7d6c083d"
 
 [[package]]
 name = "once_cell"
@@ -7068,6 +7097,12 @@ dependencies = [
  "windows 0.61.3",
  "windows-core 0.61.2",
 ]
+
+[[package]]
+name = "widestring"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
 name = "winapi"

@@ -15,7 +15,9 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.145.0, el gate
+  I3/I5 conservan validaciones externas de plataforma. En v0.146.0, la entrega
+  remota compatible con PostgreSQL, MySQL y SQL Server usa ODBC con prueba de
+  conexión y políticas explícitas de tabla. En v0.145.0, el gate
   de rendimiento valida también el intervalo entre proceso nativo listo y
   ventana visible desktop (1.000 ms), separándolo de la compilación debug.
   En v0.144.1, la
@@ -73,7 +75,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.145.0`.
+- Versión actual del prototipo: `0.146.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1276,9 +1278,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Añadir apertura segura de la carpeta del último output local desde Entregar:
   Rust conserva temporalmente el destino de la exportación exitosa, lo revalida
   antes de abrirlo y React no recibe la ruta.
-- [ ] Completar la entrega compatible con sistema anterior: PostgreSQL/MySQL/SQL Server,
-  prueba de conexión y políticas de tabla. La
-  primera slice ya publica un bundle ZIP atómico con
+- [x] Completar la entrega compatible con sistema anterior: PostgreSQL/MySQL/SQL Server,
+  prueba de conexión y políticas de tabla mediante ODBC. La primera slice
+  exige un controlador instalado, valida la cadena en memoria, prueba `SELECT 1`,
+  crea/anexa/reemplaza la tabla con identificadores acotados e inserta por lotes
+  dentro de una transacción. La entrega remota materializa el dataset activo y
+  no se ofrece todavía como streaming source-backed; la
+  primera slice local ya publica un bundle ZIP atómico con
   dataset CSV protegido, diccionario tipado, reporte de calidad opcional y
   manifest con hashes; cuando existe una receta validada también incluye
   `recipe.json` y su hash. Excel y SQLite permanecen cubiertos por separado.
@@ -2083,6 +2089,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.146.0 añade entrega remota por ODBC a PostgreSQL, MySQL y SQL Server; exige `SELECT 1`, valida identificadores, aplica políticas `create_only`/`append`/`replace`, escapa valores, inserta por lotes y no persiste credenciales. | `src-tauri/src/remote_databases.rs`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-01 | Versión 0.145.0 conecta startup desktop con el gate de rendimiento: resume el intervalo proceso nativo listo→ventana visible y exige ≤1.000 ms, hitos completos, estado aprobado y cleanup. | `tools/summarize-performance.ps1`, `tools/check-performance-baseline.ps1`, `fixtures/performance/performance-baseline-v1.json`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-01 | Versión 0.144.1 normaliza la redacción de release y la plantilla de notices en español; el inventario regenerado conserva 995 identidades únicas y el gate de supply chain verifica el encabezado `Versión`. | `tools/generate-third-party-notices.ps1`, `THIRD_PARTY_NOTICES.md`, `src/supply-chain.test.ts`, `docs/how-to/validate-release-evidence.md` |
 | 2026-09-01 | Versión 0.144.0 valida la ruta source-backed de JOIN con el benchmark reproducible de 512 MiB: `INNER`/`LEFT`/`FULL` conservan conteos y páginas, el frame activo permanece vacío, el working set máximo es 233.816.064 bytes y cleanup pasa. | `tools/benchmark-duckdb-join.ps1`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

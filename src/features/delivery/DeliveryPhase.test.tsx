@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatasetPreview, SavedRecipe } from "../../bridge";
+import type { DatabaseConnectionResult, DatabaseTarget, DatasetPreview, SavedRecipe } from "../../bridge";
 import { DeliveryPhase } from "./DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
@@ -38,12 +38,14 @@ function DeliveryHarness({
   initialContract = INITIAL_DELIVERY_CONTRACT,
   exportState = { kind: "idle" },
   onCancelExport = () => undefined,
+  onTestDatabaseConnection,
 }: {
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
   initialContract?: DeliveryContractState;
   exportState?: DeliveryExportState;
   onCancelExport?: () => void;
+  onTestDatabaseConnection?: (target: DatabaseTarget) => Promise<DatabaseConnectionResult>;
 }) {
   const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
@@ -54,6 +56,7 @@ function DeliveryHarness({
       exportState={exportState}
       onContractAction={(action) => setContract((current) => reduceDeliveryContract(current, action))}
       onExport={onExport}
+      onTestDatabaseConnection={onTestDatabaseConnection}
       onCancelExport={onCancelExport}
     />
   );
@@ -237,6 +240,43 @@ describe("DeliveryPhase", () => {
       privacyMode: "hash",
       validation: { kind: "explicitly_unvalidated" },
     });
+  });
+
+  it("prueba la conexión ODBC antes de habilitar una tabla remota", async () => {
+    const onExport = vi.fn();
+    const onTestDatabaseConnection = vi.fn().mockResolvedValue({
+      kind: "postgresql",
+      message: "Conexión ODBC verificada para PostgreSQL.",
+    });
+    render(<DeliveryHarness onExport={onExport} onTestDatabaseConnection={onTestDatabaseConnection} />);
+
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Confirmo que quiero exportar sin validar la calidad",
+    }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "postgresql" },
+    });
+    const exportButton = screen.getByRole("button", { name: "Exportar PostgreSQL" });
+    expect(exportButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
+      target: { value: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Conexión ODBC verificada"));
+    expect(onTestDatabaseConnection).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "postgresql",
+      connectionString: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret",
+      table: "dataset",
+      tablePolicy: "create_only",
+    }));
+    expect(exportButton).toBeEnabled();
+    fireEvent.click(exportButton);
+    expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
+      format: "postgresql",
+      databaseTarget: expect.objectContaining({ tablePolicy: "create_only" }),
+      validation: { kind: "explicitly_unvalidated" },
+    }));
   });
 
   it("expone los parámetros de una regla avanzada según su tipo", () => {

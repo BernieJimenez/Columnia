@@ -39,6 +39,7 @@ use crate::dataset_fingerprints::{
     normalized_fingerprint_columns, normalized_row_fingerprint, row_fingerprint,
     NormalizedRowFingerprint,
 };
+use crate::remote_databases::{self, DatabaseTarget};
 
 const PREVIEW_ROW_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
@@ -23338,6 +23339,75 @@ pub async fn export_dataset(
             .remember_last_export(remembered_destination);
     }
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn export_dataset_to_database(
+    app: AppHandle,
+    target: DatabaseTarget,
+    quality_rules: Vec<QualityRule>,
+    allow_unvalidated: bool,
+    privacy_mode: PrivacyMode,
+    on_progress: Channel<OperationProgress>,
+) -> Result<ExportResult, String> {
+    remote_databases::validate_database_target(&target)?;
+    validate_quality_rules_payload(&quality_rules)?;
+    let generation = app.state::<DatasetState>().begin_export();
+    let preparation_app = app.clone();
+    let (protected_frame, protected_columns) = tauri::async_runtime::spawn_blocking(move || {
+        let frame = {
+            let state = preparation_app.state::<DatasetState>();
+            let mut current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let dataset = current.as_mut().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            materialize_loaded_dataset(dataset)?;
+            dataset.frame.clone()
+        };
+        let validation_app = preparation_app.clone();
+        enforce_export_quality_with_cancel(&frame, &quality_rules, allow_unvalidated, || {
+            validation_app
+                .state::<DatasetState>()
+                .export_was_cancelled(generation)
+        })?;
+        ensure_not_cancelled(
+            preparation_app
+                .state::<DatasetState>()
+                .export_was_cancelled(generation),
+        )?;
+        privacy_safe_frame(&frame, privacy_mode)
+    })
+    .await
+    .map_err(|error| format!("La preparación de la entrega remota se interrumpió: {error}"))??;
+    ensure_not_cancelled(app.state::<DatasetState>().export_was_cancelled(generation))?;
+
+    send_progress(&on_progress, "export", "Conectando con destino remoto", 0);
+    let export_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        remote_databases::export_frame(
+            &protected_frame,
+            &target,
+            |stage, percent| send_progress(&on_progress, "export", stage, percent),
+            || {
+                export_app
+                    .state::<DatasetState>()
+                    .export_was_cancelled(generation)
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("La entrega remota se interrumpió: {error}"))??;
+
+    Ok(ExportResult {
+        file_name: result.table_name,
+        file_size_bytes: 0,
+        format: result.format,
+        protected_column_count: protected_columns.len(),
+        protected_columns,
+    })
 }
 
 #[tauri::command]

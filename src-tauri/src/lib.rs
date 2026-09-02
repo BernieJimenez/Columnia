@@ -9,6 +9,7 @@ mod duckdb_query;
 pub mod privacy;
 mod project_recovery;
 mod projects;
+mod remote_databases;
 mod resource;
 #[cfg(desktop)]
 mod updater;
@@ -166,6 +167,8 @@ pub fn run() {
             dataset::query_dataset,
             dataset::get_dataset_profile,
             dataset::validate_quality_rules,
+            remote_databases::test_database_connection,
+            dataset::export_dataset_to_database,
             dataset::cancel_operation,
             dataset::export_dataset,
             dataset::open_last_export,

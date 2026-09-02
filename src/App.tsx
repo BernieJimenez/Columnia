@@ -8,6 +8,7 @@ import {
   deliveryRules,
   invalidateDeliveryContract,
   reduceDeliveryContract,
+  isDatabaseExportFormat,
   type DeliveryContractAction,
   type DeliveryContractState,
   type DeliveryExportRequest,
@@ -77,6 +78,7 @@ import {
   compareDataset,
   discardDatasetSelection,
   exportDataset,
+  exportDatasetToDatabase,
   getAppInfo,
   getDatasetConflictPage,
   getDatasetPage,
@@ -94,6 +96,7 @@ import {
   type DatasetJoinType,
   type DatasetPreview,
   type ConflictResolution,
+  testDatabaseConnection,
   type DatasetSourceInspection,
   type DatasetQueryEngine,
   type ExportFormat,
@@ -672,9 +675,21 @@ export function App() {
           current.kind === "loading" ? { ...current, progress } : current,
         );
       };
-      const result = recipeDraft && request.format === "bundle"
-        ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, recipeDraft)
-        : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
+      let result;
+      if (isDatabaseExportFormat(request.format)) {
+        if (!request.databaseTarget) throw new Error("Falta configurar el destino de base de datos.");
+        result = await exportDatasetToDatabase(
+          request.databaseTarget,
+          rules,
+          allowUnvalidated,
+          onProgress,
+          request.privacyMode,
+        );
+      } else {
+        result = recipeDraft && request.format === "bundle"
+          ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, recipeDraft)
+          : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
+      }
       setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
     } catch (error: unknown) {
       if (isCancellationError(error)) {
@@ -983,6 +998,7 @@ export function App() {
                 onExportFormatChange={setExportFormat}
                 privacyMode={privacyMode}
                 onPrivacyModeChange={setPrivacyMode}
+                onTestDatabaseConnection={testDatabaseConnection}
                 onContractAction={updateDeliveryContract}
                 onExport={exportActiveDataset}
                 onCancelExport={() => cancelActiveOperation("export")}

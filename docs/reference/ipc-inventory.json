@@ -6,6 +6,7 @@
     "src-tauri/src/projects.rs",
     "src-tauri/src/resource.rs",
     "src-tauri/src/updater.rs",
+    "src-tauri/src/remote_databases.rs",
     "src/bridge.ts"
   ],
   "productionCommands": [
@@ -106,6 +107,16 @@
     },
     {
       "name": "validate_quality_rules",
+      "module": "dataset",
+      "debug": false
+    },
+    {
+      "name": "test_database_connection",
+      "module": "remote_databases",
+      "debug": false
+    },
+    {
+      "name": "export_dataset_to_database",
       "module": "dataset",
       "debug": false
     },

@@ -68,7 +68,7 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |
 | `npm run secrets:check` | 0 hallazgos; 347 archivos inspeccionados | Escaneo local de claves privadas, tokens y credenciales asignadas |
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
-| `npm run notices:check` | Aprobado; 995 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
+| `npm run notices:check` | Aprobado; 999 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
 | `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
 | `npm run ipc:check` | Aprobado; 65 comandos de producción, 4 debug y 58 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
 

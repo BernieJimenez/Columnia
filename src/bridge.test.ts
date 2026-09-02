@@ -11,6 +11,7 @@ import {
   applyTransformRecipe,
   capOutlierValues,
   exportDataset,
+  exportDatasetToDatabase,
   getAppInfo,
   getDatasetConflictPage,
   getDatasetPage,
@@ -50,6 +51,7 @@ import {
   saveQualityRulesDocument,
   saveTransformRecipe,
   trimTextValues,
+  testDatabaseConnection,
   useConsolidatedDataset,
   undoLastChange,
   validateQualityRules,
@@ -58,6 +60,7 @@ import {
   type OperationProgress,
   type RecipeExportOptions,
   type TransformRecipe,
+  type DatabaseTarget,
 } from "./bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -618,6 +621,31 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(1, "export_dataset", expect.objectContaining({ format: "excel", privacyMode: "none" }));
     expect(invoke).toHaveBeenNthCalledWith(2, "export_dataset", expect.objectContaining({ format: "sqlite", privacyMode: "none" }));
+  });
+
+  it("envía la conexión de base de datos solo al comando explícito", async () => {
+    const target: DatabaseTarget = {
+      kind: "postgresql",
+      connectionString: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret",
+      schema: "public",
+      table: "ventas",
+      tablePolicy: "create_only",
+    };
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ kind: "postgresql", message: "Conexión ODBC verificada para PostgreSQL." })
+      .mockResolvedValueOnce({ fileName: "\"public\".\"ventas\"", fileSizeBytes: 0, format: "PostgreSQL", protectedColumnCount: 0, protectedColumns: [] });
+
+    await expect(testDatabaseConnection(target)).resolves.toMatchObject({ kind: "postgresql" });
+    await expect(exportDatasetToDatabase(target, [], true)).resolves.toMatchObject({ format: "PostgreSQL" });
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "test_database_connection", { target });
+    expect(invoke).toHaveBeenNthCalledWith(2, "export_dataset_to_database", expect.objectContaining({
+      target,
+      qualityRules: [],
+      allowUnvalidated: true,
+      privacyMode: "none",
+      onProgress: expect.any(Channel),
+    }));
   });
 
   it("abre el último output sin recibir rutas desde React", async () => {

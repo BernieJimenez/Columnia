@@ -100,7 +100,7 @@ function expectedInventory(source) {
   const entries = handlerEntries(source);
   return {
     schemaVersion: 1,
-    sourceFiles: ["src-tauri/src/lib.rs", "src-tauri/src/dataset.rs", "src-tauri/src/projects.rs", "src-tauri/src/resource.rs", "src-tauri/src/updater.rs", "src/bridge.ts"],
+    sourceFiles: ["src-tauri/src/lib.rs", "src-tauri/src/dataset.rs", "src-tauri/src/projects.rs", "src-tauri/src/resource.rs", "src-tauri/src/updater.rs", "src-tauri/src/remote_databases.rs", "src/bridge.ts"],
     productionCommands: entries.filter(({ name, debug }) => !debug && !debugOnly.has(name)),
     debugCommands: entries.filter(({ name, debug }) => debug || debugOnly.has(name)),
     sharedStructures: sharedStructures.map(([rust, typescript]) => ({ rust, typescript })),
@@ -126,7 +126,7 @@ try {
   if (comparable(current.sharedStructures) !== comparable(expected.sharedStructures)) {
     throw new Error("La lista de estructuras compartidas IPC cambió; actualiza el inventario y sus contratos.");
   }
-  if (current.productionCommands.length !== 65 || current.debugCommands.length !== 4) {
+  if (current.productionCommands.length !== 67 || current.debugCommands.length !== 4) {
     throw new Error(`Conteo IPC inesperado: ${current.productionCommands.length} producción, ${current.debugCommands.length} debug.`);
   }
   console.log(`Inventario IPC aprobado: ${current.productionCommands.length} comandos producción, ${current.debugCommands.length} debug, ${current.sharedStructures.length} estructuras.`);

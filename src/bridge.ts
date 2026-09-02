@@ -448,7 +448,7 @@ export interface SavedRecipe {
 export type LoadedRecipe = SavedRecipe;
 
 export interface RecipeExportOptions {
-  formats: ExportFormat[];
+  formats: LocalExportFormat[];
   selectedColumns: string[];
   privacyMode: PrivacyMode;
 }
@@ -484,9 +484,21 @@ export interface OperationProgress {
 }
 
 export type CancellableOperation = OperationProgress["operation"] | "query";
-export type ExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
+export type LocalExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
+export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserver";
 export type PrivacyMode = "none" | "mask" | "hash";
 export type ConflictSource = "current" | "compared";
+export type DatabaseKind = "postgresql" | "mysql" | "sqlserver";
+export type DatabaseTablePolicy = "append" | "create_only" | "replace";
+
+/** Credentials remain in the current React/Tauri call and are never persisted. */
+export interface DatabaseTarget {
+  kind: DatabaseKind;
+  connectionString: string;
+  schema: string;
+  table: string;
+  tablePolicy: DatabaseTablePolicy;
+}
 
 export interface ConflictResolution {
   conflictIndex: number;
@@ -604,9 +616,14 @@ export interface QualityRulesDocument {
 export interface ExportResult {
   fileName: string;
   fileSizeBytes: number;
-  format: "CSV" | "JSON" | "Parquet" | "SQL" | "Excel" | "SQLite" | "Paquete Columnia";
+  format: "CSV" | "JSON" | "Parquet" | "SQL" | "Excel" | "SQLite" | "Paquete Columnia" | "PostgreSQL" | "MySQL" | "SQL Server";
   protectedColumnCount: number;
   protectedColumns: string[];
+}
+
+export interface DatabaseConnectionResult {
+  kind: DatabaseKind;
+  message: string;
 }
 
 export interface ProjectSummary {
@@ -803,6 +820,26 @@ export function exportDataset(
     privacyMode,
     onProgress: progressChannel(onProgress),
     recipe: recipe ?? null,
+  });
+}
+
+export function testDatabaseConnection(target: DatabaseTarget): Promise<DatabaseConnectionResult> {
+  return invoke<DatabaseConnectionResult>("test_database_connection", { target });
+}
+
+export function exportDatasetToDatabase(
+  target: DatabaseTarget,
+  qualityRules: QualityRule[],
+  allowUnvalidated: boolean,
+  onProgress?: ProgressHandler,
+  privacyMode: PrivacyMode = "none",
+): Promise<ExportResult> {
+  return invoke<ExportResult>("export_dataset_to_database", {
+    target,
+    qualityRules,
+    allowUnvalidated,
+    privacyMode,
+    onProgress: progressChannel(onProgress),
   });
 }
 

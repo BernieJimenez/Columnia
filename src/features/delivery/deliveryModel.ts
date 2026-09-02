@@ -1,4 +1,5 @@
 import type {
+  DatabaseTarget,
   DatasetPreview,
   ExportFormat,
   ExportResult,
@@ -10,6 +11,33 @@ import type {
 import { QUALITY_DATASET_COLUMN } from "../../bridge";
 
 export const MAX_QUALITY_RULES = 16;
+export const INITIAL_DATABASE_TARGET: DatabaseTarget = {
+  kind: "postgresql",
+  connectionString: "",
+  schema: "public",
+  table: "dataset",
+  tablePolicy: "create_only",
+};
+
+export function isDatabaseExportFormat(format: ExportFormat): boolean {
+  return format === "postgresql" || format === "mysql" || format === "sqlserver";
+}
+
+export function validateDatabaseTargetDraft(target: DatabaseTarget): string | null {
+  if (!target.connectionString.trim()) return "Indica la cadena de conexión ODBC.";
+  if (target.connectionString.length > 16 * 1024) return "La cadena ODBC no puede superar 16 KiB.";
+  if ([...target.connectionString].some((character) => /\p{Cc}/u.test(character))) {
+    return "La cadena ODBC contiene caracteres de control no permitidos.";
+  }
+  const identifier = (value: string, label: string, optional: boolean) => {
+    if (optional && !value.trim()) return null;
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(value.trim())) {
+      return `${label} solo admite letras, números y guiones bajos.`;
+    }
+    return null;
+  };
+  return identifier(target.schema, "El esquema", true) ?? identifier(target.table, "La tabla", false);
+}
 const MAX_QUALITY_VALUES = 128;
 const MAX_QUALITY_COLUMNS_PER_RULE = 16;
 const SUPPORTED_QUALITY_DTYPES = new Set([
@@ -106,11 +134,13 @@ export type DeliveryExportRequest =
   | {
       format: ExportFormat;
       privacyMode: PrivacyMode;
+      databaseTarget?: DatabaseTarget;
       validation: { kind: "contract"; rules: QualityRule[] };
     }
   | {
       format: ExportFormat;
       privacyMode: PrivacyMode;
+      databaseTarget?: DatabaseTarget;
       validation: { kind: "explicitly_unvalidated" };
     };
 

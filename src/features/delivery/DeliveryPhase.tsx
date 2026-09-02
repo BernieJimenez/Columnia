@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   QUALITY_DATASET_COLUMN,
@@ -6,6 +6,8 @@ import {
   pickQualityRulesMigration,
   saveQualityRulesDocument,
   validateQualityRules,
+  type DatabaseConnectionResult,
+  type DatabaseTarget,
   type DatasetPreview,
   type ExportFormat,
   type PrivacyMode,
@@ -26,6 +28,9 @@ import {
   type DeliveryContractState,
   type DeliveryExportRequest,
   type DeliveryExportState,
+  INITIAL_DATABASE_TARGET,
+  isDatabaseExportFormat,
+  validateDatabaseTargetDraft,
   validateQualityRuleDraft,
 } from "./deliveryModel";
 
@@ -40,6 +45,7 @@ interface DeliveryPhaseProps {
   onPrivacyModeChange?: (mode: PrivacyMode) => void;
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
+  onTestDatabaseConnection?: (target: DatabaseTarget) => Promise<DatabaseConnectionResult>;
   onCancelExport: () => void;
 }
 
@@ -54,6 +60,7 @@ export function DeliveryPhase({
   onPrivacyModeChange,
   onContractAction,
   onExport,
+  onTestDatabaseConnection,
   onCancelExport,
 }: DeliveryPhaseProps) {
   const [localPrivacyMode, setLocalPrivacyMode] = useState<PrivacyMode>("none");
@@ -66,6 +73,17 @@ export function DeliveryPhase({
   >({ kind: "idle" });
   const selectedPrivacyMode = privacyMode ?? localPrivacyMode;
   const selectedExportFormat = exportFormat ?? localExportFormat;
+  const [databaseTarget, setDatabaseTarget] = useState<DatabaseTarget>(INITIAL_DATABASE_TARGET);
+  const [databaseConnectionState, setDatabaseConnectionState] = useState<
+    | { kind: "idle" }
+    | { kind: "working" }
+    | { kind: "ready"; result: DatabaseConnectionResult }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+  useEffect(() => {
+    setDatabaseTarget(INITIAL_DATABASE_TARGET);
+    setDatabaseConnectionState({ kind: "idle" });
+  }, [dataset.fileName, dataset.fileSizeBytes, dataset.rowCount]);
   const [qualityFileState, setQualityFileState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
@@ -81,6 +99,11 @@ export function DeliveryPhase({
   const exportAllowed = contract.kind === "with_contract"
     ? gatePassed
     : contract.confirmation === "confirmed";
+  const databaseTargetError = isDatabaseExportFormat(selectedExportFormat)
+    ? validateDatabaseTargetDraft(databaseTarget)
+    : null;
+  const databaseReady = !isDatabaseExportFormat(selectedExportFormat)
+    || (databaseTargetError === null && databaseConnectionState.kind === "ready");
   const busy = exportState.kind === "loading"
     || contract.gate.kind === "loading"
     || migrationState.kind === "working"
@@ -93,6 +116,9 @@ export function DeliveryPhase({
     excel: "Excel",
     sqlite: "SQLite",
     bundle: "Paquete ZIP",
+    postgresql: "PostgreSQL",
+    mysql: "MySQL",
+    sqlserver: "SQL Server",
   }[selectedExportFormat];
   const exportRequirement = contract.kind === "with_contract"
     ? "Valida y aprueba las reglas para habilitar la exportación."
@@ -275,16 +301,38 @@ export function DeliveryPhase({
 
   function requestExport(format: ExportFormat) {
     setOpenOutputState("idle");
+    if (isDatabaseExportFormat(format)
+      && (databaseTargetError !== null || databaseConnectionState.kind !== "ready")) return;
+    const databaseOptions = isDatabaseExportFormat(format) ? { databaseTarget } : {};
     if (contract.kind === "with_contract") {
-      onExport({ format, privacyMode: selectedPrivacyMode, validation: { kind: "contract", rules: contract.rules } });
+      onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "contract", rules: contract.rules } });
     } else if (contract.confirmation === "confirmed") {
-      onExport({ format, privacyMode: selectedPrivacyMode, validation: { kind: "explicitly_unvalidated" } });
+      onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "explicitly_unvalidated" } });
     }
   }
 
   function changeExportFormat(format: ExportFormat) {
     setLocalExportFormat(format);
     onExportFormatChange?.(format);
+  }
+
+  function changeDatabaseTarget(update: Partial<DatabaseTarget>) {
+    setDatabaseTarget((current) => ({ ...current, ...update }));
+    setDatabaseConnectionState({ kind: "idle" });
+  }
+
+  async function testDatabaseTarget() {
+    if (!onTestDatabaseConnection || databaseTargetError) return;
+    setDatabaseConnectionState({ kind: "working" });
+    try {
+      const result = await onTestDatabaseConnection(databaseTarget);
+      setDatabaseConnectionState({ kind: "ready", result });
+    } catch (error: unknown) {
+      setDatabaseConnectionState({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   function changePrivacyMode(mode: PrivacyMode) {
@@ -1051,6 +1099,11 @@ export function DeliveryPhase({
               <option value="excel">Excel</option>
               <option value="sqlite">SQLite</option>
               <option value="bundle">Paquete ZIP (dataset + diccionario + receta + calidad)</option>
+              <optgroup label="Bases de datos mediante ODBC">
+                <option value="postgresql">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+                <option value="sqlserver">SQL Server</option>
+              </optgroup>
             </select>
           </label>
           <label className="privacy-mode">
@@ -1066,11 +1119,82 @@ export function DeliveryPhase({
               <option value="hash">Aplicar hash SHA-256 a columnas detectadas</option>
             </select>
           </label>
+          {isDatabaseExportFormat(selectedExportFormat) && (
+            <fieldset className="database-target">
+              <legend>Destino remoto · {exportFormatLabel}</legend>
+              <p>
+                Usa el controlador ODBC correspondiente. La cadena y la contraseña solo viven durante esta sesión y no se guardan en el proyecto.
+              </p>
+              <label>
+                Cadena de conexión ODBC
+                <input
+                  aria-label="Cadena de conexión ODBC"
+                  type="password"
+                  autoComplete="off"
+                  value={databaseTarget.connectionString}
+                  onChange={(event) => changeDatabaseTarget({ connectionString: event.target.value })}
+                  disabled={busy}
+                  placeholder="Driver={...};Server=...;Database=...;Uid=...;Pwd=..."
+                />
+              </label>
+              <div className="database-target__grid">
+                <label>
+                  Esquema (opcional)
+                  <input
+                    aria-label="Esquema de destino"
+                    value={databaseTarget.schema}
+                    onChange={(event) => changeDatabaseTarget({ schema: event.target.value })}
+                    disabled={busy}
+                  />
+                </label>
+                <label>
+                  Tabla
+                  <input
+                    aria-label="Tabla de destino"
+                    value={databaseTarget.table}
+                    onChange={(event) => changeDatabaseTarget({ table: event.target.value })}
+                    disabled={busy}
+                  />
+                </label>
+                <label>
+                  Política de tabla
+                  <select
+                    aria-label="Política de tabla"
+                    value={databaseTarget.tablePolicy}
+                    onChange={(event) => changeDatabaseTarget({ tablePolicy: event.target.value as DatabaseTarget["tablePolicy"] })}
+                    disabled={busy}
+                  >
+                    <option value="create_only">Crear; fallar si existe</option>
+                    <option value="append">Añadir a tabla existente</option>
+                    <option value="replace">Reemplazar tabla explícitamente</option>
+                  </select>
+                </label>
+              </div>
+              {databaseTargetError && <p className="notice notice--error" role="alert">{databaseTargetError}</p>}
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => void testDatabaseTarget()}
+                disabled={busy || databaseTargetError !== null || !onTestDatabaseConnection || databaseConnectionState.kind === "working"}
+              >
+                {databaseConnectionState.kind === "working" ? "Probando conexión…" : "Probar conexión"}
+              </button>
+              {databaseConnectionState.kind === "ready" && (
+                <p className="notice notice--success" role="status">{databaseConnectionState.result.message}</p>
+              )}
+              {databaseConnectionState.kind === "error" && (
+                <p className="notice notice--error" role="alert">{databaseConnectionState.message}</p>
+              )}
+              {databaseConnectionState.kind !== "ready" && !databaseTargetError && (
+                <p className="export-requirement" role="note">Prueba la conexión para habilitar la entrega remota.</p>
+              )}
+            </fieldset>
+          )}
           <button
             className="primary-action export-action"
             type="button"
             onClick={() => requestExport(selectedExportFormat)}
-            disabled={busy || !exportAllowed}
+            disabled={busy || !exportAllowed || !databaseReady}
           >
             Exportar {exportFormatLabel}
           </button>
@@ -1095,7 +1219,9 @@ export function DeliveryPhase({
       {exportState.kind === "success" && (
         <>
           <p className="notice notice--success" role="status">
-            {exportState.result.format} exportado como {exportState.result.fileName} ({formatFileSize(exportState.result.fileSizeBytes)}).
+            {exportState.result.format === "PostgreSQL" || exportState.result.format === "MySQL" || exportState.result.format === "SQL Server"
+              ? `${exportState.result.format} actualizado en ${exportState.result.fileName}.`
+              : `${exportState.result.format} exportado como ${exportState.result.fileName} (${formatFileSize(exportState.result.fileSizeBytes)}).`}
             {exportState.result.protectedColumnCount > 0 && (
               <> Privacidad aplicada a {exportState.result.protectedColumnCount} columnas: {exportState.result.protectedColumns?.join(", ")}.</>
             )}
@@ -1103,21 +1229,27 @@ export function DeliveryPhase({
               <> Incluye dataset.csv, dictionary.json, manifest.json{recipeDraft ? " y recipe.json validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.</>
             )}
           </p>
-          <div className="notice__actions">
-            <button
-              type="button"
-              className="secondary-action"
-              onClick={() => void revealLastExport()}
-              disabled={openOutputState === "working"}
-            >
-              {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta de exportación"}
-            </button>
-          </div>
-          {openOutputState === "opened" && (
-            <p className="notice notice--success" role="status">Carpeta de exportación abierta.</p>
-          )}
-          {openOutputState === "error" && (
-            <p className="notice notice--error" role="alert">No se pudo abrir la carpeta de exportación.</p>
+          {exportState.result.format !== "PostgreSQL"
+            && exportState.result.format !== "MySQL"
+            && exportState.result.format !== "SQL Server" && (
+            <>
+              <div className="notice__actions">
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => void revealLastExport()}
+                  disabled={openOutputState === "working"}
+                >
+                  {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta de exportación"}
+                </button>
+              </div>
+              {openOutputState === "opened" && (
+                <p className="notice notice--success" role="status">Carpeta de exportación abierta.</p>
+              )}
+              {openOutputState === "error" && (
+                <p className="notice notice--error" role="alert">No se pudo abrir la carpeta de exportación.</p>
+              )}
+            </>
           )}
         </>
       )}
