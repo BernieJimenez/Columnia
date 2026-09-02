@@ -6,6 +6,27 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.142.0] - 2026-09-01
+
+### Mejorado
+
+- La resolución de conflictos por clave para activos source-backed ahora puede
+  ejecutarse directamente sobre snapshots Parquet en DuckDB cuando la página
+  completa cabe en el límite seguro de 2.048 conflictos. Conserva decisiones
+  por fila y por columna, el orden actual, las columnas tipadas y el frame
+  activo esquema-only sin cargar ambos datasets completos en memoria.
+- El resultado se publica como un snapshot Parquet reversible, limpia la
+  comparación temporal solo después de publicar y valida tamaño, esquema,
+  claves, conflictos y cambios de las fuentes. Fuentes incompatibles,
+  materializaciones que superan el presupuesto o comparaciones demasiado
+  grandes conservan el fallback eager existente.
+
+### Verificado
+
+- Una regresión end-to-end comprueba selección mixta por columna/fila, orden,
+  valores publicados, historial reversible, fuente activa intacta y cleanup de
+  la comparación.
+
 ## [0.141.0] - 2026-09-01
 
 ### Mejorado

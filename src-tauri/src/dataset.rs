@@ -121,6 +121,7 @@ const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
 const SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR: &str =
     "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar.";
+const SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS: usize = 2_048;
 const LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_MAX_GROUP_COLUMNS: usize = 8;
 const LOCAL_QUERY_MAX_JOIN_COLUMNS: usize = 8;
@@ -2466,6 +2467,17 @@ struct SourceBackedConsolidationRequest {
     compared_file_name: String,
     compared_size_bytes: u64,
     key_columns: Vec<String>,
+}
+
+struct SourceBackedConflictResolutionRequest {
+    context: SourceBackedJoinContext,
+    compared_path: PathBuf,
+    compared_size_bytes: u64,
+    compared_row_count: usize,
+    compared_schema: DataFrame,
+    compared_file_name: String,
+    key_columns: Vec<String>,
+    decisions: Vec<ConflictResolution>,
 }
 
 struct SourceBackedJoinOutputGuard {
@@ -8258,6 +8270,128 @@ fn consolidate_source_backed_dataset(
             output_row_count,
             file_name: &file_name,
             label: "Consolidar datasets",
+        },
+    )?;
+    if preview.is_some() {
+        drop(current);
+        *state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+    }
+    Ok(preview)
+}
+
+fn resolve_source_backed_conflicts(
+    state: &DatasetState,
+    request: SourceBackedConflictResolutionRequest,
+) -> Result<Option<DatasetPreview>, String> {
+    let SourceBackedConflictResolutionRequest {
+        context,
+        compared_path,
+        compared_size_bytes,
+        compared_row_count,
+        compared_schema,
+        compared_file_name,
+        key_columns,
+        decisions,
+    } = request;
+    let (_, source_size_before, _) = validate_dataset_file(&context.source_path)?;
+    if source_size_before != context.source_size_bytes {
+        return Err("La fuente source-backed cambió antes de resolver conflictos.".to_owned());
+    }
+    let (_, compared_size_before, _) = validate_dataset_file(&compared_path)?;
+    if compared_size_before != compared_size_bytes {
+        return Err("El dataset comparado cambió antes de resolver conflictos.".to_owned());
+    }
+    let Some((current_path, current_row_count, _current_snapshot_directory)) =
+        source_backed_parquet_snapshot(&context)?
+    else {
+        return Ok(None);
+    };
+    let current_schema = read_parquet_schema_frame(&current_path)?;
+    if current_schema.get_column_names() != context.schema.get_column_names()
+        || current_schema
+            .columns()
+            .iter()
+            .zip(context.schema.columns())
+            .any(|(left, right)| left.dtype() != right.dtype())
+    {
+        return Err("El esquema source-backed cambió antes de resolver conflictos.".to_owned());
+    }
+    let shared_columns = current_schema
+        .get_column_names()
+        .iter()
+        .filter(|name| compared_schema.get_column_index(name).is_some())
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let (conflicts, has_next) = collect_key_conflicts_page_between_parquet(
+        ParquetComparisonSource {
+            path: &current_path,
+            row_count: current_row_count,
+        },
+        ParquetComparisonSource {
+            path: &compared_path,
+            row_count: compared_row_count,
+        },
+        &key_columns,
+        &shared_columns,
+        0,
+        SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS,
+    )?;
+    if has_next {
+        return Ok(None);
+    }
+    let choices = validate_conflict_decisions(&conflicts, &decisions)?;
+    let (dataset_view_query, output_query, current_order_column, compared_order_column) =
+        source_backed_conflict_resolution_plan(
+            &current_schema,
+            &compared_schema,
+            &key_columns,
+            &choices,
+        )?;
+    let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+        .map_err(|error| {
+            format!("No se pudo preparar la salida de conflictos source-backed: {error}")
+        })?;
+    let output_path = temporary.path().to_owned();
+    drop(temporary);
+    let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
+    let output_row_count = match crate::duckdb_query::materialize_file_sources_query_to_parquet(
+        crate::duckdb_query::DuckDbFileSourcesQuery {
+            current_path: &current_path,
+            current_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+            compared_path: &compared_path,
+            compared_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+            dataset_view_query: &dataset_view_query,
+            query: &output_query,
+            destination: &output_path,
+            current_order_column: &current_order_column,
+            compared_order_column: &compared_order_column,
+            max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+        },
+    ) {
+        Ok(row_count) => row_count,
+        Err(_) => return Ok(None),
+    };
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let file_name = format!("Resuelto · {} + {compared_file_name}", context.file_name);
+    let preview = publish_source_backed_result_output(
+        dataset,
+        &context,
+        SourceBackedResultOutput {
+            compared_path: &compared_path,
+            compared_size_bytes,
+            output_path: &output_path,
+            output_row_count,
+            file_name: &file_name,
+            label: "Resolver conflictos por clave",
         },
     )?;
     if preview.is_some() {
@@ -20141,6 +20275,38 @@ fn collect_key_conflicts_page_between_parquet(
     Ok((conflicts, total > page_end))
 }
 
+fn source_backed_parquet_snapshot(
+    context: &SourceBackedJoinContext,
+) -> Result<Option<(PathBuf, usize, Option<tempfile::TempDir>)>, String> {
+    if matches!(
+        context.source_format,
+        crate::duckdb_query::DuckDbFileFormat::Parquet
+    ) {
+        return Ok(Some((context.source_path.clone(), context.row_count, None)));
+    }
+    let directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el snapshot temporal source-backed: {error}")
+    })?;
+    let path = directory.path().join("current.parquet");
+    if crate::duckdb_query::materialize_file_to_parquet_with_projection(
+        &context.source_path,
+        context.source_format,
+        &path,
+        "*",
+        || false,
+    )
+    .is_err()
+    {
+        return Ok(None);
+    }
+    let row_count = crate::duckdb_query::count_file_rows(
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+        || false,
+    )?;
+    Ok(Some((path, row_count, Some(directory))))
+}
+
 fn source_backed_conflict_page(
     state: &DatasetState,
     compared_path: &Path,
@@ -20164,39 +20330,10 @@ fn source_backed_conflict_page(
     }
     validate_dataset_file(compared_path)?;
 
-    let mut current_snapshot_directory = None;
-    let current_path = if matches!(
-        context.source_format,
-        crate::duckdb_query::DuckDbFileFormat::Parquet
-    ) {
-        context.source_path.clone()
-    } else {
-        let directory = tempfile::tempdir().map_err(|error| {
-            format!("No se pudo preparar el snapshot temporal de conflictos: {error}")
-        })?;
-        let path = directory.path().join("current.parquet");
-        if crate::duckdb_query::materialize_file_to_parquet_with_projection(
-            &context.source_path,
-            context.source_format,
-            &path,
-            "*",
-            || false,
-        )
-        .is_err()
-        {
-            return Ok(None);
-        }
-        current_snapshot_directory = Some(directory);
-        path
-    };
-    let current_row_count = if current_snapshot_directory.is_some() {
-        crate::duckdb_query::count_file_rows(
-            &current_path,
-            crate::duckdb_query::DuckDbFileFormat::Parquet,
-            || false,
-        )?
-    } else {
-        context.row_count
+    let Some((current_path, current_row_count, _current_snapshot_directory)) =
+        source_backed_parquet_snapshot(&context)?
+    else {
+        return Ok(None);
     };
     let current_schema = read_parquet_schema_frame(&current_path)?;
     let compared_schema = read_parquet_schema_frame(compared_path)?;
@@ -21293,30 +21430,10 @@ pub async fn join_dataset(
     .map_err(|error| format!("La unión se interrumpió: {error}"))?
 }
 
-fn resolved_conflict_frame(
-    current: &DataFrame,
-    compared: &DataFrame,
-    key_columns: &[String],
+fn validate_conflict_decisions(
+    conflicts: &[KeyConflictRows],
     decisions: &[ConflictResolution],
-) -> Result<DataFrame, String> {
-    if key_columns.is_empty() {
-        return Err("La resolución de conflictos requiere al menos una columna clave.".to_owned());
-    }
-    if current.get_column_names() != compared.get_column_names()
-        || current
-            .columns()
-            .iter()
-            .zip(compared.columns())
-            .any(|(left, right)| left.dtype() != right.dtype())
-    {
-        return Err("Los esquemas no son compatibles para resolver conflictos.".to_owned());
-    }
-    let shared_columns = current
-        .get_column_names()
-        .iter()
-        .map(|name| name.to_string())
-        .collect::<Vec<_>>();
-    let conflicts = collect_all_key_conflicts(current, compared, key_columns, &shared_columns)?;
+) -> Result<HashMap<(usize, Option<String>), ConflictSource>, String> {
     let mut choices = HashMap::new();
     for decision in decisions {
         let Some(conflict) = conflicts.get(decision.conflict_index) else {
@@ -21387,6 +21504,169 @@ fn resolved_conflict_frame(
             return Err("Debes elegir un origen para cada conflicto visible.".to_owned());
         }
     }
+    Ok(choices)
+}
+
+fn source_backed_conflict_resolution_plan(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    choices: &HashMap<(usize, Option<String>), ConflictSource>,
+) -> Result<(String, String, String, String), String> {
+    if current.get_column_names() != compared.get_column_names()
+        || current
+            .columns()
+            .iter()
+            .zip(compared.columns())
+            .any(|(left, right)| left.dtype() != right.dtype())
+    {
+        return Err("Los esquemas no son compatibles para resolver conflictos.".to_owned());
+    }
+    validate_key_columns(current, compared, key_columns)?;
+    let mut used_names = current
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<HashSet<_>>();
+    let current_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_current_order");
+    let compared_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_compared_order");
+    let current_count_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_current_count");
+    let compared_count_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_compared_count");
+    let conflict_index_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_conflict_index");
+    let result_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_resolution_result_order");
+    let keys = key_columns
+        .iter()
+        .map(|key| duckdb_identifier(key))
+        .collect::<Vec<_>>();
+    let partition = keys.join(", ");
+    let key_conditions = key_columns
+        .iter()
+        .map(|key| {
+            let identifier = duckdb_identifier(key);
+            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let payload_columns = current
+        .get_column_names()
+        .iter()
+        .filter(|name| !key_columns.iter().any(|key| key == name.as_str()))
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let payload_equal = payload_columns
+        .iter()
+        .map(|column| {
+            let identifier = duckdb_identifier(column);
+            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+        })
+        .collect::<Vec<_>>();
+    let conflict_predicate = if payload_equal.is_empty() {
+        "FALSE".to_owned()
+    } else {
+        format!("NOT ({})", payload_equal.join(" AND "))
+    };
+
+    let current_columns = current
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let mut choices_by_column = HashMap::<String, Vec<(usize, ConflictSource)>>::new();
+    for ((conflict_index, column), source) in choices {
+        if let Some(column) = column {
+            choices_by_column
+                .entry(column.clone())
+                .or_default()
+                .push((*conflict_index, *source));
+        } else {
+            for column in &current_columns {
+                choices_by_column
+                    .entry(column.clone())
+                    .or_default()
+                    .push((*conflict_index, *source));
+            }
+        }
+    }
+    let projection = current_columns
+        .iter()
+        .map(|column| {
+            let identifier = duckdb_identifier(column);
+            let mut column_choices = choices_by_column.remove(column).unwrap_or_default();
+            column_choices.sort_by_key(|(conflict_index, _)| *conflict_index);
+            let compared_cases = column_choices
+                .into_iter()
+                .filter(|(_, source)| matches!(source, ConflictSource::Compared))
+                .map(|(conflict_index, _)| {
+                    format!(
+                        "WHEN x.{} = {conflict_index} THEN r.{identifier}",
+                        duckdb_identifier(&conflict_index_column)
+                    )
+                })
+                .collect::<Vec<_>>();
+            if compared_cases.is_empty() {
+                format!("c.{identifier} AS {identifier}")
+            } else {
+                format!(
+                    "CASE {} ELSE c.{identifier} END AS {identifier}",
+                    compared_cases.join(" ")
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let current_order = duckdb_identifier(&current_order_column);
+    let current_count = duckdb_identifier(&current_count_column);
+    let compared_count = duckdb_identifier(&compared_count_column);
+    let conflict_index = duckdb_identifier(&conflict_index_column);
+    let result_order = duckdb_identifier(&result_order_column);
+    let dataset_view_query = format!(
+        "CREATE VIEW dataset AS WITH current_ranked AS (SELECT c.*, COUNT(*) OVER (PARTITION BY {partition}) AS {current_count} FROM __columnia_current AS c), compared_ranked AS (SELECT r.*, COUNT(*) OVER (PARTITION BY {partition}) AS {compared_count} FROM __columnia_compared AS r), conflicts AS (SELECT c.{current_order}, ROW_NUMBER() OVER (ORDER BY c.{current_order}) - 1 AS {conflict_index} FROM current_ranked AS c JOIN compared_ranked AS r ON {key_conditions} WHERE c.{current_count} = 1 AND r.{compared_count} = 1 AND {conflict_predicate}) SELECT {projection}, c.{current_order} AS {result_order} FROM current_ranked AS c LEFT JOIN compared_ranked AS r ON {key_conditions} AND c.{current_count} = 1 AND r.{compared_count} = 1 LEFT JOIN conflicts AS x ON x.{current_order} = c.{current_order}"
+    );
+    let output_projection = current_columns
+        .iter()
+        .map(|column| duckdb_identifier(column))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let output_query = format!("SELECT {output_projection} FROM dataset ORDER BY {result_order}");
+    Ok((
+        dataset_view_query,
+        output_query,
+        current_order_column,
+        compared_order_column,
+    ))
+}
+
+fn resolved_conflict_frame(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    decisions: &[ConflictResolution],
+) -> Result<DataFrame, String> {
+    if key_columns.is_empty() {
+        return Err("La resolución de conflictos requiere al menos una columna clave.".to_owned());
+    }
+    if current.get_column_names() != compared.get_column_names()
+        || current
+            .columns()
+            .iter()
+            .zip(compared.columns())
+            .any(|(left, right)| left.dtype() != right.dtype())
+    {
+        return Err("Los esquemas no son compatibles para resolver conflictos.".to_owned());
+    }
+    let shared_columns = current
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let conflicts = collect_all_key_conflicts(current, compared, key_columns, &shared_columns)?;
+    let choices = validate_conflict_decisions(&conflicts, decisions)?;
 
     let conflict_rows = conflicts
         .iter()
@@ -21448,7 +21728,13 @@ pub async fn resolve_dataset_conflicts(
 ) -> Result<DatasetPreview, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
-        let (compared_file_name, compared_file_size, compared_frame, key_columns) = {
+        let (
+            compared_file_name,
+            compared_file_size,
+            compared_path,
+            compared_row_count,
+            key_columns,
+        ) = {
             let comparison = state
                 .comparison
                 .lock()
@@ -21459,10 +21745,40 @@ pub async fn resolve_dataset_conflicts(
             (
                 pending.file_name.clone(),
                 pending.file_size_bytes,
-                read_parquet_frame(&pending.snapshot_path)?,
+                pending.snapshot_path.clone(),
+                pending.row_count,
                 pending.key_columns.clone(),
             )
         };
+        let source_context = {
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            current.as_ref().and_then(source_backed_join_context)
+        };
+        if let Some(context) = source_context {
+            let compared_schema = read_parquet_schema_frame(&compared_path)?;
+            let compared_snapshot_size = fs::metadata(&compared_path)
+                .map_err(|error| format!("No se pudo verificar el snapshot comparado: {error}"))?
+                .len();
+            if let Some(preview) = resolve_source_backed_conflicts(
+                &state,
+                SourceBackedConflictResolutionRequest {
+                    context,
+                    compared_path: compared_path.clone(),
+                    compared_size_bytes: compared_snapshot_size,
+                    compared_row_count,
+                    compared_schema,
+                    compared_file_name: compared_file_name.clone(),
+                    key_columns: key_columns.clone(),
+                    decisions: decisions.clone(),
+                },
+            )? {
+                return Ok(preview);
+            }
+        }
+        let compared_frame = read_parquet_frame(&compared_path)?;
         let mut current = state
             .current
             .lock()
@@ -35772,6 +36088,137 @@ mod tests {
         assert!(current_path.is_file());
         drop(active);
         drop(compared_directory);
+        fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+    }
+
+    #[test]
+    fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
+        let current_path = temporary_csv("id,city,total\n1,Santo Domingo,10\n2,Santiago,20\n");
+        let compared = df![
+            "id" => &["1", "2"],
+            "city" => &["La Vega", "Santiago"],
+            "total" => &["15", "25"]
+        ]
+        .expect("la comparación debe construirse");
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let (current_frame, _, current_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente activa debe abrirse source-backed");
+        let current_size_bytes = fs::metadata(&current_path)
+            .expect("la fuente activa debe conservar sus metadatos")
+            .len();
+        let state = DatasetState::default();
+        *state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible") = Some(LoadedDataset {
+            source_path: Some(current_path.clone()),
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: current_size_bytes,
+            row_count: current_row_count,
+            frame: current_frame.clone(),
+            source_backed: true,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+        });
+        let compared_size_bytes = fs::metadata(&compared_path)
+            .expect("el snapshot comparado debe conservar sus metadatos")
+            .len();
+        *state
+            .comparison
+            .lock()
+            .expect("la comparación debe estar disponible") = Some(PendingComparison {
+            file_name: "compared.parquet".to_owned(),
+            file_size_bytes: compared_size_bytes,
+            row_count: compared.height(),
+            _directory: compared_directory,
+            snapshot_path: compared_path.clone(),
+            key_columns: vec!["id".to_owned()],
+        });
+        let context = {
+            let current = state
+                .current
+                .lock()
+                .expect("el estado activo debe estar disponible");
+            source_backed_join_context(current.as_ref().expect("el dataset debe existir"))
+                .expect("el contexto source-backed debe conservarse")
+        };
+        let compared_schema = read_parquet_schema_frame(&compared_path)
+            .expect("el esquema comparado debe poder leerse");
+        let preview = resolve_source_backed_conflicts(
+            &state,
+            SourceBackedConflictResolutionRequest {
+                context,
+                compared_path: compared_path.clone(),
+                compared_size_bytes,
+                compared_row_count: compared.height(),
+                compared_schema,
+                compared_file_name: "compared.parquet".to_owned(),
+                key_columns: vec!["id".to_owned()],
+                decisions: vec![
+                    ConflictResolution {
+                        conflict_index: 0,
+                        column: Some("city".to_owned()),
+                        source: ConflictSource::Compared,
+                    },
+                    ConflictResolution {
+                        conflict_index: 0,
+                        column: Some("total".to_owned()),
+                        source: ConflictSource::Current,
+                    },
+                    ConflictResolution {
+                        conflict_index: 1,
+                        column: None,
+                        source: ConflictSource::Compared,
+                    },
+                ],
+            },
+        )
+        .expect("la resolución source-backed debe poder ejecutarse")
+        .expect("la resolución debe publicarse con historial");
+
+        assert_eq!(preview.row_count, 2);
+        let active = state
+            .current
+            .lock()
+            .expect("el estado activo debe seguir disponible");
+        let dataset = active.as_ref().expect("el dataset activo debe conservarse");
+        assert_eq!(
+            dataset.file_name,
+            "Resuelto · current.csv + compared.parquet"
+        );
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.history.entries.len(), 2);
+        let resolved = dataset
+            .history
+            .restore(1)
+            .expect("el resultado resuelto debe poder restaurarse");
+        assert_eq!(
+            resolved.column("city").unwrap().str().unwrap().get(0),
+            Some("La Vega")
+        );
+        assert_eq!(
+            resolved.column("total").unwrap().str().unwrap().get(0),
+            Some("10")
+        );
+        assert_eq!(
+            resolved.column("city").unwrap().str().unwrap().get(1),
+            Some("Santiago")
+        );
+        assert_eq!(
+            resolved.column("total").unwrap().str().unwrap().get(1),
+            Some("25")
+        );
+        assert!(state
+            .comparison
+            .lock()
+            .expect("la comparación debe seguir accesible")
+            .is_none());
+        drop(active);
+        assert!(current_path.is_file());
+        assert!(!compared_path.exists());
         fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
     }
 
