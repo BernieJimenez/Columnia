@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.155.0, los JOIN
+  I3/I5 conservan validaciones externas de plataforma. En v0.156.0, el perfilado,
+  la validación de reglas incrementales y las exportaciones locales compatibles
+  reutilizan por bloques el snapshot Parquet durable del cursor actual para
+  datasets materializados, validando que el cursor no cambie. En v0.155.0, los JOIN
   mutadores `INNER`/`LEFT`/`FULL` reutilizan desde DuckDB el snapshot Parquet
   durable del cursor actual cuando el dataset ya está materializado, publican
   una revisión reversible y evitan recargar todas las filas en el `DataFrame`.
@@ -101,7 +104,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.155.0`.
+- Versión actual del prototipo: `0.156.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1665,7 +1668,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   durables también reutiliza esa frontera, y el historial copia sus snapshots
   entrada por entrada, valida solo footer/esquema para revisiones no cursor y
   materializa únicamente el cursor para comprobar consistencia, dejando la
-  lectura de filas restante a undo/redo. La comparación completa de
+  lectura de filas restante a undo/redo. El perfilado y las reglas incrementales
+  también pueden leer por bloques el snapshot Parquet durable del cursor actual
+  de datasets materializados, y las exportaciones locales compatibles reutilizan
+  ese mismo snapshot con validación de cursor. La comparación completa de
 filas y la comparación por claves particionan sus firmas exactas en 256 cubetas
 temporales y procesan multiconjuntos, resumen, nuevas claves y conflictos
 paginados por una cubeta a la vez, sin retener mapas globales en memoria. La
@@ -1692,9 +1698,11 @@ comparación no equivale a ejecución fuera de memoria general. La
   consulta Polars simple sin comparación
   también lee el snapshot Parquet del cursor por bloques de 16K filas, cuenta
   coincidencias y conserva solo la página o los acumuladores; si el snapshot
-  falla vuelve al frame activo. Quedan fuera de esta slice los `JOIN` sobre un
-  dataset activo materializado, las fuentes comparadas incompatibles, las
-  operaciones generales y el presupuesto integral fuera de RAM. Desde v0.80,
+  falla vuelve al frame activo. Los `JOIN` mutadores sobre el cursor Parquet
+  durable de un dataset materializado ya comparten esta frontera desde v0.155.
+  Quedan fuera de esta slice las fuentes comparadas incompatibles, las
+  operaciones generales sin snapshot durable y el presupuesto integral fuera de
+  RAM. Desde v0.80,
    las recetas source-backed compuestas únicamente por renombres y
    `keepColumns` proyectan directamente a un Parquet privado administrado,
    conservando el esquema, conteo, orden y preview sin llenar el `DataFrame`;
@@ -2129,6 +2137,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.156.0 extiende el uso del snapshot Parquet durable a perfilado, reglas incrementales y exportaciones locales compatibles de datasets materializados; las operaciones validan el cursor y conservan fallback eager para casos incompatibles. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.155.0 permite que los JOIN mutadores `INNER`/`LEFT`/`FULL` reutilicen el snapshot Parquet durable del cursor actual para datasets materializados; publica solo el resultado como nueva revisión reversible y conserva el fallback eager cuando no existe un snapshot compatible. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.154.0 centraliza la admisión de RAM en lecturas eager indirectas: fuentes de comparación incompatibles, snapshots Parquet comparados, undo/redo y automatización se rechazan antes de leer una expansión grande que no cabe, manteniendo la sesión activa sin cambios. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.153.0 aplica la guardia de materialización a snapshots durables: la apertura verifica el tamaño de `current.parquet` antes de leerlo completo y rechaza de forma segura una expansión que no cabe en la RAM disponible, sin reemplazar la sesión activa. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

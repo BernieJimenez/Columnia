@@ -26,6 +26,12 @@ DuckDB lee ambos lados desde disco y publica el resultado como una revisión
 reversible; un historial degradado o un cursor incompatible mantiene el fallback
 eager explícito.
 
+El perfilado y las reglas de calidad incrementales pueden recorrer ese mismo
+snapshot por bloques. Las exportaciones locales compatibles lo reutilizan desde
+DuckDB, aplican las fronteras de calidad/privacidad y verifican que el cursor
+activo siga siendo el mismo antes de completar la publicación; los casos no
+compatibles mantienen el camino eager.
+
 ## Contrato de calidad
 
 El formato durable es:

@@ -4021,6 +4021,15 @@ fn current_source_backed_context(dataset: &LoadedDataset) -> Option<(PathBuf, u6
     Some((canonical_source, source_size, dataset.row_count))
 }
 
+fn current_history_parquet_snapshot(dataset: &LoadedDataset) -> Option<(PathBuf, u64, usize)> {
+    if !dataset.history.snapshots_enabled {
+        return None;
+    }
+    let current_entry = dataset.history.entries.get(dataset.history.cursor)?;
+    let (path, size, extension) = validate_dataset_file(&current_entry.path).ok()?;
+    (extension == "parquet").then_some((path, size, dataset.row_count))
+}
+
 fn current_duckdb_file_source(
     dataset: &LoadedDataset,
 ) -> Option<(PathBuf, crate::duckdb_query::DuckDbFileFormat)> {
@@ -4060,15 +4069,10 @@ fn source_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJoi
 }
 
 fn snapshot_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJoinContext> {
-    if dataset.source_backed || !dataset.history.snapshots_enabled {
+    if dataset.source_backed {
         return None;
     }
-    let current_entry = dataset.history.entries.get(dataset.history.cursor)?;
-    let (source_path, source_size_bytes, extension) =
-        validate_dataset_file(&current_entry.path).ok()?;
-    if extension != "parquet" {
-        return None;
-    }
+    let (source_path, source_size_bytes, row_count) = current_history_parquet_snapshot(dataset)?;
     Some(SourceBackedJoinContext {
         source_path: source_path.clone(),
         source_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
@@ -4076,7 +4080,7 @@ fn snapshot_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJ
         schema: dataset.frame.slice(0, 0),
         file_name: dataset.file_name.clone(),
         file_size_bytes: dataset.file_size_bytes,
-        row_count: dataset.row_count,
+        row_count,
         original_source_path: source_path,
         original_file_size_bytes: source_size_bytes,
         history_directory: dataset.history.directory.path().to_owned(),
@@ -23209,6 +23213,25 @@ pub async fn get_dataset_profile(
             return Ok(profile);
         }
 
+        if let Some((snapshot_path, snapshot_size, row_count)) =
+            current_history_parquet_snapshot(dataset)
+        {
+            let profile = profile_source_backed_with_progress(
+                &snapshot_path,
+                "parquet",
+                snapshot_size,
+                row_count,
+                |stage, percent| send_progress(&on_progress, "profile", stage, percent),
+                || {
+                    app.state::<DatasetState>()
+                        .profile_was_cancelled(generation)
+                },
+                correlation_sample_rows,
+            )?;
+            dataset.profile = Some(profile.clone());
+            return Ok(profile);
+        }
+
         materialize_loaded_dataset(dataset)?;
 
         let profile = profile_dataset_with_progress(
@@ -23245,10 +23268,11 @@ pub async fn validate_quality_rules(
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         current.as_ref().and_then(|dataset| {
-            dataset
-                .source_backed
-                .then(|| current_source_backed_context(dataset))
-                .flatten()
+            if dataset.source_backed {
+                current_source_backed_context(dataset)
+            } else {
+                current_history_parquet_snapshot(dataset)
+            }
         })
     };
     if quality_rules.iter().all(source_quality_rule_is_incremental) {
@@ -23312,19 +23336,31 @@ pub async fn export_dataset(
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         current.as_ref().and_then(|dataset| {
-            if !dataset.source_backed {
-                return None;
+            if dataset.source_backed {
+                let (source_path, source_size, row_count) = current_source_backed_context(dataset)?;
+                let original_source_path = dataset.source_path.as_ref()?.clone();
+                Some((
+                    source_path,
+                    dataset.file_name.clone(),
+                    source_size,
+                    row_count,
+                    original_source_path,
+                    dataset.file_size_bytes,
+                    false,
+                ))
+            } else {
+                let (source_path, source_size, row_count) =
+                    current_history_parquet_snapshot(dataset)?;
+                Some((
+                    source_path.clone(),
+                    dataset.file_name.clone(),
+                    source_size,
+                    row_count,
+                    source_path,
+                    source_size,
+                    true,
+                ))
             }
-            let (source_path, source_size, row_count) = current_source_backed_context(dataset)?;
-            let original_source_path = dataset.source_path.as_ref()?.clone();
-            Some((
-                source_path,
-                dataset.file_name.clone(),
-                source_size,
-                row_count,
-                original_source_path,
-                dataset.file_size_bytes,
-            ))
         })
     };
     // Privacy is applied into a temporary Parquet snapshot below, so mask/hash
@@ -23349,6 +23385,7 @@ pub async fn export_dataset(
             row_count,
             original_source_path,
             expected_original_file_size,
+            snapshot_only,
         )) = source_context
         {
             let generation = app.state::<DatasetState>().begin_export();
@@ -23544,6 +23581,27 @@ pub async fn export_dataset(
                     }
                 };
                 let result = result?;
+                if snapshot_only {
+                    let current_snapshot = {
+                        let state = app.state::<DatasetState>();
+                        let current = state.current.lock().map_err(|_| {
+                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                        })?;
+                        current.as_ref().and_then(current_history_parquet_snapshot)
+                    };
+                    let snapshot_is_current = current_snapshot.is_some_and(
+                        |(current_path, current_size, current_row_count)| {
+                            current_path == source_path
+                                && current_size == expected_file_size
+                                && current_row_count == row_count
+                        },
+                    );
+                    if !snapshot_is_current {
+                        return Err(
+                            "El snapshot Parquet activo cambió durante la exportación.".to_owned()
+                        );
+                    }
+                }
                 let (_, final_original_source_size, _) =
                     validate_dataset_file(&export_original_source_path)?;
                 if final_original_source_size != expected_original_file_size {
@@ -35432,6 +35490,49 @@ mod tests {
         assert_eq!(actual.temporal_series, expected.temporal_series);
         assert!(actual.numeric_correlations.is_none());
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn materialized_history_snapshot_profiles_without_using_the_active_frame() {
+        let frame = df![
+            "city" => &["Santo Domingo", "Santiago", "Santiago"],
+            "amount" => &[10_i64, 20, 20]
+        ]
+        .expect("el dataset debe construirse");
+        let expected = profile_dataset(&frame).expect("el perfil en memoria debe calcularse");
+        let history = HistoryManager::new(&frame).expect("el historial durable debe inicializarse");
+        let dataset = LoadedDataset {
+            source_path: None,
+            file_name: "materialized.parquet".to_owned(),
+            file_size_bytes: 256,
+            row_count: frame.height(),
+            frame: frame.clone(),
+            source_backed: false,
+            profile: None,
+            history,
+        };
+        let (snapshot_path, snapshot_size, row_count) = current_history_parquet_snapshot(&dataset)
+            .expect("el cursor durable debe exponer un snapshot Parquet");
+        let actual = profile_source_backed_with_progress(
+            &snapshot_path,
+            "parquet",
+            snapshot_size,
+            row_count,
+            |_, _| {},
+            || false,
+            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+        )
+        .expect("el perfil del snapshot Parquet debe calcularse");
+
+        assert_eq!(actual.row_count, expected.row_count);
+        assert_eq!(actual.duplicate_row_count, expected.duplicate_row_count);
+        assert_eq!(actual.columns, expected.columns);
+        assert_eq!(
+            actual.categorical_group_summaries,
+            expected.categorical_group_summaries
+        );
+        assert_eq!(actual.temporal_series, expected.temporal_series);
+        assert_eq!(dataset.frame.height(), 3);
     }
 
     #[test]

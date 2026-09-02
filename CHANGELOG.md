@@ -6,6 +6,17 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.156.0] - 2026-09-02
+
+### Mejorado
+
+- El perfilado y la validación de reglas incrementales pueden leer por bloques
+  el snapshot Parquet durable del cursor actual de un dataset materializado.
+- Las exportaciones locales compatibles reutilizan ese snapshot desde DuckDB,
+  conservan privacidad, calidad y atomicidad, y verifican que el cursor no haya
+  cambiado durante la operación; los casos no compatibles mantienen el fallback
+  eager.
+
 ## [0.155.0] - 2026-09-02
 
 ### Mejorado
