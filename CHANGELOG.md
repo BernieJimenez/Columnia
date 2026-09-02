@@ -6,6 +6,15 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.153.0] - 2026-09-02
+
+### Mejorado
+
+- La apertura de proyectos durables grandes aplica la misma guardia de RAM
+  antes de leer `current.parquet` completo. Si la expansión estimada no cabe,
+  la apertura falla de forma segura sin reemplazar el dataset activo; las
+  restauraciones pequeñas y las rutas source-backed compatibles se conservan.
+
 ## [0.152.0] - 2026-09-02
 
 ### Mejorado

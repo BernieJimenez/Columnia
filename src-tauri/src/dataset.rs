@@ -12479,7 +12479,7 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     if !dataset.source_backed {
         return Ok(());
     }
-    ensure_source_backed_materialization_budget(dataset.file_size_bytes)?;
+    ensure_materialization_budget(dataset.file_size_bytes)?;
     let path = dataset
         .source_path
         .as_deref()
@@ -12508,7 +12508,7 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     Ok(())
 }
 
-fn source_backed_materialization_budget_error(
+fn materialization_budget_error(
     file_size_bytes: u64,
     available_memory_bytes: u64,
 ) -> Option<String> {
@@ -12520,20 +12520,18 @@ fn source_backed_materialization_budget_error(
         .saturating_add(MATERIALIZATION_RESERVE_BYTES);
     (available_memory_bytes < estimated_bytes).then(|| {
         format!(
-            "La operación requiere materializar una fuente grande (aprox. {} MiB), pero solo hay {} MiB de RAM disponible. Usa una operación source-backed compatible o libera memoria antes de continuar.",
+            "La operación requiere materializar una fuente o snapshot grande (aprox. {} MiB), pero solo hay {} MiB de RAM disponible. Usa una operación source-backed compatible o libera memoria antes de continuar.",
             estimated_bytes / 1024 / 1024,
             available_memory_bytes / 1024 / 1024,
         )
     })
 }
 
-fn ensure_source_backed_materialization_budget(file_size_bytes: u64) -> Result<(), String> {
+fn ensure_materialization_budget(file_size_bytes: u64) -> Result<(), String> {
     let Some(available_memory_bytes) = crate::resource::available_memory_bytes() else {
         return Ok(());
     };
-    if let Some(error) =
-        source_backed_materialization_budget_error(file_size_bytes, available_memory_bytes)
-    {
+    if let Some(error) = materialization_budget_error(file_size_bytes, available_memory_bytes) {
         return Err(error);
     }
     Ok(())
@@ -32064,11 +32062,13 @@ impl DatasetState {
         profile: Option<DatasetProfile>,
         history: Option<ProjectHistoryRestore>,
     ) -> Result<ProjectDatasetCandidate, String> {
-        let frame = read_parquet_frame(&snapshot_path)
-            .map_err(|_| "No se pudo restaurar el dataset del proyecto.".to_owned())?;
-        let file_size_bytes = fs::metadata(&snapshot_path)
+        let snapshot_size_bytes = fs::metadata(&snapshot_path)
             .map_err(|_| "No se pudo verificar el snapshot del proyecto.".to_owned())?
             .len();
+        ensure_materialization_budget(snapshot_size_bytes)?;
+        let frame = read_parquet_frame(&snapshot_path)
+            .map_err(|_| "No se pudo restaurar el dataset del proyecto.".to_owned())?;
+        let file_size_bytes = snapshot_size_bytes;
         let preview = dataset_preview_with_size(&file_name, file_size_bytes, &frame)
             .map_err(|_| "No se pudo preparar el dataset del proyecto.".to_owned())?;
         if let Some(profile) = profile.as_ref() {
@@ -35304,19 +35304,19 @@ mod tests {
         let required = MATERIALIZATION_GUARD_THRESHOLD_BYTES
             .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
             .saturating_add(MATERIALIZATION_RESERVE_BYTES);
-        let error = source_backed_materialization_budget_error(
+        let error = materialization_budget_error(
             MATERIALIZATION_GUARD_THRESHOLD_BYTES,
             required.saturating_sub(1),
         )
         .expect("la materialización grande debe rechazar RAM insuficiente");
 
-        assert!(error.contains("materializar una fuente grande"));
+        assert!(error.contains("materializar una fuente o snapshot grande"));
         assert!(error.contains("RAM disponible"));
     }
 
     #[test]
     fn materialization_budget_does_not_block_small_sources_or_exact_capacity() {
-        assert!(source_backed_materialization_budget_error(
+        assert!(materialization_budget_error(
             MATERIALIZATION_GUARD_THRESHOLD_BYTES.saturating_sub(1),
             1,
         )
@@ -35325,11 +35325,10 @@ mod tests {
         let required = MATERIALIZATION_GUARD_THRESHOLD_BYTES
             .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
             .saturating_add(MATERIALIZATION_RESERVE_BYTES);
-        assert!(source_backed_materialization_budget_error(
-            MATERIALIZATION_GUARD_THRESHOLD_BYTES,
-            required,
-        )
-        .is_none());
+        assert!(
+            materialization_budget_error(MATERIALIZATION_GUARD_THRESHOLD_BYTES, required,)
+                .is_none()
+        );
     }
 
     #[test]
