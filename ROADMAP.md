@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.158.0, las lecturas
+  I3/I5 conservan validaciones externas de plataforma. En v0.159.0, el updater
+  rechaza descargas truncadas o sobredimensionadas comparando sus bytes con el
+  tamaño declarado por el manifest antes de preparar la instalación. En
+  v0.158.0, las lecturas
   incrementales de página, comparación y consultas DuckDB validan el snapshot
   Parquet del cursor actual, y la validación de calidad rechaza resultados si la
   fuente o cursor cambia durante el recorrido. En v0.157.0, la entrega
@@ -111,7 +114,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.158.0`.
+- Versión actual del prototipo: `0.159.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1057,7 +1060,8 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 - [ ] Probar downgrade, versión igual, prerelease, descarga parcial, firma inválida,
   manifiesto corrupto, falta de red y recuperación después de un cierre. La
   frontera Rust ya rechaza downgrade/igualdad y versiones inválidas, con pruebas
-  semver para estable y prerelease; el contrato local también prueba artefacto
+  semver para estable y prerelease; también rechaza en runtime un payload cuyo
+  tamaño no coincide con el manifest. El contrato local prueba artefacto
   truncado, firma alterada, manifiesto incompleto/corrupto y URL insegura. Falta
   ejercitar el canal y el instalador real.
 - [x] Definir rotación y recuperación de claves antes del primer release público.
@@ -2144,6 +2148,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.159.0 endurece el updater: las descargas solo pasan al estado instalable si su tamaño coincide con el manifest; los payloads truncados o sobredimensionados se rechazan antes de conservarlos. | `src-tauri/src/updater.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-02 | Versión 0.158.0 endurece lecturas incrementales: página, comparación y consultas DuckDB solo usan snapshots Parquet actuales y la validación de calidad comprueba que la fuente o cursor no cambie durante el recorrido, con fallback seguro cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.157.0 extiende la entrega remota ODBC a datasets materializados con snapshot Parquet durable en el cursor actual; PostgreSQL, MySQL y SQL Server reciben filas por bloques desde DuckDB con calidad, privacidad, cancelación, validación de cursor y fallback eager para combinaciones incompatibles. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.156.0 extiende el uso del snapshot Parquet durable a perfilado, reglas incrementales y exportaciones locales compatibles de datasets materializados; las operaciones validan el cursor y conservan fallback eager para casos incompatibles. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

@@ -8,6 +8,8 @@ use tokio_util::sync::CancellationToken;
 const UPDATER_NOT_CONFIGURED: &str =
     "El updater no está configurado para esta compilación; define COLUMNIA_UPDATER_ENDPOINT al compilar.";
 const DOWNLOAD_CANCELLED: &str = "La descarga de la actualización fue cancelada.";
+const DOWNLOAD_SIZE_MISMATCH: &str =
+    "La descarga de la actualización no coincide con el tamaño declarado por el canal.";
 const UPDATE_VERSION_INVALID: &str = "El canal updater devolvió una versión inválida.";
 const UPDATE_NOT_NEWER: &str =
     "El canal updater devolvió una versión que no es posterior a la instalada.";
@@ -82,6 +84,10 @@ fn manifest_size(raw_json: &serde_json::Value, target: &str) -> Option<u64> {
 
 fn metadata_size(update: &Update) -> Option<u64> {
     manifest_size(&update.raw_json, &update.target)
+}
+
+fn downloaded_payload_is_complete(expected_size: Option<u64>, actual_size: usize) -> bool {
+    expected_size.is_none_or(|expected| expected == actual_size as u64)
 }
 
 fn is_strictly_newer(current: &str, candidate: &str) -> Result<bool, String> {
@@ -189,6 +195,13 @@ pub async fn download_update(
         bytes = download_future => bytes.map_err(|error| error.to_string()),
         _ = cancellation.cancelled() => Err(DOWNLOAD_CANCELLED.to_owned()),
     };
+    let result = result.and_then(|bytes| {
+        if downloaded_payload_is_complete(metadata_size(&update), bytes.len()) {
+            Ok(bytes)
+        } else {
+            Err(DOWNLOAD_SIZE_MISMATCH.to_owned())
+        }
+    });
 
     let successful_bytes = result.as_ref().ok().cloned();
     {
@@ -265,8 +278,8 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        configured, is_strictly_newer, manifest_size, UpdateInfo, UPDATE_NOT_NEWER,
-        UPDATE_VERSION_INVALID,
+        configured, downloaded_payload_is_complete, is_strictly_newer, manifest_size, UpdateInfo,
+        UPDATE_NOT_NEWER, UPDATE_VERSION_INVALID,
     };
     use serde_json::json;
 
@@ -305,6 +318,14 @@ mod tests {
             Some(456)
         );
         assert_eq!(manifest_size(&json!({}), "windows-x86_64"), None);
+    }
+
+    #[test]
+    fn updater_rejects_truncated_or_oversized_downloads_before_install() {
+        assert!(downloaded_payload_is_complete(Some(128), 128));
+        assert!(!downloaded_payload_is_complete(Some(128), 127));
+        assert!(!downloaded_payload_is_complete(Some(128), 129));
+        assert!(downloaded_payload_is_complete(None, 0));
     }
 
     #[test]

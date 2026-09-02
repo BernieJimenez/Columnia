@@ -6,6 +6,15 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.159.0] - 2026-09-02
+
+### Corregido
+
+- El updater comprueba que los bytes descargados coincidan con el tamaño
+  declarado por el manifest antes de dejarlos disponibles para instalación.
+  Las descargas truncadas o sobredimensionadas se rechazan y no se conservan
+  como actualización preparada.
+
 ## [0.158.0] - 2026-09-02
 
 ### Corregido

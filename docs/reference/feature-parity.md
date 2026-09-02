@@ -43,6 +43,11 @@ del cursor actual antes de leerlo. La validación de calidad vuelve a comprobar
 que la fuente o snapshot siga siendo el dataset activo antes de devolver el
 resultado; si el historial está degradado, se conserva el fallback seguro.
 
+El updater compara el tamaño del payload descargado con el declarado en el
+manifest antes de dejarlo preparado para instalación. Una descarga truncada o
+sobredimensionada se rechaza; la firma criptográfica permanece bajo control del
+plugin oficial al instalar.
+
 ## Contrato de calidad
 
 El formato durable es:
