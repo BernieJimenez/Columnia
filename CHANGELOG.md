@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.157.0] - 2026-09-02
+
+### Mejorado
+
+- La entrega remota ODBC a PostgreSQL, MySQL y SQL Server también transmite por
+  bloques los datasets materializados que conservan un snapshot Parquet durable
+  en el cursor actual. Mantiene las validaciones incrementales de calidad,
+  privacidad, cancelación y comprobación de que el cursor no cambió; las
+  combinaciones incompatibles conservan el fallback eager.
+
 ## [0.156.0] - 2026-09-02
 
 ### Mejorado

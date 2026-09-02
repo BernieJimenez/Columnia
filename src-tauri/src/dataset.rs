@@ -23735,22 +23735,36 @@ pub async fn export_dataset_to_database(
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
         current.as_ref().and_then(|dataset| {
-            if !dataset.source_backed {
-                return None;
+            if dataset.source_backed {
+                let (_, source_size, row_count) = current_source_backed_context(dataset)?;
+                let (source_path, source_format) = current_duckdb_file_source(dataset)?;
+                let original_source_path = dataset.source_path.as_ref()?.clone();
+                Some((
+                    source_path,
+                    source_format,
+                    dataset.frame.clone(),
+                    dataset.file_name.clone(),
+                    source_size,
+                    row_count,
+                    original_source_path,
+                    dataset.file_size_bytes,
+                    false,
+                ))
+            } else {
+                let (source_path, source_size, row_count) =
+                    current_history_parquet_snapshot(dataset)?;
+                Some((
+                    source_path.clone(),
+                    crate::duckdb_query::DuckDbFileFormat::Parquet,
+                    dataset.frame.slice(0, 0),
+                    dataset.file_name.clone(),
+                    source_size,
+                    row_count,
+                    source_path,
+                    source_size,
+                    true,
+                ))
             }
-            let (_, source_size, row_count) = current_source_backed_context(dataset)?;
-            let (source_path, source_format) = current_duckdb_file_source(dataset)?;
-            let original_source_path = dataset.source_path.as_ref()?.clone();
-            Some((
-                source_path,
-                source_format,
-                dataset.frame.clone(),
-                dataset.file_name.clone(),
-                source_size,
-                row_count,
-                original_source_path,
-                dataset.file_size_bytes,
-            ))
         })
     };
 
@@ -23775,9 +23789,10 @@ pub async fn export_dataset_to_database(
             row_count,
             original_source_path,
             expected_original_file_size,
-        )) = source_context
-            .filter(|(_, source_format, _, _, _, _, _, _)| source_privacy_supported(*source_format))
-        {
+            snapshot_only,
+        )) = source_context.filter(|(_, source_format, _, _, _, _, _, _, _)| {
+            source_privacy_supported(*source_format)
+        }) {
             let generation = app.state::<DatasetState>().begin_export();
             let validation_app = app.clone();
             let source_quality_rules = quality_rules.clone();
@@ -23872,6 +23887,28 @@ pub async fn export_dataset_to_database(
                             .export_was_cancelled(generation)
                     },
                 )?;
+                if snapshot_only {
+                    let current_snapshot = {
+                        let state = validation_app.state::<DatasetState>();
+                        let current = state.current.lock().map_err(|_| {
+                            "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                        })?;
+                        current.as_ref().and_then(current_history_parquet_snapshot)
+                    };
+                    let snapshot_is_current = current_snapshot.is_some_and(
+                        |(current_path, current_size, current_row_count)| {
+                            current_path == source_path
+                                && current_size == expected_file_size
+                                && current_row_count == row_count
+                        },
+                    );
+                    if !snapshot_is_current {
+                        return Err(
+                            "El snapshot Parquet activo cambió durante la entrega ODBC."
+                                .to_owned(),
+                        );
+                    }
+                }
                 let (_, final_original_source_size, _) =
                     validate_dataset_file(&original_source_path)?;
                 if final_original_source_size != expected_original_file_size {
