@@ -6,6 +6,17 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.148.0] - 2026-09-02
+
+### Validación
+
+- `perf:benchmark` completó el escenario CLI de 100 MiB con tres corridas
+  sostenidas, dos actualizaciones durables y un máximo de guardado de
+  50.287,90 ms.
+- `perf:webview2` completó el escenario de 100 MiB con 819.137 filas,
+  carga, paginación, transformación, exportación y cleanup; `perf:check`
+  quedó aprobado con evidencia fresca.
+
 ## [0.147.0] - 2026-09-02
 
 ### Mejorado

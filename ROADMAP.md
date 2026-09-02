@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.147.0, la entrega
+  I3/I5 conservan validaciones externas de plataforma. En v0.148.0, la evidencia
+  fresca de `perf:benchmark`, `perf:webview2` y `perf:check` aprueba el escenario
+  de 100 MiB, el ciclo durable, cleanup y los presupuestos actuales. En v0.147.0,
+  la entrega
   ODBC también transmite por bloques las fuentes source-backed compatibles y
   conserva fallback materializado explícito para las combinaciones no
   compatibles. En v0.146.0, la entrega
@@ -78,7 +81,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.147.0`.
+- Versión actual del prototipo: `0.148.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -943,13 +946,14 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
   V8 cubre `src` con 80% statements/lines, 75% branches y 75% functions;
   `npm run test:coverage` los hace cumplir.
 - [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; el
-  perfil contractual de 100 MiB, el gate CDP y el bundle ya pasan. El escenario
-  CLI de 256 MiB también completa transformaciones y ciclo durable, pero alcanza
-  aproximadamente 1.12 GiB de working set. `perf:webview2` aprobó el 2026-08-30
-  el mismo caso dentro de WebView2 con un input de 100 MiB/819.137 filas,
-  carga 2,9 s, paginación 29 ms, transformación 1,7 s, exportación 1,4 s,
-  pico de 691.789.824 B de working set y 460.587.008 B privados, dentro del
-  presupuesto de dataset grande y con cleanup confirmado. Desde v0.145.0,
+  perfil contractual actual, el gate CDP, el benchmark CLI y el bundle pasan.
+  La corrida CLI de 100 MiB del 2026-09-02 completó tres transformaciones
+  sostenidas y dos actualizaciones durables, con guardado máximo de 50.287,90 ms
+  y pico de 429.744.128 B. `perf:webview2` del mismo día completó un input de
+  100 MiB/819.137 filas, carga 2,847 s, paginación 28 ms, transformación 1,611 s,
+  exportación 1,326 s, pico de 671.612.928 B de working set y 456.892.416 B
+  privados, dentro del presupuesto de dataset grande y con cleanup confirmado.
+  Desde v0.145.0,
   `perf:check` también exige que el intervalo proceso nativo listo→ventana
   visible sea ≤1.000 ms con hitos y cleanup confirmados; falta decidir el
   presupuesto global final de la aplicación y cerrar la optimización
@@ -2097,6 +2101,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.148.0 refresca `perf:benchmark`, `perf:webview2` y `perf:check`: 100 MiB, tres corridas sostenidas, dos actualizaciones durables, 819.137 filas WebView2, presupuestos actuales y cleanup confirmado. | `.local/validation/performance-benchmark/20260902T070437Z`, `.local/validation/performance-webview2/20260902T070748Z`, `.local/validation/performance-baseline/20260902T070920Z`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-02 | Versión 0.147.0 extiende la entrega ODBC a fuentes source-backed compatibles: DuckDB transmite por bloques sin materializar el `DataFrame` activo; calidad incremental, privacidad temporal, cancelación y validación de cambios conservan el contrato seguro, con fallback materializado explícito. | `src-tauri/src/remote_databases.rs`, `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-01 | Versión 0.146.0 añade entrega remota por ODBC a PostgreSQL, MySQL y SQL Server; exige `SELECT 1`, valida identificadores, aplica políticas `create_only`/`append`/`replace`, escapa valores, inserta por lotes y no persiste credenciales. | `src-tauri/src/remote_databases.rs`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-01 | Versión 0.145.0 conecta startup desktop con el gate de rendimiento: resume el intervalo proceso nativo listo→ventana visible y exige ≤1.000 ms, hitos completos, estado aprobado y cleanup. | `tools/summarize-performance.ps1`, `tools/check-performance-baseline.ps1`, `fixtures/performance/performance-baseline-v1.json`, `CHANGELOG.md`, `CONTEXTO.md` |
