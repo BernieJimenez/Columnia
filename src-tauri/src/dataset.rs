@@ -21457,12 +21457,7 @@ pub async fn compare_dataset(
         let dataset = current.as_ref().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
-        let current_snapshot = dataset
-            .history
-            .snapshots_enabled
-            .then(|| dataset.history.entries.get(dataset.history.cursor))
-            .flatten()
-            .map(|entry| entry.path.clone());
+        let current_snapshot = current_history_parquet_snapshot(dataset).map(|(path, _, _)| path);
         let current_source = current_duckdb_file_source(dataset).and_then(|(path, _)| {
             dataset_extension(&path)
                 .ok()
@@ -22809,10 +22804,8 @@ pub fn get_dataset_page(
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
 
-    if dataset.history.snapshots_enabled {
-        if let Some(entry) = dataset.history.entries.get(dataset.history.cursor) {
-            return dataset_page_from_parquet(&entry.path, dataset.row_count, offset, limit);
-        }
+    if let Some((path, _, row_count)) = current_history_parquet_snapshot(dataset) {
+        return dataset_page_from_parquet(&path, row_count, offset, limit);
     }
 
     // A degraded history still has a safe, immutable source reference while
@@ -22855,12 +22848,8 @@ pub async fn query_dataset(
                 .comparison
                 .lock()
                 .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
-            let current_snapshot = dataset
-                .history
-                .snapshots_enabled
-                .then(|| dataset.history.entries.get(dataset.history.cursor))
-                .flatten()
-                .map(|entry| entry.path.clone());
+            let current_snapshot =
+                current_history_parquet_snapshot(dataset).map(|(path, _, _)| path);
             let current_file_source = current_duckdb_file_source(dataset);
             let source_backed_query = dataset.source_backed;
             let compared_snapshot = comparison
@@ -23020,12 +23009,8 @@ pub async fn query_dataset(
             let compared_snapshot = comparison
                 .as_ref()
                 .map(|pending| pending.snapshot_path.as_path());
-            let current_snapshot = dataset
-                .history
-                .snapshots_enabled
-                .then(|| dataset.history.entries.get(dataset.history.cursor))
-                .flatten()
-                .map(|entry| entry.path.clone());
+            let current_snapshot =
+                current_history_parquet_snapshot(dataset).map(|(path, _, _)| path);
             let current_file_source = current_duckdb_file_source(dataset);
             if dataset.source_backed && current_file_source.is_none() && current_snapshot.is_none()
             {
@@ -23285,14 +23270,33 @@ pub async fn validate_quality_rules(
                             .to_owned(),
                     );
                 }
-                evaluate_source_quality_rules_with_cancel(
+                let result = evaluate_source_quality_rules_with_cancel(
                     &source_path,
                     &extension,
                     expected_file_size,
                     row_count,
                     &quality_rules,
                     || false,
-                )
+                )?;
+                let current_context = {
+                    let state = app.state::<DatasetState>();
+                    let current = state.current.lock().map_err(|_| {
+                        "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                    })?;
+                    current.as_ref().and_then(|dataset| {
+                        if dataset.source_backed {
+                            current_source_backed_context(dataset)
+                        } else {
+                            current_history_parquet_snapshot(dataset)
+                        }
+                    })
+                };
+                if current_context != Some((source_path.clone(), expected_file_size, row_count)) {
+                    return Err(
+                        "El dataset activo cambió durante la validación de calidad.".to_owned()
+                    );
+                }
+                Ok(result)
             })
             .await
             .map_err(|error| format!("La validación de calidad se interrumpió: {error}"))?;

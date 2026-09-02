@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.157.0, la entrega
+  I3/I5 conservan validaciones externas de plataforma. En v0.158.0, las lecturas
+  incrementales de página, comparación y consultas DuckDB validan el snapshot
+  Parquet del cursor actual, y la validación de calidad rechaza resultados si la
+  fuente o cursor cambia durante el recorrido. En v0.157.0, la entrega
   remota ODBC también transmite por bloques los datasets materializados que
   conservan un snapshot Parquet durable en el cursor actual, con calidad,
   privacidad y comprobación de cursor; los casos incompatibles mantienen el
@@ -108,7 +111,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.157.0`.
+- Versión actual del prototipo: `0.158.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2141,6 +2144,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.158.0 endurece lecturas incrementales: página, comparación y consultas DuckDB solo usan snapshots Parquet actuales y la validación de calidad comprueba que la fuente o cursor no cambie durante el recorrido, con fallback seguro cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.157.0 extiende la entrega remota ODBC a datasets materializados con snapshot Parquet durable en el cursor actual; PostgreSQL, MySQL y SQL Server reciben filas por bloques desde DuckDB con calidad, privacidad, cancelación, validación de cursor y fallback eager para combinaciones incompatibles. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.156.0 extiende el uso del snapshot Parquet durable a perfilado, reglas incrementales y exportaciones locales compatibles de datasets materializados; las operaciones validan el cursor y conservan fallback eager para casos incompatibles. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.155.0 permite que los JOIN mutadores `INNER`/`LEFT`/`FULL` reutilicen el snapshot Parquet durable del cursor actual para datasets materializados; publica solo el resultado como nueva revisión reversible y conserva el fallback eager cuando no existe un snapshot compatible. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

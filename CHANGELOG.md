@@ -6,6 +6,17 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.158.0] - 2026-09-02
+
+### Corregido
+
+- Las lecturas incrementales de página, comparación y consultas DuckDB validan
+  el snapshot Parquet del cursor actual antes de usarlo, con fallback seguro a
+  la fuente o al frame cuando el historial está degradado.
+- La validación de calidad confirma que la fuente o snapshot usado siga siendo
+  el dataset activo antes de devolver resultados, evitando publicar una
+  validación obsoleta si el cursor cambia durante la operación.
+
 ## [0.157.0] - 2026-09-02
 
 ### Mejorado

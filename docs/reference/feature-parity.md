@@ -38,6 +38,11 @@ bloques a PostgreSQL, MySQL o SQL Server, conservando calidad, privacidad,
 cancelación y la comprobación de que el cursor no cambió; las combinaciones no
 compatibles mantienen el fallback eager.
 
+La paginación, la comparación y las consultas DuckDB validan el snapshot Parquet
+del cursor actual antes de leerlo. La validación de calidad vuelve a comprobar
+que la fuente o snapshot siga siendo el dataset activo antes de devolver el
+resultado; si el historial está degradado, se conserva el fallback seguro.
+
 ## Contrato de calidad
 
 El formato durable es:
