@@ -56,7 +56,10 @@ source-backed que combinan selección/renombrado con hasta tres filtros, casts,
 fechas fijas (`YMD`, `DMY`, `MDY`), partes de fecha (`Year`, `Month`, `Day`),
 reemplazo literal y cálculos simples (`Add`, `Subtract`, `Multiply`, `Concat`)
 también se ejecutan directamente sobre la fuente mediante DuckDB y publican un
-snapshot Parquet privado, conservando conteo, orden y nulos. El reemplazo se
+snapshot Parquet privado, conservando conteo, orden y nulos. El parseo ISO sin
+offset o con UTC `Z` valida la fuente efectiva del cursor, incluido el snapshot
+Parquet privado de una etapa previa, para no volver a materializar tras filtros
+compatibles. El reemplazo se
 aplica después de los filtros y publica su conteo exacto de celdas modificadas.
 La división source-backed de una columna de texto en dos a dieciséis destinos
 conserva delimitadores Unicode, segmentos vacíos, nulos y el resto en el último

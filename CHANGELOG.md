@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.149.0] - 2026-09-02
+
+### Corregido
+
+- Las recetas ISO source-backed validan ahora la fuente efectiva: cuando la
+  sesión ya tiene un snapshot Parquet privado, la comprobación usa ese
+  snapshot y no el archivo original. Esto conserva la ejecución incremental
+  cuando una etapa previa filtró valores incompatibles y evita decisiones
+  basadas en datos que ya no forman parte del cursor actual.
+
 ## [0.148.0] - 2026-09-02
 
 ### Validación

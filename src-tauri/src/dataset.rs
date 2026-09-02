@@ -31976,25 +31976,21 @@ fn source_backed_iso8601_values_are_supported(
     if iso_columns.is_empty() {
         return Ok(true);
     }
-    let source_path = dataset
+    let original_source_path = dataset
         .source_path
         .as_deref()
         .ok_or_else(|| "La fuente source-backed ya no está disponible.".to_owned())?;
-    let (source_path, source_size, extension) = validate_dataset_file(source_path)?;
-    if source_size != dataset.file_size_bytes {
+    let (_, original_source_size, _) = validate_dataset_file(original_source_path)?;
+    if original_source_size != dataset.file_size_bytes {
         return Err("El archivo source-backed cambió después de la carga.".to_owned());
     }
-    let source_format = match extension.as_str() {
-        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        "csv" | "tsv" | "txt" => {
-            let delimiter = detect_delimiter(&source_path, &extension)?;
-            crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
-        }
-        "json" | "jsonl" | "ndjson" => crate::duckdb_query::DuckDbFileFormat::Json,
-        _ => {
-            return Err("La receta source-backed requiere una fuente compatible.".to_owned());
-        }
-    };
+    // Después de una mutación source-backed, `source_path` sigue apuntando al
+    // archivo original, pero `source_backed_projection_recipe` ejecutará la
+    // siguiente receta sobre el snapshot Parquet publicado. Validar el
+    // original aquí podía aprobar una receta con datos que ya no existen o
+    // rechazar innecesariamente una transformación que seguía siendo segura.
+    let (source_path, source_format) = current_duckdb_file_source(dataset)
+        .ok_or_else(|| "La receta source-backed requiere una fuente compatible.".to_owned())?;
     let invalid_terms = iso_columns
         .iter()
         .map(|parse| {
@@ -34212,6 +34208,61 @@ mod tests {
 
             fs::remove_file(path).expect("se debe limpiar el CSV temporal");
         }
+    }
+
+    #[test]
+    fn source_backed_iso8601_validates_the_current_private_snapshot() {
+        let path = temporary_csv("when\n2025-12-31T23:15:30+02:00\n2025-12-31T23:15:30Z\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV ISO debe cargar");
+        let (schema, _, _) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente ISO debe inspeccionarse en disco");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let snapshot_path = history.directory.path().join("filtered.parquet");
+        let filtered_frame = source_frame.slice(1, 1);
+        let mut snapshot_frame = filtered_frame.clone();
+        let mut snapshot_file = File::create(&snapshot_path).expect("el snapshot debe crearse");
+        ParquetWriter::new(&mut snapshot_file)
+            .finish(&mut snapshot_frame)
+            .expect("el snapshot debe escribirse");
+        drop(snapshot_file);
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count: filtered_frame.height(),
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        dataset.history.source_snapshot_path = Some(snapshot_path);
+        let recipe = TransformRecipe {
+            date_parses: vec![RecipeDateParse {
+                column: "when".to_owned(),
+                format: RecipeDateFormat::Iso8601,
+                target: RecipeDateTarget::Datetime,
+            }],
+            ..TransformRecipe::default()
+        };
+        let expected = apply_recipe_to_frame(&filtered_frame, &recipe)
+            .expect("la receta eager ISO debe ser válida")
+            .0;
+
+        let result = apply_recipe_to_dataset(&mut dataset, &recipe)
+            .expect("la receta ISO debe usar el snapshot vigente");
+
+        assert!(dataset.source_backed);
+        assert_eq!(result.parsed_date_column_count, 1);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar una fuente Parquet");
+        let output = read_parquet_frame(output_path).expect("el Parquet ISO debe leerse");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(dataset.row_count, 1);
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]

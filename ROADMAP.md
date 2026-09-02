@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.148.0, la evidencia
+  I3/I5 conservan validaciones externas de plataforma. En v0.149.0, los parseos
+  ISO source-backed validan el snapshot Parquet efectivo del cursor después de
+  etapas previas, evitando fallback eager por valores que ya fueron filtrados.
+  En v0.148.0, la evidencia
   fresca de `perf:benchmark`, `perf:webview2` y `perf:check` aprueba el escenario
   de 100 MiB, el ciclo durable, cleanup y los presupuestos actuales. En v0.147.0,
   la entrega
@@ -81,7 +84,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.148.0`.
+- Versión actual del prototipo: `0.149.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2101,6 +2104,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.149.0 corrige recetas ISO source-backed encadenadas: la validación usa el snapshot Parquet efectivo tras filtros previos y conserva la ejecución incremental sin materializar el frame activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-02 | Versión 0.148.0 refresca `perf:benchmark`, `perf:webview2` y `perf:check`: 100 MiB, tres corridas sostenidas, dos actualizaciones durables, 819.137 filas WebView2, presupuestos actuales y cleanup confirmado. | `.local/validation/performance-benchmark/20260902T070437Z`, `.local/validation/performance-webview2/20260902T070748Z`, `.local/validation/performance-baseline/20260902T070920Z`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-02 | Versión 0.147.0 extiende la entrega ODBC a fuentes source-backed compatibles: DuckDB transmite por bloques sin materializar el `DataFrame` activo; calidad incremental, privacidad temporal, cancelación y validación de cambios conservan el contrato seguro, con fallback materializado explícito. | `src-tauri/src/remote_databases.rs`, `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-01 | Versión 0.146.0 añade entrega remota por ODBC a PostgreSQL, MySQL y SQL Server; exige `SELECT 1`, valida identificadores, aplica políticas `create_only`/`append`/`replace`, escapa valores, inserta por lotes y no persiste credenciales. | `src-tauri/src/remote_databases.rs`, `src-tauri/src/dataset.rs`, `src/bridge.ts`, `src/features/delivery/DeliveryPhase.tsx`, `CHANGELOG.md`, `CONTEXTO.md` |
