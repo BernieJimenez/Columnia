@@ -17137,11 +17137,13 @@ where
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn export_source_backed_bundle_atomic<F, C>(
     source_path: &Path,
     expected_file_size: u64,
     row_count: usize,
     quality_validation: Option<&QualityValidationResult>,
+    recipe: Option<&StoredTransformRecipe>,
     destination: &Path,
     mut report: F,
     is_cancelled: C,
@@ -17151,6 +17153,9 @@ where
     C: Fn() -> bool + Clone + Send + 'static,
 {
     ensure_not_cancelled(is_cancelled())?;
+    if let Some(recipe) = recipe {
+        validate_stored_recipe(recipe)?;
+    }
     let destination = canonicalize_write_destination(destination, "la exportación")?;
     let parent = destination
         .parent()
@@ -17246,6 +17251,14 @@ where
         bytes: bytes.len() as u64,
         sha256: format!("{:x}", Sha256::digest(bytes)),
     });
+    let recipe_bytes = recipe
+        .map(|recipe| bundle_json_bytes(recipe, "la receta"))
+        .transpose()?;
+    let recipe_manifest = recipe_bytes.as_ref().map(|bytes| BundleFileManifest {
+        path: "recipe.json".to_owned(),
+        bytes: bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(bytes)),
+    });
     let mut dataset_file = File::open(&dataset_path)
         .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
     let (dataset_bytes, dataset_sha256) = hash_and_rewind(&mut dataset_file)?;
@@ -17260,7 +17273,7 @@ where
         quality_report_file: quality_bytes
             .as_ref()
             .map(|_| "quality-report.json".to_owned()),
-        recipe_file: None,
+        recipe_file: recipe_bytes.as_ref().map(|_| "recipe.json".to_owned()),
         files: [
             BundleFileManifest {
                 path: "dataset.csv".to_owned(),
@@ -17275,6 +17288,7 @@ where
         ]
         .into_iter()
         .chain(quality_manifest)
+        .chain(recipe_manifest)
         .collect(),
     };
     let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
@@ -17327,6 +17341,15 @@ where
         archive
             .write_all(&quality_bytes)
             .map_err(|error| format!("No se pudo empaquetar el reporte de calidad: {error}"))?;
+    }
+    if let Some(recipe_bytes) = recipe_bytes {
+        ensure_not_cancelled(is_cancelled())?;
+        archive
+            .start_file("recipe.json", options)
+            .map_err(|error| format!("No se pudo preparar la receta del paquete: {error}"))?;
+        archive
+            .write_all(&recipe_bytes)
+            .map_err(|error| format!("No se pudo empaquetar la receta del paquete: {error}"))?;
     }
     ensure_not_cancelled(is_cancelled())?;
     archive
@@ -21624,6 +21647,8 @@ pub async fn export_dataset(
     };
     // Privacy is applied into a temporary Parquet snapshot below, so mask/hash
     // remain source-backed instead of forcing the active dataset into memory.
+    // A recipe is Bundle metadata, not a second transformation pass; it must
+    // not disable the streaming export path.
     if matches!(
         format,
         ExportFormat::Csv
@@ -21633,8 +21658,7 @@ pub async fn export_dataset(
             | ExportFormat::Excel
             | ExportFormat::Sqlite
             | ExportFormat::Bundle
-    ) && recipe.is_none()
-        && quality_rules.iter().all(source_quality_rule_is_incremental)
+    ) && quality_rules.iter().all(source_quality_rule_is_incremental)
     {
         if let Some((
             source_path,
@@ -21826,6 +21850,7 @@ pub async fn export_dataset(
                             effective_source_size,
                             row_count,
                             quality_validation.as_ref(),
+                            recipe.as_ref(),
                             &destination,
                             |stage, percent| send_progress(&on_progress, "export", stage, percent),
                             move || {
@@ -33650,6 +33675,7 @@ mod tests {
             expected_size,
             2,
             None,
+            None,
             &destination,
             |stage, percent| progress.push((stage, percent)),
             || false,
@@ -33677,6 +33703,55 @@ mod tests {
         assert_eq!(progress.last(), Some(&("Exportación lista", 100)));
         assert!(source.is_file());
         assert_eq!(directory.path().read_dir().unwrap().count(), 1);
+        fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
+    #[test]
+    fn source_backed_bundle_includes_validated_recipe_without_materializing_rows() {
+        let source = temporary_csv("city,amount\nSanto Domingo,10\nSantiago,20\n");
+        let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
+        let destination = directory.path().join("exported-with-recipe.zip");
+        let expected_size = fs::metadata(&source).expect("la fuente debe existir").len();
+        let recipe = complete_stored_recipe();
+
+        export_source_backed_bundle_atomic(
+            &source,
+            expected_size,
+            2,
+            None,
+            Some(&recipe),
+            &destination,
+            |_, _| {},
+            || false,
+        )
+        .expect("el Bundle source-backed debe conservar la receta");
+
+        let bytes = fs::read(&destination).expect("el Bundle debe existir");
+        let mut archive = ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut recipe_json = String::new();
+        archive
+            .by_name("recipe.json")
+            .expect("falta recipe.json en el Bundle source-backed")
+            .read_to_string(&mut recipe_json)
+            .unwrap();
+        let recipe_value: JsonValue = serde_json::from_str(&recipe_json).unwrap();
+        assert_eq!(recipe_value["name"], "Limpieza completa");
+
+        let mut manifest_json = String::new();
+        archive
+            .by_name("manifest.json")
+            .unwrap()
+            .read_to_string(&mut manifest_json)
+            .unwrap();
+        let manifest: JsonValue = serde_json::from_str(&manifest_json).unwrap();
+        assert_eq!(manifest["recipeFile"], "recipe.json");
+        let expected_hash = format!("{:x}", Sha256::digest(recipe_json.as_bytes()));
+        assert!(manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["path"] == "recipe.json" && file["sha256"] == expected_hash));
+        assert!(source.is_file());
         fs::remove_file(source).expect("se debe limpiar la fuente temporal");
     }
 

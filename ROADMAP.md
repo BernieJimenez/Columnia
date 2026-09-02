@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.137.0, la
+  I3/I5 conservan validaciones externas de plataforma. En v0.138.0, los
+  Bundles source-backed con receta activa mantienen la ejecución incremental:
+  DuckDB transfiere el dataset y agrega `recipe.json` validado, su referencia y
+  hash en `manifest.json` sin materializar el frame activo. En v0.137.0, la
   exportación source-backed también mantiene la ejecución incremental cuando
   se solicita protección `mask`/`hash`, generando un snapshot Parquet privado
   antes de transferir el resultado. En v0.136.0, la
@@ -42,7 +45,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.137.0`.
+- Versión actual del prototipo: `0.138.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1501,8 +1504,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   receta, privacidad adicional ni reglas de calidad no incrementales: DuckDB
   escribe `dataset.csv` desde la fuente, calcula los nulos del diccionario por
   agregación, y el paquete publica manifest y hashes junto con el reporte de
-  calidad incremental opcional. Excel, SQLite, recetas, privacidad adicional,
-  reglas no incrementales y la ejecución integral fuera de RAM siguen pendientes.
+  calidad incremental opcional. La versión 0.138.0 elimina la excepción de la
+  receta: un Bundle source-backed también conserva `recipe.json`, su referencia
+  y hash sin materializar; Excel, SQLite, reglas no incrementales y la
+  ejecución integral fuera de RAM siguen pendientes.
   La versión 0.114.0 añade un gate de marca retirada que inspecciona el árbol
   activo, incluyendo archivos no ignorados, y evita regresiones de nomenclatura
   en código y documentación; no reescribe el historial Git anterior.
@@ -2020,6 +2025,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.138.0 mantiene la exportación incremental de Bundles source-backed con receta activa; incorpora `recipe.json`, su referencia y hash en `manifest.json`, y conserva privacidad, calidad incremental, cancelación, atomicidad, validación de cambios y cleanup sin materializar el frame activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.137.0 mantiene la exportación source-backed con protección `mask`/`hash`: genera un snapshot privado en DuckDB y transfiere todos los destinos locales sin materializar el frame activo; conserva nulos, columnas no personales, validación de cambios, atomicidad y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.136.0 ejecuta la eliminación de duplicados parecidos y las correcciones recomendadas sobre fuentes source-backed con DuckDB; conserva claves normalizadas/exactas, repeticiones idénticas, trim, renombres, orden, conteos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.135.0 ejecuta las acciones directas IQR `cap`, `impute` y `drop` sobre fuentes source-backed con DuckDB; conserva cuantiles, límites, mediana, tipos, nulos, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

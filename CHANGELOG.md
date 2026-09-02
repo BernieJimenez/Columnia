@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.138.0] - 2026-09-01
+
+### Mejorado
+
+- Los Bundles source-backed con una receta activa conservan la ruta incremental:
+  DuckDB transfiere el dataset y el Bundle incorpora `recipe.json` validado,
+  su referencia y su hash en `manifest.json`, sin materializar el `DataFrame`
+  activo.
+- La combinación de privacidad `mask`/`hash`, contrato de calidad incremental y
+  receta de Bundle mantiene atomicidad, cancelación, validación de cambios de
+  la fuente y limpieza de snapshots temporales.
+
+### Verificado
+
+- Una regresión dedicada confirma que un Bundle source-backed con receta
+  conserva la fuente original y publica `recipe.json` con hash verificable.
+
 ## [0.137.0] - 2026-09-01
 
 ### Mejorado
