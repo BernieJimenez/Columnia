@@ -2463,6 +2463,7 @@ struct SourceBackedJoinContext {
     original_source_path: PathBuf,
     original_file_size_bytes: u64,
     history_directory: PathBuf,
+    snapshot_only: bool,
 }
 
 struct SourceBackedResultOutput<'a> {
@@ -4054,6 +4055,32 @@ fn source_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJoi
         original_source_path: dataset.source_path.clone()?,
         original_file_size_bytes: dataset.file_size_bytes,
         history_directory: dataset.history.directory.path().to_owned(),
+        snapshot_only: false,
+    })
+}
+
+fn snapshot_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJoinContext> {
+    if dataset.source_backed || !dataset.history.snapshots_enabled {
+        return None;
+    }
+    let current_entry = dataset.history.entries.get(dataset.history.cursor)?;
+    let (source_path, source_size_bytes, extension) =
+        validate_dataset_file(&current_entry.path).ok()?;
+    if extension != "parquet" {
+        return None;
+    }
+    Some(SourceBackedJoinContext {
+        source_path: source_path.clone(),
+        source_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+        source_size_bytes,
+        schema: dataset.frame.slice(0, 0),
+        file_name: dataset.file_name.clone(),
+        file_size_bytes: dataset.file_size_bytes,
+        row_count: dataset.row_count,
+        original_source_path: source_path,
+        original_file_size_bytes: source_size_bytes,
+        history_directory: dataset.history.directory.path().to_owned(),
+        snapshot_only: true,
     })
 }
 
@@ -8011,21 +8038,44 @@ fn publish_source_backed_result_output(
     output: SourceBackedResultOutput<'_>,
 ) -> Result<Option<DatasetPreview>, String> {
     let _output_guard = SourceBackedJoinOutputGuard::new(output.output_path);
-    let Some(original_source_path) = dataset.source_path.as_ref() else {
-        let _ = fs::remove_file(output.output_path);
-        return Err("La fuente source-backed ya no está disponible.".to_owned());
+    let original_source_path = if context.snapshot_only {
+        let Some(current_entry) = dataset.history.entries.get(dataset.history.cursor) else {
+            let _ = fs::remove_file(output.output_path);
+            return Err("El snapshot activo ya no está disponible.".to_owned());
+        };
+        let current_entry_path = fs::canonicalize(&current_entry.path)
+            .map_err(|_| "El snapshot activo ya no está disponible.".to_owned())?;
+        if current_entry_path != context.source_path {
+            let _ = fs::remove_file(output.output_path);
+            return Err(
+                "El dataset activo cambió durante la preparación source-backed.".to_owned(),
+            );
+        }
+        None
+    } else {
+        let Some(original_source_path) = dataset.source_path.as_ref() else {
+            let _ = fs::remove_file(output.output_path);
+            return Err("La fuente source-backed ya no está disponible.".to_owned());
+        };
+        if original_source_path != &context.original_source_path
+            || dataset.file_size_bytes != context.original_file_size_bytes
+        {
+            let _ = fs::remove_file(output.output_path);
+            return Err(
+                "El dataset activo cambió durante la preparación source-backed.".to_owned(),
+            );
+        }
+        Some(original_source_path)
     };
-    if original_source_path != &context.original_source_path
-        || dataset.file_size_bytes != context.original_file_size_bytes
-    {
-        let _ = fs::remove_file(output.output_path);
-        return Err("El dataset activo cambió durante la preparación source-backed.".to_owned());
-    }
 
-    let (_, original_source_size_before, _) = validate_dataset_file(original_source_path)?;
-    if original_source_size_before != context.original_file_size_bytes {
-        let _ = fs::remove_file(output.output_path);
-        return Err("El archivo source-backed cambió antes de aplicar la operación.".to_owned());
+    if let Some(original_source_path) = original_source_path {
+        let (_, original_source_size_before, _) = validate_dataset_file(original_source_path)?;
+        if original_source_size_before != context.original_file_size_bytes {
+            let _ = fs::remove_file(output.output_path);
+            return Err(
+                "El archivo source-backed cambió antes de aplicar la operación.".to_owned(),
+            );
+        }
     }
     let (_, source_size_before, _) = validate_dataset_file(&context.source_path)?;
     if source_size_before != context.source_size_bytes {
@@ -8060,10 +8110,12 @@ fn publish_source_backed_result_output(
         )?
     };
 
-    let (_, original_source_size_after, _) = validate_dataset_file(original_source_path)?;
+    let original_source_size_after = original_source_path
+        .map(|path| validate_dataset_file(path).map(|(_, size, _)| size))
+        .transpose()?;
     let (_, source_size_after, _) = validate_dataset_file(&context.source_path)?;
     let (_, compared_size_after, _) = validate_dataset_file(output.compared_path)?;
-    if original_source_size_after != context.original_file_size_bytes
+    if original_source_size_after.is_some_and(|size| size != context.original_file_size_bytes)
         || source_size_after != context.source_size_bytes
         || compared_size_after != output.compared_size_bytes
     {
@@ -8078,7 +8130,9 @@ fn publish_source_backed_result_output(
         &output_schema,
         &page,
     )?;
-    if !initialize_source_backed_history(dataset, &context.source_path, context.source_format)? {
+    if !context.snapshot_only
+        && !initialize_source_backed_history(dataset, &context.source_path, context.source_format)?
+    {
         let _ = fs::remove_file(output.output_path);
         return Ok(None);
     }
@@ -8099,12 +8153,12 @@ fn publish_source_backed_result_output(
         .map_err(|error| format!("No se pudo verificar el historial source-backed: {error}"))?
         .len();
     let _ = fs::remove_file(output.output_path);
-    dataset.source_path = Some(current_path);
+    dataset.source_path = (!context.snapshot_only).then_some(current_path);
     dataset.file_name = output.file_name.to_owned();
     dataset.file_size_bytes = current_size;
     dataset.row_count = output.output_row_count;
     dataset.frame = output_schema;
-    dataset.source_backed = true;
+    dataset.source_backed = !context.snapshot_only;
     dataset.history.source_snapshot_path = None;
     dataset.history.current_label = output.label.to_owned();
     dataset.profile = None;
@@ -21685,7 +21739,9 @@ pub async fn join_dataset(
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        current.as_ref().and_then(source_backed_join_context)
+        current.as_ref().and_then(|dataset| {
+            source_backed_join_context(dataset).or_else(|| snapshot_backed_join_context(dataset))
+        })
     };
     let (mut current_frame, current_file_name, current_file_size) =
         if let Some(context) = source_join_context.as_ref() {
@@ -36727,6 +36783,121 @@ mod tests {
         assert_eq!(restored.height(), 2);
         assert!(!output_path.exists());
         fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+        fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
+    }
+
+    #[test]
+    fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_active_rows() {
+        let compared_path = temporary_csv("id,segment\n2,B\n3,C\n");
+        let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
+            .expect("el esquema comparado debe leerse")
+            .expect("el CSV comparado debe ser source-backed");
+        let current_frame = df![
+            "id" => &["1", "2"],
+            "city" => &["Santo Domingo", "Santiago"]
+        ]
+        .expect("el dataset activo debe construirse");
+        let current_size_bytes = 128;
+        let history =
+            HistoryManager::new(&current_frame).expect("el historial durable debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: None,
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: current_size_bytes,
+            row_count: current_frame.height(),
+            frame: current_frame.clone(),
+            source_backed: false,
+            profile: None,
+            history,
+        };
+        let context = snapshot_backed_join_context(&dataset)
+            .expect("el cursor Parquet actual debe poder usarse como fuente");
+        assert!(context.snapshot_only);
+        assert!(matches!(
+            context.source_format,
+            crate::duckdb_query::DuckDbFileFormat::Parquet
+        ));
+        assert_eq!(context.schema.height(), 0);
+        assert_eq!(context.schema.width(), current_frame.width());
+        assert_eq!(context.row_count, current_frame.height());
+        assert_eq!(dataset.frame.height(), 2);
+
+        let (
+            joined_schema,
+            dataset_view_query,
+            output_query,
+            current_order_column,
+            compared_order_column,
+        ) = source_backed_join_plan(
+            &context.schema,
+            &compared_schema,
+            &["id".to_owned()],
+            DatasetJoinType::Full,
+            context.row_count,
+        )
+        .expect("el plan del JOIN debe validarse");
+        let temporary =
+            tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+                .expect("la salida temporal debe prepararse");
+        let output_path = temporary.path().to_owned();
+        drop(temporary);
+        let output_row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &context.source_path,
+                current_format: context.source_format,
+                compared_path: &compared_path,
+                compared_format,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+            },
+        )
+        .expect("el JOIN debe escribir el resultado Parquet");
+        assert_eq!(
+            joined_schema
+                .get_column_names()
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "city", "segment"]
+        );
+        let preview = publish_source_backed_result_output(
+            &mut dataset,
+            &context,
+            SourceBackedResultOutput {
+                compared_path: &compared_path,
+                compared_size_bytes: fs::metadata(&compared_path)
+                    .expect("la fuente comparada debe conservar sus metadatos")
+                    .len(),
+                output_path: &output_path,
+                output_row_count,
+                file_name: "Join full · current.csv + compared.csv",
+                label: "Unir datasets (full)",
+            },
+        )
+        .expect("el cursor del snapshot debe publicarse")
+        .expect("el historial debe permitir publicar el cursor");
+
+        assert_eq!(preview.row_count, 3);
+        assert_eq!(dataset.row_count, 3);
+        assert_eq!(dataset.frame.height(), 0);
+        assert!(!dataset.source_backed);
+        assert!(dataset.source_path.is_none());
+        assert!(dataset.history.snapshots_enabled);
+        assert_eq!(dataset.history.entries.len(), 2);
+        assert!(dataset.history.state().can_undo);
+        assert_eq!(
+            dataset
+                .history
+                .restore(0)
+                .expect("el dataset original debe poder restaurarse")
+                .height(),
+            2
+        );
+        assert!(!output_path.exists());
         fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
     }
 

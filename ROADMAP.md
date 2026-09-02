@@ -15,7 +15,11 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.154.0, las lecturas
+  I3/I5 conservan validaciones externas de plataforma. En v0.155.0, los JOIN
+  mutadores `INNER`/`LEFT`/`FULL` reutilizan desde DuckDB el snapshot Parquet
+  durable del cursor actual cuando el dataset ya está materializado, publican
+  una revisión reversible y evitan recargar todas las filas en el `DataFrame`.
+  En v0.154.0, las lecturas
   eager indirectas de comparación, historial y automatización pasan por la misma
   admisión de RAM antes de leer filas. En v0.153.0, la apertura
   de proyectos durables comprueba la guardia de RAM antes de leer `current.parquet`
@@ -97,7 +101,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.154.0`.
+- Versión actual del prototipo: `0.155.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1624,8 +1628,11 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   Cuando el historial está degradado, el dataset está intacto y la fuente original es CSV, TSV, TXT delimitado o Parquet, DuckDB ya
   puede leerla directamente desde disco; un `JOIN` puede combinarla con el
   snapshot Parquet de la comparación sin reserializar el activo. Si la fuente
-  cambió, desapareció, usa JSON/XLS/ODS o el dataset ya fue transformado, se
-  conserva el fallback materializado seguro.
+  cambió, desapareció, usa JSON/XLS/ODS o el dataset no conserva un snapshot
+  Parquet durable actual, se mantiene el fallback materializado seguro. Los
+  JOIN mutadores también reutilizan ese cursor Parquet cuando el dataset ya fue
+  transformado y el historial durable sigue disponible; publican la nueva
+  revisión sin recargar todas las filas del activo en el `DataFrame`.
   La paginación de conflictos sobre un snapshot Parquet comparado también
   recorre bloques de 16K, conserva un índice temporal global de claves para
   mantener la semántica de duplicados y retiene solo una página y un bloque de
@@ -2122,6 +2129,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.155.0 permite que los JOIN mutadores `INNER`/`LEFT`/`FULL` reutilicen el snapshot Parquet durable del cursor actual para datasets materializados; publica solo el resultado como nueva revisión reversible y conserva el fallback eager cuando no existe un snapshot compatible. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.154.0 centraliza la admisión de RAM en lecturas eager indirectas: fuentes de comparación incompatibles, snapshots Parquet comparados, undo/redo y automatización se rechazan antes de leer una expansión grande que no cabe, manteniendo la sesión activa sin cambios. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.153.0 aplica la guardia de materialización a snapshots durables: la apertura verifica el tamaño de `current.parquet` antes de leerlo completo y rechaza de forma segura una expansión que no cabe en la RAM disponible, sin reemplazar la sesión activa. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.152.0 añade una guardia de admisión para la materialización eager de fuentes source-backed grandes: estima la expansión, conserva una reserva de seguridad y rechaza con mensaje accionable si la RAM disponible no alcanza; las operaciones compatibles siguen source-backed. | `src-tauri/src/resource.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

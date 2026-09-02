@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.155.0] - 2026-09-02
+
+### Mejorado
+
+- Los JOIN mutadores `INNER`, `LEFT` y `FULL` pueden reutilizar desde DuckDB el
+  snapshot Parquet durable del cursor actual cuando el dataset activo ya está
+  materializado. El resultado se publica como una nueva revisión reversible sin
+  volver a cargar todas las filas en el `DataFrame`; si no hay snapshot
+  compatible, se conserva el fallback eager existente.
+
 ## [0.154.0] - 2026-09-02
 
 ### Mejorado
