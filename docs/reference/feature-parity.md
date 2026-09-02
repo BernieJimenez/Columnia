@@ -120,7 +120,7 @@ activo es source-backed, CSV/TSV/TXT delimitado se copia temporalmente a Parquet
 en disco y tanto ese snapshot como la comparación se recorren por bloques. La
 respuesta contiene únicamente la página de conflictos y sus valores necesarios;
 el frame activo no se materializa ni cambia de estado. Cuando la comparación
-completa tiene como máximo 2.048 conflictos y un esquema compatible, la
+completa tiene como máximo 8.192 conflictos y un esquema compatible, la
 resolución aplica las decisiones por fila o columna directamente en DuckDB,
 publica un Parquet reversible y limpia la comparación después de publicar. Si
 supera ese límite, falla la compatibilidad o no puede respetar el presupuesto,

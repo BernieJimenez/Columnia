@@ -6,6 +6,25 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.143.0] - 2026-09-01
+
+### Mejorado
+
+- La validación de decisiones source-backed recorre los conflictos por bloques
+  y conserva solo su forma (índice y columnas divergentes), sin construir en
+  memoria los valores de todos los conflictos. El límite seguro de la ruta
+  source-backed sube a 8.192 conflictos; las decisiones siguen admitiendo
+  selección por fila y por columna.
+- La paginación reutiliza el mismo colector de formas y mantiene el orden,
+  los valores visibles, la validación de duplicados y el fallback eager cuando
+  la entrada supera el presupuesto.
+
+### Verificado
+
+- La suite Rust mantiene 377 pruebas aprobadas y 1 ignorada. Se añade una
+  regresión que confirma que decisiones por encima del límite se difieren al
+  camino eager sin intentar leer ni publicar una salida source-backed.
+
 ## [0.142.0] - 2026-09-01
 
 ### Mejorado

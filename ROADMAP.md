@@ -15,11 +15,15 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.142.0, la
+  I3/I5 conservan validaciones externas de plataforma. En v0.143.0, la
+  validación de decisiones source-backed recorre conflictos por bloques y
+  conserva solo índices y columnas divergentes, sin materializar los valores
+  de todos los conflictos; el límite explícito sube a 8.192 y los casos fuera
+  de presupuesto mantienen fallback eager. En v0.142.0, la
   resolución source-backed acotada de conflictos por clave aplica decisiones
   por fila o columna directamente en DuckDB, publica un snapshot Parquet
-  reversible y mantiene el frame esquema-only; los casos fuera del límite o
-  incompatibles conservan fallback eager. En v0.141.0, la página
+  reversible y mantiene el frame esquema-only; los casos fuera de 2.048
+  conflictos o incompatibles conservan fallback eager. En v0.141.0, la página
   de conflictos por clave evita materializar el activo source-backed, recorre
   snapshots Parquet por bloques y conserva el frame esquema-only. En v0.140.0, la
   consolidación por claves entre un activo source-backed y el snapshot Parquet
@@ -60,7 +64,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.142.0`.
+- Versión actual del prototipo: `0.143.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1489,13 +1493,14 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; esto
   habilita la expansión fuera de RAM de los planes compatibles, pero aún
   requiere benchmark sostenido y validación con datasets reales grandes.
-  La versión 0.142.0 amplía la resolución de conflictos por clave para activos
-  source-backed: cuando la comparación completa cabe en 2.048 conflictos,
-  DuckDB aplica decisiones por fila o por columna sobre snapshots Parquet,
-  publica un resultado reversible y conserva el frame esquema-only; la
-  validación de integridad, duplicados, orden y cambios precede a la publicación.
-  Los casos fuera de presupuesto o incompatibles mantienen fallback eager. La
-  versión 0.141.0 evita materializar el dataset activo al abrir la página de
+  La versión 0.143.0 amplía la resolución source-backed de conflictos por clave:
+  valida por bloques solo índices y columnas divergentes, sin materializar los
+  valores de todos los conflictos, y eleva el límite explícito a 8.192. La
+  versión 0.142.0 amplía la resolución para activos source-backed cuando la
+  comparación completa cabe en 2.048 conflictos; DuckDB aplica decisiones por
+  fila o por columna sobre snapshots Parquet, publica un resultado reversible y
+  conserva el frame esquema-only. Los casos fuera de presupuesto o incompatibles
+  mantienen fallback eager. La versión 0.141.0 evita materializar el dataset activo al abrir la página de
   conflictos: genera o reutiliza una fuente Parquet temporal, calcula los
   conflictos por bloques y conserva esquema-only. La versión 0.140.0 amplía la consolidación
   multidataset: cuando el activo
@@ -2064,6 +2069,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.143.0 valida decisiones source-backed recorriendo conflictos por bloques y reteniendo solo índices y columnas divergentes; eleva el límite explícito a 8.192, conserva el fallback eager para entradas mayores y mantiene orden, publicación reversible, integridad y cleanup. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.142.0 resuelve conflictos source-backed acotados por fila o columna directamente en DuckDB: publica un snapshot Parquet reversible, conserva orden y frame esquema-only, valida fuentes y limpia la comparación después de publicar; los casos fuera de 2.048 conflictos o incompatibles mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.141.0 evita la materialización del activo source-backed al paginar conflictos por clave: genera un snapshot Parquet temporal solo cuando hace falta, procesa bloques y conserva integridad, orden, valores agregados y frame esquema-only; la resolución completa queda cubierta por v0.142.0. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.140.0 ejecuta la consolidación por claves entre activos source-backed y snapshots Parquet comparados directamente en DuckDB; valida duplicados/conflictos antes de escribir, publica solo las claves nuevas, conserva orden, fuentes, nombre visible e historial reversible y mantiene fallback eager para formatos incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

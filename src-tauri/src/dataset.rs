@@ -121,7 +121,9 @@ const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
 const SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR: &str =
     "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar.";
-const SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS: usize = 2_048;
+const SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS: usize = 8_192;
+const SOURCE_BACKED_RESOLUTION_LIMIT_REACHED: &str =
+    "La resolución source-backed superó su límite seguro.";
 const LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_MAX_GROUP_COLUMNS: usize = 8;
 const LOCAL_QUERY_MAX_JOIN_COLUMNS: usize = 8;
@@ -550,6 +552,8 @@ pub enum ConflictSource {
     Current,
     Compared,
 }
+
+type ConflictChoiceMap = HashMap<(usize, Option<String>), ConflictSource>;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -8325,24 +8329,18 @@ fn resolve_source_backed_conflicts(
         .filter(|name| compared_schema.get_column_index(name).is_some())
         .map(|name| name.to_string())
         .collect::<Vec<_>>();
-    let (conflicts, has_next) = collect_key_conflicts_page_between_parquet(
-        ParquetComparisonSource {
-            path: &current_path,
-            row_count: current_row_count,
-        },
-        ParquetComparisonSource {
-            path: &compared_path,
-            row_count: compared_row_count,
-        },
+    let Some(choices) = validate_source_backed_conflict_decisions(
+        &current_path,
+        current_row_count,
+        &compared_path,
+        compared_row_count,
         &key_columns,
         &shared_columns,
-        0,
-        SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS,
-    )?;
-    if has_next {
+        &decisions,
+    )?
+    else {
         return Ok(None);
-    }
-    let choices = validate_conflict_decisions(&conflicts, &decisions)?;
+    };
     let (dataset_view_query, output_query, current_order_column, compared_order_column) =
         source_backed_conflict_resolution_plan(
             &current_schema,
@@ -19742,32 +19740,24 @@ struct KeyConflictRows {
     conflict: DatasetConflict,
 }
 
-fn build_key_conflict(
+struct KeyConflictShape {
+    columns: Vec<String>,
+}
+
+fn build_key_conflict_shape(
     current: &DataFrame,
     compared: &DataFrame,
-    key_columns: &[String],
     shared_payload_columns: &[String],
     current_row_index: usize,
     compared_row_index: usize,
-) -> Result<Option<KeyConflictRows>, String> {
+) -> Result<Option<KeyConflictShape>, String> {
     let current_payload = row_signature(current, shared_payload_columns, current_row_index)?;
     let compared_payload = row_signature(compared, shared_payload_columns, compared_row_index)?;
     if current_payload == compared_payload {
         return Ok(None);
     }
 
-    let key = key_columns
-        .iter()
-        .map(|column| {
-            current
-                .column(column)
-                .map_err(|error| format!("No se pudo leer la clave '{column}': {error}"))?
-                .get(current_row_index)
-                .map_err(|error| format!("No se pudo leer la fila en conflicto: {error}"))
-                .map(preview_value)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let cells = shared_payload_columns
+    let columns = shared_payload_columns
         .iter()
         .map(|column| {
             let current_value = current
@@ -19787,20 +19777,89 @@ fn build_key_conflict(
         .collect::<Result<Vec<_>, String>>()?
         .into_iter()
         .filter(|(_, current_value, compared_value)| current_value != compared_value)
-        .map(|(column, current, compared)| DatasetConflictCell {
-            column,
-            current,
-            compared,
-        })
+        .map(|(column, _, _)| column)
         .collect::<Vec<_>>();
-    if cells.is_empty() {
+    if columns.is_empty() {
         return Ok(None);
     }
-    Ok(Some(KeyConflictRows {
+    Ok(Some(KeyConflictShape { columns }))
+}
+
+fn build_key_conflict_from_shape(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shape: KeyConflictShape,
+    current_row_index: usize,
+    compared_row_index: usize,
+) -> Result<KeyConflictRows, String> {
+    let key = key_columns
+        .iter()
+        .map(|column| {
+            current
+                .column(column)
+                .map_err(|error| format!("No se pudo leer la clave '{column}': {error}"))?
+                .get(current_row_index)
+                .map_err(|error| format!("No se pudo leer la fila en conflicto: {error}"))
+                .map(preview_value)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let cells = shape
+        .columns
+        .into_iter()
+        .map(|column| {
+            let current_value = current
+                .column(&column)
+                .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+                .get(current_row_index)
+                .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
+                .map(preview_value)?;
+            let compared_value = compared
+                .column(&column)
+                .map_err(|error| format!("No se pudo leer la columna '{column}': {error}"))?
+                .get(compared_row_index)
+                .map_err(|error| format!("No se pudo leer el valor en conflicto: {error}"))
+                .map(preview_value)?;
+            Ok(DatasetConflictCell {
+                column,
+                current: current_value,
+                compared: compared_value,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(KeyConflictRows {
         current_row_index,
         compared_row_index,
         conflict: DatasetConflict { key, cells },
-    }))
+    })
+}
+
+fn build_key_conflict(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_payload_columns: &[String],
+    current_row_index: usize,
+    compared_row_index: usize,
+) -> Result<Option<KeyConflictRows>, String> {
+    let Some(shape) = build_key_conflict_shape(
+        current,
+        compared,
+        shared_payload_columns,
+        current_row_index,
+        compared_row_index,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(build_key_conflict_from_shape(
+        current,
+        compared,
+        key_columns,
+        shape,
+        current_row_index,
+        compared_row_index,
+    )?))
 }
 
 fn collect_key_conflicts_page(
@@ -20108,14 +20167,26 @@ fn collect_key_conflicts_page_from_parquet(
     Ok((conflicts, total > page_end))
 }
 
-fn collect_key_conflicts_page_between_parquet(
+fn for_each_key_conflict_between_parquet<F>(
     current: ParquetComparisonSource<'_>,
     compared: ParquetComparisonSource<'_>,
     key_columns: &[String],
     shared_columns: &[String],
-    offset: usize,
-    limit: usize,
-) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    max_conflicts: Option<usize>,
+    mut visit: F,
+) -> Result<usize, String>
+where
+    F: FnMut(
+        usize,
+        &DataFrame,
+        usize,
+        &DataFrame,
+        usize,
+        usize,
+        usize,
+        KeyConflictShape,
+    ) -> Result<(), String>,
+{
     let current_schema = read_parquet_schema_frame(current.path)?;
     let compared_schema = read_parquet_schema_frame(compared.path)?;
     validate_key_columns(&current_schema, &compared_schema, key_columns)?;
@@ -20125,7 +20196,7 @@ fn collect_key_conflicts_page_between_parquet(
         .cloned()
         .collect::<Vec<_>>();
     if shared_payload_columns.is_empty() {
-        return Ok((Vec::new(), false));
+        return Ok(0);
     }
 
     let current_rows = spill_parquet_key_payload_rows(
@@ -20198,7 +20269,6 @@ fn collect_key_conflicts_page_between_parquet(
         .seek(SeekFrom::Start(0))
         .map_err(|error| format!("No se pudo leer el índice temporal de conflictos: {error}"))?;
     let mut marker_reader = BufReader::new(conflict_markers);
-    let mut conflicts = Vec::new();
     let mut total = 0usize;
     let mut cached_compared_start = None;
     let mut cached_compared = None;
@@ -20252,25 +20322,79 @@ fn collect_key_conflicts_page_between_parquet(
                 .as_ref()
                 .ok_or_else(|| "No se pudo conservar el bloque del conflicto.".to_owned())?;
             let compared_row_in_block = compared_row_index - compared_start;
-            if let Some(mut conflict) = build_key_conflict(
+            let Some(shape) = build_key_conflict_shape(
                 current_block,
                 compared_block,
-                key_columns,
                 &shared_payload_columns,
                 current_row_in_block,
                 compared_row_in_block,
-            )? {
-                conflict.current_row_index = current_row_index;
-                conflict.compared_row_index = compared_row_index;
-                let conflict_index = total;
-                total = total.saturating_add(1);
-                if conflict_index >= offset && conflicts.len() < limit {
-                    conflicts.push(conflict);
-                }
+            )?
+            else {
+                continue;
+            };
+            if max_conflicts.is_some_and(|limit| total >= limit) {
+                return Err(SOURCE_BACKED_RESOLUTION_LIMIT_REACHED.to_owned());
             }
+            let conflict_index = total;
+            total = total
+                .checked_add(1)
+                .ok_or_else(|| "El índice de conflictos supera la capacidad local.".to_owned())?;
+            visit(
+                conflict_index,
+                current_block,
+                current_row_in_block,
+                compared_block,
+                compared_row_in_block,
+                current_row_index,
+                compared_row_index,
+                shape,
+            )?;
         }
         Ok(())
     })?;
+    Ok(total)
+}
+
+fn collect_key_conflicts_page_between_parquet(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    key_columns: &[String],
+    shared_columns: &[String],
+    offset: usize,
+    limit: usize,
+) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    let mut conflicts = Vec::new();
+    let total = for_each_key_conflict_between_parquet(
+        current,
+        compared,
+        key_columns,
+        shared_columns,
+        None,
+        |conflict_index,
+         current_block,
+         current_row_in_block,
+         compared_block,
+         compared_row_in_block,
+         current_row_index,
+         compared_row_index,
+         shape| {
+            if conflict_index < offset || conflicts.len() >= limit {
+                return Ok(());
+            }
+            let mut conflict = build_key_conflict_from_shape(
+                current_block,
+                compared_block,
+                key_columns,
+                shape,
+                current_row_in_block,
+                compared_row_in_block,
+            )?;
+            conflict.current_row_index = current_row_index;
+            conflict.compared_row_index = compared_row_index;
+            conflicts.push(conflict);
+            Ok(())
+        },
+    )?;
     let page_end = offset.saturating_add(conflicts.len());
     Ok((conflicts, total > page_end))
 }
@@ -21433,7 +21557,7 @@ pub async fn join_dataset(
 fn validate_conflict_decisions(
     conflicts: &[KeyConflictRows],
     decisions: &[ConflictResolution],
-) -> Result<HashMap<(usize, Option<String>), ConflictSource>, String> {
+) -> Result<ConflictChoiceMap, String> {
     let mut choices = HashMap::new();
     for decision in decisions {
         let Some(conflict) = conflicts.get(decision.conflict_index) else {
@@ -21507,11 +21631,121 @@ fn validate_conflict_decisions(
     Ok(choices)
 }
 
+fn validate_source_backed_conflict_decisions(
+    current_path: &Path,
+    current_row_count: usize,
+    compared_path: &Path,
+    compared_row_count: usize,
+    key_columns: &[String],
+    shared_columns: &[String],
+    decisions: &[ConflictResolution],
+) -> Result<Option<ConflictChoiceMap>, String> {
+    if decisions.len() > SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS {
+        return Ok(None);
+    }
+
+    let mut choices = ConflictChoiceMap::new();
+    let mut choices_by_conflict = HashMap::<usize, HashMap<Option<String>, ConflictSource>>::new();
+    for decision in decisions {
+        let choice_key = (decision.conflict_index, decision.column.clone());
+        if choices
+            .insert(choice_key.clone(), decision.source)
+            .is_some()
+        {
+            return Err(
+                "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
+            );
+        }
+        if choices_by_conflict
+            .entry(decision.conflict_index)
+            .or_default()
+            .insert(decision.column.clone(), decision.source)
+            .is_some()
+        {
+            return Err(
+                "La selección de resolución contiene conflictos repetidos o inválidos.".to_owned(),
+            );
+        }
+    }
+
+    match for_each_key_conflict_between_parquet(
+        ParquetComparisonSource {
+            path: current_path,
+            row_count: current_row_count,
+        },
+        ParquetComparisonSource {
+            path: compared_path,
+            row_count: compared_row_count,
+        },
+        key_columns,
+        shared_columns,
+        Some(SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS),
+        |conflict_index,
+         _current_block,
+         _current_row_in_block,
+         _compared_block,
+         _compared_row_in_block,
+         _current_row_index,
+         _compared_row_index,
+         shape| {
+            let conflict_choices =
+                choices_by_conflict.remove(&conflict_index).ok_or_else(|| {
+                    "Debes elegir un origen para cada conflicto detectado.".to_owned()
+                })?;
+            for column in conflict_choices.keys().filter_map(|column| column.as_ref()) {
+                if !shape.columns.iter().any(|expected| expected == column) {
+                    return Err(format!(
+                        "La columna '{column}' no pertenece al conflicto seleccionado."
+                    ));
+                }
+            }
+            let uses_columns = conflict_choices.keys().any(Option::is_some);
+            if conflict_choices
+                .keys()
+                .any(|column| column.is_some() != uses_columns)
+            {
+                return Err(
+                    "Cada conflicto debe resolverse por fila completa o por todas sus columnas."
+                        .to_owned(),
+                );
+            }
+            if uses_columns {
+                let selected_columns = conflict_choices
+                    .keys()
+                    .filter_map(Option::as_deref)
+                    .collect::<HashSet<_>>();
+                let expected_columns = shape
+                    .columns
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<HashSet<_>>();
+                if selected_columns != expected_columns {
+                    return Err(
+                        "Faltan decisiones de columna para alguno de los conflictos visibles."
+                            .to_owned(),
+                    );
+                }
+            } else if conflict_choices.len() != 1 {
+                return Err("Debes elegir un origen para cada conflicto detectado.".to_owned());
+            }
+            Ok(())
+        },
+    ) {
+        Ok(_) => {}
+        Err(error) if error == SOURCE_BACKED_RESOLUTION_LIMIT_REACHED => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    if !choices_by_conflict.is_empty() {
+        return Err("La selección de resolución contiene conflictos inválidos.".to_owned());
+    }
+    Ok(Some(choices))
+}
+
 fn source_backed_conflict_resolution_plan(
     current: &DataFrame,
     compared: &DataFrame,
     key_columns: &[String],
-    choices: &HashMap<(usize, Option<String>), ConflictSource>,
+    choices: &ConflictChoiceMap,
 ) -> Result<(String, String, String, String), String> {
     if current.get_column_names() != compared.get_column_names()
         || current
@@ -36220,6 +36454,28 @@ mod tests {
         assert!(current_path.is_file());
         assert!(!compared_path.exists());
         fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+    }
+
+    #[test]
+    fn source_backed_conflict_resolution_defers_oversized_decisions_to_the_eager_path() {
+        let decisions = (0..=SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS)
+            .map(|conflict_index| ConflictResolution {
+                conflict_index,
+                column: None,
+                source: ConflictSource::Current,
+            })
+            .collect::<Vec<_>>();
+        let result = validate_source_backed_conflict_decisions(
+            Path::new("missing-current.parquet"),
+            0,
+            Path::new("missing-compared.parquet"),
+            0,
+            &[],
+            &[],
+            &decisions,
+        )
+        .expect("las decisiones fuera de presupuesto deben conservar fallback");
+        assert!(result.is_none());
     }
 
     fn write_duckdb_join_benchmark_csv(path: &Path, target_bytes: u64) -> (usize, u64) {
