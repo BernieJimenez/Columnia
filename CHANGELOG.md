@@ -6,6 +6,26 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.136.0] - 2026-09-01
+
+### Mejorado
+
+- `Eliminar filas duplicadas parecidas` ya puede calcular sus claves
+  normalizadas y exactas directamente en DuckDB sobre fuentes source-backed,
+  conservando la primera fila, las repeticiones exactas y el orden original
+  sin materializar todas las filas en el `DataFrame` activo.
+- `Aplicar correcciones recomendadas` ya combina el recorte de espacios y la
+  normalización determinista de nombres en una sola proyección source-backed,
+  con conteos exactos de celdas y publicación reversible.
+- Ambas rutas conservan fallback eager para fuentes incompatibles y dejan el
+  frame activo en modo esquema-only cuando publican un snapshot Parquet.
+
+### Verificado
+
+- Las regresiones comparan duplicados parecidos y correcciones recomendadas
+  source-backed con eager, incluyendo repeticiones exactas, renombres, trim,
+  conteos, orden y snapshot publicado.
+
 ## [0.135.0] - 2026-09-01
 
 ### Mejorado

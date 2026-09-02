@@ -15,7 +15,9 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.135.0, las
+  I3/I5 conservan validaciones externas de plataforma. En v0.136.0, la
+  eliminación de duplicados parecidos y las correcciones recomendadas también
+  usan DuckDB source-backed con snapshots reversibles. En v0.135.0, las
   acciones directas IQR de outliers (`cap`, `impute`, `drop`) también usan
   DuckDB source-backed con conteos exactos y snapshots reversibles. En v0.134.0, las
   imputaciones conservadora y categórica también usan DuckDB source-backed
@@ -37,7 +39,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.135.0`.
+- Versión actual del prototipo: `0.136.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1623,6 +1625,10 @@ comparación no equivale a ejecución fuera de memoria general. La
    outliers `cap`, `impute` y `drop` calculan cuantiles, límites y reemplazos
    en DuckDB, cuentan filas/celdas afectadas y publican snapshots reversibles
    sin llenar el frame activo; las fuentes incompatibles conservan fallback.
+   Desde v0.136, la eliminación de duplicados parecidos conserva repeticiones
+   exactas, la primera aparición de cada clave normalizada y el orden original
+   directamente en DuckDB; las correcciones recomendadas combinan trim y
+   renombres en una sola proyección source-backed.
    `keep_columns` también puede proyectar dentro de
   una receta lazy/streaming y comprueba dependencias calculadas antes de
   materializar. La búsqueda/reemplazo literal sobre texto también cuenta sus
@@ -2007,6 +2013,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.136.0 ejecuta la eliminación de duplicados parecidos y las correcciones recomendadas sobre fuentes source-backed con DuckDB; conserva claves normalizadas/exactas, repeticiones idénticas, trim, renombres, orden, conteos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.135.0 ejecuta las acciones directas IQR `cap`, `impute` y `drop` sobre fuentes source-backed con DuckDB; conserva cuantiles, límites, mediana, tipos, nulos, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.134.0 ejecuta las imputaciones conservadora y categórica sobre fuentes source-backed con DuckDB; conserva moda/mediana de la ruta eager, `Desconocido`, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.133.0 ejecuta la conversión numérica y la interpretación de fechas detectadas sobre fuentes source-backed con DuckDB; conserva las reglas eager de seguridad, conteos exactos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

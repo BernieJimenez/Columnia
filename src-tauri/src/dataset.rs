@@ -7427,6 +7427,72 @@ fn source_backed_duplicate_query(schema: &DataFrame, projection: &str) -> Result
     ))
 }
 
+fn source_backed_near_duplicate_query(
+    schema: &DataFrame,
+    projection: &str,
+) -> Result<String, String> {
+    if schema.width() == 0 {
+        return Err("La fuente source-backed no contiene columnas utilizables.".to_owned());
+    }
+    let schema_names = schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<Vec<_>>();
+    let mut used = HashSet::new();
+    let mut internal_name = |base: &str| {
+        let mut candidate = base.to_owned();
+        while schema_names.iter().any(|name| *name == candidate) || used.contains(&candidate) {
+            candidate.push('_');
+        }
+        used.insert(candidate.clone());
+        candidate
+    };
+    let order_name = internal_name("__columnia_near_order");
+    let normalized_name = internal_name("__columnia_near_normalized");
+    let exact_name = internal_name("__columnia_near_exact");
+    let normalized_rank_name = internal_name("__columnia_near_normalized_rank");
+    let exact_rank_name = internal_name("__columnia_near_exact_rank");
+    let normalized_components = schema
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            let normalized = source_backed_normalized_text_expression(&identifier, true);
+            format!(
+                "CASE WHEN {identifier} IS NULL THEN '0' ELSE concat('1', CAST(length({normalized}) AS VARCHAR), ':', {normalized}) END"
+            )
+        })
+        .collect::<Vec<_>>();
+    let exact_components = schema
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            let raw = format!("CAST({identifier} AS VARCHAR)");
+            format!(
+                "CASE WHEN {identifier} IS NULL THEN '0' ELSE concat('1', CAST(length({raw}) AS VARCHAR), ':', {raw}) END"
+            )
+        })
+        .collect::<Vec<_>>();
+    let order = duckdb_identifier(&order_name);
+    let normalized = duckdb_identifier(&normalized_name);
+    let exact = duckdb_identifier(&exact_name);
+    let normalized_rank = duckdb_identifier(&normalized_rank_name);
+    let exact_rank = duckdb_identifier(&exact_rank_name);
+    let normalized_key = format!("concat({})", normalized_components.join(", "));
+    let exact_key = format!("concat({})", exact_components.join(", "));
+    let keyed = format!(
+        "SELECT dataset.*, ROW_NUMBER() OVER () AS {order}, {normalized_key} AS {normalized}, {exact_key} AS {exact} FROM dataset"
+    );
+    let ranked = format!(
+        "SELECT *, ROW_NUMBER() OVER (PARTITION BY {normalized} ORDER BY {order}) AS {normalized_rank}, ROW_NUMBER() OVER (PARTITION BY {normalized}, {exact} ORDER BY {order}) AS {exact_rank} FROM ({keyed}) AS keyed"
+    );
+    Ok(format!(
+        "SELECT {projection} FROM ({ranked}) AS ranked WHERE {normalized_rank} = 1 OR {exact_rank} > 1 ORDER BY {order}"
+    ))
+}
+
 fn initialize_source_backed_history(
     dataset: &mut LoadedDataset,
     source_path: &Path,
@@ -7726,6 +7792,25 @@ fn remove_duplicates_source_backed(
         source_format,
         &query,
         "Eliminar filas duplicadas",
+        false,
+    )
+}
+
+fn remove_near_duplicates_source_backed(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<DatasetMutation>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let projection =
+        source_backed_empty_row_projection(&dataset.frame, "Eliminar filas duplicadas parecidas")?;
+    let query = source_backed_near_duplicate_query(&dataset.frame, &projection)?;
+    publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Eliminar filas duplicadas parecidas",
         false,
     )
 }
@@ -8954,6 +9039,92 @@ fn source_backed_direct_outlier(
         affected_row_count,
         changed_cell_count,
         changed_columns,
+    }))
+}
+
+fn source_backed_safe_corrections(
+    dataset: &mut LoadedDataset,
+) -> Result<Option<SafeCorrectionsResult>, String> {
+    let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
+        return Ok(None);
+    };
+    let (names, renames) = normalized_column_names(&dataset.frame);
+    let trim_expressions = dataset
+        .frame
+        .columns()
+        .iter()
+        .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
+        .map(|column| {
+            let name = column.name().to_string();
+            let expression =
+                source_backed_text_expression(&duckdb_identifier(&name), TextCleaningMode::Trim)
+                    .expect("el modo Trim tiene expresión source-backed");
+            (name, expression)
+        })
+        .collect::<Vec<_>>();
+    let (affected_row_count, changed_counts) = if trim_expressions.is_empty() {
+        (0, Vec::new())
+    } else {
+        match crate::duckdb_query::count_file_expression_changes(
+            &source_path,
+            source_format,
+            &trim_expressions,
+            || false,
+        ) {
+            Ok(counts) => counts,
+            Err(_) => return Ok(None),
+        }
+    };
+    let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
+    if changed_cell_count == 0 && renames.is_empty() {
+        return Ok(Some(SafeCorrectionsResult {
+            dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
+            changed_cell_count: 0,
+            affected_row_count: 0,
+            renamed_column_count: 0,
+            renames,
+        }));
+    }
+
+    let projection = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .zip(&names)
+        .map(|(original, renamed)| {
+            let source = duckdb_identifier(original);
+            let destination = duckdb_identifier(renamed);
+            if let Some((_, expression)) = trim_expressions
+                .iter()
+                .find(|(name, _)| name == original.as_str())
+            {
+                format!("{expression} AS {destination}")
+            } else if original.as_str() == renamed {
+                source
+            } else {
+                format!("{source} AS {destination}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!("SELECT {projection} FROM dataset");
+    let Some(mutation) = publish_source_backed_query(
+        dataset,
+        &source_path,
+        source_format,
+        &query,
+        "Aplicar correcciones recomendadas",
+        true,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(SafeCorrectionsResult {
+        dataset: mutation.dataset,
+        changed_cell_count,
+        affected_row_count,
+        renamed_column_count: renames.len(),
+        renames,
     }))
 }
 
@@ -21967,6 +22138,11 @@ pub async fn remove_near_duplicates(app: AppHandle) -> Result<DatasetMutation, S
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = remove_near_duplicates_source_backed(dataset)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
         let (cleaned, affected_row_count) = remove_near_duplicate_rows(&dataset.frame)?;
 
@@ -22679,6 +22855,11 @@ pub async fn apply_safe_corrections(app: AppHandle) -> Result<SafeCorrectionsRes
         let dataset = current.as_mut().ok_or_else(|| {
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
+        if dataset.source_backed {
+            if let Some(result) = source_backed_safe_corrections(dataset)? {
+                return Ok(result);
+            }
+        }
         materialize_loaded_dataset(dataset)?;
 
         let (candidate, affected_row_count, changed_cell_count, renames) =
@@ -30885,6 +31066,93 @@ mod tests {
             .get_column_names()
             .iter()
             .any(|name| name.as_str() == "empty"));
+    }
+
+    #[test]
+    fn source_backed_near_duplicate_cleanup_matches_eager_and_preserves_exact_repeats() {
+        let path = temporary_csv(
+            "name,city,amount\nAna,Santo Domingo,1\n ana , santo   domingo ,1\nAna,Santo Domingo,1\nLuis,Santiago,2\nluis,Santiago,2\nMarta,Santiago,3\n",
+        );
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "near-duplicates.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let (expected, expected_removed) =
+            remove_near_duplicate_rows(&source_frame).expect("la ruta eager debe procesarse");
+
+        let mutation = remove_near_duplicates_source_backed(&mut dataset)
+            .expect("la limpieza source-backed debe procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(mutation.affected_row_count, expected_removed);
+        assert_eq!(mutation.dataset.row_count, expected.height());
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la limpieza debe conservar el snapshot actual");
+        let output = read_parquet_frame(output_path).expect("el resultado debe ser legible");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(output.height(), 4);
+        assert_eq!(
+            output.column("name").unwrap().str().unwrap().get(2),
+            Some("Luis")
+        );
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_safe_corrections_combine_trim_and_renames() {
+        let path = temporary_csv("Año Venta,city\n1,\" Bogotá \"\n2,\" Santo Domingo \"\n");
+        let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+        let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "safe-corrections.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+        let (expected, expected_rows, expected_cells, expected_renames) =
+            safe_corrected_frame(&source_frame).expect("la ruta eager debe procesarse");
+
+        let result = source_backed_safe_corrections(&mut dataset)
+            .expect("las correcciones source-backed deben procesarse")
+            .expect("la fuente debe ser compatible");
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(result.dataset.row_count, expected.height());
+        assert_eq!(result.affected_row_count, expected_rows);
+        assert_eq!(result.changed_cell_count, expected_cells);
+        assert_eq!(result.renames, expected_renames);
+        let output_path = dataset
+            .source_path
+            .as_deref()
+            .expect("las correcciones deben conservar el snapshot actual");
+        let output = read_parquet_frame(output_path).expect("el resultado debe ser legible");
+        assert!(output.equals_missing(&expected));
+        assert_eq!(
+            output.column("city").unwrap().str().unwrap().get(0),
+            Some("Bogotá")
+        );
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
     #[test]
