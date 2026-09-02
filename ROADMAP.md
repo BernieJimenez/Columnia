@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.151.0, la corrección
+  I3/I5 conservan validaciones externas de plataforma. En v0.152.0, los fallbacks
+  eager que necesitan materializar fuentes source-backed grandes pasan por una
+  guardia de RAM disponible con reserva de seguridad y error accionable. En
+  v0.151.0, la corrección
   source-backed de codificación repara secuencias mojibake inequívocas sin
   materializar el frame y conserva fallback eager ante valores ambiguos. En
   v0.150.0, la limpieza
@@ -90,7 +93,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.151.0`.
+- Versión actual del prototipo: `0.152.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2115,6 +2118,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.152.0 añade una guardia de admisión para la materialización eager de fuentes source-backed grandes: estima la expansión, conserva una reserva de seguridad y rechaza con mensaje accionable si la RAM disponible no alcanza; las operaciones compatibles siguen source-backed. | `src-tauri/src/resource.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.151.0 extiende `Corregir codificación UTF-8` a fuentes source-backed: DuckDB repara secuencias mojibake inequívocas, publica snapshots reversibles, conserva el frame activo esquema-only y deriva al fallback eager cuando el valor no es demostrablemente seguro. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.150.0 extiende la limpieza source-backed a `Apartar tipos incompatibles`: DuckDB infiere booleanos, enteros, decimales y fechas sobre la fuente/snapshot efectivo, aplica el umbral eager del 90 %, conserva ceros iniciales como identificadores, publica snapshots reversibles y deja el frame activo esquema-only; los casos incompatibles mantienen fallback materializado. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.149.0 corrige recetas ISO source-backed encadenadas: la validación usa el snapshot Parquet efectivo tras filtros previos y conserva la ejecución incremental sin materializar el frame activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |

@@ -138,6 +138,9 @@ const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
 const LOCAL_QUERY_CANCEL_CHECK_ROWS: usize = 4096;
 const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
+const MATERIALIZATION_GUARD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
+const MATERIALIZATION_ESTIMATE_MULTIPLIER: u64 = 4;
+const MATERIALIZATION_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
 const SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR: &str =
     "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar.";
 const SOURCE_BACKED_RESOLUTION_MAX_CONFLICTS: usize = 8_192;
@@ -12476,6 +12479,7 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     if !dataset.source_backed {
         return Ok(());
     }
+    ensure_source_backed_materialization_budget(dataset.file_size_bytes)?;
     let path = dataset
         .source_path
         .as_deref()
@@ -12501,6 +12505,37 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
     }
     dataset.frame = frame;
     dataset.source_backed = false;
+    Ok(())
+}
+
+fn source_backed_materialization_budget_error(
+    file_size_bytes: u64,
+    available_memory_bytes: u64,
+) -> Option<String> {
+    if file_size_bytes < MATERIALIZATION_GUARD_THRESHOLD_BYTES {
+        return None;
+    }
+    let estimated_bytes = file_size_bytes
+        .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
+        .saturating_add(MATERIALIZATION_RESERVE_BYTES);
+    (available_memory_bytes < estimated_bytes).then(|| {
+        format!(
+            "La operación requiere materializar una fuente grande (aprox. {} MiB), pero solo hay {} MiB de RAM disponible. Usa una operación source-backed compatible o libera memoria antes de continuar.",
+            estimated_bytes / 1024 / 1024,
+            available_memory_bytes / 1024 / 1024,
+        )
+    })
+}
+
+fn ensure_source_backed_materialization_budget(file_size_bytes: u64) -> Result<(), String> {
+    let Some(available_memory_bytes) = crate::resource::available_memory_bytes() else {
+        return Ok(());
+    };
+    if let Some(error) =
+        source_backed_materialization_budget_error(file_size_bytes, available_memory_bytes)
+    {
+        return Err(error);
+    }
     Ok(())
 }
 
@@ -35262,6 +35297,39 @@ mod tests {
             Some("Santo Domingo".to_owned())
         );
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn large_source_backed_materialization_requires_available_memory_budget() {
+        let required = MATERIALIZATION_GUARD_THRESHOLD_BYTES
+            .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
+            .saturating_add(MATERIALIZATION_RESERVE_BYTES);
+        let error = source_backed_materialization_budget_error(
+            MATERIALIZATION_GUARD_THRESHOLD_BYTES,
+            required.saturating_sub(1),
+        )
+        .expect("la materialización grande debe rechazar RAM insuficiente");
+
+        assert!(error.contains("materializar una fuente grande"));
+        assert!(error.contains("RAM disponible"));
+    }
+
+    #[test]
+    fn materialization_budget_does_not_block_small_sources_or_exact_capacity() {
+        assert!(source_backed_materialization_budget_error(
+            MATERIALIZATION_GUARD_THRESHOLD_BYTES.saturating_sub(1),
+            1,
+        )
+        .is_none());
+
+        let required = MATERIALIZATION_GUARD_THRESHOLD_BYTES
+            .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
+            .saturating_add(MATERIALIZATION_RESERVE_BYTES);
+        assert!(source_backed_materialization_budget_error(
+            MATERIALIZATION_GUARD_THRESHOLD_BYTES,
+            required,
+        )
+        .is_none());
     }
 
     #[test]

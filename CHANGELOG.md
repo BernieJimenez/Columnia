@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.152.0] - 2026-09-02
+
+### Mejorado
+
+- Los fallbacks eager que necesitan materializar una fuente source-backed grande
+  ahora pasan por una guardia de admisión basada en la RAM disponible. La
+  operación se detiene con un mensaje accionable cuando la expansión estimada
+  y una reserva de seguridad no caben, mientras las rutas source-backed
+  compatibles no cambian.
+
 ## [0.151.0] - 2026-09-02
 
 ### Mejorado

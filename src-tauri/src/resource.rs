@@ -180,6 +180,12 @@ pub fn get_resource_usage() -> Result<ResourceUsage, String> {
     })
 }
 
+pub(crate) fn available_memory_bytes() -> Option<u64> {
+    let mut system = system_snapshot().lock().ok()?;
+    system.refresh_memory();
+    Some(system.available_memory())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
