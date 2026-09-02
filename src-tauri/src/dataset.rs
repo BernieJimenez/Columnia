@@ -86,6 +86,24 @@ const MOJIBAKE_MARKERS: &[&str] = &[
     "â€™", "â€œ", "â€", "Ã©", "Ã¨", "Ã ", "Ã¢", "Ã®", "Ã´", "Ã³", "Ã±", "Ã¼", "Ã¡", "Ã\u{AD}",
     "Ãº", "â€”", "â€¦",
 ];
+const SAFE_MOJIBAKE_REPLACEMENTS: &[(&str, &str)] = &[
+    ("â€™", "’"),
+    ("â€œ", "“"),
+    ("â€”", "—"),
+    ("â€¦", "…"),
+    ("Ã©", "é"),
+    ("Ã¨", "è"),
+    ("Ã ", "à"),
+    ("Ã¢", "â"),
+    ("Ã®", "î"),
+    ("Ã´", "ô"),
+    ("Ã³", "ó"),
+    ("Ã±", "ñ"),
+    ("Ã¼", "ü"),
+    ("Ã¡", "á"),
+    ("Ã\u{AD}", "í"),
+    ("Ãº", "ú"),
+];
 pub(crate) const OPERATION_CANCELLED_MESSAGE: &str = "Operación cancelada por el usuario.";
 const REDACTED_VALUE: &str = "[REDACTED]";
 const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
@@ -8804,6 +8822,47 @@ fn source_backed_normalized_text_expression(identifier: &str, remove_accents: bo
     }
 }
 
+fn source_backed_safe_mojibake_pattern() -> String {
+    let alternatives = SAFE_MOJIBAKE_REPLACEMENTS
+        .iter()
+        .map(|(source, _)| *source)
+        .collect::<Vec<_>>()
+        .join("|");
+    format!("^([[:ascii:]]|{alternatives})*$")
+}
+
+fn source_backed_fix_encoding_expression(identifier: &str) -> String {
+    let pattern = duckdb_string_literal(&source_backed_safe_mojibake_pattern());
+    let replaced = SAFE_MOJIBAKE_REPLACEMENTS.iter().fold(
+        identifier.to_owned(),
+        |expression, (source, replacement)| {
+            format!(
+                "replace({expression}, {}, {})",
+                duckdb_string_literal(source),
+                duckdb_string_literal(replacement)
+            )
+        },
+    );
+    format!(
+        "CASE WHEN regexp_matches(CAST({identifier} AS VARCHAR), {pattern}) THEN {replaced} ELSE {identifier} END"
+    )
+}
+
+fn source_backed_fix_encoding_unsafe_predicate(identifier: &str) -> String {
+    let marker_predicate = MOJIBAKE_MARKERS
+        .iter()
+        .map(|marker| {
+            format!(
+                "strpos(CAST({identifier} AS VARCHAR), {}) > 0",
+                duckdb_string_literal(marker)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let pattern = duckdb_string_literal(&source_backed_safe_mojibake_pattern());
+    format!("({marker_predicate}) AND NOT regexp_matches(CAST({identifier} AS VARCHAR), {pattern})")
+}
+
 fn source_backed_supported_date_expression(identifier: &str) -> String {
     let expressions = INFERRED_DATE_FORMATS
         .iter()
@@ -8947,7 +9006,7 @@ fn source_backed_text_expression(
                 "CASE WHEN {normalized} IN ('true', 'yes', 'si') THEN 'true' WHEN {normalized} IN ('false', 'no') THEN 'false' ELSE {identifier} END"
             ))
         }
-        TextCleaningMode::FixEncoding => None,
+        TextCleaningMode::FixEncoding => Some(source_backed_fix_encoding_expression(identifier)),
         TextCleaningMode::NullifyInvalidTypes => {
             let Some(suggested_type) = suggested_type else {
                 return Some(identifier.to_owned());
@@ -8963,11 +9022,7 @@ fn source_backed_text_expression(
 fn source_backed_text_cleaning_columns(
     dataset: &LoadedDataset,
     selected_columns: Option<&[String]>,
-    mode: TextCleaningMode,
 ) -> Option<Vec<String>> {
-    if matches!(mode, TextCleaningMode::FixEncoding) {
-        return None;
-    }
     let columns = selected_columns.map_or_else(
         || {
             dataset
@@ -9110,12 +9165,29 @@ fn source_backed_text_cleaning(
         };
         columns
     } else {
-        let Some(columns) = source_backed_text_cleaning_columns(dataset, selected_columns, mode)
-        else {
+        let Some(columns) = source_backed_text_cleaning_columns(dataset, selected_columns) else {
             return Ok(None);
         };
         columns
     };
+    if matches!(mode, TextCleaningMode::FixEncoding) && !selected_columns.is_empty() {
+        let unsafe_predicates = selected_columns
+            .iter()
+            .map(|name| source_backed_fix_encoding_unsafe_predicate(&duckdb_identifier(name)))
+            .collect::<Vec<_>>();
+        let unsafe_counts = match crate::duckdb_query::count_file_predicate_matches(
+            &source_path,
+            source_format,
+            &unsafe_predicates,
+            || false,
+        ) {
+            Ok((_, counts)) => counts,
+            Err(_) => return Ok(None),
+        };
+        if unsafe_counts.iter().any(|count| *count > 0) {
+            return Ok(None);
+        }
+    }
     let suggested_types = if matches!(mode, TextCleaningMode::NullifyInvalidTypes) {
         let Some(suggested_types) =
             source_backed_text_suggested_types(&source_path, source_format, &selected_columns)
@@ -33307,6 +33379,74 @@ mod tests {
             current.column("note").unwrap().str().unwrap().get(0),
             Some("keep")
         );
+    }
+
+    #[test]
+    fn source_backed_encoding_fix_handles_safe_mojibake_without_rows_in_memory() {
+        let source =
+            temporary_csv("city,quote\nBogotÃ¡,â€œholaâ€”\nMÃ¡laga,â€™\nSanto Domingo,normal\n");
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "encoding.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let result = source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::FixEncoding)
+            .expect("la corrección source-backed debe procesarse")
+            .expect("la fuente debe ser compatible");
+        assert_eq!(result.affected_row_count, 2);
+        assert_eq!(result.changed_cell_count, 4);
+        assert_eq!(dataset.frame.height(), 0);
+
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la corrección debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        let city = current.column("city").unwrap().str().unwrap();
+        let quote = current.column("quote").unwrap().str().unwrap();
+        assert_eq!(city.get(0), Some("Bogotá"));
+        assert_eq!(city.get(1), Some("Málaga"));
+        assert_eq!(quote.get(0), Some("“hola—"));
+        assert_eq!(quote.get(1), Some("’"));
+        assert_eq!(quote.get(2), Some("normal"));
+    }
+
+    #[test]
+    fn source_backed_encoding_fix_falls_back_for_unsafe_values() {
+        let source = temporary_csv("city\nBogotÃ¡ 😀\nSanto Domingo\n");
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "unsafe-encoding.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        assert!(
+            source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::FixEncoding)
+                .expect("el fallback debe resolverse sin error")
+                .is_none()
+        );
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
     }
 
     #[test]

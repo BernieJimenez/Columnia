@@ -6,6 +6,17 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.151.0] - 2026-09-02
+
+### Mejorado
+
+- `Corregir codificación UTF-8` puede ejecutarse source-backed sobre secuencias
+  mojibake inequívocas, publica un snapshot Parquet reversible y conserva el
+  frame activo sin filas en memoria.
+- Las secuencias ambiguas o mezcladas con caracteres no demostrablemente
+  seguros activan el fallback eager completo, manteniendo la paridad con la
+  reparación UTF-8 existente en lugar de aplicar una sustitución parcial.
+
 ## [0.150.0] - 2026-09-02
 
 ### Mejorado

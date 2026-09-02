@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.150.0, la limpieza
+  I3/I5 conservan validaciones externas de plataforma. En v0.151.0, la corrección
+  source-backed de codificación repara secuencias mojibake inequívocas sin
+  materializar el frame y conserva fallback eager ante valores ambiguos. En
+  v0.150.0, la limpieza
   source-backed de tipos incompatibles infiere booleanos, enteros, decimales y
   fechas sobre el cursor Parquet efectivo y conserva fallback materializado
   cuando DuckDB no puede garantizar la paridad. En v0.149.0, los parseos
@@ -87,7 +90,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.150.0`.
+- Versión actual del prototipo: `0.151.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1707,8 +1710,13 @@ comparación no equivale a ejecución fuera de memoria general. La
    únicamente alias reconocidos; desde v0.133 la conversión numérica y la
    interpretación de fechas detectadas también calculan estadísticas y
    proyectan resultados en DuckDB, conservando códigos con ceros iniciales,
-   precisión, tolerancia de nulos y rango de años. Las operaciones no compatibles conservan
-   materialización. Desde v0.134, las imputaciones conservadora y categórica
+   precisión, tolerancia de nulos y rango de años. Desde v0.150, la separación
+   de tipos incompatibles también infiere sobre la fuente efectiva y publica
+   el snapshot solo cuando la validación conserva el umbral eager. Desde
+   v0.151, la corrección de codificación repara secuencias mojibake
+   inequívocas en DuckDB y deriva al fallback eager cuando aparece un valor
+   ambiguo. Las operaciones no compatibles conservan materialización. Desde
+   v0.134, las imputaciones conservadora y categórica
    también calculan sus reemplazos y proyectan nulos directamente en DuckDB,
    preservando el desempate de la moda, la mediana inferior, `Desconocido` y
    los tipos físicos compatibles. Desde v0.135, las acciones directas de
@@ -2107,6 +2115,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.151.0 extiende `Corregir codificación UTF-8` a fuentes source-backed: DuckDB repara secuencias mojibake inequívocas, publica snapshots reversibles, conserva el frame activo esquema-only y deriva al fallback eager cuando el valor no es demostrablemente seguro. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.150.0 extiende la limpieza source-backed a `Apartar tipos incompatibles`: DuckDB infiere booleanos, enteros, decimales y fechas sobre la fuente/snapshot efectivo, aplica el umbral eager del 90 %, conserva ceros iniciales como identificadores, publica snapshots reversibles y deja el frame activo esquema-only; los casos incompatibles mantienen fallback materializado. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.149.0 corrige recetas ISO source-backed encadenadas: la validación usa el snapshot Parquet efectivo tras filtros previos y conserva la ejecución incremental sin materializar el frame activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-02 | Versión 0.148.0 refresca `perf:benchmark`, `perf:webview2` y `perf:check`: 100 MiB, tres corridas sostenidas, dos actualizaciones durables, 819.137 filas WebView2, presupuestos actuales y cleanup confirmado. | `.local/validation/performance-benchmark/20260902T070437Z`, `.local/validation/performance-webview2/20260902T070748Z`, `.local/validation/performance-baseline/20260902T070920Z`, `CHANGELOG.md`, `CONTEXTO.md` |
