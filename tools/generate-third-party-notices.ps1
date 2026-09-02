@@ -114,12 +114,15 @@ if (@($UniqueRows | Where-Object { [string]$_.license -ieq "UNKNOWN" }).Count -g
     throw "El inventario de terceros contiene licencias UNKNOWN; corrige los metadatos antes de distribuir."
 }
 $Lines = [System.Collections.Generic.List[string]]::new()
+$AcuteA = [char]0x00E1
+$AcuteI = [char]0x00ED
+$AcuteO = [char]0x00F3
 $Lines.Add("# Third-party notices")
 $Lines.Add("")
-$Lines.Add("Este índice se genera desde `package-lock.json` y `src-tauri/Cargo.lock`. No contiene datos de usuario ni secretos.")
-$Lines.Add("Las licencias se toman de los metadatos de distribución y se conservan como expresiones SPDX cuando están disponibles; requiere revisión legal antes de publicar.")
+$Lines.Add("Este ${AcuteI}ndice se genera desde `package-lock.json` y `src-tauri/Cargo.lock`. No contiene datos de usuario ni secretos.")
+$Lines.Add("Las licencias se toman de los metadatos de distribuci${AcuteO}n y se conservan como expresiones SPDX cuando est${AcuteA}n disponibles; requiere revisi${AcuteO}n legal antes de publicar.")
 $Lines.Add("")
-$Lines.Add("| Ecosistema | Paquete | Version | Licencia | Fuente |")
+$Lines.Add("| Ecosistema | Paquete | Versi${AcuteO}n | Licencia | Fuente |")
 $Lines.Add("| --- | --- | --- | --- | --- |")
 foreach ($Row in $UniqueRows) {
     $Lines.Add("| $($Row.ecosystem) | $($Row.name) | $($Row.version) | $($Row.license) | $($Row.source) |")

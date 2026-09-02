@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.144.0, el
+  I3/I5 conservan validaciones externas de plataforma. En v0.144.1, la
+  plantilla de notices y la documentación del flujo de release quedan
+  normalizadas en español, con el inventario regenerado desde los lockfiles.
+  En v0.144.0, el
   benchmark reproducible de JOIN source-backed procesa 512 MiB desde DuckDB
   con `INNER`, `LEFT` y `FULL`, conserva conteo/paginación, deja el frame vacío
   y confirma cleanup bajo el presupuesto de working set. En v0.143.0, la
@@ -67,7 +70,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.144.0`.
+- Versión actual del prototipo: `0.144.1`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2075,6 +2078,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.144.1 normaliza la redacción de release y la plantilla de notices en español; el inventario regenerado conserva 995 identidades únicas y el gate de supply chain verifica el encabezado `Versión`. | `tools/generate-third-party-notices.ps1`, `THIRD_PARTY_NOTICES.md`, `src/supply-chain.test.ts`, `docs/how-to/validate-release-evidence.md` |
 | 2026-09-01 | Versión 0.144.0 valida la ruta source-backed de JOIN con el benchmark reproducible de 512 MiB: `INNER`/`LEFT`/`FULL` conservan conteos y páginas, el frame activo permanece vacío, el working set máximo es 233.816.064 bytes y cleanup pasa. | `tools/benchmark-duckdb-join.ps1`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.143.0 valida decisiones source-backed recorriendo conflictos por bloques y reteniendo solo índices y columnas divergentes; eleva el límite explícito a 8.192, conserva el fallback eager para entradas mayores y mantiene orden, publicación reversible, integridad y cleanup. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.142.0 resuelve conflictos source-backed acotados por fila o columna directamente en DuckDB: publica un snapshot Parquet reversible, conserva orden y frame esquema-only, valida fuentes y limpia la comparación después de publicar; los casos fuera de 2.048 conflictos o incompatibles mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

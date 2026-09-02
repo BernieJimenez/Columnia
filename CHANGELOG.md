@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.144.1] - 2026-09-01
+
+### Corregido
+
+- Se normaliza la redacción visible del flujo de validación de release en
+  español y la plantilla de notices genera la columna `Versión` con su
+  ortografía correcta.
+- `THIRD_PARTY_NOTICES.md` se regenera desde los lockfiles y conserva sus 995
+  identidades verificadas sin licencias `UNKNOWN` ni duplicados.
+
 ## [0.144.0] - 2026-09-01
 
 ### Verificado

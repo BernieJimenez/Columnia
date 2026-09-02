@@ -43,6 +43,6 @@ manifest del baseline.
 
 ## Relacionado
 
-- [How to validar evidencia](../how-to/validate-release-evidence.md)
+- [Cómo validar la evidencia](../how-to/validate-release-evidence.md)
 - [Baseline visual del preview](../../fixtures/accessibility/visual-baseline-v1.json)
 - [Política de fixtures](fixtures-policy.md)

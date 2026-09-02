@@ -115,7 +115,7 @@ describe("offline supply-chain lockfile integrity", () => {
     const networkPolicy = readProjectFile("docs/reference/network-privacy.md");
 
     expect(notices).toContain("# Third-party notices");
-    expect(notices).toContain("| Ecosistema | Paquete | Version | Licencia | Fuente |");
+    expect(notices).toContain("| Ecosistema | Paquete | Versión | Licencia | Fuente |");
     expect(notices).toMatch(/Total: \d+ dependencias de terceros\./);
     expect(networkPolicy).toContain("npm run network:check");
     expect(networkPolicy).toMatch(/no\s+inicia conexiones de red/);

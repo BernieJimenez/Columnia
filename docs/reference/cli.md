@@ -145,5 +145,5 @@ Borra únicamente cuando `--confirm` coincide exactamente con `--id`.
 ## Relacionado
 
 - [Tutorial del primer dataset](../tutorials/first-dataset.md)
-- [How to validar evidencia release](../how-to/validate-release-evidence.md)
+- [Cómo validar la evidencia del release](../how-to/validate-release-evidence.md)
 - [Explicación local-first](../explanation/local-first-architecture.md)

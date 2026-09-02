@@ -1,9 +1,9 @@
 # Third-party notices
 
-Este Ã­ndice se genera desde package-lock.json y src-tauri/Cargo.lock. No contiene datos de usuario ni secretos.
-Las licencias se toman de los metadatos de distribuciÃ³n y se conservan como expresiones SPDX cuando estÃ¡n disponibles; requiere revisiÃ³n legal antes de publicar.
+Este índice se genera desde package-lock.json y src-tauri/Cargo.lock. No contiene datos de usuario ni secretos.
+Las licencias se toman de los metadatos de distribución y se conservan como expresiones SPDX cuando están disponibles; requiere revisión legal antes de publicar.
 
-| Ecosistema | Paquete | Version | Licencia | Fuente |
+| Ecosistema | Paquete | Versión | Licencia | Fuente |
 | --- | --- | --- | --- | --- |
 | cargo | polars-row | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |
 | cargo | polars-plan | 0.55.2 | MIT | registry+https://github.com/rust-lang/crates.io-index |

@@ -1,10 +1,10 @@
-# How to validar la evidencia del release
+# Cómo validar la evidencia del release
 
 Este flujo compila el binario Tauri de release, captura cinco ventanas
 definidas sobre el WebView2 del binario y comprueba que no cambien los contratos
 ni los hashes visuales aprobados.
 
-## Prerequisitos
+## Requisitos previos
 
 - Windows x64, WebView2 y las Build Tools de Visual Studio.
 - Node.js LTS, Rust estable y dependencias instaladas con `npm install`.
