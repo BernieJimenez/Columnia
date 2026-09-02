@@ -362,7 +362,9 @@ la ruta no se entrega a React.
 La entrega ODBC no usa selector de archivos: prueba `SELECT 1`, valida el
 esquema y la tabla, y permite `create_only`, `append` o `replace`. Las filas se
 envían por lotes dentro de una transacción; las credenciales solo viven durante
-la llamada y la entrega remota puede requerir materializar el dataset activo.
+la llamada. Las fuentes source-backed compatibles se transmiten por bloques;
+las combinaciones que requieren materialización conservan ese fallback
+explícito.
 Antes de exportar puede definirse un **contrato de calidad** de hasta dieciséis
 reglas exactas. Incluye reglas básicas, `allowed_values`, `regex`, `dtype`,
 unicidad compuesta, comparación entre columnas, integridad referencial,

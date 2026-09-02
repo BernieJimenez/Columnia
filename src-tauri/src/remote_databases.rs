@@ -1,8 +1,10 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, path::Path};
 
 use odbc_api::{ConnectionOptions, Environment};
 use polars::prelude::{AnyValue, DataFrame};
 use serde::{Deserialize, Serialize};
+
+use crate::duckdb_query::DuckDbFileFormat;
 
 const MAX_CONNECTION_STRING_CHARS: usize = 16 * 1024;
 const MAX_IDENTIFIER_CHARS: usize = 128;
@@ -205,6 +207,147 @@ where
     })
 }
 
+pub(crate) fn export_source_backed<F, C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    schema: &DataFrame,
+    row_count: usize,
+    target: &DatabaseTarget,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<RemoteExportResult, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Clone + Send + 'static,
+{
+    validate_database_target(target)?;
+    ensure_not_cancelled(&is_cancelled)?;
+    if schema.width() == 0 {
+        return Err("No se puede entregar un dataset sin columnas.".to_owned());
+    }
+    let environment = Environment::new()
+        .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
+    let connection = environment
+        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    connection
+        .set_autocommit(false)
+        .map_err(|error| format_driver_error("No se pudo iniciar la transacción", error, target))?;
+
+    let table = qualified_table(target);
+    let columns = schema
+        .columns()
+        .iter()
+        .map(|column| quote_identifier(column.name(), target.kind))
+        .collect::<Vec<_>>();
+    report("Preparando tabla remota", 10);
+    if matches!(target.table_policy, DatabaseTablePolicy::Replace) {
+        execute_statement(
+            &connection,
+            &drop_table_sql(&table, target.kind),
+            "No se pudo reemplazar la tabla remota",
+            target,
+        )?;
+    }
+    if !matches!(target.table_policy, DatabaseTablePolicy::Append) {
+        execute_statement(
+            &connection,
+            &create_table_sql(schema, &table, target.kind),
+            "No se pudo crear la tabla remota",
+            target,
+        )?;
+    }
+
+    report("Escribiendo filas remotas", 25);
+    let mut rows_written = 0usize;
+    let mut batch = String::new();
+    let streamed_columns = crate::duckdb_query::stream_file_rows(
+        source_path,
+        source_format,
+        |values| {
+            ensure_not_cancelled(&is_cancelled)?;
+            if values.len() != schema.width() {
+                return Err(
+                    "La transmisión source-backed devolvió un ancho inesperado para ODBC."
+                        .to_owned(),
+                );
+            }
+            let row = schema
+                .columns()
+                .iter()
+                .zip(values.iter())
+                .map(|(column, value)| {
+                    sql_literal_text(value.as_deref(), column.dtype(), target.kind)
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            if batch.is_empty() {
+                batch.push_str("INSERT INTO ");
+                batch.push_str(&table);
+                batch.push_str(" (");
+                batch.push_str(&columns.join(", "));
+                batch.push_str(") VALUES ");
+            } else {
+                batch.push_str(", ");
+            }
+            batch.push_str(&format!("({})", row.join(", ")));
+            rows_written = rows_written.saturating_add(1);
+            if rows_written.is_multiple_of(INSERT_BATCH_ROWS)
+                || batch.len() >= INSERT_BATCH_BYTES
+                || rows_written == row_count
+            {
+                execute_statement(
+                    &connection,
+                    &batch,
+                    "No se pudo insertar un lote en la tabla remota",
+                    target,
+                )?;
+                batch.clear();
+            }
+            let percent = if row_count == 0 {
+                85
+            } else {
+                25 + (rows_written
+                    .saturating_mul(60)
+                    .checked_div(row_count)
+                    .unwrap_or_default())
+                .min(60) as u8
+            };
+            report("Escribiendo filas remotas", percent);
+            Ok(())
+        },
+        is_cancelled.clone(),
+    )?;
+    let expected_columns = schema
+        .columns()
+        .iter()
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    let actual_columns = streamed_columns
+        .iter()
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    if actual_columns != expected_columns {
+        return Err(
+            "La transmisión source-backed devolvió columnas distintas al esquema ODBC.".to_owned(),
+        );
+    }
+    if rows_written != row_count {
+        return Err(
+            "El conteo del dataset source-backed cambió durante la entrega ODBC.".to_owned(),
+        );
+    }
+    ensure_not_cancelled(&is_cancelled)?;
+    connection.commit().map_err(|error| {
+        format_driver_error("No se pudo confirmar la tabla remota", error, target)
+    })?;
+    report("Entrega remota lista", 100);
+    Ok(RemoteExportResult {
+        rows_written,
+        table_name: table,
+        format: target.kind.label(),
+    })
+}
+
 fn execute_statement(
     connection: &odbc_api::Connection<'_>,
     statement: &str,
@@ -332,14 +475,25 @@ fn sql_literal(
     kind: DatabaseKind,
 ) -> Result<String, String> {
     if matches!(value, AnyValue::Null) {
-        return Ok("NULL".to_owned());
+        return sql_literal_text(None, dtype, kind);
     }
-    let normalized_dtype = dtype.to_string().to_ascii_lowercase();
     let text = match value {
         AnyValue::String(value) => value.to_owned(),
         AnyValue::StringOwned(value) => value.to_string(),
         value => value.to_string(),
     };
+    sql_literal_text(Some(&text), dtype, kind)
+}
+
+fn sql_literal_text(
+    value: Option<&str>,
+    dtype: &polars::prelude::DataType,
+    kind: DatabaseKind,
+) -> Result<String, String> {
+    let Some(text) = value else {
+        return Ok("NULL".to_owned());
+    };
+    let normalized_dtype = dtype.to_string().to_ascii_lowercase();
     if normalized_dtype.contains("bool") {
         return Ok(match text.to_ascii_lowercase().as_str() {
             "true" => "1".to_owned(),
@@ -353,7 +507,7 @@ fn sql_literal(
     }
     if is_integer_dtype(&normalized_dtype) || is_decimal_dtype(&normalized_dtype) {
         if text.parse::<f64>().is_ok_and(f64::is_finite) {
-            return Ok(text);
+            return Ok(text.to_owned());
         }
         return Ok("NULL".to_owned());
     }
@@ -402,7 +556,7 @@ fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarge
 
 #[cfg(test)]
 mod tests {
-    use polars::df;
+    use polars::{df, prelude::DataType};
 
     use super::*;
 
@@ -451,6 +605,31 @@ mod tests {
         assert_eq!(
             qualified_table(&target(DatabaseKind::SqlServer)),
             "[public].[ventas]"
+        );
+    }
+
+    #[test]
+    fn streamed_literals_preserve_nulls_text_and_numeric_values() {
+        assert_eq!(
+            sql_literal_text(Some("O'Brien"), &DataType::String, DatabaseKind::Postgresql).unwrap(),
+            "'O''Brien'"
+        );
+        assert_eq!(
+            sql_literal_text(Some("42"), &DataType::Int64, DatabaseKind::Mysql).unwrap(),
+            "42"
+        );
+        assert_eq!(
+            sql_literal_text(
+                Some("not-a-number"),
+                &DataType::Float64,
+                DatabaseKind::SqlServer
+            )
+            .unwrap(),
+            "NULL"
+        );
+        assert_eq!(
+            sql_literal_text(None, &DataType::String, DatabaseKind::SqlServer).unwrap(),
+            "NULL"
         );
     }
 

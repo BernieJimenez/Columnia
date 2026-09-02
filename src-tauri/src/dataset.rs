@@ -23352,6 +23352,173 @@ pub async fn export_dataset_to_database(
 ) -> Result<ExportResult, String> {
     remote_databases::validate_database_target(&target)?;
     validate_quality_rules_payload(&quality_rules)?;
+
+    let source_context = {
+        let state = app.state::<DatasetState>();
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        current.as_ref().and_then(|dataset| {
+            if !dataset.source_backed {
+                return None;
+            }
+            let (_, source_size, row_count) = current_source_backed_context(dataset)?;
+            let (source_path, source_format) = current_duckdb_file_source(dataset)?;
+            let original_source_path = dataset.source_path.as_ref()?.clone();
+            Some((
+                source_path,
+                source_format,
+                dataset.frame.clone(),
+                dataset.file_name.clone(),
+                source_size,
+                row_count,
+                original_source_path,
+                dataset.file_size_bytes,
+            ))
+        })
+    };
+
+    // Reuse the same source-backed quality and privacy boundaries as local
+    // exports. Only the unsupported quality/privacy combinations fall through
+    // to the materialized path below.
+    let source_privacy_supported = |source_format: crate::duckdb_query::DuckDbFileFormat| {
+        privacy_mode == PrivacyMode::None
+            || matches!(
+                source_format,
+                crate::duckdb_query::DuckDbFileFormat::Parquet
+                    | crate::duckdb_query::DuckDbFileFormat::Delimited { .. }
+            )
+    };
+    if quality_rules.iter().all(source_quality_rule_is_incremental) {
+        if let Some((
+            source_path,
+            source_format,
+            schema,
+            _file_name,
+            expected_file_size,
+            row_count,
+            original_source_path,
+            expected_original_file_size,
+        )) = source_context
+            .filter(|(_, source_format, _, _, _, _, _, _)| source_privacy_supported(*source_format))
+        {
+            let generation = app.state::<DatasetState>().begin_export();
+            let validation_app = app.clone();
+            let source_quality_rules = quality_rules.clone();
+            let target = target.clone();
+            let source_progress = on_progress.clone();
+            send_progress(
+                &source_progress,
+                "export",
+                "Validando fuente source-backed",
+                0,
+            );
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                let (_, original_source_size, _) = validate_dataset_file(&original_source_path)?;
+                if original_source_size != expected_original_file_size {
+                    return Err(
+                        "El archivo source-backed original cambió desde la carga; vuelve a seleccionarlo."
+                            .to_owned(),
+                    );
+                }
+                let (source_path, source_size, extension) = validate_dataset_file(&source_path)?;
+                if source_size != expected_file_size {
+                    return Err(
+                        "El archivo source-backed cambió desde la carga; vuelve a seleccionarlo."
+                            .to_owned(),
+                    );
+                }
+                enforce_source_quality_with_cancel(
+                    &source_path,
+                    &extension,
+                    expected_file_size,
+                    row_count,
+                    &source_quality_rules,
+                    allow_unvalidated,
+                    || {
+                        validation_app
+                            .state::<DatasetState>()
+                            .export_was_cancelled(generation)
+                    },
+                )?;
+                ensure_not_cancelled(
+                    validation_app
+                        .state::<DatasetState>()
+                        .export_was_cancelled(generation),
+                )?;
+
+                let mut effective_source_path = source_path.clone();
+                let mut effective_source_format = source_format;
+                let mut effective_schema = schema;
+                let mut protected_columns = Vec::new();
+                let _privacy_scratch = if privacy_mode == PrivacyMode::None {
+                    None
+                } else {
+                    let scratch = tempfile::tempdir().map_err(|error| {
+                        format!("No se pudo preparar el snapshot protegido: {error}")
+                    })?;
+                    let privacy_snapshot = scratch.path().join("protected.parquet");
+                    let cancellation_app = validation_app.clone();
+                    protected_columns = source_backed_privacy_snapshot(
+                        &source_path,
+                        expected_file_size,
+                        &privacy_snapshot,
+                        privacy_mode,
+                        move || {
+                            cancellation_app
+                                .state::<DatasetState>()
+                                .export_was_cancelled(generation)
+                        },
+                    )?;
+                    if !protected_columns.is_empty() {
+                        fs::metadata(&privacy_snapshot)
+                            .map_err(|error| {
+                                format!("No se pudo verificar el snapshot protegido: {error}")
+                            })?;
+                        effective_source_path = privacy_snapshot;
+                        effective_source_format = crate::duckdb_query::DuckDbFileFormat::Parquet;
+                        effective_schema = read_parquet_schema_frame(&effective_source_path)?;
+                    }
+                    Some(scratch)
+                };
+
+                let cancellation_app = validation_app.clone();
+                let remote_result = remote_databases::export_source_backed(
+                    &effective_source_path,
+                    effective_source_format,
+                    &effective_schema,
+                    row_count,
+                    &target,
+                    |stage, percent| send_progress(&source_progress, "export", stage, percent),
+                    move || {
+                        cancellation_app
+                            .state::<DatasetState>()
+                            .export_was_cancelled(generation)
+                    },
+                )?;
+                let (_, final_original_source_size, _) =
+                    validate_dataset_file(&original_source_path)?;
+                if final_original_source_size != expected_original_file_size {
+                    return Err(
+                        "El archivo source-backed original cambió durante la entrega ODBC."
+                            .to_owned(),
+                    );
+                }
+                Ok(ExportResult {
+                    file_name: remote_result.table_name,
+                    file_size_bytes: 0,
+                    format: remote_result.format,
+                    protected_column_count: protected_columns.len(),
+                    protected_columns,
+                })
+            })
+            .await
+            .map_err(|error| format!("La entrega remota se interrumpió: {error}"))??;
+            return Ok(result);
+        }
+    }
+
     let generation = app.state::<DatasetState>().begin_export();
     let preparation_app = app.clone();
     let (protected_frame, protected_columns) = tauri::async_runtime::spawn_blocking(move || {

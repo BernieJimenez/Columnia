@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.147.0] - 2026-09-02
+
+### Mejorado
+
+- La entrega ODBC reutiliza fuentes source-backed compatibles y transmite sus
+  filas por bloques sin materializar el `DataFrame` activo en memoria.
+- La validación de calidad se ejecuta en la misma frontera source-backed antes
+  de abrir la tabla remota; `mask`/`hash` usa únicamente un snapshot Parquet
+  temporal cuando necesita proteger columnas.
+
 ## [0.146.0] - 2026-09-01
 
 ### Añadido
