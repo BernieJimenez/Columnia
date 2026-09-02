@@ -119,6 +119,8 @@ const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
 const LOCAL_QUERY_CANCEL_CHECK_ROWS: usize = 4096;
 const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
+const SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR: &str =
+    "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar.";
 const LOCAL_QUERY_AGGREGATE_MAX_MATCHING_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_MAX_GROUP_COLUMNS: usize = 8;
 const LOCAL_QUERY_MAX_JOIN_COLUMNS: usize = 8;
@@ -2436,7 +2438,7 @@ struct SourceBackedJoinContext {
     history_directory: PathBuf,
 }
 
-struct SourceBackedJoinOutput<'a> {
+struct SourceBackedResultOutput<'a> {
     compared_path: &'a Path,
     compared_size_bytes: u64,
     output_path: &'a Path,
@@ -2454,6 +2456,16 @@ struct SourceBackedJoinRequest {
     compared_size_bytes: u64,
     key_columns: Vec<String>,
     join_type: DatasetJoinType,
+}
+
+struct SourceBackedConsolidationRequest {
+    context: SourceBackedJoinContext,
+    compared_path: PathBuf,
+    compared_format: crate::duckdb_query::DuckDbFileFormat,
+    compared_schema: DataFrame,
+    compared_file_name: String,
+    compared_size_bytes: u64,
+    key_columns: Vec<String>,
 }
 
 struct SourceBackedJoinOutputGuard {
@@ -3077,6 +3089,166 @@ fn source_backed_join_plan(
         current_order_column,
         compared_order_column,
     ))
+}
+
+fn source_backed_consolidation_plan(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    current_row_count: usize,
+) -> Result<(String, String, String, String), String> {
+    if current.get_column_names() != compared.get_column_names()
+        || current
+            .columns()
+            .iter()
+            .zip(compared.columns())
+            .any(|(left, right)| left.dtype() != right.dtype())
+    {
+        return Err(
+            "Los esquemas no son compatibles. La consolidación requiere las mismas columnas y tipos."
+                .to_owned(),
+        );
+    }
+    if !key_columns.is_empty() {
+        validate_key_columns(current, compared, key_columns)?;
+    }
+    let mut used_names = current
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<HashSet<_>>();
+    let current_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_consolidation_current_order");
+    let compared_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_consolidation_compared_order");
+    let consolidation_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_consolidation_order");
+    let output_projection = current
+        .get_column_names()
+        .iter()
+        .map(|name| duckdb_identifier(name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let current_projection = current
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            format!("c.{identifier} AS {identifier}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let compared_projection = compared
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            format!("r.{identifier} AS {identifier}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let consolidation_order = duckdb_identifier(&consolidation_order_column);
+    let current_order = duckdb_identifier(&current_order_column);
+    let compared_order = duckdb_identifier(&compared_order_column);
+    let key_predicate = if key_columns.is_empty() {
+        "TRUE".to_owned()
+    } else {
+        let conditions = key_columns
+            .iter()
+            .map(|key| {
+                let identifier = duckdb_identifier(key);
+                format!("existing.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+            })
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        format!("NOT EXISTS (SELECT 1 FROM __columnia_current AS existing WHERE {conditions})")
+    };
+    let dataset_view_query = format!(
+        "CREATE VIEW dataset AS SELECT {current_projection}, c.{current_order} AS {consolidation_order}, CAST(0 AS BIGINT) AS {compared_order} FROM __columnia_current AS c UNION ALL SELECT {compared_projection}, {current_row_count} + r.{compared_order} AS {consolidation_order}, r.{compared_order} AS {compared_order} FROM __columnia_compared AS r WHERE {key_predicate}"
+    );
+    let output_query = format!(
+        "SELECT {output_projection} FROM dataset ORDER BY {consolidation_order}, {compared_order}"
+    );
+    Ok((
+        dataset_view_query,
+        output_query,
+        current_order_column,
+        compared_order_column,
+    ))
+}
+
+fn validate_source_backed_consolidation(
+    current_path: &Path,
+    current_format: crate::duckdb_query::DuckDbFileFormat,
+    compared_path: &Path,
+    compared_format: crate::duckdb_query::DuckDbFileFormat,
+    current: &DataFrame,
+    key_columns: &[String],
+) -> Result<(), String> {
+    if key_columns.is_empty() {
+        return Ok(());
+    }
+    let keys = key_columns
+        .iter()
+        .map(|key| duckdb_identifier(key))
+        .collect::<Vec<_>>();
+    let group_columns = keys.join(", ");
+    let duplicate_query = format!(
+        "SELECT COUNT(*) FROM (SELECT {group_columns} FROM __columnia_current GROUP BY {group_columns} HAVING COUNT(*) > 1 UNION ALL SELECT {group_columns} FROM __columnia_compared GROUP BY {group_columns} HAVING COUNT(*) > 1) AS duplicate_groups"
+    );
+    let duplicate_count = crate::duckdb_query::query_file_sources_scalar(
+        crate::duckdb_query::DuckDbFileSourcesScalarQuery {
+            current_path,
+            current_format,
+            compared_path,
+            compared_format,
+            query: &duplicate_query,
+        },
+    )?;
+    if duplicate_count > 0 {
+        return Err(SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR.to_owned());
+    }
+    let payload_columns = current
+        .get_column_names()
+        .iter()
+        .filter(|name| !key_columns.iter().any(|key| key == name.as_str()))
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    if payload_columns.is_empty() {
+        return Ok(());
+    }
+    let key_conditions = key_columns
+        .iter()
+        .map(|key| {
+            let identifier = duckdb_identifier(key);
+            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let payload_conditions = payload_columns
+        .iter()
+        .map(|column| {
+            let identifier = duckdb_identifier(column);
+            format!("c.{identifier} IS NOT DISTINCT FROM r.{identifier}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let conflict_query = format!(
+        "SELECT COUNT(*) FROM __columnia_current AS c JOIN __columnia_compared AS r ON {key_conditions} WHERE NOT ({payload_conditions})"
+    );
+    let conflict_count = crate::duckdb_query::query_file_sources_scalar(
+        crate::duckdb_query::DuckDbFileSourcesScalarQuery {
+            current_path,
+            current_format,
+            compared_path,
+            compared_format,
+            query: &conflict_query,
+        },
+    )?;
+    if conflict_count > 0 {
+        return Err(SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR.to_owned());
+    }
+    Ok(())
 }
 
 fn local_compare(left: AnyValue<'_>, right: &str, operator: LocalPredicateOperator) -> bool {
@@ -7795,10 +7967,10 @@ fn publish_source_backed_query(
     }))
 }
 
-fn publish_source_backed_join_output(
+fn publish_source_backed_result_output(
     dataset: &mut LoadedDataset,
     context: &SourceBackedJoinContext,
-    output: SourceBackedJoinOutput<'_>,
+    output: SourceBackedResultOutput<'_>,
 ) -> Result<Option<DatasetPreview>, String> {
     let _output_guard = SourceBackedJoinOutputGuard::new(output.output_path);
     let Some(original_source_path) = dataset.source_path.as_ref() else {
@@ -7809,27 +7981,27 @@ fn publish_source_backed_join_output(
         || dataset.file_size_bytes != context.original_file_size_bytes
     {
         let _ = fs::remove_file(output.output_path);
-        return Err("El dataset activo cambió durante la preparación del JOIN.".to_owned());
+        return Err("El dataset activo cambió durante la preparación source-backed.".to_owned());
     }
 
     let (_, original_source_size_before, _) = validate_dataset_file(original_source_path)?;
     if original_source_size_before != context.original_file_size_bytes {
         let _ = fs::remove_file(output.output_path);
-        return Err("El archivo source-backed cambió antes de aplicar el JOIN.".to_owned());
+        return Err("El archivo source-backed cambió antes de aplicar la operación.".to_owned());
     }
     let (_, source_size_before, _) = validate_dataset_file(&context.source_path)?;
     if source_size_before != context.source_size_bytes {
         let _ = fs::remove_file(output.output_path);
-        return Err("La fuente source-backed cambió antes de ejecutar el JOIN.".to_owned());
+        return Err("La fuente source-backed cambió antes de ejecutar la operación.".to_owned());
     }
     let (_, compared_size_before, _) = validate_dataset_file(output.compared_path)?;
     if compared_size_before != output.compared_size_bytes {
         let _ = fs::remove_file(output.output_path);
-        return Err("El dataset comparado cambió antes de aplicar el JOIN.".to_owned());
+        return Err("El dataset comparado cambió antes de aplicar la operación.".to_owned());
     }
 
     let output_size = fs::metadata(output.output_path)
-        .map_err(|error| format!("No se pudo verificar la salida del JOIN source-backed: {error}"))?
+        .map_err(|error| format!("No se pudo verificar la salida source-backed: {error}"))?
         .len();
     let output_schema = read_parquet_schema_frame(output.output_path)?;
     let verified_row_count = crate::duckdb_query::count_file_rows(
@@ -7839,16 +8011,14 @@ fn publish_source_backed_join_output(
     )?;
     if verified_row_count != output.output_row_count {
         let _ = fs::remove_file(output.output_path);
-        return Err(
-            "El conteo del resultado JOIN source-backed no coincide con DuckDB.".to_owned(),
-        );
+        return Err("El conteo del resultado source-backed no coincide con DuckDB.".to_owned());
     }
     let page = if output.output_row_count == 0 {
         output_schema.slice(0, 0)
     } else {
         collect_lazy_frame_streaming(
             parquet_scan(output.output_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
-            "No se pudo leer la vista previa del JOIN source-backed",
+            "No se pudo leer la vista previa source-backed",
         )?
     };
 
@@ -7860,7 +8030,7 @@ fn publish_source_backed_join_output(
         || compared_size_after != output.compared_size_bytes
     {
         let _ = fs::remove_file(output.output_path);
-        return Err("Una fuente cambió durante la ejecución del JOIN source-backed.".to_owned());
+        return Err("Una fuente cambió durante la ejecución source-backed.".to_owned());
     }
 
     let preview = dataset_preview_from_schema_and_page(
@@ -7886,14 +8056,13 @@ fn publish_source_backed_join_output(
         .entries
         .last()
         .map(|entry| entry.path.clone())
-        .ok_or_else(|| "No se pudo publicar el JOIN source-backed.".to_owned())?;
+        .ok_or_else(|| "No se pudo publicar el resultado source-backed.".to_owned())?;
     let current_size = fs::metadata(&current_path)
-        .map_err(|error| {
-            format!("No se pudo verificar el historial del JOIN source-backed: {error}")
-        })?
+        .map_err(|error| format!("No se pudo verificar el historial source-backed: {error}"))?
         .len();
     let _ = fs::remove_file(output.output_path);
     dataset.source_path = Some(current_path);
+    dataset.file_name = output.file_name.to_owned();
     dataset.file_size_bytes = current_size;
     dataset.row_count = output.output_row_count;
     dataset.frame = output_schema;
@@ -7981,16 +8150,114 @@ fn join_source_backed_dataset(
         context.file_name
     );
     let label = format!("Unir datasets ({})", join_type.label());
-    let preview = publish_source_backed_join_output(
+    let preview = publish_source_backed_result_output(
         dataset,
         &context,
-        SourceBackedJoinOutput {
+        SourceBackedResultOutput {
             compared_path: &compared_path,
             compared_size_bytes,
             output_path: &output_path,
             output_row_count,
             file_name: &file_name,
             label: &label,
+        },
+    )?;
+    if preview.is_some() {
+        drop(current);
+        *state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+    }
+    Ok(preview)
+}
+
+fn consolidate_source_backed_dataset(
+    state: &DatasetState,
+    request: SourceBackedConsolidationRequest,
+) -> Result<Option<DatasetPreview>, String> {
+    let SourceBackedConsolidationRequest {
+        context,
+        compared_path,
+        compared_format,
+        compared_schema,
+        compared_file_name,
+        compared_size_bytes,
+        key_columns,
+    } = request;
+    let (_, current_size_before, _) = validate_dataset_file(&context.source_path)?;
+    if current_size_before != context.source_size_bytes {
+        return Err(
+            "La fuente source-backed cambió antes de ejecutar la consolidación.".to_owned(),
+        );
+    }
+    let (_, compared_size_before, _) = validate_dataset_file(&compared_path)?;
+    if compared_size_before != compared_size_bytes {
+        return Err("El dataset comparado cambió antes de consolidar.".to_owned());
+    }
+    let (dataset_view_query, output_query, current_order_column, compared_order_column) =
+        source_backed_consolidation_plan(
+            &context.schema,
+            &compared_schema,
+            &key_columns,
+            context.row_count,
+        )?;
+    match validate_source_backed_consolidation(
+        &context.source_path,
+        context.source_format,
+        &compared_path,
+        compared_format,
+        &context.schema,
+        &key_columns,
+    ) {
+        Ok(()) => {}
+        Err(error) if error == SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR => return Err(error),
+        Err(_) => return Ok(None),
+    }
+    let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+        .map_err(|error| {
+            format!("No se pudo preparar la salida de la consolidación source-backed: {error}")
+        })?;
+    let output_path = temporary.path().to_owned();
+    drop(temporary);
+    let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
+    let output_row_count = match crate::duckdb_query::materialize_file_sources_query_to_parquet(
+        crate::duckdb_query::DuckDbFileSourcesQuery {
+            current_path: &context.source_path,
+            current_format: context.source_format,
+            compared_path: &compared_path,
+            compared_format,
+            dataset_view_query: &dataset_view_query,
+            query: &output_query,
+            destination: &output_path,
+            current_order_column: &current_order_column,
+            compared_order_column: &compared_order_column,
+            max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+        },
+    ) {
+        Ok(row_count) => row_count,
+        Err(error) if error.contains("supera el límite local") => return Err(error),
+        Err(_) => return Ok(None),
+    };
+
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let file_name = format!("Consolidado · {} + {compared_file_name}", context.file_name);
+    let preview = publish_source_backed_result_output(
+        dataset,
+        &context,
+        SourceBackedResultOutput {
+            compared_path: &compared_path,
+            compared_size_bytes,
+            output_path: &output_path,
+            output_row_count,
+            file_name: &file_name,
+            label: "Consolidar datasets",
         },
     )?;
     if preview.is_some() {
@@ -21132,7 +21399,7 @@ pub fn clear_dataset_comparison(state: State<'_, DatasetState>) -> Result<(), St
 
 #[tauri::command]
 pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<DatasetPreview, String> {
-    let (compared_file_name, compared_file_size, compared_frame, key_columns) = {
+    let (compared_file_name, compared_file_size, compared_path, key_columns) = {
         let comparison = state
             .comparison
             .lock()
@@ -21143,10 +21410,39 @@ pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<Datase
         (
             pending.file_name.clone(),
             pending.file_size_bytes,
-            read_parquet_frame(&pending.snapshot_path)?,
+            pending.snapshot_path.clone(),
             pending.key_columns.clone(),
         )
     };
+    let source_context = {
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        current.as_ref().and_then(source_backed_join_context)
+    };
+    if let Some(context) = source_context {
+        let compared_schema = read_parquet_schema_frame(&compared_path)?;
+        let compared_snapshot_size = fs::metadata(&compared_path)
+            .map_err(|error| format!("No se pudo verificar el snapshot comparado: {error}"))?
+            .len();
+        let source_result = consolidate_source_backed_dataset(
+            &state,
+            SourceBackedConsolidationRequest {
+                context,
+                compared_path: compared_path.clone(),
+                compared_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+                compared_schema,
+                compared_file_name: compared_file_name.clone(),
+                compared_size_bytes: compared_snapshot_size,
+                key_columns: key_columns.clone(),
+            },
+        )?;
+        if let Some(preview) = source_result {
+            return Ok(preview);
+        }
+    }
+    let compared_frame = read_parquet_frame(&compared_path)?;
     let mut current = state
         .current
         .lock()
@@ -35035,10 +35331,10 @@ mod tests {
             },
         )
         .expect("el JOIN debe escribir el resultado Parquet");
-        let preview = publish_source_backed_join_output(
+        let preview = publish_source_backed_result_output(
             &mut dataset,
             &context,
-            SourceBackedJoinOutput {
+            SourceBackedResultOutput {
                 compared_path: &compared_path,
                 compared_size_bytes: fs::metadata(&compared_path)
                     .expect("la fuente comparada debe conservar sus metadatos")
@@ -35053,6 +35349,238 @@ mod tests {
         .expect("el historial debe permitir publicar el cursor");
 
         assert_eq!(preview.row_count, 3);
+        assert_eq!(dataset.row_count, 3);
+        assert_eq!(dataset.frame.height(), 0);
+        assert!(dataset.source_backed);
+        assert!(dataset.history.snapshots_enabled);
+        assert_eq!(dataset.history.entries.len(), 2);
+        assert!(dataset.history.state().can_undo);
+        let restored = dataset
+            .history
+            .restore(0)
+            .expect("el dataset original debe poder restaurarse");
+        assert_eq!(restored.height(), 2);
+        assert!(!output_path.exists());
+        fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+        fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
+    }
+
+    #[test]
+    fn source_backed_consolidation_materializes_only_new_keys() {
+        let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+        let compared_path = temporary_csv("id,city\n2,Santiago\n3,La Vega\n");
+        let (current_schema, _, current_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente activa debe abrirse source-backed");
+        let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
+            .expect("el esquema comparado debe leerse")
+            .expect("el CSV comparado debe ser source-backed");
+        let current_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&current_path, "csv")
+                .expect("el delimitador debe detectarse"),
+        };
+        let (dataset_view_query, output_query, current_order_column, compared_order_column) =
+            source_backed_consolidation_plan(
+                &current_schema,
+                &compared_schema,
+                &["id".to_owned()],
+                current_row_count,
+            )
+            .expect("el plan de consolidación debe validar el esquema");
+        validate_source_backed_consolidation(
+            &current_path,
+            current_format,
+            &compared_path,
+            compared_format,
+            &current_schema,
+            &["id".to_owned()],
+        )
+        .expect("las claves nuevas deben ser compatibles");
+        let output_directory = tempfile::tempdir().expect("se debe crear la salida temporal");
+        let output_path = output_directory.path().join("consolidated.parquet");
+        let row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &current_path,
+                current_format,
+                compared_path: &compared_path,
+                compared_format,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+            },
+        )
+        .expect("DuckDB debe escribir solo el resultado consolidado");
+        let result = read_parquet_frame(&output_path).expect("el resultado Parquet debe leerse");
+        assert_eq!(row_count, 3);
+        assert_eq!(result.height(), 3);
+        assert_eq!(
+            dataset_page(&result, 0, PREVIEW_ROW_LIMIT)
+                .expect("la página consolidada debe poder leerse")
+                .rows,
+            vec![
+                vec![Some("1".to_owned()), Some("Santo Domingo".to_owned())],
+                vec![Some("2".to_owned()), Some("Santiago".to_owned())],
+                vec![Some("3".to_owned()), Some("La Vega".to_owned())],
+            ]
+        );
+        assert_eq!(current_schema.height(), 0);
+        assert_eq!(
+            fs::read_to_string(&current_path).expect("la fuente activa debe permanecer intacta"),
+            "id,city\n1,Santo Domingo\n2,Santiago\n"
+        );
+        assert_eq!(
+            fs::read_to_string(&compared_path)
+                .expect("la fuente comparada debe permanecer intacta"),
+            "id,city\n2,Santiago\n3,La Vega\n"
+        );
+        fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+        fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
+    }
+
+    #[test]
+    fn source_backed_consolidation_rejects_duplicate_and_conflicting_keys() {
+        let duplicate_current_path = temporary_csv("id,city\n1,A\n1,A\n");
+        let duplicate_compared_path = temporary_csv("id,city\n2,B\n");
+        let (duplicate_current_schema, _, _) =
+            source_backed_load(&duplicate_current_path, "csv", || false)
+                .expect("la fuente duplicada debe abrirse source-backed");
+        let (_, _duplicate_compared_schema) =
+            source_backed_join_source(&duplicate_compared_path, "csv")
+                .expect("el esquema comparado debe leerse")
+                .expect("el CSV comparado debe ser source-backed");
+        let current_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&duplicate_current_path, "csv")
+                .expect("el delimitador debe detectarse"),
+        };
+        let compared_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&duplicate_compared_path, "csv")
+                .expect("el delimitador debe detectarse"),
+        };
+        let error = validate_source_backed_consolidation(
+            &duplicate_current_path,
+            current_format,
+            &duplicate_compared_path,
+            compared_format,
+            &duplicate_current_schema,
+            &["id".to_owned()],
+        )
+        .expect_err("las claves duplicadas deben rechazarse");
+        assert!(error.contains("conflictos o duplicados"));
+
+        let conflict_current_path = temporary_csv("id,city\n1,A\n");
+        let conflict_compared_path = temporary_csv("id,city\n1,B\n");
+        let (conflict_current_schema, _, _) =
+            source_backed_load(&conflict_current_path, "csv", || false)
+                .expect("la fuente en conflicto debe abrirse source-backed");
+        let (_, _conflict_compared_schema) =
+            source_backed_join_source(&conflict_compared_path, "csv")
+                .expect("el esquema comparado debe leerse")
+                .expect("el CSV comparado debe ser source-backed");
+        let conflict_error = validate_source_backed_consolidation(
+            &conflict_current_path,
+            current_format,
+            &conflict_compared_path,
+            compared_format,
+            &conflict_current_schema,
+            &["id".to_owned()],
+        )
+        .expect_err("las claves con payload distinto deben rechazarse");
+        assert!(conflict_error.contains("conflictos o duplicados"));
+
+        fs::remove_file(duplicate_current_path).expect("se debe limpiar la fuente duplicada");
+        fs::remove_file(duplicate_compared_path).expect("se debe limpiar la comparación duplicada");
+        fs::remove_file(conflict_current_path).expect("se debe limpiar la fuente en conflicto");
+        fs::remove_file(conflict_compared_path)
+            .expect("se debe limpiar la comparación en conflicto");
+    }
+
+    #[test]
+    fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
+        let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+        let compared_path = temporary_csv("id,city\n2,Santiago\n3,La Vega\n");
+        let (current_schema, _, current_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente activa debe abrirse source-backed");
+        let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
+            .expect("el esquema comparado debe leerse")
+            .expect("el CSV comparado debe ser source-backed");
+        let current_size_bytes = fs::metadata(&current_path)
+            .expect("la fuente activa debe conservar sus metadatos")
+            .len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(current_path.clone()),
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: current_size_bytes,
+            row_count: current_row_count,
+            frame: current_schema.clone(),
+            source_backed: true,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+        };
+        let context = source_backed_join_context(&dataset)
+            .expect("el contexto source-backed debe conservarse sin materializar filas");
+        let (dataset_view_query, output_query, current_order_column, compared_order_column) =
+            source_backed_consolidation_plan(
+                &current_schema,
+                &compared_schema,
+                &["id".to_owned()],
+                current_row_count,
+            )
+            .expect("el plan de consolidación debe validarse");
+        validate_source_backed_consolidation(
+            &context.source_path,
+            context.source_format,
+            &compared_path,
+            compared_format,
+            &current_schema,
+            &["id".to_owned()],
+        )
+        .expect("la consolidación debe validar las claves");
+        let temporary =
+            tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+                .expect("la salida temporal debe prepararse");
+        let output_path = temporary.path().to_owned();
+        drop(temporary);
+        let output_row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &context.source_path,
+                current_format: context.source_format,
+                compared_path: &compared_path,
+                compared_format,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+            },
+        )
+        .expect("la consolidación debe escribir el resultado Parquet");
+        let preview = publish_source_backed_result_output(
+            &mut dataset,
+            &context,
+            SourceBackedResultOutput {
+                compared_path: &compared_path,
+                compared_size_bytes: fs::metadata(&compared_path)
+                    .expect("la comparación debe conservar sus metadatos")
+                    .len(),
+                output_path: &output_path,
+                output_row_count,
+                file_name: "Consolidado · current.csv + compared.csv",
+                label: "Consolidar datasets",
+            },
+        )
+        .expect("el cursor de consolidación debe publicarse")
+        .expect("el historial debe permitir publicar el cursor");
+
+        assert_eq!(preview.row_count, 3);
+        assert_eq!(
+            dataset.file_name,
+            "Consolidado · current.csv + compared.csv"
+        );
         assert_eq!(dataset.row_count, 3);
         assert_eq!(dataset.frame.height(), 0);
         assert!(dataset.source_backed);

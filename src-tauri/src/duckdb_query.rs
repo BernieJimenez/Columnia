@@ -451,10 +451,10 @@ pub(crate) fn materialize_file_sources_query_to_parquet(
     request: DuckDbFileSourcesQuery<'_>,
 ) -> Result<usize, String> {
     let connection = Connection::open_in_memory().map_err(|error| {
-        format!("No se pudo iniciar DuckDB para el JOIN source-backed: {error}")
+        format!("No se pudo iniciar DuckDB para el resultado source-backed: {error}")
     })?;
     let resource_directory = tempfile::tempdir().map_err(|error| {
-        format!("No se pudo preparar el espacio temporal para el JOIN source-backed: {error}")
+        format!("No se pudo preparar el espacio temporal para el resultado source-backed: {error}")
     })?;
     configure_duckdb_resources(&connection, resource_directory.path())?;
     register_file_view(
@@ -473,7 +473,7 @@ pub(crate) fn materialize_file_sources_query_to_parquet(
     )?;
     connection
         .execute_batch(request.dataset_view_query)
-        .map_err(|error| format!("DuckDB no pudo preparar el JOIN source-backed: {error}"))?;
+        .map_err(|error| format!("DuckDB no pudo preparar el resultado source-backed: {error}"))?;
 
     let count_query = format!(
         "SELECT COUNT(*) FROM ({}) AS __columnia_join_count",
@@ -481,13 +481,13 @@ pub(crate) fn materialize_file_sources_query_to_parquet(
     );
     let total_i64 = connection
         .query_row(&count_query, [], |row| row.get::<_, i64>(0))
-        .map_err(|error| format!("DuckDB no pudo contar el JOIN source-backed: {error}"))?;
+        .map_err(|error| format!("DuckDB no pudo contar el resultado source-backed: {error}"))?;
     let row_count = usize::try_from(total_i64)
-        .map_err(|_| "DuckDB devolvió un conteo de JOIN inválido.".to_owned())?;
+        .map_err(|_| "DuckDB devolvió un conteo de resultado source-backed inválido.".to_owned())?;
     if let Some(limit) = request.max_rows {
         if row_count > limit {
             return Err(format!(
-                "El JOIN source-backed produciría {row_count} filas y supera el límite local de {limit}."
+                "El resultado source-backed produciría {row_count} filas y supera el límite local de {limit}."
             ));
         }
     }
@@ -503,8 +503,47 @@ pub(crate) fn materialize_file_sources_query_to_parquet(
     );
     connection
         .execute_batch(&statement)
-        .map_err(|error| format!("DuckDB no pudo publicar el JOIN source-backed: {error}"))?;
+        .map_err(|error| format!("DuckDB no pudo publicar el resultado source-backed: {error}"))?;
     Ok(row_count)
+}
+
+pub(crate) struct DuckDbFileSourcesScalarQuery<'a> {
+    pub(crate) current_path: &'a Path,
+    pub(crate) current_format: DuckDbFileFormat,
+    pub(crate) compared_path: &'a Path,
+    pub(crate) compared_format: DuckDbFileFormat,
+    pub(crate) query: &'a str,
+}
+
+pub(crate) fn query_file_sources_scalar(
+    request: DuckDbFileSourcesScalarQuery<'_>,
+) -> Result<i64, String> {
+    let connection = Connection::open_in_memory().map_err(|error| {
+        format!("No se pudo iniciar DuckDB para validar la consolidación source-backed: {error}")
+    })?;
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!(
+            "No se pudo preparar el espacio temporal para validar la consolidación source-backed: {error}"
+        )
+    })?;
+    configure_duckdb_resources(&connection, resource_directory.path())?;
+    register_file_view(
+        &connection,
+        "__columnia_current",
+        request.current_path,
+        request.current_format,
+        None,
+    )?;
+    register_file_view(
+        &connection,
+        "__columnia_compared",
+        request.compared_path,
+        request.compared_format,
+        None,
+    )?;
+    connection
+        .query_row(request.query, [], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("DuckDB no pudo validar la consolidación source-backed: {error}"))
 }
 
 pub(crate) fn query_file_scalar(

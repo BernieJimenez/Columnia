@@ -15,7 +15,11 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.139.0, los
+  I3/I5 conservan validaciones externas de plataforma. En v0.140.0, la
+  consolidación por claves entre un activo source-backed y el snapshot Parquet
+  comparado valida duplicados/conflictos y publica solo las claves nuevas desde
+  DuckDB, con orden e historial reversibles; los formatos incompatibles
+  mantienen fallback eager. En v0.139.0, los
   JOINs source-backed `INNER`, `LEFT` y `FULL` entre un activo y una fuente
   CSV/TSV/TXT delimitada o Parquet ejecutan directamente en DuckDB, publican
   solo el resultado Parquet con límite de cardinalidad, orden estable e
@@ -50,7 +54,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.139.0`.
+- Versión actual del prototipo: `0.140.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1479,7 +1483,13 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; esto
   habilita la expansión fuera de RAM de los planes compatibles, pero aún
   requiere benchmark sostenido y validación con datasets reales grandes.
-  La versión 0.139.0 amplía la mutación multidataset: cuando el activo y el
+  La versión 0.140.0 amplía la consolidación multidataset: cuando el activo
+  conserva una fuente source-backed y la comparación está en su snapshot
+  Parquet, DuckDB valida duplicados y conflictos por clave, calcula únicamente
+  las claves nuevas, preserva el orden y publica un cursor Parquet reversible
+  sin cargar ambos datasets completos en el `DataFrame`. Los formatos
+  incompatibles mantienen el fallback eager. La versión 0.139.0 amplía la
+  mutación multidataset: cuando el activo y el
   comparado son source-backed y el comparado es CSV/TSV/TXT delimitado o
   Parquet, `INNER`, `LEFT` y `FULL` se ejecutan sobre ambas fuentes, se cuenta
   el resultado antes de escribir, se publica únicamente el Parquet resultante
@@ -2039,6 +2049,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.140.0 ejecuta la consolidación por claves entre activos source-backed y snapshots Parquet comparados directamente en DuckDB; valida duplicados/conflictos antes de escribir, publica solo las claves nuevas, conserva orden, fuentes, nombre visible e historial reversible y mantiene fallback eager para formatos incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.139.0 ejecuta mutaciones `INNER`/`LEFT`/`FULL` entre activos source-backed y fuentes locales CSV/TSV/TXT/Parquet en DuckDB; publica solo el resultado Parquet, comprueba el límite de 2.000.000 de filas, preserva orden y fuentes, activa historial reversible y mantiene fallback eager para formatos incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.138.0 mantiene la exportación incremental de Bundles source-backed con receta activa; incorpora `recipe.json`, su referencia y hash en `manifest.json`, y conserva privacidad, calidad incremental, cancelación, atomicidad, validación de cambios y cleanup sin materializar el frame activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.137.0 mantiene la exportación source-backed con protección `mask`/`hash`: genera un snapshot privado en DuckDB y transfiere todos los destinos locales sin materializar el frame activo; conserva nulos, columnas no personales, validación de cambios, atomicidad y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

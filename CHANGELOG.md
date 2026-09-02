@@ -6,6 +6,23 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.140.0] - 2026-09-01
+
+### Mejorado
+
+- La consolidación por claves entre un dataset source-backed activo y el
+  snapshot Parquet de la comparación ahora calcula el anti-join directamente
+  en DuckDB, sin cargar ambos datasets completos en el `DataFrame`.
+- La ruta conserva el orden de entrada, valida duplicados y conflictos de
+  payload antes de publicar, limita la salida a 2.000.000 de filas y publica
+  únicamente un snapshot Parquet reversible; si la fuente no es compatible,
+  mantiene el fallback eager existente.
+
+### Verificado
+
+- Regresiones dedicadas cubren claves nuevas, duplicados, conflictos, fuentes
+  intactas, cursor reversible y nombre visible del resultado consolidado.
+
 ## [0.139.0] - 2026-09-01
 
 ### Mejorado
