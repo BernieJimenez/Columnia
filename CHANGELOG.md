@@ -6,6 +6,21 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.144.0] - 2026-09-01
+
+### Verificado
+
+- El benchmark reproducible de JOIN source-backed procesa un CSV de
+  537.286.551 bytes y 1.810.432 filas directamente desde DuckDB. `INNER`,
+  `LEFT` y `FULL` conservan sus conteos y páginas esperados, el frame activo
+  permanece sin filas, el working set máximo observado es 233.816.064 bytes y
+  el cleanup queda confirmado.
+- La evidencia queda registrada en
+  `.local/validation/duckdb-join-benchmark/20260902T013642Z`; esta validación
+  cierra la ruta concreta de consulta/JOIN source-backed, pero no declara
+  completa la ejecución incremental de todas las operaciones ni el presupuesto
+  global de la aplicación.
+
 ## [0.143.0] - 2026-09-01
 
 ### Mejorado

@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.143.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.144.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -24,6 +24,15 @@ documentos equivalentes que puedan divergir.
 | Última revisión de este documento | 2026-09-01, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR directas source-backed para limitar, imputar y eliminar filas atípicas, eliminación source-backed de duplicados parecidos, correcciones recomendadas source-backed que combinan trim y renombres, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas con formato dominante y conversión numérica segura; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; el inventario IPC registra 65 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, la página visible de la muestra, el motor SQL elegido, la cobertura de correlaciones, el perfil de rendimiento, el formato de exportación, la protección de datos, las claves de comparación y el tipo de JOIN elegido por proyecto, con fallback seguro y migración SQLite v12. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las aperturas grandes de `JSON`, `JSONL` y `NDJSON` generan snapshots Parquet privados de DuckDB y dejan el frame activo en modo esquema-only; las consultas DuckDB fijan 512 MB, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar, renombrar, convertir tipos, parsear fechas fijas e ISO seguras, extraer partes de fecha, reemplazar texto literal, dividir y unir columnas de texto, calcular columnas simples y aplicar tratamientos IQR directamente sobre CSV/TSV/TXT delimitado o Parquet; las exportaciones source-backed de Bundle, Excel `.xlsx` y SQLite transfieren datos desde DuckDB sin materializar el `DataFrame` activo y conservan atomicidad, cancelación, validación de cambios y cleanup; los JOINs source-backed `INNER`/`LEFT`/`FULL` entre fuentes locales CSV/TSV/TXT/Parquet generan solo el resultado Parquet, limitan cardinalidad y dejan historial reversible con fallback eager para formatos incompatibles; `npm run brand:check` inspecciona el árbol activo para impedir regresiones de nomenclatura; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
 
 ### Estado verificable de Tier 5
+
+La versión 0.144.0 cierra la evidencia de la consulta source-backed con JOIN
+para una fuente CSV de 537.286.551 bytes y 1.810.432 filas. DuckDB procesa
+`INNER`, `LEFT` y `FULL`, conserva conteos, páginas y orden, deja el frame
+activo sin filas y confirma cleanup con un working set máximo de 233.816.064
+bytes. La evidencia está en
+`.local/validation/duckdb-join-benchmark/20260902T013642Z`; la ejecución
+incremental de todas las operaciones y el presupuesto global de la aplicación
+siguen siendo límites separados.
 
 La versión 0.143.0 amplía la resolución source-backed de conflictos por clave:
 valida por bloques solo el índice y las columnas divergentes, sin construir en
@@ -260,11 +269,12 @@ intentan la ruta DuckDB desde disco antes de volver al `DataFrame`; esto incluye
 JOINs con snapshots comparados y conserva el fallback seguro ante incompatibilidades.
 
 El benchmark opt-in `npm run perf:duckdb:join` genera una fuente CSV temporal de
-al menos 512 MiB y comprueba un `LEFT JOIN` source-backed con DuckDB. La corrida
-aprobada registra 537.286.551 bytes, 1.810.432 filas, working set del proceso
-de prueba por debajo de 512 MiB, conteo exacto y cleanup confirmado. La
-evidencia mide esta ruta concreta; no declara cerrada la ejecución integral
-fuera de RAM ni el presupuesto global de la aplicación.
+al menos 512 MiB y comprueba `INNER`, `LEFT` y `FULL JOIN` source-backed con
+DuckDB. La corrida aprobada registra 537.286.551 bytes, 1.810.432 filas,
+working set máximo de 233.816.064 bytes, conteos y páginas exactos, frame activo
+vacío y cleanup confirmado. La evidencia mide esta ruta concreta; no declara
+cerrada la ejecución incremental de todas las operaciones ni el presupuesto
+global de la aplicación.
 
 Desde v0.109.0, la apertura source-backed conserva el esquema y la primera
 página mediante Polars, pero obtiene el conteo total con `COUNT(*)` de DuckDB
@@ -1120,6 +1130,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.144.0: el benchmark source-backed de 512 MiB procesa `INNER`/`LEFT`/`FULL` desde DuckDB, conserva conteos y páginas, deja el frame activo vacío, observa 233.816.064 bytes de working set y confirma cleanup; la ejecución integral fuera de RAM sigue separada. | `tools/benchmark-duckdb-join.ps1`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.143.0: la validación de decisiones source-backed recorre conflictos por bloques y conserva solo índices y columnas divergentes, sin materializar los valores completos; el límite explícito sube a 8.192 y las entradas mayores mantienen fallback eager sin salida parcial. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.142.0: la página de conflictos por clave evita materializar el activo source-backed y la resolución acotada publica resultados reversibles desde DuckDB para hasta 2.048 conflictos, con orden, integridad, cleanup y fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.140.0: la consolidación por claves entre un activo source-backed y el snapshot Parquet comparado valida duplicados/conflictos en DuckDB, materializa solo las claves nuevas, conserva orden y fuentes, publica un cursor Parquet reversible y actualiza el nombre visible del dataset; formatos incompatibles mantienen fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |

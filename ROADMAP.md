@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.143.0, la
+  I3/I5 conservan validaciones externas de plataforma. En v0.144.0, el
+  benchmark reproducible de JOIN source-backed procesa 512 MiB desde DuckDB
+  con `INNER`, `LEFT` y `FULL`, conserva conteo/paginación, deja el frame vacío
+  y confirma cleanup bajo el presupuesto de working set. En v0.143.0, la
   validación de decisiones source-backed recorre conflictos por bloques y
   conserva solo índices y columnas divergentes, sin materializar los valores
   de todos los conflictos; el límite explícito sube a 8.192 y los casos fuera
@@ -64,7 +67,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.143.0`.
+- Versión actual del prototipo: `0.144.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1465,13 +1468,15 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   Parquet o CSV/TSV/TXT permanece intacta, leer solo la página solicitada desde
   disco y conservar el fallback al `DataFrame` ante cambios o formatos no
   compatibles.
-- [ ] Completar consulta con joins y DuckDB para datasets que excedan la RAM,
-  después de validar el benchmark y ampliar los límites de forma explícita. La
+- [x] Completar consulta con joins y DuckDB para datasets source-backed grandes,
+  dentro de límites explícitos. La
   versión 0.105.2 corrige el orden global de `FULL JOIN` cuando el esquema
   source-backed activo está vacío en memoria: el plan recibe el conteo real de
   filas y mantiene las filas derechas no emparejadas después de las activas,
-  sin materializar el dataset para preparar la consulta. El benchmark sostenido
-  y la validación con datasets reales grandes siguen siendo necesarios.
+  sin materializar el dataset para preparar la consulta. El benchmark reproducible
+  de `npm run perf:duckdb:join` procesa 537.286.551 bytes y 1.810.432 filas;
+  `INNER`, `LEFT` y `FULL` conservan sus conteos/páginas, el frame activo queda
+  vacío, el working set máximo observado es 233.816.064 bytes y el cleanup pasa.
   La versión 0.107.0 añade una ruta parcial `DataFrame` activo + snapshot
   comparado Parquet: evita materializar de nuevo todas las filas de la
   comparación cuando el activo ya está transformado en memoria, y cubre el
@@ -1490,9 +1495,10 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   JOIN compatibles, no solo a los que superan el umbral de entradas; así la ruta
   Polars no materializa innecesariamente ambos datasets antes de consultar.
   La ruta DuckDB configura por operación un límite de 512 MB y un directorio
-  privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; esto
-  habilita la expansión fuera de RAM de los planes compatibles, pero aún
-  requiere benchmark sostenido y validación con datasets reales grandes.
+  privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; el
+  benchmark confirma esta ruta concreta bajo ese presupuesto. La ejecución
+  incremental de todas las operaciones, el presupuesto global de la aplicación
+  y los datasets no compatibles siguen abiertos.
   La versión 0.143.0 amplía la resolución source-backed de conflictos por clave:
   valida por bloques solo índices y columnas divergentes, sin materializar los
   valores de todos los conflictos, y eleva el límite explícito a 8.192. La
@@ -2069,6 +2075,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.144.0 valida la ruta source-backed de JOIN con el benchmark reproducible de 512 MiB: `INNER`/`LEFT`/`FULL` conservan conteos y páginas, el frame activo permanece vacío, el working set máximo es 233.816.064 bytes y cleanup pasa. | `tools/benchmark-duckdb-join.ps1`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.143.0 valida decisiones source-backed recorriendo conflictos por bloques y reteniendo solo índices y columnas divergentes; eleva el límite explícito a 8.192, conserva el fallback eager para entradas mayores y mantiene orden, publicación reversible, integridad y cleanup. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.142.0 resuelve conflictos source-backed acotados por fila o columna directamente en DuckDB: publica un snapshot Parquet reversible, conserva orden y frame esquema-only, valida fuentes y limpia la comparación después de publicar; los casos fuera de 2.048 conflictos o incompatibles mantienen fallback eager. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.141.0 evita la materialización del activo source-backed al paginar conflictos por clave: genera un snapshot Parquet temporal solo cuando hace falta, procesa bloques y conserva integridad, orden, valores agregados y frame esquema-only; la resolución completa queda cubierta por v0.142.0. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
