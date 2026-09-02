@@ -20141,6 +20141,105 @@ fn collect_key_conflicts_page_between_parquet(
     Ok((conflicts, total > page_end))
 }
 
+fn source_backed_conflict_page(
+    state: &DatasetState,
+    compared_path: &Path,
+    compared_row_count: usize,
+    key_columns: &[String],
+    offset: usize,
+    limit: usize,
+) -> Result<Option<DatasetConflictPage>, String> {
+    let Some(context) = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?
+        .as_ref()
+        .and_then(source_backed_join_context)
+    else {
+        return Ok(None);
+    };
+    let (_, source_size_before, _) = validate_dataset_file(&context.source_path)?;
+    if source_size_before != context.source_size_bytes {
+        return Err("La fuente source-backed cambió antes de leer los conflictos.".to_owned());
+    }
+    validate_dataset_file(compared_path)?;
+
+    let mut current_snapshot_directory = None;
+    let current_path = if matches!(
+        context.source_format,
+        crate::duckdb_query::DuckDbFileFormat::Parquet
+    ) {
+        context.source_path.clone()
+    } else {
+        let directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el snapshot temporal de conflictos: {error}")
+        })?;
+        let path = directory.path().join("current.parquet");
+        if crate::duckdb_query::materialize_file_to_parquet_with_projection(
+            &context.source_path,
+            context.source_format,
+            &path,
+            "*",
+            || false,
+        )
+        .is_err()
+        {
+            return Ok(None);
+        }
+        current_snapshot_directory = Some(directory);
+        path
+    };
+    let current_row_count = if current_snapshot_directory.is_some() {
+        crate::duckdb_query::count_file_rows(
+            &current_path,
+            crate::duckdb_query::DuckDbFileFormat::Parquet,
+            || false,
+        )?
+    } else {
+        context.row_count
+    };
+    let current_schema = read_parquet_schema_frame(&current_path)?;
+    let compared_schema = read_parquet_schema_frame(compared_path)?;
+    let current_columns = current_schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let compared_columns = compared_schema
+        .get_column_names()
+        .iter()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let shared_columns = current_columns
+        .iter()
+        .filter(|name| compared_columns.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let (conflicts, has_next) = collect_key_conflicts_page_between_parquet(
+        ParquetComparisonSource {
+            path: &current_path,
+            row_count: current_row_count,
+        },
+        ParquetComparisonSource {
+            path: compared_path,
+            row_count: compared_row_count,
+        },
+        key_columns,
+        &shared_columns,
+        offset,
+        limit,
+    )?;
+    let (_, source_size_after, _) = validate_dataset_file(&context.source_path)?;
+    if source_size_after != context.source_size_bytes {
+        return Err("La fuente source-backed cambió durante la lectura de conflictos.".to_owned());
+    }
+    Ok(Some(DatasetConflictPage {
+        offset,
+        conflicts: conflicts.into_iter().map(|item| item.conflict).collect(),
+        has_next,
+    }))
+}
+
 fn collect_key_conflicts(
     current: &DataFrame,
     compared: &DataFrame,
@@ -20987,7 +21086,6 @@ pub async fn get_dataset_conflict_page(
     }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
-        let (current_frame, _) = materialize_current_dataset(&state)?;
         let (compared_path, compared_row_count, key_columns) = {
             let comparison = state
                 .comparison
@@ -21002,6 +21100,17 @@ pub async fn get_dataset_conflict_page(
                 pending.key_columns.clone(),
             )
         };
+        if let Some(page) = source_backed_conflict_page(
+            &state,
+            &compared_path,
+            compared_row_count,
+            &key_columns,
+            offset,
+            limit,
+        )? {
+            return Ok(Some(page));
+        }
+        let (current_frame, _) = materialize_current_dataset(&state)?;
         let current_columns = current_frame
             .get_column_names()
             .iter()
@@ -35595,6 +35704,75 @@ mod tests {
         assert!(!output_path.exists());
         fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
         fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
+    }
+
+    #[test]
+    fn source_backed_conflict_page_keeps_the_active_frame_deferred() {
+        let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+        let compared = df![
+            "id" => &["1", "2"],
+            "city" => &["La Romana", "Santiago"]
+        ]
+        .expect("la comparación debe construirse");
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let (current_frame, _, current_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente activa debe abrirse source-backed");
+        let current_size_bytes = fs::metadata(&current_path)
+            .expect("la fuente activa debe conservar sus metadatos")
+            .len();
+        let state = DatasetState::default();
+        *state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible") = Some(LoadedDataset {
+            source_path: Some(current_path.clone()),
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: current_size_bytes,
+            row_count: current_row_count,
+            frame: current_frame,
+            source_backed: true,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+        });
+
+        let page = source_backed_conflict_page(
+            &state,
+            &compared_path,
+            compared.height(),
+            &["id".to_owned()],
+            0,
+            MAX_CONFLICT_PREVIEW,
+        )
+        .expect("la página source-backed debe poder leerse")
+        .expect("el dataset source-backed debe usar la ruta diferida");
+
+        assert_eq!(page.offset, 0);
+        assert!(!page.has_next);
+        assert_eq!(page.conflicts.len(), 1);
+        assert_eq!(page.conflicts[0].key, vec![Some("1".to_owned())]);
+        assert_eq!(page.conflicts[0].cells.len(), 1);
+        assert_eq!(page.conflicts[0].cells[0].column, "city");
+        assert_eq!(
+            page.conflicts[0].cells[0].current,
+            Some("Santo Domingo".to_owned())
+        );
+        assert_eq!(
+            page.conflicts[0].cells[0].compared,
+            Some("La Romana".to_owned())
+        );
+        let active = state
+            .current
+            .lock()
+            .expect("el estado activo debe seguir disponible");
+        let dataset = active.as_ref().expect("el dataset activo debe conservarse");
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert!(current_path.is_file());
+        drop(active);
+        drop(compared_directory);
+        fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
     }
 
     fn write_duckdb_join_benchmark_csv(path: &Path, target_bytes: u64) -> (usize, u64) {

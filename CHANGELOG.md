@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.141.0] - 2026-09-01
+
+### Mejorado
+
+- La página de conflictos por clave ya no materializa el dataset activo
+  source-backed para inspeccionar diferencias. Para CSV, TSV, TXT delimitado y
+  otras fuentes compatibles crea un snapshot Parquet temporal en disco y
+  recorre conflictos por bloques; Parquet reutiliza la fuente administrada.
+- El dataset activo conserva su estado esquema-only y source-backed después de
+  abrir la página de conflictos; si la ruta no es compatible, mantiene el
+  fallback eager existente y valida que las fuentes no cambien durante la
+  lectura.
+
+### Verificado
+
+- Una regresión comprueba el conflicto paginado, sus valores agregados, el
+  orden, la fuente intacta y la permanencia del frame activo diferido.
+
 ## [0.140.0] - 2026-09-01
 
 ### Mejorado
