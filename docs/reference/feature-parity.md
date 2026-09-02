@@ -13,12 +13,12 @@ de rutas fuera del repositorio.
 | Perfilado | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos y cobertura temporal | Implementada | Ampliar análisis exploratorio |
 | Calidad | Documento `columnia-quality-rules` v1, reglas base y avanzadas, tolerancias, severidad y validación previa a entrega | Implementada | Añadir políticas para destinos remotos |
 | Transformaciones | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, reemplazo literal o regex segura, outliers, imputación y agregación; parseo, filtros temporales (`Eq`/`Neq` y rangos) y extracción de componentes pueden compartir el plan lazy | Implementada | Seguir ampliando ejecución incremental |
-| Comparación | Dataset secundario local, comparación por clave, consolidación segura y joins `INNER`/`LEFT`/`FULL` | Implementada | Ampliar análisis comparativo |
+| Comparación | Dataset secundario local, comparación por clave, consolidación segura y joins `INNER`/`LEFT`/`FULL`, incluidos resultados source-backed reversibles para CSV/TSV/TXT/Parquet | Implementada | Ampliar análisis comparativo |
 | Visualizaciones | Completitud, outliers, patrones de nulos, formatos, grupos, calendario, tendencia temporal y correlaciones, con tablas equivalentes | Implementada | Ampliar interacciones |
 | Salidas | CSV, JSON, Parquet, SQL, Excel, SQLite y bundle ZIP auditable | Implementada | Añadir destinos de base de datos |
 | Proyectos | Catálogo SQLite, snapshots Parquet, historial, reglas, recetas, CLI, archivos recientes, reapertura segura, cobertura de correlaciones, motor SQL, perfil de rendimiento, formato de exportación, protección, claves de comparación y tipo de JOIN por proyecto | Implementada | Muestras y resultados derivados no portables |
 | Privacidad | Sin telemetría, sanitización de contratos e informes, detección agregada de datos personales y máscara/hash local | Implementada | Extender contratos equivalentes |
-| Escala | Lazy para recetas compatibles, apertura source-backed de JSON/JSONL/NDJSON/XLSX/XLSB grandes mediante snapshots Parquet privados por bloques, limpiezas source-backed de filas vacías, duplicados exactos y parecidos, columnas con historial reversible, correcciones recomendadas que combinan trim/renombres, retiro y máscara de identificadores y datos personales detectados desde DuckDB, normalización de nombres y activación de `_cambios` source-backed, recorte/normalización de texto/valores centinela y booleanos source-backed con umbrales y conteos exactos, inferencia source-backed de números y fechas con validación conservadora, imputaciones source-backed conservadora y categórica, acciones directas IQR source-backed `cap`/`impute`/`drop`, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal y regex con grupos `$1`–`$9`/división calculada/división de texto/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, protección `mask`/`hash` mediante snapshot DuckDB, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/JSON/Parquet/SQL/Excel/SQLite/Bundle source-backed con privacidad incremental y Bundle con `recipe.json` validado, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
+| Escala | Lazy para recetas compatibles, apertura source-backed de JSON/JSONL/NDJSON/XLSX/XLSB grandes mediante snapshots Parquet privados por bloques, limpiezas source-backed de filas vacías, duplicados exactos y parecidos, columnas con historial reversible, correcciones recomendadas que combinan trim/renombres, retiro y máscara de identificadores y datos personales detectados desde DuckDB, normalización de nombres y activación de `_cambios` source-backed, recorte/normalización de texto/valores centinela y booleanos source-backed con umbrales y conteos exactos, inferencia source-backed de números y fechas con validación conservadora, imputaciones source-backed conservadora y categórica, acciones directas IQR source-backed `cap`/`impute`/`drop`, recetas source-backed de proyección/filtros/casts/fechas/cálculos simples/reemplazo literal y regex con grupos `$1`–`$9`/división calculada/división de texto/unión/extracción de texto/normalización de contactos/resúmenes por grupo/tratamientos IQR, protección `mask`/`hash` mediante snapshot DuckDB, lectura por bloques, snapshots administrados, conteo de apertura con DuckDB y cancelación, exportación CSV/JSON/Parquet/SQL/Excel/SQLite/Bundle source-backed con privacidad incremental y Bundle con `recipe.json` validado, transferencia por filas de Excel y SQLite, diccionario Bundle con nulos agregados en disco, consultas y mutaciones source-backed `INNER`/`LEFT`/`FULL JOIN` desde disco con resultados Parquet reversibles, DuckDB opcional, `JOIN` con frame activo y snapshot Parquet comparado, benchmark source-backed de 512 MiB, orden global por conteo real, rechazo de materialización implícita, cancelación y presupuestos explícitos | Parcial | Ejecución integral fuera de RAM y benchmark sostenido |
 
 ## Contrato de calidad
 
@@ -96,8 +96,16 @@ el `DataFrame` activo; la fuente original se valida antes y después.
 Las consultas `JOIN` compatibles de Revisar pueden registrar un `DataFrame`
 activo junto con el snapshot Parquet de la comparación. Así se evita cargar de
 nuevo todas las filas comparadas cuando el activo ya está transformado; si la
-fuente no es compatible, se conserva el fallback materializado. La ejecución
-integral fuera de RAM sigue siendo un límite explícito.
+fuente no es compatible, se conserva el fallback materializado.
+
+Las mutaciones `INNER`, `LEFT` y `FULL` también pueden combinar un activo
+source-backed con una fuente CSV, TSV, TXT delimitada o Parquet directamente en
+DuckDB. El motor cuenta la cardinalidad antes de escribir, publica solo el
+resultado como Parquet administrado, conserva el orden de entrada y activa el
+historial reversible con undo/redo; las fuentes permanecen intactas y los
+formatos comparados incompatibles usan el fallback eager. La ejecución
+integral fuera de RAM de todas las demás operaciones sigue siendo un límite
+explícito.
 
 Las fechas ISO sin offset o con sufijo UTC `Z` también se convierten sobre la
 fuente, y las partes de fecha pueden seguir a filtros dentro de la misma receta;

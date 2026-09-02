@@ -2422,6 +2422,58 @@ struct LocalJoinQuerySpec {
     normalized_query: String,
 }
 
+#[derive(Clone)]
+struct SourceBackedJoinContext {
+    source_path: PathBuf,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    source_size_bytes: u64,
+    schema: DataFrame,
+    file_name: String,
+    file_size_bytes: u64,
+    row_count: usize,
+    original_source_path: PathBuf,
+    original_file_size_bytes: u64,
+    history_directory: PathBuf,
+}
+
+struct SourceBackedJoinOutput<'a> {
+    compared_path: &'a Path,
+    compared_size_bytes: u64,
+    output_path: &'a Path,
+    output_row_count: usize,
+    file_name: &'a str,
+    label: &'a str,
+}
+
+struct SourceBackedJoinRequest {
+    context: SourceBackedJoinContext,
+    compared_path: PathBuf,
+    compared_format: crate::duckdb_query::DuckDbFileFormat,
+    compared_schema: DataFrame,
+    compared_file_name: String,
+    compared_size_bytes: u64,
+    key_columns: Vec<String>,
+    join_type: DatasetJoinType,
+}
+
+struct SourceBackedJoinOutputGuard {
+    path: PathBuf,
+}
+
+impl SourceBackedJoinOutputGuard {
+    fn new(path: &Path) -> Self {
+        Self {
+            path: path.to_owned(),
+        }
+    }
+}
+
+impl Drop for SourceBackedJoinOutputGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 fn parse_local_join_query_spec(
     query: &str,
     current: &DataFrame,
@@ -2970,6 +3022,60 @@ fn build_duckdb_join_view_query(
     Ok(format!(
         "CREATE VIEW dataset AS SELECT {} FROM __columnia_current AS c {join_keyword} __columnia_compared AS r ON {conditions}",
         projections.join(", ")
+    ))
+}
+
+fn source_backed_join_plan(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    join_type: DatasetJoinType,
+    current_row_count: usize,
+) -> Result<(DataFrame, String, String, String, String), String> {
+    let joined_schema =
+        join_frames_on_keys(current, compared, key_columns, key_columns, join_type)?;
+    let mut used_names = current
+        .get_column_names()
+        .iter()
+        .chain(compared.get_column_names().iter())
+        .map(|name| name.to_string())
+        .collect::<HashSet<_>>();
+    let current_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_join_current_order");
+    let compared_order_column =
+        unique_duckdb_internal_name(&mut used_names, "__columnia_join_compared_order");
+    let spec = LocalJoinQuerySpec {
+        current_keys: key_columns.to_vec(),
+        compared_keys: key_columns.to_vec(),
+        join_type,
+        normalized_query: "SELECT * FROM dataset".to_owned(),
+    };
+    let dataset_view_query = build_duckdb_join_view_query(
+        current,
+        compared,
+        &spec,
+        &joined_schema,
+        &current_order_column,
+        &compared_order_column,
+        current_row_count,
+    )?;
+    let projection = joined_schema
+        .get_column_names()
+        .iter()
+        .map(|name| duckdb_identifier(name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let output_query = format!(
+        "SELECT {projection} FROM dataset ORDER BY {}, {}",
+        duckdb_identifier(&current_order_column),
+        duckdb_identifier(&compared_order_column),
+    );
+    Ok((
+        joined_schema,
+        dataset_view_query,
+        output_query,
+        current_order_column,
+        compared_order_column,
     ))
 }
 
@@ -3719,6 +3825,26 @@ fn current_duckdb_file_source(
         _ => return None,
     };
     Some((canonical, format))
+}
+
+fn source_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJoinContext> {
+    if !dataset.source_backed {
+        return None;
+    }
+    let (source_path, source_format) = current_duckdb_file_source(dataset)?;
+    let source_size_bytes = fs::metadata(&source_path).ok()?.len();
+    Some(SourceBackedJoinContext {
+        source_path,
+        source_format,
+        source_size_bytes,
+        schema: dataset.frame.clone(),
+        file_name: dataset.file_name.clone(),
+        file_size_bytes: dataset.file_size_bytes,
+        row_count: dataset.row_count,
+        original_source_path: dataset.source_path.clone()?,
+        original_file_size_bytes: dataset.file_size_bytes,
+        history_directory: dataset.history.directory.path().to_owned(),
+    })
 }
 
 fn execute_local_query_from_parquet_with_cancel<C>(
@@ -7669,6 +7795,214 @@ fn publish_source_backed_query(
     }))
 }
 
+fn publish_source_backed_join_output(
+    dataset: &mut LoadedDataset,
+    context: &SourceBackedJoinContext,
+    output: SourceBackedJoinOutput<'_>,
+) -> Result<Option<DatasetPreview>, String> {
+    let _output_guard = SourceBackedJoinOutputGuard::new(output.output_path);
+    let Some(original_source_path) = dataset.source_path.as_ref() else {
+        let _ = fs::remove_file(output.output_path);
+        return Err("La fuente source-backed ya no está disponible.".to_owned());
+    };
+    if original_source_path != &context.original_source_path
+        || dataset.file_size_bytes != context.original_file_size_bytes
+    {
+        let _ = fs::remove_file(output.output_path);
+        return Err("El dataset activo cambió durante la preparación del JOIN.".to_owned());
+    }
+
+    let (_, original_source_size_before, _) = validate_dataset_file(original_source_path)?;
+    if original_source_size_before != context.original_file_size_bytes {
+        let _ = fs::remove_file(output.output_path);
+        return Err("El archivo source-backed cambió antes de aplicar el JOIN.".to_owned());
+    }
+    let (_, source_size_before, _) = validate_dataset_file(&context.source_path)?;
+    if source_size_before != context.source_size_bytes {
+        let _ = fs::remove_file(output.output_path);
+        return Err("La fuente source-backed cambió antes de ejecutar el JOIN.".to_owned());
+    }
+    let (_, compared_size_before, _) = validate_dataset_file(output.compared_path)?;
+    if compared_size_before != output.compared_size_bytes {
+        let _ = fs::remove_file(output.output_path);
+        return Err("El dataset comparado cambió antes de aplicar el JOIN.".to_owned());
+    }
+
+    let output_size = fs::metadata(output.output_path)
+        .map_err(|error| format!("No se pudo verificar la salida del JOIN source-backed: {error}"))?
+        .len();
+    let output_schema = read_parquet_schema_frame(output.output_path)?;
+    let verified_row_count = crate::duckdb_query::count_file_rows(
+        output.output_path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+        || false,
+    )?;
+    if verified_row_count != output.output_row_count {
+        let _ = fs::remove_file(output.output_path);
+        return Err(
+            "El conteo del resultado JOIN source-backed no coincide con DuckDB.".to_owned(),
+        );
+    }
+    let page = if output.output_row_count == 0 {
+        output_schema.slice(0, 0)
+    } else {
+        collect_lazy_frame_streaming(
+            parquet_scan(output.output_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa del JOIN source-backed",
+        )?
+    };
+
+    let (_, original_source_size_after, _) = validate_dataset_file(original_source_path)?;
+    let (_, source_size_after, _) = validate_dataset_file(&context.source_path)?;
+    let (_, compared_size_after, _) = validate_dataset_file(output.compared_path)?;
+    if original_source_size_after != context.original_file_size_bytes
+        || source_size_after != context.source_size_bytes
+        || compared_size_after != output.compared_size_bytes
+    {
+        let _ = fs::remove_file(output.output_path);
+        return Err("Una fuente cambió durante la ejecución del JOIN source-backed.".to_owned());
+    }
+
+    let preview = dataset_preview_from_schema_and_page(
+        output.file_name,
+        output_size,
+        output.output_row_count,
+        &output_schema,
+        &page,
+    )?;
+    if !initialize_source_backed_history(dataset, &context.source_path, context.source_format)? {
+        let _ = fs::remove_file(output.output_path);
+        return Ok(None);
+    }
+    dataset
+        .history
+        .record_parquet(output.output_path, output.label)?;
+    if !dataset.history.snapshots_enabled {
+        let _ = fs::remove_file(output.output_path);
+        return Ok(None);
+    }
+    let current_path = dataset
+        .history
+        .entries
+        .last()
+        .map(|entry| entry.path.clone())
+        .ok_or_else(|| "No se pudo publicar el JOIN source-backed.".to_owned())?;
+    let current_size = fs::metadata(&current_path)
+        .map_err(|error| {
+            format!("No se pudo verificar el historial del JOIN source-backed: {error}")
+        })?
+        .len();
+    let _ = fs::remove_file(output.output_path);
+    dataset.source_path = Some(current_path);
+    dataset.file_size_bytes = current_size;
+    dataset.row_count = output.output_row_count;
+    dataset.frame = output_schema;
+    dataset.source_backed = true;
+    dataset.history.source_snapshot_path = None;
+    dataset.history.current_label = output.label.to_owned();
+    dataset.profile = None;
+    Ok(Some(DatasetPreview {
+        file_size_bytes: current_size,
+        ..preview
+    }))
+}
+
+fn join_source_backed_dataset(
+    app: &AppHandle,
+    request: SourceBackedJoinRequest,
+) -> Result<Option<DatasetPreview>, String> {
+    let SourceBackedJoinRequest {
+        context,
+        compared_path,
+        compared_format,
+        compared_schema,
+        compared_file_name,
+        compared_size_bytes,
+        key_columns,
+        join_type,
+    } = request;
+    let (
+        _joined_schema,
+        dataset_view_query,
+        output_query,
+        current_order_column,
+        compared_order_column,
+    ) = source_backed_join_plan(
+        &context.schema,
+        &compared_schema,
+        &key_columns,
+        join_type,
+        context.row_count,
+    )?;
+    let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+        .map_err(|error| {
+            format!("No se pudo preparar la salida del JOIN source-backed: {error}")
+        })?;
+    let output_path = temporary.path().to_owned();
+    drop(temporary);
+    let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
+    let output_row_count = match crate::duckdb_query::materialize_file_sources_query_to_parquet(
+        crate::duckdb_query::DuckDbFileSourcesQuery {
+            current_path: &context.source_path,
+            current_format: context.source_format,
+            compared_path: &compared_path,
+            compared_format,
+            dataset_view_query: &dataset_view_query,
+            query: &output_query,
+            destination: &output_path,
+            current_order_column: &current_order_column,
+            compared_order_column: &compared_order_column,
+            max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+        },
+    ) {
+        Ok(row_count) => row_count,
+        Err(error) if error.contains("supera el límite local") => {
+            let _ = fs::remove_file(&output_path);
+            return Err(error);
+        }
+        Err(_) => {
+            let _ = fs::remove_file(&output_path);
+            return Ok(None);
+        }
+    };
+
+    let state = app.state::<DatasetState>();
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        let _ = fs::remove_file(&output_path);
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    let file_name = format!(
+        "Join {} · {} + {compared_file_name}",
+        join_type.label(),
+        context.file_name
+    );
+    let label = format!("Unir datasets ({})", join_type.label());
+    let preview = publish_source_backed_join_output(
+        dataset,
+        &context,
+        SourceBackedJoinOutput {
+            compared_path: &compared_path,
+            compared_size_bytes,
+            output_path: &output_path,
+            output_row_count,
+            file_name: &file_name,
+            label: &label,
+        },
+    )?;
+    if preview.is_some() {
+        drop(current);
+        *state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
+    }
+    Ok(preview)
+}
+
 fn remove_empty_rows_source_backed(
     dataset: &mut LoadedDataset,
 ) -> Result<Option<DatasetMutation>, String> {
@@ -11341,6 +11675,23 @@ fn source_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
         "parquet" => parquet_scan(path),
         _ => Err("El formato no admite una carga source-backed diferida.".to_owned()),
     }
+}
+
+fn source_backed_join_source(
+    path: &Path,
+    extension: &str,
+) -> Result<Option<(crate::duckdb_query::DuckDbFileFormat, DataFrame)>, String> {
+    let source_format = match extension {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(path, extension)?,
+        },
+        "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
+        _ => return Ok(None),
+    };
+    let schema = source_scan(path, extension)?
+        .collect_schema()
+        .map_err(|error| format!("No se pudo leer el esquema comparado source-backed: {error}"))?;
+    Ok(Some((source_format, DataFrame::empty_with_schema(&schema))))
 }
 
 fn source_backed_load<C>(
@@ -20429,22 +20780,37 @@ pub async fn join_dataset(
     if key_columns.is_empty() {
         return Err("Selecciona al menos una columna clave para unir datasets.".to_owned());
     }
-    let (current_frame, current_file_name, current_file_size) = {
+    let source_join_context = {
         let state = app.state::<DatasetState>();
-        let mut current = state
+        let current = state
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        materialize_loaded_dataset(dataset)?;
-        (
-            dataset.frame.clone(),
-            dataset.file_name.clone(),
-            dataset.file_size_bytes,
-        )
+        current.as_ref().and_then(source_backed_join_context)
     };
+    let (mut current_frame, current_file_name, current_file_size) =
+        if let Some(context) = source_join_context.as_ref() {
+            (
+                context.schema.clone(),
+                context.file_name.clone(),
+                context.file_size_bytes,
+            )
+        } else {
+            let state = app.state::<DatasetState>();
+            let mut current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let dataset = current.as_mut().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            materialize_loaded_dataset(dataset)?;
+            (
+                dataset.frame.clone(),
+                dataset.file_name.clone(),
+                dataset.file_size_bytes,
+            )
+        };
     let selection = app
         .dialog()
         .file()
@@ -20468,6 +20834,49 @@ pub async fn join_dataset(
         .and_then(|name| name.to_str())
         .unwrap_or("dataset")
         .to_owned();
+
+    let compared_source = source_backed_join_source(&path, &extension)?;
+    if let (Some(context), Some((compared_format, compared_schema))) =
+        (source_join_context.clone(), compared_source)
+    {
+        let app_for_source_join = app.clone();
+        let compared_path_for_source_join = path.clone();
+        let compared_file_name_for_source_join = compared_file_name.clone();
+        let key_columns_for_source_join = key_columns.clone();
+        let source_result = tauri::async_runtime::spawn_blocking(move || {
+            join_source_backed_dataset(
+                &app_for_source_join,
+                SourceBackedJoinRequest {
+                    context,
+                    compared_path: compared_path_for_source_join,
+                    compared_format,
+                    compared_schema,
+                    compared_file_name: compared_file_name_for_source_join,
+                    compared_size_bytes: file_size_bytes,
+                    key_columns: key_columns_for_source_join,
+                    join_type,
+                },
+            )
+        })
+        .await
+        .map_err(|error| format!("La unión source-backed se interrumpió: {error}"))??;
+        if source_result.is_some() {
+            return Ok(source_result);
+        }
+        current_frame = {
+            let state = app.state::<DatasetState>();
+            let mut current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let dataset = current.as_mut().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            materialize_loaded_dataset(dataset)?;
+            dataset.frame.clone()
+        };
+    }
+
     tauri::async_runtime::spawn_blocking(move || {
         let compared_frame = load_compare_frame(&path, &extension)?;
         let joined = join_frames(&current_frame, &compared_frame, &key_columns, join_type)?;
@@ -34406,6 +34815,258 @@ mod tests {
         assert!(!source.with_file_name("source.parquet").exists());
         drop(compared_directory);
         fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+    }
+
+    #[test]
+    fn source_backed_join_materializes_only_the_result_for_all_join_types() {
+        let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+        let compared_path = temporary_csv("id,segment\n2,B\n3,C\n");
+        let (current_schema, _, current_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente activa debe abrirse source-backed");
+        let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
+            .expect("el esquema comparado debe leerse")
+            .expect("el CSV comparado debe ser source-backed");
+        let current_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&current_path, "csv")
+                .expect("el delimitador debe detectarse"),
+        };
+        let output_directory = tempfile::tempdir().expect("se debe crear la salida temporal");
+
+        for (join_type, expected_rows) in [
+            (
+                DatasetJoinType::Inner,
+                vec![vec![
+                    Some("2".to_owned()),
+                    Some("Santiago".to_owned()),
+                    Some("B".to_owned()),
+                ]],
+            ),
+            (
+                DatasetJoinType::Left,
+                vec![
+                    vec![Some("1".to_owned()), Some("Santo Domingo".to_owned()), None],
+                    vec![
+                        Some("2".to_owned()),
+                        Some("Santiago".to_owned()),
+                        Some("B".to_owned()),
+                    ],
+                ],
+            ),
+            (
+                DatasetJoinType::Full,
+                vec![
+                    vec![Some("1".to_owned()), Some("Santo Domingo".to_owned()), None],
+                    vec![
+                        Some("2".to_owned()),
+                        Some("Santiago".to_owned()),
+                        Some("B".to_owned()),
+                    ],
+                    vec![Some("3".to_owned()), None, Some("C".to_owned())],
+                ],
+            ),
+        ] {
+            let (
+                joined_schema,
+                dataset_view_query,
+                output_query,
+                current_order_column,
+                compared_order_column,
+            ) = source_backed_join_plan(
+                &current_schema,
+                &compared_schema,
+                &["id".to_owned()],
+                join_type,
+                current_row_count,
+            )
+            .expect("el plan source-backed debe validar el esquema");
+            let output_path = output_directory
+                .path()
+                .join(format!("{}-join.parquet", join_type.label()));
+            let row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
+                crate::duckdb_query::DuckDbFileSourcesQuery {
+                    current_path: &current_path,
+                    current_format,
+                    compared_path: &compared_path,
+                    compared_format,
+                    dataset_view_query: &dataset_view_query,
+                    query: &output_query,
+                    destination: &output_path,
+                    current_order_column: &current_order_column,
+                    compared_order_column: &compared_order_column,
+                    max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+                },
+            )
+            .expect("DuckDB debe publicar solo el resultado JOIN");
+            let result =
+                read_parquet_frame(&output_path).expect("el resultado Parquet debe leerse");
+            let page = dataset_page(&result, 0, PREVIEW_ROW_LIMIT)
+                .expect("la página del resultado debe poder leerse");
+            assert_eq!(row_count, expected_rows.len());
+            assert_eq!(result.height(), expected_rows.len());
+            assert_eq!(page.rows, expected_rows);
+            assert_eq!(
+                joined_schema
+                    .get_column_names()
+                    .iter()
+                    .map(|name| name.as_str())
+                    .collect::<Vec<_>>(),
+                ["id", "city", "segment"]
+            );
+            assert_eq!(current_schema.height(), 0);
+        }
+
+        assert_eq!(
+            fs::read_to_string(&current_path).expect("la fuente activa debe permanecer intacta"),
+            "id,city\n1,Santo Domingo\n2,Santiago\n"
+        );
+        assert_eq!(
+            fs::read_to_string(&compared_path)
+                .expect("la fuente comparada debe permanecer intacta"),
+            "id,segment\n2,B\n3,C\n"
+        );
+        fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+        fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
+    }
+
+    #[test]
+    fn source_backed_join_rejects_an_oversized_result_before_writing_it() {
+        let current_path = temporary_csv("id,city\n1,A\n1,B\n");
+        let compared_path = temporary_csv("id,segment\n1,X\n1,Y\n");
+        let (current_schema, _, current_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente activa debe abrirse source-backed");
+        let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
+            .expect("el esquema comparado debe leerse")
+            .expect("el CSV comparado debe ser source-backed");
+        let current_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(&current_path, "csv")
+                .expect("el delimitador debe detectarse"),
+        };
+        let (_, dataset_view_query, output_query, current_order_column, compared_order_column) =
+            source_backed_join_plan(
+                &current_schema,
+                &compared_schema,
+                &["id".to_owned()],
+                DatasetJoinType::Inner,
+                current_row_count,
+            )
+            .expect("el plan source-backed debe validar el esquema");
+        let output_directory = tempfile::tempdir().expect("se debe crear la salida temporal");
+        let output_path = output_directory.path().join("oversized.parquet");
+        let error = crate::duckdb_query::materialize_file_sources_query_to_parquet(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &current_path,
+                current_format,
+                compared_path: &compared_path,
+                compared_format,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(3),
+            },
+        )
+        .expect_err("el resultado acotado debe rechazarse antes de escribir");
+
+        assert!(error.contains("supera el límite local de 3"));
+        assert!(!output_path.exists());
+        fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+        fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
+    }
+
+    #[test]
+    fn source_backed_join_publishes_a_reversible_parquet_cursor() {
+        let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+        let compared_path = temporary_csv("id,segment\n2,B\n3,C\n");
+        let (current_schema, _, current_row_count) =
+            source_backed_load(&current_path, "csv", || false)
+                .expect("la fuente activa debe abrirse source-backed");
+        let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
+            .expect("el esquema comparado debe leerse")
+            .expect("el CSV comparado debe ser source-backed");
+        let current_size_bytes = fs::metadata(&current_path)
+            .expect("la fuente activa debe conservar sus metadatos")
+            .len();
+        let mut dataset = LoadedDataset {
+            source_path: Some(current_path.clone()),
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: current_size_bytes,
+            row_count: current_row_count,
+            frame: current_schema.clone(),
+            source_backed: true,
+            profile: None,
+            history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+        };
+        let context = source_backed_join_context(&dataset)
+            .expect("el contexto source-backed debe conservarse sin materializar filas");
+        let (
+            _joined_schema,
+            dataset_view_query,
+            output_query,
+            current_order_column,
+            compared_order_column,
+        ) = source_backed_join_plan(
+            &current_schema,
+            &compared_schema,
+            &["id".to_owned()],
+            DatasetJoinType::Full,
+            current_row_count,
+        )
+        .expect("el plan del JOIN debe validarse");
+        let temporary =
+            tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+                .expect("la salida temporal debe prepararse");
+        let output_path = temporary.path().to_owned();
+        drop(temporary);
+        let output_row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &context.source_path,
+                current_format: context.source_format,
+                compared_path: &compared_path,
+                compared_format,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+            },
+        )
+        .expect("el JOIN debe escribir el resultado Parquet");
+        let preview = publish_source_backed_join_output(
+            &mut dataset,
+            &context,
+            SourceBackedJoinOutput {
+                compared_path: &compared_path,
+                compared_size_bytes: fs::metadata(&compared_path)
+                    .expect("la fuente comparada debe conservar sus metadatos")
+                    .len(),
+                output_path: &output_path,
+                output_row_count,
+                file_name: "Join full · current.csv + compared.csv",
+                label: "Unir datasets (full)",
+            },
+        )
+        .expect("el cursor source-backed debe publicarse")
+        .expect("el historial debe permitir publicar el cursor");
+
+        assert_eq!(preview.row_count, 3);
+        assert_eq!(dataset.row_count, 3);
+        assert_eq!(dataset.frame.height(), 0);
+        assert!(dataset.source_backed);
+        assert!(dataset.history.snapshots_enabled);
+        assert_eq!(dataset.history.entries.len(), 2);
+        assert!(dataset.history.state().can_undo);
+        let restored = dataset
+            .history
+            .restore(0)
+            .expect("el dataset original debe poder restaurarse");
+        assert_eq!(restored.height(), 2);
+        assert!(!output_path.exists());
+        fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+        fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
     }
 
     fn write_duckdb_join_benchmark_csv(path: &Path, target_bytes: u64) -> (usize, u64) {

@@ -15,7 +15,12 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.138.0, los
+  I3/I5 conservan validaciones externas de plataforma. En v0.139.0, los
+  JOINs source-backed `INNER`, `LEFT` y `FULL` entre un activo y una fuente
+  CSV/TSV/TXT delimitada o Parquet ejecutan directamente en DuckDB, publican
+  solo el resultado Parquet con límite de cardinalidad, orden estable e
+  historial reversible, y conservan fallback eager para formatos incompatibles.
+  En v0.138.0, los
   Bundles source-backed con receta activa mantienen la ejecución incremental:
   DuckDB transfiere el dataset y agrega `recipe.json` validado, su referencia y
   hash en `manifest.json` sin materializar el frame activo. En v0.137.0, la
@@ -45,7 +50,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.138.0`.
+- Versión actual del prototipo: `0.139.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1474,6 +1479,15 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   privado de derrame temporal de hasta 8 GB, con cleanup al finalizar; esto
   habilita la expansión fuera de RAM de los planes compatibles, pero aún
   requiere benchmark sostenido y validación con datasets reales grandes.
+  La versión 0.139.0 amplía la mutación multidataset: cuando el activo y el
+  comparado son source-backed y el comparado es CSV/TSV/TXT delimitado o
+  Parquet, `INNER`, `LEFT` y `FULL` se ejecutan sobre ambas fuentes, se cuenta
+  el resultado antes de escribir, se publica únicamente el Parquet resultante
+  y el cursor queda en historial reversible. Los formatos comparados
+  incompatibles conservan el fallback eager. Esta entrega cierra la ruta
+  concreta de JOIN source-backed local, pero el benchmark sostenido, la
+  validación con datos reales y la ejecución fuera de RAM de todas las demás
+  operaciones siguen abiertos.
   La versión 0.108.0 incorpora `npm run perf:duckdb:join`: una corrida
   reproducible de una fuente CSV temporal de 512 MiB y 1.810.432 filas ejecuta
   un `LEFT JOIN` directo desde DuckDB, conserva el frame activo vacío y valida
@@ -1594,7 +1608,7 @@ comparación no equivale a ejecución fuera de memoria general. La
   también lee el snapshot Parquet del cursor por bloques de 16K filas, cuenta
   coincidencias y conserva solo la página o los acumuladores; si el snapshot
   falla vuelve al frame activo. Quedan fuera de esta slice los `JOIN` sobre un
-  dataset activo materializado, las otras fuentes de comparación, las
+  dataset activo materializado, las fuentes comparadas incompatibles, las
   operaciones generales y el presupuesto integral fuera de RAM. Desde v0.80,
    las recetas source-backed compuestas únicamente por renombres y
    `keepColumns` proyectan directamente a un Parquet privado administrado,
@@ -2025,6 +2039,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.139.0 ejecuta mutaciones `INNER`/`LEFT`/`FULL` entre activos source-backed y fuentes locales CSV/TSV/TXT/Parquet en DuckDB; publica solo el resultado Parquet, comprueba el límite de 2.000.000 de filas, preserva orden y fuentes, activa historial reversible y mantiene fallback eager para formatos incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.138.0 mantiene la exportación incremental de Bundles source-backed con receta activa; incorpora `recipe.json`, su referencia y hash en `manifest.json`, y conserva privacidad, calidad incremental, cancelación, atomicidad, validación de cambios y cleanup sin materializar el frame activo. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.137.0 mantiene la exportación source-backed con protección `mask`/`hash`: genera un snapshot privado en DuckDB y transfiere todos los destinos locales sin materializar el frame activo; conserva nulos, columnas no personales, validación de cambios, atomicidad y cleanup. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.136.0 ejecuta la eliminación de duplicados parecidos y las correcciones recomendadas sobre fuentes source-backed con DuckDB; conserva claves normalizadas/exactas, repeticiones idénticas, trim, renombres, orden, conteos, snapshots reversibles y fallback eager. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.139.0] - 2026-09-01
+
+### Mejorado
+
+- Los JOINs `INNER`, `LEFT` y `FULL` entre un dataset source-backed activo y
+  una fuente CSV, TSV, TXT delimitada o Parquet ya pueden ejecutarse
+  directamente en DuckDB sin cargar las filas completas en el `DataFrame`.
+- El resultado del JOIN se publica como un snapshot Parquet administrado,
+  conserva el orden de entrada, limita la cardinalidad a 2.000.000 de filas,
+  mantiene la vista previa y deja disponibles undo/redo; los formatos
+  incompatibles conservan el fallback eager existente.
+
+### Verificado
+
+- Regresiones dedicadas cubren los tres tipos de JOIN, el resultado Parquet,
+  la preservación de las dos fuentes, el rechazo antes de escribir cuando se
+  supera el límite y la publicación reversible del cursor source-backed.
+
 ## [0.138.0] - 2026-09-01
 
 ### Mejorado

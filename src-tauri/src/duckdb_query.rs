@@ -434,6 +434,79 @@ pub(crate) fn materialize_file_query_to_parquet(
         .map_err(|error| format!("DuckDB no pudo publicar la receta source-backed: {error}"))
 }
 
+pub(crate) struct DuckDbFileSourcesQuery<'a> {
+    pub(crate) current_path: &'a Path,
+    pub(crate) current_format: DuckDbFileFormat,
+    pub(crate) compared_path: &'a Path,
+    pub(crate) compared_format: DuckDbFileFormat,
+    pub(crate) dataset_view_query: &'a str,
+    pub(crate) query: &'a str,
+    pub(crate) destination: &'a Path,
+    pub(crate) current_order_column: &'a str,
+    pub(crate) compared_order_column: &'a str,
+    pub(crate) max_rows: Option<usize>,
+}
+
+pub(crate) fn materialize_file_sources_query_to_parquet(
+    request: DuckDbFileSourcesQuery<'_>,
+) -> Result<usize, String> {
+    let connection = Connection::open_in_memory().map_err(|error| {
+        format!("No se pudo iniciar DuckDB para el JOIN source-backed: {error}")
+    })?;
+    let resource_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el espacio temporal para el JOIN source-backed: {error}")
+    })?;
+    configure_duckdb_resources(&connection, resource_directory.path())?;
+    register_file_view(
+        &connection,
+        "__columnia_current",
+        request.current_path,
+        request.current_format,
+        Some(request.current_order_column),
+    )?;
+    register_file_view(
+        &connection,
+        "__columnia_compared",
+        request.compared_path,
+        request.compared_format,
+        Some(request.compared_order_column),
+    )?;
+    connection
+        .execute_batch(request.dataset_view_query)
+        .map_err(|error| format!("DuckDB no pudo preparar el JOIN source-backed: {error}"))?;
+
+    let count_query = format!(
+        "SELECT COUNT(*) FROM ({}) AS __columnia_join_count",
+        request.query
+    );
+    let total_i64 = connection
+        .query_row(&count_query, [], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("DuckDB no pudo contar el JOIN source-backed: {error}"))?;
+    let row_count = usize::try_from(total_i64)
+        .map_err(|_| "DuckDB devolvió un conteo de JOIN inválido.".to_owned())?;
+    if let Some(limit) = request.max_rows {
+        if row_count > limit {
+            return Err(format!(
+                "El JOIN source-backed produciría {row_count} filas y supera el límite local de {limit}."
+            ));
+        }
+    }
+
+    let destination = request
+        .destination
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let statement = format!(
+        "SET preserve_insertion_order = true; COPY ({}) TO '{destination}' (FORMAT PARQUET)",
+        request.query
+    );
+    connection
+        .execute_batch(&statement)
+        .map_err(|error| format!("DuckDB no pudo publicar el JOIN source-backed: {error}"))?;
+    Ok(row_count)
+}
+
 pub(crate) fn query_file_scalar(
     source_path: &Path,
     source_format: DuckDbFileFormat,
