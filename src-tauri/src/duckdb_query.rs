@@ -1276,6 +1276,100 @@ where
     })
 }
 
+pub(crate) struct FileTextTypeExpressions {
+    pub(crate) column: String,
+    pub(crate) normalized: String,
+    pub(crate) integer: String,
+    pub(crate) decimal: String,
+    pub(crate) date: String,
+}
+
+pub(crate) struct FileTextTypeStats {
+    pub(crate) non_empty_count: usize,
+    pub(crate) boolean_count: usize,
+    pub(crate) integer_count: usize,
+    pub(crate) decimal_count: usize,
+    pub(crate) date_count: usize,
+}
+
+pub(crate) fn count_file_text_type_stats<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    expressions: &[FileTextTypeExpressions],
+    is_cancelled: C,
+) -> Result<Vec<FileTextTypeStats>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if expressions.is_empty() {
+        return Ok(Vec::new());
+    }
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el diccionario de tipos de texto source-backed: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(connection, "dataset", source_path, source_format, None)?;
+        let recognized = ["true", "yes", "si", "false", "no"]
+            .into_iter()
+            .map(duckdb_sql_string_literal)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let select = expressions
+            .iter()
+            .flat_map(|expression| {
+                [
+                    format!(
+                        "COUNT(*) FILTER (WHERE {} IS NOT NULL AND {} <> '')",
+                        expression.normalized, expression.normalized
+                    ),
+                    format!(
+                        "COUNT(*) FILTER (WHERE {} IN ({recognized}))",
+                        expression.normalized
+                    ),
+                    format!("COUNT(*) FILTER (WHERE {})", expression.integer),
+                    format!("COUNT(*) FILTER (WHERE {})", expression.decimal),
+                    format!("COUNT(*) FILTER (WHERE {} IS NOT NULL)", expression.date),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {select} FROM dataset");
+        let mut statement = connection.prepare(&query).map_err(|error| {
+            format!("DuckDB no pudo preparar la inferencia de tipos de texto: {error}")
+        })?;
+        let counts = statement
+            .query_row([], |row| {
+                (0..expressions.len() * 5)
+                    .map(|index| row.get::<_, i64>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|error| {
+                format!("DuckDB no pudo calcular la inferencia de tipos de texto: {error}")
+            })?;
+        counts
+            .chunks_exact(5)
+            .map(|counts| {
+                let values = counts
+                    .iter()
+                    .map(|count| {
+                        usize::try_from(*count).map_err(|_| {
+                            "El conteo de tipos de texto excede la capacidad local.".to_owned()
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(FileTextTypeStats {
+                    non_empty_count: values[0],
+                    boolean_count: values[1],
+                    integer_count: values[2],
+                    decimal_count: values[3],
+                    date_count: values[4],
+                })
+            })
+            .collect()
+    })
+}
+
 pub(crate) fn stream_file_rows<C, F>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

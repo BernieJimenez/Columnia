@@ -8804,7 +8804,124 @@ fn source_backed_normalized_text_expression(identifier: &str, remove_accents: bo
     }
 }
 
-fn source_backed_text_expression(identifier: &str, mode: TextCleaningMode) -> Option<String> {
+fn source_backed_supported_date_expression(identifier: &str) -> String {
+    let expressions = INFERRED_DATE_FORMATS
+        .iter()
+        .copied()
+        .filter_map(|format| source_backed_inferred_date_expression(identifier, format))
+        .collect::<Vec<_>>();
+    format!("COALESCE({})", expressions.join(", "))
+}
+
+fn source_backed_text_type_expressions(
+    columns: &[String],
+) -> Vec<crate::duckdb_query::FileTextTypeExpressions> {
+    columns
+        .iter()
+        .map(|name| {
+            let identifier = duckdb_identifier(name);
+            let normalized = source_backed_normalized_text_expression(&identifier, true);
+            let trimmed = format!("TRIM(CAST({identifier} AS VARCHAR))");
+            let floating = format!("TRY_CAST({trimmed} AS DOUBLE)");
+            let leading_zero = format!(
+                "regexp_matches({trimmed}, {})",
+                duckdb_string_literal(r"^[+-]?0[0-9]")
+            );
+            let no_decimal_or_exponent = format!(
+                "strpos({trimmed}, '.') = 0 AND strpos(lower({trimmed}), 'e') = 0"
+            );
+            let integer = format!(
+                "{trimmed} <> '' AND TRY_CAST({trimmed} AS BIGINT) IS NOT NULL AND NOT ({leading_zero}) AND {no_decimal_or_exponent} AND ABS({floating}) <= 9007199254740992"
+            );
+            let decimal = format!(
+                "{trimmed} <> '' AND {floating} IS NOT NULL AND isfinite({floating}) AND NOT ({leading_zero}) AND ((strpos({trimmed}, '.') > 0 OR strpos(lower({trimmed}), 'e') > 0) OR ABS({floating}) <= 9007199254740992)"
+            );
+            crate::duckdb_query::FileTextTypeExpressions {
+                column: name.clone(),
+                normalized,
+                integer,
+                decimal,
+                date: source_backed_supported_date_expression(&identifier),
+            }
+        })
+        .collect()
+}
+
+fn source_backed_text_suggested_types(
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    columns: &[String],
+) -> Option<HashMap<String, &'static str>> {
+    let expressions = source_backed_text_type_expressions(columns);
+    let stats = crate::duckdb_query::count_file_text_type_stats(
+        source_path,
+        source_format,
+        &expressions,
+        || false,
+    )
+    .ok()?;
+    Some(
+        expressions
+            .into_iter()
+            .zip(stats)
+            .filter_map(|(expression, stats)| {
+                let (suggested_type, _, _) = suggest_text_type(
+                    stats.non_empty_count,
+                    stats.boolean_count,
+                    stats.integer_count,
+                    stats.decimal_count,
+                    stats.date_count,
+                );
+                suggested_type.map(|suggested_type| (expression.column, suggested_type))
+            })
+            .collect(),
+    )
+}
+
+fn source_backed_text_type_validity_expression(
+    identifier: &str,
+    suggested_type: &str,
+) -> Option<String> {
+    let trimmed = format!("TRIM(CAST({identifier} AS VARCHAR))");
+    let valid = match suggested_type {
+        "boolean" => {
+            let normalized = source_backed_normalized_text_expression(identifier, true);
+            format!("{normalized} IN ('true', 'yes', 'si', 'false', 'no')")
+        }
+        "integer" => {
+            let floating = format!("TRY_CAST({trimmed} AS DOUBLE)");
+            let leading_zero = format!(
+                "regexp_matches({trimmed}, {})",
+                duckdb_string_literal(r"^[+-]?0[0-9]")
+            );
+            format!(
+                "TRY_CAST({trimmed} AS BIGINT) IS NOT NULL AND NOT ({leading_zero}) AND strpos({trimmed}, '.') = 0 AND strpos(lower({trimmed}), 'e') = 0 AND ABS({floating}) <= 9007199254740992"
+            )
+        }
+        "decimal" => {
+            let floating = format!("TRY_CAST({trimmed} AS DOUBLE)");
+            let leading_zero = format!(
+                "regexp_matches({trimmed}, {})",
+                duckdb_string_literal(r"^[+-]?0[0-9]")
+            );
+            format!(
+                "{floating} IS NOT NULL AND isfinite({floating}) AND NOT ({leading_zero}) AND ((strpos({trimmed}, '.') > 0 OR strpos(lower({trimmed}), 'e') > 0) OR ABS({floating}) <= 9007199254740992)"
+            )
+        }
+        "date" => format!(
+            "({}) IS NOT NULL",
+            source_backed_supported_date_expression(identifier)
+        ),
+        _ => return None,
+    };
+    Some(valid)
+}
+
+fn source_backed_text_expression(
+    identifier: &str,
+    mode: TextCleaningMode,
+    suggested_type: Option<&str>,
+) -> Option<String> {
     match mode {
         TextCleaningMode::Trim => Some(format!(
             "trim(regexp_replace(CAST({identifier} AS VARCHAR), {}, '', 'g'))",
@@ -8830,7 +8947,16 @@ fn source_backed_text_expression(identifier: &str, mode: TextCleaningMode) -> Op
                 "CASE WHEN {normalized} IN ('true', 'yes', 'si') THEN 'true' WHEN {normalized} IN ('false', 'no') THEN 'false' ELSE {identifier} END"
             ))
         }
-        TextCleaningMode::FixEncoding | TextCleaningMode::NullifyInvalidTypes => None,
+        TextCleaningMode::FixEncoding => None,
+        TextCleaningMode::NullifyInvalidTypes => {
+            let Some(suggested_type) = suggested_type else {
+                return Some(identifier.to_owned());
+            };
+            let valid = source_backed_text_type_validity_expression(identifier, suggested_type)?;
+            Some(format!(
+                "CASE WHEN {identifier} IS NULL OR TRIM(CAST({identifier} AS VARCHAR)) = '' OR ({valid}) THEN {identifier} ELSE NULL END"
+            ))
+        }
     }
 }
 
@@ -8839,10 +8965,7 @@ fn source_backed_text_cleaning_columns(
     selected_columns: Option<&[String]>,
     mode: TextCleaningMode,
 ) -> Option<Vec<String>> {
-    if matches!(
-        mode,
-        TextCleaningMode::FixEncoding | TextCleaningMode::NullifyInvalidTypes
-    ) {
+    if matches!(mode, TextCleaningMode::FixEncoding) {
         return None;
     }
     let columns = selected_columns.map_or_else(
@@ -8927,6 +9050,7 @@ fn source_backed_text_cleaning_projection(
     selected_columns: &[String],
     mode: TextCleaningMode,
     audit_label: &str,
+    suggested_types: &HashMap<String, &'static str>,
 ) -> Result<(String, Vec<(String, String)>), String> {
     let mut expressions = Vec::with_capacity(selected_columns.len());
     let mut projection = Vec::with_capacity(schema.width());
@@ -8939,7 +9063,9 @@ fn source_backed_text_cleaning_projection(
             ));
             continue;
         }
-        let Some(expression) = source_backed_text_expression(&identifier, mode) else {
+        let suggested_type = suggested_types.get(name.as_str()).copied();
+        let Some(expression) = source_backed_text_expression(&identifier, mode, suggested_type)
+        else {
             return Err(
                 "La limpieza de texto source-backed no es compatible con este modo.".to_owned(),
             );
@@ -8955,9 +9081,11 @@ fn source_backed_text_cleaning_projection(
     }
     for name in selected_columns {
         let identifier = duckdb_identifier(name);
-        let expression = source_backed_text_expression(&identifier, mode).ok_or_else(|| {
-            "La limpieza de texto source-backed no es compatible con este modo.".to_owned()
-        })?;
+        let suggested_type = suggested_types.get(name.as_str()).copied();
+        let expression = source_backed_text_expression(&identifier, mode, suggested_type)
+            .ok_or_else(|| {
+                "La limpieza de texto source-backed no es compatible con este modo.".to_owned()
+            })?;
         expressions.push((name.clone(), expression));
     }
     Ok((projection.join(", "), expressions))
@@ -8988,6 +9116,16 @@ fn source_backed_text_cleaning(
         };
         columns
     };
+    let suggested_types = if matches!(mode, TextCleaningMode::NullifyInvalidTypes) {
+        let Some(suggested_types) =
+            source_backed_text_suggested_types(&source_path, source_format, &selected_columns)
+        else {
+            return Ok(None);
+        };
+        suggested_types
+    } else {
+        HashMap::new()
+    };
     let label = match mode {
         TextCleaningMode::Trim => "Recortar espacios",
         TextCleaningMode::Normalize { .. } => "Normalizar texto",
@@ -9004,8 +9142,13 @@ fn source_backed_text_cleaning(
             changed_columns: Vec::new(),
         }));
     }
-    let (projection, expressions) =
-        source_backed_text_cleaning_projection(&dataset.frame, &selected_columns, mode, label)?;
+    let (projection, expressions) = source_backed_text_cleaning_projection(
+        &dataset.frame,
+        &selected_columns,
+        mode,
+        label,
+        &suggested_types,
+    )?;
     let (affected_row_count, changed_counts) =
         match crate::duckdb_query::count_file_expression_changes(
             &source_path,
@@ -9790,9 +9933,12 @@ fn source_backed_safe_corrections(
         .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
         .map(|column| {
             let name = column.name().to_string();
-            let expression =
-                source_backed_text_expression(&duckdb_identifier(&name), TextCleaningMode::Trim)
-                    .expect("el modo Trim tiene expresión source-backed");
+            let expression = source_backed_text_expression(
+                &duckdb_identifier(&name),
+                TextCleaningMode::Trim,
+                None,
+            )
+            .expect("el modo Trim tiene expresión source-backed");
             (name, expression)
         })
         .collect::<Vec<_>>();
@@ -33107,6 +33253,60 @@ mod tests {
         assert_eq!(flag.get(1), Some("false"));
         assert_eq!(flag.get(2), Some("true"));
         assert_eq!(flag.get(9), Some("maybe"));
+    }
+
+    #[test]
+    fn source_backed_invalid_type_cleanup_matches_eager_inference_without_rows_in_memory() {
+        let source = temporary_csv(
+            "created_at,amount,ratio,flag,note\n2024-01-01,1,1.5,yes,keep\n2024-01-02,2,2.5,no,keep\n2024-01-03,3,3.5,si,keep\n2024-01-04,4,4.5,true,keep\n2024-01-05,5,5.5,false,keep\n2024-01-06,6,6.5,yes,keep\n2024-01-07,7,7.5,no,keep\n2024-01-08,8,8.5,TRUE,keep\n2024-01-09,9,9.5,False,keep\nsin fecha,x,invalid,maybe,keep\n",
+        );
+        let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
+            .expect("la fuente debe inspeccionarse en disco");
+        let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
+        let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+        let mut dataset = LoadedDataset {
+            source_path: Some(source),
+            file_name: "invalid-types.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let result =
+            source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::NullifyInvalidTypes)
+                .expect("la limpieza de tipos source-backed debe procesarse")
+                .expect("la fuente debe ser compatible");
+        assert_eq!(result.affected_row_count, 1);
+        assert_eq!(result.changed_cell_count, 4);
+        assert_eq!(result.changed_columns[0].name, "created_at");
+        assert_eq!(result.changed_columns[1].name, "amount");
+        assert_eq!(result.changed_columns[2].name, "ratio");
+        assert_eq!(result.changed_columns[3].name, "flag");
+        assert_eq!(dataset.frame.height(), 0);
+
+        let current_path = dataset
+            .source_path
+            .as_deref()
+            .expect("la limpieza debe conservar el snapshot actual")
+            .to_owned();
+        let current = read_parquet_frame(&current_path).expect("el snapshot debe ser legible");
+        let dates = current.column("created_at").unwrap().str().unwrap();
+        assert_eq!(dates.get(0), Some("2024-01-01"));
+        assert_eq!(dates.get(8), Some("2024-01-09"));
+        assert_eq!(dates.get(9), None);
+        assert_eq!(
+            current.column("amount").unwrap().str().unwrap().get(9),
+            None
+        );
+        assert_eq!(current.column("ratio").unwrap().str().unwrap().get(9), None);
+        assert_eq!(current.column("flag").unwrap().str().unwrap().get(9), None);
+        assert_eq!(
+            current.column("note").unwrap().str().unwrap().get(0),
+            Some("keep")
+        );
     }
 
     #[test]

@@ -6,6 +6,19 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.150.0] - 2026-09-02
+
+### Mejorado
+
+- La acción `Apartar tipos incompatibles` ahora infiere booleanos, enteros,
+  decimales y fechas directamente sobre la fuente o snapshot Parquet efectivo
+  mediante DuckDB, publica un snapshot reversible y conserva el frame activo
+  sin filas en memoria.
+- La inferencia source-backed reutiliza la regla eager del 90 %, excluye
+  identificadores numéricos con ceros iniciales y mantiene los conteos exactos
+  de filas, celdas y columnas modificadas; si DuckDB no puede garantizar la
+  compatibilidad, se conserva el fallback materializado.
+
 ## [0.149.0] - 2026-09-02
 
 ### Corregido
