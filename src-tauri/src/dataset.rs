@@ -21622,6 +21622,8 @@ pub async fn export_dataset(
             ))
         })
     };
+    // Privacy is applied into a temporary Parquet snapshot below, so mask/hash
+    // remain source-backed instead of forcing the active dataset into memory.
     if matches!(
         format,
         ExportFormat::Csv
@@ -21631,8 +21633,7 @@ pub async fn export_dataset(
             | ExportFormat::Excel
             | ExportFormat::Sqlite
             | ExportFormat::Bundle
-    ) && privacy_mode == PrivacyMode::None
-        && recipe.is_none()
+    ) && recipe.is_none()
         && quality_rules.iter().all(source_quality_rule_is_incremental)
     {
         if let Some((

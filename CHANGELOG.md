@@ -6,6 +6,24 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.137.0] - 2026-09-01
+
+### Mejorado
+
+- Las exportaciones source-backed ya conservan la ruta incremental cuando se
+  solicita protección `mask` o `hash`: DuckDB genera un snapshot Parquet
+  privado con las columnas personales protegidas y luego lo transfiere a CSV,
+  JSON, Parquet, SQL, Excel, SQLite o bundle sin materializar todo el dataset.
+- La validación de calidad continúa ejecutándose sobre la fuente original y la
+  protección se mantiene aislada, temporal y con comprobación de cambios de la
+  fuente antes y después de exportar.
+
+### Verificado
+
+- La regresión existente de snapshots source-backed confirma máscara y hash,
+  preservación de nulos, columnas no personales, fuente intacta y limpieza de
+  artefactos temporales.
+
 ## [0.136.0] - 2026-09-01
 
 ### Mejorado
