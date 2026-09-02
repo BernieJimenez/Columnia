@@ -15,7 +15,9 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.153.0, la apertura
+  I3/I5 conservan validaciones externas de plataforma. En v0.154.0, las lecturas
+  eager indirectas de comparación, historial y automatización pasan por la misma
+  admisión de RAM antes de leer filas. En v0.153.0, la apertura
   de proyectos durables comprueba la guardia de RAM antes de leer `current.parquet`
   completo y conserva la sesión activa si la admisión falla. En v0.152.0, los fallbacks
   eager que necesitan materializar fuentes source-backed grandes pasan por una
@@ -95,7 +97,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.153.0`.
+- Versión actual del prototipo: `0.154.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2120,6 +2122,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-02 | Versión 0.154.0 centraliza la admisión de RAM en lecturas eager indirectas: fuentes de comparación incompatibles, snapshots Parquet comparados, undo/redo y automatización se rechazan antes de leer una expansión grande que no cabe, manteniendo la sesión activa sin cambios. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.153.0 aplica la guardia de materialización a snapshots durables: la apertura verifica el tamaño de `current.parquet` antes de leerlo completo y rechaza de forma segura una expansión que no cabe en la RAM disponible, sin reemplazar la sesión activa. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.152.0 añade una guardia de admisión para la materialización eager de fuentes source-backed grandes: estima la expansión, conserva una reserva de seguridad y rechaza con mensaje accionable si la RAM disponible no alcanza; las operaciones compatibles siguen source-backed. | `src-tauri/src/resource.rs`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.151.0 extiende `Corregir codificación UTF-8` a fuentes source-backed: DuckDB repara secuencias mojibake inequívocas, publica snapshots reversibles, conserva el frame activo esquema-only y deriva al fallback eager cuando el valor no es demostrablemente seguro. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

@@ -6,6 +6,15 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.154.0] - 2026-09-02
+
+### Mejorado
+
+- La admisión de RAM se aplica a todas las lecturas eager indirectas: fuentes
+  de comparación incompatibles, snapshots Parquet comparados, restauraciones
+  de undo/redo y cargas de automatización. Una expansión grande que no cabe se
+  rechaza antes de leer las filas y mantiene la sesión activa sin cambios.
+
 ## [0.153.0] - 2026-09-02
 
 ### Mejorado

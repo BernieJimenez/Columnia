@@ -12259,6 +12259,7 @@ fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
 }
 
 fn read_parquet_frame(path: &Path) -> Result<DataFrame, String> {
+    ensure_materialization_budget_for_path(path)?;
     let plan = parquet_scan(path)?;
     collect_lazy_frame_streaming(plan, "No se pudo interpretar el Parquet")
 }
@@ -12537,6 +12538,13 @@ fn ensure_materialization_budget(file_size_bytes: u64) -> Result<(), String> {
     Ok(())
 }
 
+fn ensure_materialization_budget_for_path(path: &Path) -> Result<(), String> {
+    let file_size_bytes = fs::metadata(path)
+        .map_err(|_| "No se pudo verificar el archivo antes de materializarlo.".to_owned())?
+        .len();
+    ensure_materialization_budget(file_size_bytes)
+}
+
 fn materialize_current_dataset(state: &DatasetState) -> Result<(DataFrame, String), String> {
     let mut current = state
         .current
@@ -12588,9 +12596,10 @@ where
 {
     ensure_not_cancelled(is_cancelled())?;
     report("Validando archivo", 10);
-    let (_, _, extension) = validate_dataset_file(path)?;
+    let (_, file_size_bytes, extension) = validate_dataset_file(path)?;
     ensure_not_cancelled(is_cancelled())?;
     report("Leyendo y detectando columnas", 25);
+    ensure_materialization_budget(file_size_bytes)?;
 
     let frame = match extension.as_str() {
         "csv" | "tsv" | "txt" => read_delimited_frame(path, &extension)?,
@@ -18752,6 +18761,7 @@ where
 }
 
 fn load_compare_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
+    ensure_materialization_budget_for_path(path)?;
     if spreadsheet_extensions(extension) {
         let sheets = inspect_workbook(path)?;
         let sheet = sheets
@@ -31426,7 +31436,8 @@ where
     C: Fn() -> bool,
 {
     ensure_not_cancelled(is_cancelled())?;
-    let (canonical, _, extension) = validate_dataset_file(input)?;
+    let (canonical, file_size_bytes, extension) = validate_dataset_file(input)?;
+    ensure_materialization_budget(file_size_bytes)?;
     if spreadsheet_extensions(&extension) {
         let sheet_name = sheet_name.ok_or_else(|| "Selecciona una hoja del libro.".to_owned())?;
         let header_mode = header_mode
