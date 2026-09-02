@@ -226,8 +226,14 @@ function Get-DesktopSmokeSample {
         @{ Name = "smokeDurationMs"; Value = Get-Number $Document.durationMs },
         @{ Name = "viteReadyMs"; Value = Get-Number $Document.milestones.viteReady.elapsedMs },
         @{ Name = "desktopProcessReadyMs"; Value = Get-Number $Document.milestones.desktopProcessReady.elapsedMs },
-        @{ Name = "windowVisibleMs"; Value = Get-Number $Document.milestones.windowVisible.elapsedMs }
+        @{ Name = "windowVisibleMs"; Value = Get-Number $Document.milestones.windowVisible.elapsedMs },
+        @{ Name = "desktopProcessToWindowVisibleMs"; Value = $null }
     )
+    $ProcessReadyMs = Get-Number $Document.milestones.desktopProcessReady.elapsedMs
+    $WindowVisibleMs = Get-Number $Document.milestones.windowVisible.elapsedMs
+    if ($null -ne $ProcessReadyMs -and $null -ne $WindowVisibleMs -and $WindowVisibleMs -ge $ProcessReadyMs) {
+        $Definitions[-1].Value = $WindowVisibleMs - $ProcessReadyMs
+    }
     foreach ($Definition in $Definitions) {
         if ($null -ne $Definition.Value) {
             [void]$Metrics.Add((New-Metric -Name $Definition.Name -ValueMs $Definition.Value -State "observed"))

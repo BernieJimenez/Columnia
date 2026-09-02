@@ -173,6 +173,51 @@ try {
             -Message $LargeDatasetMessage
     }
 
+    $DesktopSmokeFile = Get-ChildItem -LiteralPath (Join-Path $ValidationRoot "desktop-smoke") -Recurse -File -Filter "summary.json" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    $DesktopStartupBudget = $Baseline.budgets.desktopStartup
+    if ($null -eq $DesktopSmokeFile -or $null -eq $DesktopStartupBudget) {
+        Add-Check -Id "desktop-startup" -State "unavailable" -Observed $null -Budget $DesktopStartupBudget -Source $null -Message "Falta evidencia de startup desktop con hitos nativos."
+    }
+    else {
+        $DesktopSmoke = Read-Json -Path $DesktopSmokeFile.FullName
+        $ViteReadyMs = if ($null -eq $DesktopSmoke.milestones.viteReady.elapsedMs) { $null } else { [int64]$DesktopSmoke.milestones.viteReady.elapsedMs }
+        $DesktopProcessReadyMs = if ($null -eq $DesktopSmoke.milestones.desktopProcessReady.elapsedMs) { $null } else { [int64]$DesktopSmoke.milestones.desktopProcessReady.elapsedMs }
+        $WindowVisibleMs = if ($null -eq $DesktopSmoke.milestones.windowVisible.elapsedMs) { $null } else { [int64]$DesktopSmoke.milestones.windowVisible.elapsedMs }
+        $ProcessToWindowVisibleMs = if ($null -eq $DesktopProcessReadyMs -or $null -eq $WindowVisibleMs -or $WindowVisibleMs -lt $DesktopProcessReadyMs) {
+            $null
+        }
+        else {
+            $WindowVisibleMs - $DesktopProcessReadyMs
+        }
+        $DesktopStartupHasValues = $null -ne $ViteReadyMs -and $null -ne $DesktopProcessReadyMs -and $null -ne $WindowVisibleMs -and $null -ne $ProcessToWindowVisibleMs
+        $DesktopStartupPassed = $DesktopStartupHasValues -and
+            $DesktopSmoke.status -eq "passed" -and
+            $DesktopSmoke.cleanupConfirmed -eq $true -and
+            [bool]$DesktopSmoke.milestones.viteReady.reached -and
+            [bool]$DesktopSmoke.milestones.desktopProcessReady.reached -and
+            [bool]$DesktopSmoke.milestones.windowVisible.reached -and
+            $ProcessToWindowVisibleMs -le [int64]$DesktopStartupBudget.maxProcessToWindowVisibleMs
+        $DesktopStartupState = if ($DesktopStartupPassed) { "passed" } else { "failed" }
+        $DesktopStartupMessage = if ($DesktopStartupPassed) {
+            "Ventana desktop visible dentro del presupuesto después de que el proceso nativo está listo."
+        }
+        else {
+            "Evidencia de startup desktop incompleta o fuera del presupuesto."
+        }
+        Add-Check -Id "desktop-startup" -State $DesktopStartupState `
+            -Observed ([ordered]@{
+                status = $DesktopSmoke.status
+                viteReadyMs = $ViteReadyMs
+                desktopProcessReadyMs = $DesktopProcessReadyMs
+                windowVisibleMs = $WindowVisibleMs
+                processToWindowVisibleMs = $ProcessToWindowVisibleMs
+                cleanupConfirmed = [bool]$DesktopSmoke.cleanupConfirmed
+            }) -Budget $DesktopStartupBudget -Source (Get-RelativePath $DesktopSmokeFile.FullName) `
+            -Message $DesktopStartupMessage
+    }
+
     $BenchmarkFile = Get-ChildItem -LiteralPath (Join-Path $ValidationRoot "performance-benchmark") -Recurse -File -Filter "summary.json" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTimeUtc -Descending |
         Select-Object -First 1

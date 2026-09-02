@@ -22,6 +22,9 @@
         "maxPrivateMemoryBytes": 1073741824
       }
     },
+    "desktopStartup": {
+      "maxProcessToWindowVisibleMs": 1000
+    },
     "benchmark": {
       "minTargetMiB": 100,
       "minSustainedRuns": 3,

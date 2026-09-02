@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.145.0] - 2026-09-01
+
+### Mejorado
+
+- El resumen de rendimiento deriva el tiempo entre proceso nativo listo y
+  ventana visible para separar el arranque de la aplicación del coste de
+  compilación debug.
+- `perf:check` valida ahora ese hito desktop contra un presupuesto versionado
+  de 1.000 ms y exige hitos completos, estado aprobado y cleanup confirmado.
+
 ## [0.144.1] - 2026-09-01
 
 ### Corregido

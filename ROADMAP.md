@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.144.1, la
+  I3/I5 conservan validaciones externas de plataforma. En v0.145.0, el gate
+  de rendimiento valida también el intervalo entre proceso nativo listo y
+  ventana visible desktop (1.000 ms), separándolo de la compilación debug.
+  En v0.144.1, la
   plantilla de notices y la documentación del flujo de release quedan
   normalizadas en español, con el inventario regenerado desde los lockfiles.
   En v0.144.0, el
@@ -70,7 +73,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.144.1`.
+- Versión actual del prototipo: `0.145.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -941,9 +944,11 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
   el mismo caso dentro de WebView2 con un input de 100 MiB/819.137 filas,
   carga 2,9 s, paginación 29 ms, transformación 1,7 s, exportación 1,4 s,
   pico de 691.789.824 B de working set y 460.587.008 B privados, dentro del
-  presupuesto de dataset grande y con cleanup confirmado; falta decidir el
-  presupuesto final de la aplicación y cerrar la optimización lazy/incremental
-  general fuera de RAM.
+  presupuesto de dataset grande y con cleanup confirmado. Desde v0.145.0,
+  `perf:check` también exige que el intervalo proceso nativo listo→ventana
+  visible sea ≤1.000 ms con hitos y cleanup confirmados; falta decidir el
+  presupuesto global final de la aplicación y cerrar la optimización
+  lazy/incremental general fuera de RAM.
 - [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
 - [x] Reducir el trabajo crítico del arranque: el bundle inicial separa las
@@ -2078,6 +2083,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-01 | Versión 0.145.0 conecta startup desktop con el gate de rendimiento: resume el intervalo proceso nativo listo→ventana visible y exige ≤1.000 ms, hitos completos, estado aprobado y cleanup. | `tools/summarize-performance.ps1`, `tools/check-performance-baseline.ps1`, `fixtures/performance/performance-baseline-v1.json`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-01 | Versión 0.144.1 normaliza la redacción de release y la plantilla de notices en español; el inventario regenerado conserva 995 identidades únicas y el gate de supply chain verifica el encabezado `Versión`. | `tools/generate-third-party-notices.ps1`, `THIRD_PARTY_NOTICES.md`, `src/supply-chain.test.ts`, `docs/how-to/validate-release-evidence.md` |
 | 2026-09-01 | Versión 0.144.0 valida la ruta source-backed de JOIN con el benchmark reproducible de 512 MiB: `INNER`/`LEFT`/`FULL` conservan conteos y páginas, el frame activo permanece vacío, el working set máximo es 233.816.064 bytes y cleanup pasa. | `tools/benchmark-duckdb-join.ps1`, `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-01 | Versión 0.143.0 valida decisiones source-backed recorriendo conflictos por bloques y reteniendo solo índices y columnas divergentes; eleva el límite explícito a 8.192, conserva el fallback eager para entradas mayores y mantiene orden, publicación reversible, integridad y cleanup. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

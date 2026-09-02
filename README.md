@@ -141,8 +141,11 @@ de working set en tres iteraciones sostenidas. Después ejecuta un ciclo tempora
 de proyecto con receta, reglas, perfil, inspección, exportación y borrado, y deja
 solo un resumen sanitizado en `.local/validation/`.
 
-`npm run perf:check` compara las evidencias CDP, benchmark y Package con los
-presupuestos de `fixtures/performance/performance-baseline-v1.json`. Para lanzar
+`npm run perf:check` compara las evidencias CDP, startup desktop, benchmark y
+Package con los presupuestos de `fixtures/performance/performance-baseline-v1.json`.
+También exige que la ventana sea visible en un máximo de 1 segundo después de
+que el proceso nativo esté listo; el tiempo de compilación debug se informa por
+separado. Para lanzar
 ambos gates juntos usa `npm run verify:experience` después de generar las
 evidencias; el comando no inicia Tauri ni conserva datasets.
 
