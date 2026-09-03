@@ -6,6 +6,16 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.160.0] - 2026-09-03
+
+### Mejorado
+
+- La paginación de conflictos, la resolución de decisiones y la consolidación
+  reutilizan el snapshot Parquet durable del cursor actual de datasets
+  materializados, evitando materializar de nuevo el `DataFrame` cuando el
+  historial está disponible. La lectura comprueba que la fuente o el cursor
+  sigan siendo los mismos antes de devolver resultados.
+
 ## [0.159.0] - 2026-09-02
 
 ### Corregido

@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.159.0, el updater
+  I3/I5 conservan validaciones externas de plataforma. En v0.160.0, la
+  paginación de conflictos, la resolución y la consolidación reutilizan el
+  snapshot Parquet durable del cursor actual de datasets materializados y
+  rechazan resultados si el cursor cambia durante la lectura. En v0.159.0, el updater
   rechaza descargas truncadas o sobredimensionadas comparando sus bytes con el
   tamaño declarado por el manifest antes de preparar la instalación. En
   v0.158.0, las lecturas
@@ -114,7 +117,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.159.0`.
+- Versión actual del prototipo: `0.160.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1711,6 +1714,10 @@ comparación no equivale a ejecución fuera de memoria general. La
   coincidencias y conserva solo la página o los acumuladores; si el snapshot
   falla vuelve al frame activo. Los `JOIN` mutadores sobre el cursor Parquet
   durable de un dataset materializado ya comparten esta frontera desde v0.155.
+  Desde v0.160, la paginación de conflictos, la resolución de decisiones y la
+  consolidación también consumen ese cursor Parquet por bloques, validan que
+  permanezca vigente durante la operación y conservan el fallback eager cuando
+  el historial no puede ofrecer una fuente estable.
   Quedan fuera de esta slice las fuentes comparadas incompatibles, las
   operaciones generales sin snapshot durable y el presupuesto integral fuera de
   RAM. Desde v0.80,
@@ -2148,6 +2155,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-03 | Versión 0.160.0 extiende la lectura desde snapshots Parquet durables a conflictos paginados, resolución de decisiones y consolidación de datasets materializados; todas comprueban que el cursor permanezca vigente y conservan fallback eager si no hay una fuente estable. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.159.0 endurece el updater: las descargas solo pasan al estado instalable si su tamaño coincide con el manifest; los payloads truncados o sobredimensionados se rechazan antes de conservarlos. | `src-tauri/src/updater.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-02 | Versión 0.158.0 endurece lecturas incrementales: página, comparación y consultas DuckDB solo usan snapshots Parquet actuales y la validación de calidad comprueba que la fuente o cursor no cambie durante el recorrido, con fallback seguro cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.157.0 extiende la entrega remota ODBC a datasets materializados con snapshot Parquet durable en el cursor actual; PostgreSQL, MySQL y SQL Server reciben filas por bloques desde DuckDB con calidad, privacidad, cancelación, validación de cursor y fallback eager para combinaciones incompatibles. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

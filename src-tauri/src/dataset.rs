@@ -4088,6 +4088,10 @@ fn snapshot_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJ
     })
 }
 
+fn current_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJoinContext> {
+    source_backed_join_context(dataset).or_else(|| snapshot_backed_join_context(dataset))
+}
+
 fn execute_local_query_from_parquet_with_cancel<C>(
     path: &Path,
     row_count: usize,
@@ -20751,7 +20755,7 @@ fn source_backed_parquet_snapshot(
     Ok(Some((path, row_count, Some(directory))))
 }
 
-fn source_backed_conflict_page(
+fn disk_backed_conflict_page(
     state: &DatasetState,
     compared_path: &Path,
     compared_row_count: usize,
@@ -20764,7 +20768,7 @@ fn source_backed_conflict_page(
         .lock()
         .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?
         .as_ref()
-        .and_then(source_backed_join_context)
+        .and_then(current_join_context)
     else {
         return Ok(None);
     };
@@ -20813,6 +20817,21 @@ fn source_backed_conflict_page(
     let (_, source_size_after, _) = validate_dataset_file(&context.source_path)?;
     if source_size_after != context.source_size_bytes {
         return Err("La fuente source-backed cambió durante la lectura de conflictos.".to_owned());
+    }
+    let current_context = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?
+        .as_ref()
+        .and_then(current_join_context);
+    if current_context.as_ref().map(|value| &value.source_path) != Some(&context.source_path)
+        || current_context
+            .as_ref()
+            .map(|value| value.source_size_bytes)
+            != Some(context.source_size_bytes)
+        || current_context.as_ref().map(|value| value.row_count) != Some(context.row_count)
+    {
+        return Err("El dataset activo cambió durante la lectura de conflictos.".to_owned());
     }
     Ok(Some(DatasetConflictPage {
         offset,
@@ -21676,7 +21695,7 @@ pub async fn get_dataset_conflict_page(
                 pending.key_columns.clone(),
             )
         };
-        if let Some(page) = source_backed_conflict_page(
+        if let Some(page) = disk_backed_conflict_page(
             &state,
             &compared_path,
             compared_row_count,
@@ -22306,7 +22325,7 @@ pub async fn resolve_dataset_conflicts(
                 .current
                 .lock()
                 .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-            current.as_ref().and_then(source_backed_join_context)
+            current.as_ref().and_then(current_join_context)
         };
         if let Some(context) = source_context {
             let compared_schema = read_parquet_schema_frame(&compared_path)?;
@@ -22395,7 +22414,7 @@ pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<Datase
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        current.as_ref().and_then(source_backed_join_context)
+        current.as_ref().and_then(current_join_context)
     };
     if let Some(context) = source_context {
         let compared_schema = read_parquet_schema_frame(&compared_path)?;
@@ -37276,7 +37295,7 @@ mod tests {
     }
 
     #[test]
-    fn source_backed_conflict_page_keeps_the_active_frame_deferred() {
+    fn disk_backed_conflict_page_keeps_source_active_frame_deferred() {
         let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
         let compared = df![
             "id" => &["1", "2"],
@@ -37306,7 +37325,7 @@ mod tests {
             history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
         });
 
-        let page = source_backed_conflict_page(
+        let page = disk_backed_conflict_page(
             &state,
             &compared_path,
             compared.height(),
@@ -37342,6 +37361,83 @@ mod tests {
         drop(active);
         drop(compared_directory);
         fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+    }
+
+    #[test]
+    fn disk_backed_conflict_page_uses_the_current_history_snapshot() {
+        let compared = df![
+            "id" => &["1", "2"],
+            "city" => &["La Romana", "Santiago"]
+        ]
+        .expect("la comparación debe construirse");
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let current_frame = df![
+            "id" => &["1", "2"],
+            "city" => &["Santo Domingo", "Santiago"]
+        ]
+        .expect("el dataset activo debe construirse");
+        let history =
+            HistoryManager::new(&current_frame).expect("el historial durable debe inicializarse");
+        let state = DatasetState::default();
+        *state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible") = Some(LoadedDataset {
+            source_path: None,
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: 128,
+            row_count: current_frame.height(),
+            frame: current_frame,
+            source_backed: false,
+            profile: None,
+            history,
+        });
+
+        let context = {
+            let active = state
+                .current
+                .lock()
+                .expect("el estado activo debe seguir disponible");
+            snapshot_backed_join_context(active.as_ref().expect("el dataset debe existir"))
+                .expect("el snapshot activo debe poder usarse como fuente")
+        };
+        assert!(context.snapshot_only);
+
+        let page = disk_backed_conflict_page(
+            &state,
+            &compared_path,
+            compared.height(),
+            &["id".to_owned()],
+            0,
+            MAX_CONFLICT_PREVIEW,
+        )
+        .expect("la página snapshot-backed debe poder leerse")
+        .expect("el dataset con historial debe usar la ruta diferida");
+
+        assert_eq!(page.offset, 0);
+        assert!(!page.has_next);
+        assert_eq!(page.conflicts.len(), 1);
+        assert_eq!(page.conflicts[0].key, vec![Some("1".to_owned())]);
+        assert_eq!(page.conflicts[0].cells.len(), 1);
+        assert_eq!(page.conflicts[0].cells[0].column, "city");
+        assert_eq!(
+            page.conflicts[0].cells[0].current,
+            Some("Santo Domingo".to_owned())
+        );
+        assert_eq!(
+            page.conflicts[0].cells[0].compared,
+            Some("La Romana".to_owned())
+        );
+        let active = state
+            .current
+            .lock()
+            .expect("el estado activo debe seguir disponible");
+        let dataset = active.as_ref().expect("el dataset activo debe conservarse");
+        assert!(!dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 2);
+        drop(active);
+        drop(compared_directory);
     }
 
     #[test]
