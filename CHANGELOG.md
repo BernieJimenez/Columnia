@@ -6,6 +6,15 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.161.0] - 2026-09-03
+
+### Validación
+
+- Se añadieron pruebas de extremo a extremo para resolución de conflictos y
+  consolidación desde snapshots Parquet durables de datasets materializados.
+  Ambas verifican publicación reversible, orden y conservación de un frame
+  activo sin filas materializadas.
+
 ## [0.160.0] - 2026-09-03
 
 ### Mejorado

@@ -37441,6 +37441,206 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
+        let compared = df![
+            "id" => &["1", "2"],
+            "city" => &["La Vega", "Santiago"],
+            "total" => &["15", "25"]
+        ]
+        .expect("la comparación debe construirse");
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let current_frame = df![
+            "id" => &["1", "2"],
+            "city" => &["Santo Domingo", "Santiago"],
+            "total" => &["10", "20"]
+        ]
+        .expect("el dataset activo debe construirse");
+        let history =
+            HistoryManager::new(&current_frame).expect("el historial durable debe inicializarse");
+        let state = DatasetState::default();
+        *state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible") = Some(LoadedDataset {
+            source_path: None,
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: 128,
+            row_count: current_frame.height(),
+            frame: current_frame,
+            source_backed: false,
+            profile: None,
+            history,
+        });
+        let context = {
+            let current = state
+                .current
+                .lock()
+                .expect("el estado activo debe estar disponible");
+            current_join_context(current.as_ref().expect("el dataset debe existir"))
+                .expect("el contexto snapshot-backed debe conservarse")
+        };
+        assert!(context.snapshot_only);
+        let compared_size_bytes = fs::metadata(&compared_path)
+            .expect("el snapshot comparado debe conservar sus metadatos")
+            .len();
+        let compared_schema = read_parquet_schema_frame(&compared_path)
+            .expect("el esquema comparado debe poder leerse");
+        let preview = resolve_source_backed_conflicts(
+            &state,
+            SourceBackedConflictResolutionRequest {
+                context,
+                compared_path: compared_path.clone(),
+                compared_size_bytes,
+                compared_row_count: compared.height(),
+                compared_schema,
+                compared_file_name: "compared.parquet".to_owned(),
+                key_columns: vec!["id".to_owned()],
+                decisions: vec![
+                    ConflictResolution {
+                        conflict_index: 0,
+                        column: Some("city".to_owned()),
+                        source: ConflictSource::Compared,
+                    },
+                    ConflictResolution {
+                        conflict_index: 0,
+                        column: Some("total".to_owned()),
+                        source: ConflictSource::Current,
+                    },
+                    ConflictResolution {
+                        conflict_index: 1,
+                        column: None,
+                        source: ConflictSource::Compared,
+                    },
+                ],
+            },
+        )
+        .expect("la resolución snapshot-backed debe poder ejecutarse")
+        .expect("la resolución debe publicarse con historial");
+
+        assert_eq!(preview.row_count, 2);
+        let active = state
+            .current
+            .lock()
+            .expect("el estado activo debe seguir disponible");
+        let dataset = active.as_ref().expect("el dataset activo debe conservarse");
+        assert!(!dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.history.entries.len(), 2);
+        let resolved = dataset
+            .history
+            .restore(1)
+            .expect("el resultado resuelto debe poder restaurarse");
+        assert_eq!(
+            resolved.column("city").unwrap().str().unwrap().get(0),
+            Some("La Vega")
+        );
+        assert_eq!(
+            resolved.column("total").unwrap().str().unwrap().get(0),
+            Some("10")
+        );
+        assert_eq!(
+            resolved.column("city").unwrap().str().unwrap().get(1),
+            Some("Santiago")
+        );
+        assert_eq!(
+            resolved.column("total").unwrap().str().unwrap().get(1),
+            Some("25")
+        );
+        drop(active);
+        drop(compared_directory);
+        assert!(!compared_path.exists());
+    }
+
+    #[test]
+    fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
+        let compared = df![
+            "id" => &["2", "3"],
+            "city" => &["Santiago", "La Vega"]
+        ]
+        .expect("la comparación debe construirse");
+        let (compared_directory, compared_path) =
+            persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+        let current_frame = df![
+            "id" => &["1", "2"],
+            "city" => &["Santo Domingo", "Santiago"]
+        ]
+        .expect("el dataset activo debe construirse");
+        let history =
+            HistoryManager::new(&current_frame).expect("el historial durable debe inicializarse");
+        let state = DatasetState::default();
+        *state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible") = Some(LoadedDataset {
+            source_path: None,
+            file_name: "current.csv".to_owned(),
+            file_size_bytes: 128,
+            row_count: current_frame.height(),
+            frame: current_frame,
+            source_backed: false,
+            profile: None,
+            history,
+        });
+        let context = {
+            let current = state
+                .current
+                .lock()
+                .expect("el estado activo debe estar disponible");
+            current_join_context(current.as_ref().expect("el dataset debe existir"))
+                .expect("el contexto snapshot-backed debe conservarse")
+        };
+        assert!(context.snapshot_only);
+        let compared_size_bytes = fs::metadata(&compared_path)
+            .expect("el snapshot comparado debe conservar sus metadatos")
+            .len();
+        let compared_schema = read_parquet_schema_frame(&compared_path)
+            .expect("el esquema comparado debe poder leerse");
+        let preview = consolidate_source_backed_dataset(
+            &state,
+            SourceBackedConsolidationRequest {
+                context,
+                compared_path: compared_path.clone(),
+                compared_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+                compared_schema,
+                compared_file_name: "compared.parquet".to_owned(),
+                compared_size_bytes,
+                key_columns: vec!["id".to_owned()],
+            },
+        )
+        .expect("la consolidación snapshot-backed debe poder ejecutarse")
+        .expect("la consolidación debe publicarse con historial");
+
+        assert_eq!(preview.row_count, 3);
+        let active = state
+            .current
+            .lock()
+            .expect("el estado activo debe seguir disponible");
+        let dataset = active.as_ref().expect("el dataset activo debe conservarse");
+        assert!(!dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.history.entries.len(), 2);
+        let consolidated = dataset
+            .history
+            .restore(1)
+            .expect("el resultado consolidado debe poder restaurarse");
+        assert_eq!(consolidated.height(), 3);
+        assert_eq!(
+            dataset_page(&consolidated, 0, PREVIEW_ROW_LIMIT)
+                .expect("la página consolidada debe poder leerse")
+                .rows,
+            vec![
+                vec![Some("1".to_owned()), Some("Santo Domingo".to_owned())],
+                vec![Some("2".to_owned()), Some("Santiago".to_owned())],
+                vec![Some("3".to_owned()), Some("La Vega".to_owned())],
+            ]
+        );
+        drop(active);
+        drop(compared_directory);
+        assert!(!compared_path.exists());
+    }
+
+    #[test]
     fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
         let current_path = temporary_csv("id,city,total\n1,Santo Domingo,10\n2,Santiago,20\n");
         let compared = df![

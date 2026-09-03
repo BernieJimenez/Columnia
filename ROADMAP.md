@@ -15,7 +15,9 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.160.0, la
+  I3/I5 conservan validaciones externas de plataforma. En v0.161.0, las pruebas
+  de resolución de conflictos y consolidación sobre snapshots Parquet durables
+  verifican publicación reversible, orden y frame activo sin filas. En v0.160.0, la
   paginación de conflictos, la resolución y la consolidación reutilizan el
   snapshot Parquet durable del cursor actual de datasets materializados y
   rechazan resultados si el cursor cambia durante la lectura. En v0.159.0, el updater
@@ -117,7 +119,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.160.0`.
+- Versión actual del prototipo: `0.161.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2155,6 +2157,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-03 | Versión 0.161.0 añade cobertura de extremo a extremo para resolución de conflictos y consolidación sobre snapshots Parquet durables de datasets materializados; ambas publican cursores reversibles y mantienen el frame activo sin filas. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-03 | Versión 0.160.0 extiende la lectura desde snapshots Parquet durables a conflictos paginados, resolución de decisiones y consolidación de datasets materializados; todas comprueban que el cursor permanezca vigente y conservan fallback eager si no hay una fuente estable. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
 | 2026-09-02 | Versión 0.159.0 endurece el updater: las descargas solo pasan al estado instalable si su tamaño coincide con el manifest; los payloads truncados o sobredimensionados se rechazan antes de conservarlos. | `src-tauri/src/updater.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-02 | Versión 0.158.0 endurece lecturas incrementales: página, comparación y consultas DuckDB solo usan snapshots Parquet actuales y la validación de calidad comprueba que la fuente o cursor no cambie durante el recorrido, con fallback seguro cuando el historial está degradado. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |
