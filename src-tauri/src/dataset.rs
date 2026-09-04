@@ -7141,10 +7141,6 @@ where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Sync,
 {
-    let distinct_spill = create_spilled_key_rows()?;
-    let mut distinct_writers = (0..COMPARISON_KEY_BUCKETS)
-        .map(|_| None::<BufWriter<File>>)
-        .collect::<Vec<_>>();
     let normalized_directory = tempfile::tempdir().map_err(|error| {
         format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
     })?;
@@ -7174,14 +7170,6 @@ where
         SOURCE_PROFILE_BLOCK_ROWS,
         |start, block| {
             ensure_not_cancelled(is_cancelled())?;
-            append_spilled_key_rows_with_writers(
-                &distinct_spill,
-                block,
-                &column_names,
-                start,
-                &mut distinct_writers,
-            )?;
-
             let fingerprint_columns = normalized_fingerprint_columns(block.columns())?;
             for row_index in 0..block.height() {
                 if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
@@ -7220,28 +7208,23 @@ where
         },
     )?;
 
-    for writer in distinct_writers.iter_mut().flatten() {
-        writer.flush().map_err(|error| {
-            format!("No se pudo sincronizar el índice temporal de comparación: {error}")
-        })?;
-    }
     for writer in normalized_writers.iter_mut().flatten() {
         writer.flush().map_err(|error| {
             format!("No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}")
         })?;
     }
-    let distinct_row_count = count_distinct_spilled_key_rows(&distinct_spill, is_cancelled)?;
+    let (distinct_row_count, distinct_counts) =
+        crate::duckdb_query::count_file_distinct_rows_and_non_null_columns(
+            path,
+            crate::duckdb_query::DuckDbFileFormat::Parquet,
+            &column_names,
+            || false,
+        )?;
     let normalized_duplicate_row_count =
         count_normalized_duplicate_fingerprints(&normalized_bucket_paths, is_cancelled)?;
     let exact_duplicate_row_count = row_count.saturating_sub(distinct_row_count);
     let near_duplicate_row_count =
         normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count);
-    let distinct_counts = crate::duckdb_query::count_file_distinct_non_null(
-        path,
-        crate::duckdb_query::DuckDbFileFormat::Parquet,
-        &column_names,
-        || false,
-    )?;
     if distinct_counts.len() != accumulators.len() {
         return Err("DuckDB no devolvió todos los conteos distintos del perfil.".to_owned());
     }

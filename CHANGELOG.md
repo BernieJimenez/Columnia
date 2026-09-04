@@ -6,6 +6,18 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.165.0] - 2026-09-04
+
+### Mejorado
+
+- El perfilado source-backed ya no derrama una clave de fila completa por cada
+  registro para contar duplicados exactos. DuckDB calcula en una sola pasada el
+  número de filas distintas y los distintos no nulos por columna, reduciendo
+  de forma importante la E/S temporal en datasets de varios gigabytes sin
+  cambiar la semántica del perfil ni el recuento de duplicados parecidos.
+- Se añade una regresión que verifica la agregación conjunta de filas y
+  columnas distintas, incluidos valores nulos y filas repetidas.
+
 ## [0.164.0] - 2026-09-04
 
 ### Mejorado

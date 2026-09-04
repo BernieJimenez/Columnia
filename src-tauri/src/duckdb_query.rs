@@ -640,30 +640,61 @@ pub(crate) fn count_file_distinct_non_null<C>(
 where
     C: Fn() -> bool + Send + 'static,
 {
+    count_file_distinct_rows_and_non_null_columns(source_path, source_format, columns, is_cancelled)
+        .map(|(_, counts)| counts)
+}
+
+pub(crate) fn count_file_distinct_rows_and_non_null_columns<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    columns: &[String],
+    is_cancelled: C,
+) -> Result<(usize, Vec<usize>), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    if columns.is_empty() {
+        return Ok((0, Vec::new()));
+    }
     execute_duckdb_operation(is_cancelled, |connection| {
         let resource_directory = tempfile::tempdir().map_err(|error| {
-            format!("No se pudo preparar el diccionario de valores source-backed: {error}")
+            format!("No se pudo preparar el conteo de valores distintos source-backed: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
         register_file_view(connection, "dataset", source_path, source_format, None)?;
-        let projection = columns
+        let row_fields = columns
+            .iter()
+            .enumerate()
+            .map(|(index, column)| format!("field_{index} := {}", quote_identifier(column)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let column_projections = columns
             .iter()
             .map(|column| format!("COUNT(DISTINCT {})", quote_identifier(column)))
             .collect::<Vec<_>>()
             .join(", ");
-        let query = format!("SELECT {projection} FROM dataset");
+        let query = format!(
+            "SELECT COUNT(DISTINCT struct_pack({row_fields})), {column_projections} FROM dataset"
+        );
         let raw_counts = connection
             .query_row(&query, [], |row| {
-                columns
+                let distinct_rows = row.get::<_, i64>(0)?;
+                let distinct_columns = columns
                     .iter()
                     .enumerate()
-                    .map(|(index, _)| row.get::<_, i64>(index))
-                    .collect::<duckdb::Result<Vec<_>>>()
+                    .map(|(index, _)| row.get::<_, i64>(index + 1))
+                    .collect::<duckdb::Result<Vec<_>>>()?;
+                Ok((distinct_rows, distinct_columns))
             })
             .map_err(|error| {
-                format!("DuckDB no pudo contar valores distintos en una sola pasada: {error}")
+                format!(
+                    "DuckDB no pudo contar filas y valores distintos en una sola pasada: {error}"
+                )
             })?;
-        raw_counts
+        let distinct_rows = usize::try_from(raw_counts.0)
+            .map_err(|_| "El conteo de filas distintas excede la capacidad local.".to_owned())?;
+        let distinct_columns = raw_counts
+            .1
             .into_iter()
             .zip(columns)
             .map(|(count, column)| {
@@ -673,7 +704,8 @@ where
                     )
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((distinct_rows, distinct_columns))
     })
 }
 
@@ -2107,6 +2139,30 @@ mod tests {
         assert_eq!(count, 2);
         assert!(path.is_file());
         assert!(!directory.path().join("dataset.parquet").exists());
+    }
+
+    #[test]
+    fn counts_distinct_rows_and_columns_in_one_duckdb_pass() {
+        let directory = tempfile::tempdir().expect("se debe crear el directorio temporal");
+        let path = directory.path().join("current.parquet");
+        let frame = df![
+            "id" => &[Some(1_i64), None, Some(1_i64), Some(2_i64)],
+            "label" => &[Some("a"), Some("a"), Some("a"), Some("b")]
+        ]
+        .expect("el dataset debe construirse");
+        write_frame_snapshot(&frame, &path, "prueba", None)
+            .expect("se debe escribir el snapshot de prueba");
+
+        let (distinct_rows, distinct_columns) = count_file_distinct_rows_and_non_null_columns(
+            &path,
+            DuckDbFileFormat::Parquet,
+            &["id".to_owned(), "label".to_owned()],
+            || false,
+        )
+        .expect("DuckDB debe contar filas y columnas distintas");
+
+        assert_eq!(distinct_rows, 3);
+        assert_eq!(distinct_columns, vec![2, 2]);
     }
 
     #[test]

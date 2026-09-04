@@ -15,10 +15,12 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.164.0, la CLI,
-  los perfiles y los proyectos grandes reutilizan source-backed para evitar
-  materializaciones completas; el perfil de columnas calcula distintos en una
-  sola agregación DuckDB. En v0.163.0, Deshacer y
+  I3/I5 conservan validaciones externas de plataforma. En v0.165.0, el
+  perfilado source-backed elimina el derrame temporal de claves de fila
+  completas y calcula filas/columnas distintas en una sola agregación DuckDB,
+  reduciendo la E/S de datasets de varios gigabytes sin cambiar la semántica.
+  En v0.164.0, la CLI, los perfiles y los proyectos grandes reutilizan
+  source-backed para evitar materializaciones completas. En v0.163.0, Deshacer y
   Rehacer source-backed restauran esquema, conteo y primera página desde el
   cursor Parquet sin materializar la revisión completa, con validación cerrada
   de snapshots inválidos. En v0.162.0, el perfilado
@@ -130,7 +132,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.164.0`.
+- Versión actual del prototipo: `0.165.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1006,7 +1008,10 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
   `perf:check` también exige que el intervalo proceso nativo listo→ventana
   visible sea ≤1.000 ms con hitos y cleanup confirmados; falta decidir el
   presupuesto global final de la aplicación y cerrar la optimización
-  lazy/incremental general fuera de RAM.
+  lazy/incremental general fuera de RAM. El perfil source-backed ya no derrama
+   una clave de fila completa por registro: DuckDB calcula filas distintas y
+   distintos por columna en una sola pasada, mientras las huellas de duplicados
+   parecidos permanecen acotadas.
 - [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
 - [x] Reducir el trabajo crítico del arranque: el bundle inicial separa las
@@ -2172,6 +2177,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-04 | Versión 0.165.0 elimina el derrame temporal de claves de fila completas del perfilado source-backed: DuckDB calcula filas distintas y distintos no nulos por columna en una sola agregación, con paridad verificada para nulos y repeticiones exactas. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-04 | Versión 0.164.0 extiende source-backed a automatización, perfiles y proyectos grandes; el perfil de columnas calcula distintos en una sola agregación DuckDB y mantiene fallback cerrado para recetas incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-04 | Versión 0.163.0 optimiza Deshacer/Rehacer source-backed: restaura esquema, conteo y primera página desde el cursor Parquet sin materializar la revisión completa, y falla cerradamente ante snapshots inválidos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-03 | Versión 0.162.0 combina duplicados exactos, duplicados parecidos y perfiles de columnas source-backed en un recorrido Parquet; las correlaciones numéricas también comparten un recorrido y el progreso refleja el análisis conjunto. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
