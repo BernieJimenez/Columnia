@@ -15,7 +15,14 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.165.0, el
+  I3/I5 conservan validaciones externas de plataforma. En v0.167.0, el
+  perfilado source-backed conserva los candidatos categóricos durante el
+  recorrido inicial, evita recorridos de descubrimiento redundantes, acelera
+  la clasificación de texto y usa lectura Parquet paralela por columnas, sin
+  cambiar paridad ni límites source-backed. En v0.166.0, el
+  perfilado source-backed paraleliza por bloque las huellas normalizadas y los
+  acumuladores independientes de columnas, respetando concurrencia,
+  cancelación y orden final. En v0.165.0, el
   perfilado source-backed elimina el derrame temporal de claves de fila
   completas y calcula filas/columnas distintas en una sola agregación DuckDB,
   reduciendo la E/S de datasets de varios gigabytes sin cambiar la semántica.
@@ -132,7 +139,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.165.0`.
+- Versión actual del prototipo: `0.167.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2177,6 +2184,8 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-04 | Versión 0.167.0 optimiza el perfilado source-backed conservando candidatos categóricos durante el recorrido inicial, evitando parseos de fecha imposibles, acelerando texto ASCII y leyendo Parquet por columnas en paralelo, con paridad y cancelación verificadas. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
+| 2026-09-04 | Versión 0.166.0 paraleliza por bloque las huellas de duplicados parecidos y los acumuladores independientes del perfil source-backed, con orden de columnas, cancelación y paridad conservados. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-04 | Versión 0.165.0 elimina el derrame temporal de claves de fila completas del perfilado source-backed: DuckDB calcula filas distintas y distintos no nulos por columna en una sola agregación, con paridad verificada para nulos y repeticiones exactas. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-04 | Versión 0.164.0 extiende source-backed a automatización, perfiles y proyectos grandes; el perfil de columnas calcula distintos en una sola agregación DuckDB y mantiene fallback cerrado para recetas incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-04 | Versión 0.163.0 optimiza Deshacer/Rehacer source-backed: restaura esquema, conteo y primera página desde el cursor Parquet sin materializar la revisión completa, y falla cerradamente ante snapshots inválidos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |

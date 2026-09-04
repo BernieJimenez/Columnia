@@ -12,7 +12,7 @@ documentos equivalentes que puedan divergir.
 | Campo | Estado verificado |
 | --- | --- |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
-| Versión | `0.165.0`, sincronizada en npm, Cargo y Tauri |
+| Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
 | Licencia y distribución | MIT; distribución abierta inicial, sin telemetría ni servicio remoto obligatorio |
 | Plataformas objetivo | Windows x64 como soporte inicial; macOS y Linux como objetivos de diseño hasta validación local |
@@ -24,6 +24,19 @@ documentos equivalentes que puedan divergir.
 | Última revisión de este documento | 2026-09-04, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR directas source-backed para limitar, imputar y eliminar filas atípicas, eliminación source-backed de duplicados parecidos, correcciones recomendadas source-backed que combinan trim y renombres, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas, conversión numérica segura, separación source-backed de tipos incompatibles y corrección source-backed de secuencias mojibake inequívocas con fallback eager seguro; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; la entrega opcional ODBC cubre PostgreSQL, MySQL y SQL Server con prueba de conexión y políticas de tabla sin persistir credenciales, y transmite fuentes source-backed compatibles por bloques sin llenar el `DataFrame` activo; el inventario IPC registra 67 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, la página visible de la muestra, el motor SQL elegido, la cobertura de correlaciones, el perfil de rendimiento, el formato de exportación, la protección de datos, las claves de comparación y el tipo de JOIN elegido por proyecto, con fallback seguro y migración SQLite v12. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las aperturas grandes de `JSON`, `JSONL` y `NDJSON` generan snapshots Parquet privados de DuckDB y dejan el frame activo en modo esquema-only; la restauración de proyectos durables también comprueba el presupuesto de RAM antes de leer `current.parquet` completo y conserva la sesión activa si la admisión falla; las lecturas eager indirectas de fuentes comparadas incompatibles, snapshots Parquet comparados, undo/redo y automatización pasan por la misma admisión antes de leer filas; Deshacer/Rehacer source-backed ya restaura esquema, conteo y primera página desde el cursor Parquet sin materializar la revisión completa; las consultas DuckDB fijan 512 MB, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar, renombrar, convertir tipos, parsear fechas fijas e ISO seguras, extraer partes de fecha, reemplazar texto literal, dividir y unir columnas de texto, calcular columnas simples y aplicar tratamientos IQR directamente sobre CSV/TSV/TXT delimitado o Parquet; las exportaciones source-backed de Bundle, Excel `.xlsx` y SQLite transfieren datos desde DuckDB sin materializar el `DataFrame` activo y conservan atomicidad, cancelación, validación de cambios y cleanup; los JOINs source-backed `INNER`/`LEFT`/`FULL` entre fuentes locales CSV/TSV/TXT/Parquet generan solo el resultado Parquet, limitan cardinalidad y dejan historial reversible con fallback eager para formatos incompatibles; conflictos paginados, resolución y consolidación también reutilizan snapshots Parquet durables del cursor actual de datasets materializados, con validación de cursor y fallback eager; `npm run brand:check` inspecciona el árbol activo para impedir regresiones de nomenclatura; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
 
 ### Estado verificable de Tier 5
+
+La versión 0.167.0 conserva durante el recorrido inicial del perfil source-backed
+los candidatos categóricos acotados y evita un recorrido de descubrimiento para
+cada columna elegible. También acelera la normalización ASCII, descarta parseos
+de fecha imposibles antes de intentar los formatos completos y configura el
+lector Parquet para procesar columnas en paralelo, conservando la paridad, la
+cancelación y los límites de memoria.
+
+La versión 0.166.0 paraleliza por bloque el cálculo de huellas normalizadas y
+la actualización de acumuladores de columnas en el perfilado source-backed.
+La salida conserva el orden de columnas, la cancelación y la paridad del
+perfil, pero ya puede usar el pool de concurrencia configurado en vez de
+quedar limitada a un hilo.
 
 La versión 0.165.0 elimina del perfilado source-backed el derrame temporal de
 claves de fila completas: DuckDB calcula conjuntamente filas distintas y
@@ -1263,6 +1276,8 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-09-04 | Versión 0.167.0: el perfilado source-backed conserva los candidatos categóricos durante el recorrido inicial, acelera la clasificación de texto ASCII y la detección conservadora de fechas, y lee columnas Parquet en paralelo sin alterar paridad ni límites source-backed. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
+| 2026-09-04 | Versión 0.166.0: el perfilado source-backed usa el pool de concurrencia por bloque para calcular huellas normalizadas y actualizar columnas en paralelo sin cambiar orden ni semántica. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.165.0: el perfilado source-backed cuenta filas distintas y distintos por columna en una sola agregación DuckDB, eliminando el derrame temporal de una clave completa por registro y manteniendo paridad con nulos/repeticiones. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.164.0: automatización, perfiles y proyectos grandes reutilizan source-backed; el perfil de columnas calcula distintos en una sola agregación DuckDB y conserva fallback cerrado para recetas incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.163.0: Deshacer/Rehacer source-backed restaura esquema, conteo y primera página desde el cursor Parquet, sin materializar la revisión completa y con fallo cerrado ante snapshots inválidos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |

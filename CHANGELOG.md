@@ -6,6 +6,26 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.167.0] - 2026-09-04
+
+### Mejorado
+
+- El perfilado source-backed conserva los candidatos categóricos durante el
+  recorrido inicial y solo vuelve a leer las columnas elegibles para contar
+  sus grupos seleccionados. También acelera la clasificación de texto ASCII,
+  evita parseos de fecha imposibles y procesa el Parquet por columnas en
+  paralelo, manteniendo paridad, límites de memoria y cancelación.
+
+## [0.166.0] - 2026-09-04
+
+### Mejorado
+
+- El perfilado source-backed procesa en paralelo las huellas de duplicados
+  parecidos y los acumuladores independientes de cada columna por bloque,
+  respetando el perfil de concurrencia configurado, la cancelación cooperativa
+  y el orden final de las columnas. Esto evita que el análisis de datasets
+  grandes quede limitado a un solo hilo.
+
 ## [0.165.0] - 2026-09-04
 
 ### Mejorado

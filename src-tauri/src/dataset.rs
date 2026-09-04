@@ -5577,6 +5577,23 @@ fn is_supported_date(value: &str) -> bool {
         .any(|format| parse_inferred_datetime(value, format).is_some())
 }
 
+fn is_supported_date_candidate(value: &str) -> bool {
+    let value = value.trim();
+    if value.len() < 8 || !value.bytes().any(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    let compact_ymd = value.len() == 8 && value.bytes().all(|byte| byte.is_ascii_digit());
+    if compact_ymd {
+        return true;
+    }
+    if value.parse::<f64>().is_ok() {
+        return false;
+    }
+    value
+        .bytes()
+        .any(|byte| matches!(byte, b'/' | b'-' | b':' | b',' | b' '))
+}
+
 fn is_missing_sentinel(value: &str) -> bool {
     let normalized = normalize_text_value(value, true);
     SENTINEL_VALUES.contains(&normalized.as_str())
@@ -5769,16 +5786,20 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
     for value in values.iter().flatten() {
         let length = value.chars().count();
         let trimmed = value.trim();
+        let normalized = normalize_text_value(trimmed, true);
         empty_count += usize::from(trimmed.is_empty());
-        sentinel_count += usize::from(is_missing_sentinel(trimmed));
+        sentinel_count += usize::from(SENTINEL_VALUES.contains(&normalized.as_str()));
         encoding_issue_count += usize::from(repair_mojibake(value).is_some());
         if !trimmed.is_empty() {
-            boolean_count += usize::from(boolean_token(trimmed).is_some());
-            integer_count += usize::from(
-                trimmed.parse::<i64>().is_ok() && semantic_numeric_value(trimmed).is_some(),
-            );
-            decimal_count += usize::from(semantic_numeric_value(trimmed).is_some());
-            date_count += usize::from(is_supported_date(trimmed));
+            boolean_count += usize::from(matches!(
+                normalized.as_str(),
+                "true" | "yes" | "si" | "false" | "no"
+            ));
+            let numeric = semantic_numeric_value(trimmed);
+            integer_count += usize::from(trimmed.parse::<i64>().is_ok() && numeric.is_some());
+            decimal_count += usize::from(numeric.is_some());
+            date_count +=
+                usize::from(is_supported_date_candidate(trimmed) && is_supported_date(trimmed));
         }
         value_count += 1;
         total_length += length;
@@ -5947,6 +5968,7 @@ struct SourceTextAccumulator {
     total_length: usize,
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
+    categorical_candidates: HashMap<GroupKey, usize>,
 }
 
 impl SourceTextAccumulator {
@@ -5963,22 +5985,32 @@ impl SourceTextAccumulator {
             total_length: 0,
             minimum_length: None,
             maximum_length: None,
+            categorical_candidates: HashMap::with_capacity(MAX_GROUP_CANDIDATES),
         }
     }
 
-    fn update(&mut self, column: &Column) -> Result<(), String> {
+    fn update(
+        &mut self,
+        column: &Column,
+        numeric: &mut SourceNumericAccumulator,
+    ) -> Result<(), String> {
         let values = column
             .str()
             .map_err(|error| format!("No se pudo analizar la columna source-backed: {error}"))?;
-        for value in values.iter().flatten() {
+        for value in values.iter() {
+            let Some(value) = value else {
+                retain_group_candidate(&mut self.categorical_candidates, GroupKey::Missing);
+                continue;
+            };
             let length = value.chars().count();
             let trimmed = value.trim();
+            let normalized = normalize_text_value(trimmed, true);
             self.empty_count = self
                 .empty_count
                 .saturating_add(usize::from(trimmed.is_empty()));
             self.sentinel_count = self
                 .sentinel_count
-                .saturating_add(usize::from(is_missing_sentinel(trimmed)));
+                .saturating_add(usize::from(SENTINEL_VALUES.contains(&normalized.as_str())));
             self.encoding_issue_count = self
                 .encoding_issue_count
                 .saturating_add(usize::from(repair_mojibake(value).is_some()));
@@ -5992,27 +6024,33 @@ impl SourceTextAccumulator {
                 self.maximum_length
                     .map_or(length, |current| current.max(length)),
             );
+            if let Some(key) = categorical_group_key(AnyValue::String(value)) {
+                retain_group_candidate(&mut self.categorical_candidates, key);
+            }
             if trimmed.is_empty() {
                 continue;
             }
-            self.boolean_count = self
-                .boolean_count
-                .saturating_add(usize::from(boolean_token(trimmed).is_some()));
-            let numeric = semantic_numeric_value(trimmed);
+            self.boolean_count = self.boolean_count.saturating_add(usize::from(matches!(
+                normalized.as_str(),
+                "true" | "yes" | "si" | "false" | "no"
+            )));
+            let parsed_numeric = semantic_numeric_value(trimmed);
             self.integer_count = self.integer_count.saturating_add(usize::from(
-                trimmed.parse::<i64>().is_ok() && numeric.is_some(),
+                trimmed.parse::<i64>().is_ok() && parsed_numeric.is_some(),
             ));
             self.decimal_count = self
                 .decimal_count
-                .saturating_add(usize::from(numeric.is_some()));
-            self.date_count = self
-                .date_count
-                .saturating_add(usize::from(is_supported_date(trimmed)));
+                .saturating_add(usize::from(parsed_numeric.is_some()));
+            self.date_count = self.date_count.saturating_add(usize::from(
+                is_supported_date_candidate(trimmed) && is_supported_date(trimmed),
+            ));
+            numeric.push(parsed_numeric)?;
         }
         Ok(())
     }
 
-    fn finish(self) -> TextStatistics {
+    fn finish(self) -> (TextStatistics, HashMap<GroupKey, usize>) {
+        let categorical_candidates = self.categorical_candidates;
         let non_empty_count = self.value_count.saturating_sub(self.empty_count);
         let (suggested_type, type_match_percentage, invalid_type_count) = suggest_text_type(
             non_empty_count,
@@ -6021,19 +6059,22 @@ impl SourceTextAccumulator {
             self.decimal_count,
             self.date_count,
         );
-        TextStatistics {
-            value_count: self.value_count,
-            empty_count: self.empty_count,
-            sentinel_count: self.sentinel_count,
-            encoding_issue_count: self.encoding_issue_count,
-            minimum_length: self.minimum_length,
-            maximum_length: self.maximum_length,
-            average_length: (self.value_count > 0)
-                .then(|| self.total_length as f64 / self.value_count as f64),
-            suggested_type,
-            type_match_percentage,
-            invalid_type_count,
-        }
+        (
+            TextStatistics {
+                value_count: self.value_count,
+                empty_count: self.empty_count,
+                sentinel_count: self.sentinel_count,
+                encoding_issue_count: self.encoding_issue_count,
+                minimum_length: self.minimum_length,
+                maximum_length: self.maximum_length,
+                average_length: (self.value_count > 0)
+                    .then(|| self.total_length as f64 / self.value_count as f64),
+                suggested_type,
+                type_match_percentage,
+                invalid_type_count,
+            },
+            categorical_candidates,
+        )
     }
 }
 
@@ -6104,13 +6145,7 @@ impl SourceColumnAccumulator {
     fn update(&mut self, column: &Column) -> Result<(), String> {
         self.null_count = self.null_count.saturating_add(column.null_count());
         if let Some(text) = self.text.as_mut() {
-            text.update(column)?;
-            let values = column.str().map_err(|error| {
-                format!("No se pudo analizar la columna source-backed: {error}")
-            })?;
-            for value in values.iter().flatten() {
-                self.numeric.push(semantic_numeric_value(value.trim()))?;
-            }
+            text.update(column, &mut self.numeric)?;
         } else if self.is_primitive_numeric {
             for row_index in 0..column.len() {
                 let value = column.get(row_index).map_err(|error| {
@@ -6122,8 +6157,17 @@ impl SourceColumnAccumulator {
         Ok(())
     }
 
-    fn finish(self, row_count: usize, unique_count: usize) -> Result<ColumnProfile, String> {
-        let text = self.text.map(SourceTextAccumulator::finish);
+    fn finish(
+        self,
+        row_count: usize,
+        unique_count: usize,
+    ) -> Result<(ColumnProfile, Option<HashMap<GroupKey, usize>>), String> {
+        let (text, categorical_candidates) = self
+            .text
+            .map(SourceTextAccumulator::finish)
+            .map_or((None, None), |(text, candidates)| {
+                (Some(text), Some(candidates))
+            });
         let numeric_eligible = self.is_primitive_numeric
             || (self.is_string
                 && text.as_ref().is_some_and(|text| {
@@ -6168,63 +6212,66 @@ impl SourceColumnAccumulator {
         } else {
             (None, None, None)
         };
-        Ok(ColumnProfile {
-            name: self.name.clone(),
-            data_type: self.data_type,
-            null_count: self.null_count,
-            completeness_percentage: if row_count == 0 {
-                100.0
-            } else {
-                ((row_count.saturating_sub(self.null_count)) as f64 / row_count as f64) * 100.0
+        Ok((
+            ColumnProfile {
+                name: self.name.clone(),
+                data_type: self.data_type,
+                null_count: self.null_count,
+                completeness_percentage: if row_count == 0 {
+                    100.0
+                } else {
+                    ((row_count.saturating_sub(self.null_count)) as f64 / row_count as f64) * 100.0
+                },
+                unique_count,
+                minimum,
+                maximum,
+                mean,
+                empty_count: text.as_ref().map(|statistics| statistics.empty_count),
+                minimum_length: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.minimum_length),
+                maximum_length: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.maximum_length),
+                average_length: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.average_length),
+                suggested_type: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.suggested_type)
+                    .map(str::to_owned),
+                type_match_percentage: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.type_match_percentage),
+                invalid_type_count: text
+                    .as_ref()
+                    .and_then(|statistics| statistics.invalid_type_count),
+                sentinel_count: text.as_ref().map(|statistics| statistics.sentinel_count),
+                encoding_issue_count: text
+                    .as_ref()
+                    .map(|statistics| statistics.encoding_issue_count),
+                privacy_signal: privacy_signal(&self.name).map(str::to_owned),
+                standard_deviation: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.standard_deviation),
+                first_quartile: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.first_quartile),
+                median: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.median),
+                third_quartile: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.third_quartile),
+                outlier_count: numeric_statistics
+                    .as_ref()
+                    .map(|statistics| statistics.outlier_count),
+                histogram: numeric_statistics
+                    .as_ref()
+                    .and_then(|statistics| statistics.histogram.clone()),
             },
-            unique_count,
-            minimum,
-            maximum,
-            mean,
-            empty_count: text.as_ref().map(|statistics| statistics.empty_count),
-            minimum_length: text
-                .as_ref()
-                .and_then(|statistics| statistics.minimum_length),
-            maximum_length: text
-                .as_ref()
-                .and_then(|statistics| statistics.maximum_length),
-            average_length: text
-                .as_ref()
-                .and_then(|statistics| statistics.average_length),
-            suggested_type: text
-                .as_ref()
-                .and_then(|statistics| statistics.suggested_type)
-                .map(str::to_owned),
-            type_match_percentage: text
-                .as_ref()
-                .and_then(|statistics| statistics.type_match_percentage),
-            invalid_type_count: text
-                .as_ref()
-                .and_then(|statistics| statistics.invalid_type_count),
-            sentinel_count: text.as_ref().map(|statistics| statistics.sentinel_count),
-            encoding_issue_count: text
-                .as_ref()
-                .map(|statistics| statistics.encoding_issue_count),
-            privacy_signal: privacy_signal(&self.name).map(str::to_owned),
-            standard_deviation: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.standard_deviation),
-            first_quartile: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.first_quartile),
-            median: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.median),
-            third_quartile: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.third_quartile),
-            outlier_count: numeric_statistics
-                .as_ref()
-                .map(|statistics| statistics.outlier_count),
-            histogram: numeric_statistics
-                .as_ref()
-                .and_then(|statistics| statistics.histogram.clone()),
-        })
+            categorical_candidates,
+        ))
     }
 }
 
@@ -7130,13 +7177,20 @@ where
     Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
 }
 
+type SourceProfileColumns = (
+    usize,
+    usize,
+    Vec<ColumnProfile>,
+    Vec<Option<HashMap<GroupKey, usize>>>,
+);
+
 fn profile_source_columns_with_keys<F, C>(
     path: &Path,
     row_count: usize,
     schema_columns: &[Column],
     is_cancelled: &C,
     mut report: F,
-) -> Result<(usize, usize, Vec<ColumnProfile>), String>
+) -> Result<SourceProfileColumns, String>
 where
     F: FnMut(&'static str, u8),
     C: Fn() -> bool + Sync,
@@ -7171,11 +7225,16 @@ where
         |start, block| {
             ensure_not_cancelled(is_cancelled())?;
             let fingerprint_columns = normalized_fingerprint_columns(block.columns())?;
-            for row_index in 0..block.height() {
-                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                    ensure_not_cancelled(is_cancelled())?;
-                }
-                let fingerprint = normalized_row_fingerprint(&fingerprint_columns, row_index)?;
+            let fingerprints = (0..block.height())
+                .into_par_iter()
+                .map(|row_index| {
+                    if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                        ensure_not_cancelled(is_cancelled())?;
+                    }
+                    normalized_row_fingerprint(&fingerprint_columns, row_index)
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            for fingerprint in fingerprints {
                 let bucket = (fingerprint >> 120) as usize;
                 let writer = if let Some(writer) = normalized_writers[bucket].as_mut() {
                     writer
@@ -7193,9 +7252,10 @@ where
                 })?;
             }
 
-            for (index, column) in block.columns().iter().enumerate() {
-                accumulators[index].update(column)?;
-            }
+            accumulators
+                .par_iter_mut()
+                .zip(block.columns().par_iter())
+                .try_for_each(|(accumulator, column)| accumulator.update(column))?;
 
             let processed_rows = start.saturating_add(block.height());
             let progress = processed_rows
@@ -7229,45 +7289,36 @@ where
         return Err("DuckDB no devolvió todos los conteos distintos del perfil.".to_owned());
     }
     let mut columns = Vec::with_capacity(schema_columns.len());
+    let mut categorical_candidates = Vec::with_capacity(schema_columns.len());
     for (index, accumulator) in accumulators.into_iter().enumerate() {
         let distinct_values = distinct_counts[index];
-        columns.push(accumulator.finish(row_count, distinct_values)?);
+        let (column, candidates) = accumulator.finish(row_count, distinct_values)?;
+        columns.push(column);
+        categorical_candidates.push(candidates);
     }
 
     report("Analizando columnas", 90);
-    Ok((exact_duplicate_row_count, near_duplicate_row_count, columns))
+    Ok((
+        exact_duplicate_row_count,
+        near_duplicate_row_count,
+        columns,
+        categorical_candidates,
+    ))
 }
 
 fn source_categorical_group_summary<C>(
     path: &Path,
     row_count: usize,
     profile: &ColumnProfile,
+    candidates: &HashMap<GroupKey, usize>,
     is_cancelled: &C,
 ) -> Result<Option<CategoricalGroupSummary>, String>
 where
     C: Fn() -> bool + Sync,
 {
-    let mut candidates = HashMap::with_capacity(MAX_GROUP_CANDIDATES);
-    for_each_parquet_column_block_with_size(
-        path,
-        row_count,
-        &profile.name,
-        SOURCE_PROFILE_BLOCK_ROWS,
-        |_, column| {
-            for row_index in 0..column.len() {
-                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                    ensure_not_cancelled(is_cancelled())?;
-                }
-                let value = column.get(row_index).map_err(|error| {
-                    format!("No se pudo resumir la columna {}: {error}", profile.name)
-                })?;
-                if let Some(key) = categorical_group_key(value) {
-                    retain_group_candidate(&mut candidates, key);
-                }
-            }
-            Ok(())
-        },
-    )?;
+    if candidates.is_empty() {
+        return Ok(None);
+    }
     ensure_not_cancelled(is_cancelled())?;
 
     let mut selected_counts = HashMap::with_capacity(candidates.len());
@@ -7546,7 +7597,7 @@ where
     let (_snapshot_directory, snapshot_path) = source_profile_snapshot(source_path, extension)?;
     let schema = read_parquet_schema_frame(&snapshot_path)?;
 
-    let (duplicate_row_count, near_duplicate_row_count, columns) =
+    let (duplicate_row_count, near_duplicate_row_count, columns, categorical_candidates) =
         profile_source_columns_with_keys(
             &snapshot_path,
             row_count,
@@ -7562,7 +7613,7 @@ where
 
     report("Resumiendo categorías", 93);
     let mut categorical = Vec::new();
-    for (schema_column, profile) in schema.columns().iter().zip(&columns) {
+    for (index, (schema_column, profile)) in schema.columns().iter().zip(&columns).enumerate() {
         if categorical.len() >= MAX_CATEGORICAL_GROUP_COLUMNS {
             break;
         }
@@ -7574,9 +7625,16 @@ where
         {
             continue;
         }
-        if let Some(summary) =
-            source_categorical_group_summary(&snapshot_path, row_count, profile, &is_cancelled)?
-        {
+        let Some(candidates) = categorical_candidates.get(index).and_then(Option::as_ref) else {
+            continue;
+        };
+        if let Some(summary) = source_categorical_group_summary(
+            &snapshot_path,
+            row_count,
+            profile,
+            candidates,
+            &is_cancelled,
+        )? {
             categorical.push(summary);
         }
     }
@@ -10609,6 +10667,22 @@ enum TextCleaningMode {
 }
 
 pub(crate) fn normalize_text_value(value: &str, remove_accents: bool) -> String {
+    if value.is_ascii() {
+        let mut normalized = String::with_capacity(value.len());
+        let mut pending_space = false;
+        for byte in value.bytes() {
+            if byte.is_ascii_whitespace() {
+                pending_space = !normalized.is_empty();
+                continue;
+            }
+            if pending_space {
+                normalized.push(' ');
+                pending_space = false;
+            }
+            normalized.push(byte.to_ascii_lowercase() as char);
+        }
+        return normalized;
+    }
     let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let lowered = collapsed.chars().flat_map(char::to_lowercase);
     if remove_accents {
@@ -12421,7 +12495,7 @@ fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector Parquet: {error}"))?;
     let options = ScanArgsParquet {
-        parallel: ParallelStrategy::None,
+        parallel: ParallelStrategy::Columns,
         low_memory: true,
         rechunk: false,
         ..Default::default()
