@@ -6,6 +6,15 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.163.0] - 2026-09-04
+
+### Mejorado
+
+- Deshacer y Rehacer en datasets source-backed restauran el cursor desde el
+  snapshot Parquet leyendo solo esquema, conteo y primera página. El `DataFrame`
+  activo permanece sin filas y la operación falla cerradamente si el snapshot
+  no es válido, evitando cargar una revisión completa en RAM.
+
 ## [0.162.0] - 2026-09-03
 
 ### Mejorado

@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.162.0, el perfilado
+  I3/I5 conservan validaciones externas de plataforma. En v0.163.0, Deshacer y
+  Rehacer source-backed restauran esquema, conteo y primera página desde el
+  cursor Parquet sin materializar la revisión completa, con validación cerrada
+  de snapshots inválidos. En v0.162.0, el perfilado
   source-backed combina duplicados y perfiles de columnas en un recorrido
   Parquet con bloques de 65.536 filas, y las correlaciones leen sus columnas
   numéricas en un único recorrido; el progreso deja de quedar fijado en 40%
@@ -124,7 +127,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.162.0`.
+- Versión actual del prototipo: `0.163.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -2162,6 +2165,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-04 | Versión 0.163.0 optimiza Deshacer/Rehacer source-backed: restaura esquema, conteo y primera página desde el cursor Parquet sin materializar la revisión completa, y falla cerradamente ante snapshots inválidos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-03 | Versión 0.162.0 combina duplicados exactos, duplicados parecidos y perfiles de columnas source-backed en un recorrido Parquet; las correlaciones numéricas también comparten un recorrido y el progreso refleja el análisis conjunto. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-03 | Versión 0.161.0 añade cobertura de extremo a extremo para resolución de conflictos y consolidación sobre snapshots Parquet durables de datasets materializados; ambas publican cursores reversibles y mantienen el frame activo sin filas. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-03 | Versión 0.160.0 extiende la lectura desde snapshots Parquet durables a conflictos paginados, resolución de decisiones y consolidación de datasets materializados; todas comprueban que el cursor permanezca vigente y conservan fallback eager si no hay una fuente estable. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md`, `docs/reference/feature-parity.md` |

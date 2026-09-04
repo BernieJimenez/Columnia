@@ -222,6 +222,11 @@ en blanco, publica un snapshot Parquet y conserva `_cambios` con la etiqueta de
 la operación. El historial se inicializa copiando la fuente actual por disco,
 por lo que undo/redo sigue disponible sin llenar el `DataFrame` activo.
 
+Deshacer y Rehacer source-backed validan el snapshot del cursor y restauran solo
+su esquema, conteo y primera página. La revisión completa permanece en disco y
+el `DataFrame` activo conserva cero filas; un snapshot corrupto no mueve el
+cursor ni reemplaza la sesión.
+
 Las acciones `remove_duplicates`, `remove_constant_columns`,
 `remove_empty_columns` y `remove_high_null_columns` comparten esa frontera:
 DuckDB conserva la primera aparición de cada fila, calcula conteos agregados de

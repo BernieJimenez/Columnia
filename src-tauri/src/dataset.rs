@@ -25096,11 +25096,87 @@ pub async fn undo_last_change(app: AppHandle) -> Result<HistoryResult, String> {
     .map_err(|error| format!("No se pudo deshacer el cambio: {error}"))?
 }
 
+fn restore_source_backed_history_cursor(
+    dataset: &mut LoadedDataset,
+    target: usize,
+    message: &str,
+) -> Result<HistoryResult, String> {
+    let entry = dataset
+        .history
+        .entries
+        .get(target)
+        .ok_or_else(|| "La revisión solicitada ya no está disponible.".to_owned())?;
+    let label = entry.label.clone();
+    let entry_path = entry.path.clone();
+    let (snapshot_path, snapshot_size, extension) = validate_dataset_file(&entry_path)?;
+    if extension != "parquet" {
+        return Err("El snapshot del historial no es un Parquet válido.".to_owned());
+    }
+
+    // Validate and prepare every value before changing the active dataset or cursor. The
+    // cursor can therefore remain usable if a snapshot is truncated or corrupted.
+    let schema = read_parquet_schema_frame(&snapshot_path)?;
+    let row_count = parquet_row_count(&snapshot_path)?;
+    let page = if row_count == 0 {
+        schema.slice(0, 0)
+    } else {
+        let page = collect_lazy_frame_streaming(
+            parquet_scan(&snapshot_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa del historial Parquet",
+        )?;
+        let expected_rows = row_count.min(PREVIEW_ROW_LIMIT);
+        if page.height() != expected_rows {
+            return Err(
+                "El snapshot del historial no coincide con su conteo registrado.".to_owned(),
+            );
+        }
+        page
+    };
+    let was_source_backed = dataset.source_backed;
+    let preview_size = if was_source_backed {
+        snapshot_size
+    } else {
+        dataset.file_size_bytes
+    };
+    let preview = dataset_preview_from_schema_and_page(
+        &dataset.file_name,
+        preview_size,
+        row_count,
+        &schema,
+        &page,
+    )?;
+
+    dataset.history.cursor = target;
+    dataset.history.current_label = label;
+    dataset.history.source_snapshot_path = None;
+    dataset.row_count = row_count;
+    dataset.frame = schema;
+    dataset.profile = None;
+    if was_source_backed {
+        dataset.source_path = Some(snapshot_path);
+        dataset.file_size_bytes = snapshot_size;
+        dataset.source_backed = true;
+    }
+
+    Ok(HistoryResult {
+        dataset: preview,
+        history: dataset.history.state(),
+        message: message.to_owned(),
+    })
+}
+
 fn undo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
     if !dataset.history.state().can_undo {
         return Err("No hay un cambio disponible para deshacer.".to_owned());
     }
     let target = dataset.history.cursor - 1;
+    if dataset.source_backed {
+        return restore_source_backed_history_cursor(
+            dataset,
+            target,
+            "Se deshizo el último cambio.",
+        );
+    }
     let previous = dataset.history.restore(target)?;
     let preview = loaded_dataset_preview(dataset, &previous)?;
     dataset.row_count = previous.height();
@@ -25137,6 +25213,13 @@ fn redo_dataset(dataset: &mut LoadedDataset) -> Result<HistoryResult, String> {
         return Err("No hay un cambio disponible para rehacer.".to_owned());
     }
     let target = dataset.history.cursor + 1;
+    if dataset.source_backed {
+        return restore_source_backed_history_cursor(
+            dataset,
+            target,
+            "Se rehízo el último cambio.",
+        );
+    }
     let next = dataset.history.restore(target)?;
     let preview = loaded_dataset_preview(dataset, &next)?;
     dataset.row_count = next.height();
@@ -33162,12 +33245,12 @@ mod tests {
 
         let undo = undo_dataset(&mut dataset).expect("la limpieza debe poder deshacerse");
         assert_eq!(undo.dataset.row_count, 3);
-        assert!(!dataset.source_backed);
-        assert_eq!(dataset.frame.height(), 3);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
         let redo = redo_dataset(&mut dataset).expect("la limpieza debe poder rehacerse");
         assert_eq!(redo.dataset.row_count, 2);
-        assert!(!dataset.source_backed);
-        assert_eq!(dataset.frame.height(), 2);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
     }
 
     #[test]
@@ -33254,7 +33337,7 @@ mod tests {
 
         let undo = undo_dataset(&mut dataset).expect("la última limpieza debe poder deshacerse");
         assert_eq!(undo.dataset.row_count, 5);
-        assert!(!dataset.source_backed);
+        assert!(dataset.source_backed);
         assert!(dataset
             .frame
             .get_column_names()
@@ -33473,8 +33556,15 @@ mod tests {
         );
         let undo = undo_dataset(&mut dataset).expect("la máscara debe poder deshacerse");
         assert_eq!(undo.dataset.row_count, 2);
+        assert!(dataset.source_backed);
+        let undone_path = dataset
+            .source_path
+            .as_deref()
+            .expect("el undo debe conservar el snapshot actual");
+        let undone =
+            read_parquet_frame(undone_path).expect("el snapshot deshecho debe ser legible");
         assert_eq!(
-            dataset.frame.column("email").unwrap().str().unwrap().get(1),
+            undone.column("email").unwrap().str().unwrap().get(1),
             Some("luis@example.com")
         );
     }
@@ -33532,7 +33622,7 @@ mod tests {
 
         let undo = undo_dataset(&mut dataset).expect("la trazabilidad debe poder deshacerse");
         assert_eq!(undo.dataset.row_count, 2);
-        assert!(!dataset.source_backed);
+        assert!(dataset.source_backed);
         assert!(!dataset
             .frame
             .get_column_names()
@@ -33540,6 +33630,7 @@ mod tests {
             .any(|name| name.as_str() == "_cambios"));
         let redo = redo_dataset(&mut dataset).expect("la trazabilidad debe poder rehacerse");
         assert_eq!(redo.dataset.row_count, 2);
+        assert!(dataset.source_backed);
         assert!(dataset
             .frame
             .get_column_names()
@@ -41175,6 +41266,51 @@ mod tests {
         assert!(redone.history.can_undo);
         assert!(!redone.history.can_redo);
         assert!(redo_dataset(&mut dataset).is_err());
+
+        fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+    }
+
+    #[test]
+    fn source_backed_undo_and_redo_restore_schema_and_page_without_materializing_rows() {
+        let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
+        let (schema, _, row_count) =
+            source_backed_load(&path, "csv", || false).expect("la fuente debe abrirse diferida");
+        let file_size_bytes = fs::metadata(&path).unwrap().len();
+        let history = HistoryManager::deferred().unwrap();
+        let mut dataset = LoadedDataset {
+            source_path: Some(path.clone()),
+            file_name: "dataset.csv".to_owned(),
+            file_size_bytes,
+            row_count,
+            frame: schema,
+            source_backed: true,
+            profile: None,
+            history,
+        };
+
+        let mutation = remove_duplicates_source_backed(&mut dataset)
+            .unwrap()
+            .expect("la deduplicación source-backed debe publicarse");
+        assert_eq!(mutation.affected_row_count, 1);
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.row_count, 2);
+        assert!(dataset.history.snapshots_enabled);
+
+        let undone = undo_dataset(&mut dataset).expect("el cambio source-backed debe deshacerse");
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.row_count, 3);
+        assert_eq!(undone.dataset.rows[0][0].as_deref(), Some("Santo Domingo"));
+        assert!(undone.history.can_redo);
+        assert!(current_duckdb_file_source(&dataset).is_some());
+
+        let redone = redo_dataset(&mut dataset).expect("el cambio source-backed debe rehacerse");
+        assert!(dataset.source_backed);
+        assert_eq!(dataset.frame.height(), 0);
+        assert_eq!(dataset.row_count, 2);
+        assert_eq!(redone.dataset.rows[1][0].as_deref(), Some("Santiago"));
+        assert!(!redone.history.can_redo);
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
