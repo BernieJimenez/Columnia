@@ -1023,8 +1023,14 @@ fn validate_input_options(
         .and_then(OsStr::to_str)
         .map(str::to_ascii_lowercase);
     match extension.as_deref() {
-        Some("csv" | "tsv" | "json" | "parquet") if sheet.is_none() && header.is_none() => Ok(()),
-        Some("csv" | "tsv" | "json" | "parquet") => Err(AutomationError::new(WORKBOOK_FLAGS)),
+        Some("csv" | "tsv" | "txt" | "json" | "jsonl" | "ndjson" | "parquet")
+            if sheet.is_none() && header.is_none() =>
+        {
+            Ok(())
+        }
+        Some("csv" | "tsv" | "txt" | "json" | "jsonl" | "ndjson" | "parquet") => {
+            Err(AutomationError::new(WORKBOOK_FLAGS))
+        }
         Some("xlsx" | "xls" | "xlsb" | "ods") if sheet.is_some() && header.is_some() => Ok(()),
         Some("xlsx" | "xls" | "xlsb" | "ods") => Err(AutomationError::new(WORKBOOK_FLAGS)),
         _ => Err(AutomationError::new(
@@ -1039,12 +1045,27 @@ pub fn inspect(
     header: Option<SpreadsheetHeaderMode>,
 ) -> Result<InspectOutput, AutomationError> {
     validate_input_options(input, sheet, header)?;
-    let (_, preview) =
-        dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
+    let preview = if dataset::should_use_source_backed_automation(input, sheet, header).map_err(
+        |_| {
             AutomationError::new(
                 "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
             )
-        })?;
+        },
+    )? {
+        dataset::inspect_source_backed_for_automation(input, sheet, header).map_err(|_| {
+            AutomationError::new(
+                "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
+            )
+        })?
+    } else {
+        dataset::load_dataset_for_automation(input, sheet, header)
+            .map_err(|_| {
+                AutomationError::new(
+                    "No se pudo inspeccionar el dataset. Verifica que sea un archivo regular y válido.",
+                )
+            })?
+            .1
+    };
     Ok(InspectOutput {
         schema_version: 1,
         command: "inspect",
@@ -1081,13 +1102,45 @@ pub fn transform(
         ));
     }
 
+    let stored_recipe = dataset::load_stored_recipe_for_automation(recipe)
+        .map_err(|_| AutomationError::new("No se pudo cargar una receta Columnia válida."))?;
+    if dataset::should_use_source_backed_automation(input, sheet, header).map_err(|_| {
+        AutomationError::new(
+            "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
+        )
+    })? {
+        let result = dataset::transform_source_backed_for_automation(
+            input,
+            sheet,
+            header,
+            &stored_recipe,
+            output,
+            format.dataset_format(),
+        )
+        .map_err(|_| {
+            AutomationError::new("No se pudo publicar el archivo de salida de forma atómica.")
+        })?;
+        return Ok(TransformOutput {
+            schema_version: 1,
+            command: "transform",
+            output_file_name: result.exported.file_name,
+            file_size_bytes: result.exported.file_size_bytes,
+            format: result.exported.format,
+            changed: result.changed,
+            summary: TransformSummary {
+                input_row_count: result.input_row_count,
+                output_row_count: result.output_row_count,
+                input_column_count: result.input_column_count,
+                output_column_count: result.output_column_count,
+            },
+        });
+    }
+
     let (source, _) = dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
         AutomationError::new(
             "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
         )
     })?;
-    let stored_recipe = dataset::load_stored_recipe_for_automation(recipe)
-        .map_err(|_| AutomationError::new("No se pudo cargar una receta Columnia válida."))?;
     let summary_before = (source.height(), source.width());
     let (candidate, changed) = dataset::apply_recipe_for_automation(&source, &stored_recipe.recipe)
         .map_err(|_| AutomationError::new("La receta no es válida para el dataset de entrada."))?;
@@ -1125,15 +1178,30 @@ pub fn validate(
     rules: &Path,
 ) -> Result<ValidateOutput, AutomationError> {
     validate_input_options(input, sheet, header)?;
-    let (source, _) = dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
-        AutomationError::new(
-            "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
-        )
-    })?;
     let quality_rules = dataset::load_quality_rules_for_automation(rules)
         .map_err(|_| AutomationError::new("No se pudo cargar un contrato de calidad v1 válido."))?;
     let result =
-        dataset::evaluate_quality_rules_for_automation(&source, &quality_rules).map_err(|_| {
+        if dataset::should_use_source_backed_automation(input, sheet, header).map_err(|_| {
+            AutomationError::new(
+                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
+            )
+        })? {
+            dataset::evaluate_source_backed_quality_rules_for_automation(
+                input,
+                sheet,
+                header,
+                &quality_rules,
+            )
+        } else {
+            let (source, _) =
+                dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
+                    AutomationError::new(
+                "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
+            )
+                })?;
+            dataset::evaluate_quality_rules_for_automation(&source, &quality_rules)
+        }
+        .map_err(|_| {
             AutomationError::new("El contrato de calidad no es válido para el dataset.")
         })?;
     Ok(ValidateOutput {
@@ -1178,14 +1246,28 @@ pub fn project_save(
             .any(|project| project.id == id),
         None => false,
     };
-    let (frame, preview) =
-        dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
+    let source_backed = dataset::should_use_source_backed_automation(input, sheet, header)
+        .map_err(|_| {
             AutomationError::new(
                 "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
             )
         })?;
-    let dataset = DatasetState::for_project_import(frame, preview.file_name)
-        .map_err(|_| AutomationError::new("No se pudo preparar el proyecto."))?;
+    let (dataset, _preview) = if source_backed {
+        DatasetState::for_source_backed_project_import(input, sheet, header)
+            .map_err(|_| AutomationError::new("No se pudo preparar el proyecto."))?
+    } else {
+        let (frame, preview) =
+            dataset::load_dataset_for_automation(input, sheet, header).map_err(|_| {
+                AutomationError::new(
+                    "No se pudo cargar el dataset. Verifica que sea un archivo regular y válido.",
+                )
+            })?;
+        (
+            DatasetState::for_project_import(frame, preview.file_name.clone())
+                .map_err(|_| AutomationError::new("No se pudo preparar el proyecto."))?,
+            preview,
+        )
+    };
     let recipe_draft = recipe
         .map(|path| {
             dataset::load_stored_recipe_for_automation(path)
@@ -1290,22 +1372,36 @@ pub fn project_export(
             "El proyecto no tiene reglas; usa --allow-unvalidated para autorizar la exportación.",
         ));
     }
+    let project_row_count = opened
+        .dataset_state
+        .as_ref()
+        .map(|dataset| dataset.dimensions_for_automation())
+        .transpose()
+        .map_err(|_| AutomationError::new("No se pudo leer el tamaño del proyecto."))?
+        .map(|(rows, _)| rows)
+        .unwrap_or_else(|| opened.frame.height());
+    let mut source_quality = None;
     let quality = if total_rules == 0 {
         ProjectQualityOutput {
             validated: false,
             passed: None,
-            row_count: opened.frame.height(),
+            row_count: project_row_count,
             total_rules: 0,
             passed_rules: 0,
             failed_rules: 0,
             total_invalid_count: 0,
         }
     } else {
-        let result = dataset::evaluate_quality_rules_for_automation(
-            &opened.frame,
-            &opened.workspace.quality_rules,
-        )
+        let result = if let Some(dataset) = opened.dataset_state.as_ref() {
+            dataset.evaluate_source_backed_quality_for_automation(&opened.workspace.quality_rules)
+        } else {
+            dataset::evaluate_quality_rules_for_automation(
+                &opened.frame,
+                &opened.workspace.quality_rules,
+            )
+        }
         .map_err(|_| AutomationError::new("Las reglas guardadas del proyecto no son válidas."))?;
+        source_quality = opened.dataset_state.as_ref().map(|_| result.clone());
         let quality = ProjectQualityOutput {
             validated: true,
             passed: Some(result.passed),
@@ -1328,12 +1424,21 @@ pub fn project_export(
         }
         quality
     };
-    let exported = dataset::export_frame_for_automation_with_recipe(
-        &opened.frame,
-        output,
-        format.dataset_format(),
-        opened.workspace.recipe_draft.as_ref(),
-    )
+    let exported = if let Some(dataset) = opened.dataset_state.as_ref() {
+        dataset.export_source_backed_project_for_automation(
+            output,
+            format.dataset_format(),
+            source_quality.as_ref(),
+            opened.workspace.recipe_draft.as_ref(),
+        )
+    } else {
+        dataset::export_frame_for_automation_with_recipe(
+            &opened.frame,
+            output,
+            format.dataset_format(),
+            opened.workspace.recipe_draft.as_ref(),
+        )
+    }
     .map_err(|_| AutomationError::new("No se pudo publicar la salida de forma atómica."))?;
     Ok(ProjectExportOutput {
         schema_version: 1,

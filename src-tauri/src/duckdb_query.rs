@@ -646,18 +646,27 @@ where
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
         register_file_view(connection, "dataset", source_path, source_format, None)?;
-        columns
+        let projection = columns
             .iter()
-            .map(|column| {
-                let identifier = quote_identifier(column);
-                let query = format!("SELECT COUNT(DISTINCT {identifier}) FROM dataset");
-                let count: i64 = connection
-                    .query_row(&query, [], |row| row.get(0))
-                    .map_err(|error| {
-                        format!(
-                            "DuckDB no pudo contar los valores distintos de la columna {column}: {error}"
-                        )
-                    })?;
+            .map(|column| format!("COUNT(DISTINCT {})", quote_identifier(column)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!("SELECT {projection} FROM dataset");
+        let raw_counts = connection
+            .query_row(&query, [], |row| {
+                columns
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| row.get::<_, i64>(index))
+                    .collect::<duckdb::Result<Vec<_>>>()
+            })
+            .map_err(|error| {
+                format!("DuckDB no pudo contar valores distintos en una sola pasada: {error}")
+            })?;
+        raw_counts
+            .into_iter()
+            .zip(columns)
+            .map(|(count, column)| {
                 usize::try_from(count).map_err(|_| {
                     format!(
                         "El conteo de valores distintos de la columna {column} excede la capacidad local."

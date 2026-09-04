@@ -6,6 +6,22 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.164.0] - 2026-09-04
+
+### Mejorado
+
+- La CLI `inspect`, `transform`, `validate` y `project-save` reutiliza la ruta
+  source-backed para datasets grandes, incluidos JSON/JSONL/NDJSON y XLSX/XLSB,
+  evitando materializar todas las filas en RAM. Los perfiles solicitados al
+  guardar proyectos también se calculan por bloques.
+- La exportación de proyectos grandes conserva la validación de calidad y la
+  publicación atómica, transmitiendo desde el snapshot Parquet durable.
+- El perfil de columnas calcula los distintos de todas las columnas en una sola
+  agregación DuckDB, eliminando índices temporales redundantes y reduciendo la
+  E/S del análisis de datasets de varios gigabytes.
+- La automatización reconoce TXT delimitado y las variantes JSONL/NDJSON de
+  forma explícita.
+
 ## [0.163.0] - 2026-09-04
 
 ### Mejorado

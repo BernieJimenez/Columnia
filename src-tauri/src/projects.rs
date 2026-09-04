@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::dataset::{
-    validate_project_profile, validate_project_workspace, DatasetPreview, DatasetProfile,
-    DatasetState, ProjectHistoryCapture, ProjectHistoryRestore, ProjectHistoryRestoreEntry,
-    QualityRule, StoredTransformRecipe,
+    validate_project_profile_with_row_count, validate_project_workspace, DatasetPreview,
+    DatasetProfile, DatasetState, ProjectHistoryCapture, ProjectHistoryRestore,
+    ProjectHistoryRestoreEntry, QualityRule, StoredTransformRecipe,
 };
 use sha2::{Digest, Sha256};
 
@@ -123,6 +123,7 @@ pub(crate) struct AutomationProjectInspection {
 
 pub(crate) struct AutomationOpenedProject {
     pub(crate) frame: DataFrame,
+    pub(crate) dataset_state: Option<DatasetState>,
     pub(crate) workspace: ProjectWorkspace,
 }
 
@@ -616,7 +617,7 @@ impl ProjectStore {
         )?;
         validate_sql_query_history(&workspace.sql_history)?;
         if let Some(profile) = active.profile.as_ref() {
-            validate_project_profile(&active.frame, profile)?;
+            validate_project_profile_with_row_count(&active.frame, active.row_count, profile)?;
         }
         let quality_rules_json = serde_json::to_string(&workspace.quality_rules)
             .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
@@ -1139,8 +1140,16 @@ pub(crate) fn automation_open_project(
 ) -> Result<AutomationOpenedProject, String> {
     let store = ProjectStore::initialize(root.to_path_buf())?;
     let validated = store.load_validated(project_id)?;
+    let source_backed = validated.candidate.is_source_backed();
+    let candidate = validated.candidate;
+    let (frame, dataset_state) = if source_backed {
+        (DataFrame::empty(), Some(candidate.into_dataset_state()))
+    } else {
+        (candidate.into_frame(), None)
+    };
     Ok(AutomationOpenedProject {
-        frame: validated.candidate.into_frame(),
+        frame,
+        dataset_state,
         workspace: validated.workspace,
     })
 }

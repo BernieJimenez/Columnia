@@ -7130,51 +7130,6 @@ where
     Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
 }
 
-fn append_spilled_column_rows(
-    spill: &SpilledKeyRows,
-    column: &Column,
-    row_offset: usize,
-    writers: &mut [Option<BufWriter<File>>],
-) -> Result<(), String> {
-    for row_index in 0..column.len() {
-        let key = match preview_value(column.get(row_index).map_err(|error| {
-            format!("No se pudo leer la fila source-backed del perfil: {error}")
-        })?) {
-            Some(value) => format!("v{}:{value};", value.len()),
-            None => "n;".to_owned(),
-        };
-        let bucket = comparison_key_bucket(&key);
-        let writer = if let Some(writer) = writers[bucket].as_mut() {
-            writer
-        } else {
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&spill.bucket_paths[bucket])
-                .map_err(|error| {
-                    format!("No se pudo abrir el índice temporal del perfil: {error}")
-                })?;
-            writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
-        };
-        let key_bytes = key.as_bytes();
-        let key_length = u64::try_from(key_bytes.len()).map_err(|_| {
-            "El valor de la columna supera el índice temporal del perfil.".to_owned()
-        })?;
-        let row_number = row_offset
-            .checked_add(row_index)
-            .and_then(|index| u64::try_from(index).ok())
-            .ok_or_else(|| "El índice de fila supera la capacidad local.".to_owned())?;
-        writer
-            .write_all(&key_length.to_le_bytes())
-            .and_then(|_| writer.write_all(&row_number.to_le_bytes()))
-            .and_then(|_| writer.write_all(key_bytes))
-            .map_err(|error| {
-                format!("No se pudo escribir el índice temporal del perfil: {error}")
-            })?;
-    }
-    Ok(())
-}
-
 fn profile_source_columns_with_keys<F, C>(
     path: &Path,
     row_count: usize,
@@ -7202,17 +7157,6 @@ where
         .collect::<Vec<_>>();
     let mut normalized_writers = (0..NORMALIZED_DUPLICATE_BUCKETS)
         .map(|_| None::<BufWriter<File>>)
-        .collect::<Vec<_>>();
-    let unique_spills = schema_columns
-        .iter()
-        .map(|_| create_spilled_key_rows())
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut unique_writers = (0..schema_columns.len())
-        .map(|_| {
-            (0..COMPARISON_KEY_BUCKETS)
-                .map(|_| None::<BufWriter<File>>)
-                .collect::<Vec<_>>()
-        })
         .collect::<Vec<_>>();
     let mut accumulators = schema_columns
         .iter()
@@ -7263,12 +7207,6 @@ where
 
             for (index, column) in block.columns().iter().enumerate() {
                 accumulators[index].update(column)?;
-                append_spilled_column_rows(
-                    &unique_spills[index],
-                    column,
-                    start,
-                    &mut unique_writers[index],
-                )?;
             }
 
             let processed_rows = start.saturating_add(block.height());
@@ -7292,25 +7230,25 @@ where
             format!("No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}")
         })?;
     }
-    for writers in &mut unique_writers {
-        for writer in writers.iter_mut().flatten() {
-            writer.flush().map_err(|error| {
-                format!("No se pudo sincronizar el índice temporal del perfil: {error}")
-            })?;
-        }
-    }
-
     let distinct_row_count = count_distinct_spilled_key_rows(&distinct_spill, is_cancelled)?;
     let normalized_duplicate_row_count =
         count_normalized_duplicate_fingerprints(&normalized_bucket_paths, is_cancelled)?;
     let exact_duplicate_row_count = row_count.saturating_sub(distinct_row_count);
     let near_duplicate_row_count =
         normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count);
+    let distinct_counts = crate::duckdb_query::count_file_distinct_non_null(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+        &column_names,
+        || false,
+    )?;
+    if distinct_counts.len() != accumulators.len() {
+        return Err("DuckDB no devolvió todos los conteos distintos del perfil.".to_owned());
+    }
     let mut columns = Vec::with_capacity(schema_columns.len());
     for (index, accumulator) in accumulators.into_iter().enumerate() {
-        let distinct_values = count_distinct_spilled_key_rows(&unique_spills[index], is_cancelled)?;
-        let unique_count = distinct_values.saturating_sub(usize::from(accumulator.null_count > 0));
-        columns.push(accumulator.finish(row_count, unique_count)?);
+        let distinct_values = distinct_counts[index];
+        columns.push(accumulator.finish(row_count, distinct_values)?);
     }
 
     report("Analizando columnas", 90);
@@ -12725,6 +12663,80 @@ fn should_defer_source_load(extension: &str, file_size_bytes: u64) -> bool {
             extension,
             "csv" | "tsv" | "txt" | "json" | "jsonl" | "ndjson" | "parquet" | "xlsx" | "xlsb"
         )
+}
+
+fn load_source_backed_dataset_for_automation(
+    input: &Path,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+) -> Result<(LoadedDataset, DatasetPreview), String> {
+    let (canonical, file_size_bytes, extension) = validate_dataset_file(input)?;
+    let mut deferred_history = None;
+    let (frame, preview, row_count) = if spreadsheet_extensions(&extension) {
+        let sheet_name = sheet_name.ok_or_else(|| "Selecciona una hoja del libro.".to_owned())?;
+        let header_mode = header_mode
+            .ok_or_else(|| "Elige cómo interpretar los encabezados del libro.".to_owned())?;
+        if sheet_name.is_empty() {
+            return Err("La hoja seleccionada no es válida.".to_owned());
+        }
+        if !matches!(extension.as_str(), "xlsx" | "xlsb") {
+            return Err(
+                "El libro no admite la ruta source-backed diferida para este formato.".to_owned(),
+            );
+        }
+        let available_sheets = inspect_workbook(&canonical)?;
+        if available_sheets
+            .iter()
+            .filter(|name| *name == sheet_name)
+            .count()
+            != 1
+        {
+            return Err("La hoja seleccionada no existe de forma única en el libro.".to_owned());
+        }
+        let mut history = HistoryManager::deferred()?;
+        let snapshot_path = history.directory.path().join("source.parquet");
+        let result = source_backed_spreadsheet_load(
+            &canonical,
+            sheet_name,
+            header_mode,
+            &snapshot_path,
+            || false,
+        )?;
+        history.source_snapshot_path = Some(snapshot_path);
+        deferred_history = Some(history);
+        result
+    } else {
+        if sheet_name.is_some() || header_mode.is_some() {
+            return Err("Este formato no utiliza selección de hoja ni encabezado.".to_owned());
+        }
+        if matches!(extension.as_str(), "json" | "jsonl" | "ndjson") {
+            let mut history = HistoryManager::deferred()?;
+            let snapshot_path = history.directory.path().join("source.parquet");
+            let result = source_backed_json_load(&canonical, &snapshot_path, || false)?;
+            history.source_snapshot_path = Some(snapshot_path);
+            deferred_history = Some(history);
+            result
+        } else {
+            source_backed_load(&canonical, &extension, || false)?
+        }
+    };
+    let history = deferred_history.unwrap_or(HistoryManager::deferred()?);
+    let file_name = canonical
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("dataset")
+        .to_owned();
+    let dataset = LoadedDataset {
+        source_path: Some(canonical),
+        file_name,
+        file_size_bytes,
+        row_count,
+        frame,
+        source_backed: true,
+        profile: None,
+        history,
+    };
+    Ok((dataset, preview))
 }
 
 fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String> {
@@ -31861,6 +31873,159 @@ where
     }
 }
 
+pub(crate) fn should_use_source_backed_automation(
+    input: &Path,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+) -> Result<bool, String> {
+    let (_, file_size_bytes, extension) = validate_dataset_file(input)?;
+    if spreadsheet_extensions(&extension) {
+        if sheet_name.is_none() || header_mode.is_none() {
+            return Err("Selecciona una hoja y un modo de encabezado para el libro.".to_owned());
+        }
+        return Ok(should_defer_source_load(&extension, file_size_bytes)
+            && matches!(extension.as_str(), "xlsx" | "xlsb"));
+    }
+    if sheet_name.is_some() || header_mode.is_some() {
+        return Err("Este formato no utiliza selección de hoja ni encabezado.".to_owned());
+    }
+    Ok(should_defer_source_load(&extension, file_size_bytes))
+}
+
+pub(crate) fn inspect_source_backed_for_automation(
+    input: &Path,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+) -> Result<DatasetPreview, String> {
+    let (_, preview) = load_source_backed_dataset_for_automation(input, sheet_name, header_mode)?;
+    Ok(preview)
+}
+
+pub(crate) struct AutomationSourceBackedTransformResult {
+    pub(crate) exported: ExportResult,
+    pub(crate) changed: bool,
+    pub(crate) input_row_count: usize,
+    pub(crate) output_row_count: usize,
+    pub(crate) input_column_count: usize,
+    pub(crate) output_column_count: usize,
+}
+
+fn export_source_backed_for_automation(
+    dataset: &LoadedDataset,
+    output: &Path,
+    format: ExportFormat,
+    quality_validation: Option<&QualityValidationResult>,
+    recipe: Option<&StoredTransformRecipe>,
+) -> Result<ExportResult, String> {
+    let (source_path, _) = current_duckdb_file_source(dataset)
+        .ok_or_else(|| "La fuente source-backed ya no está disponible para exportar.".to_owned())?;
+    let expected_file_size = fs::metadata(&source_path)
+        .map_err(|error| format!("No se pudo verificar la fuente source-backed: {error}"))?
+        .len();
+    let row_count = dataset.row_count;
+    match format {
+        ExportFormat::Csv => export_source_backed_csv_atomic(
+            &source_path,
+            expected_file_size,
+            output,
+            |_, _| {},
+            || false,
+        ),
+        ExportFormat::Json => export_source_backed_json_atomic(
+            &source_path,
+            expected_file_size,
+            output,
+            |_, _| {},
+            || false,
+        ),
+        ExportFormat::Parquet => export_source_backed_parquet_atomic(
+            &source_path,
+            expected_file_size,
+            output,
+            |_, _| {},
+            || false,
+        ),
+        ExportFormat::Sql => export_source_backed_sql_atomic(
+            &source_path,
+            expected_file_size,
+            output,
+            |_, _| {},
+            || false,
+        ),
+        ExportFormat::Excel => export_source_backed_xlsx_atomic(
+            &source_path,
+            expected_file_size,
+            row_count,
+            output,
+            |_, _| {},
+            || false,
+        ),
+        ExportFormat::Sqlite => export_source_backed_sqlite_atomic(
+            &source_path,
+            expected_file_size,
+            row_count,
+            output,
+            |_, _| {},
+            || false,
+        ),
+        ExportFormat::Bundle => export_source_backed_bundle_atomic(
+            &source_path,
+            expected_file_size,
+            row_count,
+            quality_validation,
+            recipe,
+            output,
+            |_, _| {},
+            || false,
+        ),
+    }
+}
+
+pub(crate) fn transform_source_backed_for_automation(
+    input: &Path,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+    recipe: &StoredTransformRecipe,
+    output: &Path,
+    format: ExportFormat,
+) -> Result<AutomationSourceBackedTransformResult, String> {
+    let (mut dataset, _) =
+        load_source_backed_dataset_for_automation(input, sheet_name, header_mode)?;
+    let input_row_count = dataset.row_count;
+    let input_column_count = dataset.frame.width();
+    let result = apply_recipe_to_dataset(&mut dataset, &recipe.recipe)?;
+    let exported =
+        export_source_backed_for_automation(&dataset, output, format, None, Some(recipe))?;
+    Ok(AutomationSourceBackedTransformResult {
+        exported,
+        changed: result.changed,
+        input_row_count,
+        output_row_count: result.dataset.row_count,
+        input_column_count,
+        output_column_count: result.dataset.column_count,
+    })
+}
+
+pub(crate) fn evaluate_source_backed_quality_rules_for_automation(
+    input: &Path,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+    quality_rules: &[QualityRule],
+) -> Result<QualityValidationResult, String> {
+    let (dataset, _) = load_source_backed_dataset_for_automation(input, sheet_name, header_mode)?;
+    let (source_path, _) = current_duckdb_file_source(&dataset)
+        .ok_or_else(|| "La fuente source-backed ya no está disponible para validar.".to_owned())?;
+    let (source_path, expected_file_size, extension) = validate_dataset_file(&source_path)?;
+    evaluate_source_quality_rules_with_cancel(
+        &source_path,
+        &extension,
+        expected_file_size,
+        dataset.row_count,
+        quality_rules,
+        || false,
+    )
+}
+
 pub(crate) fn load_quality_rules_for_automation(input: &Path) -> Result<Vec<QualityRule>, String> {
     let document = parse_quality_rules_document(read_quality_rules_json(input)?, true)?;
     Ok(document.rules)
@@ -31890,6 +32055,14 @@ pub(crate) fn validate_project_workspace(
 
 pub(crate) fn validate_project_profile(
     frame: &DataFrame,
+    profile: &DatasetProfile,
+) -> Result<(), String> {
+    validate_project_profile_with_row_count(frame, frame.height(), profile)
+}
+
+pub(crate) fn validate_project_profile_with_row_count(
+    frame: &DataFrame,
+    row_count: usize,
     profile: &DatasetProfile,
 ) -> Result<(), String> {
     let finite = |value: Option<f64>| value.is_none_or(f64::is_finite);
@@ -31980,7 +32153,7 @@ pub(crate) fn validate_project_profile(
             return Err("El perfil guardado contiene tendencias temporales no válidas.".to_owned());
         }
     }
-    if profile.row_count != frame.height()
+    if profile.row_count != row_count
         || profile.columns.len() != frame.width()
         || profile
             .columns
@@ -32108,7 +32281,7 @@ pub(crate) struct ProjectHistorySummary {
 
 impl ProjectDatasetCandidate {
     pub(crate) fn dimensions(&self) -> (usize, usize) {
-        (self.loaded.frame.height(), self.loaded.frame.width())
+        (self.loaded.row_count, self.loaded.frame.width())
     }
 
     pub(crate) fn frame(&self) -> &DataFrame {
@@ -32129,6 +32302,17 @@ impl ProjectDatasetCandidate {
 
     pub(crate) fn into_frame(self) -> DataFrame {
         self.loaded.frame
+    }
+
+    pub(crate) fn is_source_backed(&self) -> bool {
+        self.loaded.source_backed
+    }
+
+    pub(crate) fn into_dataset_state(self) -> DatasetState {
+        DatasetState {
+            current: Mutex::new(Some(self.loaded)),
+            ..DatasetState::default()
+        }
     }
 }
 
@@ -32339,6 +32523,22 @@ impl DatasetState {
         })
     }
 
+    pub(crate) fn for_source_backed_project_import(
+        input: &Path,
+        sheet_name: Option<&str>,
+        header_mode: Option<SpreadsheetHeaderMode>,
+    ) -> Result<(Self, DatasetPreview), String> {
+        let (loaded, preview) =
+            load_source_backed_dataset_for_automation(input, sheet_name, header_mode)?;
+        Ok((
+            Self {
+                current: Mutex::new(Some(loaded)),
+                ..Self::default()
+            },
+            preview,
+        ))
+    }
+
     pub(crate) fn apply_project_import_recipe(
         &self,
         recipe: &TransformRecipe,
@@ -32351,6 +32551,59 @@ impl DatasetState {
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
         apply_recipe_to_dataset(dataset, recipe).map(|result| result.changed)
+    }
+
+    pub(crate) fn evaluate_source_backed_quality_for_automation(
+        &self,
+        quality_rules: &[QualityRule],
+    ) -> Result<QualityValidationResult, String> {
+        let current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión del proyecto no está disponible.".to_owned())?;
+        let dataset = current
+            .as_ref()
+            .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
+        let (source_path, _) = current_duckdb_file_source(dataset).ok_or_else(|| {
+            "La fuente source-backed del proyecto ya no está disponible.".to_owned()
+        })?;
+        let (source_path, expected_file_size, extension) = validate_dataset_file(&source_path)?;
+        evaluate_source_quality_rules_with_cancel(
+            &source_path,
+            &extension,
+            expected_file_size,
+            dataset.row_count,
+            quality_rules,
+            || false,
+        )
+    }
+
+    pub(crate) fn dimensions_for_automation(&self) -> Result<(usize, usize), String> {
+        let current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión del proyecto no está disponible.".to_owned())?;
+        let dataset = current
+            .as_ref()
+            .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
+        Ok((dataset.row_count, dataset.frame.width()))
+    }
+
+    pub(crate) fn export_source_backed_project_for_automation(
+        &self,
+        output: &Path,
+        format: ExportFormat,
+        quality_validation: Option<&QualityValidationResult>,
+        recipe: Option<&StoredTransformRecipe>,
+    ) -> Result<ExportResult, String> {
+        let current = self
+            .current
+            .lock()
+            .map_err(|_| "La sesión del proyecto no está disponible.".to_owned())?;
+        let dataset = current
+            .as_ref()
+            .ok_or_else(|| "El proyecto no contiene un dataset activo.".to_owned())?;
+        export_source_backed_for_automation(dataset, output, format, quality_validation, recipe)
     }
 
     pub(crate) fn cache_project_import_profile(&self) -> Result<DatasetProfile, String> {
@@ -32373,13 +32626,30 @@ impl DatasetState {
         let dataset = current
             .as_mut()
             .ok_or_else(|| "La importación no contiene un dataset.".to_owned())?;
-        materialize_loaded_dataset(dataset)?;
-        let profile = profile_dataset_with_progress(
-            &dataset.frame,
-            report,
-            is_cancelled,
-            MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
-        )?;
+        let profile = if dataset.source_backed {
+            let (source_path, _) = current_duckdb_file_source(dataset).ok_or_else(|| {
+                "La fuente source-backed ya no está disponible para perfilar el proyecto."
+                    .to_owned()
+            })?;
+            let (source_path, expected_file_size, extension) = validate_dataset_file(&source_path)?;
+            profile_source_backed_with_progress(
+                &source_path,
+                &extension,
+                expected_file_size,
+                dataset.row_count,
+                report,
+                is_cancelled,
+                MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+            )?
+        } else {
+            materialize_loaded_dataset(dataset)?;
+            profile_dataset_with_progress(
+                &dataset.frame,
+                report,
+                is_cancelled,
+                MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+            )?
+        };
         dataset.profile = Some(profile.clone());
         Ok(profile)
     }
@@ -32466,6 +32736,50 @@ impl DatasetState {
         let snapshot_size_bytes = fs::metadata(&snapshot_path)
             .map_err(|_| "No se pudo verificar el snapshot del proyecto.".to_owned())?
             .len();
+        let can_defer_history = history
+            .as_ref()
+            .is_none_or(|value| !value.snapshots_enabled && value.entries.is_empty());
+        if snapshot_size_bytes >= SOURCE_BACKED_LOAD_THRESHOLD_BYTES && can_defer_history {
+            let schema = read_parquet_schema_frame(&snapshot_path)
+                .map_err(|_| "No se pudo leer el esquema del proyecto.".to_owned())?;
+            let row_count = crate::duckdb_query::count_file_rows(
+                &snapshot_path,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                || false,
+            )?;
+            let page = if row_count == 0 {
+                schema.slice(0, 0)
+            } else {
+                read_parquet_query_block(&snapshot_path, 0, row_count.min(PREVIEW_ROW_LIMIT))?
+            };
+            let preview = dataset_preview_from_schema_and_page(
+                &file_name,
+                snapshot_size_bytes,
+                row_count,
+                &schema,
+                &page,
+            )?;
+            if let Some(profile) = profile.as_ref() {
+                validate_project_profile_with_row_count(&schema, row_count, profile)?;
+            }
+            let history = match history {
+                Some(history) => restore_project_history(&schema, history)?,
+                None => HistoryManager::deferred()?,
+            };
+            return Ok(ProjectDatasetCandidate {
+                loaded: LoadedDataset {
+                    source_path: Some(snapshot_path),
+                    file_name,
+                    file_size_bytes: snapshot_size_bytes,
+                    row_count,
+                    frame: schema,
+                    source_backed: true,
+                    profile,
+                    history,
+                },
+                preview,
+            });
+        }
         ensure_materialization_budget(snapshot_size_bytes)?;
         let frame = read_parquet_frame(&snapshot_path)
             .map_err(|_| "No se pudo restaurar el dataset del proyecto.".to_owned())?;
@@ -46420,5 +46734,78 @@ mod tests {
             },
         );
         assert_eq!(cancelled.unwrap_err(), OPERATION_CANCELLED_MESSAGE);
+    }
+
+    #[test]
+    fn automation_source_backed_transform_and_quality_validation_stream_the_source() {
+        let input = temporary_csv("value,kind\n1,keep\n2,drop\n3,keep\n");
+        let output = input.with_file_name("automation-source-backed.csv");
+        let recipe = StoredTransformRecipe {
+            version: 1,
+            name: "Filtro source-backed".to_owned(),
+            saved_at: "2026-01-01T00:00:00Z".to_owned(),
+            recipe: TransformRecipe {
+                filters: vec![RecipeFilter {
+                    column: "kind".to_owned(),
+                    operator: RecipeFilterOperator::Eq,
+                    value: Some("keep".to_owned()),
+                }],
+                ..TransformRecipe::default()
+            },
+            export_options: None,
+        };
+
+        let transformed = transform_source_backed_for_automation(
+            &input,
+            None,
+            None,
+            &recipe,
+            &output,
+            ExportFormat::Csv,
+        )
+        .expect("la automatización debe poder transformar la fuente source-backed");
+        assert!(transformed.changed);
+        assert_eq!(transformed.input_row_count, 3);
+        assert_eq!(transformed.output_row_count, 2);
+        assert_eq!(transformed.input_column_count, 2);
+        assert_eq!(transformed.output_column_count, 2);
+        assert_eq!(
+            fs::read_to_string(&output).unwrap(),
+            "value,kind\n1,keep\n3,keep\n"
+        );
+
+        let mut quality = quality_rule("value", QualityRuleKind::NotNull);
+        quality.max_invalid = Some(0);
+        let result =
+            evaluate_source_backed_quality_rules_for_automation(&input, None, None, &[quality])
+                .expect("la validación source-backed debe poder evaluar el contrato");
+        assert!(result.passed);
+        assert_eq!(result.row_count, 3);
+
+        let _ = fs::remove_file(input);
+        let _ = fs::remove_file(output);
+    }
+
+    #[test]
+    fn source_backed_project_import_profiles_and_snapshots_without_materializing_rows() {
+        let input = temporary_csv("value,kind\n1,keep\n2,drop\n3,keep\n");
+        let (state, preview) = DatasetState::for_source_backed_project_import(&input, None, None)
+            .expect("el proyecto debe poder iniciarse desde una fuente source-backed");
+        assert_eq!(preview.row_count, 3);
+
+        let profile = state
+            .cache_project_import_profile()
+            .expect("el perfil del proyecto debe calcularse por bloques");
+        assert_eq!(profile.row_count, 3);
+        assert_eq!(state.dimensions_for_automation().unwrap(), (3, 2));
+
+        let active = state
+            .active_project_snapshot()
+            .expect("el snapshot durable debe generarse desde la fuente");
+        assert_eq!(active.row_count, 3);
+        assert_eq!(active.column_count, 2);
+        assert!(active.current_snapshot_path.is_some());
+
+        let _ = fs::remove_file(input);
     }
 }

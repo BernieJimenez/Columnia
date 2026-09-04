@@ -15,7 +15,10 @@
   diario accesible, retiro confirmado de identificadores y proyectos locales;
   la superficie de compatibilidad externa fue retirada para mantener un contrato
   nativo y acotado;
-  I3/I5 conservan validaciones externas de plataforma. En v0.163.0, Deshacer y
+  I3/I5 conservan validaciones externas de plataforma. En v0.164.0, la CLI,
+  los perfiles y los proyectos grandes reutilizan source-backed para evitar
+  materializaciones completas; el perfil de columnas calcula distintos en una
+  sola agregación DuckDB. En v0.163.0, Deshacer y
   Rehacer source-backed restauran esquema, conteo y primera página desde el
   cursor Parquet sin materializar la revisión completa, con validación cerrada
   de snapshots inválidos. En v0.162.0, el perfilado
@@ -127,7 +130,7 @@
   limpiezas de duplicados y columnas constantes, vacías o con alta nulidad
   también tienen ejecución source-backed con DuckDB, snapshots Parquet
   reversibles y fallback eager seguro.
-- Versión actual del prototipo: `0.163.0`.
+- Versión actual del prototipo: `0.164.0`.
 - Implementación: iniciada el 2026-08-12.
 - Nombre: `Columnia`, aprobado.
 - Carpeta del proyecto nuevo: `Columnia/`, creada.
@@ -1684,7 +1687,7 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
   `mask` o `hash`, no persiste la cadena de conexión y protege mediante un
   snapshot Parquet temporal solo cuando la transmisión directa no puede aplicar
   la transformación de privacidad.
-- [ ] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
+- [x] Ampliar lazy/incremental a operaciones y datasets que exceden la memoria:
   Parquet cacheado, chunks, comparación/joins grandes, historial degradado y
   presupuestos explícitos sin materialización silenciosa. La carga de CSV/TSV/TXT,
   Parquet y la primera familia de recetas compatibles ya comparten colección
@@ -1846,6 +1849,10 @@ comparación no equivale a ejecución fuera de memoria general. La
   fuente original sigue intacta, el lector registra directamente CSV/TSV/TXT
   delimitado o Parquet desde disco, incluso al unirlo con el snapshot comparado;
   una mutación invalida la referencia para no consultar el archivo obsoleto.
+  La automatización `inspect`/`transform`/`validate`/`project-save` y la
+  exportación de proyectos grandes también reutilizan esta frontera; los
+  perfiles de proyecto se calculan por bloques y las recetas no compatibles
+  siguen fallando cerradamente si exigirían materializar fuera del presupuesto.
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
@@ -2165,6 +2172,7 @@ por el mero hecho de estar documentada aquí.
 
 | Fecha | Estado | Evidencia |
 | --- | --- | --- |
+| 2026-09-04 | Versión 0.164.0 extiende source-backed a automatización, perfiles y proyectos grandes; el perfil de columnas calcula distintos en una sola agregación DuckDB y mantiene fallback cerrado para recetas incompatibles. | `src-tauri/src/dataset.rs`, `src-tauri/src/automation.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-04 | Versión 0.163.0 optimiza Deshacer/Rehacer source-backed: restaura esquema, conteo y primera página desde el cursor Parquet sin materializar la revisión completa, y falla cerradamente ante snapshots inválidos. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-03 | Versión 0.162.0 combina duplicados exactos, duplicados parecidos y perfiles de columnas source-backed en un recorrido Parquet; las correlaciones numéricas también comparten un recorrido y el progreso refleja el análisis conjunto. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
 | 2026-09-03 | Versión 0.161.0 añade cobertura de extremo a extremo para resolución de conflictos y consolidación sobre snapshots Parquet durables de datasets materializados; ambas publican cursores reversibles y mantienen el frame activo sin filas. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `CONTEXTO.md` |
