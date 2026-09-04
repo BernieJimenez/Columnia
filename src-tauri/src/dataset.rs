@@ -135,6 +135,7 @@ const MAX_TEMPORAL_PERIODS: usize = 48;
 const MAX_TEMPORAL_DAY_SPAN: i64 = 90;
 const MAX_TEMPORAL_MONTH_SPAN: i64 = 36;
 const LOCAL_QUERY_BLOCK_ROWS: usize = 16 * 1024;
+const SOURCE_PROFILE_BLOCK_ROWS: usize = 4 * LOCAL_QUERY_BLOCK_ROWS;
 const LOCAL_QUERY_CANCEL_CHECK_ROWS: usize = 4096;
 const LOCAL_QUERY_JOIN_MAX_INPUT_ROWS: usize = 2_000_000;
 const LOCAL_QUERY_JOIN_MAX_RESULT_ROWS: usize = 2_000_000;
@@ -3881,16 +3882,28 @@ fn for_each_parquet_block<F>(path: &Path, row_count: usize, mut visit: F) -> Res
 where
     F: FnMut(usize, &DataFrame) -> Result<(), String>,
 {
-    let block_count = row_count.div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    for_each_parquet_block_with_size(path, row_count, LOCAL_QUERY_BLOCK_ROWS, &mut visit)
+}
+
+fn for_each_parquet_block_with_size<F>(
+    path: &Path,
+    row_count: usize,
+    block_rows: usize,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, &DataFrame) -> Result<(), String>,
+{
+    let block_count = row_count.div_ceil(block_rows);
     for block_index in 0..block_count {
         let start = block_index
-            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .checked_mul(block_rows)
             .ok_or_else(|| {
                 format!(
                     "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque excede la capacidad local."
                 )
             })?;
-        let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
+        let length = block_rows.min(row_count - start);
         let block = read_parquet_query_block(path, start, length)?;
         if block.height() != length {
             return Err(format!(
@@ -3905,6 +3918,67 @@ where
         return Err(format!(
             "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el snapshot Parquet contiene más filas que las registradas."
         ));
+    }
+    Ok(())
+}
+
+fn read_parquet_columns_block(
+    path: &Path,
+    column_names: &[String],
+    start: usize,
+    length: usize,
+) -> Result<DataFrame, String> {
+    let slice_offset = i64::try_from(start).map_err(|_| {
+        format!(
+            "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} las columnas solicitadas exceden la capacidad del lector."
+        )
+    })?;
+    let projection = column_names.iter().map(col).collect::<Vec<_>>();
+    let plan = parquet_scan(path)
+        .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))?
+        .select(projection)
+        .slice(slice_offset, length as IdxSize);
+    collect_lazy_frame_streaming(
+        plan,
+        "No se pudo leer el bloque de columnas Parquet del perfil",
+    )
+    .map_err(|error| format!("{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} {error}"))
+}
+
+fn for_each_parquet_columns_block_with_size<F>(
+    path: &Path,
+    row_count: usize,
+    column_names: &[String],
+    block_rows: usize,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, &DataFrame) -> Result<(), String>,
+{
+    let block_count = row_count.div_ceil(block_rows);
+    for block_index in 0..block_count {
+        let start = block_index
+            .checked_mul(block_rows)
+            .ok_or_else(|| {
+                format!(
+                    "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque de columnas excede la capacidad del lector."
+                )
+            })?;
+        let length = block_rows.min(row_count - start);
+        let block = read_parquet_columns_block(path, column_names, start, length)?;
+        if block.height() != length || block.width() != column_names.len() {
+            return Err(
+                "No se pudo leer el bloque de columnas Parquet con el tamaño esperado.".to_owned(),
+            );
+        }
+        visit(start, &block)?;
+    }
+    let trailing_block = read_parquet_columns_block(path, column_names, row_count, 1)?;
+    if trailing_block.height() != 0 {
+        return Err(
+            "El snapshot Parquet contiene más filas que las registradas para las columnas del perfil."
+                .to_owned(),
+        );
     }
     Ok(())
 }
@@ -3930,25 +4004,26 @@ fn read_parquet_column_block(
     )
 }
 
-fn for_each_parquet_column_block<F>(
+fn for_each_parquet_column_block_with_size<F>(
     path: &Path,
     row_count: usize,
     column_name: &str,
+    block_rows: usize,
     mut visit: F,
 ) -> Result<(), String>
 where
     F: FnMut(usize, &Column) -> Result<(), String>,
 {
-    let block_count = row_count.div_ceil(LOCAL_QUERY_BLOCK_ROWS);
+    let block_count = row_count.div_ceil(block_rows);
     for block_index in 0..block_count {
         let start = block_index
-            .checked_mul(LOCAL_QUERY_BLOCK_ROWS)
+            .checked_mul(block_rows)
             .ok_or_else(|| {
                 format!(
                     "{LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX} el índice del bloque de columna excede la capacidad del lector."
                 )
             })?;
-        let length = LOCAL_QUERY_BLOCK_ROWS.min(row_count - start);
+        let length = block_rows.min(row_count - start);
         let block = read_parquet_column_block(path, column_name, start, length)?;
         if block.height() != length || block.width() != 1 {
             return Err(format!(
@@ -7100,34 +7175,146 @@ fn append_spilled_column_rows(
     Ok(())
 }
 
-fn profile_source_column<C>(
+fn profile_source_columns_with_keys<F, C>(
     path: &Path,
     row_count: usize,
-    schema_column: &Column,
+    schema_columns: &[Column],
     is_cancelled: &C,
-) -> Result<ColumnProfile, String>
+    mut report: F,
+) -> Result<(usize, usize, Vec<ColumnProfile>), String>
 where
+    F: FnMut(&'static str, u8),
     C: Fn() -> bool + Sync,
 {
-    let column_name = schema_column.name().to_string();
-    let mut accumulator = SourceColumnAccumulator::new(schema_column);
-    let unique_spill = create_spilled_key_rows()?;
-    let mut unique_writers = (0..COMPARISON_KEY_BUCKETS)
+    let distinct_spill = create_spilled_key_rows()?;
+    let mut distinct_writers = (0..COMPARISON_KEY_BUCKETS)
         .map(|_| None::<BufWriter<File>>)
         .collect::<Vec<_>>();
-    for_each_parquet_column_block(path, row_count, &column_name, |start, column| {
-        ensure_not_cancelled(is_cancelled())?;
-        accumulator.update(column)?;
-        append_spilled_column_rows(&unique_spill, column, start, &mut unique_writers)
+    let normalized_directory = tempfile::tempdir().map_err(|error| {
+        format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
     })?;
-    for writer in unique_writers.iter_mut().flatten() {
+    let normalized_bucket_paths = (0..NORMALIZED_DUPLICATE_BUCKETS)
+        .map(|bucket| {
+            normalized_directory
+                .path()
+                .join(format!("source-fingerprints-{bucket:03}.bin"))
+        })
+        .collect::<Vec<_>>();
+    let mut normalized_writers = (0..NORMALIZED_DUPLICATE_BUCKETS)
+        .map(|_| None::<BufWriter<File>>)
+        .collect::<Vec<_>>();
+    let unique_spills = schema_columns
+        .iter()
+        .map(|_| create_spilled_key_rows())
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut unique_writers = (0..schema_columns.len())
+        .map(|_| {
+            (0..COMPARISON_KEY_BUCKETS)
+                .map(|_| None::<BufWriter<File>>)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let mut accumulators = schema_columns
+        .iter()
+        .map(SourceColumnAccumulator::new)
+        .collect::<Vec<_>>();
+    let column_names = schema_columns
+        .iter()
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+
+    report("Analizando filas y columnas", 10);
+    for_each_parquet_block_with_size(
+        path,
+        row_count,
+        SOURCE_PROFILE_BLOCK_ROWS,
+        |start, block| {
+            ensure_not_cancelled(is_cancelled())?;
+            append_spilled_key_rows_with_writers(
+                &distinct_spill,
+                block,
+                &column_names,
+                start,
+                &mut distinct_writers,
+            )?;
+
+            let fingerprint_columns = normalized_fingerprint_columns(block.columns())?;
+            for row_index in 0..block.height() {
+                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                    ensure_not_cancelled(is_cancelled())?;
+                }
+                let fingerprint = normalized_row_fingerprint(&fingerprint_columns, row_index)?;
+                let bucket = (fingerprint >> 120) as usize;
+                let writer = if let Some(writer) = normalized_writers[bucket].as_mut() {
+                    writer
+                } else {
+                    let file = File::create(&normalized_bucket_paths[bucket]).map_err(|error| {
+                    format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
+                })?;
+                    normalized_writers[bucket]
+                        .get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
+                };
+                writer
+                .write_all(&fingerprint.to_le_bytes())
+                .map_err(|error| {
+                    format!("No se pudieron guardar las huellas temporales de duplicados parecidos: {error}")
+                })?;
+            }
+
+            for (index, column) in block.columns().iter().enumerate() {
+                accumulators[index].update(column)?;
+                append_spilled_column_rows(
+                    &unique_spills[index],
+                    column,
+                    start,
+                    &mut unique_writers[index],
+                )?;
+            }
+
+            let processed_rows = start.saturating_add(block.height());
+            let progress = processed_rows
+                .saturating_mul(80)
+                .checked_div(row_count)
+                .unwrap_or(80);
+            let percent = 10 + progress.min(80) as u8;
+            report("Analizando filas y columnas", percent);
+            Ok(())
+        },
+    )?;
+
+    for writer in distinct_writers.iter_mut().flatten() {
         writer.flush().map_err(|error| {
-            format!("No se pudo sincronizar el índice temporal del perfil: {error}")
+            format!("No se pudo sincronizar el índice temporal de comparación: {error}")
         })?;
     }
-    let distinct_values = count_distinct_spilled_key_rows(&unique_spill, is_cancelled)?;
-    let unique_count = distinct_values.saturating_sub(usize::from(accumulator.null_count > 0));
-    accumulator.finish(row_count, unique_count)
+    for writer in normalized_writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}")
+        })?;
+    }
+    for writers in &mut unique_writers {
+        for writer in writers.iter_mut().flatten() {
+            writer.flush().map_err(|error| {
+                format!("No se pudo sincronizar el índice temporal del perfil: {error}")
+            })?;
+        }
+    }
+
+    let distinct_row_count = count_distinct_spilled_key_rows(&distinct_spill, is_cancelled)?;
+    let normalized_duplicate_row_count =
+        count_normalized_duplicate_fingerprints(&normalized_bucket_paths, is_cancelled)?;
+    let exact_duplicate_row_count = row_count.saturating_sub(distinct_row_count);
+    let near_duplicate_row_count =
+        normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count);
+    let mut columns = Vec::with_capacity(schema_columns.len());
+    for (index, accumulator) in accumulators.into_iter().enumerate() {
+        let distinct_values = count_distinct_spilled_key_rows(&unique_spills[index], is_cancelled)?;
+        let unique_count = distinct_values.saturating_sub(usize::from(accumulator.null_count > 0));
+        columns.push(accumulator.finish(row_count, unique_count)?);
+    }
+
+    report("Analizando columnas", 90);
+    Ok((exact_duplicate_row_count, near_duplicate_row_count, columns))
 }
 
 fn source_categorical_group_summary<C>(
@@ -7140,41 +7327,53 @@ where
     C: Fn() -> bool + Sync,
 {
     let mut candidates = HashMap::with_capacity(MAX_GROUP_CANDIDATES);
-    for_each_parquet_column_block(path, row_count, &profile.name, |_, column| {
-        for row_index in 0..column.len() {
-            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
+    for_each_parquet_column_block_with_size(
+        path,
+        row_count,
+        &profile.name,
+        SOURCE_PROFILE_BLOCK_ROWS,
+        |_, column| {
+            for row_index in 0..column.len() {
+                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                    ensure_not_cancelled(is_cancelled())?;
+                }
+                let value = column.get(row_index).map_err(|error| {
+                    format!("No se pudo resumir la columna {}: {error}", profile.name)
+                })?;
+                if let Some(key) = categorical_group_key(value) {
+                    retain_group_candidate(&mut candidates, key);
+                }
             }
-            let value = column.get(row_index).map_err(|error| {
-                format!("No se pudo resumir la columna {}: {error}", profile.name)
-            })?;
-            if let Some(key) = categorical_group_key(value) {
-                retain_group_candidate(&mut candidates, key);
-            }
-        }
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
     ensure_not_cancelled(is_cancelled())?;
 
     let mut selected_counts = HashMap::with_capacity(candidates.len());
-    for_each_parquet_column_block(path, row_count, &profile.name, |_, column| {
-        for row_index in 0..column.len() {
-            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
+    for_each_parquet_column_block_with_size(
+        path,
+        row_count,
+        &profile.name,
+        SOURCE_PROFILE_BLOCK_ROWS,
+        |_, column| {
+            for row_index in 0..column.len() {
+                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                    ensure_not_cancelled(is_cancelled())?;
+                }
+                let value = column.get(row_index).map_err(|error| {
+                    format!("No se pudo resumir la columna {}: {error}", profile.name)
+                })?;
+                let Some(key) = categorical_group_key(value) else {
+                    continue;
+                };
+                if candidates.contains_key(&key) {
+                    let count = selected_counts.entry(key).or_insert(0usize);
+                    *count = (*count).saturating_add(1);
+                }
             }
-            let value = column.get(row_index).map_err(|error| {
-                format!("No se pudo resumir la columna {}: {error}", profile.name)
-            })?;
-            let Some(key) = categorical_group_key(value) else {
-                continue;
-            };
-            if candidates.contains_key(&key) {
-                let count = selected_counts.entry(key).or_insert(0usize);
-                *count = (*count).saturating_add(1);
-            }
-        }
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
 
     let mut groups = selected_counts
         .into_iter()
@@ -7235,28 +7434,34 @@ where
     let mut first = None;
     let mut last = None;
     let mut parsed_row_count = 0usize;
-    for_each_parquet_column_block(path, row_count, &profile.name, |_, column| {
-        for row_index in 0..column.len() {
-            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
+    for_each_parquet_column_block_with_size(
+        path,
+        row_count,
+        &profile.name,
+        SOURCE_PROFILE_BLOCK_ROWS,
+        |_, column| {
+            for row_index in 0..column.len() {
+                if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                    ensure_not_cancelled(is_cancelled())?;
+                }
+                let value = column.get(row_index).map_err(|error| {
+                    format!(
+                        "No se pudo resumir la tendencia temporal de {}: {error}",
+                        profile.name
+                    )
+                })?;
+                let Some(datetime) = quality_datetime_value(value) else {
+                    continue;
+                };
+                let key = temporal_period_key(datetime);
+                first = Some(first.map_or(key, |current: TemporalPeriodKey| current.min(key)));
+                last = Some(last.map_or(key, |current: TemporalPeriodKey| current.max(key)));
+                *counts.entry(key).or_insert(0) += 1;
+                parsed_row_count = parsed_row_count.saturating_add(1);
             }
-            let value = column.get(row_index).map_err(|error| {
-                format!(
-                    "No se pudo resumir la tendencia temporal de {}: {error}",
-                    profile.name
-                )
-            })?;
-            let Some(datetime) = quality_datetime_value(value) else {
-                continue;
-            };
-            let key = temporal_period_key(datetime);
-            first = Some(first.map_or(key, |current: TemporalPeriodKey| current.min(key)));
-            last = Some(last.map_or(key, |current: TemporalPeriodKey| current.max(key)));
-            *counts.entry(key).or_insert(0) += 1;
-            parsed_row_count = parsed_row_count.saturating_add(1);
-        }
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
     let (Some(first), Some(last)) = (first, last) else {
         return Ok(None);
     };
@@ -7326,34 +7531,41 @@ where
         return Ok(None);
     }
     let sampled_row_count = row_count.min(sample_row_limit);
-    let mut values = Vec::with_capacity(numeric_columns.len());
-    for column_name in &numeric_columns {
-        let mut column_values = Vec::with_capacity(sampled_row_count);
-        let mut next_sample = 0usize;
-        for_each_parquet_column_block(path, row_count, column_name, |start, column| {
+    let mut values = (0..numeric_columns.len())
+        .map(|_| Vec::with_capacity(sampled_row_count))
+        .collect::<Vec<Vec<Option<f64>>>>();
+    let mut next_sample = 0usize;
+    for_each_parquet_columns_block_with_size(
+        path,
+        row_count,
+        &numeric_columns,
+        SOURCE_PROFILE_BLOCK_ROWS,
+        |start, block| {
             while next_sample < sampled_row_count {
                 let row_index = next_sample.saturating_mul(row_count) / sampled_row_count;
                 if row_index < start {
                     return Ok(());
                 }
-                if row_index >= start + column.len() {
+                if row_index >= start + block.height() {
                     break;
                 }
                 ensure_not_cancelled(is_cancelled())?;
-                let value = column.get(row_index - start).map_err(|error| {
+                for (column_index, column_name) in numeric_columns.iter().enumerate() {
+                    let column = block.columns().get(column_index).ok_or_else(|| {
+                        format!("No se pudo leer la columna de correlación {column_name}.")
+                    })?;
+                    let value = column.get(row_index - start).map_err(|error| {
                     format!("No se pudieron calcular correlaciones para la columna {column_name}: {error}")
                 })?;
-                column_values.push(correlation_numeric_value(value));
+                    values[column_index].push(correlation_numeric_value(value));
+                }
                 next_sample += 1;
             }
             Ok(())
-        })?;
-        if next_sample != sampled_row_count {
-            return Err(format!(
-                "No se pudo leer la muestra completa de correlaciones para la columna {column_name}."
-            ));
-        }
-        values.push(column_values);
+        },
+    )?;
+    if next_sample != sampled_row_count {
+        return Err("No se pudo leer la muestra completa de correlaciones.".to_owned());
     }
     let mut pairs =
         Vec::with_capacity(numeric_columns.len().saturating_mul(numeric_columns.len()) / 2);
@@ -7412,43 +7624,20 @@ where
     ensure_not_cancelled(is_cancelled())?;
     let (_snapshot_directory, snapshot_path) = source_profile_snapshot(source_path, extension)?;
     let schema = read_parquet_schema_frame(&snapshot_path)?;
-    let column_names = schema
-        .columns()
-        .iter()
-        .map(|column| column.name().to_string())
-        .collect::<Vec<_>>();
 
-    report("Detectando filas duplicadas", 10);
-    let distinct_row_count =
-        count_distinct_rows_from_parquet(&snapshot_path, row_count, &column_names, &is_cancelled)?;
-    let duplicate_row_count = row_count.saturating_sub(distinct_row_count);
+    let (duplicate_row_count, near_duplicate_row_count, columns) =
+        profile_source_columns_with_keys(
+            &snapshot_path,
+            row_count,
+            schema.columns(),
+            &is_cancelled,
+            &mut report,
+        )?;
     let duplicate_percentage = if row_count == 0 {
         0.0
     } else {
         (duplicate_row_count as f64 / row_count as f64) * 100.0
     };
-    report("Normalizando filas parecidas", 15);
-    let near_duplicate_row_count = count_normalized_duplicate_rows_from_parquet(
-        &snapshot_path,
-        row_count,
-        duplicate_row_count,
-        &is_cancelled,
-    )?;
-
-    let mut columns = Vec::with_capacity(schema.width());
-    if schema.width() == 0 {
-        report("Perfil completado", 100);
-    } else {
-        report("Analizando columnas", 40);
-        for (index, schema_column) in schema.columns().iter().enumerate() {
-            ensure_not_cancelled(is_cancelled())?;
-            let profile =
-                profile_source_column(&snapshot_path, row_count, schema_column, &is_cancelled)?;
-            columns.push(profile);
-            let percent = 40 + (((index + 1) * 50) / schema.width()) as u8;
-            report("Analizando columnas", percent.min(90));
-        }
-    }
 
     report("Resumiendo categorías", 93);
     let mut categorical = Vec::new();
@@ -19079,7 +19268,23 @@ fn append_spilled_key_rows(
     let mut writers = (0..COMPARISON_KEY_BUCKETS)
         .map(|_| None::<BufWriter<File>>)
         .collect::<Vec<_>>();
+    append_spilled_key_rows_with_writers(spill, frame, key_columns, row_offset, &mut writers)?;
 
+    for writer in writers.iter_mut().flatten() {
+        writer.flush().map_err(|error| {
+            format!("No se pudo sincronizar el índice temporal de comparación: {error}")
+        })?;
+    }
+    Ok(())
+}
+
+fn append_spilled_key_rows_with_writers(
+    spill: &SpilledKeyRows,
+    frame: &DataFrame,
+    key_columns: &[String],
+    row_offset: usize,
+    writers: &mut [Option<BufWriter<File>>],
+) -> Result<(), String> {
     for row_index in 0..frame.height() {
         let signature = row_signature(frame, key_columns, row_index)?;
         let bucket = comparison_key_bucket(&signature);
@@ -19112,12 +19317,6 @@ fn append_spilled_key_rows(
             .map_err(|error| {
                 format!("No se pudo escribir el índice temporal de comparación: {error}")
             })?;
-    }
-
-    for writer in writers.iter_mut().flatten() {
-        writer.flush().map_err(|error| {
-            format!("No se pudo sincronizar el índice temporal de comparación: {error}")
-        })?;
     }
     Ok(())
 }
@@ -19529,24 +19728,6 @@ where
     Ok(distinct_count)
 }
 
-fn count_distinct_rows_from_parquet<C>(
-    path: &Path,
-    row_count: usize,
-    columns: &[String],
-    is_cancelled: &C,
-) -> Result<usize, String>
-where
-    C: Fn() -> bool + Sync,
-{
-    ensure_not_cancelled(is_cancelled())?;
-    let spill = create_spilled_key_rows()?;
-    for_each_parquet_block(path, row_count, |start, block| {
-        ensure_not_cancelled(is_cancelled())?;
-        append_spilled_key_rows(&spill, block, columns, start)
-    })?;
-    count_distinct_spilled_key_rows(&spill, is_cancelled)
-}
-
 fn count_unique_invalid_from_parquet<C>(
     path: &Path,
     row_count: usize,
@@ -19686,63 +19867,15 @@ where
     Ok((count, sum, minimum, maximum))
 }
 
-fn count_normalized_duplicate_rows_from_parquet<C>(
-    path: &Path,
-    row_count: usize,
-    exact_duplicate_row_count: usize,
+fn count_normalized_duplicate_fingerprints<C>(
+    bucket_paths: &[PathBuf],
     is_cancelled: &C,
 ) -> Result<usize, String>
 where
     C: Fn() -> bool + Sync,
 {
-    if row_count == 0 {
-        return Ok(0);
-    }
-    let spill_directory = tempfile::tempdir().map_err(|error| {
-        format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
-    })?;
-    let bucket_paths = (0..NORMALIZED_DUPLICATE_BUCKETS)
-        .map(|bucket| {
-            spill_directory
-                .path()
-                .join(format!("source-fingerprints-{bucket:03}.bin"))
-        })
-        .collect::<Vec<_>>();
-    let mut writers = (0..NORMALIZED_DUPLICATE_BUCKETS)
-        .map(|_| None::<BufWriter<File>>)
-        .collect::<Vec<_>>();
-    for_each_parquet_block(path, row_count, |_, block| {
-        ensure_not_cancelled(is_cancelled())?;
-        let fingerprint_columns = normalized_fingerprint_columns(block.columns())?;
-        for row_index in 0..block.height() {
-            if row_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
-                ensure_not_cancelled(is_cancelled())?;
-            }
-            let fingerprint = normalized_row_fingerprint(&fingerprint_columns, row_index)?;
-            let bucket = (fingerprint >> 120) as usize;
-            let writer = if let Some(writer) = writers[bucket].as_mut() {
-                writer
-            } else {
-                let file = File::create(&bucket_paths[bucket]).map_err(|error| {
-                    format!("No se pudo preparar el almacenamiento temporal para duplicados parecidos: {error}")
-                })?;
-                writers[bucket].get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, file))
-            };
-            writer.write_all(&fingerprint.to_le_bytes()).map_err(|error| {
-                format!("No se pudieron guardar las huellas temporales de duplicados parecidos: {error}")
-            })?;
-        }
-        Ok(())
-    })?;
-    for writer in writers.iter_mut().flatten() {
-        writer.flush().map_err(|error| {
-            format!("No se pudieron sincronizar las huellas temporales de duplicados parecidos: {error}")
-        })?;
-    }
-    drop(writers);
-
     let mut normalized_duplicate_row_count = 0usize;
-    for bucket_path in &bucket_paths {
+    for bucket_path in bucket_paths {
         ensure_not_cancelled(is_cancelled())?;
         if !bucket_path.exists() {
             continue;
@@ -19782,7 +19915,7 @@ where
                 .count(),
         );
     }
-    Ok(normalized_duplicate_row_count.saturating_sub(exact_duplicate_row_count))
+    Ok(normalized_duplicate_row_count)
 }
 
 #[cfg(test)]
@@ -35525,12 +35658,13 @@ mod tests {
         let expected = profile_dataset(&frame).expect("el perfil en memoria debe calcularse");
         let (_, _, row_count) = source_backed_load(&path, "csv", || false)
             .expect("la fuente debe inspeccionarse en disco");
+        let mut updates = Vec::new();
         let actual = profile_source_backed_with_progress(
             &path,
             "csv",
             fs::metadata(&path).expect("la fuente debe existir").len(),
             row_count,
-            |_, _| {},
+            |stage, percent| updates.push((stage, percent)),
             || false,
             MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
         )
@@ -35549,6 +35683,10 @@ mod tests {
         );
         assert_eq!(actual.temporal_series, expected.temporal_series);
         assert!(actual.numeric_correlations.is_none());
+        assert!(updates
+            .iter()
+            .any(|(stage, _)| *stage == "Analizando filas y columnas"));
+        assert!(updates.windows(2).all(|pair| pair[0].1 <= pair[1].1));
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
     }
 
@@ -35556,7 +35694,8 @@ mod tests {
     fn materialized_history_snapshot_profiles_without_using_the_active_frame() {
         let frame = df![
             "city" => &["Santo Domingo", "Santiago", "Santiago"],
-            "amount" => &[10_i64, 20, 20]
+            "amount" => &[10_i64, 20, 20],
+            "score" => &[1_i64, 2, 2]
         ]
         .expect("el dataset debe construirse");
         let expected = profile_dataset(&frame).expect("el perfil en memoria debe calcularse");
@@ -35592,6 +35731,7 @@ mod tests {
             expected.categorical_group_summaries
         );
         assert_eq!(actual.temporal_series, expected.temporal_series);
+        assert_eq!(actual.numeric_correlations, expected.numeric_correlations);
         assert_eq!(dataset.frame.height(), 3);
     }
 

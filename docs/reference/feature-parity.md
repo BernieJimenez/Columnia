@@ -10,7 +10,7 @@ de rutas fuera del repositorio.
 | --- | --- | --- | --- |
 | Entradas tabulares | CSV, TSV, JSON/JSONL, Parquet, XLSX, XLS, XLSB y ODS | Implementada | Ampliar casos difíciles de libros |
 | Vista previa | Paginación de 50 filas, muestreo acotado y fallback seguro | Implementada | Ampliar evidencia con datasets grandes |
-| Perfilado | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos y cobertura temporal | Implementada | Ampliar análisis exploratorio |
+| Perfilado | Esquema, nulos, duplicados exactos y parecidos, estadísticas, calidad, outliers, grupos categóricos y cobertura temporal; el camino source-backed combina el recorrido base y comparte la lectura de correlaciones | Implementada | Ampliar análisis exploratorio |
 | Calidad | Documento `columnia-quality-rules` v1, reglas base y avanzadas, tolerancias, severidad y validación previa a entrega | Implementada | Ampliar políticas por esquema remoto |
 | Transformaciones | Recetas lazy/eager, historial, renombres, casts, filtros, texto, fechas, split/merge, reemplazo literal o regex segura, outliers, imputación y agregación; parseo, filtros temporales (`Eq`/`Neq` y rangos) y extracción de componentes pueden compartir el plan lazy | Implementada | Seguir ampliando ejecución incremental |
 | Comparación | Dataset secundario local, comparación por clave, conflictos paginados sin materializar activos source-backed o snapshots Parquet durables, resolución acotada por fila/columna y consolidación segura por claves nuevas desde esos snapshots, además de joins `INNER`/`LEFT`/`FULL`, incluidos resultados reversibles para CSV/TSV/TXT/Parquet | Implementada | Ampliar análisis comparativo |

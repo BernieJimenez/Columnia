@@ -6,6 +6,19 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+## [0.162.0] - 2026-09-03
+
+### Mejorado
+
+- El perfilado source-backed combina en un solo recorrido Parquet los
+  duplicados exactos, los duplicados parecidos y el perfil de todas las
+  columnas, manteniendo los resultados exactos y reduciendo reaperturas y
+  lecturas repetidas del dataset grande. Ese recorrido usa bloques de 65.536
+  filas; las consultas normales mantienen su límite de 16.384 filas.
+- Las correlaciones source-backed leen todas las columnas numéricas de la
+  muestra en un único recorrido y el progreso informa el avance del análisis
+  conjunto de filas y columnas.
+
 ## [0.161.0] - 2026-09-03
 
 ### Validación
