@@ -4,10 +4,12 @@ import { QUALITY_DATASET_COLUMN, type DatasetPreview, type QualityRule, type Qua
 import {
   INITIAL_DELIVERY_CONTRACT,
   MAX_QUALITY_RULES,
+  databaseKindForExportFormat,
   deliveryContractFromRules,
   deliveryRules,
   invalidateDeliveryContract,
   reduceDeliveryContract,
+  validateDatabaseTargetDraft,
   validateQualityRuleDraft,
   type DeliveryContractState,
 } from "./deliveryModel";
@@ -172,6 +174,25 @@ describe("validateQualityRuleDraft", () => {
 });
 
 describe("estado de entrega", () => {
+  it("mapea únicamente los tres formatos remotos a un motor ODBC", () => {
+    expect(databaseKindForExportFormat("postgresql")).toBe("postgresql");
+    expect(databaseKindForExportFormat("mysql")).toBe("mysql");
+    expect(databaseKindForExportFormat("sqlserver")).toBe("sqlserver");
+    expect(databaseKindForExportFormat("csv")).toBeNull();
+  });
+
+  it("bloquea el reemplazo MySQL antes de iniciar la conexión", () => {
+    expect(validateDatabaseTargetDraft({
+      ...{
+        kind: "mysql",
+        connectionString: "Driver={MySQL};Server=localhost",
+        schema: "public",
+        table: "dataset",
+        tablePolicy: "replace",
+      },
+    })).toMatch(/Reemplazar está deshabilitada/);
+  });
+
   it("invalida un gate aprobado cuando cambian las reglas", () => {
     const approved: DeliveryContractState = {
       kind: "with_contract",

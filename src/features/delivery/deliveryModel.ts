@@ -19,11 +19,25 @@ export const INITIAL_DATABASE_TARGET: DatabaseTarget = {
   tablePolicy: "create_only",
 };
 
+export function databaseKindForExportFormat(format: ExportFormat): DatabaseTarget["kind"] | null {
+  switch (format) {
+    case "postgresql":
+    case "mysql":
+    case "sqlserver":
+      return format;
+    default:
+      return null;
+  }
+}
+
 export function isDatabaseExportFormat(format: ExportFormat): boolean {
   return format === "postgresql" || format === "mysql" || format === "sqlserver";
 }
 
 export function validateDatabaseTargetDraft(target: DatabaseTarget): string | null {
+  if (target.kind === "mysql" && target.tablePolicy === "replace") {
+    return "La política Reemplazar está deshabilitada para MySQL hasta validar una sustitución atómica segura.";
+  }
   if (!target.connectionString.trim()) return "Indica la cadena de conexión ODBC.";
   if (target.connectionString.length > 16 * 1024) return "La cadena ODBC no puede superar 16 KiB.";
   if ([...target.connectionString].some((character) => /\p{Cc}/u.test(character))) {

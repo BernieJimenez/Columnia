@@ -279,6 +279,54 @@ describe("DeliveryPhase", () => {
     }));
   });
 
+  it("deriva el motor ODBC del formato remoto seleccionado", async () => {
+    const onTestDatabaseConnection = vi.fn().mockImplementation(async (target: DatabaseTarget) => ({
+      kind: target.kind,
+      message: `Conexión ODBC verificada para ${target.kind}.`,
+    }));
+    render(<DeliveryHarness onExport={vi.fn()} onTestDatabaseConnection={onTestDatabaseConnection} />);
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Confirmo que quiero exportar sin validar la calidad",
+    }));
+    for (const format of ["mysql", "sqlserver"] as const) {
+      fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+        target: { value: format },
+      });
+      fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
+        target: { value: `Driver={${format}};Server=localhost` },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(`para ${format}`));
+    }
+    expect(onTestDatabaseConnection.mock.calls.map(([target]) => target.kind)).toEqual(["mysql", "sqlserver"]);
+  });
+
+  it("descarta una respuesta de conexión cuando la configuración cambia durante la petición", async () => {
+    let resolveConnection: (result: DatabaseConnectionResult) => void = () => undefined;
+    const pending = new Promise<DatabaseConnectionResult>((resolve) => {
+      resolveConnection = resolve;
+    });
+    const onTestDatabaseConnection = vi.fn().mockReturnValue(pending);
+    render(<DeliveryHarness onExport={vi.fn()} onTestDatabaseConnection={onTestDatabaseConnection} />);
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Confirmo que quiero exportar sin validar la calidad",
+    }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "mysql" },
+    });
+    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
+      target: { value: "Driver={mysql};Server=A" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
+      target: { value: "Driver={mysql};Server=B" },
+    });
+    resolveConnection({ kind: "mysql", message: "Conexión A verificada." });
+    await Promise.resolve();
+    expect(screen.queryByText("Conexión A verificada.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exportar MySQL" })).toBeDisabled();
+  });
+
   it("expone los parámetros de una regla avanzada según su tipo", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);

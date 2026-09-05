@@ -2099,8 +2099,13 @@ html[data-columnia-zoom="2"] .flow-footer__actions button { width: 100%; white-s
   input,
   select,
   textarea { border-color: ButtonText; background: ButtonFace; color: ButtonText; forced-color-adjust: none; }
-  .primary-action,
-  .skip-link { border-color: Highlight; background: Highlight; color: HighlightText; }
+  .primary-action { border-color: Highlight; background: Highlight; color: HighlightText; }
+  .skip-link {
+    forced-color-adjust: none;
+    border: 2px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
   button:focus-visible,
   input:focus-visible,
   select:focus-visible,

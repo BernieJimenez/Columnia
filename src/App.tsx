@@ -191,11 +191,13 @@ export function App() {
   const [sampleDatasets, setSampleDatasets] = useState<SampleDatasetDescriptor[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
+  const [datasetRevision, setDatasetRevision] = useState(0);
   const [recipeSession, setRecipeSession] = useState(0);
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) => {
+      setDatasetRevision((current) => current + 1);
       setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
       setSqlHistory([]);
       setComparisonStatus(clearComparison());
@@ -252,6 +254,7 @@ export function App() {
       setPrivacyMode("none");
     },
     onProjectOpened: async ({ dataset, workspace, profile }) => {
+      setDatasetRevision((current) => current + 1);
       const initialDataset = createReadyDatasetStatus(dataset);
       setDatasetStatus(initialDataset);
       const previewOffset = normalizePageOffset(workspace.previewOffset ?? 0, dataset.rowCount);
@@ -400,6 +403,7 @@ export function App() {
         format: source.format,
       }));
       setDatasetStatus(createReadyDatasetStatus(dataset));
+      setDatasetRevision((current) => current + 1);
       projects.unlinkActiveProject();
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
@@ -556,6 +560,7 @@ export function App() {
     try {
       const dataset = await useConsolidatedDataset();
       setDatasetStatus(createReadyDatasetStatus(dataset));
+      setDatasetRevision((current) => current + 1);
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -581,6 +586,7 @@ export function App() {
     try {
       const dataset = await resolveDatasetConflicts(decisions);
       setDatasetStatus(createReadyDatasetStatus(dataset));
+      setDatasetRevision((current) => current + 1);
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -614,6 +620,7 @@ export function App() {
         return;
       }
       setDatasetStatus(createReadyDatasetStatus(dataset));
+      setDatasetRevision((current) => current + 1);
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -801,6 +808,7 @@ export function App() {
           <div className="sidebar__utilities-content">
             <ResourceMonitor
               enabled={status.kind === "ready"}
+              observeUsage={sidebarUtilitiesOpen}
               performanceProfile={performanceProfile}
               onPerformanceProfileChange={(profile) => {
                 setPerformanceProfile(profile);
@@ -824,12 +832,12 @@ export function App() {
             aria-describedby="legal-panel-summary"
           >
             <h2 id="legal-panel-title">Licencia y privacidad de Columnia</h2>
-            <p id="legal-panel-summary"><strong>Columnia</strong> funciona localmente y no envía datasets a servicios externos.</p>
+            <p id="legal-panel-summary"><strong>Columnia</strong> procesa los datos localmente y no inicia conexiones de red por sí sola. Solo una exportación ODBC explícita envía las filas elegidas al destino que el usuario configura.</p>
             <p><strong>Versión:</strong> {status.kind === "ready" && status.info ? status.info.version : "no disponible"}</p>
             <h2>Licencia</h2>
             <p>El producto se distribuye bajo MIT. Las dependencias conservan sus avisos en <code>THIRD_PARTY_NOTICES.md</code>.</p>
             <h2>Privacidad local</h2>
-            <p>Los archivos seleccionados, proyectos, perfiles y artefactos temporales permanecen en el dispositivo. No se usan telemetría, cuentas ni analítica remota.</p>
+            <p>Los archivos seleccionados, proyectos, perfiles y artefactos temporales permanecen en el dispositivo, salvo las filas que el usuario elija enviar mediante una exportación ODBC explícita. La cadena de conexión y la contraseña solo viven durante esa sesión. No se usan telemetría, cuentas ni analítica remota.</p>
             <h2>Retención y borrado</h2>
             <p>El usuario controla la carpeta de proyectos y puede eliminar proyectos desde la aplicación o borrar sus archivos locales. Los snapshots huérfanos se limpian de forma oportunista después de una hora de gracia.</p>
             <p className="sidebar__legal-note">Responsable y canal de contacto: deben definirse para la jurisdicción de publicación antes de distribuir.</p>
@@ -939,6 +947,7 @@ export function App() {
                 onJoin={(requestedJoinType) => void joinActiveDataset(requestedJoinType)}
                 sqlHistory={sqlHistory}
                 onSqlHistoryChange={setSqlHistory}
+                datasetRevision={datasetRevision}
                 queryEngine={queryEngine}
                 onQueryEngineChange={setQueryEngine}
                 analysisSampleRows={analysisSampleRows}

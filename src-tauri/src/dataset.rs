@@ -8329,12 +8329,18 @@ fn publish_source_backed_result_output(
         .map_err(|error| format!("No se pudo verificar el historial source-backed: {error}"))?
         .len();
     let _ = fs::remove_file(output.output_path);
-    dataset.source_path = (!context.snapshot_only).then_some(current_path);
+    // The result is now backed by the newly published history snapshot in both
+    // cases. Snapshot-backed joins used to leave only a schema in `frame` while
+    // marking the dataset as materialized; the next operation then treated the
+    // empty schema frame as the complete dataset and lost all active rows.
+    // Keep the cursor explicit so the next operation can materialize this exact
+    // snapshot on demand, without reading the original source again.
+    dataset.source_path = Some(current_path);
     dataset.file_name = output.file_name.to_owned();
     dataset.file_size_bytes = current_size;
     dataset.row_count = output.output_row_count;
     dataset.frame = output_schema;
-    dataset.source_backed = !context.snapshot_only;
+    dataset.source_backed = true;
     dataset.history.source_snapshot_path = None;
     dataset.history.current_label = output.label.to_owned();
     dataset.profile = None;
@@ -37647,11 +37653,18 @@ mod tests {
         assert_eq!(preview.row_count, 3);
         assert_eq!(dataset.row_count, 3);
         assert_eq!(dataset.frame.height(), 0);
-        assert!(!dataset.source_backed);
-        assert!(dataset.source_path.is_none());
+        assert!(dataset.source_backed);
+        assert!(dataset.source_path.is_some());
         assert!(dataset.history.snapshots_enabled);
         assert_eq!(dataset.history.entries.len(), 2);
         assert!(dataset.history.state().can_undo);
+        let audit = enable_row_audit_source_backed(&mut dataset)
+            .expect("la trazabilidad debe poder publicarse sobre el cursor JOIN")
+            .expect("la trazabilidad source-backed debe devolver una mutación");
+        assert_eq!(audit.dataset.row_count, 3);
+        materialize_loaded_dataset(&mut dataset).expect("el cursor JOIN debe materializar sus filas");
+        assert_eq!(dataset.frame.height(), 3);
+        assert!(dataset.frame.get_column_names().iter().any(|name| name.as_str() == "_cambios"));
         assert_eq!(
             dataset
                 .history
@@ -38126,7 +38139,8 @@ mod tests {
             .lock()
             .expect("el estado activo debe seguir disponible");
         let dataset = active.as_ref().expect("el dataset activo debe conservarse");
-        assert!(!dataset.source_backed);
+        assert!(dataset.source_backed);
+        assert!(dataset.source_path.is_some());
         assert_eq!(dataset.frame.height(), 0);
         assert_eq!(dataset.history.entries.len(), 2);
         let resolved = dataset
@@ -38219,7 +38233,8 @@ mod tests {
             .lock()
             .expect("el estado activo debe seguir disponible");
         let dataset = active.as_ref().expect("el dataset activo debe conservarse");
-        assert!(!dataset.source_backed);
+        assert!(dataset.source_backed);
+        assert!(dataset.source_path.is_some());
         assert_eq!(dataset.frame.height(), 0);
         assert_eq!(dataset.history.entries.len(), 2);
         let consolidated = dataset

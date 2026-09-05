@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   QUALITY_DATASET_COLUMN,
@@ -29,6 +29,7 @@ import {
   type DeliveryExportRequest,
   type DeliveryExportState,
   INITIAL_DATABASE_TARGET,
+  databaseKindForExportFormat,
   isDatabaseExportFormat,
   validateDatabaseTargetDraft,
   validateQualityRuleDraft,
@@ -77,13 +78,24 @@ export function DeliveryPhase({
   const [databaseConnectionState, setDatabaseConnectionState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
-    | { kind: "ready"; result: DatabaseConnectionResult }
+    | { kind: "ready"; result: DatabaseConnectionResult; fingerprint: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const databaseRequestGeneration = useRef(0);
+  const databaseTargetFingerprint = JSON.stringify(databaseTarget);
   useEffect(() => {
-    setDatabaseTarget(INITIAL_DATABASE_TARGET);
+    const kind = databaseKindForExportFormat(selectedExportFormat);
+    setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(kind ? { kind } : {}) });
     setDatabaseConnectionState({ kind: "idle" });
+    databaseRequestGeneration.current += 1;
   }, [dataset.fileName, dataset.fileSizeBytes, dataset.rowCount]);
+  useEffect(() => {
+    const kind = databaseKindForExportFormat(selectedExportFormat);
+    if (!kind || databaseTarget.kind === kind) return;
+    setDatabaseTarget((current) => ({ ...current, kind }));
+    setDatabaseConnectionState({ kind: "idle" });
+    databaseRequestGeneration.current += 1;
+  }, [databaseTarget.kind, selectedExportFormat]);
   const [qualityFileState, setQualityFileState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
@@ -103,7 +115,10 @@ export function DeliveryPhase({
     ? validateDatabaseTargetDraft(databaseTarget)
     : null;
   const databaseReady = !isDatabaseExportFormat(selectedExportFormat)
-    || (databaseTargetError === null && databaseConnectionState.kind === "ready");
+    || (databaseTargetError === null
+      && databaseConnectionState.kind === "ready"
+      && databaseConnectionState.fingerprint === databaseTargetFingerprint
+      && databaseConnectionState.result.kind === databaseTarget.kind);
   const busy = exportState.kind === "loading"
     || contract.gate.kind === "loading"
     || migrationState.kind === "working"
@@ -314,20 +329,47 @@ export function DeliveryPhase({
   function changeExportFormat(format: ExportFormat) {
     setLocalExportFormat(format);
     onExportFormatChange?.(format);
+    const kind = databaseKindForExportFormat(format);
+    if (kind) {
+      setDatabaseTarget((current) => ({
+        ...current,
+        kind,
+        ...(kind === "mysql" && current.tablePolicy === "replace"
+          ? { tablePolicy: "create_only" as const }
+          : {}),
+      }));
+      setDatabaseConnectionState({ kind: "idle" });
+      databaseRequestGeneration.current += 1;
+    }
   }
 
   function changeDatabaseTarget(update: Partial<DatabaseTarget>) {
     setDatabaseTarget((current) => ({ ...current, ...update }));
     setDatabaseConnectionState({ kind: "idle" });
+    databaseRequestGeneration.current += 1;
   }
 
   async function testDatabaseTarget() {
     if (!onTestDatabaseConnection || databaseTargetError) return;
+    const requestGeneration = databaseRequestGeneration.current;
+    const requestFingerprint = databaseTargetFingerprint;
+    const requestedTarget = databaseTarget;
     setDatabaseConnectionState({ kind: "working" });
     try {
-      const result = await onTestDatabaseConnection(databaseTarget);
-      setDatabaseConnectionState({ kind: "ready", result });
+      const result = await onTestDatabaseConnection(requestedTarget);
+      if (requestGeneration !== databaseRequestGeneration.current
+        || requestFingerprint !== JSON.stringify(databaseTarget)) return;
+      if (result.kind !== requestedTarget.kind) {
+        setDatabaseConnectionState({
+          kind: "error",
+          message: "La respuesta de conexión no corresponde al motor seleccionado.",
+        });
+        return;
+      }
+      setDatabaseConnectionState({ kind: "ready", result, fingerprint: requestFingerprint });
     } catch (error: unknown) {
+      if (requestGeneration !== databaseRequestGeneration.current
+        || requestFingerprint !== JSON.stringify(databaseTarget)) return;
       setDatabaseConnectionState({
         kind: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -1166,7 +1208,7 @@ export function DeliveryPhase({
                   >
                     <option value="create_only">Crear; fallar si existe</option>
                     <option value="append">Añadir a tabla existente</option>
-                    <option value="replace">Reemplazar tabla explícitamente</option>
+                    <option value="replace" disabled={databaseTarget.kind === "mysql"}>Reemplazar tabla explícitamente</option>
                   </select>
                 </label>
               </div>

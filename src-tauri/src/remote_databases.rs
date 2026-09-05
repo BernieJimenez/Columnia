@@ -1,6 +1,8 @@
 use std::{fmt::Debug, path::Path};
 
-use odbc_api::{ConnectionOptions, Environment};
+use odbc_api::{
+    parameter::InputParameter, Bit, ConnectionOptions, Environment, IntoParameter, Nullable,
+};
 use polars::prelude::{AnyValue, DataFrame};
 use serde::{Deserialize, Serialize};
 
@@ -8,8 +10,6 @@ use crate::duckdb_query::DuckDbFileFormat;
 
 const MAX_CONNECTION_STRING_CHARS: usize = 16 * 1024;
 const MAX_IDENTIFIER_CHARS: usize = 128;
-const INSERT_BATCH_ROWS: usize = 100;
-const INSERT_BATCH_BYTES: usize = 512 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -97,7 +97,14 @@ pub(crate) fn validate_database_target(target: &DatabaseTarget) -> Result<(), St
         );
     }
     validate_identifier(&target.schema, "el esquema", true)?;
-    validate_identifier(&target.table, "la tabla", false)
+    validate_identifier(&target.table, "la tabla", false)?;
+    if target.kind == DatabaseKind::Mysql && target.table_policy == DatabaseTablePolicy::Replace {
+        return Err(
+            "La política Reemplazar está deshabilitada para MySQL hasta validar una sustitución atómica segura."
+                .to_owned(),
+        );
+    }
+    Ok(())
 }
 
 pub(crate) fn export_frame<F, C>(
@@ -150,45 +157,28 @@ where
     }
 
     report("Escribiendo filas remotas", 25);
+    let statement_sql = parameterized_insert_sql(&table, &columns, columns.len());
+    let mut statement = connection
+        .prepare(&statement_sql)
+        .map_err(|error| format_driver_error("No se pudo preparar la inserción remota", error, target))?;
     let mut rows_written = 0usize;
-    let mut batch = String::new();
     for row_index in 0..frame.height() {
         ensure_not_cancelled(&is_cancelled)?;
-        let row = frame
+        let params = frame
             .columns()
             .iter()
             .map(|column| {
                 let value = column
                     .get(row_index)
                     .map_err(|error| format!("No se pudo leer la fila {row_index}: {error}"))?;
-                sql_literal(value, column.dtype(), target.kind)
+                sql_parameter(value, column.dtype())
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let row_sql = format!("({})", row.join(", "));
-        if batch.is_empty() {
-            batch.push_str("INSERT INTO ");
-            batch.push_str(&table);
-            batch.push_str(" (");
-            batch.push_str(&columns.join(", "));
-            batch.push_str(") VALUES ");
-        } else {
-            batch.push_str(", ");
-        }
-        batch.push_str(&row_sql);
+        statement
+            .execute(params.as_slice())
+            .map(|_| ())
+            .map_err(|error| format_driver_error("No se pudo insertar una fila en la tabla remota", error, target))?;
         rows_written += 1;
-        let last_row = row_index + 1 == frame.height();
-        if rows_written.is_multiple_of(INSERT_BATCH_ROWS)
-            || batch.len() >= INSERT_BATCH_BYTES
-            || last_row
-        {
-            execute_statement(
-                &connection,
-                &batch,
-                "No se pudo insertar un lote en la tabla remota",
-                target,
-            )?;
-            batch.clear();
-        }
         if frame.height() > 0 {
             let percent = 25 + ((row_index + 1) * 60 / frame.height()).min(60) as u8;
             report("Escribiendo filas remotas", percent);
@@ -259,8 +249,11 @@ where
     }
 
     report("Escribiendo filas remotas", 25);
+    let statement_sql = parameterized_insert_sql(&table, &columns, columns.len());
+    let mut statement = connection
+        .prepare(&statement_sql)
+        .map_err(|error| format_driver_error("No se pudo preparar la inserción remota", error, target))?;
     let mut rows_written = 0usize;
-    let mut batch = String::new();
     let streamed_columns = crate::duckdb_query::stream_file_rows(
         source_path,
         source_format,
@@ -272,37 +265,19 @@ where
                         .to_owned(),
                 );
             }
-            let row = schema
+            let params = schema
                 .columns()
                 .iter()
                 .zip(values.iter())
                 .map(|(column, value)| {
-                    sql_literal_text(value.as_deref(), column.dtype(), target.kind)
+                    sql_parameter_text(value.as_deref(), column.dtype())
                 })
                 .collect::<Result<Vec<_>, String>>()?;
-            if batch.is_empty() {
-                batch.push_str("INSERT INTO ");
-                batch.push_str(&table);
-                batch.push_str(" (");
-                batch.push_str(&columns.join(", "));
-                batch.push_str(") VALUES ");
-            } else {
-                batch.push_str(", ");
-            }
-            batch.push_str(&format!("({})", row.join(", ")));
+            statement
+                .execute(params.as_slice())
+                .map(|_| ())
+                .map_err(|error| format_driver_error("No se pudo insertar una fila en la tabla remota", error, target))?;
             rows_written = rows_written.saturating_add(1);
-            if rows_written.is_multiple_of(INSERT_BATCH_ROWS)
-                || batch.len() >= INSERT_BATCH_BYTES
-                || rows_written == row_count
-            {
-                execute_statement(
-                    &connection,
-                    &batch,
-                    "No se pudo insertar un lote en la tabla remota",
-                    target,
-                )?;
-                batch.clear();
-            }
             let percent = if row_count == 0 {
                 85
             } else {
@@ -358,6 +333,14 @@ fn execute_statement(
         .execute(statement, (), None)
         .map(|_| ())
         .map_err(|error| format_driver_error(context, error, target))
+}
+
+fn parameterized_insert_sql(table: &str, columns: &[String], parameter_count: usize) -> String {
+    let placeholders = vec!["?"; parameter_count].join(", ");
+    format!(
+        "INSERT INTO {table} ({}) VALUES ({placeholders})",
+        columns.join(", ")
+    )
 }
 
 fn ensure_not_cancelled<C>(is_cancelled: &C) -> Result<(), String>
@@ -469,35 +452,41 @@ fn database_type(dtype: &polars::prelude::DataType, kind: DatabaseKind) -> &'sta
     }
 }
 
-fn sql_literal(
+fn sql_parameter(
     value: AnyValue<'_>,
     dtype: &polars::prelude::DataType,
-    kind: DatabaseKind,
-) -> Result<String, String> {
+) -> Result<Box<dyn InputParameter>, String> {
     if matches!(value, AnyValue::Null) {
-        return sql_literal_text(None, dtype, kind);
+        return sql_parameter_text(None, dtype);
     }
     let text = match value {
         AnyValue::String(value) => value.to_owned(),
         AnyValue::StringOwned(value) => value.to_string(),
         value => value.to_string(),
     };
-    sql_literal_text(Some(&text), dtype, kind)
+    sql_parameter_text(Some(&text), dtype)
 }
 
-fn sql_literal_text(
+fn sql_parameter_text(
     value: Option<&str>,
     dtype: &polars::prelude::DataType,
-    kind: DatabaseKind,
-) -> Result<String, String> {
-    let Some(text) = value else {
-        return Ok("NULL".to_owned());
-    };
+ ) -> Result<Box<dyn InputParameter>, String> {
     let normalized_dtype = dtype.to_string().to_ascii_lowercase();
+    let Some(text) = value else {
+        return Ok(if normalized_dtype.contains("bool") {
+            Box::new(Nullable::<Bit>::null())
+        } else if is_integer_dtype(&normalized_dtype) {
+            Box::new(Nullable::<i64>::null())
+        } else if is_decimal_dtype(&normalized_dtype) {
+            Box::new(Nullable::<f64>::null())
+        } else {
+            Box::new(None::<String>.into_parameter())
+        });
+    };
     if normalized_dtype.contains("bool") {
         return Ok(match text.to_ascii_lowercase().as_str() {
-            "true" => "1".to_owned(),
-            "false" => "0".to_owned(),
+            "true" => Box::new(Bit::from_bool(true)),
+            "false" => Box::new(Bit::from_bool(false)),
             _ => {
                 return Err(
                     "Se encontró un booleano incompatible al entregar la tabla remota.".to_owned(),
@@ -506,19 +495,23 @@ fn sql_literal_text(
         });
     }
     if is_integer_dtype(&normalized_dtype) || is_decimal_dtype(&normalized_dtype) {
-        if text.parse::<f64>().is_ok_and(f64::is_finite) {
-            return Ok(text.to_owned());
+        if is_integer_dtype(&normalized_dtype) {
+            if let Ok(value) = text.parse::<i64>() {
+                return Ok(Box::new(value));
+            }
+            return Ok(Box::new(Nullable::<i64>::null()));
         }
-        return Ok("NULL".to_owned());
+        if let Ok(value) = text.parse::<f64>() {
+            if value.is_finite() {
+                return Ok(Box::new(value));
+            }
+        }
+        return Ok(Box::new(Nullable::<f64>::null()));
     }
     if text.contains('\0') {
         return Err("Una celda contiene un carácter NUL no compatible con SQL/ODBC.".to_owned());
     }
-    let escaped = text.replace('\'', "''");
-    Ok(match kind {
-        DatabaseKind::SqlServer => format!("N'{escaped}'"),
-        DatabaseKind::Postgresql | DatabaseKind::Mysql => format!("'{escaped}'"),
-    })
+    Ok(Box::new(text.to_owned().into_parameter()))
 }
 
 fn is_integer_dtype(dtype: &str) -> bool {
@@ -593,15 +586,11 @@ mod tests {
             create_table_sql(&frame, "\"ventas\"", DatabaseKind::Postgresql),
             "CREATE TABLE \"ventas\" (\"name\" TEXT, \"amount\" BIGINT, \"active\" BOOLEAN)"
         );
-        assert_eq!(
-            sql_literal(
-                frame.column("name").expect("name").get(0).expect("value"),
-                &polars::prelude::DataType::String,
-                DatabaseKind::Postgresql
-            )
-            .expect("literal"),
-            "'O''Brien'"
-        );
+        assert!(sql_parameter(
+            frame.column("name").expect("name").get(0).expect("value"),
+            &polars::prelude::DataType::String,
+        )
+        .is_ok());
         assert_eq!(
             qualified_table(&target(DatabaseKind::SqlServer)),
             "[public].[ventas]"
@@ -609,33 +598,21 @@ mod tests {
     }
 
     #[test]
-    fn streamed_literals_preserve_nulls_text_and_numeric_values() {
+    fn streamed_parameters_preserve_adversarial_text_and_typed_nulls() {
+        assert!(sql_parameter_text(Some("O'Brien; DROP TABLE users"), &DataType::String).is_ok());
+        assert!(sql_parameter_text(Some("42"), &DataType::Int64).is_ok());
+        assert!(sql_parameter_text(Some("not-a-number"), &DataType::Float64).is_ok());
+        assert!(sql_parameter_text(None, &DataType::String).is_ok());
+        let columns = vec!["name".to_owned(), "active".to_owned()];
         assert_eq!(
-            sql_literal_text(Some("O'Brien"), &DataType::String, DatabaseKind::Postgresql).unwrap(),
-            "'O''Brien'"
-        );
-        assert_eq!(
-            sql_literal_text(Some("42"), &DataType::Int64, DatabaseKind::Mysql).unwrap(),
-            "42"
-        );
-        assert_eq!(
-            sql_literal_text(
-                Some("not-a-number"),
-                &DataType::Float64,
-                DatabaseKind::SqlServer
-            )
-            .unwrap(),
-            "NULL"
-        );
-        assert_eq!(
-            sql_literal_text(None, &DataType::String, DatabaseKind::SqlServer).unwrap(),
-            "NULL"
+            parameterized_insert_sql("`ventas`", &columns, 2),
+            "INSERT INTO `ventas` (name, active) VALUES (?, ?)"
         );
     }
 
     #[test]
     fn maps_table_policies_to_explicit_ddl() {
-        let table = target(DatabaseKind::Mysql);
+        let mut table = target(DatabaseKind::Mysql);
         assert_eq!(
             drop_table_sql("`public`.`ventas`", table.kind),
             "DROP TABLE IF EXISTS `public`.`ventas`"
@@ -644,5 +621,7 @@ mod tests {
             table.table_policy,
             DatabaseTablePolicy::CreateOnly
         ));
+        table.table_policy = DatabaseTablePolicy::Replace;
+        assert!(validate_database_target(&table).is_err());
     }
 }

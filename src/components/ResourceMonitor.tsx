@@ -16,12 +16,15 @@ import {
 
 type ResourceMonitorState =
   | { kind: "disabled" }
+  | { kind: "paused" }
   | { kind: "loading" }
   | { kind: "ready"; usage: ResourceUsage }
   | { kind: "error" };
 
 export interface ResourceMonitorProps {
   enabled: boolean;
+  /** Keeps performance-profile setup available while deferring native polling until visible. */
+  observeUsage?: boolean;
   fetchUsage?: () => Promise<ResourceUsage>;
   pollIntervalMs?: number;
   fetchPerformanceSettings?: () => Promise<PerformanceSettings>;
@@ -62,6 +65,7 @@ function formatAvailableMemory(bytes: number | undefined): string {
 
 export const ResourceMonitor = memo(function ResourceMonitor({
   enabled,
+  observeUsage = true,
   fetchUsage = getResourceUsage,
   pollIntervalMs = 2000,
   fetchPerformanceSettings = defaultFetchPerformanceSettings,
@@ -70,7 +74,7 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   onPerformanceProfileChange,
 }: ResourceMonitorProps) {
   const [state, setState] = useState<ResourceMonitorState>(
-    enabled ? { kind: "loading" } : { kind: "disabled" },
+    !enabled ? { kind: "disabled" } : observeUsage ? { kind: "loading" } : { kind: "paused" },
   );
   const [performance, setPerformance] = useState<PerformanceSettings | null>(null);
   const [performanceProfile, setPerformanceProfileState] = useState<PerformanceProfile>(() =>
@@ -83,6 +87,10 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   useEffect(() => {
     if (!enabled) {
       setState({ kind: "disabled" });
+      return;
+    }
+    if (!observeUsage) {
+      setState({ kind: "paused" });
       return;
     }
 
@@ -105,7 +113,7 @@ export const ResourceMonitor = memo(function ResourceMonitor({
       window.clearTimeout(initialRefresh);
       window.clearInterval(timer);
     };
-  }, [enabled, fetchUsage, pollIntervalMs]);
+  }, [enabled, observeUsage, fetchUsage, pollIntervalMs]);
 
   useEffect(() => {
     if (controlledPerformanceProfile !== undefined) {
@@ -183,11 +191,13 @@ export const ResourceMonitor = memo(function ResourceMonitor({
   const gpu = usage?.gpu;
   const statusText = state.kind === "disabled"
     ? "Solo escritorio"
-    : state.kind === "error"
-      ? "No disponible ahora"
-      : state.kind === "loading"
-        ? "Midiendo…"
-        : "Actualizado en vivo";
+    : state.kind === "paused"
+      ? "Pausado hasta abrir"
+      : state.kind === "error"
+        ? "No disponible ahora"
+        : state.kind === "loading"
+          ? "Midiendo…"
+          : "Actualizado en vivo";
   const performanceText = !enabled
     ? "Solo disponible en la app de escritorio"
     : performanceStatus === "loading"

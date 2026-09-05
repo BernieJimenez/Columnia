@@ -59,6 +59,7 @@ interface ReviewPhaseProps {
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
+  datasetRevision?: number;
   sqlHistory?: SqlQueryHistoryEntry[];
   onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
   queryEngine?: DatasetQueryEngine;
@@ -88,6 +89,7 @@ export function ReviewPhase({
   joinType,
   onJoinTypeChange,
   onJoin,
+  datasetRevision = 0,
   sqlHistory = [],
   onSqlHistoryChange = () => undefined,
   queryEngine,
@@ -134,6 +136,7 @@ export function ReviewPhase({
               writeAnalysisSampleRowsPreference(sampleRows);
               onAnalysisSampleRowsChange(sampleRows);
             }}
+            datasetRevision={datasetRevision}
           />
         </div>
       ) : (
@@ -504,6 +507,7 @@ function QualitySection({
   onQueryEngineChange,
   analysisSampleRows,
   onAnalysisSampleRowsChange,
+  datasetRevision,
 }: {
   dataset: DatasetPreview;
   status: ProfileStatus;
@@ -516,6 +520,7 @@ function QualitySection({
   onQueryEngineChange: (engine: DatasetQueryEngine) => void;
   analysisSampleRows: AnalysisSampleRows;
   onAnalysisSampleRowsChange: (sampleRows: AnalysisSampleRows) => void;
+  datasetRevision: number;
 }) {
   return (
     <section className="phase-section" aria-labelledby="quality-title">
@@ -571,6 +576,7 @@ function QualitySection({
         onQueryHistoryChange={onSqlHistoryChange}
         queryEngine={queryEngine}
         onQueryEngineChange={onQueryEngineChange}
+        datasetRevision={datasetRevision}
       />
     </section>
   );
@@ -582,12 +588,14 @@ function LocalQueryPanel({
   onQueryHistoryChange,
   queryEngine,
   onQueryEngineChange,
+  datasetRevision,
 }: {
   comparisonAvailable: boolean;
   queryHistory: SqlQueryHistoryEntry[];
   onQueryHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
   queryEngine?: DatasetQueryEngine;
   onQueryEngineChange: (engine: DatasetQueryEngine) => void;
+  datasetRevision: number;
 }) {
 
   const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 50");
@@ -607,6 +615,20 @@ function LocalQueryPanel({
   const queryStartedAtRef = useRef(new Map<number, number>());
   const recordedQueryIdsRef = useRef<number[]>([]);
   const queryHistoryRef = useRef(queryHistory);
+  const queryRevisionRef = useRef(datasetRevision);
+
+  useEffect(() => {
+    if (queryRevisionRef.current === datasetRevision) return;
+    queryRevisionRef.current = datasetRevision;
+    activeQueryRef.current += 1;
+    cancelledQueryRef.current = null;
+    queryStartedAtRef.current.clear();
+    recordedQueryIdsRef.current = [];
+    queryHistoryRef.current = [];
+    setQueryHistory([]);
+    setState({ kind: "idle" });
+    onQueryHistoryChange([]);
+  }, [datasetRevision, onQueryHistoryChange]);
 
   useEffect(() => {
     if (queryHistoryRef.current === persistedQueryHistory) {

@@ -69,6 +69,33 @@ describe("ResourceMonitor", () => {
     expect(fetchUsage).not.toHaveBeenCalled();
   });
 
+  it("pospone el sondeo nativo mientras el panel permanece cerrado", async () => {
+    const fetchUsage = vi.fn();
+    const fetchPerformanceSettings = vi.fn().mockResolvedValue({
+      requestedProfile: "balanced" as const,
+      activeProfile: "balanced" as const,
+      requestedThreads: 4,
+      activeThreads: 4,
+      applied: true,
+      locked: false,
+      reason: null,
+    });
+
+    render(
+      <ResourceMonitor
+        enabled
+        observeUsage={false}
+        fetchUsage={fetchUsage}
+        fetchPerformanceSettings={fetchPerformanceSettings}
+      />,
+    );
+
+    expect(screen.getByText("Pausado hasta abrir")).toBeInTheDocument();
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    expect(fetchUsage).not.toHaveBeenCalled();
+    expect(fetchPerformanceSettings).toHaveBeenCalledOnce();
+  });
+
   it("aplica el perfil de concurrencia elegido antes de la siguiente operación", async () => {
     const fetchUsage = vi.fn().mockResolvedValue({
       processCpuPercentage: 0,

@@ -446,6 +446,75 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No se actualizó el resultado");
   });
 
+  it("descarta el resultado de una consulta cuando cambia la revisión del dataset", async () => {
+    let resolveQuery: (result: DatasetQueryResult) => void = () => undefined;
+    const pendingQuery = new Promise<DatasetQueryResult>((resolve) => {
+      resolveQuery = resolve;
+    });
+    vi.spyOn(bridge, "queryDataset").mockReturnValue(pendingQuery);
+    const nextDataset = { ...dataset, fileName: "nuevo.csv", fileSizeBytes: 101 };
+    const view = render(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(dataset)}
+        datasetRevision={0}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        datasetColumns={dataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
+    view.rerender(
+      <ReviewPhase
+        datasetStatus={createReadyDatasetStatus(nextDataset)}
+        datasetRevision={1}
+        profileStatus={{ kind: "idle" }}
+        reviewTab="diagnosis"
+        onTabChange={() => undefined}
+        onPageChange={() => undefined}
+        onAnalyzeQuality={() => undefined}
+        onCancelProfile={() => undefined}
+        comparisonStatus={{ kind: "idle" }}
+        datasetColumns={nextDataset.columns}
+        comparisonKeyColumns={[]}
+        onComparisonKeyColumnsChange={() => undefined}
+        onCompare={() => undefined}
+        onClearComparison={() => undefined}
+        onConsolidate={() => undefined}
+        onResolveConflicts={() => undefined}
+        onConflictPageChange={() => undefined}
+        joinStatus={{ kind: "idle" }}
+        joinType="inner"
+        onJoinTypeChange={() => undefined}
+        onJoin={() => undefined}
+      />,
+    );
+    resolveQuery({
+      columns: [{ name: "id", dataType: "Int64" }],
+      rowCount: 1,
+      offset: 0,
+      rows: [["1"]],
+      truncated: false,
+    });
+    await Promise.resolve();
+    expect(screen.queryByRole("region", { name: "Resultado de consulta SQL" })).not.toBeInTheDocument();
+  });
+
   it("muestra visualizaciones accesibles con valores equivalentes al perfil", () => {
     render(
       <ReviewPhase

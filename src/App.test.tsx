@@ -1625,7 +1625,9 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByText("Vista web · motor no conectado")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Licencia y privacidad"));
-    expect(screen.getByText("funciona localmente y no envía datasets a servicios externos.")).toBeInTheDocument();
+    const legalPanel = screen.getByRole("region", { name: "Licencia y privacidad de Columnia" });
+    expect(within(legalPanel).getByText(/no inicia conexiones de red por sí sola/)).toBeInTheDocument();
+    expect(within(legalPanel).getByText(/filas que el usuario elija enviar mediante una exportación ODBC explícita/)).toBeInTheDocument();
     expect(screen.getByText("Licencia", { selector: "h2" })).toBeInTheDocument();
   });
 

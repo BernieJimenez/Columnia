@@ -109,4 +109,56 @@ describe("useProjectsController", () => {
     expect(result.current.activeProject).toBeNull();
     expect(result.current.operation).toMatchObject({ kind: "success", message: expect.stringContaining("se conserva") });
   });
+
+  it("expone estados desconectado y error sin filtrar rutas del sistema", async () => {
+    const disconnected = renderHook(() => useProjectsController({
+      connected: false,
+      blocked: false,
+      hasDataset: false,
+      workspace,
+      onProjectOpened: vi.fn(),
+    }));
+    await waitFor(() => expect(disconnected.result.current.catalog.kind).toBe("unavailable"));
+
+    bridge.listProjects.mockRejectedValueOnce(new Error("C:\\Users\\secret\\projects"));
+    const connected = renderHook(() => useProjectsController({
+      connected: true,
+      blocked: false,
+      hasDataset: true,
+      workspace,
+      onProjectOpened: vi.fn(),
+    }));
+    await waitFor(() => expect(connected.result.current.catalog.kind).toBe("error"));
+    expect(connected.result.current.catalog).toMatchObject({ message: expect.not.stringContaining("C:\\") });
+  });
+
+  it("rechaza nombres inválidos y guardado sin dataset antes de tocar el bridge", async () => {
+    const { result } = renderHook(() => useProjectsController({
+      connected: true,
+      blocked: false,
+      hasDataset: false,
+      workspace,
+      onProjectOpened: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    await act(async () => result.current.save("   "));
+    expect(result.current.operation).toMatchObject({ kind: "error" });
+    await act(async () => result.current.save("Proyecto sin datos"));
+    expect(result.current.operation).toMatchObject({ kind: "error", message: expect.stringContaining("dataset") });
+    expect(bridge.saveProject).not.toHaveBeenCalled();
+  });
+
+  it("respeta el bloqueo externo de operaciones", async () => {
+    const { result } = renderHook(() => useProjectsController({
+      connected: true,
+      blocked: true,
+      hasDataset: true,
+      workspace,
+      onProjectOpened: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    await act(async () => result.current.save("No debe guardar"));
+    expect(bridge.saveProject).not.toHaveBeenCalled();
+    expect(result.current.operation).toEqual({ kind: "idle" });
+  });
 });
