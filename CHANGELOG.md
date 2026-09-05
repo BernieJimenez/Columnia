@@ -6,6 +6,35 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+### Interno
+
+- Reauditoría de escritorio del 2026-09-05: se documentan trece hallazgos,
+  once tareas nuevas (`T6-01`–`T6-11`) y ampliaciones de `T5-18`/`T5-20`.
+  Incluye evidencia de integridad de datasets, entrega ODBC, interfaz,
+  accesibilidad, cobertura y memoria; CLI y workflows quedan fuera del alcance.
+  En el momento del cierre de la auditoría todavía no se había modificado el
+  comportamiento del producto.
+  [Informe](AUDITORIA_PROFESIONAL_2026-09-05.md), [plan](ROADMAP.md) y [motivos/estado](CONTEXTO.md).
+
+### Corregido
+
+- Aplicación de T6-01–T6-07, T6-09 y T6-10: los resultados de JOIN conservan
+  un cursor materializable, las consultas y conexiones descartan respuestas
+  obsoletas, el destino ODBC sigue el motor seleccionado, los valores ODBC se
+  envían parametrizados, MySQL no permite `replace` inseguro, el enlace de
+  salto conserva legibilidad en colores forzados y la cobertura crítica de
+  proyectos vuelve a superar su umbral.
+- Actualización de las guías de escritorio para source-backed, ODBC opcional,
+  updater condicionado por endpoint y las cinco variantes de evidencia visual.
+- El monitor de recursos difiere el sondeo nativo hasta abrir el panel, mantiene
+  la configuración de rendimiento disponible desde el arranque y reduce el
+  coste del recorrido cerrado. T6-08 permanece abierta: dos recorridos mutados
+  quedaron bajo 256 MiB privados y uno alcanzó 256,24 MiB.
+- El panel de licencia y privacidad distingue el procesamiento local de la
+  exportación ODBC explícita y explica el alcance temporal de sus credenciales;
+  T5-18/T5-20 conservan la revisión legal y del canal como pendientes.
+
+
 ## [0.167.0] - 2026-09-04
 
 ### Mejorado

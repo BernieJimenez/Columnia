@@ -36,9 +36,12 @@ una frontera de sanitización que elimina rutas, valores de datos, emails y
 secretos antes de serializarse.
 Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,
 nulos y texto Unicode, y se lee con una configuración conservadora de memoria.
-La paginación de la muestra activa reutiliza el snapshot Parquet del cursor
-actual con lectura acotada; si el historial está degradado, vuelve al frame
-activo en memoria.
+Las operaciones compatibles con source-backed consultan el archivo o snapshot
+Parquet por bloques y mantienen el frame en modo diferido; las transformaciones
+que necesitan una vista completa materializan con un presupuesto explícito de
+RAM y pueden degradar el historial reversible si el presupuesto de disco no
+alcanza. La paginación de la muestra activa reutiliza el snapshot Parquet del
+cursor actual con lectura acotada.
 
 ## Plataformas objetivo
 
@@ -118,7 +121,7 @@ con Tauri y los smokes locales.
 
 Para generar evidencia visual reproducible ejecuta `npm run accessibility:visual`.
 El comando construye el preview y captura desktop, móvil, escala de dispositivo
-125% y `forced-colors`, validando landmarks, foco, targets mínimos y overflow; las
+125%, 200% y `forced-colors`, validando landmarks, foco, targets mínimos y overflow; las
 imágenes y el resumen quedan en `.local/validation/accessibility-visual/`.
 Después ejecuta `npm run accessibility:check` para comparar los cuatro casos con
 el contrato versionado y verificar el SHA-256 de cada captura.
@@ -354,15 +357,17 @@ Excel o SQLite, o entregarse a PostgreSQL, MySQL y SQL Server mediante ODBC.
 Para una base remota, instala el controlador ODBC del motor y pega su cadena de
 conexión en la vista; Rust abre
 el selector nativo y escribe primero un archivo temporal en la carpeta elegida.
-El destino se reemplaza únicamente después de completar y sincronizar la
-escritura; cancelar o fallar conserva cualquier archivo anterior.
+El destino de archivos se reemplaza únicamente después de completar y sincronizar
+la escritura; cancelar o fallar conserva cualquier archivo anterior. En MySQL la
+política `replace` está deshabilitada hasta validar una sustitución atómica que
+preserve la tabla existente ante fallos.
 Después de una exportación exitosa, Entregar permite abrir la carpeta del
 output: Rust conserva temporalmente el destino, lo revalida antes de abrirlo y
 la ruta no se entrega a React.
 La entrega ODBC no usa selector de archivos: prueba `SELECT 1`, valida el
-esquema y la tabla, y permite `create_only`, `append` o `replace`. Las filas se
-envían por lotes dentro de una transacción; las credenciales solo viven durante
-la llamada. Las fuentes source-backed compatibles se transmiten por bloques;
+esquema y la tabla, y permite `create_only` o `append` (y `replace` en motores
+cuya sustitución esté validada). Cada valor se envía como parámetro ODBC tipado
+dentro de una transacción; las credenciales solo viven durante la llamada. Las fuentes source-backed compatibles se transmiten por bloques;
 las combinaciones que requieren materialización conservan ese fallback
 explícito.
 Antes de exportar puede definirse un **contrato de calidad** de hasta dieciséis

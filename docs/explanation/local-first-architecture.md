@@ -47,8 +47,10 @@ conexiones remotas y la capability de la ventana solo concede `core:default`.
 ## Trade-offs
 
 - El binario ocupa más espacio y requiere Rust/Tauri/WebView2 en desarrollo.
-- El dataset se materializa en memoria en este prototipo; lazy/incremental queda
-  pendiente.
+- Las rutas source-backed compatibles leen por bloques desde el archivo o
+  snapshot activo; las operaciones que necesitan el frame completo materializan
+  bajo un presupuesto explícito de RAM. La ejecución incremental general sigue
+  siendo una capacidad parcial.
 - No hay sincronización ni colaboración remota integrada.
 - La calidad depende de ejecutar los gates locales porque el proyecto no usa CI.
 
@@ -61,8 +63,8 @@ conexiones remotas y la capability de la ventana solo concede `core:default`.
 - **DuckDB opcional:** se incorpora para la consulta SQL local restringida y
   reutiliza el snapshot Parquet administrado de la revisión activa cuando está
   disponible; conserva un snapshot temporal como fallback para historiales
-  degradados. La ejecución incremental general y el procesamiento fuera de la
-  RAM siguen pendientes.
+  degradados. Las transformaciones source-backed que lo soportan también
+  escriben el resultado como snapshot y lo vuelven a resolver por cursor.
 
 Para ver los contratos exactos de la frontera y sus decisiones, consulta
 [ADR-0001](../adr/0001-contratos-del-repositorio.md) y la

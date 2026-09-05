@@ -168,7 +168,8 @@ pendientes existentes cuando corresponde.
 
 | Tanda | Estado | Tareas abiertas | Severidad | Esfuerzo agregado |
 | --- | --- | ---: | --- | --- |
-| Tier 5 — Integridad de gates y preparación de distribución | Implementación técnica mayormente cerrada 2026-08-28 | 20 | validaciones nativas y bloqueos legales/operativos | ver progreso detallado abajo |
+| Tier 5 — Integridad de gates y preparación de distribución | 18 cerradas, 2 abiertas; revisado 2026-09-05 | 2 | aceptación legal conocida; regresiones separadas en Tier 6 | alto, sujeto a decisiones externas |
+| Tier 6 — Integridad de escritorio y entrega ODBC | 8 cerradas, 3 abiertas; actualizado 2026-09-05 | 3 | validación ODBC real y memoria nativa pendientes | 3 tareas medias abiertas |
 
 Las Fases I5, I6 e I7 siguen abiertas y forman dependencias obligatorias del
 release público; no se duplican como tareas nuevas.
@@ -2020,6 +2021,8 @@ por el mero hecho de estar documentada aquí.
     valida 995 identidades; la revisión legal del canal y los textos completos
     que ese canal exija siguen pendientes.
 
+  - **Reauditoría 2026-09-05 (A-13):** la ficha `legal-distribution-decision.json` sigue en `pending-legal-review`, con diez campos pendientes. El control técnico no equivale a aceptación jurídica. Se conserva esta tarea sin duplicarla.
+
 ### Prioridad media
 
 - [x] **[T5-07] Sustituir escala de raster por zoom/reflow accesible real**
@@ -2166,6 +2169,9 @@ por el mero hecho de estar documentada aquí.
     etiquetada para licencia, avisos, privacidad, retención y borrado; la ficha
     `legal-distribution-decision.json` y el gate de distribución bloquean
     `Release`/`Package` mientras falten aprobación y canal.
+
+  - **Reauditoría 2026-09-05 (A-12):** el texto de `src/App.tsx:827` promete que ningún dataset sale del equipo, aunque existe ODBC remoto explícito. Corregir esa promesa e incluir destino/datos enviados/credenciales de sesión en la aceptación ya pendiente. A-13 conserva la dependencia jurídica.
+  - **Aplicación técnica 2026-09-05:** el panel ahora distingue procesamiento local, ausencia de conexiones automáticas y exportación ODBC explícita; también informa que la cadena y contraseña solo viven durante esa sesión. La revisión jurídica, jurisdicción, responsable, canal y prueba de retención/borrado siguen pendientes.
 
 ### Prioridad baja
 
@@ -2522,3 +2528,132 @@ por el mero hecho de estar documentada aquí.
 - Infraestructura local de `../sistema anterior/`, especialmente
   `.github/workflows/ci.yml`, `tools/build_windows.ps1`, `docs/operations/` y
   `docs/reference/THREAT_MODEL.md`.
+
+
+## Tier 6 — Integridad de escritorio y entrega ODBC (abierto 2026-09-05)
+
+Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.md), base `7d83781`, versión `0.167.0`. Alcance: escritorio; CLI, workflows y GitHub Actions excluidos por el usuario. Once tareas abiertas: cuatro altas y siete medias. Esfuerzo agregado: cinco bajas y seis medias; no es un compromiso de calendario. La severidad prevalece sobre el número de Tier.
+
+- [x] **[T6-01] Corregir el estado del JOIN para conservar filas y permitir el guardado**
+  - **Área:** Código / Arquitectura / Refactorización
+  - **Severidad:** Alta · Nuevo
+  - **Ubicación:** `src-tauri/src/dataset.rs:8332, :8336, :12799, :24476, :32714; prueba existente :37553`
+  - **Qué hacer:** Representar explícitamente frame materializado frente a cursor Parquet, y resolver el cursor vigente antes de cualquier lector eager. Corregir el publicador y la materialización, sin retirar las optimizaciones. Añadir una prueba de continuidad JOIN → guardar y JOIN → trazabilidad; extender el contrato a consolidación y resolución que usan el mismo publicador.
+  - **Criterio de aceptación:** JOIN de 3 filas conserva las 3 tras trazabilidad, guardado/reapertura y undo/redo; consolidación y resolución cumplen la misma invariante, incluidos fallbacks.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-01 del informe del 2026-09-05.
+
+- [x] **[T6-02] Sincronizar el motor seleccionado con el dialecto enviado al backend**
+  - **Área:** Código / UI/UX
+  - **Severidad:** Alta · Nuevo
+  - **Ubicación:** `src/features/delivery/deliveryModel.ts:14; src/features/delivery/DeliveryPhase.tsx:302, :314; src/App.tsx:679`
+  - **Qué hacer:** Derivar kind del formato remoto seleccionado, ajustar el esquema inicial por motor sin sobrescribir entradas explícitas, invalidar la comprobación de conexión y rechazar incoherencias en la frontera de exportación. Coordinar la habilitación con A-03/A-04.
+  - **Criterio de aceptación:** Los tres formatos envían el kind correspondiente tanto al probar como al exportar; cambiar de motor invalida el resultado previo y se verifica cada dialecto.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna; validar junto con T6-03 y T6-04
+  - **Trazabilidad:** A-02 del informe del 2026-09-05.
+
+- [ ] **[T6-03] Parametrizar los valores enviados mediante ODBC**
+  - **Área:** Seguridad
+  - **Severidad:** Alta · Nuevo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:155, :264, :358, :517`
+  - **Qué hacer:** Usar parámetros ODBC tipados para los valores, también en lotes incrementales; mantener la validación y el escape de identificadores por separado. Verificar round-trip de barras, comillas, Unicode, saltos de línea y nulos.
+  - **Criterio de aceptación:** Datos adversos se recuperan byte a byte como datos en MySQL con y sin NO_BACKSLASH_ESCAPES; ningún valor altera la estructura de la sentencia.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-03 del informe del 2026-09-05.
+
+- [x] **[T6-04] Proteger la tabla MySQL anterior durante su sustitución**
+  - **Área:** Seguridad / Integridad de datos
+  - **Severidad:** Alta · Nuevo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:120, :134, :243, :417`
+  - **Qué hacer:** Deshabilitar Replace para MySQL hasta disponer de una estrategia validada de tabla de preparación y sustitución que preserve datos, permisos y dependencias. Documentar el límite y probar la recuperación con fallos inducidos antes de habilitarlo.
+  - **Criterio de aceptación:** Fallo o cancelación antes de completar la sustitución conserva íntegra la tabla anterior; restricciones y permisos quedan verificados con una base sintética.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-04 del informe del 2026-09-05.
+
+- [ ] **[T6-05] Corregir la serialización de booleanos para PostgreSQL**
+  - **Área:** Código
+  - **Severidad:** Media · Nuevo
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:443, :495`
+  - **Qué hacer:** Transmitir parámetros booleanos tipados o generar TRUE/FALSE para PostgreSQL, conservando BIT y el contrato adecuado de otros motores.
+  - **Criterio de aceptación:** Exportar y releer true/false/null en los tres motores conserva tipos y valores desde frame y fuente incremental.
+  - **Esfuerzo:** bajo
+  - **Depende de:** T6-03 si se comparte el serializador parametrizado
+  - **Trazabilidad:** A-05 del informe del 2026-09-05.
+
+- [x] **[T6-06] Invalidar comprobaciones de conexión cuando cambia el destino**
+  - **Área:** UI/UX / Código
+  - **Severidad:** Media · Nuevo
+  - **Ubicación:** `src/features/delivery/DeliveryPhase.tsx:319, :324, :1137`
+  - **Qué hacer:** Vincular cada respuesta a una generación de petición y una huella de la configuración; descartar respuestas obsoletas e invalidar al editar o cambiar de motor.
+  - **Criterio de aceptación:** Resolver A después de editar B no habilita B; solo una comprobación vigente del destino exacto permite exportar.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-06 del informe del 2026-09-05.
+
+- [x] **[T6-07] Invalidar los resultados SQL cuando cambia el dataset**
+  - **Área:** UI/UX / Arquitectura
+  - **Severidad:** Media · Nuevo
+  - **Ubicación:** `src/features/review/ReviewPhase.tsx:568, :595, :611; src/App.tsx:919`
+  - **Qué hacer:** Propagar una identidad de revisión y reiniciar resultado/peticiones al cambiarla; descartar respuestas de consultas iniciadas sobre revisiones anteriores. No usar solo el nombre del archivo como identidad.
+  - **Criterio de aceptación:** Consolidar/JOIN/restaurar revisión invalida resultados y respuestas pendientes; una consulta nueva muestra únicamente datos de la revisión vigente.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-07 del informe del 2026-09-05.
+
+- [ ] **[T6-08] Reducir la memoria privada al presupuesto del recorrido nativo**
+  - **Área:** Rendimiento
+  - **Severidad:** Media · Regresión de T5-02
+  - **Ubicación:** `fixtures/performance/performance-baseline-v1.json:7; tools/probe-webview2-cdp.ps1:18`; causa en producto pendiente de localizar.
+  - **Qué hacer:** Perfilar retención por fase/proceso y repetir de forma aislada el escenario tras corregir la causa que se identifique. Conservar los presupuestos y no confundirlo con el escenario de 100 MiB, que tiene otros límites.
+  - **Criterio de aceptación:** Tres recorridos aislados dentro de 256 MiB privados y 512 MiB working set con cleanup, explicando la variación y conservando presupuestos.
+  - **Estado de aplicación:** El sondeo de recursos solo se activa al abrir Preferencias y recursos. La medición mutada obtuvo 248,78 MiB y 253,61 MiB en dos recorridos, y 256,24 MiB en otro; la causa de la variación de WebView2 sigue abierta.
+  - **Esfuerzo:** medio
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-08 del informe del 2026-09-05.
+
+- [x] **[T6-09] Restaurar la legibilidad del enlace de salto en colores forzados**
+  - **Área:** Accesibilidad y semántica
+  - **Severidad:** Media · Nuevo; fecha de introducción no demostrada
+  - **Ubicación:** `src/styles.css:2103; src/App.tsx:840`
+  - **Qué hacer:** Revisar la interacción de colores de sistema y ajustes forzados del enlace, y comprobar visualmente texto y foco en temas claros/oscuros de contraste. Mantener la prueba manual con tecnología de asistencia.
+  - **Criterio de aceptación:** Nombre y foco legibles en colores forzados, sin romper el salto al contenido; evidencia visual en las variantes de contraste. Referencia: https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html .
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-09 del informe del 2026-09-05.
+
+- [x] **[T6-10] Recuperar la cobertura de ramas acordada para proyectos**
+  - **Área:** QA y testing
+  - **Severidad:** Media · Regresión de T5-04
+  - **Ubicación:** `src/features/projects/useProjectsController.ts:41; tools/check-coverage.mjs:8; CONTEXTO.md:24`
+  - **Qué hacer:** Añadir casos conductuales de errores, bloqueo y transiciones realmente faltantes según el mapa de ramas, sin pruebas que solo repliquen la implementación; conservar el umbral.
+  - **Criterio de aceptación:** Las cinco capas críticas alcanzan sus umbrales y test:coverage devuelve éxito; la documentación refleja el resultado observado.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+  - **Trazabilidad:** A-10 del informe del 2026-09-05.
+
+- [x] **[T6-11] Actualizar las guías de entrada a las capacidades y versiones vigentes**
+  - **Área:** Documentación / Ortografía y redacción
+  - **Severidad:** Media · Regresión documental de T5-15/T5-19
+  - **Ubicación:** `README.md:22, :90, :133; docs/explanation/local-first-architecture.md:47; docs/reference/network-privacy.md:3, :18; ROADMAP.md:171; src-tauri/src/projects.rs:23`
+  - **Qué hacer:** Actualizar las guías de escritorio para distinguir rutas materializadas/incrementales, SQLite v12, ODBC opt-in y cinco casos visuales; consolidar estado actual y conservar la bitácora histórica. No ampliar documentación de CLI ni workflows.
+  - **Criterio de aceptación:** Las guías de escritorio concuerdan con la versión auditada y explican límites actuales; el índice se deriva de tareas abiertas y no se borran decisiones históricas.
+  - **Esfuerzo:** medio
+  - **Depende de:** T6-01, T6-02, T6-08 y T6-10 para publicar el estado corregido
+  - **Trazabilidad:** A-11 del informe del 2026-09-05.
+
+### Progreso de Tier 6
+
+| Fecha | Estado |
+| --- | --- |
+| 2026-09-05 | Reauditoría completada; T6-01/T6-02/T6-04/T6-06/T6-07/T6-09/T6-10/T6-11 aplicadas y verificadas con regresiones. T6-03/T6-05 requieren round-trip con controladores reales; T6-08 conserva el exceso de memoria nativa sin causa localizada. |
+
+### Decisiones cerradas de esta revisión
+
+- No auditar ni ampliar CLI, workflows o GitHub Actions; tampoco SEO.
+- No elevar presupuestos ni reducir cobertura para obtener un aprobado.
+- No reintroducir compatibilidad externa retirada ni herramientas obligatorias de pago.
+- Conservar CONTEXTO.md como única fuente viva; las correcciones del producto necesitan aprobación posterior al informe.

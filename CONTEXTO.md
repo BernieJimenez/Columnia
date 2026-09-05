@@ -7,6 +7,38 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
+## Reauditoría vigente — 2026-09-05
+
+Esta sección actualiza el estado de validación de la ficha histórica que sigue.
+Base revisada: `7d837819c66d22d8c2c51f12cac84a8b8014206d`, versión `0.167.0`.
+**Estado:** revisión terminada; se aplicaron T6-01–T6-07, T6-09 y T6-10, y se
+actualizaron las guías de T6-11. T6-08 permanece abierta por el exceso de
+memoria nativa sin causa localizada; T5-18/T5-20 siguen requiriendo revisión
+legal. Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-05.md),
+[ROADMAP](ROADMAP.md) y [CHANGELOG](CHANGELOG.md).
+
+- Alcance acordado: escritorio exhaustivo, sin CLI, workflows ni GitHub Actions.
+- Pruebas posteriores: 283 frontend con cobertura crítica aprobada; las pruebas
+  Rust de backend modificadas y las regresiones de JOIN/ODBC pasan. El benchmark
+  nativo de 100 MiB sigue sin medida válida por timeout del driver del entorno.
+- La cobertura crítica de proyectos queda en 81,08 % de ramas, por encima del
+  umbral de 75 %.
+- El recorrido nativo de proyectos es funcional y limpia sus artefactos. Tras
+  diferir el sondeo de recursos hasta abrir su panel, dos de tres recorridos
+  mutados quedaron dentro de 256 MiB privados; uno alcanzó 256,24 MiB. No se ha
+  demostrado una fuga ni se ha localizado una causa específica de WebView2.
+- Un JOIN conserva ahora el cursor Parquet publicado como source-backed y la
+  trazabilidad vuelve a materializar sus filas activas; guardar y reabrir siguen
+  pendientes de validación en recorrido nativo completo.
+- ODBC sincroniza el dialecto visible, descarta comprobaciones obsoletas,
+  parametriza valores y bloquea el reemplazo MySQL inseguro. Falta round-trip
+  contra controladores reales de los tres motores.
+- Sigue pendiente la definición de jurisdicción/canal, revisión jurídica,
+  asistencia real y validación de plataformas/instalación fuera de esta estación.
+
+La ficha y bitácora anteriores se conservan como evidencia histórica; sus frases
+de aprobación no sustituyen los resultados rojos de esta reauditoría.
+
 ## Ficha rápida
 
 | Campo | Estado verificado |
@@ -20,7 +52,7 @@ documentos equivalentes que puedan divergir.
 | Persistencia actual | Proyectos SQLite con dataset, reglas, borrador, perfil cacheado con huella SHA-256 del snapshot actual, historial/cursor, actividad SQL agregada, vista y etapa activa de Revisar, página visible de la muestra, motor SQL elegido, cobertura de correlaciones, perfil de rendimiento, formato de exportación, protección de datos, claves de comparación y tipo de JOIN durables; cada apertura crea copias temporales de sesión |
 | Red y servicios externos | No requeridos para trabajar con datos locales; la entrega opcional a PostgreSQL, MySQL y SQL Server usa el controlador ODBC instalado y solo bajo acción explícita |
 | Validación | Local mediante `tools/check.ps1`; no hay CI por decisión del proyecto |
-| Pruebas observadas | La suite local actual mantiene 274 pruebas frontend y 397 pruebas Rust aprobadas, con 1 benchmark de escala ignorado explícitamente; `perf:benchmark`, `perf:webview2` y `perf:check` pasan con evidencia fresca de 100 MiB, tres corridas sostenidas, dos actualizaciones durables, 819.137 filas WebView2 y cleanup confirmado; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
+| Pruebas observadas | La suite local actual mantiene 283 pruebas frontend y 397 pruebas Rust aprobadas, con 1 benchmark de escala ignorado explícitamente; `perf:benchmark`, `perf:webview2` y `perf:check` pasan con evidencia fresca de 100 MiB, tres corridas sostenidas, dos actualizaciones durables, 819.137 filas WebView2 y cleanup confirmado; E2E y Package históricos pasan en la estación auditada; smoke nativo Win32 y smoke NSIS instalado pasan con cleanup y presupuesto de memoria |
 | Última revisión de este documento | 2026-09-04, rama `master`; implementación técnica de Tier 5 mayormente cerrada. Preparar incorpora imputación reversible de outliers por mediana, acciones IQR directas source-backed para limitar, imputar y eliminar filas atípicas, eliminación source-backed de duplicados parecidos, correcciones recomendadas source-backed que combinan trim y renombres, imputación categórica explícita como `Desconocido`, protección reversible de valores personales con `[REDACTED]`, interpretación conservadora de fechas, conversión numérica segura, separación source-backed de tipos incompatibles y corrección source-backed de secuencias mojibake inequívocas con fallback eager seguro; Cargar ofrece datasets de ejemplo locales sin exponer rutas; la superficie pública se mantiene limitada a capacidades nativas de Columnia; la entrega opcional ODBC cubre PostgreSQL, MySQL y SQL Server con prueba de conexión y políticas de tabla sin persistir credenciales, y transmite fuentes source-backed compatibles por bloques sin llenar el `DataFrame` activo; el inventario IPC registra 67 comandos de producción y 58 estructuras compartidas, y el gate de cobertura crítica por capa pasa sus cinco archivos. Los perfiles persistidos quedan ligados por SHA-256 al snapshot durable y se invalidan si `current.parquet` cambia; el workspace también restaura la vista y etapa activa de Revisar, la página visible de la muestra, el motor SQL elegido, la cobertura de correlaciones, el perfil de rendimiento, el formato de exportación, la protección de datos, las claves de comparación y el tipo de JOIN elegido por proyecto, con fallback seguro y migración SQLite v12. El benchmark formal de tres actualizaciones ya cumple 100 MiB y <60 s por guardado; la comparación inicial de `.xlsx` y `.xlsb` genera snapshots Parquet por bloques y conserva fallback para `.xls`/`.ods`; las comparaciones iniciales reutilizan el snapshot Parquet del activo o una fuente original Parquet/CSV/TSV/TXT intacta cuando es posible, sin clonar el `DataFrame`; las aperturas grandes de `JSON`, `JSONL` y `NDJSON` generan snapshots Parquet privados de DuckDB y dejan el frame activo en modo esquema-only; la restauración de proyectos durables también comprueba el presupuesto de RAM antes de leer `current.parquet` completo y conserva la sesión activa si la admisión falla; las lecturas eager indirectas de fuentes comparadas incompatibles, snapshots Parquet comparados, undo/redo y automatización pasan por la misma admisión antes de leer filas; Deshacer/Rehacer source-backed ya restaura esquema, conteo y primera página desde el cursor Parquet sin materializar la revisión completa; las consultas DuckDB fijan 512 MB, derrame privado de hasta 8 GB y cleanup por operación; las recetas source-backed ya pueden filtrar, seleccionar, renombrar, convertir tipos, parsear fechas fijas e ISO seguras, extraer partes de fecha, reemplazar texto literal, dividir y unir columnas de texto, calcular columnas simples y aplicar tratamientos IQR directamente sobre CSV/TSV/TXT delimitado o Parquet; las exportaciones source-backed de Bundle, Excel `.xlsx` y SQLite transfieren datos desde DuckDB sin materializar el `DataFrame` activo y conservan atomicidad, cancelación, validación de cambios y cleanup; los JOINs source-backed `INNER`/`LEFT`/`FULL` entre fuentes locales CSV/TSV/TXT/Parquet generan solo el resultado Parquet, limitan cardinalidad y dejan historial reversible con fallback eager para formatos incompatibles; conflictos paginados, resolución y consolidación también reutilizan snapshots Parquet durables del cursor actual de datasets materializados, con validación de cursor y fallback eager; `npm run brand:check` inspecciona el árbol activo para impedir regresiones de nomenclatura; updater firmado, política de rotación, contrato local de manifiesto, verificador de assets, selectores nativos y baseline release ligado a commit limpio pasan; el gate legal técnico y el inventario de avisos pasan, mientras la aprobación jurídica, la VM limpia y la validación del canal siguen pendientes |
 
 ### Estado verificable de Tier 5
@@ -1540,3 +1572,26 @@ Al actualizarlo:
 | 2026-08-31 | Versión 0.70.0: la validación source-backed amplía la ejecución por bloques a unicidad simple/compuesta, monotonicidad, agregados y deriva de distribución; la regresión cubre duplicados que cruzan bloques sin materializar la fuente. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.69.0: la exportación JSON source-backed sin receta ni privacidad adicional convierte directamente CSV/TSV/TXT delimitado o Parquet desde la fuente con límites de DuckDB, publicación atómica, validación de cambios y cleanup; una regresión confirma la salida JSON sin materializar el `DataFrame` activo. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.68.0: la exportación Parquet source-backed sin receta ni privacidad adicional convierte directamente desde la fuente, conserva límites de DuckDB, publicación atómica, validación de cambios y cleanup; una regresión confirma la salida sin materializar el `DataFrame` activo. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
+
+
+## Sesión de reauditoría — 2026-09-05
+
+Se retomó la revisión iniciada el 2026-09-04 tras interrupciones de ejecución.
+Se conservaron resultados y base de código; el trabajo termina en diagnóstico y
+planificación, sin correcciones de producto. Los casos aislados bajo `.local/`
+permitieron detectar fallos que las suites existentes no ejercen en secuencia.
+
+**Decisión:** expresar estado/revisión explícitos y verificar continuidad entre
+operaciones en T6-01/T6-07. La alternativa de dar por válida la optimización porque
+su prueba aislada pasa se descarta: JOIN → trazabilidad pierde filas activas.
+**Decisión:** la aprobación de una conexión debe pertenecer al destino exacto
+(T6-06), y el formato visible debe coincidir con el dialecto enviado (T6-02).
+**Decisión:** mantener controles de memoria/cobertura; no borrar su incumplimiento.
+
+Pendiente para la siguiente sesión: aprobación y ejecución de T6-01–T6-11,
+aceptación jurídica T5-18/T5-20 y verificaciones externas expresamente enumeradas
+en el informe. No crear CONTEXT.md ni tareas de CLI/workflows/Actions.
+
+Mantenimiento: actualizar contexto en el mismo commit que el cambio; usar fechas
+absolutas. Si una decisión cambia, marcarla superada con su razón sin borrarla.
+El qué publicado pertenece al changelog; el porqué y lo aprendido, a este archivo.

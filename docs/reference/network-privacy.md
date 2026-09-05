@@ -1,8 +1,10 @@
 # Red, privacidad y telemetría
 
-Columnia es local-first. En la versión `0.95.0` el código de la aplicación no
-inicia conexiones de red, no envía datasets y no incorpora telemetría,
-analytics, crash reporting ni servicios remotos obligatorios.
+Columnia es local-first. En la versión `0.167.0` el flujo local de la aplicación
+no inicia conexiones de red, no envía datasets y no incorpora telemetría, analytics ni
+crash reporting. La entrega ODBC es una acción explícita del usuario hacia el
+motor remoto que elija; no es un servicio obligatorio ni se ejecuta durante la
+carga, revisión o preparación local.
 
 ## Inventario permitido
 
@@ -14,9 +16,10 @@ analytics, crash reporting ni servicios remotos obligatorios.
 - La instalación de WebView2 puede descargar el bootstrapper si el equipo no
   tiene el runtime. Es una decisión del instalador, no una petición de datos
   de Columnia.
-- La comprobación y descarga de actualizaciones será una capacidad futura de
-  I6. Deberá ser opt-in, visible y documentada antes de incorporar un cliente
-  de red.
+- La comprobación y descarga de actualizaciones solo aparece cuando la
+  compilación tiene `COLUMNIA_UPDATER_ENDPOINT`; requiere una acción explícita,
+  muestra versión/notas/tamaño y valida firma y tamaño antes de instalar. Una
+  compilación sin endpoint mantiene esa capacidad desactivada.
 
 ## Controles
 
