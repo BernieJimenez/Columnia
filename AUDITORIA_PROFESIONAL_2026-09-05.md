@@ -443,9 +443,9 @@ La fusión es aditiva y queda sin commit para revisión; no se reemplaza el hist
 
 ## 10. Estado posterior a la aplicación
 
-Después del cierre diagnóstico, el usuario autorizó aplicar el plan. Se
-implementaron y marcaron como cerradas T6-01, T6-02, T6-04, T6-06, T6-07,
-T6-09, T6-10 y T6-11. El JOIN publicado desde un cursor histórico conserva
+Después del cierre diagnóstico, el usuario autorizó aplicar el plan. La
+implementación técnica de T6-01–T6-11 quedó aplicada; T6-01, T6-02, T6-04,
+T6-06, T6-07, T6-09, T6-10 y T6-11 además tienen aceptación local completa. El JOIN publicado desde un cursor histórico conserva
 ahora una fuente materializable; el motor ODBC se deriva del formato visible,
 las respuestas de conexión y SQL se vinculan a la configuración/revisión
 vigente, los valores ODBC usan parámetros tipados, MySQL rechaza `replace`, el
@@ -457,7 +457,8 @@ crítica aprobada (proyectos 81,08 % de ramas), 78 pruebas focalizadas de UI y
 una prueba Rust de la regresión JOIN; las cuatro pruebas de conexión/revisión
 añadidas cubren respuestas tardías y cambios de motor. T6-03 y T6-05 quedan
 abiertas para round-trip contra controladores reales de PostgreSQL, MySQL y SQL
-Server, que no están disponibles en esta estación. T6-08 también queda abierta:
+Server, que no están disponibles en esta estación; su aceptación externa queda
+pendiente. T6-08 también queda abierta para aceptación de memoria:
 el sondeo nativo se difiere hasta abrir el panel de recursos y dos de tres
 recorridos mutados quedaron dentro del presupuesto (248,78 y 253,61 MiB), pero
 dos recorridos posteriores alcanzaron 256,24 y 256,88 MiB (evidencias

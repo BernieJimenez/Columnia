@@ -169,7 +169,12 @@ pendientes existentes cuando corresponde.
 | Tanda | Estado | Tareas abiertas | Severidad | Esfuerzo agregado |
 | --- | --- | ---: | --- | --- |
 | Tier 5 — Integridad de gates y preparación de distribución | 18 cerradas, 2 abiertas; revisado 2026-09-05 | 2 | aceptación legal conocida; regresiones separadas en Tier 6 | alto, sujeto a decisiones externas |
-| Tier 6 — Integridad de escritorio y entrega ODBC | 8 cerradas, 3 abiertas; actualizado 2026-09-05 | 3 | validación ODBC real y memoria nativa pendientes | 3 tareas medias abiertas |
+| Tier 6 — Integridad de escritorio y entrega ODBC | 11 implementadas; 3 aceptaciones externas pendientes; actualizado 2026-09-05 | 3 | validación ODBC real y memoria nativa pendientes | 3 validaciones externas |
+
+En Tier 6, una tarea puede conservar `[ ]` cuando su criterio exige evidencia
+externa aunque su implementación local ya esté aplicada. El estado técnico de
+T6-03, T6-05 y T6-08 se detalla dentro de cada tarea y no se presenta como
+aceptación completa.
 
 Las Fases I5, I6 e I7 siguen abiertas y forman dependencias obligatorias del
 release público; no se duplican como tareas nuevas.
@@ -2651,7 +2656,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
 
 | Fecha | Estado |
 | --- | --- |
-| 2026-09-05 | Reauditoría completada; T6-01/T6-02/T6-04/T6-06/T6-07/T6-09/T6-10/T6-11 aplicadas y verificadas con regresiones. T6-03/T6-05 requieren round-trip con controladores reales; T6-08 conserva el exceso de memoria nativa sin causa localizada. |
+| 2026-09-05 | Reauditoría completada; la implementación técnica de T6-01–T6-11 está aplicada y verificada con regresiones. T6-03/T6-05 requieren round-trip con controladores reales; T6-08 conserva variación de memoria nativa sin causa localizada. |
 
 ### Decisiones cerradas de esta revisión
 

@@ -18,12 +18,13 @@ los artefactos de validación locales.
 
 ### Corregido
 
-- Aplicación de T6-01–T6-07, T6-09 y T6-10: los resultados de JOIN conservan
-  un cursor materializable, las consultas y conexiones descartan respuestas
-  obsoletas, el destino ODBC sigue el motor seleccionado, los valores ODBC se
-  envían parametrizados, MySQL no permite `replace` inseguro, el enlace de
-  salto conserva legibilidad en colores forzados y la cobertura crítica de
-  proyectos vuelve a superar su umbral.
+- Aplicación técnica de T6-01–T6-11: los resultados de JOIN conservan un cursor
+  materializable, las consultas y conexiones descartan respuestas obsoletas, el
+  destino ODBC sigue el motor seleccionado, los valores ODBC se envían
+  parametrizados, MySQL no permite `replace` inseguro, el enlace de salto
+  conserva legibilidad en colores forzados y la cobertura crítica de proyectos
+  vuelve a superar su umbral. T6-03/T6-05 requieren round-trip externo y T6-08
+  conserva variación de memoria WebView2.
 - Actualización de las guías de escritorio para source-backed, ODBC opcional,
   updater condicionado por endpoint y las cinco variantes de evidencia visual.
 - El monitor de recursos difiere el sondeo nativo hasta abrir el panel, mantiene

@@ -11,10 +11,10 @@ documentos equivalentes que puedan divergir.
 
 Esta sección actualiza el estado de validación de la ficha histórica que sigue.
 Base revisada: `7d837819c66d22d8c2c51f12cac84a8b8014206d`, versión `0.167.0`.
-**Estado:** revisión terminada; se aplicaron T6-01–T6-07, T6-09 y T6-10, y se
-actualizaron las guías de T6-11. T6-08 permanece abierta por el exceso de
-memoria nativa sin causa localizada; T5-18/T5-20 siguen requiriendo revisión
-legal. Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-05.md),
+**Estado:** revisión terminada; la implementación técnica de T6-01–T6-11 está
+aplicada. T6-03/T6-05 conservan round-trip externo pendiente y T6-08 conserva
+variación de memoria nativa sin causa localizada; T5-18/T5-20 siguen
+requiriendo revisión legal. Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-05.md),
 [ROADMAP](ROADMAP.md) y [CHANGELOG](CHANGELOG.md).
 
 - Alcance acordado: escritorio exhaustivo, sin CLI, workflows ni GitHub Actions.
