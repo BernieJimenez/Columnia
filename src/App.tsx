@@ -804,10 +804,18 @@ export function App() {
           open={sidebarUtilitiesOpen}
           onToggle={(event) => setSidebarUtilitiesOpen(event.currentTarget.open)}
         >
-          <summary>Preferencias y recursos</summary>
+          <summary
+            onClick={(event) => {
+              const details = event.currentTarget.parentElement;
+              setSidebarUtilitiesOpen(!(details instanceof HTMLDetailsElement && details.open));
+            }}
+          >
+            Preferencias y recursos
+          </summary>
           <div className="sidebar__utilities-content">
             <ResourceMonitor
               enabled={status.kind === "ready"}
+              visible={sidebarUtilitiesOpen}
               observeUsage={sidebarUtilitiesOpen}
               performanceProfile={performanceProfile}
               onPerformanceProfileChange={(profile) => {

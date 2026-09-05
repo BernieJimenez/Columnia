@@ -2612,7 +2612,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Ubicación:** `fixtures/performance/performance-baseline-v1.json:7; tools/probe-webview2-cdp.ps1:18`; causa en producto pendiente de localizar.
   - **Qué hacer:** Perfilar retención por fase/proceso y repetir de forma aislada el escenario tras corregir la causa que se identifique. Conservar los presupuestos y no confundirlo con el escenario de 100 MiB, que tiene otros límites.
   - **Criterio de aceptación:** Tres recorridos aislados dentro de 256 MiB privados y 512 MiB working set con cleanup, explicando la variación y conservando presupuestos.
-  - **Estado de aplicación:** El sondeo de recursos solo se activa al abrir Preferencias y recursos. La medición mutada obtuvo 248,78 MiB y 253,61 MiB en dos recorridos, y 256,24 MiB en otro; la causa de la variación de WebView2 sigue abierta.
+  - **Estado de aplicación:** El sondeo y el montaje visual de recursos solo se activan al abrir Preferencias y recursos; la configuración de rendimiento sigue disponible desde el arranque. Las mediciones mutadas obtuvieron 248,78 y 253,61 MiB en dos recorridos, y 256,24 y 256,88 MiB en dos posteriores; la causa de la variación de WebView2 sigue abierta.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
   - **Trazabilidad:** A-08 del informe del 2026-09-05.

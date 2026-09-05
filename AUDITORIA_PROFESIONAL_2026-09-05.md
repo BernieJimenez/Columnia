@@ -452,19 +452,20 @@ vigente, los valores ODBC usan parámetros tipados, MySQL rechaza `replace`, el
 enlace de salto usa colores legibles en `forced-colors`, la cobertura crítica
 de proyectos supera el umbral y las guías reflejan la capacidad actual.
 
-La verificación posterior obtuvo 283 pruebas frontend aprobadas, cobertura
-crítica aprobada (proyectos 81,08 % de ramas), 77 pruebas focalizadas de UI y
+La verificación posterior obtuvo 284 pruebas frontend aprobadas, cobertura
+crítica aprobada (proyectos 81,08 % de ramas), 78 pruebas focalizadas de UI y
 una prueba Rust de la regresión JOIN; las cuatro pruebas de conexión/revisión
 añadidas cubren respuestas tardías y cambios de motor. T6-03 y T6-05 quedan
 abiertas para round-trip contra controladores reales de PostgreSQL, MySQL y SQL
 Server, que no están disponibles en esta estación. T6-08 también queda abierta:
 el sondeo nativo se difiere hasta abrir el panel de recursos y dos de tres
 recorridos mutados quedaron dentro del presupuesto (248,78 y 253,61 MiB), pero
-uno alcanzó 256,24 MiB (evidencia `.local/validation/webview2-cdp/20260905T223115Z`).
-La variación del proceso WebView2 aún no tiene una causa de producto localizada,
-por lo que la aceptación exige repetir tres recorridos conformes. La aplicación
-no se declara lista para distribución pública hasta completar esas verificaciones
-y T5-18/T5-20.
+dos recorridos posteriores alcanzaron 256,24 y 256,88 MiB (evidencias
+`.local/validation/webview2-cdp/20260905T223115Z` y
+`.local/validation/webview2-cdp/20260905T224811Z`). La variación del proceso
+WebView2 aún no tiene una causa de producto localizada, por lo que la aceptación
+exige repetir tres recorridos conformes. La aplicación no se declara lista para
+distribución pública hasta completar esas verificaciones y T5-18/T5-20.
 
 La corrección técnica de T5-18 también se aplicó: el panel legal distingue el
 procesamiento local, la ausencia de conexiones automáticas y la exportación ODBC

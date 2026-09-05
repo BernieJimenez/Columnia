@@ -96,6 +96,30 @@ describe("ResourceMonitor", () => {
     expect(fetchPerformanceSettings).toHaveBeenCalledOnce();
   });
 
+  it("no monta el árbol visual cuando el panel está cerrado", async () => {
+    const fetchPerformanceSettings = vi.fn().mockResolvedValue({
+      requestedProfile: "balanced" as const,
+      activeProfile: "balanced" as const,
+      requestedThreads: 4,
+      activeThreads: 4,
+      applied: true,
+      locked: false,
+      reason: null,
+    });
+
+    const { container } = render(
+      <ResourceMonitor
+        enabled
+        visible={false}
+        observeUsage={false}
+        fetchPerformanceSettings={fetchPerformanceSettings}
+      />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+    await waitFor(() => expect(fetchPerformanceSettings).toHaveBeenCalledOnce());
+  });
+
   it("aplica el perfil de concurrencia elegido antes de la siguiente operación", async () => {
     const fetchUsage = vi.fn().mockResolvedValue({
       processCpuPercentage: 0,

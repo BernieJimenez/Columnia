@@ -23,6 +23,8 @@ type ResourceMonitorState =
 
 export interface ResourceMonitorProps {
   enabled: boolean;
+  /** Keeps the native configuration alive while avoiding hidden UI allocations. */
+  visible?: boolean;
   /** Keeps performance-profile setup available while deferring native polling until visible. */
   observeUsage?: boolean;
   fetchUsage?: () => Promise<ResourceUsage>;
@@ -65,6 +67,7 @@ function formatAvailableMemory(bytes: number | undefined): string {
 
 export const ResourceMonitor = memo(function ResourceMonitor({
   enabled,
+  visible = true,
   observeUsage = true,
   fetchUsage = getResourceUsage,
   pollIntervalMs = 2000,
@@ -205,6 +208,8 @@ export const ResourceMonitor = memo(function ResourceMonitor({
       : performance?.applied && performance.activeThreads
         ? `Activo: ${performance.activeThreads} ${performance.activeThreads === 1 ? "hilo" : "hilos"}`
         : performance?.reason ?? "Se aplicará antes de la primera operación";
+
+  if (!visible) return null;
 
   return (
     <div className="resource-monitor" role="group" aria-label="Consumo de recursos">

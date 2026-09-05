@@ -27,9 +27,10 @@ los artefactos de validación locales.
 - Actualización de las guías de escritorio para source-backed, ODBC opcional,
   updater condicionado por endpoint y las cinco variantes de evidencia visual.
 - El monitor de recursos difiere el sondeo nativo hasta abrir el panel, mantiene
-  la configuración de rendimiento disponible desde el arranque y reduce el
-  coste del recorrido cerrado. T6-08 permanece abierta: dos recorridos mutados
-  quedaron bajo 256 MiB privados y uno alcanzó 256,24 MiB.
+  la configuración de rendimiento disponible desde el arranque y no monta su
+  árbol visual mientras permanece cerrado. T6-08 permanece abierta: dos
+  recorridos mutados quedaron bajo 256 MiB privados y dos posteriores alcanzaron
+  256,24 y 256,88 MiB.
 - El panel de licencia y privacidad distingue el procesamiento local de la
   exportación ODBC explícita y explica el alcance temporal de sus credenciales;
   T5-18/T5-20 conservan la revisión legal y del canal como pendientes.
