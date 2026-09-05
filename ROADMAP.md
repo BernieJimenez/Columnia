@@ -2559,6 +2559,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Severidad:** Alta · Nuevo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:155, :264, :358, :517`
   - **Qué hacer:** Usar parámetros ODBC tipados para los valores, también en lotes incrementales; mantener la validación y el escape de identificadores por separado. Verificar round-trip de barras, comillas, Unicode, saltos de línea y nulos.
+  - **Estado de implementación:** Las rutas frame y source-backed preparan una sentencia con `?` y ejecutan cada fila con parámetros tipados; los identificadores siguen una validación separada y los casos adversos tienen cobertura unitaria. Falta el round-trip con un servidor MySQL real.
   - **Criterio de aceptación:** Datos adversos se recuperan byte a byte como datos en MySQL con y sin NO_BACKSLASH_ESCAPES; ningún valor altera la estructura de la sentencia.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
@@ -2579,6 +2580,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Severidad:** Media · Nuevo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:443, :495`
   - **Qué hacer:** Transmitir parámetros booleanos tipados o generar TRUE/FALSE para PostgreSQL, conservando BIT y el contrato adecuado de otros motores.
+  - **Estado de implementación:** Los booleanos y nulos booleanos se envían mediante `Bit`/`Nullable<Bit>` dentro del serializador parametrizado compartido por frame y source-backed. Falta releer valores con PostgreSQL, MySQL y SQL Server reales.
   - **Criterio de aceptación:** Exportar y releer true/false/null en los tres motores conserva tipos y valores desde frame y fuente incremental.
   - **Esfuerzo:** bajo
   - **Depende de:** T6-03 si se comparte el serializador parametrizado
