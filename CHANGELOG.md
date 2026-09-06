@@ -23,15 +23,16 @@ los artefactos de validación locales.
   destino ODBC sigue el motor seleccionado, los valores ODBC se envían
   parametrizados, MySQL no permite `replace` inseguro, el enlace de salto
   conserva legibilidad en colores forzados y la cobertura crítica de proyectos
-  vuelve a superar su umbral. T6-03/T6-05 requieren round-trip externo y T6-08
-  conserva variación de memoria WebView2.
+  vuelve a superar su umbral. T6-03 tiene round-trip real en MariaDB por ambas
+  rutas y ambos modos de escape; T6-05 tiene round-trip real en PostgreSQL y
+  MariaDB, con SQL Server pendiente por falta de una instancia accesible.
 - Actualización de las guías de escritorio para source-backed, ODBC opcional,
   updater condicionado por endpoint y las cinco variantes de evidencia visual.
 - El monitor de recursos difiere el sondeo nativo hasta abrir el panel, mantiene
   la configuración de rendimiento disponible desde el arranque y no monta su
-  árbol visual mientras permanece cerrado. T6-08 permanece abierta: dos
-  recorridos mutados quedaron bajo 256 MiB privados y dos posteriores alcanzaron
-  256,24 y 256,88 MiB.
+  árbol visual mientras permanece cerrado. T6-08 queda aceptada con tres
+  recorridos aislados bajo 256 MiB privados y 512 MiB de working set, todos con
+  cleanup confirmado.
 - El panel de licencia y privacidad distingue el procesamiento local de la
   exportación ODBC explícita y explica el alcance temporal de sus credenciales;
   T5-18/T5-20 conservan la revisión legal y del canal como pendientes.

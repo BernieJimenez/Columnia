@@ -424,7 +424,11 @@ Comprobaciones de cierres anteriores: cobertura por capa y el rechazo cuando fal
 ## 8. Zonas no cubiertas y límites
 
 - CLI, workflows, GitHub Actions y SEO: exclusión expresa; no recomendaciones ni veredicto sobre esas áreas.
-- Bases PostgreSQL/MySQL/SQL Server reales: no hay credenciales ni entornos sintéticos configurados. Los hallazgos SQL se apoyan en fuente y documentación oficial; falta validar contra controladores reales. No se ejecutaron escrituras remotas.
+- Bases PostgreSQL/MySQL/SQL Server reales: el harness externo ejecutó escrituras
+  y lecturas en PostgreSQL 17.11 y MariaDB 10.11 mediante sus controladores ODBC,
+  cubriendo frame, source-backed, valores adversos y booleanos. SQL Server sigue
+  sin una instancia accesible: el servicio local está detenido y su arranque
+  requiere elevación.
 - Lector NVDA/Narrador y High Contrast real, ventana con todas las vistas y todos los estados: pendiente. El navegador integrado no tenía una instancia disponible; se conservaron las capturas locales y los recorridos WebView2 existentes como evidencia limitada.
 - Instalación en VM limpia, macOS/Linux y updater contra canal real: pendientes conocidos, sin afirmación de soporte o aceptación.
 - No se certifica WCAG completo ni cumplimiento jurídico. La jurisdicción, usuarios y escala siguen abiertos.
@@ -452,21 +456,20 @@ vigente, los valores ODBC usan parámetros tipados, MySQL rechaza `replace`, el
 enlace de salto usa colores legibles en `forced-colors`, la cobertura crítica
 de proyectos supera el umbral y las guías reflejan la capacidad actual.
 
-La verificación posterior obtuvo 284 pruebas frontend aprobadas, cobertura
-crítica aprobada (proyectos 81,08 % de ramas), 78 pruebas focalizadas de UI y
-una prueba Rust de la regresión JOIN; las cuatro pruebas de conexión/revisión
-añadidas cubren respuestas tardías y cambios de motor. T6-03 y T6-05 quedan
-abiertas para round-trip contra controladores reales de PostgreSQL, MySQL y SQL
-Server, que no están disponibles en esta estación; su aceptación externa queda
-pendiente. T6-08 también queda abierta para aceptación de memoria:
-el sondeo nativo se difiere hasta abrir el panel de recursos y dos de tres
-recorridos mutados quedaron dentro del presupuesto (248,78 y 253,61 MiB), pero
-dos recorridos posteriores alcanzaron 256,24 y 256,88 MiB (evidencias
-`.local/validation/webview2-cdp/20260905T223115Z` y
-`.local/validation/webview2-cdp/20260905T224811Z`). La variación del proceso
-WebView2 aún no tiene una causa de producto localizada, por lo que la aceptación
-exige repetir tres recorridos conformes. La aplicación no se declara lista para
-distribución pública hasta completar esas verificaciones y T5-18/T5-20.
+La verificación posterior obtuvo 284 pruebas frontend aprobadas, 397 pruebas
+Rust aprobadas (4 ignoradas), cobertura crítica aprobada (proyectos 81,08 % de
+ramas), 78 pruebas focalizadas de UI y una prueba Rust de la regresión JOIN. El
+harness ODBC externo añadió round-trip de frame y source-backed para PostgreSQL
+17.11 y MariaDB 10.11; en MariaDB cubrió el modo por defecto y
+`NO_BACKSLASH_ESCAPES`, con barras, comillas, Unicode, saltos de línea, nulos y
+booleanos. T6-03 queda aceptada. T6-05 conserva solo el round-trip SQL Server,
+porque la instancia local está detenida y su arranque requiere elevación.
+T6-08 queda aceptada con tres recorridos aislados dentro de 256 MiB privados y
+512 MiB de working set, todos con cleanup confirmado; sus evidencias son
+`.local/validation/webview2-cdp/20260906T010433Z`,
+`.local/validation/webview2-cdp/20260906T010455Z` y
+`.local/validation/webview2-cdp/20260906T010516Z`. La aplicación no se declara
+lista para distribución pública hasta completar T6-05 y T5-18/T5-20.
 
 La corrección técnica de T5-18 también se aplicó: el panel legal distingue el
 procesamiento local, la ausencia de conexiones automáticas y la exportación ODBC

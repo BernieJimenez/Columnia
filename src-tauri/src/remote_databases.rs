@@ -158,9 +158,9 @@ where
 
     report("Escribiendo filas remotas", 25);
     let statement_sql = parameterized_insert_sql(&table, &columns, columns.len());
-    let mut statement = connection
-        .prepare(&statement_sql)
-        .map_err(|error| format_driver_error("No se pudo preparar la inserción remota", error, target))?;
+    let mut statement = connection.prepare(&statement_sql).map_err(|error| {
+        format_driver_error("No se pudo preparar la inserción remota", error, target)
+    })?;
     let mut rows_written = 0usize;
     for row_index in 0..frame.height() {
         ensure_not_cancelled(&is_cancelled)?;
@@ -177,7 +177,13 @@ where
         statement
             .execute(params.as_slice())
             .map(|_| ())
-            .map_err(|error| format_driver_error("No se pudo insertar una fila en la tabla remota", error, target))?;
+            .map_err(|error| {
+                format_driver_error(
+                    "No se pudo insertar una fila en la tabla remota",
+                    error,
+                    target,
+                )
+            })?;
         rows_written += 1;
         if frame.height() > 0 {
             let percent = 25 + ((row_index + 1) * 60 / frame.height()).min(60) as u8;
@@ -250,9 +256,9 @@ where
 
     report("Escribiendo filas remotas", 25);
     let statement_sql = parameterized_insert_sql(&table, &columns, columns.len());
-    let mut statement = connection
-        .prepare(&statement_sql)
-        .map_err(|error| format_driver_error("No se pudo preparar la inserción remota", error, target))?;
+    let mut statement = connection.prepare(&statement_sql).map_err(|error| {
+        format_driver_error("No se pudo preparar la inserción remota", error, target)
+    })?;
     let mut rows_written = 0usize;
     let streamed_columns = crate::duckdb_query::stream_file_rows(
         source_path,
@@ -269,14 +275,18 @@ where
                 .columns()
                 .iter()
                 .zip(values.iter())
-                .map(|(column, value)| {
-                    sql_parameter_text(value.as_deref(), column.dtype())
-                })
+                .map(|(column, value)| sql_parameter_text(value.as_deref(), column.dtype()))
                 .collect::<Result<Vec<_>, String>>()?;
             statement
                 .execute(params.as_slice())
                 .map(|_| ())
-                .map_err(|error| format_driver_error("No se pudo insertar una fila en la tabla remota", error, target))?;
+                .map_err(|error| {
+                    format_driver_error(
+                        "No se pudo insertar una fila en la tabla remota",
+                        error,
+                        target,
+                    )
+                })?;
             rows_written = rows_written.saturating_add(1);
             let percent = if row_count == 0 {
                 85
@@ -470,7 +480,7 @@ fn sql_parameter(
 fn sql_parameter_text(
     value: Option<&str>,
     dtype: &polars::prelude::DataType,
- ) -> Result<Box<dyn InputParameter>, String> {
+) -> Result<Box<dyn InputParameter>, String> {
     let normalized_dtype = dtype.to_string().to_ascii_lowercase();
     let Some(text) = value else {
         return Ok(if normalized_dtype.contains("bool") {
@@ -549,7 +559,18 @@ fn format_driver_error<E: Debug>(context: &str, error: E, target: &DatabaseTarge
 
 #[cfg(test)]
 mod tests {
-    use polars::{df, prelude::DataType};
+    use std::{
+        env, fs,
+        path::Path,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use odbc_api::{buffers::RowVec, parameter::VarWCharArray, Cursor};
+    use polars::{
+        df,
+        prelude::{DataFrame, DataType},
+    };
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -623,5 +644,199 @@ mod tests {
         ));
         table.table_policy = DatabaseTablePolicy::Replace;
         assert!(validate_database_target(&table).is_err());
+    }
+
+    fn external_target(kind: DatabaseKind, variable: &str) -> DatabaseTarget {
+        let connection_string = env::var(variable).unwrap_or_else(|_| {
+            panic!(
+                "La prueba ODBC externa requiere la variable {variable} con una cadena de conexión de sesión."
+            )
+        });
+        DatabaseTarget {
+            kind,
+            connection_string,
+            schema: match kind {
+                DatabaseKind::Postgresql => "public".to_owned(),
+                DatabaseKind::Mysql => String::new(),
+                DatabaseKind::SqlServer => "dbo".to_owned(),
+            },
+            table: "columnia_t6_external".to_owned(),
+            table_policy: DatabaseTablePolicy::CreateOnly,
+        }
+    }
+
+    fn adversarial_frame() -> DataFrame {
+        df!(
+            "ordinal" => &[1i64, 2, 3],
+            "text" => &[
+                "O'Brien; DROP TABLE users \\ barra",
+                "línea 1\nlínea 2 — Unicode",
+                "comillas \"dobles\" y dos puntos: sí"
+            ],
+            "active" => &[Some(true), Some(false), None]
+        )
+        .expect("frame externo válido")
+    }
+
+    fn source_csv(path: &Path) {
+        fs::write(
+            path,
+            "ordinal,text,active\n1,\"O'Brien; DROP TABLE users \\ barra\",true\n2,\"línea 1\nlínea 2 — Unicode\",false\n3,\"comillas \"\"dobles\"\" y dos puntos: sí\",\n",
+        )
+        .expect("CSV externo válido");
+    }
+
+    fn query_round_trip(
+        target: &DatabaseTarget,
+        expected: &[(i64, Option<&str>, &str)],
+    ) -> Result<(), String> {
+        let environment = Environment::new().map_err(|error| format!("ODBC: {error:?}"))?;
+        let connection = environment
+            .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+            .map_err(|error| format!("conexión ODBC: {error:?}"))?;
+        let ordinal = quote_identifier("ordinal", target.kind);
+        let text = quote_identifier("text", target.kind);
+        let active = quote_identifier("active", target.kind);
+        let table = qualified_table(target);
+        let text_projection = match target.kind {
+            DatabaseKind::Postgresql => format!("encode(convert_to({text}, 'UTF8'), 'hex')"),
+            DatabaseKind::Mysql => format!("HEX({text})"),
+            DatabaseKind::SqlServer => text.clone(),
+        };
+        let active_true = match target.kind {
+            DatabaseKind::Postgresql => active.clone(),
+            DatabaseKind::Mysql | DatabaseKind::SqlServer => format!("{active} = 1"),
+        };
+        let query = format!(
+            "SELECT {ordinal}, {text_projection}, CASE WHEN {active} IS NULL THEN 'null' WHEN {active_true} THEN 'true' ELSE 'false' END FROM {table} ORDER BY {ordinal}"
+        );
+        let cursor = connection
+            .execute(&query, (), None)
+            .map_err(|error| format!("consulta ODBC: {error:?}"))?
+            .ok_or_else(|| "La consulta ODBC no devolvió filas.".to_owned())?;
+        let mut cursor = cursor
+            .bind_buffer(RowVec::<(i64, VarWCharArray<512>, VarWCharArray<8>)>::new(
+                16,
+            ))
+            .map_err(|error| format!("buffer ODBC: {error:?}"))?;
+        let mut actual = Vec::new();
+        while let Some(batch) = cursor
+            .fetch()
+            .map_err(|error| format!("lectura ODBC: {error:?}"))?
+        {
+            for (ordinal, text, active) in batch.iter() {
+                let text = text
+                    .as_utf16()
+                    .map(|value| value.to_string().to_ascii_lowercase());
+                let active = active
+                    .as_utf16()
+                    .map(|value| value.to_string())
+                    .unwrap_or_default();
+                actual.push((*ordinal, text, active));
+            }
+        }
+        let expected = expected
+            .iter()
+            .map(|(ordinal, text, active)| {
+                let text = text.map(|text| match target.kind {
+                    DatabaseKind::Postgresql | DatabaseKind::Mysql => text
+                        .as_bytes()
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>(),
+                    DatabaseKind::SqlServer => text.to_owned(),
+                });
+                (*ordinal, text, (*active).to_owned())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "round-trip ODBC alteró los valores");
+        Ok(())
+    }
+
+    fn execute_external_sql(target: &DatabaseTarget, sql: &str) -> Result<(), String> {
+        let environment = Environment::new().map_err(|error| format!("ODBC: {error:?}"))?;
+        let connection = environment
+            .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+            .map_err(|error| format!("conexión ODBC: {error:?}"))?;
+        connection
+            .execute(sql, (), None)
+            .map(|_| ())
+            .map_err(|error| format!("SQL externo: {error:?}"))
+    }
+
+    fn run_external_round_trip(target: &DatabaseTarget, suffix: &str) -> Result<(), String> {
+        let expected = [
+            (1, Some("O'Brien; DROP TABLE users \\ barra"), "true"),
+            (2, Some("línea 1\nlínea 2 — Unicode"), "false"),
+            (3, Some("comillas \"dobles\" y dos puntos: sí"), "null"),
+        ];
+        let mut frame_target = target.clone();
+        frame_target.table = format!("columnia_t6_{suffix}_frame");
+        export_frame(&adversarial_frame(), &frame_target, |_, _| {}, || false)?;
+        query_round_trip(&frame_target, &expected)?;
+
+        let directory = tempdir().map_err(|error| format!("temp externo: {error}"))?;
+        let source = directory.path().join("adversarial.csv");
+        source_csv(&source);
+        let schema = adversarial_frame();
+        let mut source_target = target.clone();
+        source_target.table = format!("columnia_t6_{suffix}_source");
+        export_source_backed(
+            &source,
+            DuckDbFileFormat::Delimited { delimiter: b',' },
+            &schema,
+            schema.height(),
+            &source_target,
+            |_, _| {},
+            || false,
+        )?;
+        query_round_trip(&source_target, &expected)?;
+
+        execute_external_sql(
+            &frame_target,
+            &drop_table_sql(&qualified_table(&frame_target), frame_target.kind),
+        )?;
+        execute_external_sql(
+            &source_target,
+            &drop_table_sql(&qualified_table(&source_target), source_target.kind),
+        )?;
+        Ok(())
+    }
+
+    fn unique_suffix(prefix: &str) -> String {
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("reloj del sistema válido")
+            .as_millis();
+        format!("{prefix}_{millis}")
+    }
+
+    #[test]
+    #[ignore = "requiere servidores y controladores ODBC reales configurados por variables de sesión"]
+    fn external_odbc_round_trip_postgresql() {
+        let target = external_target(DatabaseKind::Postgresql, "COLUMNIA_ODBC_POSTGRESQL");
+        run_external_round_trip(&target, &unique_suffix("pg"))
+            .expect("round-trip PostgreSQL completo");
+    }
+
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC MySQL reales configurados por variables de sesión"]
+    fn external_odbc_round_trip_mysql_with_and_without_no_backslash_escapes() {
+        let target = external_target(DatabaseKind::Mysql, "COLUMNIA_ODBC_MYSQL");
+        run_external_round_trip(&target, &unique_suffix("mysql_default"))
+            .expect("round-trip MySQL por defecto completo");
+        execute_external_sql(&target, "SET GLOBAL sql_mode = 'NO_BACKSLASH_ESCAPES'")
+            .expect("activar NO_BACKSLASH_ESCAPES");
+        let result = run_external_round_trip(&target, &unique_suffix("mysql_no_backslash"));
+        let _ = execute_external_sql(&target, "SET GLOBAL sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'");
+        result.expect("round-trip MySQL con NO_BACKSLASH_ESCAPES completo");
+    }
+
+    #[test]
+    #[ignore = "requiere servidor y controlador ODBC SQL Server reales configurados por variables de sesión"]
+    fn external_odbc_round_trip_sql_server() {
+        let target = external_target(DatabaseKind::SqlServer, "COLUMNIA_ODBC_SQLSERVER");
+        run_external_round_trip(&target, &unique_suffix("sqlserver"))
+            .expect("round-trip SQL Server completo");
     }
 }

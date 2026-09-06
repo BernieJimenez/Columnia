@@ -169,12 +169,12 @@ pendientes existentes cuando corresponde.
 | Tanda | Estado | Tareas abiertas | Severidad | Esfuerzo agregado |
 | --- | --- | ---: | --- | --- |
 | Tier 5 — Integridad de gates y preparación de distribución | 18 cerradas, 2 abiertas; revisado 2026-09-05 | 2 | aceptación legal conocida; regresiones separadas en Tier 6 | alto, sujeto a decisiones externas |
-| Tier 6 — Integridad de escritorio y entrega ODBC | 11 implementadas; 3 aceptaciones externas pendientes; actualizado 2026-09-05 | 3 | validación ODBC real y memoria nativa pendientes | 3 validaciones externas |
+| Tier 6 — Integridad de escritorio y entrega ODBC | 11 implementadas; 1 aceptación externa pendiente; actualizado 2026-09-06 | 1 | round-trip SQL Server real pendiente | 1 validación externa |
 
 En Tier 6, una tarea puede conservar `[ ]` cuando su criterio exige evidencia
 externa aunque su implementación local ya esté aplicada. El estado técnico de
-T6-03, T6-05 y T6-08 se detalla dentro de cada tarea y no se presenta como
-aceptación completa.
+T6-05 se detalla dentro de la tarea; la aceptación de SQL Server queda pendiente
+por falta de una instancia accesible en esta estación.
 
 Las Fases I5, I6 e I7 siguen abiertas y forman dependencias obligatorias del
 release público; no se duplican como tareas nuevas.
@@ -2559,12 +2559,12 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Depende de:** ninguna; validar junto con T6-03 y T6-04
   - **Trazabilidad:** A-02 del informe del 2026-09-05.
 
-- [ ] **[T6-03] Parametrizar los valores enviados mediante ODBC**
+- [x] **[T6-03] Parametrizar los valores enviados mediante ODBC**
   - **Área:** Seguridad
   - **Severidad:** Alta · Nuevo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:155, :264, :358, :517`
   - **Qué hacer:** Usar parámetros ODBC tipados para los valores, también en lotes incrementales; mantener la validación y el escape de identificadores por separado. Verificar round-trip de barras, comillas, Unicode, saltos de línea y nulos.
-  - **Estado de implementación:** Las rutas frame y source-backed preparan una sentencia con `?` y ejecutan cada fila con parámetros tipados; los identificadores siguen una validación separada y los casos adversos tienen cobertura unitaria. Falta el round-trip con un servidor MySQL real.
+  - **Estado de implementación:** Las rutas frame y source-backed preparan una sentencia con `?` y ejecutan cada fila con parámetros tipados; los identificadores siguen una validación separada y los casos adversos tienen cobertura unitaria. El harness externo ejecutó ambos recorridos contra MariaDB 10.11 mediante MariaDB Connector/ODBC 3.2.9, con y sin `NO_BACKSLASH_ESCAPES`, y recuperó barras, comillas, Unicode, saltos de línea y nulos byte a byte. Evidencia: `.local/validation/odbc/20260906T011500Z/summary.json`.
   - **Criterio de aceptación:** Datos adversos se recuperan byte a byte como datos en MySQL con y sin NO_BACKSLASH_ESCAPES; ningún valor altera la estructura de la sentencia.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
@@ -2585,7 +2585,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Severidad:** Media · Nuevo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:443, :495`
   - **Qué hacer:** Transmitir parámetros booleanos tipados o generar TRUE/FALSE para PostgreSQL, conservando BIT y el contrato adecuado de otros motores.
-  - **Estado de implementación:** Los booleanos y nulos booleanos se envían mediante `Bit`/`Nullable<Bit>` dentro del serializador parametrizado compartido por frame y source-backed. Falta releer valores con PostgreSQL, MySQL y SQL Server reales.
+  - **Estado de implementación:** Los booleanos y nulos booleanos se envían mediante `Bit`/`Nullable<Bit>` dentro del serializador parametrizado compartido por frame y source-backed. El harness externo verificó `true`/`false`/`null` por ambas rutas en PostgreSQL 17.11 y MariaDB 10.11; falta una instancia SQL Server accesible para completar el criterio de los tres motores. Evidencia parcial: `.local/validation/odbc/20260906T011500Z/summary.json`.
   - **Criterio de aceptación:** Exportar y releer true/false/null en los tres motores conserva tipos y valores desde frame y fuente incremental.
   - **Esfuerzo:** bajo
   - **Depende de:** T6-03 si se comparte el serializador parametrizado
@@ -2611,13 +2611,13 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Depende de:** ninguna
   - **Trazabilidad:** A-07 del informe del 2026-09-05.
 
-- [ ] **[T6-08] Reducir la memoria privada al presupuesto del recorrido nativo**
+- [x] **[T6-08] Reducir la memoria privada al presupuesto del recorrido nativo**
   - **Área:** Rendimiento
   - **Severidad:** Media · Regresión de T5-02
   - **Ubicación:** `fixtures/performance/performance-baseline-v1.json:7; tools/probe-webview2-cdp.ps1:18`; causa en producto pendiente de localizar.
   - **Qué hacer:** Perfilar retención por fase/proceso y repetir de forma aislada el escenario tras corregir la causa que se identifique. Conservar los presupuestos y no confundirlo con el escenario de 100 MiB, que tiene otros límites.
   - **Criterio de aceptación:** Tres recorridos aislados dentro de 256 MiB privados y 512 MiB working set con cleanup, explicando la variación y conservando presupuestos.
-  - **Estado de aplicación:** El sondeo y el montaje visual de recursos solo se activan al abrir Preferencias y recursos; la configuración de rendimiento sigue disponible desde el arranque. Las mediciones mutadas obtuvieron 248,78 y 253,61 MiB en dos recorridos, y 256,24 y 256,88 MiB en dos posteriores; la causa de la variación de WebView2 sigue abierta.
+  - **Estado de aplicación:** El sondeo y el montaje visual de recursos solo se activan al abrir Preferencias y recursos; la configuración de rendimiento sigue disponible desde el arranque. Tres recorridos aislados posteriores pasaron con cleanup: `20260906T010433Z` (245,35 MiB privados; 458,98 MiB working set), `20260906T010455Z` (243,92; 458,16) y `20260906T010516Z` (250,76; 462,56). Cada recorrido ejecutó tres ciclos nativos. Evidencia: `.local/validation/webview2-cdp/<run>/summary.json`.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
   - **Trazabilidad:** A-08 del informe del 2026-09-05.
@@ -2656,7 +2656,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
 
 | Fecha | Estado |
 | --- | --- |
-| 2026-09-05 | Reauditoría completada; la implementación técnica de T6-01–T6-11 está aplicada y verificada con regresiones. T6-03/T6-05 requieren round-trip con controladores reales; T6-08 conserva variación de memoria nativa sin causa localizada. |
+| 2026-09-06 | Aplicación técnica de T6-01–T6-11 verificada con regresiones. T6-03 queda aceptada con round-trip MariaDB real en ambos modos; T6-08 queda aceptada con tres recorridos nativos dentro de presupuesto. T6-05 queda abierta únicamente por la instancia SQL Server real no accesible en esta estación. |
 
 ### Decisiones cerradas de esta revisión
 

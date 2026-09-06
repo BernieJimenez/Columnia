@@ -12,28 +12,30 @@ documentos equivalentes que puedan divergir.
 Esta sección actualiza el estado de validación de la ficha histórica que sigue.
 Base revisada: `7d837819c66d22d8c2c51f12cac84a8b8014206d`, versión `0.167.0`.
 **Estado:** revisión terminada; la implementación técnica de T6-01–T6-11 está
-aplicada. T6-03/T6-05 conservan round-trip externo pendiente y T6-08 conserva
-variación de memoria nativa sin causa localizada; T5-18/T5-20 siguen
-requiriendo revisión legal. Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-05.md),
+aplicada. T6-03 queda aceptada con MariaDB real y T6-08 queda aceptada con
+tres recorridos nativos dentro del presupuesto. T6-05 conserva únicamente la
+aceptación SQL Server pendiente; T5-18/T5-20 siguen requiriendo revisión legal.
+Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-05.md),
 [ROADMAP](ROADMAP.md) y [CHANGELOG](CHANGELOG.md).
 
 - Alcance acordado: escritorio exhaustivo, sin CLI, workflows ni GitHub Actions.
-- Pruebas posteriores: 284 frontend con cobertura crítica aprobada; las pruebas
-  Rust de backend modificadas y las regresiones de JOIN/ODBC pasan. El benchmark
-  nativo de 100 MiB sigue sin medida válida por timeout del driver del entorno.
+- Pruebas posteriores: 284 frontend con cobertura crítica aprobada y 397 pruebas
+  Rust de backend aprobadas (4 ignoradas por benchmark/integración externa). El
+  harness ODBC real pasa PostgreSQL 17.11 y MariaDB 10.11 por las rutas frame y
+  source-backed, incluyendo el modo `NO_BACKSLASH_ESCAPES`.
 - La cobertura crítica de proyectos queda en 81,08 % de ramas, por encima del
   umbral de 75 %.
 - El recorrido nativo de proyectos es funcional y limpia sus artefactos. Tras
-  diferir el sondeo y el montaje visual del panel de recursos, dos recorridos
-  mutados quedaron dentro de 256 MiB privados y dos posteriores alcanzaron
-  256,24 y 256,88 MiB. No se ha demostrado una fuga ni se ha localizado una
-  causa específica de WebView2.
+  diferir el sondeo y el montaje visual del panel de recursos, tres recorridos
+  aislados pasaron con 245,35, 243,92 y 250,76 MiB privados, y 458,98, 458,16 y
+  462,56 MiB de working set.
 - Un JOIN conserva ahora el cursor Parquet publicado como source-backed y la
   trazabilidad vuelve a materializar sus filas activas; guardar y reabrir siguen
   pendientes de validación en recorrido nativo completo.
 - ODBC sincroniza el dialecto visible, descarta comprobaciones obsoletas,
-  parametriza valores y bloquea el reemplazo MySQL inseguro. Falta round-trip
-  contra controladores reales de los tres motores.
+  parametriza valores y bloquea el reemplazo MySQL inseguro. PostgreSQL y MariaDB
+  tienen round-trip real; SQL Server permanece pendiente porque la instancia
+  local está detenida y no puede iniciarse sin elevación.
 - Sigue pendiente la definición de jurisdicción/canal, revisión jurídica,
   asistencia real y validación de plataformas/instalación fuera de esta estación.
 
