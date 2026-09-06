@@ -66,6 +66,12 @@ export function LoadPhase({
     datasetStatus.kind === "loading" ||
     inspection.kind === "sheet";
 
+  const selectionAction = (
+    <button className="primary-action" type="button" onClick={onSelect} disabled={selectionDisabled}>
+      {inspection.kind === "inspecting" ? "Inspeccionando…" : current ? "Seleccionar otro dataset" : "Seleccionar dataset"}
+    </button>
+  );
+
   return (
     <>
       <header className="phase-header">
@@ -74,25 +80,15 @@ export function LoadPhase({
           <h2>{current ? "Dataset listo para continuar" : "Selecciona un dataset"}</h2>
           {current && <h3 className="phase-file">{current.fileName}</h3>}
           <p>
-            Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS sin un límite fijo de tamaño. El procesamiento
-            se realiza localmente y la capacidad depende de los recursos disponibles del equipo.
+            {current
+              ? "Se admiten CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS sin un límite fijo de tamaño. La capacidad depende de los recursos disponibles del equipo."
+              : "Revisa, prepara y exporta tus datos desde un solo espacio, en tu equipo."}
           </p>
         </div>
-        <button
-          className="primary-action"
-          type="button"
-          onClick={onSelect}
-          disabled={selectionDisabled}
-        >
-          {inspection.kind === "inspecting"
-            ? "Inspeccionando…"
-            : current
-              ? "Seleccionar otro dataset"
-              : "Seleccionar dataset"}
-        </button>
+        {current && selectionAction}
       </header>
 
-      {runtime.kind === "connected" && (
+      {current && runtime.kind === "connected" && (
         <p className="load-drop-hint" role="note">
           También puedes arrastrar un archivo compatible a esta ventana.
         </p>
@@ -100,10 +96,19 @@ export function LoadPhase({
 
       {!current && (
         <section className="load-brief" aria-labelledby="load-brief-title">
+          <svg className="load-brief__illustration" viewBox="0 0 180 144" fill="none" aria-hidden="true">
+            <rect x="16" y="12" width="148" height="120" rx="8" fill="var(--surface-raised)" stroke="currentColor" />
+            <path d="M16 44h148M16 73h148M16 102h148M65 44v88M115 44v88" stroke="currentColor" opacity=".35" />
+            <path d="M30 28h20m29 0h20m29 0h20" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+            <rect x="116" y="86" width="48" height="48" rx="8" fill="var(--accent)" />
+            <path d="M140 121V99m-8 8 8-8 8 8" stroke="var(--surface)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
           <div className="load-brief__lead">
             <div>
               <h3 id="load-brief-title">Trae tus datos a un espacio de trabajo local.</h3>
-              <p>Primero inspeccionamos la estructura; después podrás revisar señales, aplicar cambios reversibles y exportar con control.</p>
+              <p>Selecciona un archivo{runtime.kind === "connected" ? " o arrástralo a esta ventana" : " desde la aplicación de escritorio"}. Conservamos el original mientras trabajas.</p>
+              {selectionAction}
+              <p className="load-brief__formats">CSV · TSV · TXT · JSON · Parquet · Excel · ODS</p>
             </div>
           </div>
           <p className="load-brief__meta">
@@ -113,6 +118,7 @@ export function LoadPhase({
             <span aria-hidden="true">·</span>
             <span>Procesamiento local</span>
           </p>
+          <p className="load-brief__capacity">La capacidad depende de la memoria y el espacio disponibles en tu equipo.</p>
         </section>
       )}
 
