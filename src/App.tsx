@@ -806,6 +806,7 @@ export function App() {
         >
           <summary
             onClick={(event) => {
+              event.preventDefault();
               const details = event.currentTarget.parentElement;
               setSidebarUtilitiesOpen(!(details instanceof HTMLDetailsElement && details.open));
             }}
