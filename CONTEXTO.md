@@ -7,6 +7,37 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
+## Diseño vigente — 2026-09-06
+
+Rediseño aplicado en `feat/diseno-integral`, sin cambio de versión. Consultar
+primero esta sección y el [informe de diseño](AUDITORIA_DISENO_2026-09-06.md)
+para retomar el trabajo sin repetir la exploración del frontend.
+
+- `src/styles.css`: paleta mediante variables, navegación petróleo, superficies
+  neutras, tipografía local Aptos/Bahnschrift con fallback, botones, tablas y
+  espaciado compartidos por Cargar, Revisar, Preparar y Entregar. Se retiraron
+  declaraciones duplicadas y estilos de elementos de carga que ya no existen.
+- `src/features/load/LoadPhase.tsx`: selección junto a las instrucciones y los
+  formatos, ilustración SVG local y conservación de estados de carga/error/hojas.
+- `src/App.tsx`: marca de columnas y corrección del doble toggle de preferencias;
+  el clic evita la acción nativa porque React ya controla `open`.
+- `Sistema` aplica la paleta oscura con el atributo `data-theme="system"`, no
+  únicamente cuando falta el atributo. La regresión de clic/teclado y cambio
+  de tema está en `e2e/design-preferences.spec.ts`.
+- Validación: 284 pruebas frontend, 10 E2E y `cargo check` aprobados. Matriz de
+  48 estados (4 fases × 4 anchos × 3 temas) sin overflow ni errores JS; recorridos
+  adicionales de vista previa, SQL, transformaciones, reglas y preferencias.
+  Evidencia de zoom 125/200 %, móvil y colores forzados aprobada en
+  `.local/validation/accessibility-visual/20260906T220235Z`.
+- El gate Fast completo se detiene en un fallo de formato Rust preexistente en
+  `src-tauri/src/dataset.rs`, dentro de una prueba de JOIN/trazabilidad. No se
+  alteró backend ni esa prueba. Los recorridos con datos usan el bridge Tauri
+  simulado; no equivalen a una nueva validación nativa del motor o del instalador.
+- Capturas antes/después y scripts reproducibles: `.local/design-review/`.
+  Implementación: `aeb8347` y `72bc681`; presupuesto frontend aprobado sin
+  ampliar límites (586.492 bytes raw, 146.847 bytes gzip).
+  Servidor de inspección: `http://127.0.0.1:5173` (Vite, motor nativo no conectado).
+
 ## Reauditoría vigente — 2026-09-05
 
 Esta sección actualiza el estado de validación de la ficha histórica que sigue.

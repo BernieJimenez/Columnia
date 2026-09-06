@@ -6,6 +6,12 @@
 
 ## Estado general
 
+- Rediseño integral de interfaz (2026-09-06) aplicado y validado en navegador:
+  navegación, carga, superficies compartidas, temas y preferencias. Véanse
+  [contexto vigente](CONTEXTO.md) e [informe de diseño](AUDITORIA_DISENO_2026-09-06.md).
+  La aceptación visual nativa de esta revisión queda pendiente; no sustituye la
+  evidencia de escritorio de versiones anteriores.
+
 - Etapa actual: Fase I1 completa como prototipo vertical verificable, con las
   Fases I0, I4 e I8 cerradas, I3/I5 avanzadas y la Fase P1 de paridad funcional
   con JSON, SQL, comparación/consolidación por clave, joins multidataset y
