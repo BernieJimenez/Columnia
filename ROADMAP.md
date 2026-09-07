@@ -176,7 +176,7 @@ pendientes existentes cuando corresponde.
 | --- | --- | ---: | --- | --- |
 | Tier 5 — Integridad de gates y preparación de distribución | 18 cerradas, 2 abiertas; revisado 2026-09-05 | 2 | aceptación legal conocida; regresiones separadas en Tier 6 | alto, sujeto a decisiones externas |
 | Tier 6 — Integridad de escritorio y entrega ODBC | 11 implementadas; 1 aceptación externa pendiente; actualizado 2026-09-06 | 1 | round-trip SQL Server real pendiente | 1 validación externa |
-| Tier 7 — Regresiones de gates tras rediseño y modularización | 2 abiertas, 2 cerradas; actualizado 2026-09-07 | 2 | 1 media, 1 baja | bajo |
+| Tier 7 — Regresiones de gates tras rediseño y modularización | 1 abierta, 3 cerradas; actualizado 2026-09-07 | 1 | 1 baja | bajo |
 
 En Tier 6, una tarea puede conservar `[ ]` cuando su criterio exige evidencia
 externa aunque su implementación local ya esté aplicada. El estado técnico de
@@ -2675,11 +2675,11 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
 ## Tier 7 — Regresiones de gates tras rediseño y modularización (abierto 2026-09-07)
 
 Origen: [AUDITORIA_PROFESIONAL_2026-09-07.md](AUDITORIA_PROFESIONAL_2026-09-07.md),
-base `d0e00fd`, versión `0.167.0`. Cuatro tareas abiertas: tres medias y una baja.
-El producto y el recorrido nativo pasan; esta tanda recupera controles locales
-que quedaron rojos o desactualizados.
+base `d0e00fd`, versión `0.167.0`. Cuatro tareas registradas: una baja
+permanece abierta. El producto y el recorrido nativo pasan; esta tanda
+recupera controles locales que quedaron rojos o desactualizados.
 
-- [ ] **[T7-01] Reducir el CSS al presupuesto contractual**
+- [x] **[T7-01] Reducir el CSS al presupuesto contractual**
   - **Área:** Rendimiento / UI/UX
   - **Severidad:** Media · Regresión posterior al rediseño
   - **Ubicación:** `tools/check-bundle.mjs:8`, `src/styles.css:1`
@@ -2687,6 +2687,7 @@ que quedaron rojos o desactualizados.
   - **Criterio de aceptación:** cada CSS queda en o bajo 131.072 B raw y 40 KiB gzip; build, E2E y matriz visual siguen pasando.
   - **Esfuerzo:** bajo
   - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-07. Se retiraron declaraciones responsive redundantes sin elevar límites; CSS raw 130.758 B, gzip 19.939 B. Build, E2E y matriz visual pasan.
 
 - [x] **[T7-02] Sincronizar y endurecer el inventario IPC modular**
   - **Área:** Arquitectura / QA / Documentación
@@ -2724,6 +2725,7 @@ que quedaron rojos o desactualizados.
 | 2026-09-07 | Reauditoría cerrada; cuatro regresiones documentadas y pendientes de aprobación para corrección. |
 | 2026-09-07 | T7-03 cerrada: gate de red corregido y cadena de suministro aprobada; T7-01, T7-02 y T7-04 siguen abiertas. |
 | 2026-09-07 | T7-02 cerrada: inventario IPC sincronizado con módulos reales y validación de archivos fuente activa; T7-01 y T7-04 siguen abiertas. |
+| 2026-09-07 | T7-01 cerrada: CSS raw 130.758 B y gzip 19.939 B bajo presupuesto; build, E2E y matriz visual aprobados. T7-04 permanece abierta. |
 
 ### Decisiones cerradas de Tier 7
 

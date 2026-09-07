@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Interno
 
+- T7-01 restaura el presupuesto CSS retirando declaraciones responsive
+  redundantes sin cambiar los límites: 130.758 B raw y 19.939 B gzip. Build,
+  E2E y la matriz visual de accesibilidad pasan.
+
 - T7-02 sincroniza el inventario IPC con `dataset/samples` y los módulos de la
   fachada `src/bridge/*`. El checker valida ahora los archivos fuente declarados
   y la prueba de paridad consume esa lista única; quedan registrados 67 comandos

@@ -28,13 +28,18 @@ pendientes por decisión del usuario.
 T7-03 quedó cerrada el 2026-09-07: la política de red separa patrones de
 frontend y Rust, mantiene bloqueados los clientes HTTP reales y permite el
 cursor ODBC de las pruebas. Sus tres regresiones pasan, igual que
-`network:check` y `supply-chain:check`. T7-01, T7-02 y T7-04 permanecen abiertas.
+`network:check` y `supply-chain:check`. T7-01 y T7-02 ya están cerradas; T7-04
+permanece abierta.
 
 T7-02 quedó cerrada el 2026-09-07: el inventario IPC se regeneró con los
 propietarios de `dataset/samples` y la fachada modular `src/bridge/*`. El checker
 valida `sourceFiles` y su existencia; la prueba de paridad consume la misma lista.
-Pasan `ipc:check` y los cinco tests de contrato IPC. T7-01 y T7-04 permanecen
-abiertas.
+Pasan `ipc:check` y los cinco tests de contrato IPC. T7-04 permanece abierta.
+
+T7-01 quedó cerrada el 2026-09-07: se retiraron declaraciones responsive
+redundantes sin elevar los límites. El CSS generado mide 130.758 B raw y
+19.939 B gzip; pasan build, los 10 E2E y la matriz visual/accesibilidad.
+T7-04 permanece abierta.
 
 ## Diseño vigente — 2026-09-06
 
@@ -1375,6 +1380,7 @@ Al actualizarlo:
 | 2026-09-07 | Reauditoría incremental posterior al rediseño y la modularización: producto, suites y recorrido nativo aprobados; Tier 7 registra presupuesto CSS excedido, inventario IPC desincronizado, falso positivo del gate de red y evidencia documental anterior. Usuario, escala, canal, jurisdicción y normativa quedan pendientes. | `AUDITORIA_PROFESIONAL_2026-09-07.md`, `ROADMAP.md`, `CHANGELOG.md`, `.local/validation/accessibility-visual/20260907T223346Z`, `.local/validation/webview2-cdp/20260907T223458Z` |
 | 2026-09-07 | T7-03: el gate de red distingue patrones por lenguaje y conserva cobertura de cursor ODBC permitido, `fetch` web bloqueado y cliente HTTP Rust bloqueado; red y supply chain pasan. | `tools/check-network-policy.mjs`, `tools/check-network-policy.test.mjs`, `package.json`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-02: inventario IPC regenerado con módulos reales; checker y prueba de paridad comparten `sourceFiles` y validan su existencia. | `docs/reference/ipc-inventory.json`, `tools/check-ipc-inventory.mjs`, `src/ipc-contract.test.ts`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-09-07 | T7-01: declaraciones responsive redundantes retiradas; CSS raw/gzip bajo presupuesto y build, E2E y matriz visual aprobados. | `src/styles.css`, `.local/validation/audit-20260907-bundle.json`, `.local/validation/accessibility-visual/20260907T224737Z`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-04 | Versión 0.167.0: el perfilado source-backed conserva los candidatos categóricos durante el recorrido inicial, acelera la clasificación de texto ASCII y la detección conservadora de fechas, y lee columnas Parquet en paralelo sin alterar paridad ni límites source-backed. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.166.0: el perfilado source-backed usa el pool de concurrencia por bloque para calcular huellas normalizadas y actualizar columnas en paralelo sin cambiar orden ni semántica. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.165.0: el perfilado source-backed cuenta filas distintas y distintos por columna en una sola agregación DuckDB, eliminando el derrame temporal de una clave completa por registro y manteniendo paridad con nulos/repeticiones. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md` |
