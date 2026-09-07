@@ -192,12 +192,26 @@ export function App() {
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
   const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
   const [datasetRevision, setDatasetRevision] = useState(0);
+  const datasetRevisionRef = useRef(0);
+  const pageRequestRef = useRef(0);
+  const operationBusyRef = useRef(false);
+  const [completedPhases, setCompletedPhases] = useState<Set<ActivePhase>>(() => new Set());
   const [recipeSession, setRecipeSession] = useState(0);
+
+  function bumpDatasetRevision() {
+    datasetRevisionRef.current += 1;
+    pageRequestRef.current += 1;
+    setDatasetRevision(datasetRevisionRef.current);
+  }
+
+  function resetCompletedPhases() {
+    setCompletedPhases(new Set(["load"]));
+  }
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) => {
-      setDatasetRevision((current) => current + 1);
+      bumpDatasetRevision();
       setDatasetStatus({ kind: "ready", dataset, pageOffset: 0, pageLoading: false });
       setSqlHistory([]);
       setComparisonStatus(clearComparison());
@@ -219,9 +233,10 @@ export function App() {
     exportStatus.kind === "loading" ||
     comparisonStatus.kind === "loading" ||
     joinStatus.kind === "loading";
+  const loadSelectionBusy = loadInspection.kind === "inspecting" || loadInspection.kind === "sheet";
   const projects = useProjectsController({
     connected: status.kind === "ready",
-    blocked: coreOperationBusy,
+    blocked: coreOperationBusy || loadSelectionBusy,
     hasDataset: datasetStatus.kind === "ready",
     workspace: {
       qualityRules: deliveryRules(deliveryContract),
@@ -254,14 +269,19 @@ export function App() {
       setPrivacyMode("none");
     },
     onProjectOpened: async ({ dataset, workspace, profile }) => {
-      setDatasetRevision((current) => current + 1);
+      bumpDatasetRevision();
+      resetCompletedPhases();
       const initialDataset = createReadyDatasetStatus(dataset);
       setDatasetStatus(initialDataset);
       const previewOffset = normalizePageOffset(workspace.previewOffset ?? 0, dataset.rowCount);
       if (previewOffset > 0) {
+        const requestedRevision = datasetRevisionRef.current;
+        const requestId = ++pageRequestRef.current;
         try {
           const page = await getDatasetPage(previewOffset, PAGE_SIZE);
-          setDatasetStatus(completePageLoad(initialDataset, page));
+          if (datasetRevisionRef.current === requestedRevision && pageRequestRef.current === requestId) {
+            setDatasetStatus(completePageLoad(initialDataset, page));
+          }
         } catch {
           // El snapshot sigue siendo válido; la muestra vuelve a su primera página.
         }
@@ -358,6 +378,7 @@ export function App() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen("columnia://dataset-drop", () => {
+      if (operationBusyRef.current) return;
       void inspectDatasetSource(inspectDroppedDatasetSource());
     }).then((cleanup) => {
       if (disposed) {
@@ -403,7 +424,8 @@ export function App() {
         format: source.format,
       }));
       setDatasetStatus(createReadyDatasetStatus(dataset));
-      setDatasetRevision((current) => current + 1);
+      bumpDatasetRevision();
+      resetCompletedPhases();
       projects.unlinkActiveProject();
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
@@ -560,7 +582,8 @@ export function App() {
     try {
       const dataset = await useConsolidatedDataset();
       setDatasetStatus(createReadyDatasetStatus(dataset));
-      setDatasetRevision((current) => current + 1);
+      bumpDatasetRevision();
+      resetCompletedPhases();
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -586,7 +609,8 @@ export function App() {
     try {
       const dataset = await resolveDatasetConflicts(decisions);
       setDatasetStatus(createReadyDatasetStatus(dataset));
-      setDatasetRevision((current) => current + 1);
+      bumpDatasetRevision();
+      resetCompletedPhases();
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -620,7 +644,8 @@ export function App() {
         return;
       }
       setDatasetStatus(createReadyDatasetStatus(dataset));
-      setDatasetRevision((current) => current + 1);
+      bumpDatasetRevision();
+      resetCompletedPhases();
       setComparisonStatus(clearComparison());
       setComparisonKeyColumns([]);
       setJoinStatus(clearJoin());
@@ -712,12 +737,16 @@ export function App() {
     if (datasetStatus.kind !== "ready") return;
 
     const previous = datasetStatus;
+    const requestedRevision = datasetRevisionRef.current;
+    const requestId = ++pageRequestRef.current;
     setDatasetStatus(beginPageLoad(previous));
 
     try {
       const page = await getDatasetPage(offset, PAGE_SIZE);
+      if (datasetRevisionRef.current !== requestedRevision || pageRequestRef.current !== requestId) return;
       setDatasetStatus(completePageLoad(previous, page));
     } catch (error: unknown) {
+      if (datasetRevisionRef.current !== requestedRevision || pageRequestRef.current !== requestId) return;
       const message = error instanceof Error ? error.message : String(error);
       setDatasetStatus(failPageLoad(previous, message));
     }
@@ -727,7 +756,8 @@ export function App() {
   const retainedDataset =
     datasetStatus.kind === "loading" ? datasetStatus.previous : undefined;
   const activeDataset = readyDataset ?? retainedDataset;
-  const operationBusy = coreOperationBusy || projects.isBusy;
+  const operationBusy = coreOperationBusy || loadSelectionBusy || projects.isBusy;
+  operationBusyRef.current = operationBusy;
   const activePhaseIndex = Math.max(0, phases.findIndex((phase) => phase.id === activePhase));
   const activePhaseMeta = phases[activePhaseIndex];
   const previousPhase = phases[activePhaseIndex - 1];
@@ -757,9 +787,9 @@ export function App() {
         <nav className="side-nav" aria-label="Flujo de preparación de datos">
           {phases.map((phase, phaseIndex) => {
             const available = phase.id === "load" || Boolean(activeDataset);
-            const phaseState = phaseIndex < activePhaseIndex
-              ? "complete"
-              : phaseIndex === activePhaseIndex ? "current" : "upcoming";
+            const phaseState = phaseIndex === activePhaseIndex
+              ? "current"
+              : completedPhases.has(phase.id) ? "complete" : "upcoming";
             return (
               <button
                 key={phase.id}
@@ -902,6 +932,7 @@ export function App() {
             {activePhase === "load" && (
               <LoadPhase
                 runtime={loadRuntime}
+                disabled={operationBusy}
                 datasetStatus={datasetStatus}
                 inspection={loadInspection}
                 recentDatasets={recentDatasets}
@@ -1052,7 +1083,10 @@ export function App() {
                   className="primary-action"
                   onMouseEnter={() => preloadPhase(nextPhase.id)}
                   onFocus={() => preloadPhase(nextPhase.id)}
-                  onClick={() => setActivePhase(nextPhase.id)}
+                  onClick={() => {
+                    setCompletedPhases((current) => new Set(current).add(activePhase));
+                    setActivePhase(nextPhase.id);
+                  }}
                   disabled={!activeDataset || operationBusy}
                 >
                   Continuar a {nextPhase.label}

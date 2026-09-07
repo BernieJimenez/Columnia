@@ -23,6 +23,7 @@ export type LoadRuntimeState =
 interface LoadPhaseProps {
   children?: ReactNode;
   runtime: LoadRuntimeState;
+  disabled?: boolean;
   datasetStatus: DatasetStatus;
   inspection: LoadInspectionState;
   recentDatasets: readonly RecentDataset[];
@@ -39,6 +40,7 @@ interface LoadPhaseProps {
 export function LoadPhase({
   children,
   runtime,
+  disabled = false,
   datasetStatus,
   inspection,
   recentDatasets,
@@ -61,7 +63,7 @@ export function LoadPhase({
   const importError = inspection.kind === "error"
     ? inspection.message
     : sheetSelection?.error;
-  const selectionDisabled = runtime.kind !== "connected" ||
+  const selectionDisabled = disabled || runtime.kind !== "connected" ||
     inspection.kind === "inspecting" ||
     datasetStatus.kind === "loading" ||
     inspection.kind === "sheet";
