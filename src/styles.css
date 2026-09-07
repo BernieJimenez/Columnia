@@ -614,6 +614,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
 .quality-temporal-empty { margin: 14px 0 0; padding: 12px; border: 1px dashed var(--border-subtle); color: var(--text-secondary); font-size: .8125rem; }
 .quality-groups .quality-chart__note strong { color: var(--text-primary); }
 .quality-chart__track-fill--other { background: #7b8d88 !important; }
+.quality-chart__table { max-width: 100%; overflow: auto; }
 .quality-groups .quality-chart__table { max-height: 220px; margin-top: 12px; overflow: auto; border: 1px solid var(--border-subtle); background: #fff; }
 .quality-groups .quality-chart__table table { width: 100%; margin: 0; }
 .quality-groups .quality-chart__table th,
