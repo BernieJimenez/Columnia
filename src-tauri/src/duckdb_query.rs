@@ -656,7 +656,7 @@ where
     if columns.is_empty() {
         return Ok((0, Vec::new()));
     }
-    execute_duckdb_operation(is_cancelled, |connection| {
+    execute_duckdb_operation_with_cancel_state(is_cancelled, |connection, cancelled| {
         let resource_directory = tempfile::tempdir().map_err(|error| {
             format!("No se pudo preparar el conteo de valores distintos source-backed: {error}")
         })?;
@@ -676,21 +676,25 @@ where
         let query = format!(
             "SELECT COUNT(DISTINCT struct_pack({row_fields})), {column_projections} FROM dataset"
         );
-        let raw_counts = connection
-            .query_row(&query, [], |row| {
-                let distinct_rows = row.get::<_, i64>(0)?;
-                let distinct_columns = columns
-                    .iter()
-                    .enumerate()
-                    .map(|(index, _)| row.get::<_, i64>(index + 1))
-                    .collect::<duckdb::Result<Vec<_>>>()?;
-                Ok((distinct_rows, distinct_columns))
-            })
-            .map_err(|error| {
-                format!(
-                    "DuckDB no pudo contar filas y valores distintos en una sola pasada: {error}"
-                )
-            })?;
+        let raw_counts = match connection.query_row(&query, [], |row| {
+            let distinct_rows = row.get::<_, i64>(0)?;
+            let distinct_columns = columns
+                .iter()
+                .enumerate()
+                .map(|(index, _)| row.get::<_, i64>(index + 1))
+                .collect::<duckdb::Result<Vec<_>>>()?;
+            Ok((distinct_rows, distinct_columns))
+        }) {
+            Ok(counts) => counts,
+            Err(error) if error.to_string().contains("Out of Memory Error") => {
+                count_distinct_sequentially(connection, columns, cancelled)?
+            }
+            Err(error) => {
+                return Err(format!(
+                    "DuckDB no pudo contar filas y valores distintos: {error}"
+                ))
+            }
+        };
         let distinct_rows = usize::try_from(raw_counts.0)
             .map_err(|_| "El conteo de filas distintas excede la capacidad local.".to_owned())?;
         let distinct_columns = raw_counts
@@ -707,6 +711,44 @@ where
             .collect::<Result<Vec<_>, _>>()?;
         Ok((distinct_rows, distinct_columns))
     })
+}
+
+// Multiple DISTINCT aggregate states compete for the same 512 MB budget.
+// A separate GROUP BY per result can spill independently, including wide rows.
+// This connection belongs only to the count operation, so order is irrelevant.
+fn count_distinct_sequentially(
+    connection: &Connection,
+    columns: &[String],
+    cancelled: &AtomicBool,
+) -> Result<(i64, Vec<i64>), String> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+    }
+    connection
+        .execute_batch("SET threads = 1; SET preserve_insertion_order = false;")
+        .map_err(|error| format!("No se pudo preparar el conteo de memoria acotada: {error}"))?;
+    let count = |projection: &str, filter: &str| -> Result<i64, String> {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM (SELECT DISTINCT {projection} FROM dataset {filter}) AS distinct_values"),
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("No se pudo completar el conteo exacto con memoria acotada: {error}"))
+    };
+    let identifiers = columns
+        .iter()
+        .map(|column| quote_identifier(column))
+        .collect::<Vec<_>>();
+    let rows = count(&identifiers.join(", "), "")?;
+    let columns = identifiers
+        .iter()
+        .map(|identifier| count(identifier, &format!("WHERE {identifier} IS NOT NULL")))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((rows, columns))
 }
 
 pub(crate) fn count_file_values_not_equal<C>(
@@ -2163,6 +2205,62 @@ mod tests {
 
         assert_eq!(distinct_rows, 3);
         assert_eq!(distinct_columns, vec![2, 2]);
+    }
+
+    #[test]
+    fn profiles_high_cardinality_columns_with_bounded_memory() {
+        let directory = tempfile::tempdir().expect("directorio de prueba");
+        let path = directory.path().join("high-cardinality.parquet");
+        let connection = Connection::open_in_memory().expect("generador de fixture");
+        let projections = (0..12)
+            .map(|index| format!("lpad(CAST(i + {index} AS VARCHAR), 16, '0') AS c{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let destination = path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        connection
+            .execute_batch(&format!(
+                "COPY (SELECT {projections} FROM range(2000000) t(i)) TO '{destination}' (FORMAT PARQUET)"
+            ))
+            .expect("fixture sintética de dos millones de filas");
+        drop(connection);
+        let columns = (0..12).map(|index| format!("c{index}")).collect::<Vec<_>>();
+        let result = count_file_distinct_rows_and_non_null_columns(
+            &path,
+            DuckDbFileFormat::Parquet,
+            &columns,
+            || false,
+        )
+        .expect("el perfil debe completar los conteos exactos dentro de 512 MB");
+        assert_eq!(result, (2_000_000, vec![2_000_000; 12]));
+    }
+
+    #[test]
+    fn sequential_distinct_counts_preserve_nulls_duplicates_and_quoted_names() {
+        let connection = Connection::open_in_memory().expect("conexión de prueba");
+        connection.execute_batch(
+            "CREATE TABLE dataset (\"odd\"\"column\" BIGINT, label VARCHAR);
+             INSERT INTO dataset VALUES (1, 'a'), (1, 'a'), (NULL, 'a'),
+             (2, 'b'), (2, NULL), (NULL, NULL), (NULL, NULL);",
+        ).expect("tabla con nulos y duplicados");
+        let columns = vec!["odd\"column".to_owned(), "label".to_owned()];
+        let cancelled = AtomicBool::new(false);
+        assert_eq!(
+            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap(),
+            (5, vec![2, 2]),
+        );
+        connection.execute_batch("DELETE FROM dataset").unwrap();
+        assert_eq!(
+            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap(),
+            (0, vec![0, 0]),
+        );
+        cancelled.store(true, Ordering::Release);
+        assert_eq!(
+            count_distinct_sequentially(&connection, &columns, &cancelled).unwrap_err(),
+            OPERATION_CANCELLED_MESSAGE,
+        );
     }
 
     #[test]
