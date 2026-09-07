@@ -105,7 +105,7 @@ summary:focus-visible,
 .theme-switcher__heading p { margin: 3px 0 0; color: var(--text-secondary); font-size: .75rem; line-height: 1.35; }
 .theme-switcher__options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 13px; }
 .theme-switcher__option { display: grid; place-items: center; min-height: 44px; padding: 7px 3px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-raised); color: var(--text-primary); font-size: .75rem; font-weight: 800; cursor: pointer; }
-.theme-switcher__option:hover:not(:disabled) { border-color: #79aaa1; background: var(--surface-raised); }
+.theme-switcher__option:hover:not(:disabled):not(.theme-switcher__option--active) { border-color: #79aaa1; background: var(--surface-raised); }
 .theme-switcher__option--active { border-color: var(--accent); background: var(--accent); color: #142d33; box-shadow: inset 0 -2px 0 var(--accent); }
 .theme-switcher__status { margin: 9px 0 0; color: var(--text-secondary); font-size: .75rem; line-height: 1.35; }
 .main-content { min-width: 0; padding: 28px 40px 48px; }
@@ -1063,7 +1063,7 @@ td { border-color: var(--border-subtle); }
 :root[data-theme="dark"] .theme-switcher__status { color: var(--text-secondary); }
 :root[data-theme="dark"] .theme-switcher__eyebrow { border-left-color: var(--focus-ring); color: var(--focus-ring); }
 :root[data-theme="dark"] .theme-switcher__option { border-color: var(--border-subtle); background: var(--surface-raised); }
-:root[data-theme="dark"] .theme-switcher__option:hover:not(:disabled) { background: var(--surface-raised); }
+:root[data-theme="dark"] .theme-switcher__option:hover:not(:disabled):not(.theme-switcher__option--active) { background: var(--surface-raised); }
 :root[data-theme="dark"] .theme-switcher__option--active { border-color: var(--accent); background: var(--accent); color: #142d33; box-shadow: inset 0 -2px 0 var(--accent); }
 :root[data-theme="dark"] .runtime,
 :root[data-theme="dark"] .workspace { border-color: var(--border-subtle); background: var(--surface); }
