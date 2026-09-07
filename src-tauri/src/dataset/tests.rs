@@ -4,8 +4,8 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-use super::*;
 use super::samples::{ensure_sample_dataset, list_sample_datasets};
+use super::*;
 use ::zip::ZipArchive;
 
 fn temporary_csv(contents: &str) -> PathBuf {
@@ -314,8 +314,8 @@ fn loads_schema_and_rows_from_a_csv() {
 fn source_backed_load_keeps_only_schema_while_preparing_the_preview() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
 
-    let (schema, preview, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, preview, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
 
     assert_eq!(schema.height(), 0);
     assert_eq!(schema.width(), 2);
@@ -349,9 +349,8 @@ fn loads_json_variants_through_private_parquet_snapshots() {
         let source = directory.path().join(format!("large.{extension}"));
         fs::write(&source, contents).expect("se debe escribir el JSON temporal");
         let snapshot = directory.path().join(format!("{extension}.parquet"));
-        let (schema, preview, row_count) =
-            source_backed_json_load(&source, &snapshot, || false)
-                .expect("el JSON debe abrirse mediante snapshot");
+        let (schema, preview, row_count) = source_backed_json_load(&source, &snapshot, || false)
+            .expect("el JSON debe abrirse mediante snapshot");
 
         assert_eq!(schema.height(), 0);
         assert_eq!(schema.width(), 2);
@@ -461,8 +460,7 @@ fn removes_empty_rows_from_source_backed_snapshot_with_reversible_history() {
         .source_path
         .as_deref()
         .expect("la limpieza debe conservar el snapshot actual");
-    let current =
-        read_parquet_frame(current_path).expect("el snapshot limpio debe ser legible");
+    let current = read_parquet_frame(current_path).expect("el snapshot limpio debe ser legible");
     assert_eq!(current.height(), 2);
     assert_eq!(
         current.column("name").unwrap().str().unwrap().get(1),
@@ -555,8 +553,7 @@ fn source_backed_cleanups_remove_duplicates_and_columns_with_reversible_history(
         .as_deref()
         .expect("la limpieza debe conservar el snapshot actual")
         .to_owned();
-    let current =
-        read_parquet_frame(&current_path).expect("el snapshot final debe ser legible");
+    let current = read_parquet_frame(&current_path).expect("el snapshot final debe ser legible");
     assert_eq!(current.get_column_names(), &["id", "name", "_cambios"]);
     assert_eq!(current.height(), 5);
     assert_eq!(
@@ -581,8 +578,8 @@ fn source_backed_near_duplicate_cleanup_matches_eager_and_preserves_exact_repeat
         "name,city,amount\nAna,Santo Domingo,1\n ana , santo   domingo ,1\nAna,Santo Domingo,1\nLuis,Santiago,2\nluis,Santiago,2\nMarta,Santiago,3\n",
     );
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
@@ -623,8 +620,8 @@ fn source_backed_near_duplicate_cleanup_matches_eager_and_preserves_exact_repeat
 fn source_backed_safe_corrections_combine_trim_and_renames() {
     let path = temporary_csv("Año Venta,city\n1,\" Bogotá \"\n2,\" Santo Domingo \"\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let mut dataset = LoadedDataset {
@@ -791,8 +788,7 @@ fn source_backed_personal_mask_counts_changes_without_materializing_rows() {
         .source_path
         .as_deref()
         .expect("el undo debe conservar el snapshot actual");
-    let undone =
-        read_parquet_frame(undone_path).expect("el snapshot deshecho debe ser legible");
+    let undone = read_parquet_frame(undone_path).expect("el snapshot deshecho debe ser legible");
     assert_eq!(
         undone.column("email").unwrap().str().unwrap().get(1),
         Some("luis@example.com")
@@ -870,9 +866,8 @@ fn source_backed_schema_changes_normalize_names_and_enable_audit_reversibly() {
 
 #[test]
 fn source_backed_text_cleaning_streams_trim_sentinels_and_normalization() {
-    let source = temporary_csv(
-        "name,notes,amount\n\"  Ana  \",N/A,1\n\" Bob \",\"  Café  \",2\nLuis,?,3\n",
-    );
+    let source =
+        temporary_csv("name,notes,amount\n\"  Ana  \",N/A,1\n\" Bob \",\"  Café  \",2\nLuis,?,3\n");
     let (schema, _, row_count) = source_backed_load(&source, "csv", || false)
         .expect("la fuente debe inspeccionarse en disco");
     let file_size_bytes = fs::metadata(&source).expect("la fuente debe existir").len();
@@ -921,10 +916,9 @@ fn source_backed_text_cleaning_streams_trim_sentinels_and_normalization() {
         Some("Recortar espacios")
     );
 
-    let sentinels =
-        source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::Sentinels)
-            .expect("los centinelas source-backed deben procesarse")
-            .expect("la fuente debe seguir siendo compatible");
+    let sentinels = source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::Sentinels)
+        .expect("los centinelas source-backed deben procesarse")
+        .expect("la fuente debe seguir siendo compatible");
     assert_eq!(sentinels.affected_row_count, 2);
     assert_eq!(sentinels.changed_cell_count, 2);
     let current_path = dataset
@@ -980,10 +974,9 @@ fn source_backed_boolean_normalization_preserves_the_candidate_threshold() {
         history,
     };
 
-    let normalized =
-        source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::Booleans)
-            .expect("la normalización booleana source-backed debe procesarse")
-            .expect("la fuente debe ser compatible");
+    let normalized = source_backed_text_cleaning(&mut dataset, None, TextCleaningMode::Booleans)
+        .expect("la normalización booleana source-backed debe procesarse")
+        .expect("la fuente debe ser compatible");
     assert_eq!(normalized.affected_row_count, 7);
     assert_eq!(normalized.changed_cell_count, 7);
     assert_eq!(normalized.changed_columns[0].name, "flag");
@@ -1255,8 +1248,7 @@ fn source_backed_direct_outlier_modes_match_eager_without_rows_in_memory() {
         let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
             .expect("la fuente debe inspeccionarse en disco");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
-        let history =
-            HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let mut dataset = LoadedDataset {
             source_path: Some(path.clone()),
             file_name: "direct-outliers.csv".to_owned(),
@@ -1320,8 +1312,8 @@ fn source_backed_direct_outlier_modes_match_eager_without_rows_in_memory() {
 #[test]
 fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let state = DatasetState {
@@ -1379,8 +1371,8 @@ fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state
 fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1434,8 +1426,8 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
 fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
     let path = temporary_csv("text,city\nAna-01,Santo Domingo\nLuis-02,Santiago\n,La Vega\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1489,8 +1481,8 @@ fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
 fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
     let path = temporary_csv("left,right\n10,2\n9,3\n,4\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1542,9 +1534,8 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 
     let invalid_path = temporary_csv("left,right\n10,0\n");
-    let (invalid_schema, _, invalid_row_count) =
-        source_backed_load(&invalid_path, "csv", || false)
-            .expect("la fuente inválida debe inspeccionarse en disco");
+    let (invalid_schema, _, invalid_row_count) = source_backed_load(&invalid_path, "csv", || false)
+        .expect("la fuente inválida debe inspeccionarse en disco");
     let invalid_history =
         HistoryManager::deferred().expect("el historial inválido debe inicializarse");
     let invalid_size = fs::metadata(&invalid_path)
@@ -1576,8 +1567,8 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
 fn source_backed_date_parts_after_filters_match_eager() {
     let path = temporary_csv("day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1642,12 +1633,11 @@ fn source_backed_date_parts_after_filters_match_eager() {
 
 #[test]
 fn source_backed_date_range_filters_match_eager() {
-    let path = temporary_csv(
-        "day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n01/03/2026,40\n",
-    );
+    let path =
+        temporary_csv("day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n01/03/2026,40\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1707,12 +1697,11 @@ fn source_backed_date_range_filters_match_eager() {
 
 #[test]
 fn source_backed_date_equality_filters_match_eager() {
-    let path = temporary_csv(
-        "day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n01/03/2026,40\n",
-    );
+    let path =
+        temporary_csv("day,amount\n31/12/2025,20\n01/01/2026,5\n15/02/2026,30\n01/03/2026,40\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1776,8 +1765,8 @@ fn source_backed_date_equality_filters_match_eager() {
 fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\nLa Vega,25\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1842,8 +1831,8 @@ fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
 fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
     let path = temporary_csv("group,amount\nA,10\nB,5\nA,20\n,7\nB,\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -1929,8 +1918,7 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
         let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
         let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
             .expect("la fuente debe inspeccionarse en disco");
-        let history =
-            HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let mut dataset = LoadedDataset {
             source_path: Some(path.clone()),
@@ -1968,8 +1956,7 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
             .source_path
             .as_deref()
             .expect("el resultado debe conservar una fuente Parquet");
-        let output =
-            read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
         assert!(output.equals_missing(&expected));
 
         fs::remove_file(path).expect("se debe limpiar el CSV temporal");
@@ -1980,8 +1967,8 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
 fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
     let path = temporary_csv("amount,group\n1,A\n2,A\n3,A\n4,A\n100,A\n100,B\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -2032,12 +2019,11 @@ fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
 
 #[test]
 fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
-    let path = temporary_csv(
-        "amount,when,city\n10,2024-01-02,Santo Domingo\n20,2024-02-03,Santiago\n",
-    );
+    let path =
+        temporary_csv("amount,when,city\n10,2024-01-02,Santo Domingo\n20,2024-02-03,Santiago\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -2124,8 +2110,7 @@ fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
         let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
         let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
             .expect("la fuente debe inspeccionarse en disco");
-        let history =
-            HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let mut dataset = LoadedDataset {
             source_path: Some(path.clone()),
@@ -2166,8 +2151,7 @@ fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
             .source_path
             .as_deref()
             .expect("el resultado debe conservar una fuente Parquet");
-        let output =
-            read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
+        let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
         assert!(output.equals_missing(&expected));
         assert_eq!(result.dataset.rows[0][1].as_deref(), Some(expected_value));
 
@@ -2183,8 +2167,7 @@ fn source_backed_iso8601_matches_eager_for_naive_and_utc_values() {
         let (source_frame, _) = load_csv(&path).expect("el CSV ISO debe cargar");
         let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
             .expect("la fuente ISO debe inspeccionarse en disco");
-        let history =
-            HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+        let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
         let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
         let mut dataset = LoadedDataset {
             source_path: Some(path.clone()),
@@ -2321,12 +2304,11 @@ fn source_backed_iso8601_falls_back_for_non_utc_offsets() {
 
 #[test]
 fn source_backed_literal_replacement_matches_eager_order_and_counts_cells() {
-    let path = temporary_csv(
-        "name,note,score\nO'Reilly,customer,1\nOmar,customer,2\nNope,customer,3\n",
-    );
+    let path =
+        temporary_csv("name,note,score\nO'Reilly,customer,1\nOmar,customer,2\nNope,customer,3\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -2859,8 +2841,8 @@ fn source_backed_contact_normalizations_match_eager_and_feed_extractions() {
 fn source_backed_text_and_null_filters_keep_eager_semantics() {
     let path = temporary_csv("name,tag\nO'Reilly,\nOmar,customer\n");
     let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -2910,8 +2892,8 @@ fn source_backed_text_and_null_filters_keep_eager_semantics() {
 #[test]
 fn materializes_a_deferred_dataset_only_when_an_operation_requires_rows() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
-    let (schema, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
     let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
     let mut dataset = LoadedDataset {
@@ -2965,8 +2947,7 @@ fn materialization_budget_does_not_block_small_sources_or_exact_capacity() {
         .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
         .saturating_add(MATERIALIZATION_RESERVE_BYTES);
     assert!(
-        materialization_budget_error(MATERIALIZATION_GUARD_THRESHOLD_BYTES, required,)
-            .is_none()
+        materialization_budget_error(MATERIALIZATION_GUARD_THRESHOLD_BYTES, required,).is_none()
     );
 }
 
@@ -2977,8 +2958,8 @@ fn source_backed_profile_matches_the_in_memory_profile_without_retaining_rows() 
     );
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
     let expected = profile_dataset(&frame).expect("el perfil en memoria debe calcularse");
-    let (_, _, row_count) = source_backed_load(&path, "csv", || false)
-        .expect("la fuente debe inspeccionarse en disco");
+    let (_, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let mut updates = Vec::new();
     let actual = profile_source_backed_with_progress(
         &path,
@@ -3126,8 +3107,8 @@ fn source_backed_quality_validation_matches_the_in_memory_contract() {
         aggregate,
         drift,
     ];
-    let expected = evaluate_quality_rules(&frame, &rules)
-        .expect("la validación en memoria debe funcionar");
+    let expected =
+        evaluate_quality_rules(&frame, &rules).expect("la validación en memoria debe funcionar");
     let actual = evaluate_source_quality_rules_with_cancel(
         &path,
         "csv",
@@ -3356,8 +3337,8 @@ fn source_backed_global_quality_rules_count_duplicates_across_blocks() {
     aggregate.expected = Some(row_count as f64);
     let rules = vec![unique, unique_together, monotonic, aggregate];
 
-    let expected = evaluate_quality_rules(&frame, &rules)
-        .expect("la validación en memoria debe funcionar");
+    let expected =
+        evaluate_quality_rules(&frame, &rules).expect("la validación en memoria debe funcionar");
     let actual = evaluate_source_quality_rules_with_cancel(
         &path,
         "csv",
@@ -3548,8 +3529,8 @@ fn canonicalizes_dataset_reads_and_write_parents() {
     fs::write(&dataset, "value\n1\n").expect("se debe crear el dataset");
     let non_canonical_dataset = nested.join("..").join("datos.csv");
 
-    let (canonical_dataset, _, extension) = validate_dataset_file(&non_canonical_dataset)
-        .expect("la ruta equivalente debe validarse");
+    let (canonical_dataset, _, extension) =
+        validate_dataset_file(&non_canonical_dataset).expect("la ruta equivalente debe validarse");
     let destination =
         canonicalize_write_destination(&nested.join("..").join("salida.csv"), "la exportación")
             .expect("la carpeta de salida debe canonicalizarse");
@@ -3632,9 +3613,8 @@ fn rejects_windows_reparse_points_including_dangling_links() {
         .expect_err("una lectura no debe seguir reparse points");
     let write_error = canonicalize_write_destination(&link, "la exportación")
         .expect_err("una escritura no debe seguir reparse points");
-    let dangling_read_error =
-        canonicalize_existing_file(&dangling_link, "el dataset seleccionado")
-            .expect_err("una lectura no debe aceptar enlaces simbólicos colgantes");
+    let dangling_read_error = canonicalize_existing_file(&dangling_link, "el dataset seleccionado")
+        .expect_err("una lectura no debe aceptar enlaces simbólicos colgantes");
     let dangling_write_error = canonicalize_write_destination(&dangling_link, "la exportación")
         .expect_err("una escritura no debe aceptar enlaces simbólicos colgantes");
 
@@ -3681,8 +3661,8 @@ fn returns_a_bounded_page_from_an_offset() {
 fn reads_only_the_schema_for_parquet_query_validation() {
     let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
     let path = directory.path().join("source.parquet");
-    let mut frame = df!["id" => &[1_i64, 2], "name" => &["A", "B"]]
-        .expect("el frame Parquet debe ser válido");
+    let mut frame =
+        df!["id" => &[1_i64, 2], "name" => &["A", "B"]].expect("el frame Parquet debe ser válido");
     let mut file = File::create(&path).expect("se debe crear el Parquet temporal");
     ParquetWriter::new(&mut file)
         .finish(&mut frame)
@@ -3753,9 +3733,8 @@ fn local_query_is_read_only_projected_and_bounded() {
         "value" => &[10_i64, 20_i64, 30_i64]
     ]
     .unwrap();
-    let result =
-        execute_local_query(&frame, "SELECT city, value FROM dataset LIMIT 1 OFFSET 1")
-            .expect("la consulta segura debe ejecutarse");
+    let result = execute_local_query(&frame, "SELECT city, value FROM dataset LIMIT 1 OFFSET 1")
+        .expect("la consulta segura debe ejecutarse");
     assert_eq!(
         result
             .columns
@@ -3811,13 +3790,11 @@ fn parquet_backed_local_queries_match_materialized_results_across_blocks() {
         "SELECT id, group FROM dataset WHERE id >= 16382 LIMIT 7",
         "SELECT group, COUNT(*) AS total FROM dataset GROUP BY group LIMIT 10",
     ] {
-        let eager = execute_local_query(&frame, query)
-            .expect("la consulta materializada debe ejecutarse");
+        let eager =
+            execute_local_query(&frame, query).expect("la consulta materializada debe ejecutarse");
         let parquet =
-            execute_local_query_from_parquet_with_cancel(&path, frame.height(), query, &|| {
-                false
-            })
-            .expect("la consulta respaldada por Parquet debe ejecutarse");
+            execute_local_query_from_parquet_with_cancel(&path, frame.height(), query, &|| false)
+                .expect("la consulta respaldada por Parquet debe ejecutarse");
         assert_eq!(parquet, eager, "la consulta debe conservar su paridad");
     }
 }
@@ -4160,15 +4137,13 @@ fn source_backed_file_queries_support_all_join_types_without_a_snapshot() {
 fn source_backed_join_materializes_only_the_result_for_all_join_types() {
     let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
     let compared_path = temporary_csv("id,segment\n2,B\n3,C\n");
-    let (current_schema, _, current_row_count) =
-        source_backed_load(&current_path, "csv", || false)
-            .expect("la fuente activa debe abrirse source-backed");
+    let (current_schema, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
     let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
         .expect("el esquema comparado debe leerse")
         .expect("el CSV comparado debe ser source-backed");
     let current_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
-        delimiter: detect_delimiter(&current_path, "csv")
-            .expect("el delimitador debe detectarse"),
+        delimiter: detect_delimiter(&current_path, "csv").expect("el delimitador debe detectarse"),
     };
     let output_directory = tempfile::tempdir().expect("se debe crear la salida temporal");
 
@@ -4237,8 +4212,7 @@ fn source_backed_join_materializes_only_the_result_for_all_join_types() {
             },
         )
         .expect("DuckDB debe publicar solo el resultado JOIN");
-        let result =
-            read_parquet_frame(&output_path).expect("el resultado Parquet debe leerse");
+        let result = read_parquet_frame(&output_path).expect("el resultado Parquet debe leerse");
         let page = dataset_page(&result, 0, PREVIEW_ROW_LIMIT)
             .expect("la página del resultado debe poder leerse");
         assert_eq!(row_count, expected_rows.len());
@@ -4260,8 +4234,7 @@ fn source_backed_join_materializes_only_the_result_for_all_join_types() {
         "id,city\n1,Santo Domingo\n2,Santiago\n"
     );
     assert_eq!(
-        fs::read_to_string(&compared_path)
-            .expect("la fuente comparada debe permanecer intacta"),
+        fs::read_to_string(&compared_path).expect("la fuente comparada debe permanecer intacta"),
         "id,segment\n2,B\n3,C\n"
     );
     fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
@@ -4272,15 +4245,13 @@ fn source_backed_join_materializes_only_the_result_for_all_join_types() {
 fn source_backed_join_rejects_an_oversized_result_before_writing_it() {
     let current_path = temporary_csv("id,city\n1,A\n1,B\n");
     let compared_path = temporary_csv("id,segment\n1,X\n1,Y\n");
-    let (current_schema, _, current_row_count) =
-        source_backed_load(&current_path, "csv", || false)
-            .expect("la fuente activa debe abrirse source-backed");
+    let (current_schema, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
     let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
         .expect("el esquema comparado debe leerse")
         .expect("el CSV comparado debe ser source-backed");
     let current_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
-        delimiter: detect_delimiter(&current_path, "csv")
-            .expect("el delimitador debe detectarse"),
+        delimiter: detect_delimiter(&current_path, "csv").expect("el delimitador debe detectarse"),
     };
     let (_, dataset_view_query, output_query, current_order_column, compared_order_column) =
         source_backed_join_plan(
@@ -4319,9 +4290,8 @@ fn source_backed_join_rejects_an_oversized_result_before_writing_it() {
 fn source_backed_join_publishes_a_reversible_parquet_cursor() {
     let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
     let compared_path = temporary_csv("id,segment\n2,B\n3,C\n");
-    let (current_schema, _, current_row_count) =
-        source_backed_load(&current_path, "csv", || false)
-            .expect("la fuente activa debe abrirse source-backed");
+    let (current_schema, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
     let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
         .expect("el esquema comparado debe leerse")
         .expect("el CSV comparado debe ser source-backed");
@@ -4354,9 +4324,8 @@ fn source_backed_join_publishes_a_reversible_parquet_cursor() {
         current_row_count,
     )
     .expect("el plan del JOIN debe validarse");
-    let temporary =
-        tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
-            .expect("la salida temporal debe prepararse");
+    let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+        .expect("la salida temporal debe prepararse");
     let output_path = temporary.path().to_owned();
     drop(temporary);
     let output_row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
@@ -4458,9 +4427,8 @@ fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_ac
         context.row_count,
     )
     .expect("el plan del JOIN debe validarse");
-    let temporary =
-        tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
-            .expect("la salida temporal debe prepararse");
+    let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+        .expect("la salida temporal debe prepararse");
     let output_path = temporary.path().to_owned();
     drop(temporary);
     let output_row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
@@ -4517,7 +4485,11 @@ fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_ac
     assert_eq!(audit.dataset.row_count, 3);
     materialize_loaded_dataset(&mut dataset).expect("el cursor JOIN debe materializar sus filas");
     assert_eq!(dataset.frame.height(), 3);
-    assert!(dataset.frame.get_column_names().iter().any(|name| name.as_str() == "_cambios"));
+    assert!(dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .any(|name| name.as_str() == "_cambios"));
     assert_eq!(
         dataset
             .history
@@ -4534,15 +4506,13 @@ fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_ac
 fn source_backed_consolidation_materializes_only_new_keys() {
     let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
     let compared_path = temporary_csv("id,city\n2,Santiago\n3,La Vega\n");
-    let (current_schema, _, current_row_count) =
-        source_backed_load(&current_path, "csv", || false)
-            .expect("la fuente activa debe abrirse source-backed");
+    let (current_schema, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
     let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
         .expect("el esquema comparado debe leerse")
         .expect("el CSV comparado debe ser source-backed");
     let current_format = crate::duckdb_query::DuckDbFileFormat::Delimited {
-        delimiter: detect_delimiter(&current_path, "csv")
-            .expect("el delimitador debe detectarse"),
+        delimiter: detect_delimiter(&current_path, "csv").expect("el delimitador debe detectarse"),
     };
     let (dataset_view_query, output_query, current_order_column, compared_order_column) =
         source_backed_consolidation_plan(
@@ -4597,8 +4567,7 @@ fn source_backed_consolidation_materializes_only_new_keys() {
         "id,city\n1,Santo Domingo\n2,Santiago\n"
     );
     assert_eq!(
-        fs::read_to_string(&compared_path)
-            .expect("la fuente comparada debe permanecer intacta"),
+        fs::read_to_string(&compared_path).expect("la fuente comparada debe permanecer intacta"),
         "id,city\n2,Santiago\n3,La Vega\n"
     );
     fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
@@ -4640,10 +4609,9 @@ fn source_backed_consolidation_rejects_duplicate_and_conflicting_keys() {
     let (conflict_current_schema, _, _) =
         source_backed_load(&conflict_current_path, "csv", || false)
             .expect("la fuente en conflicto debe abrirse source-backed");
-    let (_, _conflict_compared_schema) =
-        source_backed_join_source(&conflict_compared_path, "csv")
-            .expect("el esquema comparado debe leerse")
-            .expect("el CSV comparado debe ser source-backed");
+    let (_, _conflict_compared_schema) = source_backed_join_source(&conflict_compared_path, "csv")
+        .expect("el esquema comparado debe leerse")
+        .expect("el CSV comparado debe ser source-backed");
     let conflict_error = validate_source_backed_consolidation(
         &conflict_current_path,
         current_format,
@@ -4658,17 +4626,15 @@ fn source_backed_consolidation_rejects_duplicate_and_conflicting_keys() {
     fs::remove_file(duplicate_current_path).expect("se debe limpiar la fuente duplicada");
     fs::remove_file(duplicate_compared_path).expect("se debe limpiar la comparación duplicada");
     fs::remove_file(conflict_current_path).expect("se debe limpiar la fuente en conflicto");
-    fs::remove_file(conflict_compared_path)
-        .expect("se debe limpiar la comparación en conflicto");
+    fs::remove_file(conflict_compared_path).expect("se debe limpiar la comparación en conflicto");
 }
 
 #[test]
 fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
     let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
     let compared_path = temporary_csv("id,city\n2,Santiago\n3,La Vega\n");
-    let (current_schema, _, current_row_count) =
-        source_backed_load(&current_path, "csv", || false)
-            .expect("la fuente activa debe abrirse source-backed");
+    let (current_schema, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
     let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
         .expect("el esquema comparado debe leerse")
         .expect("el CSV comparado debe ser source-backed");
@@ -4704,9 +4670,8 @@ fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
         &["id".to_owned()],
     )
     .expect("la consolidación debe validar las claves");
-    let temporary =
-        tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
-            .expect("la salida temporal debe prepararse");
+    let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+        .expect("la salida temporal debe prepararse");
     let output_path = temporary.path().to_owned();
     drop(temporary);
     let output_row_count = crate::duckdb_query::materialize_file_sources_query_to_parquet(
@@ -4772,9 +4737,8 @@ fn disk_backed_conflict_page_keeps_source_active_frame_deferred() {
     .expect("la comparación debe construirse");
     let (compared_directory, compared_path) =
         persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
-    let (current_frame, _, current_row_count) =
-        source_backed_load(&current_path, "csv", || false)
-            .expect("la fuente activa debe abrirse source-backed");
+    let (current_frame, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
     let current_size_bytes = fs::metadata(&current_path)
         .expect("la fuente activa debe conservar sus metadatos")
         .len();
@@ -4952,8 +4916,8 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
     let compared_size_bytes = fs::metadata(&compared_path)
         .expect("el snapshot comparado debe conservar sus metadatos")
         .len();
-    let compared_schema = read_parquet_schema_frame(&compared_path)
-        .expect("el esquema comparado debe poder leerse");
+    let compared_schema =
+        read_parquet_schema_frame(&compared_path).expect("el esquema comparado debe poder leerse");
     let preview = resolve_source_backed_conflicts(
         &state,
         SourceBackedConflictResolutionRequest {
@@ -5063,8 +5027,8 @@ fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
     let compared_size_bytes = fs::metadata(&compared_path)
         .expect("el snapshot comparado debe conservar sus metadatos")
         .len();
-    let compared_schema = read_parquet_schema_frame(&compared_path)
-        .expect("el esquema comparado debe poder leerse");
+    let compared_schema =
+        read_parquet_schema_frame(&compared_path).expect("el esquema comparado debe poder leerse");
     let preview = consolidate_source_backed_dataset(
         &state,
         SourceBackedConsolidationRequest {
@@ -5121,9 +5085,8 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
     .expect("la comparación debe construirse");
     let (compared_directory, compared_path) =
         persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
-    let (current_frame, _, current_row_count) =
-        source_backed_load(&current_path, "csv", || false)
-            .expect("la fuente activa debe abrirse source-backed");
+    let (current_frame, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
     let current_size_bytes = fs::metadata(&current_path)
         .expect("la fuente activa debe conservar sus metadatos")
         .len();
@@ -5163,8 +5126,8 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
         source_backed_join_context(current.as_ref().expect("el dataset debe existir"))
             .expect("el contexto source-backed debe conservarse")
     };
-    let compared_schema = read_parquet_schema_frame(&compared_path)
-        .expect("el esquema comparado debe poder leerse");
+    let compared_schema =
+        read_parquet_schema_frame(&compared_path).expect("el esquema comparado debe poder leerse");
     let preview = resolve_source_backed_conflicts(
         &state,
         SourceBackedConflictResolutionRequest {
@@ -5312,8 +5275,7 @@ fn duckdb_source_backed_join_handles_large_file() {
     let directory = tempfile::tempdir().expect("se debe crear el directorio del benchmark");
     let current_path = directory.path().join("current.csv");
     let started = Instant::now();
-    let (row_count, file_size_bytes) =
-        write_duckdb_join_benchmark_csv(&current_path, target_bytes);
+    let (row_count, file_size_bytes) = write_duckdb_join_benchmark_csv(&current_path, target_bytes);
     assert!(file_size_bytes >= target_bytes);
     let (current_frame, _preview, loaded_row_count) =
         source_backed_load(&current_path, "csv", || false)
@@ -5998,9 +5960,8 @@ fn local_query_aggregate_rejects_matching_rows_over_materialization_budget() {
 #[test]
 fn local_query_stops_at_cooperative_cancellation_point() {
     let frame = df!["id" => &[1_i64, 2, 3]].unwrap();
-    let error =
-        execute_local_query_with_cancel(&frame, "SELECT id FROM dataset LIMIT 1", &|| true)
-            .expect_err("la consulta debe detenerse si se cancela antes de escanear");
+    let error = execute_local_query_with_cancel(&frame, "SELECT id FROM dataset LIMIT 1", &|| true)
+        .expect_err("la consulta debe detenerse si se cancela antes de escanear");
 
     assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
 }
@@ -6157,8 +6118,7 @@ fn local_query_parallel_blocks_preserve_page_order_and_aggregate_totals() {
     .expect("el dataset de prueba debe construirse");
 
     let offset = LOCAL_QUERY_BLOCK_ROWS - 2;
-    let query =
-        format!("SELECT id, value FROM dataset WHERE value >= 0 LIMIT 5 OFFSET {offset}");
+    let query = format!("SELECT id, value FROM dataset WHERE value >= 0 LIMIT 5 OFFSET {offset}");
     let first_page =
         execute_local_query(&frame, &query).expect("la página paralela debe ejecutarse");
     let second_page =
@@ -6272,8 +6232,7 @@ fn csv_preserves_lexical_values_and_does_not_profile_identifiers_as_numbers() {
     let path = temporary_csv(
         "identifier,amount,huge\n00123,1.00,184467440737095516160\n00456,2.50,184467440737095516161\n00789,3.00,184467440737095516162\n",
     );
-    let (frame, preview) =
-        load_csv(&path).expect("el CSV debe cargar sin inferencia destructiva");
+    let (frame, preview) = load_csv(&path).expect("el CSV debe cargar sin inferencia destructiva");
     let profile = profile_dataset(&frame).expect("el perfil semántico debe calcularse");
 
     assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
@@ -6336,8 +6295,7 @@ fn numeric_correlations_honor_the_requested_sample_limit() {
     let path = temporary_csv("first,second\n1,2\n2,4\n3,6\n4,8\n5,10\n6,12\n7,14\n8,16\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
 
-    let profile =
-        profile_dataset_with_sample_rows(&frame, 2).expect("el perfil debe calcularse");
+    let profile = profile_dataset_with_sample_rows(&frame, 2).expect("el perfil debe calcularse");
     let correlations = profile
         .numeric_correlations
         .as_ref()
@@ -6361,8 +6319,7 @@ fn validates_numeric_correlation_sample_bounds() {
     );
     assert!(validate_numeric_correlation_sample_rows(0).is_err());
     assert!(
-        validate_numeric_correlation_sample_rows(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS + 1)
-            .is_err()
+        validate_numeric_correlation_sample_rows(MAX_NUMERIC_CORRELATION_SAMPLE_ROWS + 1).is_err()
     );
 }
 
@@ -7022,8 +6979,7 @@ fn privacy_modes_mask_or_hash_detect_all_detected_columns_without_values() {
         .unwrap();
     assert_eq!(hashed_value.len(), 64);
     assert_ne!(hashed_value, "ana@example.com");
-    let (unprotected, protected_columns) =
-        privacy_safe_frame(&frame, PrivacyMode::None).unwrap();
+    let (unprotected, protected_columns) = privacy_safe_frame(&frame, PrivacyMode::None).unwrap();
     assert_eq!(unprotected, frame);
     assert!(protected_columns.is_empty());
 }
@@ -7252,8 +7208,8 @@ fn compares_parquet_source_by_blocks_without_materializing_the_compared_frame() 
     ]
     .expect("el frame activo debe ser válido");
     let key_columns = vec!["id".to_owned()];
-    let (source_directory, source_path) = persist_comparison_snapshot(&compared)
-        .expect("la fuente Parquet debe poder escribirse");
+    let (source_directory, source_path) =
+        persist_comparison_snapshot(&compared).expect("la fuente Parquet debe poder escribirse");
     let (snapshot_directory, snapshot_path) = persist_comparison_source_file(&source_path)
         .expect("la fuente Parquet debe poder copiarse sin materializarla");
     assert_eq!(
@@ -7301,8 +7257,8 @@ fn compares_two_parquet_sources_without_materializing_either_frame() {
         "value" => &["comparado-1", "igual"]
     ]
     .expect("el frame comparado debe ser válido");
-    let (current_directory, current_path) = persist_comparison_snapshot(&current)
-        .expect("el snapshot activo debe poder escribirse");
+    let (current_directory, current_path) =
+        persist_comparison_snapshot(&current).expect("el snapshot activo debe poder escribirse");
     let (compared_directory, compared_path) = persist_comparison_snapshot(&compared)
         .expect("el snapshot comparado debe poder escribirse");
 
@@ -7387,9 +7343,8 @@ fn compares_json_source_through_a_parquet_snapshot_without_changing_values() {
     ]
     .expect("el dataset activo debe construirse");
     let compared = load_json_records(&compared_path).expect("el JSON debe cargar");
-    let (snapshot_directory, snapshot_path) =
-        persist_json_comparison_source_file(&compared_path)
-            .expect("el JSON debe convertirse al snapshot temporal");
+    let (snapshot_directory, snapshot_path) = persist_json_comparison_source_file(&compared_path)
+        .expect("el JSON debe convertirse al snapshot temporal");
     let restored = read_parquet_frame(&snapshot_path).expect("el snapshot debe ser legible");
     let restored_in_source_order = restored
         .select(compared.get_column_names())
@@ -7429,10 +7384,9 @@ fn comparison_signatures_merge_fixed_blocks_without_changing_counts() {
         .expect("el frame grande de comparación debe ser válido");
     let columns = vec!["id".to_owned()];
 
-    let signature_spill =
-        spill_key_rows(&frame, &columns).expect("las firmas deben derramarse");
-    let signatures = collect_spilled_signature_counts(&signature_spill)
-        .expect("las firmas deben fusionarse");
+    let signature_spill = spill_key_rows(&frame, &columns).expect("las firmas deben derramarse");
+    let signatures =
+        collect_spilled_signature_counts(&signature_spill).expect("las firmas deben fusionarse");
     let key_spill = spill_key_rows(&frame, &columns).expect("las claves deben derramarse");
     let keys = collect_spilled_key_rows(&key_spill).expect("las claves deben fusionarse");
 
@@ -7978,9 +7932,8 @@ fn near_duplicate_removal_publishes_a_reversible_history_entry() {
     assert_eq!(affected_row_count, 2);
 
     let mut dataset = loaded_dataset(path.clone(), original);
-    let preview =
-        publish_candidate(&mut dataset, cleaned, "Eliminar filas duplicadas parecidas")
-            .expect("la mutación debe publicarse");
+    let preview = publish_candidate(&mut dataset, cleaned, "Eliminar filas duplicadas parecidas")
+        .expect("la mutación debe publicarse");
 
     assert_eq!(preview.row_count, 3);
     assert_eq!(
@@ -8057,8 +8010,8 @@ fn removes_only_completely_empty_columns_and_keeps_one_column() {
         "second" => &[None::<i64>, None]
     ]
     .unwrap();
-    let (kept, removed) = remove_empty_columns_from_frame(&all_empty)
-        .expect("el dataset debe conservar una columna");
+    let (kept, removed) =
+        remove_empty_columns_from_frame(&all_empty).expect("el dataset debe conservar una columna");
     assert_eq!(removed.len(), 1);
     assert_eq!(kept.width(), 1);
     assert_eq!(kept.height(), 2);
@@ -8195,8 +8148,8 @@ fn keeps_one_personal_column_when_all_usable_columns_are_personal() {
     ]
     .unwrap();
 
-    let (cleaned, removed_columns) = remove_personal_columns_from_frame(&frame)
-        .expect("el dataset debe conservar una columna");
+    let (cleaned, removed_columns) =
+        remove_personal_columns_from_frame(&frame).expect("el dataset debe conservar una columna");
     assert_eq!(removed_columns, vec!["email"]);
     assert_eq!(cleaned.get_column_names(), vec!["nombre"]);
     assert_eq!(cleaned.width(), 1);
@@ -8442,9 +8395,8 @@ fn trims_text_without_changing_internal_spaces_case_accents_or_nulls() {
     let path = temporary_csv("city,note\n\" Bogotá \",\"A  B\"\nLima,\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
 
-    let (cleaned, rows, cells, columns) =
-        clean_text_columns(&frame, None, TextCleaningMode::Trim)
-            .expect("los espacios deben limpiarse");
+    let (cleaned, rows, cells, columns) = clean_text_columns(&frame, None, TextCleaningMode::Trim)
+        .expect("los espacios deben limpiarse");
     let page = dataset_page(&cleaned, 0, 50).expect("la vista previa debe generarse");
 
     assert_eq!(page.rows[0][0].as_deref(), Some("Bogotá"));
@@ -8487,8 +8439,7 @@ fn normalizes_selected_text_and_preserves_unselected_columns() {
 fn undo_and_redo_restore_disk_backed_revisions() {
     let path = temporary_csv("city\nSanto Domingo\nSantiago\nSantiago\n");
     let (original, _) = load_csv(&path).expect("el CSV debe cargar");
-    let (cleaned, _) =
-        remove_duplicate_rows(&original).expect("los duplicados deben eliminarse");
+    let (cleaned, _) = remove_duplicate_rows(&original).expect("los duplicados deben eliminarse");
     let mut dataset = loaded_dataset(path.clone(), original.clone());
     publish_candidate(&mut dataset, cleaned, "Eliminar filas duplicadas").unwrap();
     assert!(dataset.source_path.is_none());
@@ -8605,12 +8556,10 @@ fn history_supports_multiple_steps_and_truncates_redo_only_on_real_branch() {
 
 #[test]
 fn history_evicts_old_snapshots_by_count_and_disables_an_oversize_snapshot() {
-    let original =
-        DataFrame::new(1, vec![Series::new("value".into(), [0_i64]).into()]).unwrap();
+    let original = DataFrame::new(1, vec![Series::new("value".into(), [0_i64]).into()]).unwrap();
     let mut limited = HistoryManager::with_limits(&original, 3, u64::MAX).unwrap();
     for value in 1_i64..=4 {
-        let frame =
-            DataFrame::new(1, vec![Series::new("value".into(), [value]).into()]).unwrap();
+        let frame = DataFrame::new(1, vec![Series::new("value".into(), [value]).into()]).unwrap();
         limited.record(&frame, &format!("Paso {value}")).unwrap();
     }
     let state = limited.state();
@@ -8621,8 +8570,7 @@ fn history_evicts_old_snapshots_by_count_and_disables_an_oversize_snapshot() {
     let exact_snapshot_budget = HistoryManager::with_limits(&original, 12, u64::MAX)
         .unwrap()
         .disk_bytes();
-    let mut budgeted =
-        HistoryManager::with_limits(&original, 12, exact_snapshot_budget).unwrap();
+    let mut budgeted = HistoryManager::with_limits(&original, 12, exact_snapshot_budget).unwrap();
     budgeted
         .record(&original, "Dentro del presupuesto")
         .unwrap();
@@ -8659,8 +8607,7 @@ fn corrupt_restore_and_snapshot_io_failure_leave_dataset_and_cursor_unchanged() 
     let (fresh, _) = load_csv(&fresh_path).unwrap();
     let mut io_failure = loaded_dataset(fresh_path.clone(), fresh.clone());
     fs::remove_dir_all(io_failure.history.directory.path()).unwrap();
-    let candidate =
-        DataFrame::new(1, vec![Series::new("value".into(), [9_i64]).into()]).unwrap();
+    let candidate = DataFrame::new(1, vec![Series::new("value".into(), [9_i64]).into()]).unwrap();
     assert!(publish_candidate(&mut io_failure, candidate, "No publicable").is_err());
     assert!(io_failure.frame.equals_missing(&fresh));
     assert_eq!(io_failure.history.cursor, 0);
@@ -9079,8 +9026,8 @@ fn loads_json_lines_and_rejects_non_object_records() {
         "jsonl",
         "{\"code\":\"001\",\"value\":10}\n{\"code\":\"002\",\"value\":20}\n",
     );
-    let (_, preview) = load_dataset_with_progress(&valid, |_, _| {}, || false)
-        .expect("JSON Lines debe cargar");
+    let (_, preview) =
+        load_dataset_with_progress(&valid, |_, _| {}, || false).expect("JSON Lines debe cargar");
     assert_eq!(preview.rows[0][0].as_deref(), Some("001"));
     fs::remove_file(valid).expect("se debe limpiar JSON Lines");
 
@@ -9629,8 +9576,8 @@ fn lazy_recipe_combines_split_and_merge_columns() {
     };
 
     assert!(lazy_recipe_supported(&frame, &recipe));
-    let outcome = apply_recipe_to_frame(&frame, &recipe)
-        .expect("split y merge deben compartir el plan lazy");
+    let outcome =
+        apply_recipe_to_frame(&frame, &recipe).expect("split y merge deben compartir el plan lazy");
 
     assert_eq!(outcome.9, 2);
     assert_eq!(outcome.10, 1);
@@ -9936,29 +9883,8 @@ fn lazy_recipe_casts_filters_and_calculates_in_one_plan() {
         ..Default::default()
     };
 
-    let (
-        result,
-        _,
-        converted,
-        _,
-        removed,
-        calculated,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-    ) = apply_recipe_to_frame(&frame, &recipe).expect("la receta simple debe usar lazy");
+    let (result, _, converted, _, removed, calculated, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
+        apply_recipe_to_frame(&frame, &recipe).expect("la receta simple debe usar lazy");
     assert_eq!(converted, 1);
     assert_eq!(removed, 1);
     assert_eq!(calculated, 1);
@@ -10308,8 +10234,7 @@ fn lazy_group_summary_uses_calculated_columns_before_grouping() {
                 [Some("Santo"), Some("Santo"), Some("Santiago"), None],
             )
             .into_column(),
-            Series::new("code".into(), [Some("1"), Some("2"), Some("1"), Some("3")])
-                .into_column(),
+            Series::new("code".into(), [Some("1"), Some("2"), Some("1"), Some("3")]).into_column(),
             Series::new("value".into(), [1_i64, 2, 3, 4]).into_column(),
         ],
     )
@@ -10572,8 +10497,7 @@ fn lazy_contact_normalization_preserves_nulls_and_counts_changes() {
         vec![
             Series::new("email".into(), [Some(" İ@EXAMPLE.COM "), None]).into_column(),
             Series::new("phone".into(), [" +1 (809) 555-01 ", "1+2"]).into_column(),
-            Series::new("address".into(), ["  Calle\u{a0}Uno\u{2003}Norte ", "ok"])
-                .into_column(),
+            Series::new("address".into(), ["  Calle\u{a0}Uno\u{2003}Norte ", "ok"]).into_column(),
         ],
     )
     .unwrap();
@@ -10820,8 +10744,7 @@ fn recipe_rejects_division_by_zero_precision_loss_and_too_many_filters() {
         .unwrap()
         .contains("precisión"));
 
-    let safe =
-        DataFrame::new(1, vec![Series::new("value".into(), ["1"]).into_column()]).unwrap();
+    let safe = DataFrame::new(1, vec![Series::new("value".into(), ["1"]).into_column()]).unwrap();
     assert!(apply_recipe_to_frame(&safe, &divide)
         .err()
         .unwrap()
@@ -11953,8 +11876,7 @@ fn group_summary_is_stable_supports_null_keys_and_count_semantics() {
                 [Some("B"), None, Some("B"), None, Some("A")],
             )
             .into_column(),
-            Series::new("value".into(), [Some(2_i64), None, Some(4), Some(8), None])
-                .into_column(),
+            Series::new("value".into(), [Some(2_i64), None, Some(4), Some(8), None]).into_column(),
             Series::new(
                 "label".into(),
                 [Some("z"), Some("x"), Some("a"), Some("x"), None],
@@ -12208,8 +12130,7 @@ fn contacts_normalize_unicode_phone_and_address_and_count_changed_cells() {
         vec![
             Series::new("email".into(), [Some(" İ@EXAMPLE.COM "), None]).into_column(),
             Series::new("phone".into(), [" +1 (809) 555-01 ", "1+2"]).into_column(),
-            Series::new("address".into(), ["  Calle\u{a0}Uno\u{2003}Norte ", "ok"])
-                .into_column(),
+            Series::new("address".into(), ["  Calle\u{a0}Uno\u{2003}Norte ", "ok"]).into_column(),
         ],
     )
     .unwrap();
@@ -12663,8 +12584,7 @@ fn quality_rules_apply_aggregate_checks_and_reconciliation() {
     reconciliation.tolerance_abs = Some(0.01);
 
     let result =
-        evaluate_quality_rules(&frame, &[sum, count, minimum, maximum, reconciliation])
-            .unwrap();
+        evaluate_quality_rules(&frame, &[sum, count, minimum, maximum, reconciliation]).unwrap();
 
     assert!(result.passed);
     assert_eq!(result.rules[0].checked_count, 4);
@@ -12805,12 +12725,9 @@ fn quality_rules_document_roundtrips_canonical_and_legacy_v1() {
     assert_eq!(imported.report.omitted_items, 0);
     assert_eq!(imported.report.warning_count, 0);
     assert_eq!(imported.report.manual_actions.len(), 1);
-    assert!(imported
-        .report
-        .artifact_sha256
-        .as_deref()
-        .is_some_and(|hash| hash.len() == 64
-            && hash.chars().all(|character| character.is_ascii_hexdigit())));
+    assert!(imported.report.artifact_sha256.as_deref().is_some_and(
+        |hash| hash.len() == 64 && hash.chars().all(|character| character.is_ascii_hexdigit())
+    ));
 
     let mut replacement = quality_rule("amount", QualityRuleKind::NumericRange);
     replacement.min = Some(0.0);
@@ -13445,9 +13362,10 @@ fn migration_defaults_tolerance_clamps_percentages_and_isolates_bad_rules() {
     assert!(result.warnings.iter().any(|warning| {
         warning.severity == "warning" && warning.message.contains("no traía tolerancia")
     }));
-    assert!(result.warnings.iter().any(|warning| {
-        warning.severity == "warning" && warning.message.contains("ajustada")
-    }));
+    assert!(result
+        .warnings
+        .iter()
+        .any(|warning| { warning.severity == "warning" && warning.message.contains("ajustada") }));
     assert!(result.warnings.iter().any(|warning| {
         warning.severity == "omitted" && warning.message.contains("debe ser una lista")
     }));
@@ -13525,16 +13443,14 @@ fn quality_rule_definitions_reject_invalid_contracts_and_types() {
     let mut non_finite = quality_rule("number", QualityRuleKind::NumericRange);
     non_finite.min = Some(f64::NAN);
     assert!(evaluate_quality_rules(&frame, &[non_finite]).is_err());
-    assert!(evaluate_quality_rules(
-        &frame,
-        &[quality_rule("missing", QualityRuleKind::NotNull)]
-    )
-    .is_err());
-    assert!(evaluate_quality_rules(
-        &frame,
-        &[quality_rule("number", QualityRuleKind::NonEmpty)]
-    )
-    .is_err());
+    assert!(
+        evaluate_quality_rules(&frame, &[quality_rule("missing", QualityRuleKind::NotNull)])
+            .is_err()
+    );
+    assert!(
+        evaluate_quality_rules(&frame, &[quality_rule("number", QualityRuleKind::NonEmpty)])
+            .is_err()
+    );
     assert!(evaluate_quality_rules(
         &frame,
         &[quality_rule("text", QualityRuleKind::NumericRange)]

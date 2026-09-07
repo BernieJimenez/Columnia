@@ -2240,11 +2240,13 @@ mod tests {
     #[test]
     fn sequential_distinct_counts_preserve_nulls_duplicates_and_quoted_names() {
         let connection = Connection::open_in_memory().expect("conexión de prueba");
-        connection.execute_batch(
-            "CREATE TABLE dataset (\"odd\"\"column\" BIGINT, label VARCHAR);
+        connection
+            .execute_batch(
+                "CREATE TABLE dataset (\"odd\"\"column\" BIGINT, label VARCHAR);
              INSERT INTO dataset VALUES (1, 'a'), (1, 'a'), (NULL, 'a'),
              (2, 'b'), (2, NULL), (NULL, NULL), (NULL, NULL);",
-        ).expect("tabla con nulos y duplicados");
+            )
+            .expect("tabla con nulos y duplicados");
         let columns = vec!["odd\"column".to_owned(), "label".to_owned()];
         let cancelled = AtomicBool::new(false);
         assert_eq!(
