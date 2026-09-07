@@ -18,7 +18,13 @@ const bridgeClientSource = [
   "prepare",
   "projects",
 ].map((module) => readFileSync(resolve(`src/bridge/${module}.ts`), "utf8")).join("\n");
-const bridgeContractsSource = readFileSync(resolve("src/bridge/contracts.ts"), "utf8");
+const bridgeContractsSource = [
+  "system-contracts",
+  "dataset-contracts",
+  "recipe-contracts",
+  "delivery-contracts",
+  "project-contracts",
+].map((module) => readFileSync(resolve(`src/bridge/${module}.ts`), "utf8")).join("\n");
 const rustIpcSource = [
   "src-tauri/src/lib.rs",
   "src-tauri/src/dataset.rs",

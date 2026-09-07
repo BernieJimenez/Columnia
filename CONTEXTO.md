@@ -1611,11 +1611,13 @@ Al actualizarlo:
 
 La frontera Tauri del frontend conserva `src/bridge.ts` como fachada pública para
 evitar migraciones en sus consumidores. Sus responsabilidades internas quedan
-separadas en `src/bridge/`: `contracts.ts` contiene el esquema IPC compartido;
-`system.ts`, `datasets.ts`, `delivery.ts`, `prepare.ts` y `projects.ts` contienen
-clientes por dominio; `progress.ts` concentra la adaptación de canales; y
-`client.ts` actúa como barrel interno. La prueba de paridad IPC lee estas fuentes
-explícitamente y mantiene la comparación de comandos, argumentos, retornos y tipos.
+separadas en `src/bridge/`: `contracts.ts` y `client.ts` son barrels internos;
+los contratos se distribuyen entre `system-contracts.ts`, `dataset-contracts.ts`,
+`recipe-contracts.ts`, `delivery-contracts.ts` y `project-contracts.ts`; y los
+clientes viven en `system.ts`, `datasets.ts`, `delivery.ts`, `prepare.ts` y
+`projects.ts`. `progress.ts` concentra la adaptación de canales. La prueba de
+paridad IPC lee estas fuentes explícitamente y mantiene la comparación de comandos,
+argumentos, retornos y tipos.
 
 El catálogo y los comandos de datasets de ejemplo salen del motor monolítico hacia
 `src-tauri/src/dataset/samples.rs`. `dataset.rs` conserva el procesamiento central y
