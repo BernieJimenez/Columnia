@@ -1501,7 +1501,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 
 @media (max-width: 900px) {
   .sidebar {
-    grid-template-areas: "brand nav" "dataset utilities";
+    grid-template-areas: "brand nav" "dataset dataset" "utilities utilities";
     grid-template-columns: auto minmax(0, 1fr);
   }
   .brand { grid-area: brand; }
@@ -2413,7 +2413,7 @@ a:visited { color: #80548b; }
 
 @media (max-width: 900px) {
  .shell { grid-template-columns: 1fr; }
- .sidebar { padding: 16px; }
+ .sidebar { column-gap: 16px; row-gap: 12px; padding: 16px; }
  .main-content { padding: 20px; }
  .workspace { padding: 24px; }
  .side-nav { margin: 0; gap: 4px; }
