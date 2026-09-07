@@ -762,6 +762,7 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .recipe-row,
 .recipe-row--date,
 .recipe-files { grid-template-columns: 1fr; }
+  .cleaning-signals__action { align-items: stretch; flex-direction: column; }
   .recipe-file-status { grid-column: auto; }
   .calculation-grid { grid-template-columns: 1fr; }
   .calculation-grid__wide { grid-column: auto; }
