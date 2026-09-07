@@ -11,34 +11,31 @@ const debugOnlyCommands = new Set([
 
 type SharedStructure = [rust: string, typescript: string];
 
-const bridgeClientSource = [
-  "system",
-  "datasets",
-  "delivery",
-  "prepare",
-  "projects",
-].map((module) => readFileSync(resolve(`src/bridge/${module}.ts`), "utf8")).join("\n");
-const bridgeContractsSource = [
-  "system-contracts",
-  "dataset-contracts",
-  "recipe-contracts",
-  "delivery-contracts",
-  "project-contracts",
-].map((module) => readFileSync(resolve(`src/bridge/${module}.ts`), "utf8")).join("\n");
-const rustIpcSource = [
-  "src-tauri/src/lib.rs",
-  "src-tauri/src/dataset.rs",
-  "src-tauri/src/dataset/samples.rs",
-  "src-tauri/src/projects.rs",
-  "src-tauri/src/resource.rs",
-  "src-tauri/src/updater.rs",
-  "src-tauri/src/remote_databases.rs",
-].map((file) => readFileSync(resolve(file), "utf8")).join("\n");
+type IpcInventory = {
+  sourceFiles?: string[];
+  sharedStructures?: Array<{ rust: string; typescript: string }>;
+};
+
+function ipcInventory(): IpcInventory {
+  return JSON.parse(readFileSync(resolve("docs/reference/ipc-inventory.json"), "utf8")) as IpcInventory;
+}
+
+const inventorySourceFiles = ipcInventory().sourceFiles ?? [];
+const bridgeClientSource = inventorySourceFiles
+  .filter((file) => file.startsWith("src/bridge/") || file === "src/bridge.ts")
+  .map((file) => readFileSync(resolve(file), "utf8"))
+  .join("\n");
+const bridgeContractsSource = inventorySourceFiles
+  .filter((file) => file.includes("-contracts.ts"))
+  .map((file) => readFileSync(resolve(file), "utf8"))
+  .join("\n");
+const rustIpcSource = inventorySourceFiles
+  .filter((file) => file.startsWith("src-tauri/") && !file.endsWith("tests.rs"))
+  .map((file) => readFileSync(resolve(file), "utf8"))
+  .join("\n");
 
 function sharedStructuresFromInventory(): SharedStructure[] {
-  const inventory = JSON.parse(
-    readFileSync(resolve("docs/reference/ipc-inventory.json"), "utf8"),
-  ) as { sharedStructures?: Array<{ rust: string; typescript: string }> };
+  const inventory = ipcInventory();
   return (inventory.sharedStructures ?? []).map(
     ({ rust, typescript }) => [rust, typescript] as SharedStructure,
   );

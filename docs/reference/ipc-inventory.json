@@ -3,11 +3,25 @@
   "sourceFiles": [
     "src-tauri/src/lib.rs",
     "src-tauri/src/dataset.rs",
+    "src-tauri/src/dataset/samples.rs",
     "src-tauri/src/projects.rs",
     "src-tauri/src/resource.rs",
     "src-tauri/src/updater.rs",
     "src-tauri/src/remote_databases.rs",
-    "src/bridge.ts"
+    "src/bridge.ts",
+    "src/bridge/client.ts",
+    "src/bridge/contracts.ts",
+    "src/bridge/dataset-contracts.ts",
+    "src/bridge/datasets.ts",
+    "src/bridge/delivery-contracts.ts",
+    "src/bridge/delivery.ts",
+    "src/bridge/prepare.ts",
+    "src/bridge/progress.ts",
+    "src/bridge/project-contracts.ts",
+    "src/bridge/projects.ts",
+    "src/bridge/recipe-contracts.ts",
+    "src/bridge/system-contracts.ts",
+    "src/bridge/system.ts"
   ],
   "productionCommands": [
     {
@@ -32,12 +46,12 @@
     },
     {
       "name": "list_sample_datasets",
-      "module": "dataset",
+      "module": "samples",
       "debug": false
     },
     {
       "name": "inspect_sample_dataset",
-      "module": "dataset",
+      "module": "samples",
       "debug": false
     },
     {

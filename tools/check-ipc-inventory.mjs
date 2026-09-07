@@ -1,10 +1,33 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const inventoryPath = resolve(projectRoot, "docs/reference/ipc-inventory.json");
 const rustPath = resolve(projectRoot, "src-tauri/src/lib.rs");
+const sourceFiles = [
+  "src-tauri/src/lib.rs",
+  "src-tauri/src/dataset.rs",
+  "src-tauri/src/dataset/samples.rs",
+  "src-tauri/src/projects.rs",
+  "src-tauri/src/resource.rs",
+  "src-tauri/src/updater.rs",
+  "src-tauri/src/remote_databases.rs",
+  "src/bridge.ts",
+  "src/bridge/client.ts",
+  "src/bridge/contracts.ts",
+  "src/bridge/dataset-contracts.ts",
+  "src/bridge/datasets.ts",
+  "src/bridge/delivery-contracts.ts",
+  "src/bridge/delivery.ts",
+  "src/bridge/prepare.ts",
+  "src/bridge/progress.ts",
+  "src/bridge/project-contracts.ts",
+  "src/bridge/projects.ts",
+  "src/bridge/recipe-contracts.ts",
+  "src/bridge/system-contracts.ts",
+  "src/bridge/system.ts",
+];
 const debugOnly = new Set([
   "probe_seed_dataset",
   "probe_save_transform_recipe",
@@ -100,7 +123,7 @@ function expectedInventory(source) {
   const entries = handlerEntries(source);
   return {
     schemaVersion: 1,
-    sourceFiles: ["src-tauri/src/lib.rs", "src-tauri/src/dataset.rs", "src-tauri/src/projects.rs", "src-tauri/src/resource.rs", "src-tauri/src/updater.rs", "src-tauri/src/remote_databases.rs", "src/bridge.ts"],
+    sourceFiles,
     productionCommands: entries.filter(({ name, debug }) => !debug && !debugOnly.has(name)),
     debugCommands: entries.filter(({ name, debug }) => debug || debugOnly.has(name)),
     sharedStructures: sharedStructures.map(([rust, typescript]) => ({ rust, typescript })),
@@ -119,6 +142,16 @@ try {
     process.exit(0);
   }
   const current = JSON.parse(await readFile(inventoryPath, "utf8"));
+  if (comparable(current.sourceFiles) !== comparable(expected.sourceFiles)) {
+    throw new Error("Los archivos fuente del inventario IPC no coinciden con los módulos de paridad.");
+  }
+  for (const file of expected.sourceFiles) {
+    try {
+      await access(resolve(projectRoot, file));
+    } catch {
+      throw new Error(`Falta un archivo fuente declarado por el inventario IPC: ${file}`);
+    }
+  }
   if (comparable(current.productionCommands) !== comparable(expected.productionCommands)
     || comparable(current.debugCommands) !== comparable(expected.debugCommands)) {
     throw new Error("El inventario IPC no coincide con generate_handler; regénéralo y clasifica cualquier novedad.");

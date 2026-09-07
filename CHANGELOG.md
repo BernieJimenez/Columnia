@@ -8,6 +8,11 @@ los artefactos de validación locales.
 
 ### Interno
 
+- T7-02 sincroniza el inventario IPC con `dataset/samples` y los módulos de la
+  fachada `src/bridge/*`. El checker valida ahora los archivos fuente declarados
+  y la prueba de paridad consume esa lista única; quedan registrados 67 comandos
+  de producción, 4 de debug y 58 estructuras.
+
 - T7-03 corrige el gate de red para distinguir `fetch()` del cursor ODBC de
   APIs web y clientes HTTP reales. Se añaden tres pruebas de regresión;
   `network:check` y `supply-chain:check` vuelven a pasar.
