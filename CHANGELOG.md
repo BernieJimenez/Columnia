@@ -8,6 +8,18 @@ los artefactos de validación locales.
 
 ### Interno
 
+- T7-03 corrige el gate de red para distinguir `fetch()` del cursor ODBC de
+  APIs web y clientes HTTP reales. Se añaden tres pruebas de regresión;
+  `network:check` y `supply-chain:check` vuelven a pasar.
+
+- Reauditoría incremental del 2026-09-07 sobre el rediseño y la modularización:
+  284 pruebas frontend, 399 Rust, 10 E2E y el smoke WebView2 real pasan. Se abre
+  Tier 7 con cuatro tareas (`T7-01`–`T7-04`) para recuperar el presupuesto CSS,
+  sincronizar el inventario IPC, eliminar un falso positivo del gate de red y
+  actualizar la evidencia documental. No incluye todavía correcciones de producto
+  ni de configuración. [Informe](AUDITORIA_PROFESIONAL_2026-09-07.md),
+  [plan](ROADMAP.md) y [contexto](CONTEXTO.md).
+
 - Reauditoría de escritorio del 2026-09-05: se documentan trece hallazgos,
   once tareas nuevas (`T6-01`–`T6-11`) y ampliaciones de `T5-18`/`T5-20`.
   Incluye evidencia de integridad de datasets, entrega ODBC, interfaz,

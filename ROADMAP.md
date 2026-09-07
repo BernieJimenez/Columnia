@@ -176,6 +176,7 @@ pendientes existentes cuando corresponde.
 | --- | --- | ---: | --- | --- |
 | Tier 5 — Integridad de gates y preparación de distribución | 18 cerradas, 2 abiertas; revisado 2026-09-05 | 2 | aceptación legal conocida; regresiones separadas en Tier 6 | alto, sujeto a decisiones externas |
 | Tier 6 — Integridad de escritorio y entrega ODBC | 11 implementadas; 1 aceptación externa pendiente; actualizado 2026-09-06 | 1 | round-trip SQL Server real pendiente | 1 validación externa |
+| Tier 7 — Regresiones de gates tras rediseño y modularización | 3 abiertas, 1 cerrada; actualizado 2026-09-07 | 3 | 2 medias, 1 baja | bajo |
 
 En Tier 6, una tarea puede conservar `[ ]` cuando su criterio exige evidencia
 externa aunque su implementación local ya esté aplicada. El estado técnico de
@@ -2670,3 +2671,60 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
 - No elevar presupuestos ni reducir cobertura para obtener un aprobado.
 - No reintroducir compatibilidad externa retirada ni herramientas obligatorias de pago.
 - Conservar CONTEXTO.md como única fuente viva; las correcciones del producto necesitan aprobación posterior al informe.
+
+## Tier 7 — Regresiones de gates tras rediseño y modularización (abierto 2026-09-07)
+
+Origen: [AUDITORIA_PROFESIONAL_2026-09-07.md](AUDITORIA_PROFESIONAL_2026-09-07.md),
+base `d0e00fd`, versión `0.167.0`. Cuatro tareas abiertas: tres medias y una baja.
+El producto y el recorrido nativo pasan; esta tanda recupera controles locales
+que quedaron rojos o desactualizados.
+
+- [ ] **[T7-01] Reducir el CSS al presupuesto contractual**
+  - **Área:** Rendimiento / UI/UX
+  - **Severidad:** Media · Regresión posterior al rediseño
+  - **Ubicación:** `tools/check-bundle.mjs:8`, `src/styles.css:1`
+  - **Qué hacer:** retirar reglas redundantes o dividir estilos por fase sin elevar los límites.
+  - **Criterio de aceptación:** cada CSS queda en o bajo 131.072 B raw y 40 KiB gzip; build, E2E y matriz visual siguen pasando.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+
+- [ ] **[T7-02] Sincronizar y endurecer el inventario IPC modular**
+  - **Área:** Arquitectura / QA / Documentación
+  - **Severidad:** Media · Nuevo
+  - **Ubicación:** `src-tauri/src/lib.rs:154`, `docs/reference/ipc-inventory.json:34`, `tools/check-ipc-inventory.mjs:103`
+  - **Qué hacer:** registrar propietarios y archivos reales de `dataset::samples` y `src/bridge/*`; hacer que el checker compare también `sourceFiles` y reducir listas manuales duplicadas.
+  - **Criterio de aceptación:** `ipc:check` pasa con 67 producción, 4 debug y 58 estructuras, y valida todos los archivos consumidos por la paridad.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+
+- [x] **[T7-03] Eliminar el falso positivo `fetch` del gate de red**
+  - **Área:** Seguridad / QA / Configuración
+  - **Severidad:** Media · Regresión de gate
+  - **Ubicación:** `src-tauri/src/remote_databases.rs:724`, `tools/check-network-policy.mjs:11, :24`
+  - **Qué hacer:** distinguir APIs web por lenguaje o excluir de forma verificable código Rust `#[cfg(test)]`; añadir fixtures que prueben una llamada web real y el cursor ODBC permitido.
+  - **Criterio de aceptación:** ODBC de prueba no falla; `fetch()` TypeScript o un cliente HTTP Rust de producción sí; `network:check` y `supply-chain:check` pasan.
+  - **Esfuerzo:** bajo
+  - **Depende de:** ninguna
+  - **Cerrada:** 2026-09-07. El checker separa patrones frontend/Rust y las pruebas cubren cursor ODBC permitido, `fetch` TypeScript bloqueado y cliente HTTP Rust bloqueado. `network:check` y `supply-chain:check` pasan.
+
+- [ ] **[T7-04] Actualizar la evidencia publicada de dependencias y gates**
+  - **Área:** Documentación / Redacción
+  - **Severidad:** Baja · Regresión de T6-11
+  - **Ubicación:** `docs/reference/dependency-audit.md:69`
+  - **Qué hacer:** publicar los conteos y estados actuales después de T7-02/T7-03 y evitar que la ficha pueda contradecir los gates vigentes.
+  - **Criterio de aceptación:** ficha, inventario, contexto y resultados reproducibles coinciden; documentación detecta conteos vigentes incompatibles.
+  - **Esfuerzo:** bajo
+  - **Depende de:** T7-02, T7-03
+
+### Progreso de Tier 7
+
+| Fecha | Estado |
+| --- | --- |
+| 2026-09-07 | Reauditoría cerrada; cuatro regresiones documentadas y pendientes de aprobación para corrección. |
+| 2026-09-07 | T7-03 cerrada: gate de red corregido y cadena de suministro aprobada; T7-01, T7-02 y T7-04 siguen abiertas. |
+
+### Decisiones cerradas de Tier 7
+
+- No elevar presupuestos para hacer pasar el CSS.
+- No eliminar el gate de red ni ignorar globalmente `fetch`; debe distinguir producción de pruebas y clientes HTTP de cursores ODBC.
+- No duplicar los pendientes externos de Tier 5/Tier 6.

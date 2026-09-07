@@ -1,21 +1,29 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-const evidenceDirectory = join(projectRoot, ".local", "validation", "network-policy", stamp);
-const evidencePath = join(evidenceDirectory, "summary.json");
 const sourceRoots = ["src", "src-tauri/src"];
 const sourceExtensions = new Set([".ts", ".tsx", ".rs"]);
-const forbiddenPatterns = [
+const frontendForbiddenPatterns = [
   /\bfetch\s*\(/,
   /\bXMLHttpRequest\b/,
   /\bWebSocket\b/,
   /\bEventSource\b/,
+  /\b(?:sentry|posthog|plausible|amplitude|analytics|telemetry)\b/i,
+];
+const rustForbiddenPatterns = [
   /\b(?:reqwest|ureq|surf|hyper)::/,
   /\b(?:sentry|posthog|plausible|amplitude|analytics|telemetry)\b/i,
 ];
+
+export function findPolicyViolations(contents, file) {
+  const extension = file.slice(file.lastIndexOf(".")).toLowerCase();
+  const patterns = extension === ".rs" ? rustForbiddenPatterns : frontendForbiddenPatterns;
+  return patterns
+    .filter((pattern) => pattern.test(contents))
+    .map((pattern) => ({ file, pattern: pattern.source }));
+}
 
 async function collectSources(root, output = []) {
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -26,45 +34,52 @@ async function collectSources(root, output = []) {
   return output;
 }
 
-const violations = [];
-for (const root of sourceRoots) {
-  for (const path of await collectSources(join(projectRoot, root))) {
-    const contents = await readFile(path, "utf8");
-    for (const pattern of forbiddenPatterns) {
-      if (pattern.test(contents)) {
-        violations.push({ file: relative(projectRoot, path).replaceAll("\\", "/"), pattern: pattern.source });
-      }
+export async function runNetworkPolicyCheck() {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const evidenceDirectory = join(projectRoot, ".local", "validation", "network-policy", stamp);
+  const evidencePath = join(evidenceDirectory, "summary.json");
+  const violations = [];
+  for (const root of sourceRoots) {
+    for (const path of await collectSources(join(projectRoot, root))) {
+      const contents = await readFile(path, "utf8");
+      violations.push(...findPolicyViolations(contents, relative(projectRoot, path).replaceAll("\\", "/")));
     }
   }
+
+  const tauriConfig = JSON.parse(await readFile(join(projectRoot, "src-tauri", "tauri.conf.json"), "utf8"));
+  const productionCsp = String(tauriConfig.security?.csp ?? "");
+  const externalOrigins = productionCsp.match(/https?:\/\/[^\s;']+/g) ?? [];
+  const allowedInternalOrigins = new Set(["http://ipc.localhost"]);
+  const unexpectedOrigins = externalOrigins.filter((origin) => !allowedInternalOrigins.has(origin));
+  for (const origin of unexpectedOrigins) violations.push({ file: "src-tauri/tauri.conf.json", pattern: origin });
+
+  const status = violations.length === 0 ? "passed" : "failed";
+  await mkdir(evidenceDirectory, { recursive: true });
+  await writeFile(
+    evidencePath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      status,
+      generatedAt: new Date().toISOString(),
+      policy: "sin red de aplicación ni telemetría; solo IPC interno de Tauri en CSP de producción",
+      scannedRoots: sourceRoots,
+      externalOrigins,
+      violations,
+      evidenceDirectory: `.local/validation/network-policy/${stamp}`,
+    }, null, 2)}\n`,
+    "utf8",
+  );
+
+  return { status, evidencePath, violations };
 }
 
-const tauriConfig = JSON.parse(await readFile(join(projectRoot, "src-tauri", "tauri.conf.json"), "utf8"));
-const productionCsp = String(tauriConfig.security?.csp ?? "");
-const externalOrigins = productionCsp.match(/https?:\/\/[^\s;']+/g) ?? [];
-const allowedInternalOrigins = new Set(["http://ipc.localhost"]);
-const unexpectedOrigins = externalOrigins.filter((origin) => !allowedInternalOrigins.has(origin));
-for (const origin of unexpectedOrigins) violations.push({ file: "src-tauri/tauri.conf.json", pattern: origin });
-
-const status = violations.length === 0 ? "passed" : "failed";
-await mkdir(evidenceDirectory, { recursive: true });
-await writeFile(
-  evidencePath,
-  `${JSON.stringify({
-    schemaVersion: 1,
-    status,
-    generatedAt: new Date().toISOString(),
-    policy: "sin red de aplicación ni telemetría; solo IPC interno de Tauri en CSP de producción",
-    scannedRoots: sourceRoots,
-    externalOrigins,
-    violations,
-    evidenceDirectory: `.local/validation/network-policy/${stamp}`,
-  }, null, 2)}\n`,
-  "utf8",
-);
-
-if (status !== "passed") {
-  console.error(`Política de red falló: ${JSON.stringify(violations)}. Evidencia: ${relative(projectRoot, evidencePath)}`);
-  process.exitCode = 1;
-} else {
-  console.log(`Política de red aprobada. Evidencia: ${relative(projectRoot, evidencePath)}`);
+const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (import.meta.url === invokedPath) {
+  const result = await runNetworkPolicyCheck();
+  if (result.status !== "passed") {
+    console.error(`Política de red falló: ${JSON.stringify(result.violations)}. Evidencia: ${relative(projectRoot, result.evidencePath)}`);
+    process.exitCode = 1;
+  } else {
+    console.log(`Política de red aprobada. Evidencia: ${relative(projectRoot, result.evidencePath)}`);
+  }
 }

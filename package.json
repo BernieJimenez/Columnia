@@ -14,6 +14,7 @@
     "build": "tsc --noEmit && vite build",
     "brand:check": "node tools/check-retired-brand.mjs",
     "test": "vitest run",
+    "test:network-policy": "node --test tools/check-network-policy.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage && node tools/check-coverage.mjs",
     "test:e2e": "playwright test",

@@ -7,6 +7,29 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
+## Reauditoría incremental vigente — 2026-09-07
+
+Base `d0e00fd`, versión `0.167.0`. La reauditoría posterior al rediseño y a la
+extracción modular no encontró fallos críticos o altos nuevos en el producto.
+Pasan 284 pruebas frontend, 399 Rust (4 ignoradas), 10 E2E, build, clippy,
+capturas de accesibilidad y el smoke WebView2/Tauri real. El recorrido nativo
+verificó proyectos, mutaciones, reapertura y cleanup dentro de 512 MiB de working
+set y 256 MiB privados.
+
+Se abrió Tier 7 con cuatro pendientes de gates: CSS 234 B sobre su presupuesto
+raw, inventario IPC desincronizado con `dataset::samples`, falso positivo de
+`fetch()` ODBC en la política de red y ficha de dependencias con evidencia
+anterior. Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-07.md),
+[ROADMAP](ROADMAP.md) y [CHANGELOG](CHANGELOG.md). T6-05, T5-18/T5-20,
+asistencia real, VM limpia, updater real y plataformas no Windows siguen abiertos
+sin duplicarse. Usuario, escala, canal, jurisdicción y normativa permanecen
+pendientes por decisión del usuario.
+
+T7-03 quedó cerrada el 2026-09-07: la política de red separa patrones de
+frontend y Rust, mantiene bloqueados los clientes HTTP reales y permite el
+cursor ODBC de las pruebas. Sus tres regresiones pasan, igual que
+`network:check` y `supply-chain:check`. T7-01, T7-02 y T7-04 permanecen abiertas.
+
 ## Diseño vigente — 2026-09-06
 
 Rediseño aplicado en `feat/diseno-integral`, sin cambio de versión. Consultar
@@ -77,6 +100,7 @@ de aprobación no sustituyen los resultados rojos de esta reauditoría.
 
 | Campo | Estado verificado |
 | --- | --- |
+| Última actualización | 2026-09-07; reauditoría incremental cerrada sobre `d0e00fd` |
 | Producto | Estación de escritorio local para revisar, limpiar, transformar y entregar datasets confiables |
 | Versión | `0.167.0`, sincronizada en npm, Cargo y Tauri |
 | Arquitectura implementada | Tauri 2 + Rust + Polars + React 19 + TypeScript + Vite |
@@ -1342,6 +1366,8 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
+| 2026-09-07 | Reauditoría incremental posterior al rediseño y la modularización: producto, suites y recorrido nativo aprobados; Tier 7 registra presupuesto CSS excedido, inventario IPC desincronizado, falso positivo del gate de red y evidencia documental anterior. Usuario, escala, canal, jurisdicción y normativa quedan pendientes. | `AUDITORIA_PROFESIONAL_2026-09-07.md`, `ROADMAP.md`, `CHANGELOG.md`, `.local/validation/accessibility-visual/20260907T223346Z`, `.local/validation/webview2-cdp/20260907T223458Z` |
+| 2026-09-07 | T7-03: el gate de red distingue patrones por lenguaje y conserva cobertura de cursor ODBC permitido, `fetch` web bloqueado y cliente HTTP Rust bloqueado; red y supply chain pasan. | `tools/check-network-policy.mjs`, `tools/check-network-policy.test.mjs`, `package.json`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-04 | Versión 0.167.0: el perfilado source-backed conserva los candidatos categóricos durante el recorrido inicial, acelera la clasificación de texto ASCII y la detección conservadora de fechas, y lee columnas Parquet en paralelo sin alterar paridad ni límites source-backed. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.166.0: el perfilado source-backed usa el pool de concurrencia por bloque para calcular huellas normalizadas y actualizar columnas en paralelo sin cambiar orden ni semántica. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.165.0: el perfilado source-backed cuenta filas distintas y distintos por columna en una sola agregación DuckDB, eliminando el derrame temporal de una clave completa por registro y manteniendo paridad con nulos/repeticiones. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md` |
