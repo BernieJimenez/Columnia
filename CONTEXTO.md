@@ -1607,6 +1607,26 @@ Al actualizarlo:
 | 2026-08-31 | Versión 0.69.0: la exportación JSON source-backed sin receta ni privacidad adicional convierte directamente CSV/TSV/TXT delimitado o Parquet desde la fuente con límites de DuckDB, publicación atómica, validación de cambios y cleanup; una regresión confirma la salida JSON sin materializar el `DataFrame` activo. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 | 2026-08-31 | Versión 0.68.0: la exportación Parquet source-backed sin receta ni privacidad adicional convierte directamente desde la fuente, conserva límites de DuckDB, publicación atómica, validación de cambios y cleanup; una regresión confirma la salida sin materializar el `DataFrame` activo. | `src-tauri/src/dataset.rs`, `src-tauri/Cargo.toml`, `CHANGELOG.md`, `ROADMAP.md`, `docs/reference/feature-parity.md` |
 
+## Optimización arquitectónica — 2026-09-07
+
+La frontera Tauri del frontend conserva `src/bridge.ts` como fachada pública para
+evitar migraciones en sus consumidores. Sus responsabilidades internas quedan
+separadas en `src/bridge/`: `contracts.ts` contiene el esquema IPC compartido;
+`system.ts`, `datasets.ts`, `delivery.ts`, `prepare.ts` y `projects.ts` contienen
+clientes por dominio; `progress.ts` concentra la adaptación de canales; y
+`client.ts` actúa como barrel interno. La prueba de paridad IPC lee estas fuentes
+explícitamente y mantiene la comparación de comandos, argumentos, retornos y tipos.
+
+El catálogo y los comandos de datasets de ejemplo salen del motor monolítico hacia
+`src-tauri/src/dataset/samples.rs`. `dataset.rs` conserva el procesamiento central y
+`lib.rs` registra los comandos desde su módulo propietario. Esta extracción no
+cambia payloads, rutas públicas, persistencia ni comportamiento de ejecución.
+
+Las 13,735 líneas de pruebas unitarias del motor se trasladan desde el archivo de
+producción a `src-tauri/src/dataset/tests.rs`. El módulo continúa siendo hijo de
+`dataset`, por lo que conserva acceso a sus detalles internos y ejecuta exactamente
+los mismos casos, mientras `dataset.rs` queda dedicado al código de producción.
+
 
 ## Sesión de reauditoría — 2026-09-05
 

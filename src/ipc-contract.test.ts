@@ -11,6 +11,24 @@ const debugOnlyCommands = new Set([
 
 type SharedStructure = [rust: string, typescript: string];
 
+const bridgeClientSource = [
+  "system",
+  "datasets",
+  "delivery",
+  "prepare",
+  "projects",
+].map((module) => readFileSync(resolve(`src/bridge/${module}.ts`), "utf8")).join("\n");
+const bridgeContractsSource = readFileSync(resolve("src/bridge/contracts.ts"), "utf8");
+const rustIpcSource = [
+  "src-tauri/src/lib.rs",
+  "src-tauri/src/dataset.rs",
+  "src-tauri/src/dataset/samples.rs",
+  "src-tauri/src/projects.rs",
+  "src-tauri/src/resource.rs",
+  "src-tauri/src/updater.rs",
+  "src-tauri/src/remote_databases.rs",
+].map((file) => readFileSync(resolve(file), "utf8")).join("\n");
+
 function sharedStructuresFromInventory(): SharedStructure[] {
   const inventory = JSON.parse(
     readFileSync(resolve("docs/reference/ipc-inventory.json"), "utf8"),
@@ -451,10 +469,8 @@ function duplicates(values: string[]): string[] {
 describe("contrato IPC", () => {
   it("mantiene en paridad los comandos Tauri registrados y la fachada TypeScript", () => {
     const rustSource = readFileSync(resolve("src-tauri/src/lib.rs"), "utf8");
-    const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
-
     const registered = registeredTauriCommands(rustSource);
-    const invoked = invokedBridgeCommands(bridgeSource);
+    const invoked = invokedBridgeCommands(bridgeClientSource);
 
     expect(duplicates(registered), "comandos Rust registrados más de una vez").toEqual([]);
     expect(duplicates(invoked), "comandos invocados más de una vez desde el bridge").toEqual([]);
@@ -462,49 +478,25 @@ describe("contrato IPC", () => {
   });
 
   it("mantiene en paridad los argumentos serializados de cada comando", () => {
-    const rustSource = [
-      readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/remote_databases.rs"), "utf8"),
-    ].join("\n");
-    const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
+    const rustSource = rustIpcSource;
     const registered = registeredTauriCommands(rustSource);
 
-    expect(bridgeCommandArguments(bridgeSource)).toEqual(
+    expect(bridgeCommandArguments(bridgeClientSource)).toEqual(
       rustCommandArguments(rustSource, registered),
     );
   });
 
   it("mantiene en paridad los tipos de retorno declarados por cada comando", () => {
-    const rustSource = [
-      readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/remote_databases.rs"), "utf8"),
-    ].join("\n");
-    const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
+    const rustSource = rustIpcSource;
     const registered = registeredTauriCommands(rustSource);
 
-    expect(bridgeCommandReturnTypes(bridgeSource)).toEqual(
+    expect(bridgeCommandReturnTypes(bridgeClientSource)).toEqual(
       rustCommandReturnTypes(rustSource, registered),
     );
   });
 
   it("mantiene en paridad los campos de las estructuras compartidas", () => {
-    const rustSource = [
-      readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/remote_databases.rs"), "utf8"),
-    ].join("\n");
-    const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
+    const rustSource = rustIpcSource;
     const sharedStructures = sharedStructuresFromInventory();
 
     const contracts = Object.fromEntries(
@@ -512,7 +504,7 @@ describe("contrato IPC", () => {
         typescriptName,
         {
           rust: rustStructFields(rustSource, rustName),
-          typescript: typescriptInterfaceFields(bridgeSource, typescriptName),
+          typescript: typescriptInterfaceFields(bridgeContractsSource, typescriptName),
         },
       ]),
     );
@@ -523,21 +515,13 @@ describe("contrato IPC", () => {
   });
 
   it("mantiene en paridad los tipos concretos de los campos compartidos", () => {
-    const rustSource = [
-      readFileSync(resolve("src-tauri/src/lib.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/dataset.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/projects.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/resource.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/updater.rs"), "utf8"),
-      readFileSync(resolve("src-tauri/src/remote_databases.rs"), "utf8"),
-    ].join("\n");
-    const bridgeSource = readFileSync(resolve("src/bridge.ts"), "utf8");
-    const aliases = typescriptTypeAliases(bridgeSource);
+    const rustSource = rustIpcSource;
+    const aliases = typescriptTypeAliases(bridgeContractsSource);
     const sharedStructures = sharedStructuresFromInventory();
 
     for (const [rustName, typescriptName] of sharedStructures) {
       expect(
-        typescriptInterfaceFieldTypes(bridgeSource, typescriptName, aliases),
+        typescriptInterfaceFieldTypes(bridgeContractsSource, typescriptName, aliases),
         `tipos de campo incompatibles en ${typescriptName}`,
       ).toEqual(rustStructFieldTypes(rustSource, rustName));
     }
