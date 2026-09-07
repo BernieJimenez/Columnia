@@ -1941,14 +1941,16 @@ input[type="radio"] { width: 20px; height: 20px; }
   .flow-footer__actions { display: grid; grid-template-columns: 1fr; }
   .flow-footer__actions button { width: 100%; white-space: normal; }
   .transform-recipe__footer {
-    position: sticky;
-    bottom: 0;
-    z-index: 8;
     display: block;
     margin: 16px 0 0;
     padding: 10px 0;
     border-top: 1px solid var(--border-subtle);
     background: var(--surface);
+  }
+  .transform-recipe__footer:has(button:not(:disabled)) {
+    position: sticky;
+    bottom: 0;
+    z-index: 8;
     box-shadow: 0 -8px 18px rgba(20, 45, 49, .08);
   }
   .transform-recipe__footer p { display: none; }
