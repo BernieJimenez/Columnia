@@ -829,11 +829,12 @@ export function App() {
           </strong>
         </div>
 
-        <details
-          className="sidebar__utilities"
-          open={sidebarUtilitiesOpen}
-          onToggle={(event) => setSidebarUtilitiesOpen(event.currentTarget.open)}
-        >
+        <div className="sidebar__tools">
+          <details
+            className="sidebar__utilities"
+            open={sidebarUtilitiesOpen}
+            onToggle={(event) => setSidebarUtilitiesOpen(event.currentTarget.open)}
+          >
           <summary
             onClick={(event) => {
               event.preventDefault();
@@ -860,9 +861,9 @@ export function App() {
               currentVersion={status.kind === "ready" && status.info ? status.info.version : null}
             />
           </div>
-        </details>
+          </details>
 
-        <details className="sidebar__legal">
+          <details className="sidebar__legal">
           <summary>Licencia y privacidad</summary>
           <div
             className="sidebar__legal-content"
@@ -881,7 +882,8 @@ export function App() {
             <p>El usuario controla la carpeta de proyectos y puede eliminar proyectos desde la aplicación o borrar sus archivos locales. Los snapshots huérfanos se limpian de forma oportunista después de una hora de gracia.</p>
             <p className="sidebar__legal-note">Responsable y canal de contacto: deben definirse para la jurisdicción de publicación antes de distribuir.</p>
           </div>
-        </details>
+          </details>
+        </div>
       </aside>
 
       <main id="main-content" className="main-content" tabIndex={-1}>

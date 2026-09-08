@@ -1280,6 +1280,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 .recipe-row > button { color: var(--accent); }
 
 .sidebar__utilities { min-width: 0; margin-top: 14px; }
+.sidebar__tools { min-width: 0; }
 .sidebar__utilities > summary {
   display: flex;
   align-items: center;
@@ -2553,17 +2554,33 @@ a:visited { color: #80548b; }
 
 @media (max-width: 900px) {
  .shell { grid-template-columns: 1fr; }
- .sidebar { column-gap: 16px; row-gap: 12px; padding: 16px; }
+ .sidebar {
+   grid-template-areas: "brand nav" "dataset tools";
+   column-gap: 16px;
+   row-gap: 12px;
+   padding: 16px;
+ }
  .main-content { padding: 20px; }
  .workspace { padding: 24px; }
  .side-nav { margin: 0; gap: 4px; }
  .side-nav button { padding: 10px 8px; }
- .sidebar__legal { grid-column: 1 / -1; }
+ .sidebar__tools {
+   grid-area: tools;
+   display: grid;
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+   gap: 8px;
+   align-self: start;
+ }
+ .sidebar__utilities,
+ .sidebar__legal { grid-area: auto; margin-top: 0; }
+ .sidebar__tools details[open] { grid-column: 1 / -1; }
  .quality-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); }
  .quality-rule__remove { width: 100%; }
 }
 
 @media (max-width: 700px) {
+ .sidebar { grid-template-areas: "brand dataset" "nav nav" "tools tools"; }
+ :root .sidebar .brand .eyebrow { display: none; }
  .main-content { padding: 0 12px 24px; }
  .workspace { padding: 20px; border-radius: 8px; }
  .workspace h2 { font-size: 1.65rem; }
