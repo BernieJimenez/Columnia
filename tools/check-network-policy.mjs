@@ -2,7 +2,12 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+let projectRoot;
+try {
+  projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+} catch {
+  projectRoot = resolve(process.cwd());
+}
 const sourceRoots = ["src", "src-tauri/src"];
 const sourceExtensions = new Set([".ts", ".tsx", ".rs"]);
 const frontendForbiddenPatterns = [

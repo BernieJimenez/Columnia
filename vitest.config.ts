@@ -14,6 +14,8 @@ export default defineConfig({
       "e2e/**",
       "playwright-report/**",
       "test-results/**",
+      // Node's built-in test runner owns standalone policy fixtures in tools/.
+      "tools/**/*.test.mjs",
     ],
     coverage: {
       provider: "v8",
