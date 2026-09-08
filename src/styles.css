@@ -149,6 +149,19 @@ summary:focus-visible,
 .cleaning-signals__action { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
 .cleaning-signals__action p { margin: 0; color: var(--text-secondary); font-size: .78rem; line-height: 1.45; }
 .cleaning-signals__action button { flex: 0 0 auto; }
+.missing-data-plan { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border-subtle); background: var(--surface-subtle); }
+.missing-data-plan__heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.missing-data-plan h4 { margin: 4px 0 0; font-size: 1rem; }
+.missing-data-plan p { margin: 6px 0 0; color: var(--text-secondary); font-size: .82rem; line-height: 1.5; }
+.missing-data-plan__metrics { display: grid; grid-template-columns: repeat(3, auto); flex: 0 0 auto; gap: 6px; }
+.missing-data-plan__metrics span { display: grid; min-width: 94px; padding: 9px 10px; border: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-secondary); font-size: .72rem; text-align: center; }
+.missing-data-plan__metrics strong { color: var(--text-primary); font-size: .95rem; }
+.missing-data-plan__steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.missing-data-plan__steps li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.missing-data-plan__steps li:first-child { padding-top: 0; border-top: 0; }
+.missing-data-plan__steps li > div:first-child { max-width: 620px; }
+.missing-data-plan__actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.missing-data-plan__note { padding-top: 10px; border-top: 1px solid var(--border-subtle); }
 .history-bar { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 18px 0 8px; border: 1px solid var(--border-subtle); background: var(--surface-subtle); box-shadow: none; padding: 12px 16px; border-radius: 6px; }
 .history-bar strong,
 .history-bar small { display: block; }
@@ -761,7 +774,12 @@ tbody tr:nth-child(even) { background: #f8faf9; }
   .recipe-row,
 .recipe-row--date,
 .recipe-files { grid-template-columns: 1fr; }
-  .cleaning-signals__action { align-items: stretch; flex-direction: column; }
+  .cleaning-signals__action,
+  .missing-data-plan__heading,
+  .missing-data-plan__steps li { align-items: stretch; flex-direction: column; }
+  .missing-data-plan__metrics { grid-template-columns: 1fr; }
+  .missing-data-plan__actions { justify-content: stretch; }
+  .missing-data-plan__actions button { width: 100%; }
   .recipe-file-status { grid-column: auto; }
   .calculation-grid { grid-template-columns: 1fr; }
   .calculation-grid__wide { grid-column: auto; }

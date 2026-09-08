@@ -712,6 +712,13 @@ function CleaningSignals({
   const categoricalImputable = profile.columns.filter(
     (column) => column.dataType === "String" && column.nullCount > 0 && column.name !== "_cambios",
   );
+  const dataColumns = profile.columns.filter((column) => column.name !== "_cambios");
+  const totalNullCount = dataColumns.reduce((total, column) => total + column.nullCount, 0);
+  const columnsWithNulls = dataColumns.filter((column) => column.nullCount > 0);
+  const totalCellCount = profile.rowCount * dataColumns.length;
+  const datasetCompleteness = totalCellCount === 0
+    ? 100
+    : ((totalCellCount - totalNullCount) / totalCellCount) * 100;
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
@@ -724,9 +731,95 @@ function CleaningSignals({
         <h3 id="cleaning-signals-title">Señales para revisar</h3>
         <p>Las señales usan solo esquema y métricas agregadas; no muestran celdas ni valores personales.</p>
       </div>
+      <section className="missing-data-plan" aria-labelledby="missing-data-title">
+        <div className="missing-data-plan__heading">
+          <div>
+            <p className="step">Ruta guiada</p>
+            <h4 id="missing-data-title">Valores nulos y datos faltantes</h4>
+            <p>
+              Columnia conserva los nulos por defecto. Un nulo no siempre es un error: primero
+              normaliza los marcadores de ausencia y después decide si conviene completar o retirar.
+            </p>
+          </div>
+          <div className="missing-data-plan__metrics" aria-label="Resumen de valores nulos">
+            <span><strong>{totalNullCount.toLocaleString()}</strong> nulos</span>
+            <span><strong>{columnsWithNulls.length.toLocaleString()}</strong> columnas afectadas</span>
+            <span><strong>{datasetCompleteness.toFixed(1)}%</strong> completitud total</span>
+          </div>
+        </div>
+        {totalNullCount === 0 && sentinels.length === 0 ? (
+          <p className="notice notice--success" role="status">
+            No se detectaron nulos ni marcadores conocidos de datos ausentes.
+          </p>
+        ) : (
+          <ol className="missing-data-plan__steps">
+            {sentinels.length > 0 && (
+              <li>
+                <div>
+                  <strong>Unificar ausencias</strong>
+                  <p>Convierte tokens como N/A o null en nulos reales para medirlos de forma consistente.</p>
+                </div>
+                <button type="button" onClick={onNormalizeSentinels} disabled={busy}>
+                  Convertir centinelas a nulos
+                </button>
+              </li>
+            )}
+            {(empty.length > 0 || highNull.length > 0) && (
+              <li>
+                <div>
+                  <strong>Retirar columnas sin información útil</strong>
+                  <p>
+                    Las columnas totalmente vacías pueden retirarse directamente. Las que tienen
+                    al menos 80% de nulos se ofrecen por separado para evitar pérdida accidental.
+                  </p>
+                </div>
+                <div className="missing-data-plan__actions">
+                  {empty.length > 0 && (
+                    <button type="button" onClick={onRemoveEmptyColumns} disabled={busy}>
+                      Eliminar columnas vacías
+                    </button>
+                  )}
+                  {highNull.length > 0 && (
+                    <button type="button" onClick={onRemoveHighNullColumns} disabled={busy}>
+                      Eliminar columnas con alta nulidad
+                    </button>
+                  )}
+                </div>
+              </li>
+            )}
+            {(imputable.length > 0 || categoricalImputable.length > 0) && (
+              <li>
+                <div>
+                  <strong>Completar solo cuando tenga sentido</strong>
+                  <p>
+                    La opción conservadora usa una moda repetida en texto y la mediana en números.
+                    “Desconocido” es una decisión explícita para categorías, no una inferencia.
+                  </p>
+                </div>
+                <div className="missing-data-plan__actions">
+                  {imputable.length > 0 && (
+                    <button type="button" onClick={onImputeMissingValues} disabled={busy}>
+                      Intentar imputación conservadora
+                    </button>
+                  )}
+                  {categoricalImputable.length > 0 && (
+                    <button type="button" onClick={onImputeCategoricalValues} disabled={busy}>
+                      Completar categorías desconocidas
+                    </button>
+                  )}
+                </div>
+              </li>
+            )}
+          </ol>
+        )}
+        <p className="missing-data-plan__note">
+          Los espacios en blanco no son nulos. Puedes recortarlos con las correcciones recomendadas;
+          todas las acciones de esta ruta son reversibles desde el historial.
+        </p>
+      </section>
       {hasSignals ? (
         <>
-          <ul className="cleaning-signals__list">
+          <ul className="cleaning-signals__list" aria-label="Señales de limpieza detectadas">
           {profile.duplicateRowCount > 0 && (
             <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas de forma reversible.</li>
           )}
@@ -781,28 +874,6 @@ function CleaningSignals({
               </button>
             </div>
           )}
-          {empty.length > 0 && (
-            <div className="cleaning-signals__action">
-              <p>
-                Puedes retirar estas columnas sin información; se conservará al menos una
-                columna para que el dataset siga siendo utilizable.
-              </p>
-              <button type="button" onClick={onRemoveEmptyColumns} disabled={busy}>
-                Eliminar columnas vacías
-              </button>
-            </div>
-          )}
-          {highNull.length > 0 && (
-            <div className="cleaning-signals__action">
-              <p>
-                Estas columnas tienen poca información disponible; la acción usa un umbral explícito
-                de 80% y no elimina columnas completamente vacías ni todas las columnas del dataset.
-              </p>
-              <button type="button" onClick={onRemoveHighNullColumns} disabled={busy}>
-                Eliminar columnas con alta nulidad
-              </button>
-            </div>
-          )}
           {outliers.length > 0 && (
             <div className="cleaning-signals__action">
               <p>
@@ -845,17 +916,6 @@ function CleaningSignals({
               </button>
               <button type="button" onClick={onMaskPersonalValues} disabled={busy}>
                 Proteger valores personales detectados
-              </button>
-            </div>
-          )}
-          {sentinels.length > 0 && (
-            <div className="cleaning-signals__action">
-              <p>
-                Puedes convertir los tokens ausentes conocidos a valores nulos; la operación es
-                reversible y no modifica números ni la columna de trazabilidad.
-              </p>
-              <button type="button" onClick={onNormalizeSentinels} disabled={busy}>
-                Convertir centinelas a nulos
               </button>
             </div>
           )}
@@ -914,30 +974,6 @@ function CleaningSignals({
               </p>
               <button type="button" onClick={onCastNumeric} disabled={busy}>
                 Convertir números detectados
-              </button>
-            </div>
-          )}
-          {imputable.length > 0 && (
-            <div className="cleaning-signals__action">
-              <p>
-                Intenta completar solo nulos: usa el valor textual más repetido cuando aparece al
-                menos dos veces y la mediana observada para columnas numéricas. No modifica blancos,
-                centinelas ni _cambios.
-              </p>
-              <button type="button" onClick={onImputeMissingValues} disabled={busy}>
-                Intentar imputación conservadora
-              </button>
-            </div>
-          )}
-          {categoricalImputable.length > 0 && (
-            <div className="cleaning-signals__action">
-              <p>
-                Puedes completar explícitamente los nulos de texto con la categoría
-                <strong> Desconocido</strong>. Esta alternativa no infiere una moda ni cambia
-                números, no modifica _cambios y es reversible desde el historial.
-              </p>
-              <button type="button" onClick={onImputeCategoricalValues} disabled={busy}>
-                Completar categorías desconocidas
               </button>
             </div>
           )}
