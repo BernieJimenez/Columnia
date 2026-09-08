@@ -176,7 +176,7 @@ pendientes existentes cuando corresponde.
 | --- | --- | ---: | --- | --- |
 | Tier 5 — Integridad de gates y preparación de distribución | 18 cerradas, 2 abiertas; revisado 2026-09-05 | 2 | aceptación legal conocida; regresiones separadas en Tier 6 | alto, sujeto a decisiones externas |
 | Tier 6 — Integridad de escritorio y entrega ODBC | 11 implementadas; 1 aceptación externa pendiente; actualizado 2026-09-06 | 1 | round-trip SQL Server real pendiente | 1 validación externa |
-| Tier 7 — Regresiones de gates tras rediseño y modularización | 1 abierta, 3 cerradas; actualizado 2026-09-07 | 1 | 1 baja | bajo |
+| Tier 7 — Regresiones de gates tras rediseño y modularización | 0 abiertas, 4 cerradas; actualizado 2026-09-07 | 0 | ninguna | bajo |
 
 En Tier 6, una tarea puede conservar `[ ]` cuando su criterio exige evidencia
 externa aunque su implementación local ya esté aplicada. El estado técnico de
@@ -2709,7 +2709,7 @@ recupera controles locales que quedaron rojos o desactualizados.
   - **Depende de:** ninguna
   - **Cerrada:** 2026-09-07. El checker separa patrones frontend/Rust y las pruebas cubren cursor ODBC permitido, `fetch` TypeScript bloqueado y cliente HTTP Rust bloqueado. `network:check` y `supply-chain:check` pasan.
 
-- [ ] **[T7-04] Actualizar la evidencia publicada de dependencias y gates**
+- [x] **[T7-04] Actualizar la evidencia publicada de dependencias y gates**
   - **Área:** Documentación / Redacción
   - **Severidad:** Baja · Regresión de T6-11
   - **Ubicación:** `docs/reference/dependency-audit.md:69`
@@ -2717,6 +2717,7 @@ recupera controles locales que quedaron rojos o desactualizados.
   - **Criterio de aceptación:** ficha, inventario, contexto y resultados reproducibles coinciden; documentación detecta conteos vigentes incompatibles.
   - **Esfuerzo:** bajo
   - **Depende de:** T7-02, T7-03
+  - **Cerrada:** 2026-09-07. La ficha refleja versión, 287 dependencias npm, 477 archivos escaneados y 67/4/58 IPC; `docs:check` detecta divergencias de versión, package-lock e inventario.
 
 ### Progreso de Tier 7
 
@@ -2726,6 +2727,7 @@ recupera controles locales que quedaron rojos o desactualizados.
 | 2026-09-07 | T7-03 cerrada: gate de red corregido y cadena de suministro aprobada; T7-01, T7-02 y T7-04 siguen abiertas. |
 | 2026-09-07 | T7-02 cerrada: inventario IPC sincronizado con módulos reales y validación de archivos fuente activa; T7-01 y T7-04 siguen abiertas. |
 | 2026-09-07 | T7-01 cerrada: CSS raw 130.758 B y gzip 19.939 B bajo presupuesto; build, E2E y matriz visual aprobados. T7-04 permanece abierta. |
+| 2026-09-07 | T7-04 cerrada: ficha de dependencias actualizada a 0.167.0 y `docs:check` valida sus conteos npm/IPC contra las fuentes actuales. Tier 7 completo. |
 
 ### Decisiones cerradas de Tier 7
 

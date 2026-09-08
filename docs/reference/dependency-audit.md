@@ -1,6 +1,6 @@
 # Inventario local de dependencias y auditorías
 
-Snapshot técnico actualizado el **2026-08-31** sobre `0.95.0`, rama `master`. Este archivo
+Snapshot técnico actualizado el **2026-09-07** sobre `0.167.0`, rama `feat/diseno-integral`. Este archivo
 es una lista local reproducible, no una aprobación permanente de actualizar a
 la última versión. Antes de cambiar una dependencia, ejecuta los comandos de la
 tabla y registra el resultado en el mismo cambio.
@@ -66,11 +66,11 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 | `cargo audit --json` | `cargo-audit 0.22.2`; 0 vulnerabilidades después de las excepciones documentadas; los avisos informativos no son bloqueantes | `quick-xml 0.39.4` llega transitivamente por `object_store 0.13.2`; Columnia no habilita los features cloud ni expone un flujo remoto. La razón vigente está en `src-tauri/deny.toml` |
 | `cargo deny --format json check` | `cargo-deny 0.20.2`; advisories/licencias/fuentes sin errores; 48 duplicados en warning | Política explícita en `src-tauri/deny.toml`; excepciones upstream tienen razón y se revisan al actualizar Tauri/Polars |
 | `cargo outdated --version` | Herramienta no instalada | No se inventa un estado de actualización Cargo |
-| `npm run secrets:check` | 0 hallazgos; 347 archivos inspeccionados | Escaneo local de claves privadas, tokens y credenciales asignadas |
+| `npm run secrets:check` | 0 hallazgos; 477 archivos inspeccionados | Escaneo local de claves privadas, tokens y credenciales asignadas |
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
 | `npm run notices:check` | Aprobado; 999 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
 | `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
-| `npm run ipc:check` | Aprobado; 65 comandos de producción, 4 debug y 58 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
+| `npm run ipc:check` | Aprobado; 67 comandos de producción, 4 debug y 58 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y

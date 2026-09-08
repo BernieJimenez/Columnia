@@ -73,6 +73,8 @@ try {
   }
   const packageManifest = JSON.parse(await readUtf8("package.json"));
   const packageLock = JSON.parse(await readUtf8("package-lock.json"));
+  const dependencyAudit = await readUtf8("docs/reference/dependency-audit.md");
+  const ipcInventory = JSON.parse(await readUtf8("docs/reference/ipc-inventory.json"));
   const tauriConfig = JSON.parse(await readUtf8("src-tauri/tauri.conf.json"));
   const legalDecision = JSON.parse(await readUtf8("docs/reference/legal-distribution-decision.json"));
   const cargoManifest = await readUtf8("src-tauri/Cargo.toml");
@@ -80,6 +82,7 @@ try {
   const changelog = await readUtf8("CHANGELOG.md");
   const docsIndex = await readUtf8("docs/README.md");
   const version = packageManifest.version;
+  const packageCount = Math.max(0, Object.keys(packageLock.packages ?? {}).length - 1);
   const cargoVersion = cargoManifest.match(/^version = "([^"]+)"$/m)?.[1];
   const cargoPackageBlock = cargoLock.split(/^\[\[package\]\]\s*$/m).find((block) => /^name = "columnia"$/m.test(block));
   const cargoLockVersion = cargoPackageBlock?.match(/^version = "([^"]+)"$/m)?.[1];
@@ -90,6 +93,16 @@ try {
     fail("La ficha legal/distribución debe usar schemaVersion 1 y un estado conocido.");
   }
   if (!changelog.includes(`[${version}]`)) fail(`CHANGELOG.md no contiene la versión ${version}.`);
+  if (!dependencyAudit.includes(`sobre \`${version}\``)) fail("La ficha de dependencias no está actualizada a la versión del proyecto.");
+  const npmAuditCount = dependencyAudit.match(/`npm audit --json --omit=optional`[^|]*\|[^|]*; (\d+) dependencias del lockfile/);
+  if (!npmAuditCount || Number(npmAuditCount[1]) !== packageCount) {
+    fail(`La ficha de dependencias no coincide con package-lock.json: declara ${npmAuditCount?.[1] ?? "sin conteo"}, actual ${packageCount}.`);
+  }
+  const ipcAuditCount = dependencyAudit.match(/`npm run ipc:check`[^|]*\| Aprobado; (\d+) comandos de producción, (\d+) debug y (\d+) estructuras compartidas/);
+  const expectedIpcCount = [ipcInventory.productionCommands?.length, ipcInventory.debugCommands?.length, ipcInventory.sharedStructures?.length];
+  if (!ipcAuditCount || expectedIpcCount.some((count, index) => Number(ipcAuditCount[index + 1]) !== count)) {
+    fail(`La ficha de dependencias no coincide con el inventario IPC: declara ${ipcAuditCount?.[1] ?? "sin conteo"}/${ipcAuditCount?.[2] ?? "sin conteo"}/${ipcAuditCount?.[3] ?? "sin conteo"}, actual ${expectedIpcCount.join("/")}.`);
+  }
   if (!changelog.includes("Tier 5")) fail("CHANGELOG.md no documenta el estado de Tier 5.");
   if (!await readUtf8("ROADMAP.md").then((roadmap) => roadmap.includes("Tier 5"))) fail("ROADMAP.md no contiene el roadmap Tier 5.");
   if (!await readUtf8("CONTEXTO.md").then((context) => context.includes("Tier 5"))) fail("CONTEXTO.md no contiene el contexto Tier 5.");

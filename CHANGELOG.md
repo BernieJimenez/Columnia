@@ -8,6 +8,11 @@ los artefactos de validación locales.
 
 ### Interno
 
+- T7-04 actualiza la ficha de dependencias a `0.167.0`, rama
+  `feat/diseno-integral`, 287 dependencias npm, 477 archivos inspeccionados y
+  67/4/58 contratos IPC. `docs:check` rechaza divergencias de versión,
+  `package-lock.json` o inventario IPC.
+
 - T7-01 restaura el presupuesto CSS retirando declaraciones responsive
   redundantes sin cambiar los límites: 130.758 B raw y 19.939 B gzip. Build,
   E2E y la matriz visual de accesibilidad pasan.

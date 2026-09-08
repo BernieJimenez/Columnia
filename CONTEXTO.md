@@ -39,7 +39,11 @@ Pasan `ipc:check` y los cinco tests de contrato IPC. T7-04 permanece abierta.
 T7-01 quedó cerrada el 2026-09-07: se retiraron declaraciones responsive
 redundantes sin elevar los límites. El CSS generado mide 130.758 B raw y
 19.939 B gzip; pasan build, los 10 E2E y la matriz visual/accesibilidad.
-T7-04 permanece abierta.
+
+T7-04 quedó cerrada el 2026-09-07: la ficha de dependencias refleja `0.167.0`,
+la rama `feat/diseno-integral`, 287 dependencias npm, 477 archivos escaneados y
+67/4/58 contratos IPC. `docs:check` detecta divergencias contra package-lock e
+inventario; Tier 7 queda completo.
 
 ## Diseño vigente — 2026-09-06
 
@@ -1381,6 +1385,7 @@ Al actualizarlo:
 | 2026-09-07 | T7-03: el gate de red distingue patrones por lenguaje y conserva cobertura de cursor ODBC permitido, `fetch` web bloqueado y cliente HTTP Rust bloqueado; red y supply chain pasan. | `tools/check-network-policy.mjs`, `tools/check-network-policy.test.mjs`, `package.json`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-02: inventario IPC regenerado con módulos reales; checker y prueba de paridad comparten `sourceFiles` y validan su existencia. | `docs/reference/ipc-inventory.json`, `tools/check-ipc-inventory.mjs`, `src/ipc-contract.test.ts`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-01: declaraciones responsive redundantes retiradas; CSS raw/gzip bajo presupuesto y build, E2E y matriz visual aprobados. | `src/styles.css`, `.local/validation/audit-20260907-bundle.json`, `.local/validation/accessibility-visual/20260907T224737Z`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-09-07 | T7-04: ficha de dependencias actualizada y `docs:check` endurecido para validar versión, package-lock e inventario IPC; Tier 7 completo. | `docs/reference/dependency-audit.md`, `tools/check-documentation.mjs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-04 | Versión 0.167.0: el perfilado source-backed conserva los candidatos categóricos durante el recorrido inicial, acelera la clasificación de texto ASCII y la detección conservadora de fechas, y lee columnas Parquet en paralelo sin alterar paridad ni límites source-backed. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.166.0: el perfilado source-backed usa el pool de concurrencia por bloque para calcular huellas normalizadas y actualizar columnas en paralelo sin cambiar orden ni semántica. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.165.0: el perfilado source-backed cuenta filas distintas y distintos por columna en una sola agregación DuckDB, eliminando el derrame temporal de una clave completa por registro y manteniendo paridad con nulos/repeticiones. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md` |
