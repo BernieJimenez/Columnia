@@ -972,6 +972,10 @@ export function App() {
                 onPageChange={changePage}
                 onAnalyzeQuality={analyzeQuality}
                 onCancelProfile={() => cancelActiveOperation("profile")}
+                onContinueToPrepare={() => {
+                  setCompletedPhases((current) => new Set(current).add("review"));
+                  setActivePhase("prepare");
+                }}
                 comparisonStatus={comparisonStatus}
                 comparisonKeyColumns={comparisonKeyColumns}
                 onComparisonKeyColumnsChange={setComparisonKeyColumns}

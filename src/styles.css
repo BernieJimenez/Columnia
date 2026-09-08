@@ -1783,6 +1783,26 @@ body { color: var(--text-primary); background: var(--canvas); }
 .review-tool .comparison-section { margin-top: 0; padding: 20px 0; border-top: 0; }
 .review-tool--nested { margin-top: 22px; }
 .review-tool--nested .local-query { margin: 0; padding: 18px 0; border: 0; background: transparent; }
+.quality-overview {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-subtle);
+}
+.quality-overview__heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.quality-overview__heading h4 { margin: 4px 0 0; font-size: 1.125rem; }
+.quality-overview__heading > button { flex: 0 0 auto; min-height: 44px; }
+.quality-overview .quality-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.quality-overview .quality-summary div { background: var(--surface-raised); }
+.quality-overview .quality-summary small { display: block; margin-top: 3px; color: var(--text-secondary); font-size: .8125rem; }
+.quality-overview__meta { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; color: var(--text-secondary); font-size: .8125rem; }
+.quality-overview__meta strong { color: var(--text-primary); }
+.quality-overview__note { margin: 12px 0 0; color: var(--text-secondary); font-size: .875rem; line-height: 1.5; }
+.quality-details { margin-top: 10px; }
+.quality-details > .quality-visuals { margin-top: 0; border: 0; }
+.quality-profile-tables { padding: 2px 0 18px; }
+.quality-settings .quality-sample-control { margin: 0; border: 0; }
 
 :is(.advanced-corrections > summary, .detected-signals > summary, .transform-recipe__operations > summary, .review-tool > summary) {
   display: grid;
@@ -1932,9 +1952,13 @@ input[type="radio"] { width: 20px; height: 20px; }
   .flow-footer__actions { justify-content: flex-end; }
   .quality-contract__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quality-contract__actions span { grid-column: 1 / -1; margin-left: 0; }
+  .quality-overview__heading { align-items: stretch; flex-direction: column; }
+  .quality-overview__heading > button { align-self: flex-start; }
 }
 
 @media (max-width: 700px) {
+  .quality-overview .quality-summary { grid-template-columns: 1fr; }
+  .quality-overview__heading > button { align-self: stretch; }
   .side-nav button { flex-direction: column; gap: 4px; min-height: 66px; padding: 7px 3px; }
   :root .side-nav button > .side-nav__marker { display: grid; flex-basis: 24px; width: 24px; min-height: 24px; font-size: .75rem; }
   .side-nav__copy { place-items: center; }

@@ -46,6 +46,7 @@ interface ReviewPhaseProps {
   onPageChange: (offset: number) => void;
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
+  onContinueToPrepare?: () => void;
   comparisonStatus: ComparisonStatus;
   datasetColumns: DatasetColumn[];
   comparisonKeyColumns: string[];
@@ -76,6 +77,7 @@ export function ReviewPhase({
   onPageChange,
   onAnalyzeQuality,
   onCancelProfile,
+  onContinueToPrepare = () => undefined,
   comparisonStatus,
   datasetColumns,
   comparisonKeyColumns,
@@ -125,6 +127,7 @@ export function ReviewPhase({
             status={profileStatus}
             onAnalyze={onAnalyzeQuality}
             onCancel={onCancelProfile}
+            onContinueToPrepare={onContinueToPrepare}
             comparisonAvailable={comparisonStatus.kind === "ready"}
             sqlHistory={sqlHistory}
             onSqlHistoryChange={onSqlHistoryChange}
@@ -500,6 +503,7 @@ function QualitySection({
   status,
   onAnalyze,
   onCancel,
+  onContinueToPrepare,
   comparisonAvailable,
   sqlHistory,
   onSqlHistoryChange,
@@ -513,6 +517,7 @@ function QualitySection({
   status: ProfileStatus;
   onAnalyze: () => void;
   onCancel: () => void;
+  onContinueToPrepare: () => void;
   comparisonAvailable: boolean;
   sqlHistory: SqlQueryHistoryEntry[];
   onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
@@ -527,7 +532,7 @@ function QualitySection({
       <div className="section-heading">
         <div>
           <p className="step">Calidad inicial</p>
-          <h3 id="quality-title">Perfil por columna</h3>
+          <h3 id="quality-title">Diagnóstico del dataset</h3>
         </div>
         {status.kind !== "loading" && (
           <button className="primary-action" type="button" onClick={onAnalyze}>
@@ -536,26 +541,6 @@ function QualitySection({
         )}
       </div>
       <DatasetMetrics dataset={dataset} />
-      <div className="quality-sample-control">
-        <label>
-          Filas de muestra para correlaciones
-          <select
-            aria-label="Filas de muestra para correlaciones"
-            value={analysisSampleRows}
-            onChange={(event) => {
-              const nextSampleRows = Number(event.target.value);
-              if (isAnalysisSampleRows(nextSampleRows)) onAnalysisSampleRowsChange(nextSampleRows);
-            }}
-          >
-            {ANALYSIS_SAMPLE_ROW_OPTIONS.map((sampleRows) => (
-              <option key={sampleRows} value={sampleRows}>
-                {sampleRows.toLocaleString()} filas
-              </option>
-            ))}
-          </select>
-        </label>
-        <p>Se aplica al próximo análisis y solo limita la matriz de correlaciones numéricas; el resto del perfil conserva su cobertura agregada.</p>
-      </div>
       {status.kind === "loading" && (
         <OperationProgressView
           progress={status.progress}
@@ -569,7 +554,35 @@ function QualitySection({
           No se pudo analizar la calidad: {status.message}
         </p>
       )}
-      {status.kind === "ready" && <QualityProfile profile={status.profile} />}
+      {status.kind === "ready" && (
+        <QualityProfile profile={status.profile} onContinueToPrepare={onContinueToPrepare} />
+      )}
+      <details className="review-tool review-tool--nested quality-settings">
+        <summary>
+          <span>Configuración del análisis</span>
+          <small>Muestra usada para calcular correlaciones</small>
+        </summary>
+        <div className="quality-sample-control">
+          <label>
+            Filas de muestra para correlaciones
+            <select
+              aria-label="Filas de muestra para correlaciones"
+              value={analysisSampleRows}
+              onChange={(event) => {
+                const nextSampleRows = Number(event.target.value);
+                if (isAnalysisSampleRows(nextSampleRows)) onAnalysisSampleRowsChange(nextSampleRows);
+              }}
+            >
+              {ANALYSIS_SAMPLE_ROW_OPTIONS.map((sampleRows) => (
+                <option key={sampleRows} value={sampleRows}>
+                  {sampleRows.toLocaleString()} filas
+                </option>
+              ))}
+            </select>
+          </label>
+          <p>Se aplica al próximo análisis y solo limita las correlaciones; el resto del perfil conserva su cobertura.</p>
+        </div>
+      </details>
       <LocalQueryPanel
         comparisonAvailable={comparisonAvailable}
         queryHistory={sqlHistory}
@@ -933,25 +946,81 @@ export function DatasetPreviewPanel({
   );
 }
 
-function QualityProfile({ profile }: { profile: DatasetProfile }) {
+function QualityProfile({
+  profile,
+  onContinueToPrepare,
+}: {
+  profile: DatasetProfile;
+  onContinueToPrepare: () => void;
+}) {
   const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
+  const columnsWithNulls = profile.columns.filter((column) => column.nullCount > 0);
+  const totalNullCount = columnsWithNulls.reduce((total, column) => total + column.nullCount, 0);
+  const invalidTypeCount = profile.columns.reduce(
+    (total, column) => total + Math.max(0, column.invalidTypeCount ?? 0),
+    0,
+  );
+  const priorityCount = Number(totalNullCount > 0)
+    + Number(profile.duplicateRowCount > 0)
+    + Number(invalidTypeCount > 0);
 
   return (
     <>
-      <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
+      <section className="quality-overview" aria-labelledby="quality-overview-title">
+        <div className="quality-overview__heading">
+          <div>
+            <p className="step">Resultado del análisis</p>
+            <h4 id="quality-overview-title">
+              {priorityCount === 0
+                ? "No se detectaron problemas prioritarios"
+                : `${priorityCount} ${priorityCount === 1 ? "señal requiere" : "señales requieren"} atención`}
+            </h4>
+          </div>
+          <button type="button" className="primary-action" onClick={onContinueToPrepare}>
+            Resolver en Preparar
+          </button>
+        </div>
+        <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
         <div>
-          <dt>Filas duplicadas adicionales</dt>
-          <dd>
-            {profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)
-          </dd>
+          <dt>Valores nulos</dt>
+          <dd>{totalNullCount.toLocaleString()}</dd>
+          <small>{columnsWithNulls.length.toLocaleString()} columnas afectadas</small>
         </div>
         <div>
-          <dt>Filas analizadas</dt>
-          <dd>{profile.rowCount.toLocaleString()}</dd>
+          <dt>Duplicados</dt>
+          <dd>{profile.duplicateRowCount.toLocaleString()} ({profile.duplicatePercentage.toFixed(1)}%)</dd>
+          <small>filas adicionales</small>
         </div>
-      </dl>
-      <QualityVisuals profile={profile} />
+        <div>
+          <dt>Tipos incompatibles</dt>
+          <dd>{invalidTypeCount.toLocaleString()}</dd>
+          <small>según el tipo sugerido</small>
+        </div>
+        </dl>
+        <p className="quality-overview__meta">
+          <span>Filas analizadas</span>
+          <strong>{profile.rowCount.toLocaleString()}</strong>
+        </p>
+        <p className="quality-overview__note">
+          {priorityCount === 0
+            ? `Se analizaron ${profile.rowCount.toLocaleString()} filas. Puedes explorar el detalle o continuar a Preparar.`
+            : "Empieza por los nulos y los tipos incompatibles; todas las correcciones son reversibles."}
+        </p>
+      </section>
+      <details className="review-tool quality-details">
+        <summary>
+          <span>Explorar análisis detallado</span>
+          <small>Gráficos, distribuciones, fechas y correlaciones</small>
+        </summary>
+        <QualityVisuals profile={profile} />
+      </details>
+      <details className="review-tool quality-details">
+        <summary>
+          <span>Ver perfil por columna</span>
+          <small>Valores exactos y estadísticas por tipo</small>
+        </summary>
+        <div className="quality-profile-tables">
       <div
         className="profile-region"
         role="region"
@@ -1085,6 +1154,8 @@ function QualityProfile({ profile }: { profile: DatasetProfile }) {
           </p>
         </>
       )}
+        </div>
+      </details>
     </>
   );
 }
