@@ -1803,6 +1803,23 @@ body { color: var(--text-primary); background: var(--canvas); }
 .quality-details > .quality-visuals { margin-top: 0; border: 0; }
 .quality-profile-tables { padding: 2px 0 18px; }
 .quality-settings .quality-sample-control { margin: 0; border: 0; }
+.quality-data-details { margin-top: 12px; border-top: 1px solid var(--border-subtle); }
+.quality-data-details > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  list-style: none;
+  color: var(--accent);
+  font-size: .875rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.quality-data-details > summary::-webkit-details-marker { display: none; }
+.quality-data-details > summary::after { content: "+"; margin-left: auto; font-size: 1rem; }
+.quality-data-details[open] > summary::after { content: "-"; }
+.quality-data-details > summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.quality-data-details > div { padding-bottom: 10px; }
+.quality-data-details .quality-temporal-calendar { margin-top: 0; }
 
 :is(.advanced-corrections > summary, .detected-signals > summary, .transform-recipe__operations > summary, .review-tool > summary) {
   display: grid;

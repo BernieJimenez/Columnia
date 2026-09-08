@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
@@ -1262,7 +1262,7 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                 );
               })}
             </div>
-            <div className="quality-chart__table">
+            <QualityDataDetails className="quality-chart__table">
               <table aria-label="Tabla de patrones de nulos">
                 <caption className="visually-hidden">Tabla de patrones de nulos por columna</caption>
                 <thead>
@@ -1282,7 +1282,7 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </QualityDataDetails>
           </div>
         )}
         {formatColumns.length > 0 && (
@@ -1309,7 +1309,7 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                 );
               })}
             </div>
-            <div className="quality-chart__table">
+            <QualityDataDetails className="quality-chart__table">
               <table aria-label="Tabla de validación de formato">
                 <caption className="visually-hidden">Tabla de validación de formato por columna</caption>
                 <thead>
@@ -1343,7 +1343,7 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </QualityDataDetails>
           </div>
         )}
         {profile.columns.some(isTemporalColumn) && (
@@ -1430,7 +1430,7 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                       <span>{formatStatistic(buckets[0]?.lower ?? null)}</span>
                       <span>{formatStatistic(buckets[buckets.length - 1]?.upper ?? null)}</span>
                     </div>
-                    <div className="quality-histogram__table">
+                    <QualityDataDetails className="quality-histogram__table">
                       <table aria-label={`Tabla de frecuencias para ${column.name}`}>
                         <caption className="visually-hidden">Tabla de frecuencias para {column.name}</caption>
                         <thead>
@@ -1450,7 +1450,7 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </QualityDataDetails>
                   </div>
                 );
               })}
@@ -1469,6 +1469,23 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
         )}
       </div>
     </section>
+  );
+}
+
+function QualityDataDetails({
+  children,
+  className,
+  label = "Ver datos exactos",
+}: {
+  children: ReactNode;
+  className: string;
+  label?: string;
+}) {
+  return (
+    <details className="quality-data-details">
+      <summary>{label}</summary>
+      <div className={className}>{children}</div>
+    </details>
   );
 }
 
@@ -1583,16 +1600,22 @@ function TemporalTrendChart({
             metric={metric}
             titleId={`${titleId}-chart`}
           />
-          {summary.granularity === "day" && <DailyTemporalCalendar summary={summary} />}
+          {summary.granularity === "day" && (
+            <QualityDataDetails className="quality-calendar-details" label="Ver calendario diario">
+              <DailyTemporalCalendar summary={summary} />
+            </QualityDataDetails>
+          )}
         </>
       ) : summary.granularity === "day" ? (
-        <DailyTemporalCalendar summary={summary} />
+        <QualityDataDetails className="quality-calendar-details" label="Ver calendario diario">
+          <DailyTemporalCalendar summary={summary} />
+        </QualityDataDetails>
       ) : (
         <p className="quality-temporal-empty" role="status">
           No hay periodos interpretables para mostrar en esta columna.
         </p>
       )}
-      <div className="quality-temporal-trend__table">
+      <QualityDataDetails className="quality-temporal-trend__table">
         <table aria-label={tableLabel}>
           <caption className="visually-hidden">{tableLabel}</caption>
           <thead>
@@ -1612,7 +1635,7 @@ function TemporalTrendChart({
             ))}
           </tbody>
         </table>
-      </div>
+      </QualityDataDetails>
       <p className="profile-note">
         {summary.unparsedRowCount.toLocaleString()} filas sin periodo interpretable.
         {summary.truncated ? " Los periodos más antiguos se agruparon para mantener la lectura rápida." : ""}
@@ -1828,7 +1851,7 @@ function CategoricalGroupChart({
           );
         })}
       </div>
-      <div className="quality-chart__table">
+      <QualityDataDetails className="quality-chart__table">
         <table aria-label={tableLabel}>
           <caption className="visually-hidden">{tableLabel}</caption>
           <thead>
@@ -1851,7 +1874,7 @@ function CategoricalGroupChart({
             ))}
           </tbody>
         </table>
-      </div>
+      </QualityDataDetails>
       <p className="profile-note">
         {summary.distinctCount.toLocaleString()} valores distintos detectados
         {summary.truncated ? "; el resto está agrupado para evitar ruido y preservar privacidad." : "."}
