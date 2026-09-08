@@ -1060,18 +1060,14 @@ export function App() {
               />
             )}
           </Suspense>
-          <footer className="flow-footer" aria-label="Navegación entre etapas">
-            <div className="flow-footer__copy">
-              <p className="step">{nextPhase ? "Siguiente paso" : "Última etapa"}</p>
-              <strong>{nextPhase ? nextPhase.label : "Completa la entrega"}</strong>
-              <p>
-                {nextPhase
-                  ? activeDataset
-                    ? nextPhase.description
-                    : "Carga un dataset para continuar con la revisión."
-                  : "Elige una ruta de validación y exporta cuando todo esté listo."}
-              </p>
-            </div>
+          <footer className={`flow-footer${nextPhase ? "" : " flow-footer--terminal"}`} aria-label="Navegación entre etapas">
+            {nextPhase && (
+              <div className="flow-footer__copy">
+                <p className="step">Siguiente paso</p>
+                <strong>{nextPhase.label}</strong>
+                <p>{activeDataset ? nextPhase.description : "Carga un dataset para continuar con la revisión."}</p>
+              </div>
+            )}
             <div className="flow-footer__actions">
               {previousPhase && (
                 <button

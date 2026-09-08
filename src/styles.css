@@ -1817,6 +1817,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 .flow-footer__copy p:last-child { max-width: 58ch; margin: 4px 0 0; color: var(--text-secondary); font-size: .875rem; }
 .flow-footer__actions { display: flex; flex: 0 0 auto; gap: 8px; }
 .flow-footer__actions button { white-space: nowrap; }
+.flow-footer--terminal { justify-content: flex-end; margin-top: 24px; padding-top: 20px; }
 
 .review-tool { margin-top: 22px; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
 .review-tool > summary {
