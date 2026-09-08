@@ -150,7 +150,12 @@ export function LoadPhase({
       )}
 
       {recentDatasets.length > 0 && (
-        <section className="recent-datasets" aria-labelledby="recent-datasets-title">
+        <details className="load-secondary">
+          <summary>
+            <span>Retomar un archivo reciente</span>
+            <small>{recentDatasets.length} {recentDatasets.length === 1 ? "archivo guardado" : "archivos guardados"}</small>
+          </summary>
+          <section className="recent-datasets" aria-labelledby="recent-datasets-title">
           <div className="recent-datasets__heading">
             <div>
               <p className="eyebrow">Historial local</p>
@@ -192,7 +197,8 @@ export function LoadPhase({
               </li>
             ))}
           </ul>
-        </section>
+          </section>
+        </details>
       )}
 
       {datasetStatus.kind === "loading" && (
@@ -281,7 +287,15 @@ export function LoadPhase({
           Abre Columnia con Tauri para seleccionar archivos locales.
         </p>
       )}
-      {children}
+      {children && (
+        <details className="load-secondary">
+          <summary>
+            <span>Continuar un proyecto</span>
+            <small>Guardar o retomar un espacio de trabajo</small>
+          </summary>
+          <div className="load-secondary__content">{children}</div>
+        </details>
+      )}
       {current && <DatasetMetrics dataset={current} />}
     </>
   );
