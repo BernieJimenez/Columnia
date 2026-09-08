@@ -978,7 +978,7 @@ function QualityProfile({
             </h4>
           </div>
           <button type="button" className="primary-action" onClick={onContinueToPrepare}>
-            Resolver en Preparar
+            {priorityCount === 0 ? "Continuar a Preparar" : "Resolver en Preparar"}
           </button>
         </div>
         <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
@@ -1005,7 +1005,13 @@ function QualityProfile({
         <p className="quality-overview__note">
           {priorityCount === 0
             ? `Se analizaron ${profile.rowCount.toLocaleString()} filas. Puedes explorar el detalle o continuar a Preparar.`
-            : "Empieza por los nulos y los tipos incompatibles; todas las correcciones son reversibles."}
+            : totalNullCount > 0 && invalidTypeCount > 0
+              ? "Empieza por los valores nulos y los tipos incompatibles; todas las correcciones son reversibles."
+              : totalNullCount > 0
+                ? "Empieza por los valores nulos; las correcciones propuestas son reversibles."
+                : invalidTypeCount > 0
+                  ? "Empieza por los tipos incompatibles; las correcciones propuestas son reversibles."
+                  : "Revisa los duplicados detectados antes de continuar; su eliminación es reversible."}
         </p>
       </section>
       <details className="review-tool quality-details">
