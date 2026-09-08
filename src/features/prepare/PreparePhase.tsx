@@ -234,6 +234,27 @@ export function PreparePhase({
                onDropOutliers={() => setOutlierConfirmation("drop")}
          />
       )}
+      {profileStatus.kind === "idle" && (
+        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title">
+          <div>
+            <p className="step">Estado del análisis</p>
+            <h3 id="prepare-analysis-title">Actualiza las señales de calidad</h3>
+            <p>
+              El dataset cambió o todavía no se ha analizado. Vuelve a analizarlo para ver nulos,
+              duplicados y recomendaciones actualizadas.
+            </p>
+          </div>
+          <button type="button" onClick={onAnalyzeQuality} disabled={changing}>
+            Analizar calidad
+          </button>
+        </section>
+      )}
+      <details className="advanced-corrections">
+        <summary>
+          <span>Más herramientas</span>
+          <small>Correcciones avanzadas</small>
+        </summary>
+        <div className="advanced-corrections__content">
       <section className="prepare-card" aria-labelledby="row-audit-title">
         <div>
           <p className="step">Trazabilidad local</p>
@@ -278,12 +299,6 @@ export function PreparePhase({
           Recortar espacios
         </button>
       </section>
-      <details className="advanced-corrections">
-        <summary>
-          <span>Correcciones avanzadas</span>
-          <small>Selección manual, eliminación de filas y duplicados</small>
-        </summary>
-        <div className="advanced-corrections__content">
       <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title">
         <div>
           <p className="step">Requiere selección</p>
@@ -723,7 +738,7 @@ function CleaningSignals({
   const personal = profile.columns.filter((column) => column.privacySignal !== null);
   const personalColumns = profile.columns.filter((column) => isPersonalPrivacySignal(column.privacySignal) && column.name !== "_cambios");
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
-  const hasSignals = profile.duplicateRowCount > 0 || nearDuplicates || incomplete.length > 0 || constant.length > 0 || empty.length > 0 || highNull.length > 0 || sentinels.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || numericCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
+  const hasOtherSignals = profile.duplicateRowCount > 0 || nearDuplicates || constant.length > 0 || encoding.length > 0 || booleans.length > 0 || dateCandidates.length > 0 || numericCandidates.length > 0 || typeDrift.length > 0 || outliers.length > 0 || personal.length > 0;
 
   return (
     <section className="prepare-card prepare-card--stacked cleaning-signals" aria-labelledby="cleaning-signals-title">
@@ -818,8 +833,13 @@ function CleaningSignals({
           todas las acciones de esta ruta son reversibles desde el historial.
         </p>
       </section>
-      {hasSignals ? (
-        <>
+      {hasOtherSignals ? (
+        <details className="detected-signals">
+          <summary>
+            <span>Otras señales detectadas</span>
+            <small>Duplicados, privacidad, tipos y valores atípicos</small>
+          </summary>
+          <div className="detected-signals__content">
           <ul className="cleaning-signals__list" aria-label="Señales de limpieza detectadas">
           {profile.duplicateRowCount > 0 && (
             <li><strong>Duplicados exactos:</strong> {profile.duplicateRowCount.toLocaleString()} filas adicionales; puedes eliminarlas de forma reversible.</li>
@@ -827,23 +847,11 @@ function CleaningSignals({
           {nearDuplicates && (
             <li><strong>Duplicados parecidos:</strong> {profile.nearDuplicateRowCount.toLocaleString()} filas adicionales coinciden al normalizar mayúsculas, espacios y acentos; requieren revisión manual.</li>
           )}
-          {incomplete.length > 0 && (
-            <li><strong>Completitud:</strong> {incomplete.length} {incomplete.length === 1 ? "columna tiene" : "columnas tienen"} al menos un nulo: {incomplete.map((column) => column.name).join(", ")}.</li>
-          )}
           {constant.length > 0 && (
             <li><strong>Constantes:</strong> {constant.map((column) => column.name).join(", ")} {constant.length === 1 ? "no cambia" : "no cambian"} entre filas.</li>
           )}
-          {empty.length > 0 && (
-            <li><strong>Vacías:</strong> {empty.map((column) => column.name).join(", ")} no contiene valores en ninguna fila.</li>
-          )}
-          {highNull.length > 0 && (
-            <li><strong>Alta nulidad:</strong> {highNull.map((column) => column.name).join(", ")} tiene al menos 80% de valores nulos.</li>
-          )}
           {outliers.length > 0 && (
             <li><strong>Valores atípicos:</strong> {outliers.map((column) => `${column.name} (${(column.outlierCount ?? 0).toLocaleString()})`).join(", ")} supera los límites IQR de 1.5.</li>
-          )}
-          {sentinels.length > 0 && (
-            <li><strong>Valores centinela:</strong> {sentinels.map((column) => `${column.name} (${(column.sentinelCount ?? 0).toLocaleString()})`).join(", ")} usa tokens textuales que pueden representar datos ausentes.</li>
           )}
           {encoding.length > 0 && (
             <li><strong>Doble codificación UTF-8:</strong> {encoding.map((column) => `${column.name} (${(column.encodingIssueCount ?? 0).toLocaleString()})`).join(", ")} contiene texto que puede repararse de forma segura.</li>
@@ -978,9 +986,10 @@ function CleaningSignals({
               </button>
             </div>
           )}
-        </>
+          </div>
+        </details>
       ) : (
-        <p className="notice notice--success" role="status">No se detectaron señales de limpieza en el perfil actual.</p>
+        <p className="notice notice--success" role="status">No se detectaron otras señales de limpieza en el perfil actual.</p>
       )}
     </section>
   );
