@@ -2559,6 +2559,8 @@ a:visited { color: #80548b; }
  .side-nav { margin: 0; gap: 4px; }
  .side-nav button { padding: 10px 8px; }
  .sidebar__legal { grid-column: 1 / -1; }
+ .quality-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .quality-rule__remove { width: 100%; }
 }
 
 @media (max-width: 700px) {
