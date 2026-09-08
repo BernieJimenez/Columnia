@@ -752,10 +752,7 @@ function CleaningSignals({
           <div>
             <p className="step">Ruta guiada</p>
             <h4 id="missing-data-title">Valores nulos y datos faltantes</h4>
-            <p>
-              Columnia conserva los nulos por defecto. Un nulo no siempre es un error: primero
-              normaliza los marcadores de ausencia y después decide si conviene completar o retirar.
-            </p>
+            <p>Conservamos los nulos hasta que elijas una corrección.</p>
           </div>
           <div className="missing-data-plan__metrics" aria-label="Resumen de valores nulos">
             <span><strong>{totalNullCount.toLocaleString()}</strong> nulos</span>
@@ -807,10 +804,7 @@ function CleaningSignals({
               <li>
                 <div>
                   <strong>Completar solo cuando tenga sentido</strong>
-                  <p>
-                    La opción conservadora usa una moda repetida en texto y la mediana en números.
-                    “Desconocido” es una decisión explícita para categorías, no una inferencia.
-                  </p>
+                  <p>Usa la mediana en números y la moda en texto; nunca inventa valores.</p>
                 </div>
                 <div className="missing-data-plan__actions">
                   {imputable.length > 0 && (
@@ -828,10 +822,13 @@ function CleaningSignals({
             )}
           </ol>
         )}
-        <p className="missing-data-plan__note">
-          Los espacios en blanco no son nulos. Puedes recortarlos con las correcciones recomendadas;
-          todas las acciones de esta ruta son reversibles desde el historial.
-        </p>
+        <details className="missing-data-plan__help">
+          <summary>Cómo decide Columnia</summary>
+          <div>
+            <p>Columnia conserva los nulos por defecto. Un nulo no siempre es un error. Primero normaliza los marcadores de ausencia y después decide si conviene completar o retirar.</p>
+            <p>Los espacios en blanco no son nulos. Puedes recortarlos con las correcciones recomendadas; todas las acciones son reversibles desde el historial.</p>
+          </div>
+        </details>
       </section>
       {hasOtherSignals ? (
         <details className="detected-signals">
