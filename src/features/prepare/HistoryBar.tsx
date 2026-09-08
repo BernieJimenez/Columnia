@@ -4,11 +4,13 @@ import { changeProgressMessage, type ChangeStatus } from "./prepareModel";
 export function HistoryBar({
   status,
   busy,
+  latestChange,
   onUndo,
   onRedo,
 }: {
   status: HistoryState;
   busy: boolean;
+  latestChange?: string;
   onUndo: () => void;
   onRedo: () => void;
 }) {
@@ -16,7 +18,7 @@ export function HistoryBar({
 
   return (
     <section className={`history-bar${quiet ? " history-bar--quiet" : ""}`} aria-label="Historial de cambios">
-      <div>
+      <div className="history-bar__content">
         <strong>Historial de cambios</strong>
         <small>
           {status.snapshotsEnabled
@@ -25,13 +27,21 @@ export function HistoryBar({
               : "Todavía no hay versiones guardadas."
             : status.degradedReason ?? "El historial reversible no está disponible."}
         </small>
+        {latestChange && (
+          <div className="history-latest" role="status">
+            <span>Último resultado</span>
+            <p>{latestChange}</p>
+          </div>
+        )}
         {status.entries.length > 1 && (
-          <details className="history-details">
-            <summary>Ver versiones ({status.entryCount})</summary>
+          <details className="history-details" open>
+            <summary>Cambios realizados ({status.entryCount - 1})</summary>
             <ol>
               {status.entries.slice(-12).map((entry) => (
                 <li key={entry.index} aria-current={entry.isCurrent ? "step" : undefined}>
-                  <span>{entry.label}</span>{entry.isCurrent && <strong>Actual</strong>}
+                  <span>{entry.index === 0 ? "Origen" : `Cambio ${entry.index}`}</span>
+                  <span>{entry.label}</span>
+                  {entry.isCurrent && <strong>Actual</strong>}
                 </li>
               ))}
             </ol>
@@ -50,7 +60,7 @@ export function HistoryBar({
   );
 }
 export function ChangeFeedback({ status }: { status: ChangeStatus }) {
-  if (status.kind === "idle") return null;
+  if (status.kind === "idle" || status.kind === "applied") return null;
 
   if (status.kind === "working") {
     const message = changeProgressMessage(status.action);
@@ -69,9 +79,5 @@ export function ChangeFeedback({ status }: { status: ChangeStatus }) {
     );
   }
 
-  return (
-    <div className="change-feedback" role="status">
-      <span>{status.message}</span>
-    </div>
-  );
+  return null;
 }

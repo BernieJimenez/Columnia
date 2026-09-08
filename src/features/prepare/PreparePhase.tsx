@@ -132,6 +132,7 @@ export function PreparePhase({
       <HistoryBar
         status={historyStatus}
         busy={changing}
+        latestChange={changeStatus.kind === "applied" ? changeStatus.message : undefined}
         onUndo={onUndo}
         onRedo={onRedo}
       />
