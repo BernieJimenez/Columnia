@@ -67,7 +67,7 @@ summary:focus-visible,
 .skip-link:focus-visible { transform: translateY(0); }
 
 .shell { min-height: 100vh; display: grid; }
-.sidebar { position: sticky; top: 0; display: flex; flex-direction: column; height: 100vh; overflow-y: auto; border-right: 1px solid var(--border-subtle); }
+.sidebar { position: sticky; top: 0; display: flex; flex-direction: column; height: 100dvh; overflow-y: visible; border-right: 1px solid var(--border-subtle); }
 .brand h1 { color: var(--text-primary); font-family: Bahnschrift, "Arial Narrow", sans-serif; }
 .side-nav { position: relative; display: grid; min-width: 0; }
 .side-nav::before { position: absolute; top: 23px; bottom: 23px; border-left: 1px dashed var(--border-subtle); content: ""; }
@@ -1361,6 +1361,39 @@ body { color: var(--text-primary); background: var(--canvas); }
 .sidebar__legal-content h2 { margin: 12px 0 4px; color: var(--text-primary); font-size: .75rem; }
 .sidebar__legal-content code { overflow-wrap: anywhere; }
 .sidebar__legal-note { color: var(--text-muted); }
+
+@media (min-width: 901px) {
+  html:has(.sidebar__tools > details[open]),
+  body:has(.sidebar__tools > details[open]) { overflow-y: hidden; }
+  .sidebar { z-index: 10; }
+  .sidebar__utilities-content,
+  .sidebar__legal-content {
+    position: fixed;
+    inset: 16px auto 16px 272px;
+    z-index: 20;
+    width: min(420px, calc(100vw - 288px));
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: var(--sidebar-surface);
+    box-shadow: 0 18px 48px rgb(4 16 19 / 28%);
+  }
+  .sidebar__utilities-content .resource-monitor { margin-top: 0; }
+  .sidebar__utilities-content .theme-switcher,
+  .sidebar__utilities-content .update-panel { margin-top: 12px; }
+}
+
+@media (max-width: 1100px) and (min-width: 901px) {
+  .sidebar__utilities-content,
+  .sidebar__legal-content {
+    left: 248px;
+    width: min(420px, calc(100vw - 264px));
+  }
+}
+
 .update-panel { display: grid; gap: 8px; margin-top: 18px; padding: 12px; border: 1px solid var(--border-subtle); background: var(--surface-subtle); color: var(--text-secondary); }
 .update-panel__heading { display: grid; gap: 4px; }
 .update-panel__heading h2 { margin: 0; color: var(--text-primary); font-size: .78rem; }
@@ -2833,6 +2866,12 @@ a:visited { color: #80548b; }
 .workspace :is(.metrics dd, .quality-summary dd, .quality-snapshot__signals strong) {
   font-family: var(--font-display);
   font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 901px) and (max-height: 700px) {
+  .sidebar { padding-top: 18px; padding-bottom: 14px; }
+  .side-nav { margin-top: 20px; gap: 4px; }
+  .side-nav button { min-height: 62px; padding-block: 9px; }
 }
 
 /* Motion explains state changes without delaying the task. */
