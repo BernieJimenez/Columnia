@@ -1631,6 +1631,23 @@ describe("App", () => {
     expect(screen.getByText("Licencia", { selector: "h2" })).toBeInTheDocument();
   });
 
+  it("mantiene exclusivos los paneles flotantes de la barra lateral", () => {
+    render(<App />);
+    const utilitiesSummary = screen.getByText("Preferencias y recursos");
+    const legalSummary = screen.getByText("Licencia y privacidad");
+    const utilitiesDetails = utilitiesSummary.closest("details");
+    const legalDetails = legalSummary.closest("details");
+
+    fireEvent.click(utilitiesSummary);
+    expect(utilitiesDetails).toHaveAttribute("open");
+    fireEvent.click(legalSummary);
+    expect(utilitiesDetails).not.toHaveAttribute("open");
+    expect(legalDetails).toHaveAttribute("open");
+    fireEvent.click(utilitiesSummary);
+    expect(utilitiesDetails).toHaveAttribute("open");
+    expect(legalDetails).not.toHaveAttribute("open");
+  });
+
   it("coordina comparación, descarte, consolidación y unión desde Revisar", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });

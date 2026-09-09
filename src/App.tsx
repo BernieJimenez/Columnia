@@ -208,6 +208,7 @@ export function App() {
     setCompletedPhases(new Set(["load"]));
   }
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
+  const [sidebarLegalOpen, setSidebarLegalOpen] = useState(false);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) => {
@@ -833,13 +834,14 @@ export function App() {
           <details
             className="sidebar__utilities"
             open={sidebarUtilitiesOpen}
-            onToggle={(event) => setSidebarUtilitiesOpen(event.currentTarget.open)}
           >
           <summary
             onClick={(event) => {
               event.preventDefault();
               const details = event.currentTarget.parentElement;
-              setSidebarUtilitiesOpen(!(details instanceof HTMLDetailsElement && details.open));
+              const willOpen = !(details instanceof HTMLDetailsElement && details.open);
+              setSidebarUtilitiesOpen(willOpen);
+              if (willOpen) setSidebarLegalOpen(false);
             }}
           >
             Preferencias y recursos
@@ -863,8 +865,18 @@ export function App() {
           </div>
           </details>
 
-          <details className="sidebar__legal">
-          <summary>Licencia y privacidad</summary>
+          <details className="sidebar__legal" open={sidebarLegalOpen}>
+          <summary
+            onClick={(event) => {
+              event.preventDefault();
+              const details = event.currentTarget.parentElement;
+              const willOpen = !(details instanceof HTMLDetailsElement && details.open);
+              setSidebarLegalOpen(willOpen);
+              if (willOpen) setSidebarUtilitiesOpen(false);
+            }}
+          >
+            Licencia y privacidad
+          </summary>
           <div
             className="sidebar__legal-content"
             role="region"
