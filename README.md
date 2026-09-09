@@ -3,6 +3,11 @@
 Columnia será una estación local multiplataforma para revisar, limpiar,
 transformar y entregar datasets confiables.
 
+Columnia V1 funciona para una sola persona en su propio equipo y no requiere
+cuentas, registro, inicio de sesión ni sincronización remota. El
+[alcance de V1](docs/reference/v1-scope.md) fija los formatos obligatorios, qué
+se guarda en un proyecto y qué capacidades quedan expresamente fuera.
+
 Para entender rápidamente la arquitectura, el estado implementado, los riesgos
 y las reglas de trabajo, consulta el [contexto vivo del proyecto](CONTEXTO.md).
 Las fronteras de confianza, amenazas y controles se mantienen en el

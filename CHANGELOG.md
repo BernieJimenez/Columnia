@@ -8,6 +8,15 @@ los artefactos de validación locales.
 
 ### Interno
 
+- Se cierra el alcance de V1 como estación local de una sola persona, sin
+  cuentas ni autenticación. Quedan definidos los formatos obligatorios, la
+  persistencia segura, los destinos ODBC opcionales, el updater bajo acción
+  explícita y los presupuestos de rendimiento; la paridad de sesión se cierra
+  con el modelo durable propio de Columnia.
+
+- El roadmap y la documentación registran los seis temas disponibles y su
+  validación Playwright en escritorio y móvil.
+
 - T7-04 actualiza la ficha de dependencias a `0.167.0`, rama
   `feat/diseno-integral`, 287 dependencias npm, 477 archivos inspeccionados y
   67/4/58 contratos IPC. `docs:check` rechaza divergencias de versión,

@@ -6,6 +6,12 @@
 
 ## Estado general
 
+- Alcance V1 cerrado el 2026-09-09: Columnia es una estación local para una
+  sola persona operadora y no incorpora cuentas, autenticación, organizaciones
+  ni sincronización remota. Los formatos, la persistencia permitida, los
+  presupuestos de rendimiento y los límites quedan definidos en
+  [`docs/reference/v1-scope.md`](docs/reference/v1-scope.md).
+
 - Rediseño integral de interfaz (2026-09-06) aplicado y validado en navegador:
   navegación, carga, superficies compartidas, temas y preferencias. Véanse
   [contexto vigente](CONTEXTO.md) e [informe de diseño](AUDITORIA_DISENO_2026-09-06.md).
@@ -1016,7 +1022,7 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
 - [x] Definir umbrales de cobertura por capa, no solo un porcentaje global.
   V8 cubre `src` con 80% statements/lines, 75% branches y 75% functions;
   `npm run test:coverage` los hace cumplir.
-- [ ] Completar presupuestos medibles de RAM, datasets grandes y startup; el
+- [x] Completar presupuestos medibles de RAM, datasets grandes y startup; el
   perfil contractual actual, el gate CDP, el benchmark CLI y el bundle pasan.
   La corrida CLI de 100 MiB del 2026-09-02 completó tres transformaciones
   sostenidas y dos actualizaciones durables, con guardado máximo de 50.287,90 ms
@@ -1026,12 +1032,21 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
   privados, dentro del presupuesto de dataset grande y con cleanup confirmado.
   Desde v0.145.0,
   `perf:check` también exige que el intervalo proceso nativo listo→ventana
-  visible sea ≤1.000 ms con hitos y cleanup confirmados; falta decidir el
-  presupuesto global final de la aplicación y cerrar la optimización
-  lazy/incremental general fuera de RAM. El perfil source-backed ya no derrama
-   una clave de fila completa por registro: DuckDB calcula filas distintas y
-   distintos por columna en una sola pasada, mientras las huellas de duplicados
-   parecidos permanecen acotadas.
+  visible sea ≤1.000 ms con hitos y cleanup confirmados. El 2026-09-09 se
+  adoptaron como contrato final de V1 los límites versionados de
+  `fixtures/performance/performance-baseline-v1.json`: 512 MiB de working set y
+  256 MiB privados para el recorrido normal, y 1,5 GiB/1 GiB para el escenario
+  WebView2 de al menos 100 MiB. El JOIN source-backed conserva además evidencia
+  de 512 MiB. Las combinaciones eager siguen sujetas a admisión de RAM; no se
+  promete ejecución fuera de memoria para operaciones incompatibles. El perfil
+  source-backed ya no derrama una clave de fila completa por registro: DuckDB
+  calcula filas distintas y distintos por columna en una sola pasada, mientras
+  las huellas de duplicados parecidos permanecen acotadas. La corrida fresca del
+  2026-09-09 procesó
+  100 MiB/819.137 filas en WebView2: carga 3,810 s, página 31 ms,
+  transformación 1,972 s y exportación 2,038 s, con 694.083.584 B de working
+  set, 476.667.904 B privados y cleanup confirmado. `perf:check` aprobó toda la
+  matriz en `.local/validation/performance-baseline/20260909T225907Z`.
 - [x] Guardar reportes locales con fecha, commit, versiones de herramientas y
   resultados para que una validación pueda auditarse después.
 - [x] Reducir el trabajo crítico del arranque: el bundle inicial separa las
@@ -1182,14 +1197,20 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
 - [x] Diseñar desde el inicio para Windows, macOS y Linux.
 - [x] Aprobar la arquitectura Rust + Tauri + Polars + DuckDB.
 - [x] Definir licencia MIT y modelo de distribución abierta inicial.
-- [ ] Definir el usuario principal y el problema número uno de la primera versión.
-- [ ] Clasificar funciones actuales en conservar, rediseñar o eliminar.
-- [ ] Definir formatos y bases de datos obligatorios para la primera versión.
+- [x] Definir la persona operadora y el problema número uno de la primera
+  versión: preparar datasets confiables localmente, sin cuenta ni servicio web.
+- [x] Clasificar funciones actuales en conservar, rediseñar o eliminar. El
+  contrato aprobado está en `docs/reference/v1-scope.md`: se conserva el flujo
+  local completo y se excluyen cuentas, nube obligatoria y colaboración remota.
+- [x] Definir formatos y bases de datos obligatorios para la primera versión.
+  Los formatos locales son el núcleo; PostgreSQL, MySQL/MariaDB y SQL Server
+  permanecen como destinos ODBC opcionales y explícitos.
 - [x] Establecer testing, seguridad y releases como procesos exclusivamente locales.
 - [x] Descartar GitHub Actions, CI y archivos de workflow.
 - [x] Establecer que Columnia no dependerá de certificados o servicios de pago.
-- [ ] Aprobar el updater gratuito firmado de Tauri o decidir no incluir
-  actualizaciones dentro de la app.
+- [x] Aprobar el updater gratuito firmado de Tauri como capacidad opcional:
+  solo comprueba y descarga tras una acción explícita, y Columnia sigue
+  funcionando localmente cuando no hay red o canal configurado.
 - [x] Ejecutar el primer corte vertical CSV del prototipo técnico de la Fase I1.
 - [x] Completar paginación por sesión, progreso, cancelación, Excel/ODS y Parquet.
 - [x] Completar streaming/lazy y benchmark contra `sistema anterior`; el trabajo
@@ -1203,8 +1224,9 @@ Se confirmarán con el prototipo; hasta entonces funcionan como hipótesis a med
    Columnia; no se conserva una ruta de importación, replay o round-trip de otro
    producto. Las futuras recetas deben ampliar el contrato nativo y sus pruebas,
    sin reintroducir adaptadores externos.
-2. **Sistema visual y temas:** completado en v0.52.0. La barra lateral ofrece
-   un selector persistente de tema `Sistema`, `Claro` y `Oscuro`; la preferencia
+2. **Sistema visual y temas:** completado en v0.52.0 y ampliado en la rama de
+   diseño de 2026-09-09. La barra lateral ofrece un selector persistente de tema
+   `Sistema`, `Claro`, `Oscuro`, `Papel`, `Océano` y `Pizarra`; la preferencia
    se aplica antes de montar React, se conserva en almacenamiento local y mantiene
    `forced-colors`, foco visible y movimiento reducido. La dirección visual ahora
    usa una jerarquía más clara de estación de trabajo, paneles con profundidad y
@@ -1881,7 +1903,7 @@ comparación no equivale a ejecución fuera de memoria general. La
 - [x] Exponer un presupuesto opt-in de concurrencia Rayon desde Preferencias y
   recursos: perfiles conservador/equilibrado/máximo, límite de 64 hilos,
   persistencia local y estado explícito cuando el pool ya no puede cambiarse.
-- [ ] Completar la paridad de sesión operativa: muestras, preferencias, caché
+- [x] Completar la paridad de sesión operativa: muestras, preferencias, caché
   derivada e historial de ejecuciones. La primera
   slice de arrastre/soltar ya captura rutas en Rust y entrega a React únicamente
   la inspección validada. La primera slice de archivos recientes ya conserva solo nombre,
@@ -1916,7 +1938,10 @@ comparación no equivale a ejecución fuera de memoria general. La
   La apertura segura del último output local ya está implementada desde Entregar
   con revalidación en Rust y sin transportar rutas por IPC.
   El modelo durable de proyectos de Columnia se conserva como reemplazo de la
-  sesión persistente original.
+  sesión persistente original. El cierre de alcance del 2026-09-09 confirma que
+  las muestras, consultas, rutas, credenciales y resultados derivados excluidos
+  no deben persistirse: son límites deliberados de privacidad, no brechas de
+  paridad. El contrato completo queda en `docs/reference/v1-scope.md`.
 
 **Gate:** cada capacidad marcada como implementada debe tener contrato, prueba
 automatizada y una fila de paridad con evidencia del original.

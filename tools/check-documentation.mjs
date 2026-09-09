@@ -12,6 +12,7 @@ const requiredFiles = [
   "docs/tutorials/first-dataset.md",
   "docs/how-to/validate-release-evidence.md",
   "docs/reference/cli.md",
+  "docs/reference/v1-scope.md",
   "docs/reference/release-evidence.md",
   "ROADMAP.md",
   "CONTEXTO.md",

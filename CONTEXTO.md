@@ -22,8 +22,8 @@ raw, inventario IPC desincronizado con `dataset::samples`, falso positivo de
 anterior. Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-07.md),
 [ROADMAP](ROADMAP.md) y [CHANGELOG](CHANGELOG.md). T6-05, T5-18/T5-20,
 asistencia real, VM limpia, updater real y plataformas no Windows siguen abiertos
-sin duplicarse. Usuario, escala, canal, jurisdicción y normativa permanecen
-pendientes por decisión del usuario.
+sin duplicarse. Canal, jurisdicción y normativa permanecen pendientes de
+validación externa.
 
 T7-03 quedó cerrada el 2026-09-07: la política de red separa patrones de
 frontend y Rust, mantiene bloqueados los clientes HTTP reales y permite el
@@ -44,6 +44,37 @@ T7-04 quedó cerrada el 2026-09-07: la ficha de dependencias refleja `0.167.0`,
 la rama `feat/diseno-integral`, 287 dependencias npm, 477 archivos escaneados y
 67/4/58 contratos IPC. `docs:check` detecta divergencias contra package-lock e
 inventario; Tier 7 queda completo.
+
+## Alcance V1 y temas — 2026-09-09
+
+Columnia queda definida como estación local para una sola persona operadora. No
+se implementarán cuentas, registro, autenticación, organizaciones, perfiles
+remotos ni sincronización entre dispositivos. El problema principal es preparar
+y entregar datasets confiables en el equipo de la persona, sin requerir un
+servicio web.
+
+El contrato de formatos obligatorios, persistencia, rendimiento, updater y
+capacidades fuera de alcance está en
+[`docs/reference/v1-scope.md`](docs/reference/v1-scope.md). Los destinos ODBC
+siguen disponibles como salidas opcionales bajo acción explícita; no forman parte
+del funcionamiento local obligatorio. El updater firmado de Tauri queda aprobado
+como capacidad opcional y no bloquea el trabajo sin red.
+
+La paridad de sesión operativa se considera cerrada con el modelo durable propio
+de Columnia. No persistir muestras, consultas, rutas, credenciales ni resultados
+derivados innecesarios es una decisión de privacidad. Los presupuestos versionados
+de `fixtures/performance/performance-baseline-v1.json` quedan adoptados como el
+contrato final de rendimiento V1. Una corrida fresca de 100 MiB y 819.137 filas
+aprobó carga, paginación, transformación, exportación, memoria y cleanup en
+`.local/validation/performance-webview2/20260909T225822Z`; el gate agregado pasó
+en `.local/validation/performance-baseline/20260909T225907Z`.
+
+El selector de apariencia ofrece seis temas: Sistema, Claro, Oscuro, Papel,
+Océano y Pizarra. Playwright/Chromium verificó los seis en 1920×1080 y 375×812,
+incluidos persistencia, teclado, preferencia clara/oscura del sistema, paneles
+laterales, scroll y contraste. El mínimo observado fue 7,63:1 y no hubo errores
+de consola ni overflow horizontal. Pasan 296 pruebas frontend y el build de 75
+módulos.
 
 ## Diseño vigente — 2026-09-06
 

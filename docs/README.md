@@ -20,6 +20,8 @@ comportamiento implementado.
 
 ### Referencia
 
+- [Alcance de Columnia V1](reference/v1-scope.md): modelo local sin cuentas,
+  formatos obligatorios, persistencia, presupuestos y límites explícitos.
 - [Referencia de la CLI](reference/cli.md): comandos, opciones, contratos JSON y
   códigos de salida.
 - [Paridad funcional](reference/feature-parity.md): capacidades disponibles,
