@@ -35,6 +35,7 @@ import {
 } from "./reviewModel";
 import type { ComparisonStatus } from "./compareModel";
 import type { JoinStatus } from "./joinModel";
+import { QualitySnapshot } from "./QualitySnapshot";
 
 const CONFLICT_PAGE_SIZE = 50;
 
@@ -998,6 +999,14 @@ function QualityProfile({
           <small>según el tipo sugerido</small>
         </div>
         </dl>
+        <QualitySnapshot
+          rowCount={profile.rowCount}
+          columnCount={profile.columns.length}
+          nullCount={totalNullCount}
+          duplicateCount={profile.duplicateRowCount}
+          duplicatePercentage={profile.duplicatePercentage}
+          invalidTypeCount={invalidTypeCount}
+        />
         <p className="quality-overview__meta">
           <span>Filas analizadas</span>
           <strong>{profile.rowCount.toLocaleString()}</strong>
