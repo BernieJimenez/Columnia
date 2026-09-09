@@ -16,6 +16,15 @@
   --focus-ring: #ad6815;
   --disabled-surface: #e9edeb;
   --disabled-text: #64726f;
+  --action-fill: #176d62;
+  --action-hover: #10564d;
+  --success: #176d62;
+  --warning: #ad6815;
+  --danger: #b5463c;
+  --info: #347b91;
+  --on-accent: #ffffff;
+  --font-body: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-display: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --eyebrow: #646f61;
@@ -1237,6 +1246,13 @@ td { border-color: var(--border-subtle); }
     --disabled-surface: #2b393e;
     --disabled-text: #acb9b6;
     --eyebrow: #c4cfbd;
+    --action-fill: #287f70;
+    --action-hover: #329481;
+    --success: #84d7bd;
+    --warning: #efba70;
+    --danger: #f08a82;
+    --info: #75b9d0;
+    --on-accent: #102326;
   }
 }
 
@@ -1255,6 +1271,13 @@ td { border-color: var(--border-subtle); }
   --disabled-surface: #2b393e;
   --disabled-text: #acb9b6;
   --eyebrow: #c4cfbd;
+  --action-fill: #287f70;
+  --action-hover: #329481;
+  --success: #84d7bd;
+  --warning: #efba70;
+  --danger: #f08a82;
+  --info: #75b9d0;
+  --on-accent: #102326;
 }
 
 body { color: var(--text-primary); background: var(--canvas); }
@@ -2413,7 +2436,7 @@ summary:focus-visible,
 
 /* Final shell polish: preserve context on small screens and make state changes
  * visible without relying on color alone. */
-:root { --accent-soft: #e3f0ec; --font-body: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif; --font-display: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif; }
+:root { --accent-soft: #e3f0ec; }
 :root[data-theme="dark"] { --accent-soft: #21463f; }
 @media (prefers-color-scheme: dark) {
   :root:is(:not([data-theme]), [data-theme="system"]) { --accent-soft: #21463f; }
@@ -2516,9 +2539,9 @@ td {
 
 :root .workspace { box-shadow: none; }
 
-:root .workspace .primary-action:not(:disabled) { background: #176d62; border-color: #176d62; color: #fff; }
+:root .workspace .primary-action:not(:disabled) { background: var(--action-fill); border-color: var(--action-fill); color: #fff; }
 
-:root .workspace .primary-action:hover:not(:disabled) { background: #10564d; border-color: #10564d; }
+:root .workspace .primary-action:hover:not(:disabled) { background: var(--action-hover); border-color: var(--action-hover); }
 
 :root .workspace .primary-action:not(:disabled) :is(span, strong) { color: inherit; }
 
@@ -2792,4 +2815,22 @@ a:visited { color: #80548b; }
 @media (forced-colors: active) {
   .quality-snapshot__dot { background: CanvasText; }
   .quality-snapshot__track > span { background: Highlight; }
+}
+
+/* Semantic feedback uses the same tokens in every workflow stage. */
+.notice--success,
+.quality-gate--passed {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border-subtle));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: var(--text-primary);
+}
+.notice--error,
+.quality-gate--failed {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-subtle));
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--text-primary);
+}
+.workspace :is(.metrics dd, .quality-summary dd, .quality-snapshot__signals strong) {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
 }
