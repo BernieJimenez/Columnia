@@ -2834,3 +2834,60 @@ a:visited { color: #80548b; }
   font-family: var(--font-display);
   font-variant-numeric: tabular-nums;
 }
+
+/* Motion explains state changes without delaying the task. */
+.workspace__stage {
+  animation: stage-enter 180ms cubic-bezier(.2, .8, .2, 1) both;
+}
+.workspace[aria-busy="true"] { cursor: progress; }
+.workspace :is(.notice, .quality-gate, .change-feedback) {
+  animation: status-enter 160ms ease-out both;
+}
+:is(.review-tool, .advanced-corrections, .detected-signals, .load-secondary)[open] > :not(summary) {
+  animation: disclosure-enter 150ms ease-out both;
+}
+.side-nav__marker,
+.delivery-route > label,
+.quality-snapshot__track > span {
+  transition: transform 160ms ease-out, opacity 160ms ease-out, background-color 160ms ease-out, border-color 160ms ease-out;
+}
+button:active:not(:disabled) { transform: translateY(1px); }
+.delivery-route > label[data-selected="true"] { position: relative; }
+.delivery-route__state {
+  width: max-content;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: .75rem;
+  font-weight: 650;
+}
+.delivery-route > label[data-selected="true"] .delivery-route__state {
+  color: var(--accent);
+}
+
+@keyframes stage-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes status-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes disclosure-enter {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace__stage,
+  .workspace :is(.notice, .quality-gate, .change-feedback),
+  :is(.review-tool, .advanced-corrections, .detected-signals, .load-secondary)[open] > :not(summary) {
+    animation: none;
+  }
+  .side-nav__marker,
+  .delivery-route > label,
+  .quality-snapshot__track > span,
+  button:active:not(:disabled) {
+    transition: none;
+    transform: none;
+  }
+}

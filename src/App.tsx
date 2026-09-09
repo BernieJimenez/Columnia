@@ -926,6 +926,7 @@ export function App() {
           aria-label={`Etapa ${activePhaseMeta.label}`}
           aria-busy={operationBusy}
         >
+          <div className="workspace__stage" key={activePhase}>
           <Suspense fallback={<div className="phase-loading" role="status">Cargando etapa…</div>}>
             {activePhase === "load" && (
               <LoadPhase
@@ -1056,6 +1057,7 @@ export function App() {
               />
             )}
           </Suspense>
+          </div>
           <footer className={`flow-footer${nextPhase ? "" : " flow-footer--terminal"}`} aria-label="Navegación entre etapas">
             {nextPhase && (
               <div className="flow-footer__copy">

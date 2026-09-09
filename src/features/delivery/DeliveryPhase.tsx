@@ -415,7 +415,7 @@ export function DeliveryPhase({
 
         <fieldset className="delivery-route">
           <legend>Ruta de entrega</legend>
-          <label>
+          <label data-selected={contract.kind === "with_contract" || undefined}>
             <input
               type="radio"
               name="delivery-validation-route"
@@ -426,9 +426,12 @@ export function DeliveryPhase({
             <span>
               <strong>Validar calidad</strong>
               <small>Recomendado · define hasta {MAX_QUALITY_RULES} comprobaciones locales</small>
+              <span className="delivery-route__state">
+                {contract.kind === "with_contract" ? "Ruta seleccionada" : "Disponible"}
+              </span>
             </span>
           </label>
-          <label>
+          <label data-selected={contract.kind === "without_contract" || undefined}>
             <input
               type="radio"
               name="delivery-validation-route"
@@ -439,6 +442,9 @@ export function DeliveryPhase({
             <span>
               <strong>Exportar sin validar</strong>
               <small>Requiere una confirmación explícita durante esta sesión</small>
+              <span className="delivery-route__state">
+                {contract.kind === "without_contract" ? "Ruta seleccionada" : "Disponible"}
+              </span>
             </span>
           </label>
         </fieldset>
