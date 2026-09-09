@@ -2698,3 +2698,38 @@ a:visited { color: #80548b; }
   }
   .quality-overview .quality-summary div:last-child { border-bottom: 0; }
 }
+
+/* Compact mobile wayfinding: keep the workflow, remove technical chrome. */
+@media (max-width: 700px) {
+  .sidebar {
+    row-gap: 6px;
+    padding: 10px 12px 8px;
+  }
+  .brand h1 {
+    gap: 7px;
+    margin: 2px 0 0;
+    font-size: 1.3rem;
+  }
+  .brand__mark { flex-basis: 19px; width: 19px; height: 19px; }
+  .sidebar__dataset { align-self: center; padding-top: 0; border-top: 0; }
+  .sidebar__dataset span { display: none; }
+  .sidebar__dataset strong { margin-top: 0; font-size: .75rem; }
+  .side-nav { gap: 2px; }
+  .side-nav button { min-height: 48px; padding: 4px 2px; }
+  :root .side-nav button > .side-nav__marker {
+    flex-basis: 20px;
+    width: 20px;
+    min-height: 20px;
+    font-size: .6875rem;
+  }
+  .side-nav__label-row strong { font-size: .75rem; }
+  .sidebar__tools { gap: 4px; }
+  :root .sidebar__utilities > summary,
+  :root .sidebar__legal > summary {
+    min-height: 44px;
+    padding-block: 4px;
+    font-size: .75rem;
+  }
+  .runtime--ready { display: none; }
+  .topbar:has(.runtime--ready) { grid-template-columns: 1fr; }
+}

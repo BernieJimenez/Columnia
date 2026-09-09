@@ -916,11 +916,7 @@ export function App() {
           >
             {status.kind === "loading" && "Conectando con Rust…"}
             {status.kind === "browser" && "Vista web · motor no conectado"}
-            {status.kind === "ready" && status.info
-              ? `${status.info.version} · ${status.info.platform}`
-              : status.kind === "ready"
-                ? "Motor local listo"
-                : null}
+            {status.kind === "ready" && "Motor local listo"}
             {status.kind === "error" && `Error del motor: ${status.message}`}
           </div>
         </header>
