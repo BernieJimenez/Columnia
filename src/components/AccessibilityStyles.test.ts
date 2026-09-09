@@ -11,7 +11,8 @@ describe("contratos CSS de accesibilidad", () => {
     expect(sidebarRule).toContain("height: 100dvh");
     expect(sidebarRule).toContain("overflow-y: visible");
     expect(styles).toMatch(/@media \(min-width: 901px\)[\s\S]*\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*position:\s*fixed/);
-    expect(styles).toMatch(/\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*inset:\s*16px auto/);
+    expect(styles).toMatch(/\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*top:\s*16px/);
+    expect(styles).toMatch(/\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*max-height:\s*calc\(100dvh - 32px\)/);
     expect(styles).toMatch(/\.sidebar__utilities-content,[\s\S]*\.sidebar__legal-content\s*\{[^}]*overflow-y:\s*auto/);
     expect(styles).toMatch(/body:has\(\.sidebar__tools > details\[open\]\)\s*\{\s*overflow-y:\s*hidden/);
     expect(styles).toContain("@media (min-width: 901px) and (max-height: 700px)");

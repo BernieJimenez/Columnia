@@ -1369,10 +1369,11 @@ body { color: var(--text-primary); background: var(--canvas); }
   .sidebar__utilities-content,
   .sidebar__legal-content {
     position: fixed;
-    inset: 16px auto 16px 272px;
+    top: 16px;
+    left: 272px;
     z-index: 20;
     width: min(420px, calc(100vw - 288px));
-    max-height: none;
+    max-height: calc(100dvh - 32px);
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 16px;
