@@ -2891,3 +2891,10 @@ button:active:not(:disabled) { transform: translateY(1px); }
     transform: none;
   }
 }
+
+/* Secondary tools keep the same minimum target as the primary workflow. */
+.resource-monitor__performance select,
+.update-panel__actions button,
+.quality-sample-control select {
+  min-height: 44px;
+}
