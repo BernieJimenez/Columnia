@@ -1,8 +1,15 @@
-export type ThemePreference = "system" | "light" | "dark";
+export type ThemePreference = "system" | "light" | "dark" | "paper" | "ocean" | "slate";
 
 export const THEME_STORAGE_KEY = "columnia.theme";
 
-const THEME_PREFERENCES: readonly ThemePreference[] = ["system", "light", "dark"];
+const THEME_PREFERENCES: readonly ThemePreference[] = [
+  "system",
+  "light",
+  "dark",
+  "paper",
+  "ocean",
+  "slate",
+];
 
 export function isThemePreference(value: string | null | undefined): value is ThemePreference {
   return value != null && THEME_PREFERENCES.includes(value as ThemePreference);
@@ -45,5 +52,7 @@ export function applyThemePreference(
   if (!root) return;
 
   root.dataset.theme = preference;
-  root.style.colorScheme = preference === "system" ? "light dark" : preference;
+  root.style.colorScheme = preference === "system"
+    ? "light dark"
+    : preference === "dark" ? "dark" : "light";
 }

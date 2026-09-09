@@ -15,6 +15,9 @@ const THEME_OPTIONS: readonly {
   { value: "system", label: "Sistema", description: "Usa la preferencia del equipo" },
   { value: "light", label: "Claro", description: "Lienzo luminoso" },
   { value: "dark", label: "Oscuro", description: "Panel de baja luz" },
+  { value: "paper", label: "Papel", description: "Tonos cálidos para sesiones largas" },
+  { value: "ocean", label: "Océano", description: "Azules frescos y definidos" },
+  { value: "slate", label: "Pizarra", description: "Neutros sobrios con acento azul" },
 ];
 
 export function ThemeSwitcher() {
@@ -46,11 +49,17 @@ export function ThemeSwitcher() {
             key={option.value}
             type="button"
             className={preference === option.value ? "theme-switcher__option theme-switcher__option--active" : "theme-switcher__option"}
+            data-theme-option={option.value}
             aria-pressed={preference === option.value}
             title={option.description}
             onClick={() => chooseTheme(option.value)}
           >
-            <span>{option.label}</span>
+            <span className="theme-switcher__swatch" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="theme-switcher__label">{option.label}</span>
           </button>
         ))}
       </div>
