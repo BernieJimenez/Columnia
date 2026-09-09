@@ -2602,3 +2602,54 @@ a:visited { color: #80548b; }
  :root .workspace .primary-action:not(:disabled) { background: Highlight; border-color: Highlight; color: HighlightText; }
  :root .side-nav .side-nav__item--current > .side-nav__marker { background: Highlight; color: HighlightText; }
 }
+
+/* Delivery command hierarchy: file utilities stay secondary to validation. */
+.quality-contract__commandbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+}
+.quality-contract__management,
+.quality-contract__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.quality-contract__management-label {
+  color: var(--text-secondary);
+  font-size: .8125rem;
+  font-weight: 650;
+}
+.quality-contract__management button,
+.quality-contract__actions button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 650;
+}
+.quality-contract__actions span {
+  order: -1;
+  margin: 0 4px 0 0;
+  white-space: nowrap;
+}
+.quality-contract__actions .primary-action {
+  border-color: var(--accent);
+  background: var(--action-fill, #176d62);
+  color: #fff;
+}
+
+@media (max-width: 700px) {
+  .quality-contract__commandbar { display: grid; gap: 12px; }
+  .quality-contract__management,
+  .quality-contract__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quality-contract__management-label,
+  .quality-contract__actions span { grid-column: 1 / -1; }
+  .quality-contract__management button,
+  .quality-contract__actions button { width: 100%; }
+}

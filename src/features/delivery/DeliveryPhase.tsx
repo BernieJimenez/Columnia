@@ -1035,14 +1035,19 @@ export function DeliveryPhase({
                 );
               })}
             </div>
-            <div className="quality-contract__actions">
-              <button type="button" onClick={() => void importQualityRules()} disabled={busy}>Importar contrato</button>
-              <button type="button" onClick={() => void saveQualityContract()}
-                disabled={busy || validationError !== null}>Guardar contrato</button>
-              <button type="button" onClick={addRule} disabled={busy || rules.length >= MAX_QUALITY_RULES}>Añadir regla</button>
-              <button type="button" className="primary-action" onClick={() => void runQualityGate()}
-                disabled={busy || validationError !== null}>Validar contrato</button>
-              <span>{rules.length}/{MAX_QUALITY_RULES} reglas</span>
+            <div className="quality-contract__commandbar" aria-label="Acciones del contrato">
+              <div className="quality-contract__management">
+                <span className="quality-contract__management-label">Administrar contrato</span>
+                <button type="button" aria-label="Importar contrato" onClick={() => void importQualityRules()} disabled={busy}>Importar</button>
+                <button type="button" aria-label="Guardar contrato" onClick={() => void saveQualityContract()}
+                  disabled={busy || validationError !== null}>Guardar</button>
+              </div>
+              <div className="quality-contract__actions">
+                <span>{rules.length}/{MAX_QUALITY_RULES} reglas</span>
+                <button type="button" onClick={addRule} disabled={busy || rules.length >= MAX_QUALITY_RULES}>Añadir regla</button>
+                <button type="button" className="primary-action" onClick={() => void runQualityGate()}
+                  disabled={busy || validationError !== null}>Validar contrato</button>
+              </div>
             </div>
             {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
             {migrationState.kind === "working" && <p className="notice" role="status">Importando y comprobando compatibilidad…</p>}
