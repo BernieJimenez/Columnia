@@ -2653,3 +2653,48 @@ a:visited { color: #80548b; }
   .quality-contract__management button,
   .quality-contract__actions button { width: 100%; }
 }
+
+/* Quieter workspace hierarchy: borders mark controls, not every content group. */
+.metrics {
+  border: 0;
+  border-block: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+.quality-overview {
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+.quality-overview .quality-summary {
+  border-block: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.quality-overview .quality-summary div {
+  border: 0;
+  border-inline-end: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  background: transparent;
+}
+.quality-overview .quality-summary div:last-child { border-inline-end: 0; }
+.quality-chart {
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+.quality-rule {
+  border-color: color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-subtle) 58%, transparent);
+}
+.recommended-batch {
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+@media (max-width: 700px) {
+  .quality-overview .quality-summary div {
+    border-inline-end: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .quality-overview .quality-summary div:last-child { border-bottom: 0; }
+}
