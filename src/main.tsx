@@ -14,8 +14,16 @@ if (!root) {
   throw new Error("No se encontró el contenedor raíz de Columnia.");
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+const appRoot = root;
+
+async function renderApp() {
+  await import("./workflow-styles");
+
+  createRoot(appRoot).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}
+
+void renderApp();

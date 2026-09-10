@@ -2,9 +2,21 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const styles = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
+const baseStyles = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
+const workflowStyles = readFileSync(join(process.cwd(), "src", "workflow-styles.css"), "utf8");
+const styles = `${baseStyles}\n${workflowStyles}`;
 
 describe("contratos CSS de accesibilidad", () => {
+  it("carga el bloque visual diferido antes de renderizar React", () => {
+    const entrypoint = readFileSync(join(process.cwd(), "src", "main.tsx"), "utf8");
+    const styleModule = readFileSync(join(process.cwd(), "src", "workflow-styles.ts"), "utf8");
+    const styleImport = 'await import("./workflow-styles")';
+
+    expect(entrypoint).toContain(styleImport);
+    expect(entrypoint.indexOf(styleImport)).toBeLessThan(entrypoint.indexOf("createRoot(appRoot).render"));
+    expect(styleModule.trim()).toBe('import "./workflow-styles.css";');
+  });
+
   it("ajusta la barra lateral y sus paneles a la resolución disponible", () => {
     const sidebarRule = styles.match(/\.sidebar\s*\{([^}]*)\}/)?.[1] ?? "";
 
