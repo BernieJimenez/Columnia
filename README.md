@@ -1,52 +1,82 @@
-# Columnia
+<div align="center">
+  <img src="app-icon.svg" width="88" alt="Logotipo de Columnia">
+  <h1>Columnia</h1>
+  <p><strong>Convierte archivos desordenados en datasets confiables, sin sacar los datos de tu equipo.</strong></p>
+  <p>Estación local para revisar, limpiar, transformar, validar y exportar datos.</p>
 
-Columnia será una estación local multiplataforma para revisar, limpiar,
-transformar y entregar datasets confiables.
+  ![Versión](https://img.shields.io/badge/versión-0.167.0-176d62?style=flat-square)
+  ![Plataforma](https://img.shields.io/badge/plataforma-Windows%20x64-0078D4?style=flat-square&logo=windows11&logoColor=white)
+  ![Privacidad](https://img.shields.io/badge/privacidad-local--first-143239?style=flat-square)
+  [![Licencia MIT](https://img.shields.io/badge/licencia-MIT-f2c94c?style=flat-square)](LICENSE)
+</div>
 
-Columnia V1 funciona para una sola persona en su propio equipo y no requiere
-cuentas, registro, inicio de sesión ni sincronización remota. El
-[alcance de V1](docs/reference/v1-scope.md) fija los formatos obligatorios, qué
-se guarda en un proyecto y qué capacidades quedan expresamente fuera.
+> **Estado:** prototipo local verificable. Windows x64 es la plataforma validada actualmente; macOS y Linux siguen siendo objetivos de diseño.
 
-Para entender rápidamente la arquitectura, el estado implementado, los riesgos
-y las reglas de trabajo, consulta el [contexto vivo del proyecto](CONTEXTO.md).
-Las fronteras de confianza, amenazas y controles se mantienen en el
-[threat model vivo](THREAT_MODEL.md).
-Las reglas de contribución, la licencia y las decisiones duraderas están en
-[CONTRIBUTING.md](CONTRIBUTING.md), [LICENSE](LICENSE) y la
-[documentación del repositorio](docs/README.md).
+## Qué puedes hacer
 
-El proyecto es un prototipo local verificable. Actualmente contiene el shell
-Tauri 2, una interfaz React/TypeScript y un corte vertical del motor Polars:
-selección nativa, carga local y vista previa de CSV, TSV, TXT delimitado, JSON,
-Parquet, Excel y ODS sin un límite fijo de tamaño impuesto por Columnia. Los
-libros con varias hojas muestran un selector antes de cargar y React solo recibe
-un identificador opaco, nunca la ruta local. La capacidad efectiva depende de
-la RAM, el espacio en disco y los demás recursos disponibles en el equipo: el
-dataset aún se materializa en memoria y un archivo grande puede requerir
-bastante más RAM durante la lectura, el perfilado y las transformaciones.
-El perfilado de duplicados normalizados procesa bloques en paralelo con CPU y
-huellas compactas XXH3-128 para aprovechar los hilos disponibles sin construir una
-cadena completa por cada fila. La aceleración GPU no forma parte del runtime
-actual.
+- **Abrir datos locales** en CSV, TSV, TXT delimitado, JSON, Parquet, Excel y ODS.
+- **Entender la calidad** antes de modificar: tipos, nulos, duplicados, distribuciones y correlaciones.
+- **Corregir y transformar** con operaciones controladas, recetas reutilizables y un historial Deshacer/Rehacer.
+- **Explorar con SQL local** mediante Polars o DuckDB, sin enviar el dataset a un servicio externo.
+- **Validar la entrega** con reglas de calidad y exportar en CSV, JSON, Parquet, SQL, Excel, SQLite o un bundle reproducible.
+- **Guardar proyectos locales** con su dataset, reglas, receta, perfil e historial.
 
-La vista **Cargar** permite seleccionar una fuente con el diálogo nativo o
-arrastrarla a la ventana de Columnia. El evento de arrastre se captura en Rust y
-React recibe únicamente la inspección segura, nunca la ruta local. También
-mantiene hasta cinco archivos recientes en almacenamiento local del navegador.
-Solo conserva nombre visible, formato, fecha e ID opaco; **Elegir de nuevo**
-vuelve a abrir el selector nativo y nunca reutiliza una ruta guardada. Los
-reportes, recetas y manifiestos que salen por CLI también pasan por
-una frontera de sanitización que elimina rutas, valores de datos, emails y
-secretos antes de serializarse.
-Parquet conserva su esquema nativo, incluidos tipos temporales compatibles,
-nulos y texto Unicode, y se lee con una configuración conservadora de memoria.
-Las operaciones compatibles con source-backed consultan el archivo o snapshot
-Parquet por bloques y mantienen el frame en modo diferido; las transformaciones
-que necesitan una vista completa materializan con un presupuesto explícito de
-RAM y pueden degradar el historial reversible si el presupuesto de disco no
-alcanza. La paginación de la muestra activa reutiliza el snapshot Parquet del
-cursor actual con lectura acotada.
+## Recorrido visual
+
+| 1. Cargar | 2. Revisar |
+| --- | --- |
+| Selecciona o arrastra un archivo y continúa un proyecto local. | Inspecciona estructura, calidad y una muestra antes de cambiar datos. |
+| ![Etapa Cargar de Columnia](docs/images/gallery/01-cargar.png) | ![Etapa Revisar de Columnia](docs/images/gallery/02-revisar.png) |
+
+| 3. Preparar | 4. Entregar |
+| --- | --- |
+| Aplica correcciones reversibles y transformaciones agrupadas. | Define reglas, protege datos personales y exporta una copia. |
+| ![Etapa Preparar de Columnia](docs/images/gallery/03-preparar.png) | ![Etapa Entregar de Columnia](docs/images/gallery/04-entregar.png) |
+
+<details>
+<summary><strong>Ver más funciones en detalle</strong></summary>
+
+### Vista previa paginada
+
+![Vista previa de un dataset en Columnia](docs/images/gallery/05-vista-previa.png)
+
+### Consultas SQL locales
+
+![Explorador SQL local de Columnia](docs/images/gallery/06-sql-local.png)
+
+### Recetas de transformación
+
+![Editor de transformaciones de Columnia](docs/images/gallery/07-transformaciones.png)
+
+### Contratos de calidad
+
+![Reglas de calidad para la entrega en Columnia](docs/images/gallery/08-reglas-calidad.png)
+
+### Preferencias y recursos
+
+![Preferencias y monitor de recursos de Columnia](docs/images/gallery/09-preferencias-recursos.png)
+
+</details>
+
+Las capturas usan un dataset pequeño y sintético; no contienen información personal ni datos de producción.
+
+## Diseño local-first
+
+Columnia V1 está pensada para una persona trabajando en su propio equipo. No requiere cuentas, registro, inicio de sesión, telemetría ni sincronización remota. El shell nativo está construido con **Tauri 2**, la interfaz con **React y TypeScript**, y el motor de datos con **Rust, Polars y DuckDB**.
+
+La interfaz recibe identificadores opacos en lugar de rutas locales. Los reportes de automatización pasan por una frontera de sanitización que elimina rutas, valores, correos y secretos antes de serializarlos. Consulta el [modelo de amenazas](THREAT_MODEL.md) y la [política de privacidad de red](docs/reference/network-privacy.md) para conocer los controles completos.
+
+## Enlaces rápidos
+
+- [Tutorial: tu primer dataset](docs/tutorials/first-dataset.md)
+- [Alcance de V1](docs/reference/v1-scope.md)
+- [Documentación completa](docs/README.md)
+- [Arquitectura local-first](docs/explanation/local-first-architecture.md)
+- [Referencia de la CLI](docs/reference/cli.md)
+- [Cómo contribuir](CONTRIBUTING.md)
+- [Licencia MIT](LICENSE)
+
+## Documentación técnica
 
 ## Plataformas objetivo
 
