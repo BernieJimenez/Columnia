@@ -44,8 +44,8 @@ try {
 }
 
 if (decision.schemaVersion !== 1) fail("la ficha de decisiones debe usar schemaVersion 1.");
-if (!["pending-legal-review", "approved"].includes(decision.status)) {
-  fail("el estado de la ficha debe ser pending-legal-review o approved.");
+if (!["pending-legal-review", "source-publication-approved", "approved"].includes(decision.status)) {
+  fail("el estado de la ficha debe ser pending-legal-review, source-publication-approved o approved.");
 }
 if (!decision.lastReviewed || !/^\d{4}-\d{2}-\d{2}$/.test(decision.lastReviewed)) {
   fail("lastReviewed debe usar una fecha ISO YYYY-MM-DD.");
@@ -74,11 +74,13 @@ if (requireSignoff) {
   process.exit(0);
 }
 
-if (decision.status === "approved" && unresolved.length > 0) {
-  fail(`status=approved pero faltan decisiones: ${unresolved.join(", ")}.`);
+if (["source-publication-approved", "approved"].includes(decision.status) && unresolved.length > 0) {
+  fail(`status=${decision.status} pero faltan decisiones: ${unresolved.join(", ")}.`);
 }
 if (unresolved.length > 0) {
   console.log(`Gate técnico legal/distribución aprobado; aprobación jurídica pendiente (${unresolved.length} campos).`);
+} else if (decision.status === "source-publication-approved") {
+  console.log("Gate legal aprobado para publicar el código fuente; instaladores y updater permanecen bloqueados.");
 } else {
   console.log("Gate técnico legal/distribución aprobado: ficha completa, pendiente de marcar approved tras revisión.");
 }

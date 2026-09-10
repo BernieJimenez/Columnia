@@ -90,7 +90,7 @@ try {
   if (!version || packageLock.version !== version || packageLock.packages?.[""].version !== version || tauriConfig.version !== version || cargoVersion !== version || cargoLockVersion !== version) {
     fail("La versión de npm, lockfile, Cargo, Cargo.lock y Tauri no está sincronizada.");
   }
-  if (legalDecision.schemaVersion !== 1 || !["pending-legal-review", "approved"].includes(legalDecision.status)) {
+  if (legalDecision.schemaVersion !== 1 || !["pending-legal-review", "source-publication-approved", "approved"].includes(legalDecision.status)) {
     fail("La ficha legal/distribución debe usar schemaVersion 1 y un estado conocido.");
   }
   if (!changelog.includes(`[${version}]`)) fail(`CHANGELOG.md no contiene la versión ${version}.`);

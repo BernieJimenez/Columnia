@@ -1,17 +1,19 @@
 {
   "schemaVersion": 1,
-  "status": "pending-legal-review",
-  "lastReviewed": "2026-08-31",
+  "status": "source-publication-approved",
+  "lastReviewed": "2026-09-09",
   "decision": {
-    "responsibleEntity": null,
-    "jurisdiction": null,
-    "contact": null,
-    "markets": [],
-    "channel": null,
-    "privacyPolicy": null,
-    "retentionPolicy": null,
-    "trademarkReview": null,
-    "thirdPartyNoticesReview": null,
-    "updaterDistributionReview": null
+    "responsibleEntity": "Bernie Jimenez, persona física",
+    "jurisdiction": "República Dominicana",
+    "contact": "berniejimenez493@gmail.com",
+    "markets": [
+      "Global — repositorio público de código fuente"
+    ],
+    "channel": "GitHub — código fuente únicamente; sin instaladores ni actualizaciones",
+    "privacyPolicy": "docs/reference/network-privacy.md — procesamiento local, sin cuentas, telemetría ni almacenamiento remoto gestionado por el proyecto",
+    "retentionPolicy": "Los datos y proyectos permanecen en el equipo hasta que la persona usuaria los elimina; Columnia no conserva copias remotas",
+    "trademarkReview": "La publicación del código fuente no afirma un registro de marca; la búsqueda y eventual solicitud ante ONAPI se mantienen como requisito previo a la comercialización",
+    "thirdPartyNoticesReview": "Revisión técnica aprobada mediante npm run notices:check; LICENSE y THIRD_PARTY_NOTICES.md deben acompañar cualquier distribución",
+    "updaterDistributionReview": "No autorizado; endpoints, firmas y artefactos de actualización permanecen desactivados hasta una revisión separada"
   }
 }

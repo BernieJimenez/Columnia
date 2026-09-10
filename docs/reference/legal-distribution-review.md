@@ -1,14 +1,14 @@
 # Revisión legal y de distribución
 
-Estado: preparación técnica completada; revisión jurídica y decisión de
-publicación pendientes.
+Estado: publicación del código fuente aprobada por la persona responsable;
+distribución de instaladores y actualizaciones pendiente de revisión separada.
 
 La ficha estructurada [`legal-distribution-decision.json`](./legal-distribution-decision.json)
-es la fuente de estado para el gate. Mientras conserve
-`status: "pending-legal-review"`, `npm run legal:check` valida los artefactos
-técnicos, pero cualquier perfil `Release` o `Package` se detiene antes de crear
-instaladores publicables. El estado solo puede pasar a `approved` después de que
-la persona responsable complete y revise todos los campos de la ficha.
+es la fuente de estado para el gate. El estado
+`source-publication-approved` permite publicar el repositorio bajo MIT, pero
+cualquier perfil `Release` o `Package` continúa detenido antes de crear
+instaladores publicables. El estado solo puede pasar a `approved` después de una
+revisión separada de la distribución binaria, la marca y el canal updater.
 
 ## Qué se entrega
 
@@ -23,22 +23,21 @@ la persona responsable complete y revise todos los campos de la ficha.
   pública, exige firma minisign de Tauri y muestra versión, notas, tamaño,
   progreso y cancelación después de una acción explícita.
 
-## Campos que requieren aprobación
+## Alcance de la aprobación actual
 
-La ficha no acepta valores implícitos. Deben completarse responsable, jurisdicción,
-contacto, mercados, canal, política de privacidad, retención, revisión de marca,
-revisión de avisos de terceros y distribución del updater. El gate técnico
-comprueba que existan los archivos, que el JSON sea válido y que no haya estados
-contradictorios; el gate de release exige además `status: "approved"` y valores
-no provisionales.
+La persona responsable autorizó la publicación mundial del código fuente mediante
+GitHub bajo la licencia MIT. Esta aprobación no incluye instaladores, binarios,
+paquetes ni actualizaciones. El gate técnico comprueba que la ficha esté completa
+y no tenga estados contradictorios; el gate de release continúa exigiendo
+`status: "approved"`.
 
 ## Decisiones que debe cerrar la persona responsable
 
-Antes de publicar hay que definir la entidad responsable, jurisdicción, canal de
-contacto, mercados, política de privacidad final, retención aplicable, revisión
-de marcas de “Columnia” y la forma de distribuir hashes, instaladores y futuros
-updaters. Este documento no constituye asesoría legal ni reemplaza los textos
-completos de copyright/licencia exigidos por cada dependencia.
+Antes de distribuir binarios hay que cerrar la búsqueda y eventual protección de
+la marca “Columnia”, la firma del instalador, el canal de descarga y la forma de
+distribuir hashes y futuros updaters. Este documento no constituye asesoría legal
+ni reemplaza los textos completos de copyright/licencia exigidos por cada
+dependencia.
 
 ## Release firmado del updater
 

@@ -74,6 +74,7 @@ La interfaz recibe identificadores opacos en lugar de rutas locales. Los reporte
 - [Arquitectura local-first](docs/explanation/local-first-architecture.md)
 - [Referencia de la CLI](docs/reference/cli.md)
 - [Cómo contribuir](CONTRIBUTING.md)
+- [Política de seguridad](SECURITY.md)
 - [Licencia MIT](LICENSE)
 
 ## Documentación técnica
