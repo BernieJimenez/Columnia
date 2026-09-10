@@ -10,7 +10,9 @@ trabajo reales.
 Cada sesión debe terminar con una entrega local comprobada, un proyecto que se
 puede cerrar y reabrir, y un reporte sin filas, rutas, consultas, credenciales ni
 información personal. Usa la [plantilla de sesión](../templates/beta-session.md)
-y guarda la copia completada bajo `.local/beta/`, que Git ignora.
+y guarda la copia completada bajo `.local/beta/`, que Git ignora. Las tres
+sesiones aceptadas de un gate deben probar exactamente el mismo release candidate
+y commit.
 
 ## Preparación
 
@@ -31,7 +33,10 @@ y guarda la copia completada bajo `.local/beta/`, que Git ignora.
    Copy-Item docs\templates\beta-session.md "$session\session.md"
    ```
 
-3. Elige tres datasets. Ningún dataset real se copia a `fixtures/`, `.local/` ni
+3. Asigna un alias distinto a cada participante y confirma que no participó en
+   otra de las tres sesiones aceptadas. No registres su identidad.
+
+4. Elige tres datasets. Ningún dataset real se copia a `fixtures/`, `.local/` ni
    al repositorio.
 
    - **Baseline sintética:** `fixtures\automation\quality-input.csv`.
@@ -40,13 +45,21 @@ y guarda la copia completada bajo `.local/beta/`, que Git ignora.
    - **Caso estructural:** un libro con varias hojas o un dataset suficientemente
      grande para observar paginación, progreso y cancelación.
 
+La fixture sintética es un calentamiento reproducible: no cuenta como dataset
+real ni crea una sesión adicional. Cada sesión usa dos casos reales; entre las
+tres sesiones deben aparecer al menos tres datasets reales distintos. Reutilizar
+un caso entre participantes está permitido cuando ayuda a comparar recorridos.
+
 Antes de comenzar, la persona facilitadora explica únicamente el objetivo y cómo
 detener la prueba. No demuestra el flujo ni sugiere dónde hacer clic.
 
 ## Tareas de la persona participante
 
 Cronometra cada tarea y registra si se completó sin ayuda, con ayuda o no se pudo
-completar. No grabes la pantalla cuando pueda mostrar datos sensibles.
+completar. Registra también acciones de navegación, datos reintroducidos,
+retrocesos, eventos de ayuda y la causa sanitizada de cada duda, usando las
+definiciones de la plantilla. No grabes la pantalla cuando pueda mostrar datos
+sensibles.
 
 ### 1. Cargar y comprender
 
@@ -120,13 +133,30 @@ sintética y determinista. Solo esa reproducción sanitizada puede entrar en
 Cada hallazgo debe incluir tarea, expectativa, resultado, severidad y una
 reproducción sanitizada. Agrupa observaciones repetidas por causa, no por persona.
 
+## Cuándo una sesión cuenta
+
+Una sesión es válida cuando completa las diez tareas sobre el release candidate
+declarado y conserva un veredicto íntegro. Aplica estas reglas:
+
+- un fallo de instalación, preparación o entorno ocurrido antes de observar el
+  recorrido no cuenta como sesión;
+- un P0/P1 detiene el gate e invalida el conjunto aceptado para ese release
+  candidate;
+- después de corregir un P0/P1, crea un release candidate nuevo, repite el camino
+  afectado y reúne tres sesiones válidas sobre ese mismo commit;
+- una sesión con P2/P3 puede contar si termina el recorrido y cada hallazgo tiene
+  decisión y responsable;
+- no combines porcentajes ni fricción de commits distintos.
+
 ## Criterios para cerrar la beta V1
 
 La beta queda aceptada cuando se cumplen todos estos puntos:
 
-- al menos tres sesiones y tres datasets reales distintos;
+- tres sesiones válidas, tres participantes distintos y el mismo release
+  candidate;
+- dos casos reales por sesión y al menos tres datasets reales distintos en total;
 - todas las personas completan Cargar → Revisar → Preparar → Entregar;
-- al menos 80 % de las tareas se completa sin ayuda;
+- al menos 24 de las 30 tareas agregadas se completan sin ayuda;
 - no quedan hallazgos P0 o P1 abiertos;
 - guardado/reapertura y verificación independiente de la entrega pasan en todas
   las sesiones;
@@ -134,7 +164,29 @@ La beta queda aceptada cuando se cumplen todos estos puntos:
   documentada de por qué no puede conservarse;
 - los P2/P3 aceptados tienen decisión y responsable, aunque se difieran.
 
+Al terminar, copia la [plantilla de resumen](../templates/beta-summary.md) a
+`docs/reference/beta-v1-summary.md`, completa únicamente métricas agregadas y
+sométela a revisión de privacidad. Los reportes de sesión permanecen en
+`.local/beta/`; solo el resumen sanitizado se versiona. Tier 8 no se marca cerrado
+en `ROADMAP.md` hasta que ese archivo exista y todos los criterios anteriores
+estén aprobados.
+
+## Gate 2: validar el shell de espacios
+
+Después de cerrar Tier 8 y añadir el shell, ejecuta una segunda ronda enfocada
+sobre otro release candidate estable. Usa la misma definición de tareas y
+métricas para comparar contra Gate 1. La consolidación de Analizar se acepta
+cuando:
+
+- no reaparecen P0/P1 y siguen pasando guardado, reapertura y entrega;
+- las tareas principales conservan su capacidad;
+- las acciones de navegación o los datos reintroducidos bajan al menos 20 %;
+- Automatizar y Preparar para BI se entienden como interfaces futuras, sin
+  confundirse con errores, permisos o funciones activas.
+
+Si el baseline de una métrica es cero, regístrala como `N/A` y usa la otra
+métrica para demostrar la mejora; nunca inventes un porcentaje a partir de cero.
+
 La beta no autoriza publicar instaladores ni activar el updater. Esas decisiones
 siguen el [flujo de publicación](publish-release.md) y la
 [revisión legal](../reference/legal-distribution-review.md).
-

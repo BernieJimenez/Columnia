@@ -2766,12 +2766,19 @@ Objetivo: comprobar que personas reales completan el flujo V1 y confían en la
 entrega antes de ampliar funciones o autorizar distribución binaria. El protocolo
 vigente está en `docs/how-to/run-beta-validation.md`.
 
-- [x] Definir tareas, privacidad, severidades y plantilla de sesión reproducible.
-- [ ] Ejecutar al menos tres sesiones con tres datasets reales distintos.
-- [ ] Lograr al menos 80 % de tareas sin ayuda en el conjunto aceptado.
+- [x] Definir tareas, privacidad, severidades, métricas de fricción y plantillas
+  reproducibles de sesión y resumen.
+- [ ] Completar tres sesiones válidas con tres participantes distintos sobre el
+  mismo release candidate y commit.
+- [ ] Probar dos casos reales por sesión y al menos tres datasets reales distintos
+  en el conjunto aceptado; la fixture sintética cuenta solo como calentamiento.
+- [ ] Lograr al menos 24 de 30 tareas sin ayuda en el conjunto aceptado.
 - [ ] Convertir fallos dependientes de datos en reproducciones sintéticas.
 - [ ] Cerrar todos los hallazgos P0/P1 y decidir los P2/P3 restantes.
 - [ ] Verificar guardado/reapertura y la entrega fuera de Columnia en cada sesión.
+- [ ] Publicar el resumen sanitizado en `docs/reference/beta-v1-summary.md`.
 
-**Gate:** tres sesiones aprobadas, sin P0/P1 abiertos y con evidencia sanitizada
-en `.local/beta/`. Este Tier no autoriza instaladores ni updater.
+**Gate:** tres sesiones válidas sobre el mismo release candidate, 24 de 30 tareas
+sin ayuda, ningún P0/P1 abierto, reportes detallados bajo `.local/beta/` y resumen
+sanitizado versionado. Este Tier no autoriza instaladores ni updater. La medición
+posterior del shell de espacios es un Gate 2 separado y conserva esta línea base.

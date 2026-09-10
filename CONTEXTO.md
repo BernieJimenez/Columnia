@@ -47,12 +47,16 @@ inventario; Tier 7 queda completo.
 
 ## Alcance V1 y temas — 2026-09-09
 
-La validación siguiente es una beta local con al menos tres sesiones y tres
-datasets reales distintos. El recorrido, la clasificación P0–P3, la protección
-de datos y el criterio de cierre están en
+La validación siguiente es una beta local con tres participantes y tres sesiones
+válidas sobre el mismo release candidate: 30 tareas, dos casos reales por sesión
+y al menos tres datasets reales distintos en total. El recorrido, las métricas de
+fricción, la clasificación P0–P3, la protección de datos y el criterio de cierre
+están en
 [`docs/how-to/run-beta-validation.md`](docs/how-to/run-beta-validation.md). Los
 reportes completados se guardan únicamente bajo `.local/beta/`; cualquier fallo
-que llegue al repositorio debe reproducirse primero con una fixture sintética.
+que llegue al repositorio debe reproducirse primero con una fixture sintética. El
+resumen sanitizado se publicará como `docs/reference/beta-v1-summary.md` sin
+combinar mediciones de commits distintos.
 
 Columnia queda definida como estación local para una sola persona operadora. No
 se implementarán cuentas, registro, autenticación, organizaciones, perfiles
@@ -86,7 +90,8 @@ módulos.
 ## Diseño vigente — 2026-09-06
 
 Rediseño aplicado en `feat/diseno-integral`, sin cambio de versión. Consultar
-primero esta sección y el [informe de diseño](AUDITORIA_DISENO_2026-09-06.md)
+primero esta sección, [`DESIGN.md`](DESIGN.md) y el
+[informe de diseño](AUDITORIA_DISENO_2026-09-06.md)
 para retomar el trabajo sin repetir la exploración del frontend.
 
 - `src/styles.css`: paleta mediante variables, navegación petróleo, superficies

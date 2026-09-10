@@ -4,6 +4,9 @@ Esta carpeta contiene las decisiones y contratos de trabajo que no caben en la
 guía funcional. El código y sus pruebas siguen siendo la fuente de verdad del
 comportamiento implementado.
 
+La [guía de diseño](../DESIGN.md) documenta el lenguaje visual, la jerarquía del
+shell y los contratos responsive y de accesibilidad para contribuciones UI.
+
 ## Índice Diátaxis
 
 ### Tutorial
@@ -22,6 +25,8 @@ comportamiento implementado.
 
 La [plantilla de sesión beta](templates/beta-session.md) normaliza tareas,
 hallazgos y veredictos; las copias completadas pertenecen a `.local/beta/`.
+La [plantilla de resumen beta](templates/beta-summary.md) define la evidencia
+agregada y sanitizada que se versiona al cerrar los gates.
 
 ### Referencia
 

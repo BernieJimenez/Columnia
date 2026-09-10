@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const requiredFiles = [
   "README.md",
+  "DESIGN.md",
   "CHANGELOG.md",
   "docs/README.md",
   "docs/adr/README.md",
@@ -13,6 +14,7 @@ const requiredFiles = [
   "docs/how-to/run-beta-validation.md",
   "docs/how-to/validate-release-evidence.md",
   "docs/templates/beta-session.md",
+  "docs/templates/beta-summary.md",
   "docs/reference/cli.md",
   "docs/reference/v1-scope.md",
   "docs/reference/release-evidence.md",
@@ -30,6 +32,13 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function fail(message) {
   throw new Error(message);
+}
+
+function requireFragments(relativePath, contents, fragments) {
+  const missing = fragments.filter((fragment) => !contents.includes(fragment));
+  if (missing.length > 0) {
+    fail(`${relativePath} no conserva el contrato requerido: ${missing.join(", ")}.`);
+  }
 }
 
 function absolute(relativePath) {
@@ -84,6 +93,9 @@ try {
   const cargoLock = await readUtf8("src-tauri/Cargo.lock");
   const changelog = await readUtf8("CHANGELOG.md");
   const docsIndex = await readUtf8("docs/README.md");
+  const betaGuide = await readUtf8("docs/how-to/run-beta-validation.md");
+  const betaSession = await readUtf8("docs/templates/beta-session.md");
+  const betaSummary = await readUtf8("docs/templates/beta-summary.md");
   const version = packageManifest.version;
   const packageCount = Math.max(0, Object.keys(packageLock.packages ?? {}).length - 1);
   const cargoVersion = cargoManifest.match(/^version = "([^"]+)"$/m)?.[1];
@@ -110,9 +122,34 @@ try {
   if (!await readUtf8("ROADMAP.md").then((roadmap) => roadmap.includes("Tier 5"))) fail("ROADMAP.md no contiene el roadmap Tier 5.");
   if (!await readUtf8("CONTEXTO.md").then((context) => context.includes("Tier 5"))) fail("CONTEXTO.md no contiene el contexto Tier 5.");
   if (!await readUtf8("AUDITORIA_PROFESIONAL_2026-08-28.md").then((audit) => audit.includes("T5-"))) fail("El informe de auditoría no contiene la trazabilidad Tier 5.");
-  if (!docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/run-beta-validation.md") || !docsIndex.includes("templates/beta-session.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
+  if (!docsIndex.includes("../DESIGN.md") || !docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/run-beta-validation.md") || !docsIndex.includes("templates/beta-session.md") || !docsIndex.includes("templates/beta-summary.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
     fail("docs/README.md no expone los cuatro cuadrantes Diátaxis.");
   }
+  requireFragments("docs/how-to/run-beta-validation.md", betaGuide, [
+    "## Cuándo una sesión cuenta",
+    "## Gate 2: validar el shell de espacios",
+    "24 de las 30 tareas agregadas",
+    "docs/reference/beta-v1-summary.md",
+    "acciones de navegación o los datos reintroducidos bajan al menos 20 %",
+  ]);
+  requireFragments("docs/templates/beta-session.md", betaSession, [
+    "| Ronda de medición |",
+    "| Release candidate |",
+    "| Tarea | Resultado | Tiempo | Navegación | Datos reintroducidos | Retrocesos | Ayuda | Duda o causa | Observación sanitizada |",
+    "- Acciones de navegación: ___",
+    "- Datos reintroducidos: ___",
+    "- Eventos de ayuda: ___",
+    "- Validez de la sesión:",
+  ]);
+  requireFragments("docs/templates/beta-summary.md", betaSummary, [
+    "## Release candidate",
+    "## Muestra agregada",
+    "## Fricción agregada",
+    "## Persistencia y entrega",
+    "## Hallazgos y decisiones",
+    "## Veredicto",
+    "(baseline - Gate 2) / baseline × 100",
+  ]);
 
   const files = [];
   for (const root of markdownRoots) files.push(...await markdownFiles(root));
