@@ -506,6 +506,7 @@ async function inspectNativeProjectIpc(page) {
 async function inspectPage(page) {
   const url = page.url();
   const provisional = isProvisionalUrl(url);
+  const interactions = [];
 
   try {
     const shell = await page.evaluate(() => ({
@@ -520,7 +521,16 @@ async function inspectPage(page) {
     }
 
     const panel = page.locator("section.projects").first();
-    const panelVisible = await panel.isVisible();
+    let panelVisible = await panel.isVisible();
+    if (!panelVisible) {
+      const disclosure = panel.locator("xpath=ancestor::details[1]").first();
+      const summary = disclosure.locator(":scope > summary").first();
+      if ((await disclosure.count()) > 0 && (await summary.count()) > 0 && await summary.isVisible()) {
+        await summary.click();
+        interactions.push("open_projects_disclosure");
+        panelVisible = await panel.isVisible();
+      }
+    }
     if (!panelVisible) {
       return {
         url,
@@ -528,6 +538,7 @@ async function inspectPage(page) {
         ...shell,
         status: "not_ready",
         phase: "projects_panel_not_visible",
+        interactions,
       };
     }
 
@@ -633,7 +644,7 @@ async function inspectPage(page) {
       phase: valid ? "projects_panel_contract" : "projects_panel_contract_failed",
       checks,
       nativeIpc,
-      interactions: [],
+      interactions,
     };
   } catch (error) {
     return {

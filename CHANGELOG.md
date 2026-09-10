@@ -8,6 +8,10 @@ los artefactos de validación locales.
 
 ### Interno
 
+- El probe WebView2 de proyectos abre el desplegable «Continuar un proyecto»
+  antes de validar su contrato, y registra esa interacción en la evidencia. Esto
+  evita confundir un panel montado pero colapsado con un fallo de persistencia.
+
 - Tier 8 adopta un protocolo de beta auditable: tres participantes sobre el mismo
   release candidate, 30 tareas, dos casos reales por sesión, métricas de fricción,
   severidades P0–P3 y un resumen sanitizado versionado. Los reportes detallados
