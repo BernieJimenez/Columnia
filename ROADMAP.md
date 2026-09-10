@@ -2759,3 +2759,19 @@ recupera controles locales que quedaron rojos o desactualizados.
 - No elevar presupuestos para hacer pasar el CSS.
 - No eliminar el gate de red ni ignorar globalmente `fetch`; debe distinguir producción de pruebas y clientes HTTP de cursores ODBC.
 - No duplicar los pendientes externos de Tier 5/Tier 6.
+
+## Tier 8 — Beta local con datos de trabajo (abierto 2026-09-09)
+
+Objetivo: comprobar que personas reales completan el flujo V1 y confían en la
+entrega antes de ampliar funciones o autorizar distribución binaria. El protocolo
+vigente está en `docs/how-to/run-beta-validation.md`.
+
+- [x] Definir tareas, privacidad, severidades y plantilla de sesión reproducible.
+- [ ] Ejecutar al menos tres sesiones con tres datasets reales distintos.
+- [ ] Lograr al menos 80 % de tareas sin ayuda en el conjunto aceptado.
+- [ ] Convertir fallos dependientes de datos en reproducciones sintéticas.
+- [ ] Cerrar todos los hallazgos P0/P1 y decidir los P2/P3 restantes.
+- [ ] Verificar guardado/reapertura y la entrega fuera de Columnia en cada sesión.
+
+**Gate:** tres sesiones aprobadas, sin P0/P1 abiertos y con evidencia sanitizada
+en `.local/beta/`. Este Tier no autoriza instaladores ni updater.

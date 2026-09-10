@@ -85,6 +85,7 @@ npm run legal:check
 ## Documentación
 
 - [Primer dataset: tutorial paso a paso](docs/tutorials/first-dataset.md)
+- [Ejecutar una sesión beta con datos reales](docs/how-to/run-beta-validation.md)
 - [Documentación completa](docs/README.md)
 - [Alcance de V1](docs/reference/v1-scope.md)
 - [Arquitectura local-first](docs/explanation/local-first-architecture.md)

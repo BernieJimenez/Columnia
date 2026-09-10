@@ -47,6 +47,13 @@ inventario; Tier 7 queda completo.
 
 ## Alcance V1 y temas — 2026-09-09
 
+La validación siguiente es una beta local con al menos tres sesiones y tres
+datasets reales distintos. El recorrido, la clasificación P0–P3, la protección
+de datos y el criterio de cierre están en
+[`docs/how-to/run-beta-validation.md`](docs/how-to/run-beta-validation.md). Los
+reportes completados se guardan únicamente bajo `.local/beta/`; cualquier fallo
+que llegue al repositorio debe reproducirse primero con una fixture sintética.
+
 Columnia queda definida como estación local para una sola persona operadora. No
 se implementarán cuentas, registro, autenticación, organizaciones, perfiles
 remotos ni sincronización entre dispositivos. El problema principal es preparar

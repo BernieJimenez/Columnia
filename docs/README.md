@@ -13,10 +13,15 @@ comportamiento implementado.
 
 ### How-to
 
+- [Ejecutar una sesión beta](how-to/run-beta-validation.md): validar el recorrido
+  completo con datos reales sin conservar información sensible.
 - [Validar evidencia del release](how-to/validate-release-evidence.md): compilar
   el binario, capturar ventanas y comprobar el baseline.
 - [Publicar y verificar un release](how-to/publish-release.md): preparar un
   release firmado, descargar los assets publicados y reanudar con seguridad.
+
+La [plantilla de sesión beta](templates/beta-session.md) normaliza tareas,
+hallazgos y veredictos; las copias completadas pertenecen a `.local/beta/`.
 
 ### Referencia
 

@@ -10,7 +10,9 @@ const requiredFiles = [
   "docs/adr/README.md",
   "docs/adr/0001-contratos-del-repositorio.md",
   "docs/tutorials/first-dataset.md",
+  "docs/how-to/run-beta-validation.md",
   "docs/how-to/validate-release-evidence.md",
+  "docs/templates/beta-session.md",
   "docs/reference/cli.md",
   "docs/reference/v1-scope.md",
   "docs/reference/release-evidence.md",
@@ -108,7 +110,7 @@ try {
   if (!await readUtf8("ROADMAP.md").then((roadmap) => roadmap.includes("Tier 5"))) fail("ROADMAP.md no contiene el roadmap Tier 5.");
   if (!await readUtf8("CONTEXTO.md").then((context) => context.includes("Tier 5"))) fail("CONTEXTO.md no contiene el contexto Tier 5.");
   if (!await readUtf8("AUDITORIA_PROFESIONAL_2026-08-28.md").then((audit) => audit.includes("T5-"))) fail("El informe de auditoría no contiene la trazabilidad Tier 5.");
-  if (!docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
+  if (!docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/run-beta-validation.md") || !docsIndex.includes("templates/beta-session.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
     fail("docs/README.md no expone los cuatro cuadrantes Diátaxis.");
   }
 

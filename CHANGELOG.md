@@ -8,6 +8,11 @@ los artefactos de validación locales.
 
 ### Interno
 
+- Se abre Tier 8 con un protocolo de beta local: tres sesiones y datasets reales,
+  tareas observables de extremo a extremo, severidades P0–P3, protección de datos,
+  plantilla sanitizada y criterios cuantitativos de cierre. Los reportes de cada
+  sesión permanecen fuera del repositorio bajo `.local/beta/`.
+
 - Se cierra el alcance de V1 como estación local de una sola persona, sin
   cuentas ni autenticación. Quedan definidos los formatos obligatorios, la
   persistencia segura, los destinos ODBC opcionales, el updater bajo acción
