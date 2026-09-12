@@ -72,6 +72,7 @@ import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { UpdatePanel } from "./components/UpdatePanel";
 import { WorkspaceNav } from "./features/workspaces/WorkspaceNav";
+import { workflowPhases, type WorkflowPhase } from "./features/workspaces/workspaceModel";
 
 import {
   cancelOperation,
@@ -120,16 +121,7 @@ type AppStatus =
   | { kind: "browser" }
   | { kind: "error"; message: string };
 
-const phases = [
-  { id: "load", number: "01", label: "Cargar", description: "Elegir una fuente local" },
-  { id: "review", number: "02", label: "Revisar", description: "Entender señales y calidad" },
-  { id: "prepare", number: "03", label: "Preparar", description: "Corregir y transformar" },
-  { id: "deliver", number: "04", label: "Entregar", description: "Validar y exportar" },
-] as const;
-
 const CONFLICT_PAGE_SIZE = 50;
-
-type ActivePhase = (typeof phases)[number]["id"];
 
 const loadDeliveryPhase = () => import("./features/delivery/DeliveryPhase");
 const loadPreparePhase = () => import("./features/prepare/PreparePhase");
@@ -150,7 +142,7 @@ const ReviewPhase = lazy(async () => {
   return { default: module.ReviewPhase };
 });
 
-function preloadPhase(phase: ActivePhase): void {
+function preloadPhase(phase: WorkflowPhase): void {
   if (phase === "review") void loadReviewPhase();
   if (phase === "prepare") void loadPreparePhase();
   if (phase === "deliver") void loadDeliveryPhase();
@@ -185,7 +177,7 @@ export function App() {
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("none");
   const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
   const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
-  const [activePhase, setActivePhase] = useState<ActivePhase>("load");
+  const [activePhase, setActivePhase] = useState<WorkflowPhase>("load");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
@@ -196,7 +188,7 @@ export function App() {
   const datasetRevisionRef = useRef(0);
   const pageRequestRef = useRef(0);
   const operationBusyRef = useRef(false);
-  const [completedPhases, setCompletedPhases] = useState<Set<ActivePhase>>(() => new Set());
+  const [completedPhases, setCompletedPhases] = useState<Set<WorkflowPhase>>(() => new Set());
   const [recipeSession, setRecipeSession] = useState(0);
 
   function bumpDatasetRevision() {
@@ -760,10 +752,10 @@ export function App() {
   const activeDataset = readyDataset ?? retainedDataset;
   const operationBusy = coreOperationBusy || loadSelectionBusy || projects.isBusy;
   operationBusyRef.current = operationBusy;
-  const activePhaseIndex = Math.max(0, phases.findIndex((phase) => phase.id === activePhase));
-  const activePhaseMeta = phases[activePhaseIndex];
-  const previousPhase = phases[activePhaseIndex - 1];
-  const nextPhase = phases[activePhaseIndex + 1];
+  const activePhaseIndex = Math.max(0, workflowPhases.findIndex((phase) => phase.id === activePhase));
+  const activePhaseMeta = workflowPhases[activePhaseIndex];
+  const previousPhase = workflowPhases[activePhaseIndex - 1];
+  const nextPhase = workflowPhases[activePhaseIndex + 1];
   const progressValue = activePhaseIndex + 1;
   const loadRuntime: LoadRuntimeState = status.kind === "ready"
     ? { kind: "connected" }
@@ -789,7 +781,7 @@ export function App() {
         <WorkspaceNav activePhase={activePhase} />
 
         <nav className="side-nav" aria-label="Flujo de preparación de datos">
-          {phases.map((phase, phaseIndex) => {
+          {workflowPhases.map((phase, phaseIndex) => {
             const available = phase.id === "load" || Boolean(activeDataset);
             const phaseState = phaseIndex === activePhaseIndex
               ? "current"
@@ -905,7 +897,7 @@ export function App() {
         <header className="topbar">
           <div className="flow-overview">
             <div className="flow-overview__copy">
-              <p className="flow-overview__step">Paso {progressValue} de {phases.length}</p>
+              <p className="flow-overview__step">Paso {progressValue} de {workflowPhases.length}</p>
               <p className="page-title">{activePhaseMeta.label}</p>
               <p className="flow-overview__next">
                 {nextPhase ? `Después: ${nextPhase.label}` : "Última etapa del flujo"}
@@ -916,11 +908,11 @@ export function App() {
               role="progressbar"
               aria-label="Progreso del flujo"
               aria-valuemin={1}
-              aria-valuemax={phases.length}
+              aria-valuemax={workflowPhases.length}
               aria-valuenow={progressValue}
-              aria-valuetext={`Paso ${progressValue} de ${phases.length}: ${activePhaseMeta.label}`}
+              aria-valuetext={`Paso ${progressValue} de ${workflowPhases.length}: ${activePhaseMeta.label}`}
             >
-              <span style={{ width: `${(progressValue / phases.length) * 100}%` }} />
+              <span style={{ width: `${(progressValue / workflowPhases.length) * 100}%` }} />
             </div>
           </div>
           <div

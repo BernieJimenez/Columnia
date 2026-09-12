@@ -56,6 +56,9 @@ function Invoke-RestartPhase {
         nativeSustainedRuns = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeSustainedRuns }
         nativeSustainedTransformMaxMs = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeSustainedTransformMaxMs }
         nativeSustainedExportMaxMs = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.nativeSustainedExportMaxMs }
+        activePhaseToPersist = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.activePhaseToPersist }
+        activePhaseRestored = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.activePhaseRestored }
+        restoredActivePhase = if ($null -eq $NativeIpc) { $null } else { $NativeIpc.restoredActivePhase }
     }
 }
 
@@ -68,6 +71,12 @@ $Verify = $null
 try {
     $Prepare = Invoke-RestartPhase -Mode "restart-prepare"
     $Verify = Invoke-RestartPhase -Mode "restart-verify"
+    if ($Prepare.activePhaseToPersist -ne "prepare") {
+        throw "El smoke no confirmó que guardó el proyecto en la fase prepare."
+    }
+    if ($Verify.activePhaseRestored -ne $true -or $Verify.restoredActivePhase -ne "prepare") {
+        throw "El smoke no confirmó que activePhase=prepare sobrevivió al reinicio."
+    }
     $Status = "passed"
 }
 catch {
@@ -84,6 +93,7 @@ finally {
         cdpPort = $Port
         command = "npm run tauri dev"
         phases = @($Prepare, $Verify)
+        activePhasePersistedAcrossRestart = [bool]($Prepare.activePhaseToPersist -eq "prepare" -and $Verify.activePhaseRestored -eq $true -and $Verify.restoredActivePhase -eq "prepare")
         evidenceDirectory = $EvidenceRelativePath
         cleanupDelegatedToCdpPhases = $true
         error = $FailureMessage

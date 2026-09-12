@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { workflowPhaseIds, workspaceByPhase, workspaceForPhase, workspaces } from "./workspaceModel";
+import { workflowPhaseIds, workflowPhases, workspaceByPhase, workspaceForPhase, workspaces } from "./workspaceModel";
 
 describe("modelo de espacios de trabajo", () => {
+  it("usa descriptores centrales para las cuatro fases durables", () => {
+    expect(workflowPhases.map(({ id }) => id)).toEqual(["load", "review", "prepare", "deliver"]);
+    expect(workflowPhaseIds).toEqual(workflowPhases.map(({ id }) => id));
+  });
+
   it("mapea exhaustivamente las cuatro fases actuales a Analizar", () => {
     expect(Object.keys(workspaceByPhase)).toEqual(workflowPhaseIds);
 

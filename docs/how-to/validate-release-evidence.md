@@ -85,6 +85,22 @@ Baseline release aprobado: .local/validation/release-evidence-check/<timestamp>
 El árbol de trabajo no debe recibir capturas ni datasets temporales. `.local/`
 está ignorado por Git.
 
+## Smoke nativo de reapertura de proyectos
+
+Para verificar el guardado de `activePhase=prepare` y su restauración después de
+cerrar y volver a iniciar el proceso Tauri/WebView2:
+
+```powershell
+npm run smoke:restart
+```
+
+Ejecuta el smoke con Columnia cerrada. El probe inicia y cierra su propio
+ejecutable de desarrollo en dos procesos separados; crea un proyecto sintético
+con nombre reservado, lo reabre tras el reinicio y lo elimina. La evidencia por
+fase y el resultado `activePhasePersistedAcrossRestart` quedan en
+`.local/validation/webview2-restart/`. Si la corrida falla antes de confirmar
+`cleanupConfirmed`, revisa el proyecto sintético antes de repetir el smoke.
+
 ## Perfil de memoria del ejecutable release
 
 `npm run smoke:cdp` inicia `tauri dev`; sirve para validar mutaciones sintéticas

@@ -225,6 +225,7 @@ async function inspectNativeProjectIpc(page) {
               && opened.workspace?.qualityRules?.length === 1
               && opened.workspace.qualityRules[0]?.column === "label"
               && opened.workspace.recipeDraft?.name === "Native probe recipe"
+              && opened.workspace.activePhase === "prepare"
               && forbiddenFields(opened).length === 0;
             if (!openedValid) throw new Error("open_after_restart_invalid");
 
@@ -253,6 +254,8 @@ async function inspectNativeProjectIpc(page) {
               projectSummariesValid: after.projectSummariesValid,
               recoverySummaryValid: after.recoverySummaryValid,
               forbiddenPathFields: before.forbiddenPathFields || after.forbiddenPathFields,
+              activePhaseRestored: true,
+              restoredActivePhase: opened.workspace.activePhase,
               restartVerified: true,
               mutationRequested: true,
               cleanupConfirmed: true,
@@ -335,7 +338,7 @@ async function inspectNativeProjectIpc(page) {
           const saved = await invoke("save_project", {
             projectId: null,
             name: projectName,
-            workspace: { qualityRules: [qualityRule], recipeDraft: savedRecipe },
+            workspace: { qualityRules: [qualityRule], recipeDraft: savedRecipe, activePhase: "prepare" },
           });
           projectId = saved?.id ?? null;
           const savedValid = isSummary(saved)
@@ -371,6 +374,7 @@ async function inspectNativeProjectIpc(page) {
               projectSummariesValid: prepared.projectSummariesValid,
               recoverySummaryValid: prepared.recoverySummaryValid,
               forbiddenPathFields: before.forbiddenPathFields || prepared.forbiddenPathFields,
+              activePhaseToPersist: "prepare",
               restartReady: true,
               projectPersisted: true,
               mutationRequested: true,
@@ -418,6 +422,7 @@ async function inspectNativeProjectIpc(page) {
             && opened.workspace.qualityRules[0]?.column === "label"
             && opened.workspace.recipeDraft?.name === "Native probe recipe"
             && opened.workspace.recipeDraft?.version === 1
+            && opened.workspace.activePhase === "prepare"
             && forbiddenFields(opened).length === 0;
           if (!openedValid) throw new Error("open_invalid");
 
@@ -445,6 +450,8 @@ async function inspectNativeProjectIpc(page) {
             recipeApplied: true,
             exportVerified: true,
             persistenceReopenVerified: true,
+            activePhaseRestored: true,
+            restoredActivePhase: opened.workspace.activePhase,
             mutationRequested: true,
             nativeSustainedRuns,
             nativeSustainedTransformMaxMs: nativeSustainedTransformDurations.length > 0
