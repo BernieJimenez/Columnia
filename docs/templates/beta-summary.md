@@ -4,6 +4,9 @@
 > y actualizarlo con la comparación del Gate 2. No incluir nombres, rutas,
 > columnas, filas, consultas, capturas, credenciales ni datos identificables.
 
+Los alias anónimos de participantes y datasets permanecen en los formularios
+locales de `.local/beta/`; aquí solo se publican los conteos agregados.
+
 ## Release candidate
 
 | Campo | Valor |

@@ -155,16 +155,25 @@ try {
     "docs/reference/beta-v1-summary.md",
     "npm run beta:prepare",
     "acciones de navegación o los datos reintroducidos bajan al menos 20 %",
+    "alias anónimo estable",
+    "dataset-01",
   ]);
   requireFragments("docs/templates/beta-session.md", betaSession, [
     "| Ronda de medición |",
     "| Release candidate |",
+    "| Alias anónimo de participante | participante-___ |",
+    "| Caso | Alias local de dataset | Formato | Tamaño aproximado | Filas aproximadas | Propósito |",
     "| Tarea | Resultado | Tiempo | Navegación | Datos reintroducidos | Retrocesos | Ayuda | Duda o causa | Observación sanitizada |",
     "- Acciones de navegación: ___",
     "- Datos reintroducidos: ___",
     "- Eventos de ayuda: ___",
     "- Validez de la sesión:",
   ]);
+  requireConsistentMarkdownTable(
+    "docs/templates/beta-session.md",
+    betaSession,
+    "| Caso | Alias local de dataset | Formato | Tamaño aproximado | Filas aproximadas | Propósito |",
+  );
   requireConsistentMarkdownTable(
     "docs/templates/beta-session.md",
     betaSession,
@@ -178,6 +187,7 @@ try {
     "## Hallazgos y decisiones",
     "## Veredicto",
     "(baseline - Gate 2) / baseline × 100",
+    "Los alias anónimos de participantes y datasets permanecen en los formularios",
   ]);
 
   const files = [];

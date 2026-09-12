@@ -9,6 +9,7 @@
 | --- | --- |
 | Fecha | AAAA-MM-DD |
 | Alias de sesión | beta-___ |
+| Alias anónimo de participante | participante-___ |
 | Commit probado | ___ |
 | Versión de Columnia | ___ |
 | Ronda de medición | Gate 1 · baseline V1 / Gate 2 · shell de espacios |
@@ -19,11 +20,16 @@
 
 ## Datasets
 
-| Caso | Formato | Tamaño aproximado | Filas aproximadas | Propósito |
-| --- | --- | --- | --- | --- |
-| Baseline sintética | CSV | <1 MiB | <100 | Comprobar el recorrido |
-| Tabla real | ___ | <10 / 10–100 / >100 MiB | <10k / 10k–1M / >1M | ___ |
-| Caso estructural | ___ | <10 / 10–100 / >100 MiB | <10k / 10k–1M / >1M | ___ |
+| Caso | Alias local de dataset | Formato | Tamaño aproximado | Filas aproximadas | Propósito |
+| --- | --- | --- | --- | --- | --- |
+| Baseline sintética | fixture-sintetica | CSV | <1 MiB | <100 | Comprobar el recorrido |
+| Tabla real | dataset-___ | ___ | <10 / 10–100 / >100 MiB | <10k / 10k–1M / >1M | ___ |
+| Caso estructural | dataset-___ | ___ | <10 / 10–100 / >100 MiB | <10k / 10k–1M / >1M | ___ |
+
+Usa un alias estable por persona y dataset; si vuelven a participar o se reutiliza
+un dataset, conserva el mismo alias. Estos alias solo sirven para validar la muestra
+en `.local/beta/`: no guardes una correspondencia con identidades, nombres de
+archivo, rutas ni otros datos sensibles, y no los copies al resumen versionado.
 
 ## Resultado y fricción por tarea
 

@@ -38,11 +38,16 @@ y commit.
    No renombres la RC ni reutilices sus carpetas para otro commit. Para preparar
    Gate 2 usa `npm run beta:prepare -- -Gate Gate2`.
 
-3. Asigna un alias distinto a cada participante y confirma que no participó en
-   otra de las tres sesiones aceptadas. No registres su identidad.
+3. Asigna un alias anónimo estable a cada participante (por ejemplo,
+   `participante-01`). Reutiliza el mismo alias si esa persona vuelve a participar;
+   los tres registros aceptados deben corresponder a tres alias distintos. No
+   registres identidades ni mantengas una tabla que vincule alias con nombres.
 
-4. Elige tres datasets. Ningún dataset real se copia a `fixtures/`, `.local/` ni
-   al repositorio.
+4. Elige tres datasets y asígnales alias locales estables (por ejemplo,
+   `dataset-01`). Reutiliza el mismo alias cuando un caso real se pruebe en más de
+   una sesión; así se puede contar cuántos datasets reales distintos se usaron.
+   Los alias permanecen solo en `.local/beta/`. Ningún dataset real se copia a
+   `fixtures/`, `.local/` ni al repositorio.
 
    - **Baseline sintética:** `fixtures\automation\quality-input.csv`.
    - **Tabla real problemática:** CSV, TSV, JSON o Parquet con un problema que la
@@ -114,7 +119,9 @@ Hazlas después de completar las tareas, sin defender el diseño:
 ## Privacidad del reporte
 
 Registra solo formato, rango aproximado de tamaño y filas, sistema operativo,
-resultado de las tareas y observaciones redactadas. No registres:
+resultado de las tareas y observaciones redactadas. Los alias anónimos de persona
+y dataset se conservan únicamente en los formularios locales bajo `.local/beta/`;
+el resumen versionado incluye solo conteos agregados. No registres:
 
 - nombres o rutas de archivos reales;
 - nombres o valores de columnas sensibles;
