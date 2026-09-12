@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -9,8 +6,6 @@ import { ProjectsPanel } from "../features/projects/ProjectsPanel";
 import { ModalDialog } from "./ModalDialog";
 
 afterEach(cleanup);
-
-const appSource = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
 
 const project: ProjectSummary = {
   id: "project-a11y",
@@ -23,16 +18,6 @@ const project: ProjectSummary = {
 };
 
 describe("contratos de accesibilidad de la interfaz", () => {
-  it("mantiene landmarks y el skip link hacia el contenido principal", () => {
-    expect(appSource).toMatch(/<a className="skip-link" href="#main-content">/);
-    expect(appSource).toMatch(/<aside className="sidebar" aria-label="Navegación principal">/);
-    expect(appSource).toMatch(/<nav className="side-nav" aria-label="Flujo de preparación de datos">/);
-    expect(appSource).toMatch(/<main id="main-content" className="main-content" tabIndex=\{-1\}>/);
-    expect(appSource).toContain('aria-current={activePhase === phase.id ? "step" : undefined}');
-    expect(appSource).toContain("aria-busy={operationBusy}");
-    expect(appSource).toMatch(/role="region"\s+aria-labelledby="legal-panel-title"\s+aria-describedby="legal-panel-summary"/);
-  });
-
   it("expone nombres accesibles para las acciones de proyectos y su estado ocupado", () => {
     render(
       <ProjectsPanel

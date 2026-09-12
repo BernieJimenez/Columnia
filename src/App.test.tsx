@@ -98,6 +98,7 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
     expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
@@ -303,6 +304,27 @@ describe("App", () => {
     expect(
       await screen.findByText(/Abre Columnia con Tauri para seleccionar archivos locales/),
     ).toBeInTheDocument();
+  });
+
+  it("expone landmarks y la descripción accesible del panel legal en la interfaz renderizada", async () => {
+    render(<App />);
+
+    expect(screen.getByRole("link", { name: "Saltar al contenido principal" })).toHaveAttribute(
+      "href",
+      "#main-content",
+    );
+    expect(screen.getByRole("complementary", { name: "Navegación principal" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Flujo de preparación de datos" })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
+    expect(screen.getByRole("region", { name: "Etapa Cargar" })).toHaveAttribute("aria-busy", "false");
+
+    fireEvent.click(screen.getByText("Licencia y privacidad"));
+    const legalPanel = screen.getByRole("region", {
+      name: "Licencia y privacidad de Columnia",
+      description: /Columnia procesa los datos localmente/,
+    });
+    expect(legalPanel).toHaveAttribute("aria-labelledby", "legal-panel-title");
+    expect(legalPanel).toHaveAttribute("aria-describedby", "legal-panel-summary");
   });
 
   it("carga y presenta el resumen de un CSV desde el runtime de escritorio", async () => {
