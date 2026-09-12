@@ -11,14 +11,19 @@ test("abre preferencias con un clic y conserva el tema del sistema", async ({ pa
 
   const surface = () => page.locator(".workspace").evaluate((element) => getComputedStyle(element).backgroundColor);
   await page.getByRole("button", { name: "Oscuro", exact: true }).click();
-  const dark = await surface();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect.poll(surface).toBe("rgb(27, 38, 42)");
+
   await page.getByRole("button", { name: "Claro", exact: true }).click();
-  const light = await surface();
-  expect(light).not.toBe(dark);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect.poll(surface).toBe("rgb(255, 255, 255)");
+
   await page.getByRole("button", { name: "Sistema", exact: true }).click();
-  expect(await surface()).toBe(dark);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "system");
+  await expect.poll(surface).toBe("rgb(27, 38, 42)");
+
   await page.emulateMedia({ colorScheme: "light" });
-  expect(await surface()).toBe(light);
+  await expect.poll(surface).toBe("rgb(255, 255, 255)");
 
   await trigger.focus();
   await page.keyboard.press("Enter");
