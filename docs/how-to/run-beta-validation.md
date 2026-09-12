@@ -35,8 +35,12 @@ y commit.
    Get-ChildItem .local\beta\rc-*\beta-*\session.md
    ```
 
-   No renombres la RC ni reutilices sus carpetas para otro commit. Para preparar
-   Gate 2 usa `npm run beta:prepare -- -Gate Gate2`.
+   No renombres la RC ni reutilices sus carpetas para otro commit. Gate 2 solo se
+   puede preparar después de publicar y revisar el resumen Gate 1. Comprueba sus
+   prerrequisitos con `npm run beta:check-gate1`; valida el resumen, el manifiesto,
+   la evidencia `Full` y los tres formularios locales. Después prepara la nueva RC
+   con `npm run beta:prepare -- -Gate Gate2`. Si falta evidencia o no coincide, el
+   proceso falla sin crear carpetas ni alterar formularios.
 
 3. Asigna un alias anónimo estable a cada participante (por ejemplo,
    `participante-01`). Reutiliza el mismo alias si esa persona vuelve a participar;

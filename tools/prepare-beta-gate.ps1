@@ -42,6 +42,13 @@ if ([string]::IsNullOrWhiteSpace($CandidateId)) {
     $CandidateId = "rc-$Version-$ShortCommit-$GateSlug"
 }
 
+if ($Gate -eq "Gate2") {
+    & node (Join-Path $PSScriptRoot "check-beta-gate-evidence.mjs")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Gate 2 no puede prepararse hasta que el resumen, la RC y las tres sesiones Gate 1 tengan evidencia consistente."
+    }
+}
+
 $FullReports = @(
     Get-ChildItem -LiteralPath $ValidationRoot -File -Filter "*-$ShortCommit-full.json" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTimeUtc -Descending

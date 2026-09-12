@@ -84,5 +84,6 @@ Los P2/P3 aceptados tienen responsable: sí / no.
 - Gate 2 shell: aprobado / pendiente / todavía no ejecutado.
 - 80 % sin ayuda: aprobado / fallido.
 - Cero P0/P1 abiertos: aprobado / fallido.
+- Revisión de privacidad del resumen: aprobado / pendiente.
 - Mejora de navegación o reentrada ≥20 %: aprobado / fallido / todavía no aplica.
 - Decisión final y próxima acción:

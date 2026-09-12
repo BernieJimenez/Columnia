@@ -175,6 +175,9 @@ try {
     Invoke-Checked "Documentation" $ProjectRoot {
         & node tools/check-documentation.mjs
     }
+    Invoke-Checked "Beta gate evidence validator contract" $ProjectRoot {
+        npm run beta:check-gate1:test
+    }
     Invoke-Checked "Retired brand scan" $ProjectRoot {
         & node tools/check-retired-brand.mjs
     }

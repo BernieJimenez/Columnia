@@ -16,6 +16,7 @@ const requiredFiles = [
   "docs/templates/beta-session.md",
   "docs/templates/beta-summary.md",
   "tools/prepare-beta-gate.ps1",
+  "tools/check-beta-gate-evidence.mjs",
   "docs/reference/cli.md",
   "docs/reference/v1-scope.md",
   "docs/reference/release-evidence.md",
@@ -154,6 +155,8 @@ try {
     "24 de las 30 tareas agregadas",
     "docs/reference/beta-v1-summary.md",
     "npm run beta:prepare",
+    "npm run beta:check-gate1",
+    "valida el resumen, el manifiesto,",
     "acciones de navegación o los datos reintroducidos bajan al menos 20 %",
     "alias anónimo estable",
     "dataset-01",
@@ -168,6 +171,8 @@ try {
     "- Datos reintroducidos: ___",
     "- Eventos de ayuda: ___",
     "- Validez de la sesión:",
+    "- Flujo principal Cargar → Revisar → Preparar → Entregar: sí / no",
+    "- Original sin cambios: sí / no",
   ]);
   requireConsistentMarkdownTable(
     "docs/templates/beta-session.md",
@@ -188,6 +193,7 @@ try {
     "## Veredicto",
     "(baseline - Gate 2) / baseline × 100",
     "Los alias anónimos de participantes y datasets permanecen en los formularios",
+    "Revisión de privacidad del resumen",
   ]);
 
   const files = [];

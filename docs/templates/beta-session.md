@@ -90,6 +90,8 @@ Duplicar este bloque por hallazgo.
 - Retrocesos: ___
 - Eventos de ayuda: ___
 - Momentos de duda: ___
+- Flujo principal Cargar → Revisar → Preparar → Entregar: sí / no
+- Original sin cambios: sí / no
 - Guardado y reapertura: aprobado / fallido
 - Entrega verificada fuera de Columnia: aprobada / fallida
 - Hallazgos: P0 ___ · P1 ___ · P2 ___ · P3 ___
