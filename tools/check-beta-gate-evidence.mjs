@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,12 +63,22 @@ function bulletValue(markdown, label) {
 }
 
 function count(value) {
-  const match = String(value ?? "").match(/^\s*(\d+)/);
+  const match = String(value ?? "").match(/^\s*(\d+)\s*$/);
+  return match ? Number(match[1]) : null;
+}
+
+function minimumCount(value, minimum) {
+  const match = normalized(value ?? "").match(/^\s*(\d+)\s*\/\s*minimo\s+(\d+)\s*$/);
+  return match && Number(match[2]) === minimum ? Number(match[1]) : null;
+}
+
+function percentage(value) {
+  const match = String(value ?? "").match(/^\s*(\d+(?:\.\d+)?)\s*%\s*$/);
   return match ? Number(match[1]) : null;
 }
 
 function fraction(value) {
-  const match = String(value ?? "").match(/^\s*(\d+)\s*\/\s*(\d+)/);
+  const match = normalized(value ?? "").match(/^\s*(\d+)\s*\/\s*(?:minimo\s+)?(\d+)(?:\s+(?:aprobados?|aprobadas?|confirmados?|confirmadas?))?\s*\.?\s*$/);
   return match ? { numerator: Number(match[1]), denominator: Number(match[2]) } : null;
 }
 
@@ -80,15 +91,15 @@ function requireFraction(errors, value, numerator, denominator, label) {
 }
 
 function requireApproved(errors, value, label) {
-  const status = normalized(value ?? "");
-  if (!/^aprobad[oa]s?\b/.test(status) || /\b(pendiente|fallido|fallida|todavia no ejecutado)\b/.test(status)) {
+  const status = normalized(value ?? "").replace(/[.!]+$/, "").trim();
+  if (!new Set(["aprobado", "aprobada", "aprobados", "aprobadas"]).has(status)) {
     errors.push(`${label}: debe indicar aprobado explícitamente.`);
   }
 }
 
 function requireYes(errors, value, label) {
-  const status = normalized(value ?? "");
-  if (!/^(si|confirmado|confirmada)\b/.test(status) || /\bno\b/.test(status)) {
+  const status = normalized(value ?? "").replace(/[.!]+$/, "").trim();
+  if (!new Set(["si", "confirmado", "confirmada"]).has(status)) {
     errors.push(`${label}: debe indicar sí explícitamente.`);
   }
 }
@@ -99,7 +110,7 @@ function parseCandidate(summaryMarkdown, errors) {
   const commit = tableValue(summaryMarkdown, "Release candidate", "Commit probado");
   const version = tableValue(summaryMarkdown, "Release candidate", "Versión de Columnia");
 
-  if (!normalized(gate).startsWith("gate 1") || !normalized(gate).includes("baseline v1")) {
+  if (!normalized(gate).replace(/\s*[·-]\s*/g, " ").replace(/\s+/g, " ").trim().match(/^gate 1 baseline v1$/)) {
     errors.push("El resumen debe identificar Gate 1 como baseline V1, no como shell.");
   }
   if (!/^rc-[a-z0-9][a-z0-9.-]{2,79}$/i.test(candidateId ?? "")) {
@@ -119,7 +130,7 @@ function validateSummary(markdown, candidate, errors) {
   requireFraction(errors, tableValue(markdown, "Muestra agregada", "Sesiones válidas"), 3, 3, "Sesiones válidas");
   requireFraction(errors, tableValue(markdown, "Muestra agregada", "Participantes distintos"), 3, 3, "Participantes distintos");
   requireFraction(errors, tableValue(markdown, "Muestra agregada", "Casos reales ejecutados"), 6, 6, "Casos reales ejecutados");
-  const realDatasets = count(tableValue(markdown, "Muestra agregada", "Datasets reales distintos"));
+  const realDatasets = minimumCount(tableValue(markdown, "Muestra agregada", "Datasets reales distintos"), 3);
   if (realDatasets === null || realDatasets < 3) errors.push("Datasets reales distintos: se requieren al menos 3.");
   requireFraction(errors, tableValue(markdown, "Muestra agregada", "Tareas observadas"), 30, 30, "Tareas observadas");
 
@@ -133,6 +144,16 @@ function validateSummary(markdown, candidate, errors) {
   }
   if (!total || total.numerator !== 30 || total.denominator !== 30) {
     errors.push("El total de tareas debe ser 30 / 30.");
+  }
+  for (const [label, actualCount] of [["Sin ayuda", noHelp], ["Con ayuda", helped], ["No completadas", incomplete]]) {
+    const actualPercentage = percentage(tableValue(markdown, "Resultado de tareas", label, 2));
+    const expectedPercentage = actualCount === null ? null : Math.round((actualCount / 30) * 1000) / 10;
+    if (actualPercentage === null || actualPercentage !== expectedPercentage) {
+      errors.push(`El porcentaje de “${label}” no coincide con sus conteos sobre 30 tareas.`);
+    }
+  }
+  if (percentage(tableValue(markdown, "Resultado de tareas", "Total", 2)) !== 100) {
+    errors.push("El porcentaje total de tareas debe ser 100 %.");
   }
 
   requireYes(errors, bulletValue(markdown, "Todas las personas completaron Cargar → Revisar → Preparar → Entregar"), "Flujo principal de todas las personas");
@@ -185,12 +206,18 @@ function validateSession(session, index, candidate, errors) {
   const version = tableValue(markdown, "Identificación segura", "Versión de Columnia");
   const round = tableValue(markdown, "Identificación segura", "Ronda de medición");
   const candidateId = tableValue(markdown, "Identificación segura", "Release candidate");
+  const platform = tableValue(markdown, "Identificación segura", "Windows / arquitectura");
 
   if (session?.alias !== alias || sessionAlias !== alias) errors.push(`${alias}: falta el formulario correcto de la sesión.`);
-  if (!participant || /^participante-___$/i.test(participant)) errors.push(`${alias}: falta el alias anónimo de participante.`);
+  if (!/^participante-\d{2,3}$/i.test(participant ?? "")) {
+    errors.push(`${alias}: usa un alias anónimo numérico como participante-01; no registres nombres reales.`);
+  }
   if (commit !== candidate.commit || version !== candidate.version || candidateId !== candidate.candidateId ||
-      !normalized(round).startsWith("gate 1") || !normalized(round).includes("baseline v1")) {
+      !normalized(round).replace(/\s*[·-]\s*/g, " ").replace(/\s+/g, " ").trim().match(/^gate 1 baseline v1$/)) {
     errors.push(`${alias}: participante, ronda, RC, versión y commit deben corresponder al mismo baseline Gate 1.`);
+  }
+  if (!/^windows\b/i.test(platform ?? "") || !/\bx64\b/i.test(platform ?? "")) {
+    errors.push(`${alias}: la sesión debe ejecutarse en Windows x64 según el protocolo.`);
   }
 
   const datasetRows = tableRows(section(markdown, "Datasets"));
@@ -199,7 +226,8 @@ function validateSession(session, index, candidate, errors) {
     if (!row || !/^dataset-[a-z0-9][a-z0-9.-]*$/i.test(row[1] ?? "")) {
       errors.push(`${alias}: falta un alias estable para ${label.toLocaleLowerCase("es")} real.`);
     } else {
-      session.realDatasetAliases.push(row[1].toLocaleLowerCase("es"));
+      const datasetAlias = row[1].toLocaleLowerCase("es");
+      session.realDatasetAliases.push(datasetAlias);
     }
   }
 
@@ -252,17 +280,33 @@ function validateSession(session, index, candidate, errors) {
   }
 
   const findingSection = section(markdown, "Hallazgos");
-  const findingHeadings = [...findingSection.matchAll(/^###\s+(BETA-[A-Z0-9]+)\s+[—-]\s+(.+)$/gim)]
-    .filter((match) => !/^BETA-___$/i.test(match[1]));
-  for (const match of findingHeadings) {
+  const findingHeadings = [...findingSection.matchAll(/^###\s+(.+)$/gm)];
+  const actualFindingCounts = { P0: 0, P1: 0, P2: 0, P3: 0 };
+  for (const [index, match] of findingHeadings.entries()) {
     const start = match.index + match[0].length;
-    const remaining = findingSection.slice(start);
-    const nextHeading = remaining.search(/^###\s+/m);
-    const finding = nextHeading >= 0 ? remaining.slice(0, nextHeading) : remaining;
+    const end = findingHeadings[index + 1]?.index ?? findingSection.length;
+    const finding = findingSection.slice(start, end);
+    const title = match[1].trim();
     const severity = bulletValue(finding, "Severidad");
+    const unusedExample = /^BETA-___\s+[—-]\s+Título sin datos sensibles$/i.test(title) &&
+      normalized(severity) === "p0 / p1 / p2 / p3" &&
+      normalized(bulletValue(finding, "Decisión")) === "corregir / aceptar / investigar" &&
+      ["Tarea", "Expectativa", "Resultado observado", "Reproducción sintética o pasos sanitizados", "Recuperación disponible", "Responsable"]
+        .every((label) => !bulletValue(finding, label));
+    if (unusedExample) continue;
+
+    if (!/^BETA-[A-Z0-9][A-Z0-9.-]{0,19}\s+[—-]\s+\S/i.test(title)) {
+      errors.push(`${alias}: cada hallazgo rellenado necesita un ID BETA y un título, no el bloque de ejemplo.`);
+    }
     if (!/^P[0-3]$/i.test(severity ?? "")) errors.push(`${alias}: cada hallazgo debe tener severidad.`);
-    if (["P0", "P1"].includes(String(severity).toUpperCase())) errors.push(`${alias}: el formulario incluye un hallazgo ${String(severity).toUpperCase()}.`);
-    if (["P2", "P3"].includes(String(severity).toUpperCase())) {
+    for (const label of ["Tarea", "Expectativa", "Resultado observado", "Reproducción sintética o pasos sanitizados"]) {
+      const value = bulletValue(finding, label);
+      if (!value || /^(___|pendiente)$/i.test(value)) errors.push(`${alias}: cada hallazgo necesita completar “${label}”.`);
+    }
+    const normalizedSeverity = String(severity).toUpperCase();
+    if (normalizedSeverity in actualFindingCounts) actualFindingCounts[normalizedSeverity] += 1;
+    if (["P0", "P1"].includes(normalizedSeverity)) errors.push(`${alias}: el formulario incluye un hallazgo ${normalizedSeverity}.`);
+    if (["P2", "P3"].includes(normalizedSeverity)) {
       const decision = bulletValue(finding, "Decisión");
       const owner = bulletValue(finding, "Responsable");
       const reproduction = bulletValue(finding, "Reproducción sintética o pasos sanitizados");
@@ -272,15 +316,30 @@ function validateSession(session, index, candidate, errors) {
     }
   }
 
+  for (const severity of ["P0", "P1", "P2", "P3"]) {
+    if (countsBySeverity[severity] !== actualFindingCounts[severity]) {
+      errors.push(`${alias}: el conteo ${severity} no coincide con los hallazgos documentados.`);
+    }
+  }
+
   session.findingCounts = countsBySeverity;
   session.participant = normalized(participant);
 }
 
-export function validateGate1Evidence({ summaryMarkdown, manifest, sessions, fullReport }) {
+export function validateGate1Evidence({ summaryMarkdown, manifest, sessions, fullReport, currentCommit, gate1CommitIsAncestor }) {
   const errors = [];
   const candidate = parseCandidate(summaryMarkdown ?? "", errors);
   validateSummary(summaryMarkdown ?? "", candidate, errors);
   validateManifest(manifest, candidate, errors);
+
+  if (!/^[a-f0-9]{40}$/i.test(currentCommit ?? "")) {
+    errors.push("No se pudo verificar el commit actual de Gate 2.");
+  } else if (candidate.commit?.toLowerCase() === currentCommit.toLowerCase()) {
+    errors.push("Gate 2 requiere un commit actual distinto del baseline Gate 1.");
+  }
+  if (gate1CommitIsAncestor !== true) {
+    errors.push("El commit del baseline Gate 1 debe ser ancestro del commit actual de Gate 2.");
+  }
 
   if (!fullReport || fullReport.schemaVersion !== 1 || fullReport.profile !== "Full" ||
       fullReport.status !== "passed" || fullReport.git?.commit !== candidate.commit || fullReport.git?.dirty !== false) {
@@ -327,13 +386,56 @@ export function validateGate1Evidence({ summaryMarkdown, manifest, sessions, ful
   return { valid: errors.length === 0, errors };
 }
 
-function assertInsideProject(path) {
-  const absolute = resolve(projectRoot, path);
-  const relativePath = relative(projectRoot, absolute);
+function assertInsideDirectory(path, directory, label) {
+  const relativePath = relative(directory, path);
   if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
-    throw new Error("La ruta de evidencia sale del repositorio.");
+    throw new Error(`${label} debe permanecer dentro de ${relative(projectRoot, directory).replaceAll("\\", "/") || "."}.`);
   }
-  return absolute;
+}
+
+export function resolveValidationReportPath(reportRelativePath, root = projectRoot) {
+  if (typeof reportRelativePath !== "string" || isAbsolute(reportRelativePath)) {
+    throw new Error("El manifiesto debe apuntar a evidencia Full dentro de .local/validation.");
+  }
+  const portablePath = reportRelativePath.replaceAll("\\", "/");
+  const segments = portablePath.split("/");
+  if (!portablePath.startsWith(".local/validation/") || segments.some((segment) => segment === ".." || segment === "." || segment === "")) {
+    throw new Error("El manifiesto debe apuntar a evidencia Full dentro de .local/validation, sin rutas relativas de escape.");
+  }
+  const absoluteRoot = resolve(root);
+  const validationRoot = join(absoluteRoot, ".local", "validation");
+  const reportPath = resolve(absoluteRoot, ...segments);
+  assertInsideDirectory(reportPath, validationRoot, "El reporte Full");
+  return { absoluteRoot, validationRoot, reportPath };
+}
+
+export async function resolvePhysicalValidationReport(reportRelativePath, root = projectRoot) {
+  const { absoluteRoot, validationRoot, reportPath } = resolveValidationReportPath(reportRelativePath, root);
+  const [physicalProjectRoot, physicalLocalRoot, physicalValidationRoot, physicalReport] = await Promise.all([
+    realpath(absoluteRoot),
+    realpath(join(absoluteRoot, ".local")),
+    realpath(validationRoot),
+    realpath(reportPath),
+  ]);
+  assertInsideDirectory(physicalLocalRoot, physicalProjectRoot, "La carpeta local");
+  assertInsideDirectory(physicalValidationRoot, physicalLocalRoot, "La carpeta de validación");
+  assertInsideDirectory(physicalReport, physicalValidationRoot, "El reporte Full resuelto");
+  return physicalReport;
+}
+
+function getCurrentCommit() {
+  const result = spawnSync("git", ["-C", projectRoot, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const commit = result.status === 0 ? result.stdout.trim() : "";
+  if (!/^[a-f0-9]{40}$/i.test(commit)) throw new Error("No se pudo determinar el commit actual de Gate 2.");
+  return commit;
+}
+
+function isGate1CommitAncestor(gate1Commit, currentCommit) {
+  if (!/^[a-f0-9]{40}$/i.test(gate1Commit ?? "")) return false;
+  const result = spawnSync("git", ["-C", projectRoot, "merge-base", "--is-ancestor", gate1Commit, currentCommit], { encoding: "utf8" });
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error("Git no pudo comprobar la relación entre el baseline Gate 1 y el commit Gate 2.");
 }
 
 async function readEvidenceFile(path, label) {
@@ -363,12 +465,17 @@ async function run() {
     markdown: await readEvidenceFile(join(candidateRoot, alias, "session.md"), `el formulario local ${alias}`),
   })));
   const reportRelativePath = manifest.technicalGate?.report;
-  if (typeof reportRelativePath !== "string" || !reportRelativePath.replaceAll("\\", "/").startsWith(".local/validation/")) {
-    throw new Error("El manifiesto no apunta a evidencia Full dentro de .local/validation.");
-  }
-  const fullReportPath = assertInsideProject(reportRelativePath);
+  const fullReportPath = await resolvePhysicalValidationReport(reportRelativePath);
   const fullReport = JSON.parse(await readEvidenceFile(fullReportPath, "el reporte técnico Full original"));
-  const result = validateGate1Evidence({ summaryMarkdown, manifest, sessions, fullReport });
+  const currentCommit = getCurrentCommit();
+  const result = validateGate1Evidence({
+    summaryMarkdown,
+    manifest,
+    sessions,
+    fullReport,
+    currentCommit,
+    gate1CommitIsAncestor: isGate1CommitAncestor(manifest.commit, currentCommit),
+  });
   if (!result.valid) {
     console.error("Gate 2 bloqueado; Gate 1 no tiene evidencia completa y consistente:");
     for (const error of result.errors) console.error(`- ${error}`);

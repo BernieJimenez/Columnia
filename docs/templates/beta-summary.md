@@ -42,6 +42,9 @@ las tres sesiones válidas del nuevo release candidate.
 | No completadas | ___ | ___ % |
 | Total | ___ / 30 | 100 % |
 
+Calcula cada porcentaje sobre 30 tareas y redondea a un decimal; las tres
+cantidades deben sumar 30.
+
 Todas las personas completaron Cargar → Revisar → Preparar → Entregar: sí / no.
 
 ## Fricción agregada

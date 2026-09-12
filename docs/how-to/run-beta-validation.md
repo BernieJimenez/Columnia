@@ -151,8 +151,12 @@ reproducción sanitizada. Agrupa observaciones repetidas por causa, no por perso
 
 ## Cuándo una sesión cuenta
 
-Una sesión es válida cuando completa las diez tareas sobre el release candidate
-declarado y conserva un veredicto íntegro. Aplica estas reglas:
+Una sesión aporta evidencia válida cuando las diez tareas se observaron y
+registraron sobre el release candidate declarado. Cada resultado puede ser `sin
+ayuda`, `con ayuda` o `no completada`; una tarea no completada no invalida por sí
+sola la sesión. Para contar, la persona sí debe completar el flujo principal,
+guardar y reabrir el proyecto, verificar la entrega y confirmar que el original no
+cambió. Aplica también estas reglas:
 
 - un fallo de instalación, preparación o entorno ocurrido antes de observar el
   recorrido no cuenta como sesión;

@@ -153,6 +153,7 @@ try {
     "## Cuándo una sesión cuenta",
     "## Gate 2: validar el shell de espacios",
     "24 de las 30 tareas agregadas",
+    "una tarea no completada no invalida por sí",
     "docs/reference/beta-v1-summary.md",
     "npm run beta:prepare",
     "npm run beta:check-gate1",
@@ -171,6 +172,7 @@ try {
     "- Datos reintroducidos: ___",
     "- Eventos de ayuda: ___",
     "- Validez de la sesión:",
+    "`no completada` es un resultado",
     "- Flujo principal Cargar → Revisar → Preparar → Entregar: sí / no",
     "- Original sin cambios: sí / no",
   ]);
@@ -194,6 +196,7 @@ try {
     "(baseline - Gate 2) / baseline × 100",
     "Los alias anónimos de participantes y datasets permanecen en los formularios",
     "Revisión de privacidad del resumen",
+    "redondea a un decimal",
   ]);
 
   const files = [];

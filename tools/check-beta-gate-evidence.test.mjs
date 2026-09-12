@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { validateGate1Evidence } from "./check-beta-gate-evidence.mjs";
+import { resolvePhysicalValidationReport, resolveValidationReportPath, validateGate1Evidence } from "./check-beta-gate-evidence.mjs";
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sessionTemplate = readFileSync(join(projectRoot, "docs", "templates", "beta-session.md"), "utf8");
@@ -70,6 +72,22 @@ function makeSession(index, datasetAliases = [`dataset-0${(index % 3) + 1}`, `da
   return lines.join("\n");
 }
 
+function addP2Finding(markdown) {
+  let session = replaceOnce(markdown, "### BETA-___ — Título sin datos sensibles", "### BETA-001 — Riesgo acotado de clasificación");
+  for (const [before, after] of [
+    ["- Severidad: P0 / P1 / P2 / P3", "- Severidad: P2"],
+    ["- Tarea:", "- Tarea: Revisar una señal útil"],
+    ["- Expectativa:", "- Expectativa: presentar el indicador correcto"],
+    ["- Resultado observado:", "- Resultado observado: el indicador requirió aclaración"],
+    ["- Reproducción sintética o pasos sanitizados:", "- Reproducción sintética o pasos sanitizados: dataset sintético con una categoría ambigua"],
+    ["- Recuperación disponible:", "- Recuperación disponible: continuar con la señal alternativa"],
+    ["- Decisión: corregir / aceptar / investigar", "- Decisión: aceptar con seguimiento"],
+    ["- Responsable:", "- Responsable: producto"],
+    ["- Hallazgos: P0 0 · P1 0 · P2 0 · P3 0", "- Hallazgos: P0 0 · P1 0 · P2 1 · P3 0"],
+  ]) session = replaceOnce(session, before, after);
+  return session;
+}
+
 function makeSummary() {
   let markdown = summaryTemplate;
   for (const [before, after] of [
@@ -115,6 +133,8 @@ function makeEvidence(overrides = {}) {
   return {
     summaryMarkdown,
     sessions,
+    currentCommit: overrides.currentCommit ?? "b".repeat(40),
+    gate1CommitIsAncestor: overrides.gate1CommitIsAncestor ?? true,
     manifest: overrides.manifest ?? {
       schemaVersion: 1,
       candidateId,
@@ -134,8 +154,69 @@ function makeEvidence(overrides = {}) {
 }
 
 describe("prerrequisitos de evidencia para Gate 2", () => {
-  it("acepta solo tres sesiones completas y coherentes con el resumen Gate 1", () => {
+  it("acepta tres sesiones observadas y coherentes con el resumen Gate 1", () => {
     assert.deepEqual(validateGate1Evidence(makeEvidence()), { valid: true, errors: [] });
+  });
+
+  it("exige que Gate 2 esté en un commit posterior que descienda del baseline", () => {
+    const sameCommit = validateGate1Evidence(makeEvidence({ currentCommit: commit }));
+    assert.equal(sameCommit.valid, false);
+    assert.ok(sameCommit.errors.some((error) => error.includes("distinto del baseline Gate 1")));
+
+    const divergent = validateGate1Evidence(makeEvidence({ gate1CommitIsAncestor: false }));
+    assert.equal(divergent.valid, false);
+    assert.ok(divergent.errors.some((error) => error.includes("debe ser ancestro")));
+  });
+
+  it("acepta tareas observadas no completadas si el flujo y el agregado todavía cumplen", () => {
+    const evidence = makeEvidence();
+    evidence.sessions[0].markdown = replaceOnce(
+      evidence.sessions[0].markdown,
+      "| Distinguir muestra de cobertura completa | sin ayuda |",
+      "| Distinguir muestra de cobertura completa | no completada |",
+    );
+    evidence.sessions[0].markdown = replaceOnce(
+      evidence.sessions[0].markdown,
+      "| Confirmar que el original no cambió | con ayuda |",
+      "| Confirmar que el original no cambió | sin ayuda |",
+    );
+    evidence.sessions[0].markdown = replaceOnce(
+      evidence.sessions[0].markdown,
+      "| Recuperarse de un problema | con ayuda |",
+      "| Recuperarse de un problema | sin ayuda |",
+    );
+    evidence.sessions[0].markdown = evidence.sessions[0].markdown
+      .replace("- Tareas sin ayuda: 8 / 10", "- Tareas sin ayuda: 9 / 10")
+      .replace("- Tareas con ayuda: 2 / 10", "- Tareas con ayuda: 0 / 10")
+      .replace("- Tareas no completadas: 0 / 10", "- Tareas no completadas: 1 / 10");
+    evidence.summaryMarkdown = evidence.summaryMarkdown
+      .replace("| Sin ayuda | 24 | 80 % |", "| Sin ayuda | 25 | 83.3 % |")
+      .replace("| Con ayuda | 6 | 20 % |", "| Con ayuda | 4 | 13.3 % |")
+      .replace("| No completadas | 0 | 0 % |", "| No completadas | 1 | 3.3 % |");
+
+    assert.deepEqual(validateGate1Evidence(evidence), { valid: true, errors: [] });
+  });
+
+  it("encierra la ruta del reporte Full dentro de validation, también frente a traversal y symlinks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "columnia-gate2-path-"));
+    try {
+      assert.equal(resolveValidationReportPath(".local/validation/full.json", root).reportPath, join(root, ".local", "validation", "full.json"));
+      assert.throws(() => resolveValidationReportPath(".local/validation/../beta/full.json", root), /sin rutas relativas de escape/);
+      assert.throws(() => resolveValidationReportPath(".local/validation/../../outside.json", root), /sin rutas relativas de escape/);
+
+      const validationRoot = join(root, ".local", "validation");
+      const outsideRoot = join(root, ".local", "beta");
+      await mkdir(validationRoot, { recursive: true });
+      await mkdir(outsideRoot, { recursive: true });
+      await writeFile(join(outsideRoot, "full.json"), "{}", "utf8");
+      await symlink(outsideRoot, join(validationRoot, "redirect"), process.platform === "win32" ? "junction" : "dir");
+      await assert.rejects(
+        resolvePhysicalValidationReport(".local/validation/redirect/full.json", root),
+        /debe permanecer dentro de/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("bloquea una mezcla de commits entre formularios", () => {
@@ -167,6 +248,14 @@ describe("prerrequisitos de evidencia para Gate 2", () => {
     assert.ok(result.errors.some((error) => error.includes("no coinciden con los resultados")));
   });
 
+  it("bloquea porcentajes del resumen que contradicen las cantidades reportadas", () => {
+    const summaryMarkdown = makeSummary().replace("| Sin ayuda | 24 | 80 % |", "| Sin ayuda | 24 | 75 % |");
+
+    const result = validateGate1Evidence(makeEvidence({ summaryMarkdown }));
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((error) => error.includes("porcentaje de “Sin ayuda”")));
+  });
+
   it("no interpreta los valores alternativos de la plantilla como aprobación", () => {
     const summaryMarkdown = makeSummary().replace(
       "- Revisión de privacidad del resumen: aprobado.",
@@ -176,6 +265,26 @@ describe("prerrequisitos de evidencia para Gate 2", () => {
     const result = validateGate1Evidence(makeEvidence({ summaryMarkdown }));
     assert.equal(result.valid, false);
     assert.ok(result.errors.some((error) => error.includes("Revisión de privacidad")));
+  });
+
+  it("acepta hallazgos P2 documentados y bloquea hallazgos rellenados bajo el ID de ejemplo", () => {
+    const accepted = makeEvidence();
+    accepted.sessions[0].markdown = addP2Finding(accepted.sessions[0].markdown);
+    accepted.summaryMarkdown = accepted.summaryMarkdown.replace(
+      "| P2 | 0 | 0 | Ninguno |",
+      "| P2 | 1 | 0 | responsable producto |",
+    );
+    assert.equal(validateGate1Evidence(accepted).valid, true);
+
+    const hiddenFinding = makeEvidence();
+    hiddenFinding.sessions[0].markdown = replaceOnce(
+      hiddenFinding.sessions[0].markdown,
+      "- Severidad: P0 / P1 / P2 / P3",
+      "- Severidad: P2",
+    );
+    const result = validateGate1Evidence(hiddenFinding);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((error) => error.includes("ID BETA")));
   });
 
   it("bloquea formularios inválidos y un reporte Full que no corresponda", () => {

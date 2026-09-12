@@ -82,6 +82,11 @@ Duplicar este bloque por hallazgo.
 
 ## Veredicto
 
+Registra el resultado observado de cada tarea; `no completada` es un resultado
+válido de medición, no una tarea que deba ocultarse. La sesión solo cuenta si la
+persona termina el flujo principal y pasan guardado/reapertura, entrega y
+protección del original; el gate además exige al menos 24 de 30 tareas sin ayuda.
+
 - Tareas sin ayuda: ___ / 10
 - Tareas con ayuda: ___ / 10
 - Tareas no completadas: ___ / 10
