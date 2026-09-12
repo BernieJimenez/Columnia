@@ -52,6 +52,9 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
         case "get_dataset_page":
           return { offset: args.offset ?? 0, rows: dataset.rows };
         case "save_project": {
+          if (hasRecoveryCandidate && args.projectId !== latestProject.id) {
+            throw new Error("La actualización debe conservar el ID del proyecto recuperado.");
+          }
           latestProject = {
             ...latestProject,
             id: typeof args.projectId === "string" ? args.projectId : latestProject.id,
