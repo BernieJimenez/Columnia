@@ -64,12 +64,15 @@ try {
     if (-not $SkipNative) {
         Invoke-PowerShellStage "Smoke desktop (npm run tauri dev)" "tools/smoke-tauri.ps1" @("-TimeoutSeconds", "120")
         Invoke-NpmStage "Smoke WebView2/reinicio" @("run", "smoke:restart")
-        Invoke-NpmStage "Smoke WebView2/CDP sostenido" @("run", "smoke:cdp")
         Invoke-NpmStage "Smoke selectores nativos Win32" @("run", "smoke:native-selectors")
-        Invoke-NpmStage "Resumen de rendimiento final" @("run", "perf:summary")
     }
 
-    Invoke-PowerShellStage "Gate de rendimiento" "tools/check-performance-baseline.ps1"
+    # The baseline requires fresh debug mutation and release-memory evidence.
+    # -SkipNative only skips visible desktop, restart, and selector smokes.
+    Invoke-NpmStage "Smoke WebView2/CDP funcional debug" @("run", "smoke:cdp")
+    Invoke-NpmStage "Smoke WebView2/CDP memoria release" @("run", "smoke:cdp:release")
+    Invoke-NpmStage "Resumen de rendimiento final" @("run", "perf:summary")
+    Invoke-PowerShellStage "Gate de rendimiento" "tools/check-performance-baseline.ps1" @("-RequireEvidenceAfter", $StartedAt.ToString("o"))
     Invoke-PowerShellStage "Verificación compuesta" "tools/verify-experience.ps1"
     $Duration = [math]::Round(([DateTimeOffset]::UtcNow - $StartedAt).TotalMinutes, 2)
     Write-Host "`nTier verificado correctamente en $Duration minutos."

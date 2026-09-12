@@ -210,6 +210,29 @@ function Get-CdpNativeSample {
     return New-Sample -Category $Category -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @($Metrics) -ProcessProfile $Document.processProfile -PerformanceBudget $Document.performanceBudget -NativeSustained $NativeSustained -LargeDatasetBenchmark $LargeDatasetBenchmark
 }
 
+function Get-CdpReleaseMemorySample {
+    param(
+        $Document,
+        [string]$Source,
+        [string]$EvidenceName
+    )
+
+    $IsCanonical = $Document.command -eq "src-tauri/target/release/columnia.exe" -and
+        [bool]$Document.projectsRequested -and
+        -not [bool]$Document.projectsMutationRequested -and
+        $Document.projectProbeMode -eq "normal"
+    $CleanupConfirmed = [bool]$Document.cleanupConfirmed
+    $Status = if ($IsCanonical -and
+        $Document.status -eq "supported" -and
+        $Document.projectsStatus -eq "passed" -and
+        $CleanupConfirmed) { "passed" } else { "failed" }
+    $ObservedAt = Get-ObservedAt -Document $Document -EvidenceName $EvidenceName
+    $Sample = New-Sample -Category "cdp-release-memory" -Source $Source -ObservedAt $ObservedAt -Status $Status -Metrics @() -ProcessProfile $Document.processProfile -PerformanceBudget $Document.performanceBudget
+    $Sample["canonical"] = [bool]$IsCanonical
+    $Sample["cleanupConfirmed"] = $CleanupConfirmed
+    return $Sample
+}
+
 function Get-DesktopSmokeSample {
     param(
         $Document,
@@ -251,6 +274,7 @@ function Get-DesktopSmokeSample {
 $CategorySamples = [ordered]@{
     "shell-web" = [System.Collections.Generic.List[object]]::new()
     "cdp-native" = [System.Collections.Generic.List[object]]::new()
+    "cdp-release-memory" = [System.Collections.Generic.List[object]]::new()
     "cdp-large-dataset" = [System.Collections.Generic.List[object]]::new()
     "desktop-smoke" = [System.Collections.Generic.List[object]]::new()
 }
@@ -267,7 +291,10 @@ foreach ($EvidenceFile in $EvidenceFiles) {
     $Source = Get-RelativeEvidencePath -Path $EvidenceFile.FullName
     $EvidenceName = $Source.Replace('/', '\')
     $Sample = $null
-    if ($EvidenceName -match '^\.local\\validation\\webview2-cdp\\') {
+    if ($EvidenceName -match '^\.local\\validation\\webview2-cdp-release\\') {
+        $Sample = Get-CdpReleaseMemorySample -Document $Document -Source $Source -EvidenceName $EvidenceName
+    }
+    elseif ($EvidenceName -match '^\.local\\validation\\webview2-cdp\\') {
         $Sample = Get-CdpNativeSample -Document $Document -Source $Source -EvidenceName $EvidenceName
     }
     elseif ($EvidenceName -match '^\.local\\validation\\desktop-smoke\\') {

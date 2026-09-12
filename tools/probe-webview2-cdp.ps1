@@ -218,7 +218,7 @@ function Get-PerformanceBudget {
     return [ordered]@{
         schemaVersion = 1
         status = $BudgetStatus
-        enforced = $true
+        enforced = [bool]$UseReleaseExecutable
         sampleCount = $script:ProcessProfile.sampleCount
         workingSetBudgetBytes = $WorkingSetBudgetBytes
         privateMemoryBudgetBytes = $PrivateMemoryBudgetBytes
@@ -853,11 +853,23 @@ catch {
 finally {
     Update-ProcessProfile -ProcessIds (Get-AppProcessTreeIds) -Phase "final"
     $PerformanceBudget = Get-PerformanceBudget
-    if ($Status -eq "supported" -and $PerformanceBudget.status -eq "exceeded") {
+    if ($Status -eq "supported" -and $PerformanceBudget.enforced -and $PerformanceBudget.status -eq "exceeded") {
         $Status = "failed"
         $FailureMessage = "El perfil de memoria excedió el presupuesto configurado: working set <= $MemoryWorkingSetBudgetMiB MiB y memoria privada <= $MemoryPrivateBudgetMiB MiB."
     }
     $CleanupConfirmed = Stop-CreatedProcesses
+    if (-not $CleanupConfirmed) {
+        if ($Status -eq "supported") {
+            $Status = "failed"
+        }
+        $CleanupFailureMessage = "No se confirmó el cierre de todos los procesos creados por el probe."
+        $FailureMessage = if ([string]::IsNullOrWhiteSpace($FailureMessage)) {
+            $CleanupFailureMessage
+        }
+        else {
+            "$FailureMessage $CleanupFailureMessage"
+        }
+    }
     $Timer.Stop()
     if ($JobHandle -ne [IntPtr]::Zero) {
         [void][ColumniaWebView2CdpProbe.NativeMethods]::CloseHandle($JobHandle)
@@ -904,6 +916,10 @@ finally {
         evidenceDirectory = $EvidenceRelativePath
         error = $FailureMessage
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $SummaryPath -Encoding utf8
+}
+
+if (-not $PerformanceBudget.enforced -and $PerformanceBudget.status -eq "exceeded") {
+    Write-Warning "Memoria del runtime debug fuera del presupuesto V1; se conserva como diagnóstico. El gate de memoria se aplica al ejecutable release."
 }
 
 if ($Status -eq "supported" -and (-not $RunPlaywright -or $PlaywrightStatus -eq "passed") -and (-not $RunProjects -or $ProjectsStatus -eq "passed") -and (-not $RunNativeSelectors -or $NativeSelectorsStatus -eq "passed")) {

@@ -88,9 +88,11 @@ está ignorado por Git.
 ## Perfil de memoria del ejecutable release
 
 `npm run smoke:cdp` inicia `tauri dev`; sirve para validar mutaciones sintéticas
-que solo están disponibles en compilaciones debug. Para medir la interfaz real
-del ejecutable release contra los límites V1 de 512 MiB de working set y 256
-MiB privados, compila primero y luego ejecuta el recorrido de solo lectura:
+que solo están disponibles en compilaciones debug. Su memoria se conserva como
+diagnóstico, pero no bloquea el gate del runtime release. `verify-tier` mide el
+presupuesto V1 de 512 MiB de working set y 256 MiB privados en el ejecutable
+release. Para ejecutar esa medición por separado, compila primero y luego usa
+el recorrido de solo lectura:
 
 ```powershell
 npm run tauri build -- --no-bundle
@@ -99,12 +101,20 @@ npm run smoke:cdp:release
 
 El segundo comando requiere `src-tauri/target/release/columnia.exe`, abre
 ProjectsPanel sin crear ni modificar proyectos y guarda el perfil de procesos
-en `.local/validation/webview2-cdp-release/`. Así se conserva separado del
-historial de mutaciones sintéticas. El probe restaura la variable de depuración
-de WebView2 y cierra los procesos que inició. La memoria suma Columnia y sus
-procesos WebView2 descendientes para reflejar el consumo completo del runtime.
-Las mutaciones sintéticas y las pruebas de reinicio siguen reservadas al
-ejecutable debug.
+en `.local/validation/webview2-cdp-release/`. `verify-tier` y `release:dry-run`
+ejecutan los smokes de mutaciones debug y memoria release después de compilar,
+incluso si `verify-tier` usa `-SkipNative` (que omite solo desktop visible,
+reinicio y selectores). El baseline exige que ambas muestras sean posteriores
+al inicio de esa ejecución, así no aprueba con evidencia de una corrida
+anterior. Cada intento release se conserva como muestra: un recorrido no
+canónico o un teardown no confirmado invalida el intento más reciente. El probe
+restaura la variable de depuración de WebView2 y cierra los procesos que inició.
+La memoria suma Columnia y sus procesos WebView2 descendientes para reflejar el
+consumo completo del runtime.
+`perf:summary` conserva ambos perfiles en categorías distintas; el gate compara
+la memoria release y sigue tomando la evidencia de mutaciones sostenidas del
+perfil debug. Las mutaciones sintéticas y las pruebas de reinicio siguen
+reservadas al ejecutable debug.
 
 ## Release firmado y updater
 

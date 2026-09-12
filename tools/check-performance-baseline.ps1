@@ -1,6 +1,7 @@
 param(
     [string]$BaselinePath = "fixtures/performance/performance-baseline-v1.json",
-    [switch]$SkipPackage
+    [switch]$SkipPackage,
+    [string]$RequireEvidenceAfter
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +21,15 @@ $SummaryPath = Join-Path $EvidenceDirectory "summary.json"
 $Checks = [System.Collections.Generic.List[object]]::new()
 $Status = "failed"
 $FailureMessage = $null
+$EvidenceRequiredAfterUtc = $null
+if (-not [string]::IsNullOrWhiteSpace($RequireEvidenceAfter)) {
+    try {
+        $EvidenceRequiredAfterUtc = [DateTimeOffset]::Parse($RequireEvidenceAfter).ToUniversalTime()
+    }
+    catch {
+        throw "-RequireEvidenceAfter debe ser una fecha ISO 8601 válida."
+    }
+}
 
 function Read-Json {
     param([string]$Path)
@@ -61,6 +71,26 @@ function Add-Check {
         })
 }
 
+function Test-SampleFreshness {
+    param($Sample)
+
+    if ($null -eq $Sample) {
+        return $false
+    }
+    if ($null -eq $EvidenceRequiredAfterUtc) {
+        return $true
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$Sample.observedAt)) {
+        return $false
+    }
+    try {
+        return [DateTimeOffset]::Parse([string]$Sample.observedAt).ToUniversalTime() -ge $EvidenceRequiredAfterUtc
+    }
+    catch {
+        return $false
+    }
+}
+
 try {
     $Baseline = Read-Json -Path $BaselineAbsolutePath
     if ($Baseline.schemaVersion -ne 1) {
@@ -70,47 +100,64 @@ try {
     $PerformanceSummaryPath = Join-Path $ValidationRoot "performance-summary\summary.json"
     $PerformanceSummary = Read-Json -Path $PerformanceSummaryPath
     $CdpCategory = @($PerformanceSummary.categories | Where-Object { $_.id -eq "cdp-native" })[0]
-    $CdpBudget = if ($null -eq $CdpCategory) { $null } else { $CdpCategory.latest.performanceBudget }
+    $CdpMemoryCategory = @($PerformanceSummary.categories | Where-Object { $_.id -eq "cdp-release-memory" })[0]
+    $CdpMemorySample = if ($null -eq $CdpMemoryCategory) { $null } else { $CdpMemoryCategory.latest }
+    $CdpBudget = if ($null -eq $CdpMemorySample) { $null } else { $CdpMemorySample.performanceBudget }
     if ($null -eq $CdpBudget) {
-        Add-Check -Id "cdp-memory" -State "unavailable" -Observed $null -Budget $Baseline.budgets.cdp -Source (Get-RelativePath $PerformanceSummaryPath) -Message "Falta una muestra CDP con performanceBudget."
+        Add-Check -Id "cdp-memory" -State "unavailable" -Observed $null -Budget $Baseline.budgets.cdp -Source (Get-RelativePath $PerformanceSummaryPath) -Message "Falta una medición de memoria del ejecutable release."
     }
     else {
+        $CdpMemoryFresh = Test-SampleFreshness -Sample $CdpMemorySample
         $CdpHasValues = $null -ne $CdpBudget.peakWorkingSetBytes -and $null -ne $CdpBudget.peakPrivateMemoryBytes
-        $CdpPassed = $CdpHasValues -and $CdpBudget.status -eq "within_budget" -and
+        $CdpPassed = $CdpMemorySample.status -eq "passed" -and
+            $CdpMemoryFresh -and
+            [bool]$CdpMemorySample.canonical -and
+            [bool]$CdpMemorySample.cleanupConfirmed -and
+            [bool]$CdpBudget.enforced -and $CdpHasValues -and $CdpBudget.status -eq "within_budget" -and
             [bool]$CdpBudget.workingSetWithinBudget -and
             [bool]$CdpBudget.privateMemoryWithinBudget -and
             [int64]$CdpBudget.peakWorkingSetBytes -le [int64]$Baseline.budgets.cdp.workingSetBytes -and
             [int64]$CdpBudget.peakPrivateMemoryBytes -le [int64]$Baseline.budgets.cdp.privateMemoryBytes
         $CdpState = if ($CdpPassed) { "passed" } else { "failed" }
-        $CdpMessage = if ($CdpPassed) { "Memoria CDP dentro del presupuesto." } else { "Memoria CDP fuera del presupuesto." }
+        $CdpMessage = if ($CdpPassed) { "Memoria CDP dentro del presupuesto." } else { "Memoria CDP desactualizada, incompleta o fuera del presupuesto." }
         Add-Check -Id "cdp-memory" -State $CdpState `
             -Observed ([ordered]@{
+                sourceStatus = $CdpMemorySample.status
+                fresh = [bool]$CdpMemoryFresh
+                canonical = [bool]$CdpMemorySample.canonical
+                cleanupConfirmed = [bool]$CdpMemorySample.cleanupConfirmed
                 status = $CdpBudget.status
+                enforced = [bool]$CdpBudget.enforced
                 peakWorkingSetBytes = [int64]$CdpBudget.peakWorkingSetBytes
                 peakPrivateMemoryBytes = [int64]$CdpBudget.peakPrivateMemoryBytes
-            }) -Budget $Baseline.budgets.cdp -Source (Get-RelativePath $PerformanceSummaryPath) `
+            }) -Budget $Baseline.budgets.cdp -Source ([string]$CdpMemorySample.source) `
             -Message $CdpMessage
     }
 
     $NativeSustainedBudget = $Baseline.budgets.cdp.nativeSustained
-    $NativeSustained = if ($null -eq $CdpCategory.latest) { $null } else { $CdpCategory.latest.nativeSustained }
+    $NativeSample = if ($null -eq $CdpCategory.latest) { $null } else { $CdpCategory.latest }
+    $NativeSustained = if ($null -eq $NativeSample) { $null } else { $NativeSample.nativeSustained }
     if ($null -eq $NativeSustained -or $null -eq $NativeSustainedBudget) {
         Add-Check -Id "cdp-native-sustained" -State "unavailable" -Observed $null -Budget $NativeSustainedBudget -Source (Get-RelativePath $PerformanceSummaryPath) -Message "Falta evidencia de transformaciones nativas sostenidas en WebView2."
     }
     else {
+        $NativeSampleFresh = Test-SampleFreshness -Sample $NativeSample
         $NativeRuns = [int]$NativeSustained.runs
         $NativeTransformMax = if ($null -eq $NativeSustained.maxTransformDurationMs) { 0.0 } else { [double]$NativeSustained.maxTransformDurationMs }
         $NativeExportMax = if ($null -eq $NativeSustained.maxExportDurationMs) { 0.0 } else { [double]$NativeSustained.maxExportDurationMs }
         $NativeHasValues = $NativeRuns -gt 0 -and $null -ne $NativeSustained.maxTransformDurationMs -and $null -ne $NativeSustained.maxExportDurationMs
-        $NativePassed = $NativeHasValues -and
+        $NativePassed = $NativeSampleFresh -and
+            $NativeHasValues -and
             $NativeRuns -ge [int]$NativeSustainedBudget.minRuns -and
             $NativeTransformMax -le [double]$NativeSustainedBudget.maxTransformDurationMs -and
             $NativeExportMax -le [double]$NativeSustainedBudget.maxExportDurationMs
         $NativeState = if ($NativePassed) { "passed" } else { "failed" }
-        $NativeMessage = if ($NativePassed) { "Transformaciones nativas sostenidas dentro del contrato." } else { "Transformaciones nativas sostenidas incompletas o fuera del presupuesto." }
+        $NativeMessage = if ($NativePassed) { "Transformaciones nativas sostenidas dentro del contrato." } else { "Transformaciones nativas sostenidas desactualizadas, incompletas o fuera del presupuesto." }
         Add-Check -Id "cdp-native-sustained" -State $NativeState `
             -Observed ([ordered]@{
                 runs = $NativeRuns
+                fresh = [bool]$NativeSampleFresh
+                observedAt = [string]$NativeSample.observedAt
                 maxTransformDurationMs = $NativeTransformMax
                 maxExportDurationMs = $NativeExportMax
             }) -Budget $NativeSustainedBudget -Source (Get-RelativePath $PerformanceSummaryPath) `

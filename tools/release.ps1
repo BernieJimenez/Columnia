@@ -177,6 +177,9 @@ try {
             & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "tools\check.ps1") -Profile $Profile
         }
     }
+    Invoke-ReleaseStep "Release WebView2 memory smoke" {
+        & npm.cmd run smoke:cdp:release
+    }
     Invoke-ReleaseStep "CLI smoke" {
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "tools\smoke-cli.ps1")
     }
@@ -189,11 +192,14 @@ try {
     Invoke-ReleaseStep "WebView2 large dataset benchmark" {
         & npm.cmd run perf:webview2
     }
+    Invoke-ReleaseStep "WebView2 sustained native smoke" {
+        & npm.cmd run smoke:cdp
+    }
     Invoke-ReleaseStep "Large dataset performance summary" {
         & npm.cmd run perf:summary
     }
     Invoke-ReleaseStep "Performance baseline" {
-        & npm.cmd run perf:check
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "tools\check-performance-baseline.ps1") -RequireEvidenceAfter $StartedAt.ToString("o")
     }
     if ($WithUpdater) {
         Invoke-ReleaseStep "Updater manifest and integrity" {
