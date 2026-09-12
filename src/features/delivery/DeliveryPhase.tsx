@@ -1163,6 +1163,7 @@ export function DeliveryPhase({
             Protección de datos personales
             <select
               aria-label="Protección de datos personales"
+              aria-describedby="privacy-mode-note"
               value={selectedPrivacyMode}
               onChange={(event) => changePrivacyMode(event.target.value as PrivacyMode)}
               disabled={busy}
@@ -1171,6 +1172,9 @@ export function DeliveryPhase({
               <option value="mask">Enmascarar columnas detectadas</option>
               <option value="hash">Aplicar hash SHA-256 a columnas detectadas</option>
             </select>
+            <small id="privacy-mode-note" className="privacy-mode__note">
+              SHA-256 es determinista y no usa salt: valores predecibles pueden adivinarse. No equivale a anonimización; revisa el archivo antes de compartirlo.
+            </small>
           </label>
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">

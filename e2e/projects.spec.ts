@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function installTauriProjectMock(page: Page) {
-  await page.addInitScript(() => {
+async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false) {
+  await page.addInitScript((hasRecoveryCandidate) => {
     const dataset = {
       fileName: "ventas.csv",
       fileSizeBytes: 128,
@@ -22,7 +22,9 @@ async function installTauriProjectMock(page: Page) {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
-    let projects: typeof project[] = [];
+    let projects: typeof project[] = hasRecoveryCandidate ? [project] : [];
+    let latestProject = project;
+    let recoveryCandidate: typeof project | null = hasRecoveryCandidate ? project : null;
     let callbackId = 0;
 
     const invoke = async (command: string, args: Record<string, unknown> = {}) => {
@@ -32,7 +34,7 @@ async function installTauriProjectMock(page: Page) {
         case "list_projects":
           return projects;
         case "get_recovery_candidate":
-          return null;
+          return recoveryCandidate;
         case "pick_dataset_source":
           return {
             selectionId: "selection-e2e",
@@ -49,13 +51,34 @@ async function installTauriProjectMock(page: Page) {
           return { canUndo: false, canRedo: false, currentIndex: 0, entryCount: 0, entries: [], snapshotsEnabled: true };
         case "get_dataset_page":
           return { offset: args.offset ?? 0, rows: dataset.rows };
-        case "save_project":
-          projects = [project];
-          return project;
-        case "open_project":
-          return { project, dataset, workspace: { qualityRules: [], recipeDraft: null }, profile: null };
+        case "save_project": {
+          latestProject = {
+            ...latestProject,
+            id: typeof args.projectId === "string" ? args.projectId : latestProject.id,
+            name: typeof args.name === "string" ? args.name : latestProject.name,
+            updatedAt: "2026-01-02T00:00:00.000Z",
+          };
+          projects = [latestProject];
+          recoveryCandidate = null;
+          return latestProject;
+        }
+        case "open_project": {
+          const openedProject = projects.find((item) => item.id === args.projectId) ?? latestProject;
+          recoveryCandidate = null;
+          return {
+            project: openedProject,
+            dataset,
+            workspace: {
+              qualityRules: [],
+              recipeDraft: null,
+              ...(hasRecoveryCandidate ? { activePhase: "prepare" } : {}),
+            },
+            profile: null,
+          };
+        }
         case "delete_project":
           projects = [];
+          recoveryCandidate = null;
           return null;
         default:
           throw new Error(`Comando Tauri no simulado: ${command}`);
@@ -73,7 +96,7 @@ async function installTauriProjectMock(page: Page) {
         unregisterCallback: () => undefined,
       },
     });
-  });
+  }, seedRecoveryCandidate);
 }
 
 test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulado", async ({ page }) => {
@@ -108,4 +131,33 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
   await page.getByRole("button", { name: "Eliminar proyecto" }).click();
   await expect(page.locator("p.notice--success")).toContainText("Proyecto “Ventas E2E” eliminado.");
   await expect(page.getByText("Todavía no hay proyectos guardados.")).toBeVisible();
+});
+
+test("recupera la última sesión, restaura su etapa y actualiza el mismo proyecto", async ({ page }) => {
+  await installTauriProjectMock(page, true);
+  await page.goto("/", { waitUntil: "commit" });
+
+  const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
+  const projectDetails = page.locator(".load-secondary")
+    .filter({ hasText: "Continuar un proyecto" });
+  await projectDetails.locator("summary").click();
+  await expect(page.getByRole("button", { name: "Recuperar proyecto" })).toBeVisible();
+  await page.getByRole("button", { name: "Recuperar proyecto" }).click();
+
+  await expect(workflow.getByRole("button", { name: "Preparar", exact: true }))
+    .toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("heading", { name: "ventas.csv" })).toBeVisible();
+
+  await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
+  await projectDetails.locator("summary").click();
+  const projects = page.getByRole("list", { name: "Proyectos guardados" });
+  await expect(projects).toContainText("Ventas E2E · activo");
+  const projectName = page.getByLabel("Nombre del proyecto");
+  await expect(projectName).toHaveValue("Ventas E2E");
+  await projectName.fill("Ventas recuperadas");
+  await page.getByRole("button", { name: "Actualizar proyecto" }).click();
+
+  await expect(page.locator("p.notice--success"))
+    .toContainText("Proyecto “Ventas recuperadas” actualizado.");
+  await expect(projects).toContainText("Ventas recuperadas · activo");
 });

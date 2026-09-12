@@ -7043,6 +7043,74 @@ fn privacy_modes_protect_final_csv_artifact_and_preserve_source_bytes() {
 }
 
 #[test]
+fn eager_and_source_backed_privacy_hashes_match_for_typed_values() {
+    let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+    let source = directory.path().join("typed-source.parquet");
+    let snapshot = directory.path().join("typed-hash.parquet");
+    let frame = DataFrame::new(
+        3,
+        vec![
+            Series::new("email".into(), [Some(1.25_f64), Some(-0.0), None]).into_column(),
+            Series::new("address".into(), [Some(1_i32), Some(-1), None])
+                .cast(&DataType::Date)
+                .unwrap()
+                .into_column(),
+            Series::new(
+                "phone".into(),
+                [Some(1_767_139_200_000_i64), Some(-1), None],
+            )
+            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+            .unwrap()
+            .into_column(),
+            Series::new("identifier".into(), [Some(42_i64), None, Some(7)]).into_column(),
+            Series::new("city".into(), ["Santo Domingo", "Santiago", "La Vega"]).into_column(),
+        ],
+    )
+    .expect("se debe crear el fixture con tipos mixtos");
+    let (eager, protected_columns) = privacy_safe_frame(&frame, PrivacyMode::Hash)
+        .expect("el modo Hash debe procesar el fixture tipado");
+    let mut parquet_frame = frame.clone();
+    ParquetWriter::new(File::create(&source).expect("se debe crear el Parquet de entrada"))
+        .finish(&mut parquet_frame)
+        .expect("se debe escribir el Parquet de entrada");
+    source_backed_privacy_snapshot(
+        &source,
+        fs::metadata(&source)
+            .expect("el Parquet source-backed debe existir")
+            .len(),
+        &snapshot,
+        PrivacyMode::Hash,
+        || false,
+    )
+    .expect("el flujo source-backed debe producir el snapshot con hash");
+    let source_backed = read_parquet_frame(&snapshot).expect("el snapshot con hash debe abrir");
+
+    assert_eq!(
+        protected_columns,
+        vec!["email", "address", "phone", "identifier"]
+    );
+    for name in protected_columns {
+        let eager_values = eager
+            .column(&name)
+            .unwrap()
+            .str()
+            .unwrap()
+            .iter()
+            .map(|value| value.map(str::to_owned))
+            .collect::<Vec<_>>();
+        let source_backed_values = source_backed
+            .column(&name)
+            .unwrap()
+            .str()
+            .unwrap()
+            .iter()
+            .map(|value| value.map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(eager_values, source_backed_values, "columna {name}");
+    }
+}
+
+#[test]
 fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() {
     let source =
         temporary_csv("email,identifier,city\nana@example.com,42,Santo Domingo\n,7,Santiago\n");

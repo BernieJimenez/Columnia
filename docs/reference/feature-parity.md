@@ -129,6 +129,12 @@ Las exportaciones source-backed con privacidad `mask` o `hash` generan primero
 un snapshot Parquet privado en DuckDB, conservan nulos y columnas no personales
 y transfieren CSV, JSON, Parquet, SQL, Excel, SQLite o bundle sin materializar
 el `DataFrame` activo; la fuente original se valida antes y después.
+El modo `hash` reemplaza valores detectados por su SHA-256 textual UTF-8 en
+hexadecimal y conserva los nulos. Es determinista y no usa clave ni salt, por lo
+que es pseudonimización, no anonimización: valores predecibles pueden probarse
+por diccionario. La salida debe revisarse antes de compartirla. Las pruebas
+verifican hashes coherentes entre las rutas eager y source-backed para texto,
+enteros, flotantes, fechas y timestamps.
 Las consultas `JOIN` compatibles de Revisar pueden registrar un `DataFrame`
 activo junto con el snapshot Parquet de la comparación. Así se evita cargar de
 nuevo todas las filas comparadas cuando el activo ya está transformado; si la

@@ -223,11 +223,14 @@ describe("DeliveryPhase", () => {
   it("permite seleccionar una política de privacidad antes de exportar", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
+    const privacyControl = screen.getByRole("combobox", { name: "Protección de datos personales" });
+    expect(privacyControl).toHaveAttribute("aria-describedby", "privacy-mode-note");
+    expect(screen.getByText(/No equivale a anonimización/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Protección de datos personales" }), {
+    fireEvent.change(privacyControl, {
       target: { value: "hash" },
     });
     fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {

@@ -1782,6 +1782,7 @@ body { color: var(--text-primary); background: var(--canvas); }
 .privacy-mode { display: grid; gap: 5px; min-width: 0; color: var(--text-secondary); font-weight: 750; }
 .export-format select,
 .privacy-mode select { min-width: 0; width: 100%; min-height: 44px; padding: 7px 9px; }
+.privacy-mode__note { color: var(--text-secondary); font-size: .72rem; font-weight: 500; line-height: 1.4; }
 .export-action { min-width: 138px; }
 .export-requirement { grid-column: 2; margin: -4px 0 0; color: var(--text-secondary); font-size: .875rem; }
 .database-target { grid-column: 1 / -1; display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-subtle); }
