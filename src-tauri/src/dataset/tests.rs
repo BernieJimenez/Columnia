@@ -6985,9 +6985,68 @@ fn privacy_modes_mask_or_hash_detect_all_detected_columns_without_values() {
 }
 
 #[test]
+fn privacy_modes_protect_final_csv_artifact_and_preserve_source_bytes() {
+    let source = temporary_csv("email,identifier,city\nana@example.com,42,Santo Domingo\n");
+    let original_source = fs::read(&source).expect("la fuente original debe poder leerse");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    assert_eq!(
+        frame.column("email").unwrap().str().unwrap().get(0),
+        Some("ana@example.com"),
+        "el valor sintético debe conservarse exactamente al cargarse",
+    );
+    let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+    let masked_path = directory.path().join("masked.csv");
+    let masked_result = export_frame_atomic_with_privacy_and_quality(
+        &frame,
+        &masked_path,
+        ExportFormat::Csv,
+        PrivacyMode::Mask,
+        None,
+        |_, _| {},
+        || false,
+    )
+    .expect("la exportación CSV enmascarada debe funcionar");
+    let masked = fs::read_to_string(&masked_path).expect("el CSV enmascarado debe leerse");
+    assert_eq!(masked_result.protected_columns, vec!["email", "identifier"]);
+    assert!(masked.contains("[REDACTED]"));
+    assert!(masked.contains("Santo Domingo"));
+    assert!(!masked.contains("ana@example.com"));
+    assert!(!masked.contains(",42,"));
+
+    let hashed_path = directory.path().join("hashed.csv");
+    let hashed_result = export_frame_atomic_with_privacy_and_quality(
+        &frame,
+        &hashed_path,
+        ExportFormat::Csv,
+        PrivacyMode::Hash,
+        None,
+        |_, _| {},
+        || false,
+    )
+    .expect("la exportación CSV con hash debe funcionar");
+    let hashed = fs::read_to_string(&hashed_path).expect("el CSV con hash debe leerse");
+    let email_hash = format!("{:x}", Sha256::digest(b"ana@example.com"));
+    let identifier_hash = format!("{:x}", Sha256::digest(b"42"));
+    assert_eq!(hashed_result.protected_columns, vec!["email", "identifier"]);
+    assert!(hashed.contains(&email_hash));
+    assert!(hashed.contains(&identifier_hash));
+    assert!(hashed.contains("Santo Domingo"));
+    assert!(!hashed.contains("ana@example.com"));
+    assert!(!hashed.contains(",42,"));
+
+    assert_eq!(
+        fs::read(&source).expect("la fuente debe seguir disponible"),
+        original_source,
+        "enmascarar y exportar no debe modificar ni un byte de la fuente",
+    );
+    fs::remove_file(source).expect("se debe limpiar la fuente temporal");
+}
+
+#[test]
 fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() {
     let source =
         temporary_csv("email,identifier,city\nana@example.com,42,Santo Domingo\n,7,Santiago\n");
+    let original_source = fs::read(&source).expect("la fuente original debe poder leerse");
     let directory = tempfile::tempdir().expect("se debe crear el destino temporal");
     let expected_size = fs::metadata(&source)
         .expect("la fuente source-backed debe existir")
@@ -7040,7 +7099,11 @@ fn source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows() 
         hashed.column("identifier").unwrap().str().unwrap().get(0),
         Some(expected_identifier_hash.as_str())
     );
-    assert!(source.is_file());
+    assert_eq!(
+        fs::read(&source).expect("la fuente debe seguir disponible"),
+        original_source,
+        "crear snapshots de privacidad no debe modificar la fuente",
+    );
     fs::remove_file(source).expect("se debe limpiar la fuente temporal");
 }
 

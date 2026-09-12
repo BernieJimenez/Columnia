@@ -17993,7 +17993,11 @@ fn privacy_safe_frame(
                     .map(|value| match value {
                         AnyValue::Null => None,
                         value => {
-                            let value = value.to_string();
+                            let value = match value {
+                                AnyValue::String(value) => value.to_owned(),
+                                AnyValue::StringOwned(value) => value.as_str().to_owned(),
+                                value => value.to_string(),
+                            };
                             Some(match mode {
                                 PrivacyMode::None => value,
                                 PrivacyMode::Mask => REDACTED_VALUE.to_owned(),
