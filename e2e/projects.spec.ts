@@ -89,6 +89,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
     .getByRole("navigation", { name: "Flujo de preparación de datos" })
     .getByRole("button", { name: "Cargar", exact: true })
     .click();
+  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator("summary").click();
   await expect(page.getByRole("heading", { name: "Proyectos" })).toBeVisible();
   await page.getByLabel("Nombre del proyecto").fill("Ventas E2E");
   await page.getByRole("button", { name: "Guardar proyecto nuevo" }).click();
@@ -100,6 +101,7 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
   await expect(page.getByRole("heading", { name: "ventas.csv" })).toBeVisible();
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
+  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator("summary").click();
   await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas E2E · activo");
   await page.getByRole("button", { name: "Eliminar" }).click();
   await expect(page.getByRole("alertdialog", { name: "Eliminar “Ventas E2E”" })).toBeVisible();

@@ -136,6 +136,7 @@ test.describe("contratos de accesibilidad del shell", () => {
       .getByRole("navigation", { name: "Flujo de preparación de datos" })
       .getByRole("button", { name: "Cargar", exact: true })
       .click();
+    await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator("summary").click();
     await page.getByLabel("Nombre del proyecto").fill("Ventas accesible");
     await page.getByRole("button", { name: "Guardar proyecto nuevo" }).click();
     await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas accesible");

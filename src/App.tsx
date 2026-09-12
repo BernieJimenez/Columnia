@@ -71,6 +71,7 @@ import {
 import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { UpdatePanel } from "./components/UpdatePanel";
+import { WorkspaceNav } from "./features/workspaces/WorkspaceNav";
 
 import {
   cancelOperation,
@@ -784,6 +785,8 @@ export function App() {
           <p className="eyebrow">Estación local de datos</p>
           <h1 id="app-title"><svg className="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="2" y="4" width="7" height="24" rx="2" fill="currentColor" /><rect x="12" y="10" width="7" height="18" rx="2" fill="currentColor" opacity=".7" /><rect x="22" y="16" width="7" height="12" rx="2" fill="currentColor" opacity=".45" /></svg>Columnia</h1>
         </div>
+
+        <WorkspaceNav activePhase={activePhase} />
 
         <nav className="side-nav" aria-label="Flujo de preparación de datos">
           {phases.map((phase, phaseIndex) => {
