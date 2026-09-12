@@ -107,7 +107,7 @@ $ReportRelativePath = $AcceptedReport.FullName.Substring($ProjectRoot.Length + 1
     status = "awaiting-human-sessions"
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $CandidateRoot "manifest.json") -Encoding utf8
 
-Write-Host "Versión candidata preparada: $CandidateId"
+Write-Host "RC creada: $CandidateId"
 Write-Host "Commit: $Commit"
 Write-Host "Sesiones: .local/beta/$CandidateId/beta-01..03/session.md"
 Write-Host "Estado: esperando tres sesiones humanas; no se registraron resultados automáticamente."
