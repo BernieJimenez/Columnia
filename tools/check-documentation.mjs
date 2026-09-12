@@ -15,6 +15,7 @@ const requiredFiles = [
   "docs/how-to/validate-release-evidence.md",
   "docs/templates/beta-session.md",
   "docs/templates/beta-summary.md",
+  "tools/prepare-beta-gate.ps1",
   "docs/reference/cli.md",
   "docs/reference/v1-scope.md",
   "docs/reference/release-evidence.md",
@@ -130,6 +131,7 @@ try {
     "## Gate 2: validar el shell de espacios",
     "24 de las 30 tareas agregadas",
     "docs/reference/beta-v1-summary.md",
+    "npm run beta:prepare",
     "acciones de navegación o los datos reintroducidos bajan al menos 20 %",
   ]);
   requireFragments("docs/templates/beta-session.md", betaSession, [

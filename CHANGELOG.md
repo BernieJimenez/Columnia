@@ -8,6 +8,9 @@ los artefactos de validación locales.
 
 ### Interno
 
+- `npm run beta:prepare` crea una RC local ligada a un commit limpio y a su gate
+  `Full` aprobado, con manifiesto y tres plantillas prellenadas bajo `.local/beta/`.
+
 - El probe WebView2 de proyectos abre el desplegable «Continuar un proyecto»
   antes de validar su contrato, y registra esa interacción en la evidencia. Esto
   evita confundir un panel montado pero colapsado con un fallo de persistencia.

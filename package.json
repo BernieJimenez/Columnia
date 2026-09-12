@@ -20,6 +20,7 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "docs:check": "node tools/check-documentation.mjs",
+    "beta:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-beta-gate.ps1",
     "governance:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-governance.ps1",
     "legal:check": "node tools/check-legal-distribution.mjs",
     "legal:release:check": "node tools/check-legal-distribution.mjs --require-signoff",

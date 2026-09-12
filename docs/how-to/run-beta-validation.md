@@ -20,18 +20,23 @@ y commit.
 
    ```powershell
    npm install
-   .\tools\check.ps1 -Profile Fast
+   .\tools\check.ps1 -Profile Full
+   npm run beta:prepare
    npm run tauri dev
    ```
 
-2. Copia la plantilla sin agregarla al repositorio:
+   `beta:prepare` rechaza árboles sucios y exige evidencia `Full` aprobada para
+   el commit actual. Después crea un identificador RC, manifiesto y tres carpetas
+   de sesión bajo `.local/beta/` sin inventar resultados.
+
+2. Abre la plantilla prellenada que corresponda a la persona participante:
 
    ```powershell
-   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-   $session = ".local\beta\$stamp"
-   New-Item -ItemType Directory -Force -Path $session | Out-Null
-   Copy-Item docs\templates\beta-session.md "$session\session.md"
+   Get-ChildItem .local\beta\rc-*\beta-*\session.md
    ```
+
+   No renombres la RC ni reutilices sus carpetas para otro commit. Para preparar
+   Gate 2 usa `npm run beta:prepare -- -Gate Gate2`.
 
 3. Asigna un alias distinto a cada participante y confirma que no participó en
    otra de las tres sesiones aceptadas. No registres su identidad.
