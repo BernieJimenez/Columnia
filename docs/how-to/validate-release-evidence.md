@@ -85,6 +85,27 @@ Baseline release aprobado: .local/validation/release-evidence-check/<timestamp>
 El árbol de trabajo no debe recibir capturas ni datasets temporales. `.local/`
 está ignorado por Git.
 
+## Perfil de memoria del ejecutable release
+
+`npm run smoke:cdp` inicia `tauri dev`; sirve para validar mutaciones sintéticas
+que solo están disponibles en compilaciones debug. Para medir la interfaz real
+del ejecutable release contra los límites V1 de 512 MiB de working set y 256
+MiB privados, compila primero y luego ejecuta el recorrido de solo lectura:
+
+```powershell
+npm run tauri build -- --no-bundle
+npm run smoke:cdp:release
+```
+
+El segundo comando requiere `src-tauri/target/release/columnia.exe`, abre
+ProjectsPanel sin crear ni modificar proyectos y guarda el perfil de procesos
+en `.local/validation/webview2-cdp-release/`. Así se conserva separado del
+historial de mutaciones sintéticas. El probe restaura la variable de depuración
+de WebView2 y cierra los procesos que inició. La memoria suma Columnia y sus
+procesos WebView2 descendientes para reflejar el consumo completo del runtime.
+Las mutaciones sintéticas y las pruebas de reinicio siguen reservadas al
+ejecutable debug.
+
 ## Release firmado y updater
 
 Para validar también el canal de actualizaciones, usa una clave privada ubicada

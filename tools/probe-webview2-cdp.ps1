@@ -7,6 +7,7 @@ param(
     [switch]$RunProjects,
     [switch]$RunProjectMutations,
     [switch]$RunNativeSelectors,
+    [switch]$UseReleaseExecutable,
     [ValidateRange(1, 5)]
     [int]$NativeSustainedRuns = 3,
     [ValidateSet("normal", "restart-prepare", "restart-verify")]
@@ -50,7 +51,8 @@ namespace ColumniaWebView2CdpProbe {
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
-$EvidenceRelativePath = ".local/validation/webview2-cdp/$Timestamp"
+$EvidenceCategory = if ($UseReleaseExecutable) { "webview2-cdp-release" } else { "webview2-cdp" }
+$EvidenceRelativePath = ".local/validation/$EvidenceCategory/$Timestamp"
 $EvidenceDirectory = Join-Path $ProjectRoot ($EvidenceRelativePath -replace "/", "\")
 $StdoutPath = Join-Path $EvidenceDirectory "stdout.log"
 $StderrPath = Join-Path $EvidenceDirectory "stderr.log"
@@ -58,6 +60,13 @@ $VersionPath = Join-Path $EvidenceDirectory "version.json"
 $TargetsPath = Join-Path $EvidenceDirectory "targets.json"
 $SummaryPath = Join-Path $EvidenceDirectory "summary.json"
 $DebugExecutable = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot "src-tauri\target\debug\columnia.exe"))
+$ReleaseExecutable = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot "src-tauri\target\release\columnia.exe"))
+$TargetExecutable = $DebugExecutable
+$LaunchCommand = "npm run tauri dev"
+if ($UseReleaseExecutable) {
+    $TargetExecutable = $ReleaseExecutable
+    $LaunchCommand = "src-tauri/target/release/columnia.exe"
+}
 $RootProcess = $null
 $JobHandle = [IntPtr]::Zero
 $TrackedProcessIds = [System.Collections.Generic.HashSet[int]]::new()
@@ -100,16 +109,18 @@ function Get-PortListeners {
     @(Get-NetTCPConnection -State Listen -LocalAddress 127.0.0.1 -LocalPort $Port -ErrorAction SilentlyContinue)
 }
 
-function Get-DebugAppProcesses {
+function Get-ColumniaAppProcesses {
     @(
         Get-CimInstance Win32_Process -Filter "Name = 'columnia.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
-                $_.ExecutablePath -and
-                [string]::Equals(
-                    [System.IO.Path]::GetFullPath($_.ExecutablePath),
-                    $DebugExecutable,
-                    [System.StringComparison]::OrdinalIgnoreCase
-                )
+                if ($_.ExecutablePath) {
+                    $ExecutablePath = [System.IO.Path]::GetFullPath($_.ExecutablePath)
+                    [string]::Equals($ExecutablePath, $DebugExecutable, [System.StringComparison]::OrdinalIgnoreCase) -or
+                        [string]::Equals($ExecutablePath, $ReleaseExecutable, [System.StringComparison]::OrdinalIgnoreCase)
+                }
+                else {
+                    $false
+                }
             }
     )
 }
@@ -269,7 +280,7 @@ function Add-ProcessTree {
 
 function Get-AppProcessTreeIds {
     $Processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-    $Roots = @(Get-DebugAppProcesses | ForEach-Object { [int]$_.ProcessId })
+    $Roots = @(Get-ColumniaAppProcesses | ForEach-Object { [int]$_.ProcessId })
     $Ids = [System.Collections.Generic.HashSet[int]]::new()
     $Pending = [System.Collections.Generic.Queue[int]]::new()
     foreach ($RootId in $Roots) {
@@ -653,8 +664,16 @@ try {
     if (@(Get-PortListeners).Count -gt 0) {
         throw "Preflight falló: el puerto CDP $Port ya tiene un listener; no se inspeccionará un proceso ajeno."
     }
-    if (@(Get-DebugAppProcesses).Count -gt 0) {
-        throw "Preflight falló: la aplicación debug de Columnia ya está activa."
+    if ($UseReleaseExecutable -and ($RunProjectMutations -or $ProjectProbeMode -ne "normal")) {
+        throw "El ejecutable release solo admite ProjectsPanel de solo lectura; las mutaciones y reinicios de prueba requieren debug."
+    }
+    if (Test-Path -LiteralPath $TargetExecutable -PathType Leaf) {
+        if (@(Get-ColumniaAppProcesses).Count -gt 0) {
+            throw "Preflight falló: Columnia ya está activa."
+        }
+    }
+    elseif ($UseReleaseExecutable) {
+        throw "No se encontró el ejecutable release; compila primero con npm run tauri build -- --no-bundle."
     }
     if (-not [string]::IsNullOrWhiteSpace($NativeDatasetPath)) {
         $NativeDatasetAbsolutePath = [System.IO.Path]::GetFullPath($NativeDatasetPath)
@@ -669,27 +688,35 @@ try {
         }
     }
 
-    $NpmCommand = (Get-Command npm.cmd -ErrorAction Stop).Source
-    $NodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
-    $NpmCli = Join-Path (Split-Path -Parent $NpmCommand) "node_modules\npm\bin\npm-cli.js"
-    if (-not (Test-Path -LiteralPath $NpmCli -PathType Leaf)) {
-        throw "No se encontró el CLI local de npm necesario para ejecutar npm run tauri dev."
-    }
-
     $JobHandle = [ColumniaWebView2CdpProbe.NativeMethods]::CreateJobObject([IntPtr]::Zero, $null)
     if ($JobHandle -eq [IntPtr]::Zero) {
         throw "No se pudo crear el Job Object aislado para el probe."
     }
 
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$Port"
-    $RootProcess = Start-Process `
-        -FilePath $NodeCommand `
-        -ArgumentList @("`"$NpmCli`"", "run", "tauri", "dev") `
-        -WorkingDirectory $ProjectRoot `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $StdoutPath `
-        -RedirectStandardError $StderrPath `
-        -PassThru
+    if ($UseReleaseExecutable) {
+        $RootProcess = Start-Process `
+            -FilePath $ReleaseExecutable `
+            -WorkingDirectory $ProjectRoot `
+            -PassThru
+    }
+    else {
+        $NpmCommand = (Get-Command npm.cmd -ErrorAction Stop).Source
+        $NodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
+        $NpmCli = Join-Path (Split-Path -Parent $NpmCommand) "node_modules\npm\bin\npm-cli.js"
+        if (-not (Test-Path -LiteralPath $NpmCli -PathType Leaf)) {
+            throw "No se encontró el CLI local de npm necesario para ejecutar npm run tauri dev."
+        }
+
+        $RootProcess = Start-Process `
+            -FilePath $NodeCommand `
+            -ArgumentList @("`"$NpmCli`"", "run", "tauri", "dev") `
+            -WorkingDirectory $ProjectRoot `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $StdoutPath `
+            -RedirectStandardError $StderrPath `
+            -PassThru
+    }
     if (-not [ColumniaWebView2CdpProbe.NativeMethods]::AssignProcessToJobObject(
         $JobHandle,
         $RootProcess.Handle
@@ -801,7 +828,7 @@ try {
         if (@(Get-PortListeners | Where-Object { $_.LocalPort -eq 1420 -and (Test-OwnedProcess -Id ([int]$_.OwningProcess)) }).Count -gt 0) {
             $ViteStarted = $true
         }
-        if (@(Get-DebugAppProcesses | Where-Object { Test-OwnedProcess -Id ([int]$_.ProcessId) }).Count -gt 0) {
+        if (@(Get-ColumniaAppProcesses | Where-Object { Test-OwnedProcess -Id ([int]$_.ProcessId) }).Count -gt 0) {
             $DesktopStarted = $true
         }
 
@@ -872,7 +899,7 @@ finally {
         processProfile = $ProcessProfile
         performanceBudget = $PerformanceBudget
         cleanupConfirmed = $CleanupConfirmed
-        command = "npm run tauri dev"
+        command = $LaunchCommand
         environmentVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
         evidenceDirectory = $EvidenceRelativePath
         error = $FailureMessage
