@@ -38,6 +38,21 @@ describe("UpdatePanel", () => {
     expect(await screen.findByText("No hay actualizaciones disponibles.")).toBeInTheDocument();
   });
 
+  it("anuncia un fallo al comprobar y permite volver a intentarlo", async () => {
+    const check = vi.spyOn(bridge, "checkForUpdate")
+      .mockRejectedValueOnce(new Error("No se pudo comprobar."))
+      .mockResolvedValueOnce(null);
+
+    render(<UpdatePanel enabled currentVersion="0.57.0" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo comprobar.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    expect(await screen.findByText("No hay actualizaciones disponibles.")).toBeInTheDocument();
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+
   it("muestra metadatos, progreso y permite instalar después de descargar", async () => {
     vi.spyOn(bridge, "checkForUpdate").mockResolvedValue(update);
     const download = vi.spyOn(bridge, "downloadUpdate").mockImplementation(async (onProgress) => {
@@ -62,6 +77,47 @@ describe("UpdatePanel", () => {
     expect(await screen.findByText(/La instalación se inició/)).toBeInTheDocument();
   });
 
+  it("anuncia un fallo de descarga y permite reintentar tras comprobar de nuevo", async () => {
+    vi.spyOn(bridge, "checkForUpdate").mockResolvedValue(update);
+    const download = vi.spyOn(bridge, "downloadUpdate")
+      .mockRejectedValueOnce(new Error("No se pudo descargar."))
+      .mockImplementationOnce(async (onProgress) => {
+        onProgress?.({ phase: "finished", downloadedBytes: 2048, contentLength: 2048 });
+      });
+
+    render(<UpdatePanel enabled currentVersion="0.57.0" />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Descargar actualización" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo descargar.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Descargar actualización" }));
+    expect(await screen.findByRole("button", { name: "Instalar y reiniciar" })).toBeInTheDocument();
+    expect(download).toHaveBeenCalledTimes(2);
+  });
+
+  it("anuncia un fallo de instalación y permite reintentar el flujo", async () => {
+    vi.spyOn(bridge, "checkForUpdate").mockResolvedValue(update);
+    vi.spyOn(bridge, "downloadUpdate").mockImplementation(async (onProgress) => {
+      onProgress?.({ phase: "finished", downloadedBytes: 2048, contentLength: 2048 });
+    });
+    const install = vi.spyOn(bridge, "installUpdate")
+      .mockRejectedValueOnce(new Error("No se pudo instalar."))
+      .mockResolvedValue(undefined);
+
+    render(<UpdatePanel enabled currentVersion="0.57.0" />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Descargar actualización" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Instalar y reiniciar" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo instalar.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Descargar actualización" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Instalar y reiniciar" }));
+    expect(await screen.findByText(/La instalación se inició/)).toBeInTheDocument();
+    expect(install).toHaveBeenCalledTimes(2);
+  });
+
   it("cancela una descarga en curso", async () => {
     vi.spyOn(bridge, "checkForUpdate").mockResolvedValue(update);
     let resolveDownload: (() => void) | undefined;
@@ -79,5 +135,24 @@ describe("UpdatePanel", () => {
     await waitFor(() => expect(cancel).toHaveBeenCalledOnce());
     expect(screen.getByRole("button", { name: "Cancelando…" })).toBeDisabled();
     resolveDownload?.();
+  });
+
+  it("anuncia si falla la solicitud de cancelación y conserva el resultado de la descarga", async () => {
+    vi.spyOn(bridge, "checkForUpdate").mockResolvedValue(update);
+    let resolveDownload: (() => void) | undefined;
+    vi.spyOn(bridge, "downloadUpdate").mockImplementation(async (onProgress) => {
+      onProgress?.({ phase: "progress", downloadedBytes: 512, contentLength: 2048 });
+      await new Promise<void>((resolve) => { resolveDownload = resolve; });
+    });
+    vi.spyOn(bridge, "cancelUpdateDownload").mockRejectedValue(new Error("No se pudo cancelar."));
+
+    render(<UpdatePanel enabled currentVersion="0.57.0" />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Descargar actualización" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar descarga" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo cancelar.");
+    resolveDownload?.();
+    expect(await screen.findByRole("button", { name: "Instalar y reiniciar" })).toBeInTheDocument();
   });
 });
