@@ -42,6 +42,28 @@ function requireFragments(relativePath, contents, fragments) {
   }
 }
 
+function markdownTableCellCount(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return null;
+  return trimmed.slice(1, -1).split("|").length;
+}
+
+function requireConsistentMarkdownTable(relativePath, contents, header) {
+  const lines = contents.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) => line.trim() === header);
+  if (headerIndex < 0) fail(`${relativePath} no contiene la tabla esperada.`);
+
+  const expectedCells = markdownTableCellCount(lines[headerIndex]);
+  for (let index = headerIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line.startsWith("|")) break;
+    const actualCells = markdownTableCellCount(line);
+    if (actualCells !== expectedCells) {
+      fail(`${relativePath}:${index + 1} tiene ${actualCells ?? "un formato inválido de"} celdas; se esperaban ${expectedCells}.`);
+    }
+  }
+}
+
 function absolute(relativePath) {
   return join(projectRoot, relativePath.replaceAll("/", "\\"));
 }
@@ -143,6 +165,11 @@ try {
     "- Eventos de ayuda: ___",
     "- Validez de la sesión:",
   ]);
+  requireConsistentMarkdownTable(
+    "docs/templates/beta-session.md",
+    betaSession,
+    "| Tarea | Resultado | Tiempo | Navegación | Datos reintroducidos | Retrocesos | Ayuda | Duda o causa | Observación sanitizada |",
+  );
   requireFragments("docs/templates/beta-summary.md", betaSummary, [
     "## Release candidate",
     "## Muestra agregada",

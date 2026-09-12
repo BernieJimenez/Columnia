@@ -42,14 +42,14 @@ Usar `sin ayuda`, `con ayuda` o `no completada`.
 | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
 | Cargar el dataset correcto | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 | Comprender filas, columnas y señales | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
-| Revisar una señal útil | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
+| Revisar una señal útil | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 | Distinguir muestra de cobertura completa | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 | Aplicar, deshacer y rehacer un cambio | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 | Guardar, cerrar y reabrir el proyecto | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 | Crear y ejecutar una regla de calidad | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 | Exportar y verificar la entrega | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 | Confirmar que el original no cambió | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
-| Recuperarse de un problema | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
+| Recuperarse de un problema | ___ | ___ | ___ | ___ | ___ | ___ | ___ | ___ |
 
 ## Hallazgos
 
