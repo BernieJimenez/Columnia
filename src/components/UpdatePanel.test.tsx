@@ -155,4 +155,42 @@ describe("UpdatePanel", () => {
     resolveDownload?.();
     expect(await screen.findByRole("button", { name: "Instalar y reiniciar" })).toBeInTheDocument();
   });
+
+  it("vuelve al estado inactivo cuando el backend confirma la cancelación", async () => {
+    vi.spyOn(bridge, "checkForUpdate").mockResolvedValue(update);
+    let rejectDownload: ((error: Error) => void) | undefined;
+    vi.spyOn(bridge, "downloadUpdate").mockImplementation(async (onProgress) => {
+      onProgress?.({ phase: "progress", downloadedBytes: 512, contentLength: 2048 });
+      await new Promise<void>((_resolve, reject) => {
+        rejectDownload = (error) => reject(error);
+      });
+    });
+    const cancel = vi.spyOn(bridge, "cancelUpdateDownload").mockResolvedValue(undefined);
+
+    render(<UpdatePanel enabled currentVersion="0.57.0" />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Descargar actualización" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar descarga" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+
+    rejectDownload?.(new Error("La descarga fue cancelada."));
+    const checkButton = screen.getByRole("button", { name: "Buscar actualizaciones" });
+    await waitFor(() => expect(checkButton).not.toBeDisabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Descargar actualización" })).not.toBeInTheDocument();
+  });
+
+  it("muestra bytes descargados cuando el canal no informa el tamaño total", async () => {
+    vi.spyOn(bridge, "checkForUpdate").mockResolvedValue({ ...update, sizeBytes: null });
+    vi.spyOn(bridge, "downloadUpdate").mockImplementation(async (onProgress) => {
+      onProgress?.({ phase: "finished", downloadedBytes: 512, contentLength: null });
+    });
+
+    render(<UpdatePanel enabled currentVersion="0.57.0" />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar actualizaciones" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Descargar actualización" }));
+
+    expect(await screen.findByText("Descargados: 512 B")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
 });
