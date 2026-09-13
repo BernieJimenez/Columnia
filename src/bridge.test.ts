@@ -10,8 +10,11 @@ import {
   applySafeCorrections,
   applyTransformRecipe,
   capOutlierValues,
+  cancelUpdateDownload,
+  checkForUpdate,
   exportDataset,
   exportDatasetToDatabase,
+  downloadUpdate,
   getAppInfo,
   getDatasetConflictPage,
   getDatasetPage,
@@ -35,6 +38,7 @@ import {
   discardDatasetSelection,
   dropOutlierValues,
   inspectDroppedDataset,
+  installUpdate,
   loadDatasetSelection,
   pickDatasetSource,
   pickQualityRulesMigration,
@@ -90,6 +94,44 @@ describe("desktop bridge", () => {
       platform: "windows",
     });
     expect(invoke).toHaveBeenCalledWith("get_app_info");
+  });
+
+  it("conecta las acciones del updater al IPC y reenvía su canal de progreso", async () => {
+    const update = {
+      currentVersion: "0.57.0",
+      version: "0.58.0",
+      notes: "Correcciones de estabilidad",
+      date: null,
+      sizeBytes: 2048,
+    };
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(update)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+    const onProgress = vi.fn();
+
+    await expect(checkForUpdate()).resolves.toEqual(update);
+    await downloadUpdate(onProgress);
+    await cancelUpdateDownload();
+    await installUpdate();
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "check_for_update");
+    expect(invoke).toHaveBeenNthCalledWith(2, "download_update", {
+      onProgress: expect.any(Channel),
+    });
+    const args = vi.mocked(invoke).mock.calls[1][1] as {
+      onProgress: Channel<{
+        phase: "started" | "progress" | "finished" | "cancelled";
+        downloadedBytes: number;
+        contentLength: number | null;
+      }>;
+    };
+    const progress = { phase: "progress", downloadedBytes: 1024, contentLength: 2048 } as const;
+    args.onProgress.onmessage(progress);
+    expect(onProgress).toHaveBeenCalledWith(progress);
+    expect(invoke).toHaveBeenNthCalledWith(3, "cancel_update_download");
+    expect(invoke).toHaveBeenNthCalledWith(4, "install_update");
   });
 
   it("solicita la selección nativa sin entregar una ruta desde React", async () => {
