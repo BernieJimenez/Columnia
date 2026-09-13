@@ -7,7 +7,26 @@
 proceso de revisión. Se conserva como única fuente viva para no mantener dos
 documentos equivalentes que puedan divergir.
 
-## Reauditoría incremental vigente — 2026-09-07
+## Estado operativo verificado — 2026-09-12
+
+En el commit limpio `db36c23`, versión `0.167.0`, el perfil `Full` pasó con
+15/15 etapas aprobadas: 312 pruebas frontend y 401 Rust pasaron; cuatro pruebas
+externas/optativas quedaron ignoradas. Evidencia exacta:
+`.local/validation/20260913T002252Z-db36c23-full.json`.
+
+La captura visual se renovó en `.local/validation/accessibility-visual/20260913T002632Z`;
+escritorio, móvil, zoom 125/200 % y colores forzados pasaron el contrato y el
+baseline en `.local/validation/accessibility-baseline/20260913T002709Z`. Esto no
+sustituye la comprobación manual con lector de pantalla y colores de alto contraste.
+
+Tier 7 está completo. Siguen abiertos los gates que requieren evidencia externa
+o humana: las tres sesiones beta y el resumen sanitizado de Gate 1; el round-trip
+de T6-05 contra SQL Server real; y la comprobación manual con lector de pantalla
+y colores de alto contraste. El validador de Gate 2 continúa bloqueando la falta
+de `docs/reference/beta-v1-summary.md`; no se debe sustituir evidencia humana por
+fixtures ni por la pasada automatizada.
+
+## Reauditoría incremental — registro histórico (2026-09-07)
 
 Base `d0e00fd`, versión `0.167.0`. La reauditoría posterior al rediseño y a la
 extracción modular no encontró fallos críticos o altos nuevos en el producto.
