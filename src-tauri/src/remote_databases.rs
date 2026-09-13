@@ -494,15 +494,7 @@ fn sql_parameter_text(
         });
     };
     if normalized_dtype.contains("bool") {
-        return Ok(match text.to_ascii_lowercase().as_str() {
-            "true" => Box::new(Bit::from_bool(true)),
-            "false" => Box::new(Bit::from_bool(false)),
-            _ => {
-                return Err(
-                    "Se encontró un booleano incompatible al entregar la tabla remota.".to_owned(),
-                )
-            }
-        });
+        return Ok(Box::new(Bit::from_bool(parse_boolean_parameter(text)?)));
     }
     if is_integer_dtype(&normalized_dtype) || is_decimal_dtype(&normalized_dtype) {
         if is_integer_dtype(&normalized_dtype) {
@@ -522,6 +514,14 @@ fn sql_parameter_text(
         return Err("Una celda contiene un carácter NUL no compatible con SQL/ODBC.".to_owned());
     }
     Ok(Box::new(text.to_owned().into_parameter()))
+}
+
+fn parse_boolean_parameter(value: &str) -> Result<bool, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err("Se encontró un booleano incompatible al entregar la tabla remota.".to_owned()),
+    }
 }
 
 fn is_integer_dtype(dtype: &str) -> bool {
@@ -628,6 +628,32 @@ mod tests {
         assert_eq!(
             parameterized_insert_sql("`ventas`", &columns, 2),
             "INSERT INTO `ventas` (name, active) VALUES (?, ?)"
+        );
+    }
+
+    #[test]
+    fn boolean_parameters_parse_values_reject_invalid_text_and_map_dialect_types() {
+        assert_eq!(parse_boolean_parameter("true"), Ok(true));
+        assert_eq!(parse_boolean_parameter("FALSE"), Ok(false));
+        assert!(parse_boolean_parameter("not-a-boolean").is_err());
+
+        assert!(sql_parameter(AnyValue::Boolean(true), &DataType::Boolean).is_ok());
+        assert!(sql_parameter(AnyValue::Boolean(false), &DataType::Boolean).is_ok());
+        assert!(sql_parameter(AnyValue::Null, &DataType::Boolean).is_ok());
+        assert!(sql_parameter_text(Some("not-a-boolean"), &DataType::Boolean).is_err());
+        assert!(sql_parameter_text(None, &DataType::Boolean).is_ok());
+
+        assert_eq!(
+            database_type(&DataType::Boolean, DatabaseKind::Postgresql),
+            "BOOLEAN"
+        );
+        assert_eq!(
+            database_type(&DataType::Boolean, DatabaseKind::Mysql),
+            "BOOLEAN"
+        );
+        assert_eq!(
+            database_type(&DataType::Boolean, DatabaseKind::SqlServer),
+            "BIT"
         );
     }
 
