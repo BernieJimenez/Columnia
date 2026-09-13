@@ -6487,6 +6487,236 @@ fn profiles_temporal_year_trend_keeps_recent_periods_with_fixed_limit() {
 }
 
 #[test]
+fn aggregates_temporal_values_and_distinguishes_empty_periods_from_missing_metrics() {
+    let frame = DataFrame::new(
+        7,
+        vec![
+            Series::new(
+                "created_at".into(),
+                [
+                    "2024-04-01",
+                    "2024-04-01",
+                    "2024-04-03",
+                    "2024-04-03",
+                    "not-a-date",
+                    "2024-04-05",
+                    "2024-04-07",
+                ],
+            )
+            .into_column(),
+            Series::new(
+                "amount".into(),
+                [
+                    Some("0"),
+                    None,
+                    Some("4"),
+                    Some("2"),
+                    Some("100"),
+                    Some("not-a-number"),
+                    Some("6"),
+                ],
+            )
+            .into_column(),
+        ],
+    )
+    .expect("el frame de tendencia debe ser válido");
+
+    let sum = temporal_aggregation_summary(
+        &frame,
+        "created_at",
+        "amount",
+        TemporalAggregationKind::Sum,
+        &|| false,
+    )
+    .expect("la tendencia debe sumar valores numéricos, incluso si vienen como texto");
+    let mean = temporal_aggregation_summary(
+        &frame,
+        "created_at",
+        "amount",
+        TemporalAggregationKind::Mean,
+        &|| false,
+    )
+    .expect("la tendencia debe promediar valores numéricos");
+
+    assert_eq!(sum.granularity, "day");
+    assert_eq!(sum.parsed_row_count, 6);
+    assert_eq!(sum.unparsed_row_count, 1);
+    assert_eq!(sum.periods.len(), 7);
+    assert_eq!(sum.periods[0].period, "2024-04-01");
+    assert_eq!(sum.periods[0].row_count, 2);
+    assert_eq!(sum.periods[0].value_count, 1);
+    assert_eq!(sum.periods[0].value, Some(0.0));
+    assert_eq!(sum.periods[1].period, "2024-04-02");
+    assert_eq!(sum.periods[1].row_count, 0);
+    assert_eq!(sum.periods[1].value_count, 0);
+    assert_eq!(sum.periods[1].value, None);
+    assert_eq!(sum.periods[2].row_count, 2);
+    assert_eq!(sum.periods[2].value_count, 2);
+    assert_eq!(sum.periods[2].value, Some(6.0));
+    assert_eq!(sum.periods[4].period, "2024-04-05");
+    assert_eq!(sum.periods[4].row_count, 1);
+    assert_eq!(sum.periods[4].value_count, 0);
+    assert_eq!(sum.periods[4].value, None);
+    assert_eq!(sum.periods[6].value, Some(6.0));
+    assert_eq!(mean.periods[0].value, Some(0.0));
+    assert_eq!(mean.periods[2].value, Some(3.0));
+    assert_eq!(mean.periods[4].value, None);
+}
+
+#[test]
+fn source_temporal_aggregation_matches_materialized_csv_aggregation() {
+    let path = temporary_csv(
+        "created_at,amount\n2024-04-01,0\n2024-04-01,\n2024-04-03,4\n2024-04-03,2\nnot-a-date,100\n2024-04-05,not-a-number\n2024-04-07,6\n",
+    );
+    let (frame, _) = load_csv(&path).expect("el CSV debe poder materializarse");
+    let (snapshot_directory, snapshot_path) =
+        source_profile_snapshot(&path, "csv").expect("el CSV debe convertirse a Parquet");
+    let row_count = parquet_row_count(&snapshot_path).expect("el snapshot debe contar sus filas");
+
+    for aggregation in [TemporalAggregationKind::Sum, TemporalAggregationKind::Mean] {
+        let materialized =
+            temporal_aggregation_summary(&frame, "created_at", "amount", aggregation, &|| false)
+                .expect("la agregación materializada debe calcularse");
+        let source_backed = source_temporal_aggregation_summary(
+            &snapshot_path,
+            row_count,
+            "created_at",
+            "amount",
+            aggregation,
+            &|| false,
+        )
+        .expect("la agregación source-backed debe recorrer el snapshot");
+        assert_eq!(source_backed, materialized);
+    }
+
+    drop(snapshot_directory);
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn temporal_projection_snapshot_preserves_quoted_column_order_and_aggregation() {
+    let path = temporary_csv(
+        "\"fecha \"\"pedido\"\"\",amount,unused\n2024-04-01,0,a\n2024-04-03,4,b\n2024-04-03,2,c\n2024-04-05,,d\n",
+    );
+    let date_column = "fecha \"pedido\"";
+    let frame = DataFrame::new(
+        4,
+        vec![
+            Series::new(
+                date_column.into(),
+                ["2024-04-01", "2024-04-03", "2024-04-03", "2024-04-05"],
+            )
+            .into_column(),
+            Series::new("amount".into(), [Some(0_i64), Some(4), Some(2), None]).into_column(),
+        ],
+    )
+    .expect("el frame materializado debe conservar los nombres de columna");
+    let (projection_directory, projection_path) =
+        source_temporal_projection_snapshot(&path, "csv", date_column, "amount", || false)
+            .expect("el snapshot debe proyectar las columnas elegidas con escape SQL seguro");
+    let projected_frame =
+        read_parquet_frame(&projection_path).expect("el Parquet proyectado debe poder leerse");
+    let projected_columns = projected_frame
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(projected_columns, vec![date_column, "amount"]);
+    assert_eq!(projected_frame.height(), 4);
+    assert!(projected_frame.column("unused").is_err());
+    let row_count =
+        parquet_row_count(&projection_path).expect("el snapshot proyectado debe contar sus filas");
+
+    for aggregation in [TemporalAggregationKind::Sum, TemporalAggregationKind::Mean] {
+        let materialized =
+            temporal_aggregation_summary(&frame, date_column, "amount", aggregation, &|| false)
+                .expect("la agregación materializada debe calcularse");
+        let source_backed = source_temporal_aggregation_summary(
+            &projection_path,
+            row_count,
+            date_column,
+            "amount",
+            aggregation,
+            &|| false,
+        )
+        .expect("la tendencia debe calcularse desde el Parquet proyectado");
+        assert_eq!(source_backed, materialized);
+    }
+
+    drop(projection_directory);
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn temporal_truncation_uses_a_weighted_mean_for_previous_periods() {
+    let mut dates = vec!["1970-01-01".to_owned(), "1970-06-01".to_owned()];
+    let mut amounts = vec![Some(0_i64), Some(10_i64)];
+    for year in 1971..=2029 {
+        dates.push(format!("{year}-01-01"));
+        amounts.push(Some(0_i64));
+    }
+    let frame = DataFrame::new(
+        dates.len(),
+        vec![
+            Series::new("created_at".into(), dates).into_column(),
+            Series::new("amount".into(), amounts).into_column(),
+        ],
+    )
+    .expect("el frame anual debe ser válido");
+
+    let summary = temporal_aggregation_summary(
+        &frame,
+        "created_at",
+        "amount",
+        TemporalAggregationKind::Mean,
+        &|| false,
+    )
+    .expect("la tendencia anual debe calcularse");
+
+    assert_eq!(summary.granularity, "year");
+    assert!(summary.truncated);
+    assert_eq!(summary.periods.len(), MAX_TEMPORAL_PERIODS);
+    assert_eq!(summary.periods[0].period, "Periodos anteriores");
+    assert_eq!(summary.periods[0].row_count, 14);
+    assert_eq!(summary.periods[0].value_count, 14);
+    assert!((summary.periods[0].value.unwrap() - (10.0 / 14.0)).abs() < f64::EPSILON);
+    assert_eq!(summary.periods[1].period, "1983");
+    assert_eq!(summary.periods.last().unwrap().period, "2029");
+}
+
+#[test]
+fn temporal_monthly_aggregation_merges_daily_values_in_date_order() {
+    let frame = DataFrame::new(
+        4,
+        vec![
+            Series::new(
+                "created_at".into(),
+                ["2024-01-01", "2024-01-02", "2024-01-03", "2024-06-01"],
+            )
+            .into_column(),
+            Series::new("amount".into(), [1.0e308_f64, -1.0e308, 1.0e308, 0.0]).into_column(),
+        ],
+    )
+    .expect("el frame con valores extremos debe ser válido");
+
+    for _ in 0..32 {
+        let summary = temporal_aggregation_summary(
+            &frame,
+            "created_at",
+            "amount",
+            TemporalAggregationKind::Sum,
+            &|| false,
+        )
+        .expect("la suma mensual debe ser estable ante el orden del HashMap");
+
+        assert_eq!(summary.granularity, "month");
+        assert_eq!(summary.periods[0].period, "2024-01");
+        assert_eq!(summary.periods[0].value, Some(1.0e308));
+    }
+}
+
+#[test]
 fn empty_numeric_dataset_does_not_attempt_to_sample_correlations() {
     let frame = DataFrame::new(
         0,
@@ -6560,17 +6790,22 @@ fn invalidates_only_the_requested_operation_generation() {
     let state = DatasetState::default();
     let load_generation = state.begin_load();
     let profile_generation = state.begin_profile();
+    let temporal_generation = state.begin_temporal();
     let export_generation = state.begin_export();
     let query_generation = state.begin_query();
     state
         .cancel("profile")
         .expect("el perfil debe poder cancelarse");
     state
+        .cancel("temporal")
+        .expect("la tendencia temporal debe poder cancelarse");
+    state
         .cancel("query")
         .expect("la consulta debe poder cancelarse");
 
     assert!(!state.load_was_cancelled(load_generation));
     assert!(state.profile_was_cancelled(profile_generation));
+    assert!(state.temporal_was_cancelled(temporal_generation));
     assert!(!state.export_was_cancelled(export_generation));
     assert!(state.query_was_cancelled(query_generation));
     assert!(state.cancel("unknown").is_err());

@@ -21,6 +21,7 @@ import {
   getDatasetConflictPage,
   getDatasetPage,
   getDatasetProfile,
+  getTemporalAggregation,
   getHistoryState,
   enableRowAudit,
   imputeMissingValues,
@@ -706,6 +707,27 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(1, "export_dataset", expect.objectContaining({ format: "excel", privacyMode: "none" }));
     expect(invoke).toHaveBeenNthCalledWith(2, "export_dataset", expect.objectContaining({ format: "sqlite", privacyMode: "none" }));
+  });
+
+  it("solicita la suma o el promedio temporal con nombres de argumentos camelCase", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      dateColumn: "fecha",
+      valueColumn: "importe",
+      aggregation: "mean",
+      granularity: "month",
+      periods: [],
+      parsedRowCount: 0,
+      unparsedRowCount: 0,
+      truncated: false,
+    });
+
+    await getTemporalAggregation("fecha", "importe", "mean");
+
+    expect(invoke).toHaveBeenCalledWith("get_temporal_aggregation", {
+      dateColumn: "fecha",
+      valueColumn: "importe",
+      aggregation: "mean",
+    });
   });
 
   it("envía la conexión de base de datos solo al comando explícito", async () => {

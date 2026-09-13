@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ReviewTabList, type ReviewTab } from "../../components/ReviewTabList";
-import { cancelOperation, queryDataset } from "../../bridge";
+import { cancelOperation, getTemporalAggregation, queryDataset } from "../../bridge";
 import type {
   DatasetColumn,
   DatasetQueryEngine,
@@ -15,6 +15,8 @@ import type {
   ColumnProfile,
   NumericCorrelationMatrix,
   CategoricalGroupSummary,
+  TemporalAggregationKind,
+  TemporalAggregationSeries,
   TemporalSeriesSummary,
   SqlQueryHistoryEntry,
 } from "../../bridge";
@@ -556,7 +558,11 @@ function QualitySection({
         </p>
       )}
       {status.kind === "ready" && (
-        <QualityProfile profile={status.profile} onContinueToPrepare={onContinueToPrepare} />
+        <QualityProfile
+          profile={status.profile}
+          onContinueToPrepare={onContinueToPrepare}
+          datasetRevision={datasetRevision}
+        />
       )}
       <details className="review-tool review-tool--nested quality-settings">
         <summary>
@@ -950,9 +956,11 @@ export function DatasetPreviewPanel({
 function QualityProfile({
   profile,
   onContinueToPrepare,
+  datasetRevision,
 }: {
   profile: DatasetProfile;
   onContinueToPrepare: () => void;
+  datasetRevision: number;
 }) {
   const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
@@ -1028,7 +1036,7 @@ function QualityProfile({
           <span>Explorar análisis detallado</span>
           <small>Gráficos, distribuciones, fechas y correlaciones</small>
         </summary>
-        <QualityVisuals profile={profile} />
+        <QualityVisuals profile={profile} datasetRevision={datasetRevision} />
       </details>
       <details className="review-tool quality-details">
         <summary>
@@ -1175,7 +1183,21 @@ function QualityProfile({
   );
 }
 
-function QualityVisuals({ profile }: { profile: DatasetProfile }) {
+function QualityVisuals({ profile, datasetRevision }: { profile: DatasetProfile; datasetRevision: number }) {
+  const [activeTemporalAggregation, setActiveTemporalAggregation] = useState<TemporalAggregationOwner | null>(null);
+  const activeTemporalAggregationRef = useRef<TemporalAggregationOwner | null>(null);
+  function acquireTemporalAggregation(column: string): TemporalAggregationOwner | null {
+    if (activeTemporalAggregationRef.current !== null) return null;
+    const owner = { token: Symbol(column), column };
+    activeTemporalAggregationRef.current = owner;
+    setActiveTemporalAggregation(owner);
+    return owner;
+  }
+  function releaseTemporalAggregation(token: symbol) {
+    if (activeTemporalAggregationRef.current?.token !== token) return;
+    activeTemporalAggregationRef.current = null;
+    setActiveTemporalAggregation(null);
+  }
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
   const formatColumns = profile.columns.filter((column) => column.typeMatchPercentage !== null);
   const nullPatternColumns = profile.columns
@@ -1372,6 +1394,11 @@ function QualityVisuals({ profile }: { profile: DatasetProfile }) {
             key={summary.column}
             summary={summary}
             summaryIndex={summaryIndex}
+            numericColumns={numericColumns.filter((column) => column.privacySignal === null)}
+            datasetRevision={datasetRevision}
+            activeAggregation={activeTemporalAggregation}
+            onAcquireAggregation={acquireTemporalAggregation}
+            onReleaseAggregation={releaseTemporalAggregation}
           />
         ))}
         {distributionColumns.length > 0 && (
@@ -1569,14 +1596,119 @@ function TemporalCoverageChart({
 function TemporalTrendChart({
   summary,
   summaryIndex,
+  numericColumns,
+  datasetRevision,
+  activeAggregation,
+  onAcquireAggregation,
+  onReleaseAggregation,
 }: {
   summary: TemporalSeriesSummary;
   summaryIndex: number;
+  numericColumns: ColumnProfile[];
+  datasetRevision: number;
+  activeAggregation: TemporalAggregationOwner | null;
+  onAcquireAggregation: (column: string) => TemporalAggregationOwner | null;
+  onReleaseAggregation: (token: symbol) => void;
 }) {
   const titleId = `quality-temporal-trend-title-${summaryIndex}`;
   const tableLabel = `Tendencia temporal para ${summary.column}`;
   const [metric, setMetric] = useState<TemporalMetric>("rows");
+  const [valueColumn, setValueColumn] = useState(numericColumns[0]?.name ?? "");
+  const [aggregation, setAggregation] = useState<TemporalAggregationKind>("sum");
+  const [aggregationSeries, setAggregationSeries] = useState<TemporalAggregationSeries | null>(null);
+  const [aggregationStatus, setAggregationStatus] = useState<"idle" | "loading" | "cancelling" | "ready" | "error">("idle");
+  const [aggregationError, setAggregationError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+  const requestPendingRef = useRef(false);
+  const requestOwnerRef = useRef<TemporalAggregationOwner | null>(null);
+  const cancellationPendingRef = useRef<Promise<void> | null>(null);
+  const anotherAggregationBusy = activeAggregation !== null
+    && requestOwnerRef.current?.token !== activeAggregation.token;
   const metricId = `quality-temporal-metric-${summaryIndex}`;
+  const valueColumnId = `quality-temporal-value-${summaryIndex}`;
+  const aggregationId = `quality-temporal-aggregation-${summaryIndex}`;
+  const granularityLabel = temporalGranularityLabel(summary.granularity);
+  const seriesMatchesSelection = aggregationSeries?.dateColumn === summary.column
+    && aggregationSeries.valueColumn === valueColumn
+    && aggregationSeries.aggregation === aggregation;
+
+  function requestTemporalCancellation(): Promise<void> {
+    if (cancellationPendingRef.current !== null) return cancellationPendingRef.current;
+    let trackedCancellation: Promise<void>;
+    trackedCancellation = cancelOperation("temporal").finally(() => {
+      if (cancellationPendingRef.current === trackedCancellation) {
+        cancellationPendingRef.current = null;
+      }
+    });
+    cancellationPendingRef.current = trackedCancellation;
+    return trackedCancellation;
+  }
+
+  useEffect(() => () => {
+    requestIdRef.current += 1;
+    if (requestPendingRef.current && requestOwnerRef.current !== null) {
+      void requestTemporalCancellation().catch(() => undefined);
+    }
+  }, [datasetRevision, summary.column]);
+
+  useEffect(() => {
+    setAggregationSeries(null);
+    setAggregationStatus("idle");
+    setAggregationError(null);
+  }, [datasetRevision, summary.column]);
+
+  useEffect(() => {
+    if (numericColumns.some((column) => column.name === valueColumn)) return;
+    setValueColumn(numericColumns[0]?.name ?? "");
+  }, [datasetRevision, numericColumns, valueColumn]);
+
+  function calculateAggregation() {
+    if (!valueColumn || requestPendingRef.current || aggregationStatus === "loading" || aggregationStatus === "cancelling") return;
+    const owner = onAcquireAggregation(summary.column);
+    if (owner === null) return;
+    requestOwnerRef.current = owner;
+    const requestId = ++requestIdRef.current;
+    requestPendingRef.current = true;
+    setAggregationStatus("loading");
+    setAggregationError(null);
+    setAggregationSeries(null);
+    void getTemporalAggregation(summary.column, valueColumn, aggregation)
+      .then((series) => {
+        if (requestIdRef.current !== requestId) return;
+        setAggregationSeries(series);
+        setAggregationStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (requestIdRef.current !== requestId) return;
+        const message = error instanceof Error ? error.message : String(error);
+        if (/cancelad[oa]/i.test(message)) {
+          setAggregationStatus("idle");
+          return;
+        }
+        setAggregationError(message);
+        setAggregationStatus("error");
+      })
+      .finally(async () => {
+        const pendingCancellation = cancellationPendingRef.current;
+        if (pendingCancellation !== null) await pendingCancellation.catch(() => undefined);
+        if (requestOwnerRef.current?.token !== owner.token) return;
+        requestPendingRef.current = false;
+        requestOwnerRef.current = null;
+        onReleaseAggregation(owner.token);
+      });
+  }
+
+  async function cancelAggregation() {
+    const owner = requestOwnerRef.current;
+    if (aggregationStatus !== "loading" || owner === null || activeAggregation?.token !== owner.token) return;
+    setAggregationStatus("cancelling");
+    try {
+      await requestTemporalCancellation();
+    } catch (error: unknown) {
+      setAggregationError(error instanceof Error ? error.message : String(error));
+      setAggregationStatus("error");
+    }
+  }
 
   return (
     <div
@@ -1586,8 +1718,10 @@ function TemporalTrendChart({
     >
       <h5 id={titleId}>Tendencia temporal · {summary.column}</h5>
       <p className="quality-chart__note">
-        Conteo de filas por {summary.granularity === "day" ? "día" : summary.granularity === "month" ? "mes" : "año"}; solo se muestran
-        agregados del perfil, nunca valores de celdas. Se incluyen {summary.parsedRowCount.toLocaleString()}
+        {metric === "numeric"
+          ? `${aggregationLabel(aggregation)} de ${valueColumn || "una columna numérica"} por ${granularityLabel}; el cálculo recorre el dataset completo y solo devuelve agregados. `
+          : `${metric === "rows" ? "Conteo de filas" : "Porcentaje de valores interpretables"} por ${granularityLabel}; solo se muestran agregados del perfil, nunca valores de celdas. `}
+        Se incluyen {summary.parsedRowCount.toLocaleString()}
         de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString()} filas interpretables.
       </p>
       {summary.periods.length > 0 ? (
@@ -1603,25 +1737,99 @@ function TemporalTrendChart({
                 id={metricId}
                 value={metric}
                 aria-label={`Métrica temporal para ${summary.column}`}
-                onChange={(event) => setMetric(event.target.value as TemporalMetric)}
+                onChange={(event) => {
+                  if (aggregationStatus === "loading") void cancelAggregation();
+                  setMetric(event.target.value as TemporalMetric);
+                }}
               >
                 <option value="rows">Filas</option>
                 <option value="percentage">Porcentaje</option>
+                {numericColumns.length > 0 && <option value="numeric">Métrica numérica</option>}
               </select>
             </label>
+            {metric === "numeric" && (
+              <>
+                <label htmlFor={valueColumnId}>
+                  Columna numérica
+                  <select
+                    id={valueColumnId}
+                    value={valueColumn}
+                    onChange={(event) => {
+                      if (aggregationStatus === "loading") void cancelAggregation();
+                      setValueColumn(event.target.value);
+                    }}
+                  >
+                    {numericColumns.map((column) => (
+                      <option key={column.name} value={column.name}>{column.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label htmlFor={aggregationId}>
+                  Agregación
+                  <select
+                    id={aggregationId}
+                    value={aggregation}
+                    onChange={(event) => {
+                      if (aggregationStatus === "loading") void cancelAggregation();
+                      setAggregation(event.target.value as TemporalAggregationKind);
+                    }}
+                  >
+                    <option value="sum">Suma</option>
+                    <option value="mean">Promedio</option>
+                  </select>
+                </label>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={calculateAggregation}
+                  disabled={!valueColumn || anotherAggregationBusy || requestPendingRef.current || aggregationStatus === "loading" || aggregationStatus === "cancelling"}
+                >
+                  {aggregationStatus === "loading" ? "Calculando…" : anotherAggregationBusy ? "Esperando…" : "Calcular tendencia"}
+                </button>
+              </>
+            )}
           </div>
-          <TemporalLineChart
-            summary={summary}
-            metric={metric}
-            titleId={`${titleId}-chart`}
-          />
-          {summary.granularity === "day" && (
+          {metric !== "numeric" ? (
+            <TemporalLineChart
+              summary={summary}
+              metric={metric}
+              titleId={`${titleId}-chart`}
+            />
+          ) : aggregationStatus === "loading" || aggregationStatus === "cancelling" ? (
+            <div className="quality-temporal-empty" role="status" aria-live="polite">
+              <span>{aggregationStatus === "cancelling" ? "Cancelando el cálculo temporal…" : "Calculando una serie temporal con el dataset completo…"}</span>
+              {aggregationStatus === "loading" && (
+                <button type="button" className="secondary-action" onClick={() => void cancelAggregation()}>
+                  Cancelar cálculo
+                </button>
+              )}
+            </div>
+          ) : aggregationStatus === "error" ? (
+            <p className="notice notice--error" role="alert">
+              No se pudo calcular la tendencia numérica: {aggregationError}
+            </p>
+          ) : seriesMatchesSelection && aggregationSeries ? (
+            <TemporalAggregationChart
+              summary={summary}
+              series={aggregationSeries}
+              titleId={`${titleId}-numeric-chart`}
+            />
+          ) : anotherAggregationBusy ? (
+            <p className="quality-temporal-empty" role="status">
+              Otra tendencia temporal se está calculando; espera a que termine antes de iniciar esta.
+            </p>
+          ) : (
+            <p className="quality-temporal-empty" role="status">
+              Elige una métrica y calcula la tendencia sobre todas las filas; solo se devolverán agregados.
+            </p>
+          )}
+          {metric !== "numeric" && summary.granularity === "day" && (
             <QualityDataDetails className="quality-calendar-details" label="Ver calendario diario">
               <DailyTemporalCalendar summary={summary} />
             </QualityDataDetails>
           )}
         </>
-      ) : summary.granularity === "day" ? (
+      ) : metric !== "numeric" && summary.granularity === "day" ? (
         <QualityDataDetails className="quality-calendar-details" label="Ver calendario diario">
           <DailyTemporalCalendar summary={summary} />
         </QualityDataDetails>
@@ -1630,28 +1838,63 @@ function TemporalTrendChart({
           No hay periodos interpretables para mostrar en esta columna.
         </p>
       )}
-      <QualityDataDetails className="quality-temporal-trend__table">
-        <table aria-label={tableLabel}>
-          <caption className="visually-hidden">{tableLabel}</caption>
-          <thead>
-            <tr>
-              <th scope="col">Periodo</th>
-              <th scope="col">Filas</th>
-              <th scope="col">Porcentaje de valores interpretables</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.periods.map((period) => (
-              <tr key={`table-${period.period}`}>
-                <th scope="row">{period.period}</th>
-                <td>{period.rowCount.toLocaleString()}</td>
-                <td>{clampPercentage(period.percentage).toFixed(1)}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </QualityDataDetails>
+      {metric === "numeric" ? (
+        seriesMatchesSelection && aggregationSeries ? (
+          <QualityDataDetails className="quality-temporal-trend__table" label="Ver datos agregados">
+          <div role="region" tabIndex={0} aria-label={`${tableLabel}: ${aggregationLabel(aggregation)} de ${valueColumn}`}>
+            <table aria-label={`${tableLabel}: ${aggregationLabel(aggregation)} de ${valueColumn}`}>
+              <caption className="visually-hidden">{tableLabel}: {aggregationLabel(aggregation)} de {valueColumn}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Periodo</th>
+                  <th scope="col">Filas con fecha</th>
+                  <th scope="col">Valores numéricos válidos</th>
+                  <th scope="col">{aggregationLabel(aggregation)} de {valueColumn}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aggregationSeries.periods.map((period) => (
+                  <tr key={`table-${period.period}`}>
+                    <th scope="row">{period.period}</th>
+                    <td>{period.rowCount.toLocaleString()}</td>
+                    <td>{period.valueCount.toLocaleString()}</td>
+                    <td>{formatTemporalAggregate(period.value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          </QualityDataDetails>
+        ) : null
+      ) : (
+        <QualityDataDetails className="quality-temporal-trend__table">
+          <div role="region" tabIndex={0} aria-label={tableLabel}>
+            <table aria-label={tableLabel}>
+              <caption className="visually-hidden">{tableLabel}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Periodo</th>
+                  <th scope="col">Filas</th>
+                  <th scope="col">Porcentaje de valores interpretables</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.periods.map((period) => (
+                  <tr key={`table-${period.period}`}>
+                    <th scope="row">{period.period}</th>
+                    <td>{period.rowCount.toLocaleString()}</td>
+                    <td>{clampPercentage(period.percentage).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </QualityDataDetails>
+      )}
       <p className="profile-note">
+        {metric === "numeric" && seriesMatchesSelection
+          ? "Nulos y valores no numéricos se excluyen del cálculo; cada periodo muestra cuántos valores válidos se usaron. Los periodos vacíos aparecen sin valor, no como cero. "
+          : ""}
         {summary.unparsedRowCount.toLocaleString()} filas sin periodo interpretable.
         {summary.truncated ? " Los periodos más antiguos se agruparon para mantener la lectura rápida." : ""}
       </p>
@@ -1659,7 +1902,165 @@ function TemporalTrendChart({
   );
 }
 
-type TemporalMetric = "rows" | "percentage";
+type TemporalMetric = "rows" | "percentage" | "numeric";
+
+interface TemporalAggregationOwner {
+  token: symbol;
+  column: string;
+}
+
+function TemporalAggregationChart({
+  summary,
+  series,
+  titleId,
+}: {
+  summary: TemporalSeriesSummary;
+  series: TemporalAggregationSeries;
+  titleId: string;
+}) {
+  const chartHeight = 188;
+  const chartWidth = Math.max(560, series.periods.length * 72);
+  const padding = { top: 18, right: 18, bottom: 34, left: 72 };
+  const plotWidth = Math.max(1, chartWidth - padding.left - padding.right);
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const finiteValues = series.periods.flatMap((period) =>
+    period.value !== null && Number.isFinite(period.value) ? [period.value] : [],
+  );
+  const title = `${aggregationLabel(series.aggregation)} de ${series.valueColumn}`;
+  if (finiteValues.length === 0) {
+    return (
+      <p className="quality-temporal-empty" role="status">
+        No hay valores numéricos válidos para representar en los periodos interpretables.
+      </p>
+    );
+  }
+
+  let minimumValue = Math.min(0, ...finiteValues);
+  let maximumValue = Math.max(0, ...finiteValues);
+  if (minimumValue === maximumValue) {
+    minimumValue -= 1;
+    maximumValue += 1;
+  }
+  const scaleMagnitude = Math.max(1, Math.abs(minimumValue), Math.abs(maximumValue));
+  const scaledMinimum = minimumValue / scaleMagnitude;
+  const scaledMaximum = maximumValue / scaleMagnitude;
+  const scaledRange = scaledMaximum - scaledMinimum;
+  const valueY = (value: number) => padding.top + ((scaledMaximum - value / scaleMagnitude) / scaledRange) * plotHeight;
+  const points = series.periods.map((period, index) => {
+    const x = series.periods.length === 1
+      ? padding.left + plotWidth / 2
+      : padding.left + (index / (series.periods.length - 1)) * plotWidth;
+    return {
+      x,
+      y: period.value === null || !Number.isFinite(period.value) ? null : valueY(period.value),
+      period,
+    };
+  });
+  const segments: typeof points[] = [];
+  let currentSegment: typeof points = [];
+  for (const point of points) {
+    if (point.y === null) {
+      if (currentSegment.length > 0) segments.push(currentSegment);
+      currentSegment = [];
+    } else {
+      currentSegment.push(point);
+    }
+  }
+  if (currentSegment.length > 0) segments.push(currentSegment);
+  const baseline = valueY(0);
+  const labelIndexes = temporalAxisIndexes(series.periods.length);
+  const descriptionId = `${titleId}-description`;
+
+  return (
+    <div className="quality-temporal-line" role="group" aria-labelledby={titleId}>
+      <div className="quality-temporal-line__legend">
+        <span><i aria-hidden="true" /> {title}</span>
+        <span>Valores válidos: {series.periods.reduce((total, period) => total + period.valueCount, 0).toLocaleString()}</span>
+      </div>
+      <div className="quality-temporal-line__viewport" role="region" tabIndex={0} aria-label={`Gráfica desplazable: ${title}`}>
+        <svg
+          className="quality-temporal-line__chart"
+          width={chartWidth}
+          height={chartHeight}
+          style={{ width: `max(100%, ${chartWidth}px)` }}
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          role="img"
+          aria-labelledby={`${titleId} ${descriptionId}`}
+        >
+          <title id={titleId}>Tendencia temporal: {title} por {series.granularity === "day" ? "día" : series.granularity === "month" ? "mes" : "año"}</title>
+          <desc id={descriptionId}>
+            Línea calculada con el dataset completo y {series.periods.length.toLocaleString()} periodos. Los periodos sin valores válidos dejan un hueco. La tabla muestra los valores exactos.
+          </desc>
+          {[0, 0.5, 1].map((ratio) => {
+            const y = padding.top + plotHeight * ratio;
+            const value = (scaledMaximum * (1 - ratio) + scaledMinimum * ratio) * scaleMagnitude;
+            return (
+              <g key={ratio}>
+                <line
+                  className="quality-temporal-line__grid"
+                  x1={padding.left}
+                  x2={chartWidth - padding.right}
+                  y1={y}
+                  y2={y}
+                />
+                <text className="quality-temporal-line__scale" x={padding.left - 10} y={y + 4} textAnchor="end">
+                  {formatStatistic(value)}
+                </text>
+              </g>
+            );
+          })}
+          {baseline > padding.top && baseline < padding.top + plotHeight && (
+            <line
+              className="quality-temporal-line__grid quality-temporal-line__grid--zero"
+              x1={padding.left}
+              x2={chartWidth - padding.right}
+              y1={baseline}
+              y2={baseline}
+            />
+          )}
+          {segments.map((segment, index) => (
+            <polyline
+              className="quality-temporal-line__path"
+              key={`segment-${index}`}
+              points={segment.map(({ x, y }) => `${x.toFixed(2)},${y?.toFixed(2)}`).join(" ")}
+              aria-hidden="true"
+            />
+          ))}
+          {points.filter((point) => point.y !== null).map(({ x, y, period }) => (
+            <circle className="quality-temporal-line__point" key={period.period} cx={x} cy={y!} r="4">
+              <title>{`${period.period}: ${formatTemporalAggregate(period.value)}`}</title>
+            </circle>
+          ))}
+          {labelIndexes.map((index) => (
+            <text
+              className="quality-temporal-line__label"
+              key={series.periods[index].period}
+              x={points[index].x}
+              y={chartHeight - 8}
+              textAnchor={index === 0 ? "start" : index === series.periods.length - 1 ? "end" : "middle"}
+            >
+              {formatTemporalAxisLabel(series.periods[index].period, summary.granularity)}
+            </text>
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function aggregationLabel(aggregation: TemporalAggregationKind): string {
+  return aggregation === "sum" ? "Suma" : "Promedio";
+}
+
+function temporalGranularityLabel(granularity: TemporalSeriesSummary["granularity"]): string {
+  return granularity === "day" ? "día" : granularity === "month" ? "mes" : "año";
+}
+
+function formatTemporalAggregate(value: number | null): string {
+  return value === null || !Number.isFinite(value)
+    ? "—"
+    : value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
 
 function TemporalLineChart({
   summary,
@@ -1667,7 +2068,7 @@ function TemporalLineChart({
   titleId,
 }: {
   summary: TemporalSeriesSummary;
-  metric: TemporalMetric;
+  metric: Exclude<TemporalMetric, "numeric">;
   titleId: string;
 }) {
   const chartHeight = 188;
@@ -1700,7 +2101,12 @@ function TemporalLineChart({
         <span><i aria-hidden="true" /> {temporalMetricLabel(metric)}</span>
         <span>Escala máxima: {temporalMetricDisplay(maximumValue, metric)}</span>
       </div>
-      <div className="quality-temporal-line__viewport">
+      <div
+        className="quality-temporal-line__viewport"
+        role="region"
+        tabIndex={0}
+        aria-label={`Gráfica desplazable para ${summary.column} · ${temporalMetricLabel(metric)}`}
+      >
         <svg
           className="quality-temporal-line__chart"
           width={chartWidth}
@@ -1995,14 +2401,19 @@ function formatTemporalValue(value: string | null): string {
 }
 
 function temporalMetricLabel(metric: TemporalMetric): string {
-  return metric === "rows" ? "Filas" : "Porcentaje de valores";
+  if (metric === "rows") return "Filas";
+  if (metric === "percentage") return "Porcentaje de valores";
+  return "Métrica numérica";
 }
 
-function temporalMetricValue(period: { rowCount: number; percentage: number }, metric: TemporalMetric): number {
+function temporalMetricValue(
+  period: { rowCount: number; percentage: number },
+  metric: Exclude<TemporalMetric, "numeric">,
+): number {
   return metric === "rows" ? Math.max(0, period.rowCount) : clampPercentage(period.percentage);
 }
 
-function temporalMetricDisplay(value: number, metric: TemporalMetric): string {
+function temporalMetricDisplay(value: number, metric: Exclude<TemporalMetric, "numeric">): string {
   return metric === "rows" ? Math.round(value).toLocaleString() : `${clampPercentage(value).toFixed(0)}%`;
 }
 

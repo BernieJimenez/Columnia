@@ -120,6 +120,11 @@
       "debug": false
     },
     {
+      "name": "get_temporal_aggregation",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "validate_quality_rules",
       "module": "dataset",
       "debug": false
@@ -490,6 +495,14 @@
     {
       "rust": "DatasetProfile",
       "typescript": "DatasetProfile"
+    },
+    {
+      "rust": "TemporalAggregationPeriod",
+      "typescript": "TemporalAggregationPeriod"
+    },
+    {
+      "rust": "TemporalAggregationSeries",
+      "typescript": "TemporalAggregationSeries"
     },
     {
       "rust": "DatasetMutation",

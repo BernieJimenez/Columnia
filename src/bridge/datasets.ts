@@ -11,6 +11,8 @@ import type {
   DatasetQueryResult,
   DatasetQueryEngine,
   DatasetProfile,
+  TemporalAggregationKind,
+  TemporalAggregationSeries,
   CancellableOperation,
   ConflictResolution,
 } from "./contracts";
@@ -106,6 +108,18 @@ export function getDatasetProfile(
   return invoke<DatasetProfile>("get_dataset_profile", {
     onProgress: progressChannel(onProgress),
     correlationSampleRows: correlationSampleRows,
+  });
+}
+
+export function getTemporalAggregation(
+  dateColumn: string,
+  valueColumn: string,
+  aggregation: TemporalAggregationKind,
+): Promise<TemporalAggregationSeries> {
+  return invoke<TemporalAggregationSeries>("get_temporal_aggregation", {
+    dateColumn,
+    valueColumn,
+    aggregation,
   });
 }
 

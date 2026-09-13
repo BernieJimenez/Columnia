@@ -1,9 +1,10 @@
 # Inventario local de dependencias y auditorías
 
-Snapshot técnico actualizado el **2026-09-07** sobre `0.167.0`, rama `feat/diseno-integral`. Este archivo
-es una lista local reproducible, no una aprobación permanente de actualizar a
-la última versión. Antes de cambiar una dependencia, ejecuta los comandos de la
-tabla y registra el resultado en el mismo cambio.
+Snapshot de dependencias actualizado el **2026-09-07** sobre `0.167.0`, rama
+`feat/diseno-integral`; el inventario IPC quedó sincronizado el **2026-09-13**.
+Este archivo es una lista local reproducible, no una aprobación permanente de
+actualizar a la última versión. Antes de cambiar una dependencia, ejecuta los
+comandos de la tabla y registra el resultado en el mismo cambio.
 
 ## Dependencias directas declaradas
 
@@ -70,7 +71,7 @@ revisar Tauri/Vite, tests y build antes de modificar el lockfile.
 | `npm run network:check` | Aprobado | Sin APIs de red/telemetría en producción; CSP solo deja IPC interno |
 | `npm run notices:check` | Aprobado; 999 identidades de dependencia sin `UNKNOWN`, sin filas duplicadas | `THIRD_PARTY_NOTICES.md` se deriva offline de ambos lockfiles y rechaza licencias desconocidas, contradictorias o incompletas |
 | `npm run toolchains:check` | Aprobado; Node 24.14.0, npm 11.10.1 y Rust/Cargo 1.97.1 | Las versiones exactas están fijadas en `package.json` y `rust-toolchain.toml` |
-| `npm run ipc:check` | Aprobado; 67 comandos de producción, 4 debug y 58 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
+| `npm run ipc:check` | Aprobado; 68 comandos de producción, 4 debug y 60 estructuras compartidas | El inventario se genera desde `generate_handler!` y se publica en [`ipc-inventory.json`](./ipc-inventory.json); incluye el updater autenticado |
 
 Las excepciones de `cargo audit`/`cargo deny` no ocultan una vulnerabilidad de
 la aplicación: están limitadas a advisories transitivos con razón, versión y

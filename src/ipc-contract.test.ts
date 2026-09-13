@@ -338,6 +338,7 @@ function normalizeRustFieldType(type: string): string {
       "ExtractionKind",
       "SessionReferenceStatus",
       "PerformanceProfile",
+      "TemporalAggregationKind",
     ].includes(withoutReference)
   ) return "string";
   return withoutReference;

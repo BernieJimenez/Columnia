@@ -6,6 +6,13 @@ los artefactos de validación locales.
 
 ## [Unreleased]
 
+### Añadido
+
+- En Revisar, la tendencia temporal ahora puede sumar o promediar una columna
+  numérica por día, mes o año. El cálculo se ejecuta bajo demanda, conserva los
+  periodos sin valores y muestra los conteos válidos; también admite cancelación
+  y procesamiento source-backed para CSV/TSV/TXT y Parquet.
+
 ### Interno
 
 - `npm run beta:prepare` crea una RC local ligada a un commit limpio y a su gate

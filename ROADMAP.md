@@ -2690,6 +2690,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
 | --- | --- |
 | 2026-09-06 | Aplicación técnica de T6-01–T6-11 verificada con regresiones. T6-03 queda aceptada con round-trip MariaDB real en ambos modos; T6-08 queda aceptada con tres recorridos nativos dentro de presupuesto. T6-05 queda abierta únicamente por la instancia SQL Server real no accesible en esta estación. |
 | 2026-09-12 | `bb35f04` añade prueba unitaria de parseo booleano y tipos por dialecto; `cargo test --lib` pasa 402/402 con cuatro ignoradas. No cambia el estado de aceptación: T6-05 sigue esperando round-trip real en SQL Server por frame y source-backed. |
+| 2026-09-13 | Revisar amplía las tendencias temporales con suma/promedio de una columna numérica, cálculo bajo demanda, huecos explícitos y tablas accesibles; CSV/TSV/TXT se proyectan a Parquet y Parquet se recorre por bloques. El inventario queda en 68 comandos de producción y 60 estructuras compartidas. |
 
 ### Decisiones cerradas de esta revisión
 

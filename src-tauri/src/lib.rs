@@ -166,6 +166,7 @@ pub fn run() {
             dataset::get_dataset_page,
             dataset::query_dataset,
             dataset::get_dataset_profile,
+            dataset::get_temporal_aggregation,
             dataset::validate_quality_rules,
             remote_databases::test_database_connection,
             dataset::export_dataset_to_database,

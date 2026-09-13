@@ -1,7 +1,12 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DatasetPreview, DatasetProfile, DatasetQueryResult } from "../../bridge";
+import type {
+  DatasetPreview,
+  DatasetProfile,
+  DatasetQueryResult,
+  TemporalAggregationSeries,
+} from "../../bridge";
 import * as bridge from "../../bridge";
 import { DatasetPreviewPanel, ReviewPhase } from "./ReviewPhase";
 import { createReadyDatasetStatus } from "../load/loadModel";
@@ -214,6 +219,85 @@ const emptyDailyTemporalProfile: DatasetProfile = {
     },
   ],
 };
+
+const numericTemporalProfile: DatasetProfile = {
+  ...temporalProfile,
+  columns: [
+    ...temporalProfile.columns,
+    {
+      ...profile.columns[0],
+      name: "ventas",
+      nullCount: 5,
+      completenessPercentage: 95,
+      uniqueCount: 90,
+      minimum: "0",
+      maximum: "1000",
+      mean: 420,
+      outlierCount: 0,
+    },
+  ],
+};
+
+const multipleTemporalProfile: DatasetProfile = {
+  ...numericTemporalProfile,
+  temporalSeries: [
+    ...numericTemporalProfile.temporalSeries!,
+    {
+      ...numericTemporalProfile.temporalSeries![0],
+      column: "fecha_entrega",
+    },
+  ],
+  columns: [
+    ...numericTemporalProfile.columns,
+    {
+      ...numericTemporalProfile.columns.find((column) => column.name === "fecha")!,
+      name: "fecha_entrega",
+    },
+  ],
+};
+
+const temporalMeanSeries: TemporalAggregationSeries = {
+  dateColumn: "fecha",
+  valueColumn: "ventas",
+  aggregation: "mean",
+  granularity: "month",
+  parsedRowCount: 108,
+  unparsedRowCount: 12,
+  truncated: false,
+  periods: [
+    { period: "2024-01", rowCount: 24, valueCount: 3, value: 25 },
+    { period: "2024-02", rowCount: 36, valueCount: 0, value: null },
+    { period: "2024-03", rowCount: 48, valueCount: 2, value: 40 },
+  ],
+};
+
+function renderTemporalTrend(profileForTest: DatasetProfile = numericTemporalProfile) {
+  return render(
+    <ReviewPhase
+      datasetStatus={createReadyDatasetStatus(dataset)}
+      profileStatus={{ kind: "ready", profile: profileForTest }}
+      reviewTab="diagnosis"
+      onTabChange={() => undefined}
+      onPageChange={() => undefined}
+      onAnalyzeQuality={() => undefined}
+      onCancelProfile={() => undefined}
+      comparisonStatus={{ kind: "idle" }}
+      datasetColumns={dataset.columns}
+      comparisonKeyColumns={[]}
+      onComparisonKeyColumnsChange={() => undefined}
+      onCompare={() => undefined}
+      onClearComparison={() => undefined}
+      onConsolidate={() => undefined}
+      onResolveConflicts={() => undefined}
+      onConflictPageChange={() => undefined}
+      joinStatus={{ kind: "idle" }}
+      joinType="inner"
+      onJoinTypeChange={() => undefined}
+      onJoin={() => undefined}
+      datasetRevision={17}
+    />,
+  );
+}
 
 describe("ReviewPhase", () => {
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
@@ -700,6 +784,144 @@ describe("ReviewPhase", () => {
       "No hay días interpretables para mostrar en esta columna.",
     );
     expect(screen.getByRole("table", { name: "Tendencia temporal para fecha" })).toBeInTheDocument();
+  });
+
+  it("calcula y presenta una agregación numérica elegida sobre el dataset completo", async () => {
+    const getAggregation = vi
+      .spyOn(bridge, "getTemporalAggregation")
+      .mockResolvedValue(temporalMeanSeries);
+    renderTemporalTrend();
+
+    const metric = screen.getByRole("combobox", { name: "Métrica temporal para fecha" });
+    fireEvent.change(metric, { target: { value: "numeric" } });
+    const valueColumn = screen.getByRole("combobox", { name: "Columna numérica" });
+    expect(valueColumn).toHaveValue("id");
+    fireEvent.change(valueColumn, { target: { value: "ventas" } });
+    const aggregation = screen.getByRole("combobox", { name: "Agregación" });
+    expect(aggregation).toHaveValue("sum");
+    fireEvent.change(aggregation, { target: { value: "mean" } });
+    fireEvent.click(screen.getByRole("button", { name: "Calcular tendencia" }));
+
+    await waitFor(() => expect(getAggregation).toHaveBeenCalledWith("fecha", "ventas", "mean"));
+    const table = await screen.findByRole("table", {
+      name: "Tendencia temporal para fecha: Promedio de ventas",
+    });
+    expect(table).toHaveTextContent("2024-01");
+    expect(table).toHaveTextContent("25");
+    expect(table).toHaveTextContent("2024-02");
+    expect(table).toHaveTextContent("0");
+    expect(table).toHaveTextContent("—");
+    expect(table).toHaveTextContent("2024-03");
+    expect(table).toHaveTextContent("40");
+    expect(screen.getByRole("img", { name: /Tendencia temporal: Promedio de ventas por mes/ }))
+      .toBeInTheDocument();
+    expect(screen.getByText(/Nulos y valores no numéricos se excluyen del cálculo/))
+      .toBeInTheDocument();
+    expect(document.querySelectorAll(".quality-temporal-line__point")).toHaveLength(2);
+    expect(document.querySelectorAll(".quality-temporal-line__path")).toHaveLength(2);
+  });
+
+  it("serializa agregaciones entre tendencias y solo permite cancelar desde la propietaria", async () => {
+    let resolveAggregation!: (series: TemporalAggregationSeries) => void;
+    const pendingAggregation = new Promise<TemporalAggregationSeries>((resolve) => {
+      resolveAggregation = resolve;
+    });
+    let resolveCancellation!: () => void;
+    const pendingCancellation = new Promise<void>((resolve) => {
+      resolveCancellation = resolve;
+    });
+    const getAggregation = vi.spyOn(bridge, "getTemporalAggregation").mockReturnValue(pendingAggregation);
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockReturnValue(pendingCancellation);
+    renderTemporalTrend(multipleTemporalProfile);
+
+    const owner = screen.getByRole("group", { name: "Tendencia temporal · fecha" });
+    const nonOwner = screen.getByRole("group", { name: "Tendencia temporal · fecha_entrega" });
+    fireEvent.change(within(owner).getByRole("combobox", { name: "Métrica temporal para fecha" }), {
+      target: { value: "numeric" },
+    });
+    fireEvent.change(within(nonOwner).getByRole("combobox", { name: "Métrica temporal para fecha_entrega" }), {
+      target: { value: "numeric" },
+    });
+    fireEvent.change(within(owner).getByRole("combobox", { name: "Columna numérica" }), {
+      target: { value: "ventas" },
+    });
+    fireEvent.change(within(owner).getByRole("combobox", { name: "Agregación" }), {
+      target: { value: "mean" },
+    });
+
+    fireEvent.click(within(owner).getByRole("button", { name: "Calcular tendencia" }));
+    expect(within(owner).getByRole("status")).toHaveTextContent(
+      "Calculando una serie temporal con el dataset completo",
+    );
+    await waitFor(() => expect(getAggregation).toHaveBeenCalledTimes(1));
+
+    const nonOwnerStatus = within(nonOwner).getByRole("status");
+    expect(nonOwnerStatus).toHaveTextContent(/espera|en curso|activo/i);
+    const nonOwnerCalculate = within(nonOwner).queryByRole("button", { name: "Calcular tendencia" });
+    if (nonOwnerCalculate) expect(nonOwnerCalculate).toBeDisabled();
+    expect(within(nonOwner).queryByRole("button", { name: "Cancelar cálculo" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Cancelar cálculo" })).toHaveLength(1);
+
+    if (nonOwnerCalculate) fireEvent.click(nonOwnerCalculate);
+    expect(getAggregation).toHaveBeenCalledTimes(1);
+    expect(getAggregation).toHaveBeenCalledWith("fecha", "ventas", "mean");
+    expect(cancel).not.toHaveBeenCalled();
+
+    fireEvent.click(within(owner).getByRole("button", { name: "Cancelar cálculo" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+    expect(cancel).toHaveBeenCalledWith("temporal");
+    resolveAggregation(temporalMeanSeries);
+    await waitFor(() => expect(within(owner).getByRole("table", {
+      name: "Tendencia temporal para fecha: Promedio de ventas",
+    })).toBeInTheDocument());
+    expect(getAggregation).toHaveBeenCalledTimes(1);
+    expect(within(nonOwner).queryByRole("button", { name: "Calcular tendencia" })).not.toBeInTheDocument();
+
+    resolveCancellation();
+    const nextCalculation = await within(nonOwner).findByRole("button", { name: "Calcular tendencia" });
+    fireEvent.click(nextCalculation);
+    await waitFor(() => expect(getAggregation).toHaveBeenCalledTimes(2));
+  });
+
+  it("expone progreso y permite cancelar el cálculo de la serie numérica", async () => {
+    let rejectAggregation!: (error: Error) => void;
+    const pendingAggregation = new Promise<TemporalAggregationSeries>((_resolve, reject) => {
+      rejectAggregation = reject;
+    });
+    vi.spyOn(bridge, "getTemporalAggregation").mockReturnValue(pendingAggregation);
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockImplementation(async () => {
+      rejectAggregation(new Error("Operación temporal cancelada"));
+    });
+    renderTemporalTrend();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Métrica temporal para fecha" }), {
+      target: { value: "numeric" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Calcular tendencia" }));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Calculando una serie temporal con el dataset completo",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar cálculo" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("temporal"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Elige una métrica y calcula la tendencia sobre todas las filas",
+    ));
+    expect(screen.queryByRole("table", { name: /Promedio de ventas/ })).not.toBeInTheDocument();
+  });
+
+  it("muestra el error cuando falla la agregación numérica", async () => {
+    vi.spyOn(bridge, "getTemporalAggregation").mockRejectedValue(new Error("falló el cálculo local"));
+    renderTemporalTrend();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Métrica temporal para fecha" }), {
+      target: { value: "numeric" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Calcular tendencia" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No se pudo calcular la tendencia numérica: falló el cálculo local",
+    );
   });
 
   it("exige y emite una decisión explícita por conflicto", () => {

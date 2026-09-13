@@ -720,6 +720,35 @@ pub struct TemporalSeriesSummary {
     truncated: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TemporalAggregationKind {
+    Sum,
+    Mean,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporalAggregationPeriod {
+    period: String,
+    row_count: usize,
+    value_count: usize,
+    value: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporalAggregationSeries {
+    date_column: String,
+    value_column: String,
+    aggregation: TemporalAggregationKind,
+    granularity: String,
+    periods: Vec<TemporalAggregationPeriod>,
+    parsed_row_count: usize,
+    unparsed_row_count: usize,
+    truncated: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ColumnProfile {
@@ -1542,6 +1571,7 @@ pub struct DatasetState {
     last_export_path: Mutex<Option<PathBuf>>,
     load_generation: AtomicU64,
     profile_generation: AtomicU64,
+    temporal_generation: AtomicU64,
     export_generation: AtomicU64,
     query_generation: AtomicU64,
 }
@@ -1572,6 +1602,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_temporal(&self) -> u64 {
+        self.temporal_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn begin_export(&self) -> u64 {
         self.export_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -1590,6 +1626,10 @@ impl DatasetState {
 
     fn profile_was_cancelled(&self, generation: u64) -> bool {
         self.profile_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn temporal_was_cancelled(&self, generation: u64) -> bool {
+        self.temporal_generation.load(Ordering::SeqCst) != generation
     }
 
     fn export_was_cancelled(&self, generation: u64) -> bool {
@@ -1618,6 +1658,7 @@ impl DatasetState {
         let generation = match operation {
             "load" => &self.load_generation,
             "profile" => &self.profile_generation,
+            "temporal" => &self.temporal_generation,
             "export" => &self.export_generation,
             "query" => &self.query_generation,
             _ => return Err("La operación indicada no admite cancelación.".to_owned()),
@@ -6497,6 +6538,10 @@ fn temporal_period_key(value: NaiveDateTime) -> TemporalPeriodKey {
     }
 }
 
+fn quote_temporal_sql_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
 fn temporal_period_label(key: TemporalPeriodKey, granularity: &str) -> String {
     match granularity {
         "year" => format!("{:04}", key.year),
@@ -7455,6 +7500,327 @@ where
         unparsed_row_count: row_count.saturating_sub(parsed_row_count),
         truncated,
     }))
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TemporalValueAccumulator {
+    row_count: usize,
+    value_count: usize,
+    sum: f64,
+}
+
+impl TemporalValueAccumulator {
+    fn add_row(&mut self, value: AnyValue<'_>) -> Result<(), String> {
+        self.row_count = self.row_count.saturating_add(1);
+        if let Some(value) = quality_aggregate_numeric_value(value) {
+            let sum = self.sum + value;
+            if !sum.is_finite() {
+                return Err("La suma temporal excede el rango numérico admitido.".to_owned());
+            }
+            self.sum = sum;
+            self.value_count = self.value_count.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    fn merge(&mut self, other: Self) -> Result<(), String> {
+        let sum = self.sum + other.sum;
+        if !sum.is_finite() {
+            return Err("La suma temporal excede el rango numérico admitido.".to_owned());
+        }
+        self.sum = sum;
+        self.row_count = self.row_count.saturating_add(other.row_count);
+        self.value_count = self.value_count.saturating_add(other.value_count);
+        Ok(())
+    }
+
+    fn value(self, aggregation: TemporalAggregationKind) -> Option<f64> {
+        if self.value_count == 0 {
+            return None;
+        }
+        let value = match aggregation {
+            TemporalAggregationKind::Sum => self.sum,
+            TemporalAggregationKind::Mean => self.sum / self.value_count as f64,
+        };
+        value.is_finite().then_some(value)
+    }
+}
+
+fn temporal_aggregation_bucket_label(key: TemporalPeriodKey, granularity: &str) -> String {
+    let key = match granularity {
+        "day" => key,
+        "month" => TemporalPeriodKey {
+            year: key.year,
+            month: key.month,
+            day: 1,
+        },
+        _ => TemporalPeriodKey {
+            year: key.year,
+            month: 1,
+            day: 1,
+        },
+    };
+    temporal_period_label(key, granularity)
+}
+
+struct TemporalAggregationSummaryData {
+    total_row_count: usize,
+    parsed_row_count: usize,
+    first: Option<TemporalPeriodKey>,
+    last: Option<TemporalPeriodKey>,
+    by_day: HashMap<TemporalPeriodKey, TemporalValueAccumulator>,
+}
+
+fn temporal_aggregation_series_from_values(
+    date_column: &str,
+    value_column: &str,
+    aggregation: TemporalAggregationKind,
+    data: TemporalAggregationSummaryData,
+) -> Result<TemporalAggregationSeries, String> {
+    let TemporalAggregationSummaryData {
+        total_row_count,
+        parsed_row_count,
+        first,
+        last,
+        by_day,
+    } = data;
+    let (Some(first), Some(last)) = (first, last) else {
+        return Ok(TemporalAggregationSeries {
+            date_column: date_column.to_owned(),
+            value_column: value_column.to_owned(),
+            aggregation,
+            granularity: "day".to_owned(),
+            periods: Vec::new(),
+            parsed_row_count: 0,
+            unparsed_row_count: total_row_count,
+            truncated: false,
+        });
+    };
+    let first_date = NaiveDate::from_ymd_opt(first.year, first.month, first.day)
+        .ok_or_else(|| "No se pudo interpretar el inicio de la tendencia temporal.".to_owned())?;
+    let last_date = NaiveDate::from_ymd_opt(last.year, last.month, last.day)
+        .ok_or_else(|| "No se pudo interpretar el fin de la tendencia temporal.".to_owned())?;
+    let day_span = (last_date - first_date).num_days();
+    let month_span = (i64::from(last.year) - i64::from(first.year)) * 12 + i64::from(last.month)
+        - i64::from(first.month);
+    let granularity = if day_span <= MAX_TEMPORAL_DAY_SPAN {
+        "day"
+    } else if month_span <= MAX_TEMPORAL_MONTH_SPAN {
+        "month"
+    } else {
+        "year"
+    };
+
+    let counts = by_day
+        .iter()
+        .map(|(key, value)| (*key, value.row_count))
+        .collect::<HashMap<_, _>>();
+    let mut raw_periods = temporal_periods_between(first, last, granularity, &counts);
+    raw_periods.retain(|(_, count)| *count > 0 || matches!(granularity, "month" | "day"));
+
+    let mut daily_values = by_day.into_iter().collect::<Vec<_>>();
+    daily_values.sort_unstable_by_key(|(key, _)| *key);
+    let mut by_period = HashMap::<String, TemporalValueAccumulator>::new();
+    for (key, value) in daily_values {
+        by_period
+            .entry(temporal_aggregation_bucket_label(key, granularity))
+            .or_default()
+            .merge(value)?;
+    }
+
+    let truncated = raw_periods.len() > MAX_TEMPORAL_PERIODS;
+    let mut periods = Vec::with_capacity(raw_periods.len().min(MAX_TEMPORAL_PERIODS));
+    if truncated {
+        let split = raw_periods.len() - (MAX_TEMPORAL_PERIODS - 1);
+        let previous_row_count = raw_periods[..split]
+            .iter()
+            .map(|(_, row_count)| *row_count)
+            .sum();
+        let mut previous = TemporalValueAccumulator::default();
+        for (period, _) in &raw_periods[..split] {
+            if let Some(value) = by_period.get(period) {
+                previous.merge(*value)?;
+            }
+        }
+        periods.push(TemporalAggregationPeriod {
+            period: "Periodos anteriores".to_owned(),
+            row_count: previous_row_count,
+            value_count: previous.value_count,
+            value: previous.value(aggregation),
+        });
+        raw_periods.drain(..split);
+    }
+    periods.extend(raw_periods.into_iter().map(|(period, row_count)| {
+        let value = by_period.get(&period).copied().unwrap_or_default();
+        TemporalAggregationPeriod {
+            period,
+            row_count,
+            value_count: value.value_count,
+            value: value.value(aggregation),
+        }
+    }));
+
+    Ok(TemporalAggregationSeries {
+        date_column: date_column.to_owned(),
+        value_column: value_column.to_owned(),
+        aggregation,
+        granularity: granularity.to_owned(),
+        periods,
+        parsed_row_count,
+        unparsed_row_count: total_row_count.saturating_sub(parsed_row_count),
+        truncated,
+    })
+}
+
+fn temporal_aggregation_summary<C>(
+    frame: &DataFrame,
+    date_column: &str,
+    value_column: &str,
+    aggregation: TemporalAggregationKind,
+    is_cancelled: &C,
+) -> Result<TemporalAggregationSeries, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let date_values = frame.column(date_column).map_err(|_| {
+        format!("La columna de fecha '{date_column}' no existe en el dataset activo.")
+    })?;
+    let metric_values = frame.column(value_column).map_err(|_| {
+        format!("La columna numérica '{value_column}' no existe en el dataset activo.")
+    })?;
+    let mut data = TemporalAggregationSummaryData {
+        total_row_count: frame.height(),
+        parsed_row_count: 0,
+        first: None,
+        last: None,
+        by_day: HashMap::new(),
+    };
+    for row_index in 0..frame.height() {
+        if row_index % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let date_value = date_values.get(row_index).map_err(|error| {
+            format!("No se pudo leer la columna de fecha '{date_column}': {error}")
+        })?;
+        let Some(datetime) = quality_datetime_value(date_value) else {
+            continue;
+        };
+        let metric_value = metric_values.get(row_index).map_err(|error| {
+            format!("No se pudo leer la columna numérica '{value_column}': {error}")
+        })?;
+        let key = temporal_period_key(datetime);
+        data.first = Some(
+            data.first
+                .map_or(key, |current: TemporalPeriodKey| current.min(key)),
+        );
+        data.last = Some(
+            data.last
+                .map_or(key, |current: TemporalPeriodKey| current.max(key)),
+        );
+        data.by_day.entry(key).or_default().add_row(metric_value)?;
+        data.parsed_row_count = data.parsed_row_count.saturating_add(1);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    temporal_aggregation_series_from_values(date_column, value_column, aggregation, data)
+}
+
+fn source_temporal_aggregation_summary<C>(
+    path: &Path,
+    total_row_count: usize,
+    date_column: &str,
+    value_column: &str,
+    aggregation: TemporalAggregationKind,
+    is_cancelled: &C,
+) -> Result<TemporalAggregationSeries, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let column_names = [date_column.to_owned(), value_column.to_owned()];
+    let mut data = TemporalAggregationSummaryData {
+        total_row_count,
+        parsed_row_count: 0,
+        first: None,
+        last: None,
+        by_day: HashMap::new(),
+    };
+    for_each_parquet_columns_block_with_size(
+        path,
+        total_row_count,
+        &column_names,
+        SOURCE_PROFILE_BLOCK_ROWS,
+        |start, block| {
+            let date_values = block
+                .columns()
+                .first()
+                .ok_or_else(|| format!("No se pudo leer la columna de fecha '{date_column}'."))?;
+            let metric_values = block
+                .columns()
+                .get(1)
+                .ok_or_else(|| format!("No se pudo leer la columna numérica '{value_column}'."))?;
+            for row_index in 0..block.height() {
+                if (start + row_index) % LOCAL_QUERY_CANCEL_CHECK_ROWS == 0 {
+                    ensure_not_cancelled(is_cancelled())?;
+                }
+                let date_value = date_values.get(row_index).map_err(|error| {
+                    format!("No se pudo leer la columna de fecha '{date_column}': {error}")
+                })?;
+                let Some(datetime) = quality_datetime_value(date_value) else {
+                    continue;
+                };
+                let metric_value = metric_values.get(row_index).map_err(|error| {
+                    format!("No se pudo leer la columna numérica '{value_column}': {error}")
+                })?;
+                let key = temporal_period_key(datetime);
+                data.first = Some(
+                    data.first
+                        .map_or(key, |current: TemporalPeriodKey| current.min(key)),
+                );
+                data.last = Some(
+                    data.last
+                        .map_or(key, |current: TemporalPeriodKey| current.max(key)),
+                );
+                data.by_day.entry(key).or_default().add_row(metric_value)?;
+                data.parsed_row_count = data.parsed_row_count.saturating_add(1);
+            }
+            Ok(())
+        },
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    temporal_aggregation_series_from_values(date_column, value_column, aggregation, data)
+}
+
+fn source_temporal_projection_snapshot<C>(
+    source_path: &Path,
+    extension: &str,
+    date_column: &str,
+    value_column: &str,
+    is_cancelled: C,
+) -> Result<(tempfile::TempDir, PathBuf), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    let source_format = match extension {
+        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
+            delimiter: detect_delimiter(source_path, extension)?,
+        },
+        _ => return Err("El formato source-backed no admite tendencias temporales.".to_owned()),
+    };
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el agregado temporal: {error}"))?;
+    let snapshot = directory.path().join("temporal-aggregation.parquet");
+    let projection = format!(
+        "{}, {}",
+        quote_temporal_sql_identifier(date_column),
+        quote_temporal_sql_identifier(value_column)
+    );
+    crate::duckdb_query::materialize_file_to_parquet_with_projection(
+        source_path,
+        source_format,
+        &snapshot,
+        &projection,
+        is_cancelled,
+    )?;
+    Ok((directory, snapshot))
 }
 
 fn source_numeric_correlation_matrix<C>(
@@ -16120,8 +16486,10 @@ fn quality_aggregate_numeric_value(value: AnyValue<'_>) -> Option<f64> {
         AnyValue::UInt16(value) => Some(value as f64),
         AnyValue::UInt32(value) => Some(value as f64),
         AnyValue::UInt64(value) => (value as f64).is_finite().then_some(value as f64),
+        AnyValue::UInt128(value) => (value as f64).is_finite().then_some(value as f64),
         AnyValue::Float32(value) => value.is_finite().then_some(value as f64),
         AnyValue::Float64(value) => value.is_finite().then_some(value),
+        AnyValue::Int128(value) => (value as f64).is_finite().then_some(value as f64),
         AnyValue::Boolean(value) => Some(if value { 1.0 } else { 0.0 }),
         AnyValue::String(value) => quality_aggregate_text_value(value),
         AnyValue::StringOwned(value) => quality_aggregate_text_value(value.as_str()),
@@ -23438,6 +23806,135 @@ pub async fn get_dataset_profile(
     })
     .await
     .map_err(|error| format!("El análisis de calidad se interrumpió: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_temporal_aggregation(
+    app: AppHandle,
+    date_column: String,
+    value_column: String,
+    aggregation: TemporalAggregationKind,
+) -> Result<TemporalAggregationSeries, String> {
+    if date_column.trim().is_empty() || value_column.trim().is_empty() {
+        return Err("Selecciona una columna de fecha y una columna numérica.".to_owned());
+    }
+    if date_column == value_column {
+        return Err("La columna de fecha y la columna numérica deben ser distintas.".to_owned());
+    }
+
+    let generation = app.state::<DatasetState>().begin_temporal();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let profile = dataset.profile.as_ref().ok_or_else(|| {
+            "Analiza la calidad del dataset antes de calcular una tendencia numérica.".to_owned()
+        })?;
+        let date_profile = profile
+            .columns
+            .iter()
+            .find(|column| column.name == date_column)
+            .ok_or_else(|| {
+                format!("La columna de fecha '{date_column}' no existe en el perfil.")
+            })?;
+        let is_temporal = date_profile.privacy_signal.is_none()
+            && (date_profile.data_type.eq_ignore_ascii_case("Date")
+                || date_profile
+                    .data_type
+                    .to_ascii_lowercase()
+                    .starts_with("datetime")
+                || date_profile.suggested_type.as_deref() == Some("date"));
+        if !is_temporal {
+            return Err(format!(
+                "La columna '{date_column}' no es una fecha elegible."
+            ));
+        }
+        let value_profile = profile
+            .columns
+            .iter()
+            .find(|column| column.name == value_column)
+            .ok_or_else(|| {
+                format!("La columna numérica '{value_column}' no existe en el perfil.")
+            })?;
+        if value_profile.privacy_signal.is_some() || value_profile.outlier_count.is_none() {
+            return Err(format!(
+                "La columna '{value_column}' no es una métrica numérica elegible."
+            ));
+        }
+
+        let cancellation_app = app.clone();
+        let is_cancelled = || {
+            cancellation_app
+                .state::<DatasetState>()
+                .temporal_was_cancelled(generation)
+        };
+        ensure_not_cancelled(is_cancelled())?;
+        if dataset.source_backed {
+            let (source_path, expected_file_size, row_count) =
+                current_source_backed_context(dataset).ok_or_else(|| {
+                    "La fuente source-backed cambió o ya no está disponible.".to_owned()
+                })?;
+            let extension = dataset_extension(&source_path)?;
+            let (_snapshot_directory, snapshot_path) = if extension == "parquet" {
+                (None, source_path.clone())
+            } else {
+                let snapshot_cancellation_app = app.clone();
+                let (directory, snapshot) = source_temporal_projection_snapshot(
+                    &source_path,
+                    &extension,
+                    &date_column,
+                    &value_column,
+                    move || {
+                        snapshot_cancellation_app
+                            .state::<DatasetState>()
+                            .temporal_was_cancelled(generation)
+                    },
+                )?;
+                (Some(directory), snapshot)
+            };
+            let series = source_temporal_aggregation_summary(
+                &snapshot_path,
+                row_count,
+                &date_column,
+                &value_column,
+                aggregation,
+                &is_cancelled,
+            )?;
+            let (_, final_file_size, _) = validate_dataset_file(&source_path)?;
+            if final_file_size != expected_file_size {
+                return Err(
+                    "La fuente source-backed cambió durante el cálculo de la tendencia.".to_owned(),
+                );
+            }
+            Ok(series)
+        } else if let Some((snapshot_path, _, row_count)) =
+            current_history_parquet_snapshot(dataset)
+        {
+            source_temporal_aggregation_summary(
+                &snapshot_path,
+                row_count,
+                &date_column,
+                &value_column,
+                aggregation,
+                &is_cancelled,
+            )
+        } else {
+            temporal_aggregation_summary(
+                &dataset.frame,
+                &date_column,
+                &value_column,
+                aggregation,
+                &is_cancelled,
+            )
+        }
+    })
+    .await
+    .map_err(|error| format!("El cálculo temporal se interrumpió: {error}"))?
 }
 
 #[tauri::command]

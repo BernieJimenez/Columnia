@@ -425,7 +425,7 @@ input[type="radio"] { width: 20px; height: 20px; }
 .quality-sample-control,
 .quality-rule { grid-template-columns: 1fr; }
   .quality-temporal-trend__toolbar { align-items: stretch; flex-direction: column; gap: 9px; }
-  .quality-temporal-trend__toolbar label { justify-content: space-between; }
+  .quality-temporal-trend__toolbar label { width: 100%; }
   .quality-temporal-trend__toolbar select { flex: 1 1 auto; }
   .quality-temporal-line__legend { align-items: flex-start; flex-direction: column; gap: 3px; }
   .quality-temporal-calendar__heading { align-items: flex-start; flex-direction: column; gap: 4px; }

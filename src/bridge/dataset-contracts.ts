@@ -145,6 +145,26 @@ export interface TemporalSeriesSummary {
   truncated: boolean;
 }
 
+export type TemporalAggregationKind = "sum" | "mean";
+
+export interface TemporalAggregationPeriod {
+  period: string;
+  rowCount: number;
+  valueCount: number;
+  value: number | null;
+}
+
+export interface TemporalAggregationSeries {
+  dateColumn: string;
+  valueColumn: string;
+  aggregation: TemporalAggregationKind;
+  granularity: "day" | "month" | "year";
+  periods: TemporalAggregationPeriod[];
+  parsedRowCount: number;
+  unparsedRowCount: number;
+  truncated: boolean;
+}
+
 export interface ColumnProfile {
   name: string;
   dataType: string;
