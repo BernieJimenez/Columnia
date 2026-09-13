@@ -16,6 +16,8 @@ import {
   exportDatasetToDatabase,
   downloadUpdate,
   getAppInfo,
+  getPerformanceSettings,
+  getResourceUsage,
   getDatasetConflictPage,
   getDatasetPage,
   getDatasetProfile,
@@ -54,6 +56,7 @@ import {
   saveProject,
   saveQualityRulesDocument,
   saveTransformRecipe,
+  setPerformanceProfile,
   trimTextValues,
   testDatabaseConnection,
   useConsolidatedDataset,
@@ -132,6 +135,46 @@ describe("desktop bridge", () => {
     expect(onProgress).toHaveBeenCalledWith(progress);
     expect(invoke).toHaveBeenNthCalledWith(3, "cancel_update_download");
     expect(invoke).toHaveBeenNthCalledWith(4, "install_update");
+  });
+
+  it("conecta el monitor de recursos y el perfil de rendimiento al IPC", async () => {
+    const usage = {
+      processCpuPercentage: 3.5,
+      systemCpuPercentage: 18,
+      logicalCpuCount: 8,
+      processMemoryBytes: 1024,
+      systemMemoryUsedBytes: 4096,
+      systemMemoryTotalBytes: 8192,
+      systemMemoryAvailableBytes: 4096,
+      gpu: {
+        status: "unavailable",
+        usagePercentage: null,
+        memoryUsedBytes: null,
+        memoryTotalBytes: null,
+        reason: "No hay una sonda disponible.",
+      },
+    };
+    const settings = {
+      requestedProfile: "maximum",
+      activeProfile: "maximum",
+      requestedThreads: 8,
+      activeThreads: 8,
+      applied: true,
+      locked: false,
+      reason: null,
+    };
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(usage)
+      .mockResolvedValueOnce(settings)
+      .mockResolvedValueOnce(settings);
+
+    await expect(getResourceUsage()).resolves.toEqual(usage);
+    await expect(getPerformanceSettings()).resolves.toEqual(settings);
+    await expect(setPerformanceProfile("maximum")).resolves.toEqual(settings);
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "get_resource_usage");
+    expect(invoke).toHaveBeenNthCalledWith(2, "get_performance_settings");
+    expect(invoke).toHaveBeenNthCalledWith(3, "set_performance_profile", { profile: "maximum" });
   });
 
   it("solicita la selección nativa sin entregar una ruta desde React", async () => {
