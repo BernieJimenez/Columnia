@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reportar una vulnerabilidad de forma privada
+    url: https://github.com/BernieJimenez/Columnia/blob/master/SECURITY.md
+    about: No publiques detalles de seguridad en un issue público.

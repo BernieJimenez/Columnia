@@ -1,0 +1,79 @@
+name: Reportar un error
+description: Describe un fallo reproducible sin compartir datos privados.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por ayudar a mejorar Columnia.
+
+        **No adjuntes datasets reales, información personal, capturas sensibles, rutas locales, secretos, credenciales ni archivos de `.local/`.** Usa datos sintéticos para reproducir el problema. Para vulnerabilidades, sigue el canal privado de [SECURITY.md](https://github.com/BernieJimenez/Columnia/blob/master/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Versión de Columnia
+      description: Indica la versión mostrada por la aplicación.
+      placeholder: "0.167.0"
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit (si ejecutas desde el código fuente)
+      description: Hash corto mostrado por `git rev-parse --short HEAD`.
+      placeholder: "a1b2c3d"
+    validations:
+      required: false
+  - type: input
+    id: windows
+    attributes:
+      label: Versión de Windows
+      description: Indica edición y versión; no incluyas el nombre de usuario ni rutas locales.
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frecuencia
+      options:
+        - Siempre
+        - A veces
+        - Ocurrió una vez
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para reproducir
+      description: Usa un archivo sintético y pasos mínimos; no pegues filas ni valores reales.
+      placeholder: |
+        1. Abre Columnia...
+        2. Carga un CSV sintético...
+        3. Selecciona...
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Qué esperabas que ocurriera
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Qué ocurrió
+      description: Si incluyes un mensaje de error, elimina primero datos personales, rutas y secretos.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto adicional seguro
+      description: No adjuntes archivos ni capturas que contengan información sensible.
+      render: text
+    validations:
+      required: false

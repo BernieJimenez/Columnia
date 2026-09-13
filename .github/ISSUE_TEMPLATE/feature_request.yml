@@ -1,0 +1,34 @@
+name: Proponer una mejora
+description: Explica una necesidad concreta antes de sugerir una solución.
+title: "feat: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por compartir una propuesta. Mantén el ejemplo en términos generales y sintéticos.
+
+        **No incluyas datasets, información personal, rutas locales, secretos, credenciales ni archivos de `.local/`.** No publiques vulnerabilidades aquí; sigue el canal privado de [SECURITY.md](https://github.com/BernieJimenez/Columnia/blob/master/SECURITY.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema o tarea que quieres resolver
+      description: Describe la necesidad y el momento del flujo donde aparece, sin incluir datos privados.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Resultado que te gustaría obtener
+      description: Explica cómo sabrías que la necesidad quedó resuelta.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas o contexto
+      description: Opcional; incluye solo contexto que puedas compartir públicamente.
+      render: text
+    validations:
+      required: false

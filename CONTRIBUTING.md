@@ -49,6 +49,10 @@ corresponda. Los smokes de WebView2 y los recorridos que requieren un escritorio
 interactivo se documentan junto con su evidencia; no se sustituyen por una
 afirmación de que el gate pasó.
 
+Para reportar errores o proponer mejoras, usa los formularios de GitHub. No
+publiques vulnerabilidades en issues; sigue el canal privado indicado en
+[SECURITY.md](SECURITY.md).
+
 ## Límites de alcance
 
 - React recibe metadatos, filas de preview e identificadores opacos, nunca
