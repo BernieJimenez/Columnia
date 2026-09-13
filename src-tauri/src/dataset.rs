@@ -5510,6 +5510,40 @@ struct TextStatistics {
     suggested_type: Option<&'static str>,
     type_match_percentage: Option<f64>,
     invalid_type_count: Option<usize>,
+    temporal_bounds: TemporalBounds,
+}
+
+#[derive(Clone, Default)]
+struct TemporalBounds {
+    minimum: Option<(NaiveDateTime, String)>,
+    maximum: Option<(NaiveDateTime, String)>,
+}
+
+impl TemporalBounds {
+    fn observe(&mut self, datetime: NaiveDateTime, value: String) {
+        if self
+            .minimum
+            .as_ref()
+            .is_none_or(|(current, _)| datetime < *current)
+        {
+            self.minimum = Some((datetime, value.clone()));
+        }
+        if self
+            .maximum
+            .as_ref()
+            .is_none_or(|(current, _)| datetime > *current)
+        {
+            self.maximum = Some((datetime, value));
+        }
+    }
+
+    fn minimum_value(&self) -> Option<String> {
+        self.minimum.as_ref().map(|(_, value)| value.clone())
+    }
+
+    fn maximum_value(&self) -> Option<String> {
+        self.maximum.as_ref().map(|(_, value)| value.clone())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -5586,10 +5620,14 @@ fn parse_inferred_datetime(value: &str, format: InferredDateFormat) -> Option<Na
 }
 
 fn is_supported_date(value: &str) -> bool {
+    parse_supported_datetime(value).is_some()
+}
+
+fn parse_supported_datetime(value: &str) -> Option<NaiveDateTime> {
     INFERRED_DATE_FORMATS
         .iter()
         .copied()
-        .any(|format| parse_inferred_datetime(value, format).is_some())
+        .find_map(|format| parse_inferred_datetime(value, format))
 }
 
 fn is_supported_date_candidate(value: &str) -> bool {
@@ -5794,6 +5832,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
     let mut integer_count: usize = 0;
     let mut decimal_count: usize = 0;
     let mut date_count: usize = 0;
+    let mut temporal_bounds = TemporalBounds::default();
     let mut total_length: usize = 0;
     let mut minimum_length: Option<usize> = None;
     let mut maximum_length: Option<usize> = None;
@@ -5813,8 +5852,12 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
             let numeric = semantic_numeric_value(trimmed);
             integer_count += usize::from(trimmed.parse::<i64>().is_ok() && numeric.is_some());
             decimal_count += usize::from(numeric.is_some());
-            date_count +=
-                usize::from(is_supported_date_candidate(trimmed) && is_supported_date(trimmed));
+            if is_supported_date_candidate(trimmed) {
+                if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
+                    date_count += 1;
+                    temporal_bounds.observe(datetime, trimmed.to_owned());
+                }
+            }
         }
         value_count += 1;
         total_length += length;
@@ -5842,6 +5885,7 @@ fn text_statistics(column: &Column) -> Result<Option<TextStatistics>, String> {
         suggested_type,
         type_match_percentage,
         invalid_type_count,
+        temporal_bounds,
     }))
 }
 
@@ -5855,6 +5899,33 @@ enum ProfileColumnEvent {
         index: usize,
         result: Box<Result<ColumnProfile, String>>,
     },
+}
+
+fn temporal_bounds_for_column<C>(
+    column: &Column,
+    is_cancelled: &C,
+) -> Result<TemporalBounds, String>
+where
+    C: Fn() -> bool,
+{
+    let mut bounds = TemporalBounds::default();
+    for row_index in 0..column.len() {
+        if row_index % 4096 == 0 {
+            ensure_not_cancelled(is_cancelled())?;
+        }
+        let value = column.get(row_index).map_err(|error| {
+            format!(
+                "No se pudo calcular el rango temporal de {}: {error}",
+                column.name()
+            )
+        })?;
+        if let Some(datetime) = quality_datetime_value(value.clone()) {
+            let display_value = preview_value(value).unwrap_or_else(|| datetime.to_string());
+            bounds.observe(datetime, display_value);
+        }
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(bounds)
 }
 
 fn profile_column<C, F>(
@@ -5886,6 +5957,14 @@ where
     ensure_not_cancelled(is_cancelled())?;
     report("Calculando estadísticas numéricas", 75);
     let numeric_statistics = numeric_statistics(column, text_statistics.as_ref())?;
+    let temporal_bounds = if matches!(column.dtype(), DataType::Date | DataType::Datetime(_, _)) {
+        Some(temporal_bounds_for_column(column, is_cancelled)?)
+    } else {
+        text_statistics
+            .as_ref()
+            .filter(|statistics| statistics.suggested_type == Some("date"))
+            .map(|statistics| statistics.temporal_bounds.clone())
+    };
     let (minimum, maximum, mean) = if column.dtype().is_primitive_numeric() {
         let minimum = column
             .min_reduce()
@@ -5902,6 +5981,8 @@ where
                 .as_ref()
                 .and_then(|statistics| statistics.mean),
         )
+    } else if let Some(bounds) = temporal_bounds.as_ref() {
+        (bounds.minimum_value(), bounds.maximum_value(), None)
     } else if let Some(statistics) = numeric_statistics.as_ref() {
         (
             statistics.minimum.map(|value| value.to_string()),
@@ -5980,6 +6061,7 @@ struct SourceTextAccumulator {
     integer_count: usize,
     decimal_count: usize,
     date_count: usize,
+    temporal_bounds: TemporalBounds,
     total_length: usize,
     minimum_length: Option<usize>,
     maximum_length: Option<usize>,
@@ -5997,6 +6079,7 @@ impl SourceTextAccumulator {
             integer_count: 0,
             decimal_count: 0,
             date_count: 0,
+            temporal_bounds: TemporalBounds::default(),
             total_length: 0,
             minimum_length: None,
             maximum_length: None,
@@ -6056,9 +6139,12 @@ impl SourceTextAccumulator {
             self.decimal_count = self
                 .decimal_count
                 .saturating_add(usize::from(parsed_numeric.is_some()));
-            self.date_count = self.date_count.saturating_add(usize::from(
-                is_supported_date_candidate(trimmed) && is_supported_date(trimmed),
-            ));
+            if is_supported_date_candidate(trimmed) {
+                if let Some(datetime) = quality_datetime_value(AnyValue::String(trimmed)) {
+                    self.date_count = self.date_count.saturating_add(1);
+                    self.temporal_bounds.observe(datetime, trimmed.to_owned());
+                }
+            }
             numeric.push(parsed_numeric)?;
         }
         Ok(())
@@ -6087,6 +6173,7 @@ impl SourceTextAccumulator {
                 suggested_type,
                 type_match_percentage,
                 invalid_type_count,
+                temporal_bounds: self.temporal_bounds,
             },
             categorical_candidates,
         )
@@ -6139,9 +6226,11 @@ struct SourceColumnAccumulator {
     data_type: String,
     is_string: bool,
     is_primitive_numeric: bool,
+    is_temporal: bool,
     null_count: usize,
     text: Option<SourceTextAccumulator>,
     numeric: SourceNumericAccumulator,
+    temporal_bounds: TemporalBounds,
 }
 
 impl SourceColumnAccumulator {
@@ -6151,9 +6240,11 @@ impl SourceColumnAccumulator {
             data_type: column.dtype().to_string(),
             is_string: column.dtype() == &DataType::String,
             is_primitive_numeric: column.dtype().is_primitive_numeric(),
+            is_temporal: matches!(column.dtype(), DataType::Date | DataType::Datetime(_, _)),
             null_count: 0,
             text: (column.dtype() == &DataType::String).then(SourceTextAccumulator::new),
             numeric: SourceNumericAccumulator::new(),
+            temporal_bounds: TemporalBounds::default(),
         }
     }
 
@@ -6167,6 +6258,17 @@ impl SourceColumnAccumulator {
                     format!("No se pudo analizar la columna numérica source-backed: {error}")
                 })?;
                 self.numeric.push(numeric_value(value))?;
+            }
+        } else if self.is_temporal {
+            for row_index in 0..column.len() {
+                let value = column.get(row_index).map_err(|error| {
+                    format!("No se pudo analizar la columna temporal source-backed: {error}")
+                })?;
+                if let Some(datetime) = quality_datetime_value(value.clone()) {
+                    let display_value =
+                        preview_value(value).unwrap_or_else(|| datetime.to_string());
+                    self.temporal_bounds.observe(datetime, display_value);
+                }
             }
         }
         Ok(())
@@ -6210,6 +6312,13 @@ impl SourceColumnAccumulator {
         } else {
             None
         };
+        let temporal_bounds = if self.is_temporal {
+            Some(&self.temporal_bounds)
+        } else {
+            text.as_ref()
+                .filter(|statistics| statistics.suggested_type == Some("date"))
+                .map(|statistics| &statistics.temporal_bounds)
+        };
         let (minimum, maximum, mean) = if self.is_primitive_numeric {
             (
                 self.numeric.minimum.map(|value| value.to_string()),
@@ -6218,6 +6327,8 @@ impl SourceColumnAccumulator {
                     .as_ref()
                     .and_then(|statistics| statistics.mean),
             )
+        } else if let Some(bounds) = temporal_bounds {
+            (bounds.minimum_value(), bounds.maximum_value(), None)
         } else if let Some(statistics) = numeric_statistics.as_ref() {
             (
                 statistics.minimum.map(|value| value.to_string()),
@@ -16285,8 +16396,11 @@ fn quality_value_ordering(left: AnyValue<'_>, right: AnyValue<'_>) -> Option<std
 
 fn quality_datetime_value(value: AnyValue<'_>) -> Option<NaiveDateTime> {
     match value {
-        AnyValue::String(value) => parse_quality_datetime(value),
-        AnyValue::StringOwned(value) => parse_quality_datetime(value.as_str()),
+        AnyValue::String(value) => {
+            parse_quality_datetime(value).or_else(|| parse_supported_datetime(value))
+        }
+        AnyValue::StringOwned(value) => parse_quality_datetime(value.as_str())
+            .or_else(|| parse_supported_datetime(value.as_str())),
         AnyValue::Date(days) => NaiveDate::from_ymd_opt(1970, 1, 1)
             .and_then(|epoch| epoch.checked_add_signed(chrono::Duration::days(days.into())))
             .and_then(|date| date.and_hms_opt(0, 0, 0)),

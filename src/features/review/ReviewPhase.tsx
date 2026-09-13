@@ -1067,7 +1067,7 @@ function QualityProfile({
               <tr key={column.name}>
                 <th scope="row">
                   <span>{column.name}</span>
-                  <small>{column.dataType}</small>
+                  <small>{profileColumnTypeLabel(column)}</small>
                 </th>
                 <td>{column.completenessPercentage.toFixed(1)}%</td>
                 <td>{column.nullCount.toLocaleString()}</td>
@@ -2477,6 +2477,27 @@ function suggestedTypeLabel(type: string | null): string {
     default:
       return "—";
   }
+}
+
+function profileColumnTypeLabel(column: ColumnProfile): string {
+  const dataType = column.dataType.trim().toLowerCase();
+  let storedType = column.dataType;
+
+  if (dataType === "str" || dataType === "string") storedType = "Texto";
+  else if (dataType === "bool" || dataType === "boolean") storedType = "Booleano";
+  else if (dataType === "date") storedType = "Fecha";
+  else if (dataType.includes("datetime") || dataType.includes("timestamp")) {
+    storedType = "Fecha y hora";
+  } else if (/^(?:u?int\d*|[iu]\d+)$/.test(dataType)) {
+    storedType = "Entero";
+  } else if (/^(?:float\d*|f\d+|decimal)/.test(dataType)) {
+    storedType = "Decimal";
+  }
+
+  const storedLabel = `Almacenado como ${storedType}`;
+  return column.suggestedType
+    ? `${storedLabel} · sugerido: ${suggestedTypeLabel(column.suggestedType)}`
+    : storedLabel;
 }
 
 function formatStatistic(value: number | null): string {

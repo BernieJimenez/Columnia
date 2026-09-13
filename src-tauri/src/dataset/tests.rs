@@ -2979,6 +2979,13 @@ fn source_backed_profile_matches_the_in_memory_profile_without_retaining_rows() 
         expected.near_duplicate_row_count
     );
     assert_eq!(actual.columns, expected.columns);
+    let date_profile = actual
+        .columns
+        .iter()
+        .find(|column| column.name == "when")
+        .expect("el perfil source-backed debe incluir la columna temporal");
+    assert_eq!(date_profile.minimum.as_deref(), Some("2025-01-01"));
+    assert_eq!(date_profile.maximum.as_deref(), Some("2025-01-05"));
     assert_eq!(
         actual.categorical_group_summaries,
         expected.categorical_group_summaries
@@ -6371,6 +6378,13 @@ fn profiles_temporal_month_trend_with_empty_periods_and_bounded_payload() {
     .expect("el frame temporal debe ser válido");
 
     let profile = profile_dataset(&frame).expect("el perfil temporal debe calcularse");
+    let date_profile = profile
+        .columns
+        .iter()
+        .find(|column| column.name == "created_at")
+        .expect("debe incluir el perfil de la columna temporal");
+    assert_eq!(date_profile.minimum.as_deref(), Some("2024-01-15"));
+    assert_eq!(date_profile.maximum.as_deref(), Some("2025-01-01"));
     let summary = profile
         .temporal_series
         .as_ref()
@@ -6446,6 +6460,75 @@ fn profiles_temporal_day_trend_keeps_empty_days_for_short_spans() {
         .periods
         .iter()
         .all(|period| period.period.chars().count() == 10));
+}
+
+#[test]
+fn profiles_ranges_for_native_date_and_datetime_columns() {
+    let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+    let day = |year, month, day| {
+        chrono::NaiveDate::from_ymd_opt(year, month, day)
+            .unwrap()
+            .signed_duration_since(epoch)
+            .num_days() as i32
+    };
+    let millis = |value: &str| {
+        chrono::DateTime::parse_from_rfc3339(value)
+            .unwrap()
+            .timestamp_millis()
+    };
+    let frame = DataFrame::new(
+        3,
+        vec![
+            Series::new(
+                "business_date".into(),
+                [day(2024, 3, 1), day(2024, 1, 1), day(2024, 2, 1)],
+            )
+            .cast(&DataType::Date)
+            .unwrap()
+            .into_column(),
+            Series::new(
+                "updated_at".into(),
+                [
+                    millis("2024-03-01T16:45:00Z"),
+                    millis("2024-01-01T08:15:00Z"),
+                    millis("2024-02-01T12:30:00Z"),
+                ],
+            )
+            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+            .unwrap()
+            .into_column(),
+        ],
+    )
+    .expect("el frame debe incluir columnas temporales nativas");
+
+    let profile = profile_dataset(&frame).expect("el perfil debe calcular límites temporales");
+    let date = profile
+        .columns
+        .iter()
+        .find(|column| column.name == "business_date")
+        .expect("debe existir el perfil de fecha");
+    let datetime = profile
+        .columns
+        .iter()
+        .find(|column| column.name == "updated_at")
+        .expect("debe existir el perfil de fecha y hora");
+
+    assert_eq!(
+        date.minimum,
+        preview_value(frame.column("business_date").unwrap().get(1).unwrap())
+    );
+    assert_eq!(
+        date.maximum,
+        preview_value(frame.column("business_date").unwrap().get(0).unwrap())
+    );
+    assert_eq!(
+        datetime.minimum,
+        preview_value(frame.column("updated_at").unwrap().get(1).unwrap())
+    );
+    assert_eq!(
+        datetime.maximum,
+        preview_value(frame.column("updated_at").unwrap().get(0).unwrap())
+    );
 }
 
 #[test]
@@ -8219,6 +8302,15 @@ fn suggests_dates_and_reports_values_that_do_not_match() {
     assert_eq!(date.suggested_type, Some("date".to_owned()));
     assert_eq!(date.type_match_percentage, Some(90.0));
     assert_eq!(date.invalid_type_count, Some(1));
+    assert_eq!(date.minimum.as_deref(), Some("September 9, 2019"));
+    assert_eq!(date.maximum.as_deref(), Some("September 17, 2019"));
+    let temporal = profile
+        .temporal_series
+        .as_ref()
+        .and_then(|summaries| summaries.first())
+        .expect("debe construir una tendencia con fechas sugeridas");
+    assert_eq!(temporal.parsed_row_count, 9);
+    assert_eq!(temporal.unparsed_row_count, 1);
 
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }

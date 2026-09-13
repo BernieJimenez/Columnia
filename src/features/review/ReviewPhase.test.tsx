@@ -220,6 +220,23 @@ const emptyDailyTemporalProfile: DatasetProfile = {
   ],
 };
 
+const inferredTemporalProfile: DatasetProfile = {
+  ...temporalProfile,
+  columns: temporalProfile.columns.map((column) =>
+    column.name === "fecha"
+      ? {
+          ...column,
+          dataType: "str",
+          minimum: "2024-01-15",
+          maximum: "2024-03-28",
+          suggestedType: "date",
+          typeMatchPercentage: 100,
+          invalidTypeCount: 0,
+        }
+      : column,
+  ),
+};
+
 const numericTemporalProfile: DatasetProfile = {
   ...temporalProfile,
   columns: [
@@ -672,7 +689,7 @@ describe("ReviewPhase", () => {
     render(
       <ReviewPhase
         datasetStatus={createReadyDatasetStatus(dataset)}
-        profileStatus={{ kind: "ready", profile: temporalProfile }}
+        profileStatus={{ kind: "ready", profile: inferredTemporalProfile }}
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
@@ -697,15 +714,18 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("heading", { name: "Cobertura temporal" })).toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Tabla de cobertura temporal" });
     expect(table).toHaveTextContent("fecha");
-    expect(table).toHaveTextContent("Fecha");
-    expect(table).toHaveTextContent("2024-01-01");
-    expect(table).toHaveTextContent("2024-12-31");
+    expect(table).toHaveTextContent("Fecha detectada");
+    expect(table).toHaveTextContent("2024-01-15");
+    expect(table).toHaveTextContent("2024-03-28");
     expect(table).toHaveTextContent("108 de 120");
     expect(table).toHaveTextContent("90.0%");
     expect(table).toHaveTextContent("actualizado_en");
     expect(table).toHaveTextContent("Fecha y hora");
     expect(table).toHaveTextContent("2024-12-31 18:30:00 UTC");
     expect(screen.getByRole("heading", { name: "Tendencia temporal · fecha" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
+      "Almacenado como Texto · sugerido: Fecha",
+    );
     const trendTable = screen.getByRole("table", { name: "Tendencia temporal para fecha" });
     expect(trendTable).toHaveTextContent("2024-02");
     expect(trendTable).toHaveTextContent("36");
