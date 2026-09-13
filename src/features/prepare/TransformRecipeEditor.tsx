@@ -14,6 +14,7 @@ import {
   requiresImpactConfirmation,
   type RecipeFileStatus,
 } from "./prepareModel";
+import { canMapRecipeSchema, inspectRecipeSchema, mapRecipeColumns } from "./recipeSchema";
 import { buildTransformPreview, visibleColumnNames, type TransformPreview } from "./transformAdvisor";
 
 function operationGroupStatus(count: number, singular: string, plural: string) {
@@ -110,12 +111,14 @@ function RecipeOperationGroup({
 
 export function TransformRecipeEditor({
   dataset,
+  datasetRevision = 0,
   busy,
   initialDraft,
   onApply,
   onDraftChange,
 }: {
   dataset: DatasetPreview;
+  datasetRevision?: number;
   busy: boolean;
   initialDraft: SavedRecipe | null;
   onApply: (recipe: TransformRecipe) => void;
@@ -154,7 +157,16 @@ export function TransformRecipeEditor({
     operation: "add",
     operand: { kind: "literal", value: "" },
   });
-  const [pendingConfirmation, setPendingConfirmation] = useState<TransformRecipe | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    recipe: TransformRecipe;
+    datasetRevision: number;
+  } | null>(null);
+  const [staleConfirmation, setStaleConfirmation] = useState(false);
+  const [pendingSchemaReview, setPendingSchemaReview] = useState<LoadedRecipe | null>(() =>
+    initialDraft && inspectRecipeSchema(initialDraft.recipe, dataset).length > 0 ? initialDraft : null,
+  );
+  const [schemaMappings, setSchemaMappings] = useState<Record<string, string>>({});
+  const [schemaReviewDismissed, setSchemaReviewDismissed] = useState(false);
   const [findReplaceEnabled, setFindReplaceEnabled] = useState(initialRecipe?.findReplace !== null && initialRecipe?.findReplace !== undefined);
   const [findReplace, setFindReplace] = useState<FindReplaceDraft>(initialRecipe?.findReplace ?? { scope: "column", column: null, find: "", replace: "", regex: false });
   const [keptColumns, setKeptColumns] = useState<string[]>(initialRecipe?.keepColumns ?? dataset.columns.map((column) => column.name));
@@ -174,6 +186,13 @@ export function TransformRecipeEditor({
   const draftSavedAt = useRef(initialDraft?.savedAt ?? new Date().toISOString());
   const acknowledgedRecipeFingerprint = useRef<string | null>(null);
   const recipeBusy = busy || recipeFileStatus.kind === "working";
+
+  useEffect(() => {
+    if (pendingConfirmation && pendingConfirmation.datasetRevision !== datasetRevision) {
+      setPendingConfirmation(null);
+      setStaleConfirmation(true);
+    }
+  }, [datasetRevision, pendingConfirmation]);
 
   const activeRenames = renames.filter((item) => item.from || item.to);
   const activeCasts = casts.filter((item) => item.column);
@@ -245,8 +264,22 @@ export function TransformRecipeEditor({
   const filterInvalid = activeFilters.some((item) =>
     !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
   );
+  const currentRecipeForSchema = buildRecipe();
+  const currentSchemaIssues = inspectRecipeSchema(currentRecipeForSchema, dataset);
+  const schemaReviewRecipe = pendingSchemaReview ?? (!schemaReviewDismissed && currentSchemaIssues.length > 0
+    ? { version: 1 as const, name: recipeName, savedAt: draftSavedAt.current, recipe: currentRecipeForSchema }
+    : null);
+  useEffect(() => {
+    if (currentSchemaIssues.length === 0) setSchemaReviewDismissed(false);
+  }, [currentSchemaIssues.length]);
+  const schemaReviewIssues = pendingSchemaReview
+    ? inspectRecipeSchema(pendingSchemaReview.recipe, dataset)
+    : currentSchemaIssues;
+  const schemaReviewReady = schemaReviewRecipe !== null && (
+    schemaReviewIssues.length === 0 || canMapRecipeSchema(schemaReviewIssues, schemaMappings)
+  );
   const invalid = renameInvalid || filterInvalid || findReplaceInvalid || keptColumns.length === 0 || calculationSourceDropped || splitInvalid || mergeInvalid || sourceConflict || sourceNotKept || outlierInvalid || groupInvalid || contactInvalid || extractionInvalid ||
-    !calculationValid;
+    !calculationValid || currentSchemaIssues.length > 0 || schemaReviewRecipe !== null;
   const transformPreview = operationCount > 0 && !invalid
     ? buildTransformPreview(dataset, buildRecipe())
     : null;
@@ -286,6 +319,18 @@ export function TransformRecipeEditor({
     };
   }
 
+  function confirmSchemaMapping() {
+    if (!schemaReviewRecipe || !schemaReviewReady) return;
+    const mappedRecipe = schemaReviewIssues.length === 0
+      ? schemaReviewRecipe.recipe
+      : mapRecipeColumns(schemaReviewRecipe.recipe, schemaReviewIssues, schemaMappings);
+    if (!mappedRecipe) return;
+    replaceDraft({ ...schemaReviewRecipe, recipe: mappedRecipe });
+    setPendingSchemaReview(null);
+    setSchemaMappings({});
+    setRecipeFileStatus({ kind: "success", message: `Receta cargada: ${schemaReviewRecipe.name}. Revísala antes de aplicarla.` });
+  }
+
   const draftFingerprint = JSON.stringify(buildRecipe());
   const workspaceDraftFingerprint = `${recipeName}\u0000${draftFingerprint}`;
   const lastWorkspaceDraftFingerprint = useRef(
@@ -319,7 +364,8 @@ export function TransformRecipeEditor({
   function submitRecipe() {
     if (operationCount === 0 || invalid) return;
     const recipe = buildRecipe();
-    if (requiresImpactConfirmation(recipe)) setPendingConfirmation(recipe);
+    setStaleConfirmation(false);
+    if (requiresImpactConfirmation(recipe)) setPendingConfirmation({ recipe, datasetRevision });
     else onApply(recipe);
   }
 
@@ -386,9 +432,17 @@ export function TransformRecipeEditor({
         setRecipeFileStatus({ kind: "idle" });
         return;
       }
-      replaceDraft(loaded);
       acknowledgedRecipeFingerprint.current = null;
-      setRecipeFileStatus({ kind: "success", message: `Receta cargada: ${loaded.name}. Revísala antes de aplicarla.` });
+      const schemaIssues = inspectRecipeSchema(loaded.recipe, dataset);
+      if (schemaIssues.length > 0) {
+        setPendingSchemaReview(loaded);
+        setSchemaMappings({});
+        setRecipeFileStatus({ kind: "idle" });
+      } else {
+        replaceDraft(loaded);
+        setPendingSchemaReview(null);
+        setRecipeFileStatus({ kind: "success", message: `Receta cargada: ${loaded.name}. Revísala antes de aplicarla.` });
+      }
     } catch (error) {
       setRecipeFileStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
     }
@@ -428,10 +482,10 @@ export function TransformRecipeEditor({
             onChange={(event) => { setRecipeName(event.target.value); if (recipeFileStatus.kind !== "working") setRecipeFileStatus({ kind: "idle" }); }} />
         </label>
         <button type="button" onClick={saveRecipeDraft}
-          disabled={recipeBusy || operationCount === 0 || invalid || !recipeName.trim()}>
+          disabled={recipeBusy || schemaReviewRecipe !== null || operationCount === 0 || invalid || !recipeName.trim()}>
           {recipeFileStatus.kind === "working" && recipeFileStatus.action === "save" ? "Guardando…" : "Guardar receta"}
         </button>
-        <button type="button" onClick={loadRecipeDraft} disabled={recipeBusy}>
+        <button type="button" onClick={loadRecipeDraft} disabled={recipeBusy || schemaReviewRecipe !== null}>
           {recipeFileStatus.kind === "working" && recipeFileStatus.action === "load" ? "Cargando…" : "Cargar receta"}
         </button>
         <p className="recipe-file-status recipe-file-status--hint">
@@ -439,6 +493,50 @@ export function TransformRecipeEditor({
         </p>
         {recipeFileStatus.kind === "success" && <p className="recipe-file-status" role="status">{recipeFileStatus.message}</p>}
         {recipeFileStatus.kind === "error" && <p className="recipe-error recipe-file-status" role="alert">No se pudo completar la operación: {recipeFileStatus.message}</p>}
+        {schemaReviewRecipe && (
+          <section className="recipe-schema-review" aria-labelledby="recipe-schema-review-title">
+            <h4 id="recipe-schema-review-title">Revisar columnas de la receta</h4>
+            <p>
+              {schemaReviewIssues.length > 0
+                ? "El esquema actual no satisface todas las referencias de esta receta. No se asigna ninguna columna automáticamente; elige cada reemplazo para continuar."
+                : "El esquema volvió a coincidir con la receta. Confirma para cargarla."}
+            </p>
+            {schemaReviewIssues.length > 0 && (
+              <div className="recipe-schema-review__mappings">
+                {schemaReviewIssues.map((issue) => (
+                  <label key={issue.column}>
+                    <span>{issue.column}</span>
+                    <small>{issue.reasons.join(" ")}</small>
+                    {issue.compatibleColumns.length > 0 ? (
+                      <select
+                        aria-label={`Columna nueva para ${issue.column}`}
+                        value={schemaMappings[issue.column] ?? ""}
+                        disabled={recipeBusy}
+                        onChange={(event) => setSchemaMappings((current) => ({ ...current, [issue.column]: event.target.value }))}
+                      >
+                        <option value="">Selecciona manualmente…</option>
+                        {issue.compatibleColumns.map((column) => <option key={column} value={column}>{column}</option>)}
+                      </select>
+                    ) : (
+                      <small role="alert">No hay columnas disponibles con tipo compatible. Cancela la carga o modifica la receta.</small>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="recipe-schema-review__actions">
+              <button type="button" disabled={recipeBusy} onClick={() => { setPendingSchemaReview(null); setSchemaMappings({}); setSchemaReviewDismissed(true); setRecipeFileStatus({ kind: "idle" }); }}>Cancelar carga</button>
+              <button type="button" className="primary-action" disabled={recipeBusy || !schemaReviewReady} onClick={confirmSchemaMapping}>
+                {schemaReviewIssues.length > 0 ? "Confirmar mapeo y cargar" : "Cargar receta"}
+              </button>
+            </div>
+          </section>
+        )}
+        {!schemaReviewRecipe && currentSchemaIssues.length > 0 && (
+          <p className="recipe-error" role="alert">
+            La receta guardada aún tiene referencias incompatibles. Corrige las columnas manualmente antes de guardarla o aplicarla.
+          </p>
+        )}
       </div>
 
       <details
@@ -758,6 +856,11 @@ export function TransformRecipeEditor({
               : operationCount === 1 ? "Aplicar 1 operación" : `Aplicar ${operationCount} operaciones`}
         </button>
       </div>
+      {staleConfirmation && (
+        <p className="recipe-error" role="alert">
+          El dataset cambió mientras revisabas la receta. Vuelve a revisarla antes de aplicarla.
+        </p>
+      )}
       {pendingConfirmation && (
         <ModalDialog
           role="alertdialog"
@@ -768,15 +871,15 @@ export function TransformRecipeEditor({
             <p className="step">Cambio de alto impacto</p>
             <h3 id="filter-confirm-title">Confirmar cambios de alto impacto</h3>
             <p id="filter-confirm-description">
-              {pendingConfirmation.filters.length > 0 && <>La receta aplicará {pendingConfirmation.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final de filas depende de los datos. </>}
-              {(pendingConfirmation.keepColumns !== null || pendingConfirmation.splitColumn?.dropSource || pendingConfirmation.mergeColumns?.dropSources) && <> En total se eliminarán {new Set([...(pendingConfirmation.keepColumns ? dataset.columns.map((column) => column.name).filter((name) => !pendingConfirmation.keepColumns?.includes(name)) : []), ...(pendingConfirmation.splitColumn?.dropSource ? [pendingConfirmation.splitColumn.source] : []), ...(pendingConfirmation.mergeColumns?.dropSources ? pendingConfirmation.mergeColumns.sources : [])]).size} columnas originales, sin contar dos veces las fuentes compartidas.</>}
-              {pendingConfirmation.outlierTreatments.some((item) => item.action === "cap") && <> Se limitarán valores atípicos en {pendingConfirmation.outlierTreatments.filter((item) => item.action === "cap").length} columnas.</>}
-              {pendingConfirmation.outlierTreatments.some((item) => item.action === "impute") && <> Se reemplazarán valores atípicos por la mediana en {pendingConfirmation.outlierTreatments.filter((item) => item.action === "impute").length} columnas.</>}
-              {pendingConfirmation.outlierTreatments.some((item) => item.action === "drop") && <> Se podrán eliminar filas atípicas detectadas en {pendingConfirmation.outlierTreatments.filter((item) => item.action === "drop").length} columnas.</>}
-              {pendingConfirmation.groupSummary && <> El dataset será reemplazado por un resumen de {pendingConfirmation.groupSummary.groupBy.length} claves y {pendingConfirmation.groupSummary.aggregations.length} agregaciones sobre {dataset.rowCount.toLocaleString()} filas actuales.</>}
-              {pendingConfirmation.contactNormalizations.length > 0 && <> Se normalizarán valores de contacto en {pendingConfirmation.contactNormalizations.length} columnas.</>}
+              {pendingConfirmation.recipe.filters.length > 0 && <>La receta aplicará {pendingConfirmation.recipe.filters.length} filtros unidos por AND sobre {dataset.rowCount.toLocaleString()} filas actuales. El número final de filas depende de los datos. </>}
+              {(pendingConfirmation.recipe.keepColumns !== null || pendingConfirmation.recipe.splitColumn?.dropSource || pendingConfirmation.recipe.mergeColumns?.dropSources) && <> En total se eliminarán {new Set([...(pendingConfirmation.recipe.keepColumns ? dataset.columns.map((column) => column.name).filter((name) => !pendingConfirmation.recipe.keepColumns?.includes(name)) : []), ...(pendingConfirmation.recipe.splitColumn?.dropSource ? [pendingConfirmation.recipe.splitColumn.source] : []), ...(pendingConfirmation.recipe.mergeColumns?.dropSources ? pendingConfirmation.recipe.mergeColumns.sources : [])]).size} columnas originales, sin contar dos veces las fuentes compartidas.</>}
+              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "cap") && <> Se limitarán valores atípicos en {pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "cap").length} columnas.</>}
+              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "impute") && <> Se reemplazarán valores atípicos por la mediana en {pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "impute").length} columnas.</>}
+              {pendingConfirmation.recipe.outlierTreatments.some((item) => item.action === "drop") && <> Se podrán eliminar filas atípicas detectadas en {pendingConfirmation.recipe.outlierTreatments.filter((item) => item.action === "drop").length} columnas.</>}
+              {pendingConfirmation.recipe.groupSummary && <> El dataset será reemplazado por un resumen de {pendingConfirmation.recipe.groupSummary.groupBy.length} claves y {pendingConfirmation.recipe.groupSummary.aggregations.length} agregaciones sobre {dataset.rowCount.toLocaleString()} filas actuales.</>}
+              {pendingConfirmation.recipe.contactNormalizations.length > 0 && <> Se normalizarán valores de contacto en {pendingConfirmation.recipe.contactNormalizations.length} columnas.</>}
             </p>
-            <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" onClick={() => { const recipe = pendingConfirmation; setPendingConfirmation(null); onApply(recipe); }}>Confirmar y aplicar</button></div>
+            <div className="sheet-dialog__actions"><button type="button" onClick={() => setPendingConfirmation(null)}>Cancelar</button><button type="button" className="primary-action" disabled={recipeBusy || pendingConfirmation.datasetRevision !== datasetRevision} onClick={() => { const pending = pendingConfirmation; setPendingConfirmation(null); if (pending.datasetRevision !== datasetRevision) { setStaleConfirmation(true); return; } onApply(pending.recipe); }}>Confirmar y aplicar</button></div>
         </ModalDialog>
       )}
     </section>

@@ -10,7 +10,7 @@
   [![Licencia MIT](https://img.shields.io/badge/licencia-MIT-f2c94c?style=flat-square)](LICENSE)
 </div>
 
-> **Estado:** prototipo local verificable. Windows x64 es la plataforma validada; macOS y Linux son objetivos de diseño. La publicación actual contiene código fuente, no instaladores oficiales.
+> **Estado:** prototipo local con compilación y pruebas automatizadas verificadas en Windows x64. La beta con participantes y datos reales sigue pendiente; todavía no hay resultados sanitizados de beta que publicar. La aceptación manual y macOS/Linux no están validados. La publicación actual contiene código fuente, no instaladores oficiales ni updater.
 
 ![Recorrido por Cargar, Revisar, Preparar y Entregar en Columnia](docs/images/gallery/00-recorrido.gif)
 
@@ -67,7 +67,7 @@ Consulta el [modelo de amenazas](THREAT_MODEL.md), la [privacidad de red](docs/r
 
 ## Ejecutar desde el código fuente
 
-Requisitos: Node.js 22+, Rust estable y las dependencias de Tauri para Windows.
+Requisitos: Node.js `>=24.14.0 <25`, npm `>=11.10.1 <12`, Rust estable y las dependencias de Tauri para Windows.
 
 ```bash
 npm install
@@ -77,8 +77,9 @@ npm run tauri dev
 Para validar el proyecto:
 
 ```bash
-npm run check
-npm run test
+npm run build
+npm test
+npm run docs:check
 npm run legal:check
 ```
 

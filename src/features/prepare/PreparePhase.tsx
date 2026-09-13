@@ -10,6 +10,7 @@ import type { ChangeStatus } from "./prepareModel";
 
 interface PreparePhaseProps {
   dataset: DatasetPreview;
+  datasetRevision?: number;
   profileStatus: ProfileStatus;
   changeStatus: ChangeStatus;
   historyStatus: HistoryState;
@@ -50,6 +51,7 @@ interface PreparePhaseProps {
 
 export function PreparePhase({
   dataset,
+  datasetRevision = 0,
   profileStatus,
   changeStatus,
   historyStatus,
@@ -186,6 +188,7 @@ export function PreparePhase({
           <TransformRecipeEditor
             key={recipeSession}
             dataset={dataset}
+            datasetRevision={datasetRevision}
             busy={changing}
             initialDraft={recipeDraft}
             onApply={onApplyTransforms}

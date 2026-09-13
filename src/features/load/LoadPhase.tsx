@@ -20,6 +20,20 @@ export type LoadRuntimeState =
   | { kind: "browser" }
   | { kind: "unavailable" };
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${new Intl.NumberFormat("es-DO").format(bytes)} bytes`;
+
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let size = bytes;
+  let unitIndex = -1;
+  do {
+    size /= 1024;
+    unitIndex += 1;
+  } while (size >= 1024 && unitIndex < units.length - 1);
+
+  return `${new Intl.NumberFormat("es-DO", { maximumFractionDigits: 1 }).format(size)} ${units[unitIndex]}`;
+}
+
 interface LoadPhaseProps {
   children?: ReactNode;
   runtime: LoadRuntimeState;
@@ -269,6 +283,30 @@ export function LoadPhase({
               Generar encabezados (column_1, column_2…)
             </label>
           </fieldset>
+          <section className="sheet-import-summary" aria-labelledby="sheet-import-summary-title" aria-live="polite">
+            <h4 id="sheet-import-summary-title">Resumen antes de cargar</h4>
+            <dl>
+              <div>
+                <dt>Formato y tamaño</dt>
+                <dd>Excel · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
+              </div>
+              <div>
+                <dt>Hojas disponibles</dt>
+                <dd>{sheetSelection.source.sheets.length}</dd>
+              </div>
+              <div>
+                <dt>Se cargará</dt>
+                <dd>{sheetSelection.source.sheets.find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.name ?? "Selecciona una hoja"}</dd>
+              </div>
+              <div>
+                <dt>Encabezados</dt>
+                <dd>{sheetSelection.headerMode === "firstRow" ? "Usar la primera fila" : "Generar nombres de columna"}</dd>
+              </div>
+            </dl>
+            <p role="note">
+              Esta inspección previa no muestra el esquema ni los tipos de las columnas. Podrás revisarlos en Diagnóstico después de cargar.
+            </p>
+          </section>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSheetAction({ kind: "cancelled" })}>Cancelar</button>
             <button

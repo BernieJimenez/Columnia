@@ -6,6 +6,10 @@
 
 ## Estado general
 
+Los criterios que todavía requieren aceptación o evidencia externa están
+resumidos en el [índice de trabajo vigente](docs/reference/roadmap-current.md).
+El detalle por etapa y el historial permanecen en este documento.
+
 - Alcance V1 cerrado el 2026-09-09: Columnia es una estación local para una
   sola persona operadora y no incorpora cuentas, autenticación, organizaciones
   ni sincronización remota. Los formatos, la persistencia permitida, los
@@ -2612,12 +2616,12 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Depende de:** ninguna
   - **Trazabilidad:** A-04 del informe del 2026-09-05.
 
-- [ ] **[T6-05] Corregir la serialización de booleanos para PostgreSQL**
-  - **Área:** Código
-  - **Severidad:** Media · Nuevo
-  - **Ubicación:** `src-tauri/src/remote_databases.rs:443, :495`
-  - **Qué hacer:** Transmitir parámetros booleanos tipados o generar TRUE/FALSE para PostgreSQL, conservando BIT y el contrato adecuado de otros motores.
-  - **Estado de implementación:** Los booleanos y nulos booleanos se envían mediante `Bit`/`Nullable<Bit>` dentro del serializador parametrizado compartido por frame y source-backed. El harness externo verificó `true`/`false`/`null` por ambas rutas en PostgreSQL 17.11 y MariaDB 10.11; falta una instancia SQL Server accesible para completar el criterio de los tres motores. El commit `bb35f04` añade cobertura unitaria del parseo exacto `true`/`false`, rechazo de texto inválido, aceptación del parámetro nulo y mapeo `BOOLEAN`/`BIT`, pero no sustituye el round-trip del servidor. Evidencia externa parcial: `.local/validation/odbc/20260906T011500Z/summary.json`.
+- [ ] **[T6-05] Aceptar round-trip de booleanos en SQL Server**
+  - **Área:** Aceptación externa
+  - **Severidad:** Pendiente para declarar soporte de los tres motores
+  - **Ubicación:** `src-tauri/src/remote_databases.rs`; entorno ODBC SQL Server
+  - **Qué hacer:** Ejecutar exportación y relectura de `true`/`false`/`null` en SQL Server desde frame y fuente incremental, comprobando tipos y valores.
+  - **Estado de implementación:** El serializador tipado `Bit`/`Nullable<Bit>` ya se comparte entre frame y source-backed. El harness externo verificó ambas rutas en PostgreSQL 17.11 y MariaDB 10.11; el round-trip de SQL Server es la única aceptación de motor pendiente. El commit `bb35f04` agrega cobertura unitaria de parseo y mapeo dialectal, pero no sustituye el round-trip del servidor. Evidencia externa parcial: `.local/validation/odbc/20260906T011500Z/summary.json`.
   - **Criterio de aceptación:** Exportar y releer true/false/null en los tres motores conserva tipos y valores desde frame y fuente incremental.
   - **Esfuerzo:** bajo
   - **Depende de:** T6-03 si se comparte el serializador parametrizado

@@ -284,6 +284,16 @@ summary:focus-visible,
 .recipe-files button { min-height: 44px; padding: 7px 11px; border: 1px solid #27837d; border-radius: 3px; background: transparent; color: var(--accent); font-weight: 800; cursor: pointer; }
 .recipe-files button:disabled { cursor: not-allowed; opacity: .5; }
 .recipe-file-status { grid-column: 1 / -1; margin: 2px 0 0; color: var(--text-secondary); font-size: .76rem; }
+.recipe-schema-review { grid-column: 1 / -1; display: grid; gap: 9px; padding: 12px; border: 1px solid var(--border-subtle); background: var(--surface-subtle); }
+.recipe-schema-review h4,
+.recipe-schema-review p { margin: 0; }
+.recipe-schema-review > p { color: var(--text-secondary); font-size: .82rem; }
+.recipe-schema-review__mappings { display: grid; gap: 8px; }
+.recipe-schema-review__mappings label { display: grid; gap: 5px; }
+.recipe-schema-review__mappings label > span { font-size: .82rem; font-weight: 750; }
+.recipe-schema-review__mappings small { color: var(--text-secondary); font-size: .75rem; }
+.recipe-schema-review__mappings select { width: 100%; min-height: 40px; padding: 7px; border: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-primary); }
+.recipe-schema-review__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .recipe-migration-report { grid-column: 1 / -1; display: grid; gap: 12px; margin-top: 8px; padding: 14px; border: 1px solid #d8c393; border-left: 4px solid #d18a24; background: #fffbf2; color: #5d4a2e; font-size: .8rem; }
 .recipe-migration-report p,
 .recipe-migration-report ul { margin: 0; }
@@ -447,6 +457,13 @@ summary:focus-visible,
 .sheet-dialog__options { display: grid; gap: 10px; margin: 20px 0 0; padding: 0; border: 0; }
 .sheet-dialog__options legend { margin-bottom: 8px; color: var(--text-secondary); font-size: .8rem; font-weight: 800; text-transform: uppercase; }
 .sheet-dialog__options label { display: flex; align-items: center; gap: 9px; margin: 0; color: inherit; font-size: .9rem; font-weight: 600; text-transform: none; }
+.sheet-import-summary { margin-top: 18px; padding: 14px; border: 1px solid var(--border-subtle); background: var(--surface-raised); }
+.sheet-import-summary h4 { margin: 0 0 12px; font-size: .95rem; }
+.sheet-import-summary dl { display: grid; gap: 10px; margin: 0; }
+.sheet-import-summary dl > div { display: grid; grid-template-columns: minmax(112px, .7fr) minmax(0, 1fr); gap: 12px; }
+.sheet-import-summary dt { color: var(--text-secondary); font-size: .78rem; font-weight: 800; }
+.sheet-import-summary dd { margin: 0; overflow-wrap: anywhere; font-size: .88rem; }
+.sheet-import-summary p { margin: 12px 0 0; color: var(--text-secondary); font-size: .82rem; }
 .sheet-dialog__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .operation-progress {
   display: grid;

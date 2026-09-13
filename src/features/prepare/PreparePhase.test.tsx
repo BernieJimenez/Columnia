@@ -898,6 +898,44 @@ describe("TransformRecipeEditor", () => {
     }));
   });
 
+  it("descarta una confirmación cuando cambia la revisión y permite revisar la nueva", () => {
+    const onApply = vi.fn();
+    const onDraftChange = vi.fn();
+    const { rerender } = render(<TransformRecipeEditor
+      dataset={dataset}
+      datasetRevision={4}
+      busy={false}
+      initialDraft={null}
+      onApply={onApply}
+      onDraftChange={onDraftChange}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir filtro AND" }));
+    fireEvent.change(screen.getByLabelText("Columna del filtro 1"), { target: { value: "nombre" } });
+    fireEvent.change(screen.getByLabelText("Valor del filtro 1"), { target: { value: "Ana" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("2 filas actuales");
+
+    const changedDataset = { ...dataset, rowCount: 7 };
+    rerender(<TransformRecipeEditor
+      dataset={changedDataset}
+      datasetRevision={5}
+      busy={false}
+      initialDraft={null}
+      onApply={onApply}
+      onDraftChange={onDraftChange}
+    />);
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("dataset cambió mientras revisabas");
+    expect(onApply).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("7 filas actuales");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar y aplicar" }));
+    expect(onApply).toHaveBeenCalledOnce();
+  });
+
   it("confirma antes de reemplazar un borrador al cargar receta", async () => {
     const loaded: LoadedRecipe = {
       version: 1,
@@ -915,5 +953,79 @@ describe("TransformRecipeEditor", () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
     expect(screen.getByLabelText("Nuevo nombre 1")).toHaveValue("borrador");
     expect(screen.queryByText(/Receta cargada:/)).not.toBeInTheDocument();
+  });
+
+  it("exige un mapeo explícito para una columna ausente y no aplica la receta antes de confirmarlo", async () => {
+    const onApply = vi.fn();
+    const loaded: LoadedRecipe = {
+      version: 1,
+      name: "Receta con esquema anterior",
+      savedAt: "2026-09-01T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre_cliente", to: "cliente" }] },
+    };
+    vi.spyOn(bridge, "pickTransformRecipe").mockResolvedValue(loaded);
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+    expect(await screen.findByRole("heading", { name: "Revisar columnas de la receta" })).toBeInTheDocument();
+    const mapping = screen.getByRole("combobox", { name: "Columna nueva para nombre_cliente" });
+    expect(mapping).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Confirmar mapeo y cargar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aplicar receta" })).toBeDisabled();
+    expect(onApply).not.toHaveBeenCalled();
+
+    fireEvent.change(mapping, { target: { value: "nombre" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar mapeo y cargar" }));
+    expect(screen.getByLabelText("Columna para renombrar 1")).toHaveValue("nombre");
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      renames: [{ from: "nombre", to: "cliente" }],
+    }));
+  });
+
+  it("cancelar una revisión de esquema conserva el borrador actual", async () => {
+    const loaded: LoadedRecipe = {
+      version: 1,
+      name: "Receta incompatible",
+      savedAt: "2026-09-01T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre_viejo", to: "cliente" }] },
+    };
+    vi.spyOn(bridge, "pickTransformRecipe").mockResolvedValue(loaded);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onApply = vi.fn();
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={onApply} onDraftChange={() => undefined} />);
+    fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "nombre" } });
+    fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), { target: { value: "borrador" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+
+    expect(await screen.findByRole("heading", { name: "Revisar columnas de la receta" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar carga" }));
+    expect(screen.getByLabelText("Nuevo nombre 1")).toHaveValue("borrador");
+    expect(screen.queryByRole("heading", { name: "Revisar columnas de la receta" })).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("permite cerrar una revisión de receta guardada incompatible sin habilitar su aplicación", () => {
+    const onApply = vi.fn();
+    const initialDraft: LoadedRecipe = {
+      version: 1,
+      name: "Receta con esquema anterior",
+      savedAt: "2026-09-01T00:00:00Z",
+      recipe: { ...emptyRecipe, renames: [{ from: "nombre_cliente", to: "cliente" }] },
+    };
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={initialDraft} onApply={onApply} onDraftChange={() => undefined} />);
+
+    expect(screen.getByRole("heading", { name: "Revisar columnas de la receta" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar carga" }));
+    expect(screen.queryByRole("heading", { name: "Revisar columnas de la receta" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Corrige las columnas manualmente");
+    expect(screen.getByRole("button", { name: "Aplicar receta" })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "nombre" } });
+    expect(screen.queryByRole("heading", { name: "Revisar columnas de la receta" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      renames: [{ from: "nombre", to: "cliente" }],
+    }));
   });
 });

@@ -2546,6 +2546,13 @@ mod tests {
             .unwrap();
         assert_eq!(decode_workspace(&stored).unwrap(), workspace());
         assert_eq!(stored.generation_name, before_generation);
+
+        let restored_state = DatasetState::default();
+        let reopened = store.open(&restored_state, created.id.clone()).unwrap();
+        assert_eq!(reopened.project, created);
+        assert_eq!(reopened.workspace, workspace());
+        let reopened_snapshot = restored_state.active_project_snapshot().unwrap();
+        assert!(reopened_snapshot.frame.equals_missing(&frame(&[1])));
     }
 
     #[test]

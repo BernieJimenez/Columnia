@@ -1259,8 +1259,8 @@ export function DeliveryPhase({
         {selectedExportFormat === "bundle" && (
           <p className="export-requirement" role="note">
             {recipeDraft
-              ? "Este paquete incluirá recipe.json con la receta actual validada y su referencia en manifest.json."
-              : "No hay una receta activa para incluir; el paquete contendrá dataset.csv, dictionary.json y manifest.json."}
+              ? "Este paquete incluirá delivery-summary.md, recipe.json con la receta actual validada y sus referencias y hashes en manifest.json."
+              : "No hay una receta activa para incluir; el paquete contendrá dataset.csv, dictionary.json, delivery-summary.md y manifest.json."}
           </p>
         )}
         {!exportAllowed && <p className="export-requirement">{exportRequirement}</p>}
@@ -1283,7 +1283,7 @@ export function DeliveryPhase({
               <> Privacidad aplicada a {exportState.result.protectedColumnCount} columnas: {exportState.result.protectedColumns?.join(", ")}.</>
             )}
             {exportState.result.format === "Paquete Columnia" && (
-              <> Incluye dataset.csv, dictionary.json, manifest.json{recipeDraft ? " y recipe.json validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.</>
+              <> Incluye dataset.csv, dictionary.json, delivery-summary.md y manifest.json{recipeDraft ? "; recipe.json incluye la receta validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.</>
             )}
           </p>
           {exportState.result.format !== "PostgreSQL"

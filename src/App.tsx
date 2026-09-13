@@ -1008,6 +1008,7 @@ export function App() {
             {activePhase === "prepare" && readyDataset && (
               <PreparePhase
                 dataset={readyDataset.dataset}
+                datasetRevision={datasetRevision}
                 profileStatus={profileStatus}
                 changeStatus={prepare.changeStatus}
                 historyStatus={prepare.historyStatus}

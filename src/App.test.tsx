@@ -1109,7 +1109,7 @@ describe("App", () => {
     fireEvent.click(selectDataset);
     const dialog = await screen.findByRole("dialog", { name: /Elegir hoja de ventas.xlsx/ });
     expect(within(dialog).getByRole("option", { name: "Ventas 2026" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("note")).toHaveTextContent(/ocupar bastante más memoria/);
+    expect(within(dialog).getByText(/ocupar bastante más memoria/)).toHaveAttribute("role", "note");
     const sheetSelect = within(dialog).getByLabelText("Hoja");
     const loadSheet = within(dialog).getByRole("button", { name: "Cargar hoja" });
     expect(sheetSelect).toHaveFocus();

@@ -156,6 +156,11 @@ const LOCAL_QUERY_MAX_JOIN_COLUMNS: usize = 8;
 // dataset needs to be materialized while computing the exact result.
 const COMPARISON_KEY_BUCKETS: usize = 256;
 const COMPARISON_KEY_RECORD_BYTES: usize = std::mem::size_of::<u64>() * 2;
+const BUNDLE_MANIFEST_VERSION: u8 = 2;
+const BUNDLE_DICTIONARY_VERSION: u8 = 1;
+const BUNDLE_QUALITY_REPORT_VERSION: u8 = 1;
+const BUNDLE_DELIVERY_SUMMARY_VERSION: u8 = 1;
+const BUNDLE_DELIVERY_SUMMARY_FILE: &str = "delivery-summary.md";
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -242,6 +247,8 @@ struct BundleManifest {
     quality_report_file: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     recipe_file: Option<String>,
+    #[serde(default)]
+    delivery_summary_file: String,
     files: Vec<BundleFileManifest>,
 }
 
@@ -19004,7 +19011,7 @@ where
     }
     let dictionary = BundleDictionary {
         format: "columnia-dictionary".to_owned(),
-        version: 1,
+        version: BUNDLE_DICTIONARY_VERSION,
         columns: schema_frame
             .columns()
             .iter()
@@ -19022,7 +19029,7 @@ where
         .map(|validation| {
             let report = BundleQualityReport {
                 format: "columnia-quality-report".to_owned(),
-                version: 1,
+                version: BUNDLE_QUALITY_REPORT_VERSION,
                 passed: validation.passed,
                 row_count: validation.row_count,
                 total_rules: validation.total_rules,
@@ -19059,9 +19066,36 @@ where
     let mut dataset_file = File::open(&dataset_path)
         .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
     let (dataset_bytes, dataset_sha256) = hash_and_rewind(&mut dataset_file)?;
+    let mut files = vec![
+        BundleFileManifest {
+            path: "dataset.csv".to_owned(),
+            bytes: dataset_bytes,
+            sha256: dataset_sha256,
+        },
+        BundleFileManifest {
+            path: "dictionary.json".to_owned(),
+            bytes: dictionary_bytes.len() as u64,
+            sha256: dictionary_sha256,
+        },
+    ];
+    files.extend(quality_manifest);
+    files.extend(recipe_manifest);
+    let summary_bytes = bundle_delivery_summary(
+        row_count,
+        schema_frame.width(),
+        quality_validation,
+        recipe,
+        &files,
+    )
+    .into_bytes();
+    files.push(BundleFileManifest {
+        path: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
+        bytes: summary_bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(&summary_bytes)),
+    });
     let manifest = BundleManifest {
         format: "columnia-bundle".to_owned(),
-        version: 1,
+        version: BUNDLE_MANIFEST_VERSION,
         dataset_file: "dataset.csv".to_owned(),
         dataset_format: "csv".to_owned(),
         row_count,
@@ -19071,22 +19105,8 @@ where
             .as_ref()
             .map(|_| "quality-report.json".to_owned()),
         recipe_file: recipe_bytes.as_ref().map(|_| "recipe.json".to_owned()),
-        files: [
-            BundleFileManifest {
-                path: "dataset.csv".to_owned(),
-                bytes: dataset_bytes,
-                sha256: dataset_sha256,
-            },
-            BundleFileManifest {
-                path: "dictionary.json".to_owned(),
-                bytes: dictionary_bytes.len() as u64,
-                sha256: dictionary_sha256,
-            },
-        ]
-        .into_iter()
-        .chain(quality_manifest)
-        .chain(recipe_manifest)
-        .collect(),
+        delivery_summary_file: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
+        files,
     };
     let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
     ensure_not_cancelled(is_cancelled())?;
@@ -19148,6 +19168,13 @@ where
             .write_all(&recipe_bytes)
             .map_err(|error| format!("No se pudo empaquetar la receta del paquete: {error}"))?;
     }
+    ensure_not_cancelled(is_cancelled())?;
+    archive
+        .start_file(BUNDLE_DELIVERY_SUMMARY_FILE, options)
+        .map_err(|error| format!("No se pudo preparar el resumen de entrega: {error}"))?;
+    archive
+        .write_all(&summary_bytes)
+        .map_err(|error| format!("No se pudo empaquetar el resumen de entrega: {error}"))?;
     ensure_not_cancelled(is_cancelled())?;
     archive
         .start_file("manifest.json", options)
@@ -19337,6 +19364,167 @@ fn bundle_json_bytes<T: Serialize>(value: &T, label: &str) -> Result<Vec<u8>, St
         .map_err(|error| format!("No se pudo preparar {label} del paquete: {error}"))
 }
 
+fn bundle_delivery_summary(
+    row_count: usize,
+    column_count: usize,
+    quality_validation: Option<&QualityValidationResult>,
+    recipe: Option<&StoredTransformRecipe>,
+    files: &[BundleFileManifest],
+) -> String {
+    let mut lines = vec![
+        "# Resumen de entrega Columnia".to_owned(),
+        String::new(),
+        format!("Este documento usa el formato de resumen v{BUNDLE_DELIVERY_SUMMARY_VERSION}."),
+        "No incluye muestras, valores de configuración, rutas locales, nombres de columnas ni credenciales."
+            .to_owned(),
+        String::new(),
+        "## Dataset".to_owned(),
+        format!("- Filas: {row_count}"),
+        format!("- Columnas: {column_count}"),
+        "- Formato de entrega: CSV".to_owned(),
+        String::new(),
+        "## Transformaciones".to_owned(),
+    ];
+
+    if let Some(recipe) = recipe {
+        let configured_operations = [
+            ("Renombres de columnas", recipe.recipe.renames.len()),
+            ("Conversiones de tipo", recipe.recipe.casts.len()),
+            ("Parseos de fecha", recipe.recipe.date_parses.len()),
+            ("Filtros de filas", recipe.recipe.filters.len()),
+            (
+                "Columnas calculadas",
+                recipe.recipe.calculated_column.is_some() as usize,
+            ),
+            (
+                "Búsquedas y reemplazos",
+                recipe.recipe.find_replace.is_some() as usize,
+            ),
+            (
+                "Selecciones de columnas",
+                recipe.recipe.keep_columns.is_some() as usize,
+            ),
+            (
+                "Divisiones de columnas",
+                recipe.recipe.split_column.is_some() as usize,
+            ),
+            (
+                "Uniones de columnas",
+                recipe.recipe.merge_columns.is_some() as usize,
+            ),
+            (
+                "Tratamientos de atípicos",
+                recipe.recipe.outlier_treatments.len(),
+            ),
+            (
+                "Resúmenes agrupados",
+                recipe.recipe.group_summary.is_some() as usize,
+            ),
+            (
+                "Normalizaciones de contacto",
+                recipe.recipe.contact_normalizations.len(),
+            ),
+            (
+                "Extracciones de texto",
+                recipe.recipe.text_extractions.len(),
+            ),
+        ];
+        let total_operations = configured_operations
+            .iter()
+            .map(|(_, count)| count)
+            .sum::<usize>();
+        lines.push(format!(
+            "- Operaciones agregadas en la receta adjunta: {total_operations}"
+        ));
+        lines.push(
+            "- Los conteos describen la receta adjunta; no cuantifican filas o celdas efectivamente modificadas."
+                .to_owned(),
+        );
+        lines.push("- Los parámetros y valores de la receta no se reproducen aquí.".to_owned());
+        for (label, count) in configured_operations {
+            if count > 0 {
+                lines.push(format!("- {label}: {count}"));
+            }
+        }
+    } else {
+        lines.push("- No se incluyó una receta de transformación.".to_owned());
+    }
+
+    lines.push(String::new());
+    lines.push("## Contrato y cobertura de calidad".to_owned());
+    if let Some(validation) = quality_validation {
+        let status = if validation.total_rules == 0 {
+            "sin reglas"
+        } else if validation.passed {
+            "aprobado"
+        } else {
+            "no aprobado"
+        };
+        let passed_rules = validation
+            .total_rules
+            .saturating_sub(validation.failed_rules);
+        lines.push(format!("- Estado del contrato validado: {status}"));
+        lines.push(format!(
+            "- Reglas con resultado incluido: {} de {}",
+            validation.rules.len(),
+            validation.total_rules
+        ));
+        lines.push(format!("- Reglas aprobadas: {passed_rules}"));
+        lines.push(format!("- Reglas fallidas: {}", validation.failed_rules));
+        lines.push(format!(
+            "- Filas consideradas por la validación: {}",
+            validation.row_count
+        ));
+        lines.push(
+            "- La calidad se validó antes de aplicar la política de privacidad de exportación; esa política puede alterar los resultados de reglas.".to_owned(),
+        );
+    } else {
+        lines.push("- No se adjuntó un reporte de validación del contrato.".to_owned());
+    }
+
+    lines.extend([
+        String::new(),
+        "## Contratos y versiones".to_owned(),
+        format!("- Paquete: `columnia-bundle` v{BUNDLE_MANIFEST_VERSION}"),
+        format!("- Diccionario: `columnia-dictionary` v{BUNDLE_DICTIONARY_VERSION}"),
+        format!(
+            "- Reporte de calidad: {}",
+            if quality_validation.is_some() {
+                format!("`columnia-quality-report` v{BUNDLE_QUALITY_REPORT_VERSION}")
+            } else {
+                "no incluido".to_owned()
+            }
+        ),
+        format!(
+            "- Receta: {}",
+            recipe.map_or_else(
+                || "no incluida".to_owned(),
+                |recipe| format!("`recipe.json` v{}", recipe.version)
+            )
+        ),
+        String::new(),
+        "## Integridad".to_owned(),
+        "SHA-256 de los archivos indicados, sobre los bytes exactos incluidos en el paquete:"
+            .to_owned(),
+    ]);
+
+    for (path, label) in [
+        ("dataset.csv", "Dataset"),
+        ("dictionary.json", "Diccionario"),
+        ("quality-report.json", "Reporte de calidad"),
+        ("recipe.json", "Receta"),
+    ] {
+        if let Some(file) = files.iter().find(|file| file.path == path) {
+            lines.push(format!("- {label}: `{}`", file.sha256));
+        }
+    }
+    lines.push(format!(
+        "- El hash de `{BUNDLE_DELIVERY_SUMMARY_FILE}` está registrado en `manifest.json`; el manifiesto no contiene un hash de sí mismo."
+    ));
+    lines.push(String::new());
+    lines.join("\n") + "\n"
+}
+
 fn hash_and_rewind(file: &mut File) -> Result<(u64, String), String> {
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("No se pudo leer el dataset temporal del paquete: {error}"))?;
@@ -19393,7 +19581,7 @@ where
 
     let dictionary = BundleDictionary {
         format: "columnia-dictionary".to_owned(),
-        version: 1,
+        version: BUNDLE_DICTIONARY_VERSION,
         columns: frame
             .columns()
             .iter()
@@ -19410,7 +19598,7 @@ where
         .map(|validation| {
             let report = BundleQualityReport {
                 format: "columnia-quality-report".to_owned(),
-                version: 1,
+                version: BUNDLE_QUALITY_REPORT_VERSION,
                 passed: validation.passed,
                 row_count: validation.row_count,
                 total_rules: validation.total_rules,
@@ -19444,9 +19632,36 @@ where
         bytes: bytes.len() as u64,
         sha256: format!("{:x}", Sha256::digest(bytes)),
     });
+    let mut files = vec![
+        BundleFileManifest {
+            path: "dataset.csv".to_owned(),
+            bytes: dataset_bytes,
+            sha256: dataset_sha256,
+        },
+        BundleFileManifest {
+            path: "dictionary.json".to_owned(),
+            bytes: dictionary_bytes.len() as u64,
+            sha256: dictionary_sha256,
+        },
+    ];
+    files.extend(quality_manifest);
+    files.extend(recipe_manifest);
+    let summary_bytes = bundle_delivery_summary(
+        frame.height(),
+        frame.width(),
+        quality_validation,
+        recipe,
+        &files,
+    )
+    .into_bytes();
+    files.push(BundleFileManifest {
+        path: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
+        bytes: summary_bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(&summary_bytes)),
+    });
     let manifest = BundleManifest {
         format: "columnia-bundle".to_owned(),
-        version: 1,
+        version: BUNDLE_MANIFEST_VERSION,
         dataset_file: "dataset.csv".to_owned(),
         dataset_format: "csv".to_owned(),
         row_count: frame.height(),
@@ -19456,22 +19671,8 @@ where
             .as_ref()
             .map(|_| "quality-report.json".to_owned()),
         recipe_file: recipe_bytes.as_ref().map(|_| "recipe.json".to_owned()),
-        files: [
-            BundleFileManifest {
-                path: "dataset.csv".to_owned(),
-                bytes: dataset_bytes,
-                sha256: dataset_sha256,
-            },
-            BundleFileManifest {
-                path: "dictionary.json".to_owned(),
-                bytes: dictionary_bytes.len() as u64,
-                sha256: dictionary_sha256,
-            },
-        ]
-        .into_iter()
-        .chain(quality_manifest)
-        .chain(recipe_manifest)
-        .collect(),
+        delivery_summary_file: BUNDLE_DELIVERY_SUMMARY_FILE.to_owned(),
+        files,
     };
     let manifest_bytes = bundle_json_bytes(&manifest, "el manifest")?;
     ensure_not_cancelled(is_cancelled())?;
@@ -19532,6 +19733,13 @@ where
             .write_all(&recipe_bytes)
             .map_err(|error| format!("No se pudo empaquetar la receta: {error}"))?;
     }
+    ensure_not_cancelled(is_cancelled())?;
+    archive
+        .start_file(BUNDLE_DELIVERY_SUMMARY_FILE, options)
+        .map_err(|error| format!("No se pudo preparar el resumen de entrega: {error}"))?;
+    archive
+        .write_all(&summary_bytes)
+        .map_err(|error| format!("No se pudo empaquetar el resumen de entrega: {error}"))?;
     ensure_not_cancelled(is_cancelled())?;
     archive
         .start_file("manifest.json", options)
@@ -33645,6 +33853,10 @@ pub async fn apply_transform_recipe(
     .await
     .map_err(|error| format!("La receta estructural se interrumpió: {error}"))?
 }
+
+#[cfg(test)]
+#[path = "dataset/delivery_summary_tests.rs"]
+mod delivery_summary_tests;
 
 #[cfg(test)]
 mod tests;

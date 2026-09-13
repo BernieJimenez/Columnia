@@ -291,6 +291,35 @@ fn temporary_delimited_bytes(extension: &str, contents: &[u8]) -> PathBuf {
     path
 }
 
+fn temporary_xlsx_with_worksheet(worksheet: &str) -> PathBuf {
+    const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#;
+    const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
+    const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dataset" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
+    const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#;
+
+    let path = temporary_delimited_bytes("xlsx", b"");
+    let output = File::create(&path).expect("se debe crear el libro temporal");
+    let options = ::zip::write::SimpleFileOptions::default()
+        .compression_method(::zip::CompressionMethod::Deflated);
+    let mut archive = ::zip::ZipWriter::new(output);
+    for (name, contents) in [
+        ("[Content_Types].xml", CONTENT_TYPES),
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", WORKBOOK),
+        ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS),
+        ("xl/worksheets/sheet1.xml", worksheet),
+    ] {
+        archive
+            .start_file(name, options)
+            .expect("se debe agregar una parte al libro");
+        archive
+            .write_all(contents.as_bytes())
+            .expect("se debe escribir una parte del libro");
+    }
+    archive.finish().expect("se debe cerrar el libro");
+    path
+}
+
 #[test]
 fn loads_schema_and_rows_from_a_csv() {
     let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
@@ -9203,6 +9232,45 @@ fn accepts_utf8_bom_without_including_it_in_the_header() {
 }
 
 #[test]
+fn preserves_bom_quoted_record_newlines_delimiters_and_lexical_values() {
+    let path = temporary_delimited_bytes(
+        "csv",
+        b"\xEF\xBB\xBFid;memo;amount\r\n001;\"first line, with comma\nsecond; with semicolon\";1.00\r\n002;plain;2.50\r\n",
+    );
+
+    let (frame, preview) = load_dataset_with_progress(&path, |_, _| {}, || false)
+        .expect("el CSV con BOM y campos citados debe cargar");
+
+    assert_eq!(
+        frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["id", "memo", "amount"]
+    );
+    assert_eq!(frame.height(), 2);
+    assert_eq!(frame.width(), 3);
+    assert!(frame.dtypes().iter().all(|kind| *kind == DataType::String));
+    assert_eq!(
+        preview.rows,
+        vec![
+            vec![
+                Some("001".to_owned()),
+                Some("first line, with comma\nsecond; with semicolon".to_owned()),
+                Some("1.00".to_owned()),
+            ],
+            vec![
+                Some("002".to_owned()),
+                Some("plain".to_owned()),
+                Some("2.50".to_owned()),
+            ],
+        ]
+    );
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
 fn detects_pipe_delimited_txt_without_numeric_inference() {
     let path = temporary_delimited(
         "txt",
@@ -9289,6 +9357,91 @@ fn generates_spreadsheet_headers_without_consuming_the_first_row() {
     let page = dataset_page(&frame, 0, 50).expect("debe conservar la primera fila");
     assert_eq!(page.rows[0][0].as_deref(), Some("001"));
     assert_eq!(page.rows[0][1].as_deref(), Some("Santo Domingo"));
+}
+
+#[test]
+fn preserves_repeated_spreadsheet_header_rows_as_data() {
+    let mut range = Range::<Data>::new((0, 0), (2, 1));
+    range.set_value((0, 0), Data::String("id".to_owned()));
+    range.set_value((0, 1), Data::String("city".to_owned()));
+    range.set_value((1, 0), Data::String("id".to_owned()));
+    range.set_value((1, 1), Data::String("city".to_owned()));
+    range.set_value((2, 0), Data::String("001".to_owned()));
+    range.set_value((2, 1), Data::String("Santo Domingo".to_owned()));
+
+    let frame = spreadsheet_range_to_frame(&range, SpreadsheetHeaderMode::FirstRow)
+        .expect("la primera fila debe ser el único encabezado");
+    let page = dataset_page(&frame, 0, 50).expect("debe conservarse la fila repetida");
+
+    assert_eq!(frame.height(), 2);
+    assert_eq!(
+        page.rows,
+        vec![
+            vec![Some("id".to_owned()), Some("city".to_owned())],
+            vec![Some("001".to_owned()), Some("Santo Domingo".to_owned())],
+        ]
+    );
+}
+
+#[test]
+fn preserves_ambiguous_date_looking_spreadsheet_text_without_parsing_it() {
+    let mut range = Range::<Data>::new((0, 0), (2, 0));
+    range.set_value((0, 0), Data::String("fecha".to_owned()));
+    range.set_value((1, 0), Data::String("03/04/2024".to_owned()));
+    range.set_value((2, 0), Data::String("04/05/2024".to_owned()));
+
+    let frame = spreadsheet_range_to_frame(&range, SpreadsheetHeaderMode::FirstRow)
+        .expect("las fechas ambiguas almacenadas como texto deben permanecer como texto");
+    let page = dataset_page(&frame, 0, 50).expect("debe generarse la vista previa");
+
+    assert_eq!(frame.dtypes(), &[DataType::String]);
+    assert_eq!(
+        page.rows,
+        vec![
+            vec![Some("03/04/2024".to_owned())],
+            vec![Some("04/05/2024".to_owned())],
+        ]
+    );
+}
+
+#[test]
+fn rejects_an_empty_spreadsheet_range_with_a_clear_error() {
+    let range = Range::<Data>::default();
+
+    let error = spreadsheet_range_to_frame(&range, SpreadsheetHeaderMode::FirstRow)
+        .expect_err("una hoja vacía debe rechazarse");
+
+    assert_eq!(error, "La hoja seleccionada está vacía.");
+}
+
+#[test]
+fn reads_cached_xlsx_formula_result_from_the_selected_dataset() {
+    let path = temporary_xlsx_with_worksheet(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:B2"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>id</t></is></c><c r="B1" t="inlineStr"><is><t>total</t></is></c></row><row r="2"><c r="A2"><v>1</v></c><c r="B2"><f>1+2</f><v>3</v></c></row></sheetData></worksheet>"#,
+    );
+
+    let frame = load_compare_frame(&path, "xlsx").expect("se debe leer la hoja con fórmula");
+    let page = dataset_page(&frame, 0, 50).expect("se debe preparar la vista previa");
+
+    assert_eq!(frame.height(), 1);
+    assert_eq!(
+        page.rows,
+        vec![vec![Some("1.0".to_owned()), Some("3.0".to_owned())]]
+    );
+    fs::remove_file(path).expect("se debe limpiar el libro temporal");
+}
+
+#[test]
+fn rejects_an_empty_xlsx_worksheet_with_a_clear_error() {
+    let path = temporary_xlsx_with_worksheet(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData></sheetData></worksheet>"#,
+    );
+
+    let error = load_spreadsheet_sheet(&path, "dataset", SpreadsheetHeaderMode::FirstRow)
+        .expect_err("una hoja XLSX sin celdas debe rechazarse");
+
+    assert_eq!(error, "La hoja seleccionada está vacía.");
+    fs::remove_file(path).expect("se debe limpiar el libro temporal");
 }
 
 #[test]

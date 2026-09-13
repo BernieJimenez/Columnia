@@ -288,8 +288,11 @@ const temporalMeanSeries: TemporalAggregationSeries = {
   ],
 };
 
-function renderTemporalTrend(profileForTest: DatasetProfile = numericTemporalProfile) {
-  return render(
+function temporalTrendElement(
+  profileForTest: DatasetProfile = numericTemporalProfile,
+  datasetRevision = 17,
+) {
+  return (
     <ReviewPhase
       datasetStatus={createReadyDatasetStatus(dataset)}
       profileStatus={{ kind: "ready", profile: profileForTest }}
@@ -311,9 +314,16 @@ function renderTemporalTrend(profileForTest: DatasetProfile = numericTemporalPro
       joinType="inner"
       onJoinTypeChange={() => undefined}
       onJoin={() => undefined}
-      datasetRevision={17}
-    />,
+      datasetRevision={datasetRevision}
+    />
   );
+}
+
+function renderTemporalTrend(
+  profileForTest: DatasetProfile = numericTemporalProfile,
+  datasetRevision = 17,
+) {
+  return render(temporalTrendElement(profileForTest, datasetRevision));
 }
 
 describe("ReviewPhase", () => {
@@ -476,6 +486,7 @@ describe("ReviewPhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ejecutar consulta" }));
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 filas disponibles"));
+    expect(screen.getByRole("status")).toHaveTextContent("resultado truncado por LIMIT");
     expect(screen.getByRole("region", { name: "Resultado de consulta SQL" })).toHaveTextContent("id");
     expect(screen.getByRole("heading", { name: "Actividad reciente" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Historial de consultas SQL" })).toHaveTextContent("Completada");
@@ -617,10 +628,18 @@ describe("ReviewPhase", () => {
   });
 
   it("muestra visualizaciones accesibles con valores equivalentes al perfil", () => {
+    const sampledProfile: DatasetProfile = {
+      ...profile,
+      numericCorrelations: {
+        ...profile.numericCorrelations!,
+        sampledRowCount: 87,
+        truncated: true,
+      },
+    };
     render(
       <ReviewPhase
         datasetStatus={createReadyDatasetStatus(dataset)}
-        profileStatus={{ kind: "ready", profile }}
+        profileStatus={{ kind: "ready", profile: sampledProfile }}
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
@@ -661,6 +680,7 @@ describe("ReviewPhase", () => {
     expect(screen.getByRole("table", { name: "Tabla de validación de formato" })).toHaveTextContent(
       "6",
     );
+    expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("120");
     expect(screen.getByRole("heading", { name: "Distribución numérica" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Distribución numérica por columna" })).toHaveTextContent(
       "Q1 30 · Mediana 60 · Q3 90",
@@ -677,9 +697,14 @@ describe("ReviewPhase", () => {
       "Resto",
     );
     expect(screen.getByRole("heading", { name: "Correlaciones numéricas" })).toBeInTheDocument();
+    expect(screen.getByText(/Pearson entre pares disponibles/)).toHaveTextContent(
+      "La lectura usa 87 filas y muestra las primeras 12 columnas numéricas.",
+    );
     expect(
       screen.getByRole("region", { name: "Matriz de correlaciones numéricas" }),
     ).toHaveTextContent("-0.42");
+    expect(screen.getByText(/el resto está agrupado para evitar ruido y preservar privacidad/i))
+      .toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Perfil de calidad por columna" })).toHaveTextContent(
       "95.0%",
     );
@@ -689,7 +714,16 @@ describe("ReviewPhase", () => {
     render(
       <ReviewPhase
         datasetStatus={createReadyDatasetStatus(dataset)}
-        profileStatus={{ kind: "ready", profile: inferredTemporalProfile }}
+        profileStatus={{
+          kind: "ready",
+          profile: {
+            ...inferredTemporalProfile,
+            temporalSeries: inferredTemporalProfile.temporalSeries?.map((summary) => ({
+              ...summary,
+              truncated: true,
+            })),
+          },
+        }}
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
@@ -730,6 +764,9 @@ describe("ReviewPhase", () => {
     expect(trendTable).toHaveTextContent("2024-02");
     expect(trendTable).toHaveTextContent("36");
     expect(trendTable).toHaveTextContent("33.3%");
+    const temporalTrend = screen.getByRole("group", { name: "Tendencia temporal · fecha" });
+    expect(temporalTrend).toHaveTextContent("Se incluyen 108 de 120 filas interpretables.");
+    expect(temporalTrend).toHaveTextContent("Los periodos más antiguos se agruparon");
     expect(screen.getByRole("img", { name: /Serie temporal de fecha por filas/ })).toBeInTheDocument();
     const metric = screen.getByRole("combobox", { name: "Métrica temporal para fecha" });
     expect(metric).toHaveValue("rows");
@@ -901,6 +938,34 @@ describe("ReviewPhase", () => {
     const nextCalculation = await within(nonOwner).findByRole("button", { name: "Calcular tendencia" });
     fireEvent.click(nextCalculation);
     await waitFor(() => expect(getAggregation).toHaveBeenCalledTimes(2));
+  });
+
+  it("descarta una agregación temporal tardía cuando cambia la revisión del dataset", async () => {
+    let resolveAggregation!: (series: TemporalAggregationSeries) => void;
+    const pendingAggregation = new Promise<TemporalAggregationSeries>((resolve) => {
+      resolveAggregation = resolve;
+    });
+    vi.spyOn(bridge, "getTemporalAggregation").mockReturnValue(pendingAggregation);
+    const cancel = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+    const view = renderTemporalTrend(numericTemporalProfile, 0);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Métrica temporal para fecha" }), {
+      target: { value: "numeric" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Calcular tendencia" }));
+    await waitFor(() => expect(bridge.getTemporalAggregation).toHaveBeenCalledOnce());
+
+    view.rerender(temporalTrendElement(numericTemporalProfile, 1));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("temporal"));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Elige una métrica y calcula la tendencia sobre todas las filas",
+    );
+
+    resolveAggregation(temporalMeanSeries);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Calcular tendencia" })).toBeEnabled();
+    });
+    expect(screen.queryByRole("table", { name: /Promedio de ventas/ })).not.toBeInTheDocument();
   });
 
   it("expone progreso y permite cancelar el cálculo de la serie numérica", async () => {

@@ -218,6 +218,7 @@ describe("DeliveryPhase", () => {
 
     expect(screen.getByRole("note")).toHaveTextContent("recipe.json");
     expect(screen.getByRole("note")).toHaveTextContent("manifest.json");
+    expect(screen.getByRole("note")).toHaveTextContent("delivery-summary.md");
   });
 
   it("permite seleccionar una política de privacidad antes de exportar", () => {
@@ -723,7 +724,7 @@ describe("DeliveryPhase", () => {
       }}
     />);
     expect(screen.getByRole("status")).toHaveTextContent("Paquete Columnia exportado");
-    expect(screen.getByRole("status")).toHaveTextContent("recipe.json validada");
+    expect(screen.getByRole("status")).toHaveTextContent("recipe.json incluye la receta validada");
     expect(screen.getByRole("status")).toHaveTextContent("Privacidad aplicada a 1 columnas: email");
     const openLastExport = vi.spyOn(bridge, "openLastExport").mockResolvedValue(undefined);
     fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta de exportación" }));

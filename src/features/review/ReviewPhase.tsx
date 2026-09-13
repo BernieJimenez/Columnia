@@ -1721,7 +1721,7 @@ function TemporalTrendChart({
         {metric === "numeric"
           ? `${aggregationLabel(aggregation)} de ${valueColumn || "una columna numérica"} por ${granularityLabel}; el cálculo recorre el dataset completo y solo devuelve agregados. `
           : `${metric === "rows" ? "Conteo de filas" : "Porcentaje de valores interpretables"} por ${granularityLabel}; solo se muestran agregados del perfil, nunca valores de celdas. `}
-        Se incluyen {summary.parsedRowCount.toLocaleString()}
+        Se incluyen {summary.parsedRowCount.toLocaleString()}{" "}
         de {(summary.parsedRowCount + summary.unparsedRowCount).toLocaleString()} filas interpretables.
       </p>
       {summary.periods.length > 0 ? (

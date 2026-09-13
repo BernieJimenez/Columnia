@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const requiredFiles = [
@@ -41,6 +41,41 @@ function requireFragments(relativePath, contents, fragments) {
   if (missing.length > 0) {
     fail(`${relativePath} no conserva el contrato requerido: ${missing.join(", ")}.`);
   }
+}
+
+export function validateReadmeSetupContract(readme, packageManifest) {
+  const heading = "## Ejecutar desde el código fuente";
+  const sectionStart = readme.indexOf(heading);
+  if (sectionStart < 0) fail(`README.md no contiene la sección ${heading}.`);
+  const nextHeading = readme.indexOf("\n## ", sectionStart + heading.length);
+  const section = readme.slice(sectionStart, nextHeading < 0 ? undefined : nextHeading);
+
+  const requirements = section.match(/^Requisitos:\s*(.+)$/m)?.[1];
+  const engines = packageManifest.engines ?? {};
+  for (const [label, runtime, range] of [
+    ["Node.js", "node", engines.node],
+    ["npm", "npm", engines.npm],
+  ]) {
+    if (typeof range !== "string" || range.length === 0) {
+      fail(`package.json debe declarar engines.${runtime} para validar README.md.`);
+    }
+    if (!requirements?.includes(`${label} \`${range}\``)) {
+      fail(`README.md debe declarar ${label} \`${range}\` según package.json engines.${runtime}.`);
+    }
+  }
+
+  const scripts = packageManifest.scripts ?? {};
+  const documentedScripts = [];
+  for (const match of section.matchAll(/\bnpm[ \t]+(run(?:[ \t]+([^\s`]+))?|test)\b/g)) {
+    const scriptName = match[1] === "test" ? "test" : match[2]?.replace(/[.,;)]+$/g, "");
+    if (!scriptName) fail("README.md contiene `npm run` sin nombre de script.");
+    if (!Object.hasOwn(scripts, scriptName)) {
+      const command = scriptName === "test" ? "npm test" : `npm run ${scriptName}`;
+      fail(`README.md documenta ${command}, pero package.json no define ese script.`);
+    }
+    documentedScripts.push(scriptName);
+  }
+  if (documentedScripts.length === 0) fail("README.md debe documentar comandos npm vinculados a package.json scripts.");
 }
 
 function markdownTableCellCount(line) {
@@ -103,11 +138,14 @@ async function imagesUnder(root) {
   return images;
 }
 
+async function main() {
 try {
   for (const relativePath of requiredFiles) {
     await readUtf8(relativePath);
   }
   const packageManifest = JSON.parse(await readUtf8("package.json"));
+  const readme = await readUtf8("README.md");
+  validateReadmeSetupContract(readme, packageManifest);
   const packageLock = JSON.parse(await readUtf8("package-lock.json"));
   const dependencyAudit = await readUtf8("docs/reference/dependency-audit.md");
   const ipcInventory = JSON.parse(await readUtf8("docs/reference/ipc-inventory.json"));
@@ -230,4 +268,9 @@ try {
 } catch (error) {
   console.error(`Gate de documentación falló: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
+}
+}
+
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  await main();
 }

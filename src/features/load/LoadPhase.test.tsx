@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DatasetSourceInspection } from "../../bridge";
@@ -61,6 +61,12 @@ describe("LoadPhase", () => {
       "aria-describedby",
       "sheet-description",
     );
+    const summary = within(screen.getByRole("region", { name: "Resumen antes de cargar" }));
+    expect(summary.getByText(/2 KiB/)).toBeInTheDocument();
+    expect(summary.getByText("Enero")).toBeInTheDocument();
+    expect(summary.getByText("Usar la primera fila")).toBeInTheDocument();
+    expect(screen.getByText(/no muestra el esquema ni los tipos/)).toBeInTheDocument();
+    expect(screen.getByText(/pueden ocupar bastante más memoria/)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Hoja" })).toHaveFocus();
     fireEvent.change(screen.getByRole("combobox", { name: "Hoja" }), {
       target: { value: "sheet-2" },
@@ -167,5 +173,30 @@ describe("LoadPhase", () => {
 
     expect(screen.getByRole("button", { name: "Elegir de nuevo" })).toBeDisabled();
     expect(screen.getByText("ventas.csv")).toBeInTheDocument();
+    });
   });
-});
+
+  it("actualiza el resumen cuando cambian la hoja y el modo de encabezados", () => {
+    const initialInspection = workbookInspection(workbook);
+    if (initialInspection.kind !== "sheet") throw new Error("Se esperaba seleccionar una hoja.");
+
+    const { rerender } = render(
+      <LoadPhase {...loadPhaseProps()} inspection={initialInspection} />,
+    );
+
+    rerender(
+      <LoadPhase
+        {...loadPhaseProps()}
+        inspection={{
+          ...initialInspection,
+          selectedSheetId: "sheet-2",
+          headerMode: "generated",
+        }}
+      />,
+    );
+
+    const summary = within(screen.getByRole("region", { name: "Resumen antes de cargar" }));
+    expect(summary.getByText("Febrero")).toBeInTheDocument();
+    expect(summary.getByText("Generar nombres de columna")).toBeInTheDocument();
+    expect(summary.queryByText("Usar la primera fila")).not.toBeInTheDocument();
+  });
