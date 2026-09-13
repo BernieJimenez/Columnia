@@ -9,23 +9,22 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-12
 
-En el commit limpio `db36c23`, versión `0.167.0`, el perfil `Full` pasó con
-15/15 etapas aprobadas: 312 pruebas frontend y 401 Rust pasaron; cuatro pruebas
+En el commit limpio `959036f`, versión `0.167.0`, el perfil `Full` pasó con
+15/15 etapas aprobadas: 312 pruebas frontend y 402 Rust pasaron; cuatro pruebas
 externas/optativas quedaron ignoradas. Evidencia exacta:
-`.local/validation/20260913T002252Z-db36c23-full.json`.
+`.local/validation/20260913T003824Z-959036f-full.json`.
 
 La captura visual se renovó en `.local/validation/accessibility-visual/20260913T002632Z`;
 escritorio, móvil, zoom 125/200 % y colores forzados pasaron el contrato y el
 baseline en `.local/validation/accessibility-baseline/20260913T002709Z`. Esto no
 sustituye la comprobación manual con lector de pantalla y colores de alto contraste.
 
-Después, el commit `bb35f04` añadió cobertura unitaria del parseo booleano y del
-mapeo `BOOLEAN`/`BIT`. En ese commit pasaron `cargo fmt --all -- --check` y
-`cargo test --lib` (402 aprobados, 0 fallidos, 4 ignorados). La cobertura verifica
-el resultado puro del parseo, la aceptación de parámetros booleanos/nulos y los
-tipos declarados por dialecto; no demuestra por sí sola los valores ODBC recibidos
-por un servidor. T6-05 sigue abierto hasta completar el round-trip real en SQL
-Server por las rutas frame y source-backed.
+El cambio de `bb35f04`, incluido en ese perfil Full, añade cobertura unitaria del
+parseo booleano y del mapeo `BOOLEAN`/`BIT`. La prueba verifica el resultado puro
+del parseo, la aceptación de parámetros booleanos/nulos y los tipos declarados
+por dialecto; no demuestra por sí sola los valores ODBC recibidos por un servidor.
+T6-05 sigue abierto hasta completar el round-trip real en SQL Server por las
+rutas frame y source-backed.
 
 Tier 7 está completo. Siguen abiertos los gates que requieren evidencia externa
 o humana: las tres sesiones beta y el resumen sanitizado de Gate 1; el round-trip
