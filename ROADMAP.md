@@ -2617,7 +2617,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Severidad:** Media · Nuevo
   - **Ubicación:** `src-tauri/src/remote_databases.rs:443, :495`
   - **Qué hacer:** Transmitir parámetros booleanos tipados o generar TRUE/FALSE para PostgreSQL, conservando BIT y el contrato adecuado de otros motores.
-  - **Estado de implementación:** Los booleanos y nulos booleanos se envían mediante `Bit`/`Nullable<Bit>` dentro del serializador parametrizado compartido por frame y source-backed. El harness externo verificó `true`/`false`/`null` por ambas rutas en PostgreSQL 17.11 y MariaDB 10.11; falta una instancia SQL Server accesible para completar el criterio de los tres motores. Evidencia parcial: `.local/validation/odbc/20260906T011500Z/summary.json`.
+  - **Estado de implementación:** Los booleanos y nulos booleanos se envían mediante `Bit`/`Nullable<Bit>` dentro del serializador parametrizado compartido por frame y source-backed. El harness externo verificó `true`/`false`/`null` por ambas rutas en PostgreSQL 17.11 y MariaDB 10.11; falta una instancia SQL Server accesible para completar el criterio de los tres motores. El commit `bb35f04` añade cobertura unitaria del parseo exacto `true`/`false`, rechazo de texto inválido, aceptación del parámetro nulo y mapeo `BOOLEAN`/`BIT`, pero no sustituye el round-trip del servidor. Evidencia externa parcial: `.local/validation/odbc/20260906T011500Z/summary.json`.
   - **Criterio de aceptación:** Exportar y releer true/false/null en los tres motores conserva tipos y valores desde frame y fuente incremental.
   - **Esfuerzo:** bajo
   - **Depende de:** T6-03 si se comparte el serializador parametrizado
@@ -2689,6 +2689,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
 | Fecha | Estado |
 | --- | --- |
 | 2026-09-06 | Aplicación técnica de T6-01–T6-11 verificada con regresiones. T6-03 queda aceptada con round-trip MariaDB real en ambos modos; T6-08 queda aceptada con tres recorridos nativos dentro de presupuesto. T6-05 queda abierta únicamente por la instancia SQL Server real no accesible en esta estación. |
+| 2026-09-12 | `bb35f04` añade prueba unitaria de parseo booleano y tipos por dialecto; `cargo test --lib` pasa 402/402 con cuatro ignoradas. No cambia el estado de aceptación: T6-05 sigue esperando round-trip real en SQL Server por frame y source-backed. |
 
 ### Decisiones cerradas de esta revisión
 
