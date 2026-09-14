@@ -45,7 +45,7 @@ set y 256 MiB privados.
 Se abrió Tier 7 con cuatro pendientes de gates: CSS 234 B sobre su presupuesto
 raw, inventario IPC desincronizado con `dataset::samples`, falso positivo de
 `fetch()` ODBC en la política de red y ficha de dependencias con evidencia
-anterior. Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-07.md),
+anterior. Véanse [auditoría consolidada](AUDITORIA.md),
 [ROADMAP](ROADMAP.md) y [CHANGELOG](CHANGELOG.md). T6-05, T5-18/T5-20,
 asistencia real, VM limpia, updater real y plataformas no Windows siguen abiertos
 sin duplicarse. Canal, jurisdicción y normativa permanecen pendientes de
@@ -117,7 +117,7 @@ módulos.
 
 Rediseño aplicado en `feat/diseno-integral`, sin cambio de versión. Consultar
 primero esta sección, [`DESIGN.md`](DESIGN.md) y el
-[informe de diseño](AUDITORIA_DISENO_2026-09-06.md)
+[auditoría consolidada](AUDITORIA.md)
 para retomar el trabajo sin repetir la exploración del frontend.
 
 - `src/styles.css`: paleta mediante variables, navegación petróleo, superficies
@@ -153,7 +153,7 @@ Base revisada: `7d837819c66d22d8c2c51f12cac84a8b8014206d`, versión `0.167.0`.
 aplicada. T6-03 queda aceptada con MariaDB real y T6-08 queda aceptada con
 tres recorridos nativos dentro del presupuesto. T6-05 conserva únicamente la
 aceptación SQL Server pendiente; T5-18/T5-20 siguen requiriendo revisión legal.
-Véanse [informe](AUDITORIA_PROFESIONAL_2026-09-05.md),
+Véanse [auditoría consolidada](AUDITORIA.md),
 [ROADMAP](ROADMAP.md) y [CHANGELOG](CHANGELOG.md).
 
 - Alcance acordado: escritorio exhaustivo, sin CLI, workflows ni GitHub Actions.
@@ -1450,7 +1450,7 @@ Al actualizarlo:
 
 | Fecha | Cambio de contexto | Evidencia |
 | --- | --- | --- |
-| 2026-09-07 | Reauditoría incremental posterior al rediseño y la modularización: producto, suites y recorrido nativo aprobados; Tier 7 registra presupuesto CSS excedido, inventario IPC desincronizado, falso positivo del gate de red y evidencia documental anterior. Usuario, escala, canal, jurisdicción y normativa quedan pendientes. | `AUDITORIA_PROFESIONAL_2026-09-07.md`, `ROADMAP.md`, `CHANGELOG.md`, `.local/validation/accessibility-visual/20260907T223346Z`, `.local/validation/webview2-cdp/20260907T223458Z` |
+| 2026-09-07 | Reauditoría incremental posterior al rediseño y la modularización: producto, suites y recorrido nativo aprobados; Tier 7 registra presupuesto CSS excedido, inventario IPC desincronizado, falso positivo del gate de red y evidencia documental anterior. Usuario, escala, canal, jurisdicción y normativa quedan pendientes. | `AUDITORIA.md`, `ROADMAP.md`, `CHANGELOG.md`, `.local/validation/accessibility-visual/20260907T223346Z`, `.local/validation/webview2-cdp/20260907T223458Z` |
 | 2026-09-07 | T7-03: el gate de red distingue patrones por lenguaje y conserva cobertura de cursor ODBC permitido, `fetch` web bloqueado y cliente HTTP Rust bloqueado; red y supply chain pasan. | `tools/check-network-policy.mjs`, `tools/check-network-policy.test.mjs`, `package.json`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-02: inventario IPC regenerado con módulos reales; checker y prueba de paridad comparten `sourceFiles` y validan su existencia. | `docs/reference/ipc-inventory.json`, `tools/check-ipc-inventory.mjs`, `src/ipc-contract.test.ts`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-01: declaraciones responsive redundantes retiradas; CSS raw/gzip bajo presupuesto y build, E2E y matriz visual aprobados. | `src/styles.css`, `.local/validation/audit-20260907-bundle.json`, `.local/validation/accessibility-visual/20260907T224737Z`, `ROADMAP.md`, `CHANGELOG.md` |
@@ -1524,7 +1524,7 @@ Al actualizarlo:
 | 2026-08-29 | P1/M1 liga los perfiles cacheados del catálogo a la huella SHA-256 de `current.parquet`: al reabrir un proyecto se invalida solo la caché si cambia el snapshot, se conserva compatibilidad con catálogos anteriores y SQLite migra a v5 de forma transaccional. | `src-tauri/src/projects.rs`, `src-tauri/src/dataset.rs`, `ROADMAP.md` |
 | 2026-08-28 | I6 añade un contrato updater estructural reproducible y lo integra al perfil Release/Package: un fixture temporal aprueba el par válido y falla ante truncado, firma alterada, manifiesto incompleto/corrupto y URL HTTP. La prueba no contacta la red ni sustituye la validación del canal real. | `tools/test-updater-manifest.mjs`, `tools/check.ps1`, `.local/validation/20260828T214048Z-6ec7bae-release.json` |
 | 2026-08-28 | T5-02 queda respaldado por un smoke nativo aislado: los cuatro diálogos Win32 pasan, el driver rechaza ventanas residuales por PID/owner, espera el cierre modal y corta drivers bloqueados; el recorrido oficial registra 521.79 MiB working set, 265.98 MiB privados y cleanup confirmado. El smoke nativo se separa del runner Playwright para medir el presupuesto de WebView2 sin retención del runner. | `tools/automate-native-file-dialog.ps1`, `tools/probe-webview2-cdp.ps1`, `tools/probe-webview2-native-selectors.mjs`, `.local/validation/webview2-cdp/20260828T203917Z/summary.json` |
-| 2026-08-28 | Reauditoría profesional exhaustiva sobre `137520b`: 248 tests frontend, 234 Rust y 9 E2E aprobaron; Full/Release/Package pasaron y Package produjo MSI/NSIS. Se verificaron regresiones de rendimiento, verdes falsos de cobertura/tiers/evidencia, deuda de seguridad/arquitectura y bloqueos legales de distribución. Se abrió Tier 5 con 20 tareas; no se corrigió código ni se aprobó un baseline. | `AUDITORIA_PROFESIONAL_2026-08-28.md`, `ROADMAP.md`, `.local/validation/20260828T054125Z-137520b-package.json`, `.local/validation/performance-baseline/20260828T053153Z/summary.json` |
+| 2026-08-28 | Reauditoría profesional exhaustiva sobre `137520b`: 248 tests frontend, 234 Rust y 9 E2E aprobaron; Full/Release/Package pasaron y Package produjo MSI/NSIS. Se verificaron regresiones de rendimiento, verdes falsos de cobertura/tiers/evidencia, deuda de seguridad/arquitectura y bloqueos legales de distribución. Se abrió Tier 5 con 20 tareas; no se corrigió código ni se aprobó un baseline. | `AUDITORIA.md`, `ROADMAP.md`, `.local/validation/20260828T054125Z-137520b-package.json`, `.local/validation/performance-baseline/20260828T053153Z/summary.json` |
 | 2026-08-26 | Review incorpora cobertura temporal agregada para Date/Datetime/Timestamp y fechas detectadas: muestra rango, filas con valor y porcentaje con tabla accesible equivalente sin enviar celdas a React. | `src/features/review/ReviewPhase.tsx`, `src/features/review/ReviewPhase.test.tsx`, `src/styles.css`, `ROADMAP.md` |
 | 2026-08-26 | M1 incorpora un mapeo seguro de sesiones sistema anterior al catálogo de proyectos mediante selector nativo. La fuente, hoja, esquema y receta se validan en un estado temporal y el snapshot solo se publica después de pasar todas las comprobaciones; el bridge no recibe rutas. | `src-tauri/src/projects.rs`, `src-tauri/src/lib.rs`, `src/bridge.ts`, `ROADMAP.md` |
 | 2026-08-26 | La migración de reglas acepta aliases y números finitos serializados como texto, y omite con warning tolerancias negativas o políticas no representables para evitar conversiones inválidas. | `src-tauri/src/dataset.rs`, `ROADMAP.md` |
@@ -1705,7 +1705,7 @@ Al actualizarlo:
 
 ## Documentos relacionados
 
-- [AUDITORIA_PROFESIONAL_2026-08-28.md](AUDITORIA_PROFESIONAL_2026-08-28.md): informe exhaustivo, evidencia, puntuaciones y trazabilidad hacia Tier 5.
+- [AUDITORIA.md](AUDITORIA.md): auditoría consolidada, registro histórico y trazabilidad hacia el trabajo vigente.
 - [README.md](README.md): visión funcional y uso actual.
 - [THREAT_MODEL.md](THREAT_MODEL.md): fronteras de confianza, amenazas, controles y riesgos residuales.
 - [ROADMAP.md](ROADMAP.md): planificación, decisiones históricas y pendientes.

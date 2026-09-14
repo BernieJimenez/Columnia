@@ -6,6 +6,8 @@ comportamiento implementado.
 
 La [guía de diseño](../DESIGN.md) documenta el lenguaje visual, la jerarquía del
 shell y los contratos responsive y de accesibilidad para contribuciones UI.
+La [auditoría consolidada](../AUDITORIA.md) resume las revisiones históricas; el
+[trabajo vigente](reference/roadmap-current.md) contiene la única cola operativa.
 
 ## Índice Diátaxis
 

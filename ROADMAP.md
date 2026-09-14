@@ -18,7 +18,7 @@ El detalle por etapa y el historial permanecen en este documento.
 
 - Rediseño integral de interfaz (2026-09-06) aplicado y validado en navegador:
   navegación, carga, superficies compartidas, temas y preferencias. Véanse
-  [contexto vigente](CONTEXTO.md) e [informe de diseño](AUDITORIA_DISENO_2026-09-06.md).
+  [contexto vigente](CONTEXTO.md) y la [auditoría consolidada](AUDITORIA.md).
   La aceptación visual nativa de esta revisión queda pendiente; no sustituye la
   evidencia de escritorio de versiones anteriores.
 
@@ -174,7 +174,7 @@ El detalle por etapa y el historial permanecen en este documento.
   formal de tres actualizaciones ya cumple el presupuesto; la memoria nativa
   WebView2, la evidencia release desde un commit limpio y las decisiones
   legales/operativas siguen
-  bloqueando la publicación. Informe: `AUDITORIA_PROFESIONAL_2026-08-28.md`.
+  bloqueando la publicación. Informe histórico: `AUDITORIA.md`.
 
 ### Índice operativo de la reauditoría
 
@@ -1021,7 +1021,7 @@ alcanzó 104,963,092 bytes, tuvo pico CLI de 492,957,696 bytes, máximos de
   nativo Win32. Vitest cubre guardar→catálogo→abrir→restaurar y contratos de
   landmarks/ARIA; CSS cubre targets/reduced motion; el gate WebView2 real
   verifica Abrir/Guardar como, recetas y exportación sin exponer rutas.
-- [ ] Completar la auditoría manual de asistencia/visual con lector de pantalla
+- Seguimiento consolidado en **RV09**: completar la auditoría manual de asistencia/visual con lector de pantalla
   y hardware Windows High Contrast.
 - [x] Definir umbrales de cobertura por capa, no solo un porcentaje global.
   V8 cubre `src` con 80% statements/lines, 75% branches y 75% functions;
@@ -1085,7 +1085,7 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
   decisión de publicación empresarial del MSI sigue pendiente.
 - [x] Incluir licencia y avisos de terceros como resources; no se requiere EULA
   adicional mientras la distribución conserve la licencia MIT.
-- [ ] Validar instalación, primera apertura, segunda instancia, actualización,
+- Seguimiento consolidado en **RV11**: validar instalación, primera apertura, segunda instancia, actualización,
   desinstalación y conservación/borrado opcional de datos.
 - [x] Probar usuario sin privilegios administrativos y rutas con Unicode/espacios.
 - [x] Definir política WebView2 bootstrapper/offline: el instalador descarga el
@@ -1117,7 +1117,7 @@ script local completo rompe contratos, seguridad, accesibilidad o presupuestos.
 - [x] Descargar solo tras acción del usuario, mostrando progreso y cancelación.
 - [x] Verificar firma antes de instalar y limitar cualquier ruta ejecutable al
   directorio privado del updater.
-- [ ] Probar downgrade, versión igual, prerelease, descarga parcial, firma inválida,
+- Seguimiento consolidado en **RV11**: probar downgrade, versión igual, prerelease, descarga parcial, firma inválida,
   manifiesto corrupto, falta de red y recuperación después de un cierre. La
   frontera Rust ya rechaza downgrade/igualdad y versiones inválidas, con pruebas
   semver para estable y prerelease; también rechaza en runtime un payload cuyo
@@ -1149,9 +1149,9 @@ versión instalada utilizable.
 - [x] Instalar y ejecutar el artefacto final antes de publicarlo.
   El smoke NSIS local está integrado en el perfil `Package`; la VM limpia sigue
   pendiente como validación de distribución.
-- [ ] Crear el tag únicamente después de superar toda la validación local.
-- [ ] Publicar manualmente en el canal gratuito elegido.
-- [ ] Descargar otra vez los assets publicados y verificar localmente firma/hash.
+- Como parte de **RV11**, crear el tag únicamente después de superar toda la validación local.
+- Como parte de **RV11**, publicar manualmente en el canal gratuito elegido.
+- Como parte de **RV11**, descargar otra vez los assets publicados y verificar localmente firma/hash.
 - [x] Mantener una vía de reanudación segura si falla después de crear el tag o
   durante la publicación manual. `docs/how-to/publish-release.md` exige no
   mover tags, reanudar con `--expected-version` y volver a descargar/verificar
@@ -2042,7 +2042,7 @@ por el mero hecho de estar documentada aquí.
     por el checker. El orquestador reutiliza para la captura el mismo binario
     producido por el gate `Release/Package`.
 
-- [ ] **[T5-20] Completar notices y atribuciones antes de publicar**
+- **[T5-20, trasladada a RV11] Completar notices y atribuciones antes de publicar**
   - **Área:** Legal / Supply chain
   - **Severidad:** Alta para distribución pública; regresión de una tarea cerrada
   - **Ubicación:** `THIRD_PARTY_NOTICES.md:3`, `tools/generate-third-party-notices.ps1:94`
@@ -2194,7 +2194,7 @@ por el mero hecho de estar documentada aquí.
   - **Esfuerzo:** medio
   - **Depende de:** ninguna
 
-- [ ] **[T5-18] Hacer descubribles licencia, notices y privacidad local**
+- **[T5-18, trasladada a RV11] Hacer descubribles licencia, notices y privacidad local**
   - **Área:** Legal / Accesibilidad / UX
   - **Severidad:** Media; requiere revisión legal
   - **Ubicación:** `src/App.tsx:667`, `src-tauri/tauri.conf.json:52`, `THREAT_MODEL.md:75`
@@ -2573,7 +2573,7 @@ por el mero hecho de estar documentada aquí.
 
 ## Tier 6 — Integridad de escritorio y entrega ODBC (abierto 2026-09-05)
 
-Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.md), base `7d83781`, versión `0.167.0`. Alcance: escritorio; CLI, workflows y GitHub Actions excluidos por el usuario. Once tareas abiertas: cuatro altas y siete medias. Esfuerzo agregado: cinco bajas y seis medias; no es un compromiso de calendario. La severidad prevalece sobre el número de Tier.
+Origen: [auditoría consolidada](AUDITORIA.md), base `7d83781`, versión `0.167.0`. Alcance: escritorio; CLI, workflows y GitHub Actions excluidos por el usuario. Once tareas abiertas: cuatro altas y siete medias. Esfuerzo agregado: cinco bajas y seis medias; no es un compromiso de calendario. La severidad prevalece sobre el número de Tier.
 
 - [x] **[T6-01] Corregir el estado del JOIN para conservar filas y permitir el guardado**
   - **Área:** Código / Arquitectura / Refactorización
@@ -2616,7 +2616,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
   - **Depende de:** ninguna
   - **Trazabilidad:** A-04 del informe del 2026-09-05.
 
-- [ ] **[T6-05] Aceptar round-trip de booleanos en SQL Server**
+- **[T6-05, trasladada a RV10] Aceptar round-trip de booleanos en SQL Server**
   - **Área:** Aceptación externa
   - **Severidad:** Pendiente para declarar soporte de los tres motores
   - **Ubicación:** `src-tauri/src/remote_databases.rs`; entorno ODBC SQL Server
@@ -2705,7 +2705,7 @@ Origen: [AUDITORIA_PROFESIONAL_2026-09-05.md](AUDITORIA_PROFESIONAL_2026-09-05.m
 
 ## Tier 7 — Regresiones de gates tras rediseño y modularización (abierto 2026-09-07)
 
-Origen: [AUDITORIA_PROFESIONAL_2026-09-07.md](AUDITORIA_PROFESIONAL_2026-09-07.md),
+Origen: [auditoría consolidada](AUDITORIA.md),
 base `d0e00fd`, versión `0.167.0`. Cuatro tareas registradas: una baja
 permanece abierta. El producto y el recorrido nativo pasan; esta tanda
 recupera controles locales que quedaron rojos o desactualizados.
@@ -2774,17 +2774,71 @@ vigente está en `docs/how-to/run-beta-validation.md`.
 
 - [x] Definir tareas, privacidad, severidades, métricas de fricción y plantillas
   reproducibles de sesión y resumen.
-- [ ] Completar tres sesiones válidas con tres participantes distintos sobre el
+- Seguimiento consolidado en **RV07**: completar tres sesiones válidas con tres participantes distintos sobre el
   mismo release candidate y commit.
-- [ ] Probar dos casos reales por sesión y al menos tres datasets reales distintos
+- Como parte de **RV07**, probar dos casos reales por sesión y al menos tres datasets reales distintos
   en el conjunto aceptado; la fixture sintética cuenta solo como calentamiento.
-- [ ] Lograr al menos 24 de 30 tareas sin ayuda en el conjunto aceptado.
-- [ ] Convertir fallos dependientes de datos en reproducciones sintéticas.
-- [ ] Cerrar todos los hallazgos P0/P1 y decidir los P2/P3 restantes.
-- [ ] Verificar guardado/reapertura y la entrega fuera de Columnia en cada sesión.
-- [ ] Publicar el resumen sanitizado en `docs/reference/beta-v1-summary.md`.
+- Como parte de **RV07**, lograr al menos 24 de 30 tareas sin ayuda en el conjunto aceptado.
+- Seguimiento consolidado en **RV08**: convertir fallos dependientes de datos en reproducciones sintéticas.
+- Como parte de **RV07**, cerrar todos los hallazgos P0/P1 y decidir los P2/P3 restantes.
+- Como parte de **RV07**, verificar guardado/reapertura y la entrega fuera de Columnia en cada sesión.
+- Como parte de **RV07**, publicar el resumen sanitizado en `docs/reference/beta-v1-summary.md`.
 
 **Gate:** tres sesiones válidas sobre el mismo release candidate, 24 de 30 tareas
 sin ayuda, ningún P0/P1 abierto, reportes detallados bajo `.local/beta/` y resumen
 sanitizado versionado. Este Tier no autoriza instaladores ni updater. La medición
 posterior del shell de espacios es un Gate 2 separado y conserva esta línea base.
+
+## Tier 9 — Valor operativo consolidado (abierto 2026-09-14)
+
+Origen: [auditoría consolidada](AUDITORIA.md). Este Tier reemplaza las listas
+abiertas de las auditorías fechadas. La cola resumida y el orden operativo están
+en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
+
+### Flujo automático
+
+- [ ] **RV01 — Flujo contextual y estado central.** Una acción primaria por
+  estado; las fases se completan por resultados y todas las tareas se ligan a la
+  revisión vigente.
+- [ ] **RV02 — Importación unificada y explicable.** Aceptar una sola vez hoja,
+  encabezados, esquema, ambigüedades y recursos; permitir revisar encabezados
+  CSV antes de activar el dataset.
+- [ ] **RV03 — Plan completo y resultado antes/después.** Reunir operaciones,
+  motivos e impacto en una unidad reversible compatible y recalcular calidad al
+  terminar.
+- [ ] **RV04 — Excepciones, cancelación y recuperación.** Resolver, conservar o
+  excluir excepciones; una cancelación o fallo nunca publica éxito parcial.
+- [ ] **RV05 — Tarea reutilizable.** Guardar importación, receta, reglas y salida
+  sin credenciales ni autorización implícita de sobrescritura.
+- [ ] **RV06 — Interfaz compacta y accesible.** Reducir jerga y repetición,
+  acercar historial al resultado y verificar teclado, foco y zoom 200 %.
+
+### Evidencia para declarar soporte
+
+- [ ] **RV07 — Beta con tareas reales.** Cerrar Gate 1 de Tier 8 con tres
+  participantes, 24/30 tareas sin ayuda y resumen sanitizado.
+- [ ] **RV08 — Regresiones derivadas de beta.** Convertir fallos observados en
+  fixtures sintéticas y pruebas pertinentes.
+- [ ] **RV09 — Aceptación nativa de accesibilidad.** Completar Cargar→Entregar en
+  Windows con teclado y lector de pantalla real.
+- [ ] **RV10 — Aceptación SQL Server.** Verificar round-trip booleano desde frame
+  y fuente incremental; reemplaza el pendiente T6-05 sin duplicarlo.
+- [ ] **RV11 — Candidato instalable y distribución.** Resolver notices y decisión
+  de distribución; validar instalación, updater y recuperación del artefacto.
+
+### Mejoras guiadas por la beta
+
+- [ ] **RV12 — Recursos y escala medibles.** Ampliar la matriz de RAM, disco,
+  tiempo, cancelación y limpieza según los datasets observados.
+- [ ] **RV13 — Respaldo y autoguardado recuperables.** Restauración transaccional
+  y guardado opt-in con cuota y última versión válida.
+- [ ] **RV14 — Preflight y presets de entrega.** Explicar incompatibilidades antes
+  de escribir y verificar presets en el destino BI elegido.
+- [ ] **RV15 — Lotes gráficos.** Implementar solo si la beta confirma repetición
+  frecuente, reutilizando el contrato batch existente.
+- [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
+  `dataset.rs` al tocar cada área, con paridad y sin reescritura general.
+
+Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
+lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores quedan fuera de
+la cola hasta demostrar demanda repetida.

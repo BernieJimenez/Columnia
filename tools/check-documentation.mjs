@@ -22,13 +22,13 @@ const requiredFiles = [
   "docs/reference/release-evidence.md",
   "ROADMAP.md",
   "CONTEXTO.md",
-  "AUDITORIA_PROFESIONAL_2026-08-28.md",
+  "AUDITORIA.md",
   "THREAT_MODEL.md",
   "docs/reference/ipc-inventory.json",
   "docs/reference/legal-distribution-decision.json",
   "docs/explanation/local-first-architecture.md",
 ];
-const markdownRoots = ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", "ROADMAP.md", "CONTEXTO.md", "AUDITORIA_PROFESIONAL_2026-08-28.md", "THREAT_MODEL.md", "docs"];
+const markdownRoots = ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", "ROADMAP.md", "CONTEXTO.md", "AUDITORIA.md", "THREAT_MODEL.md", "docs"];
 const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -143,6 +143,11 @@ try {
   for (const relativePath of requiredFiles) {
     await readUtf8(relativePath);
   }
+  const obsoleteAuditFiles = (await readdir(projectRoot))
+    .filter((name) => /^AUDITORIA_.+\.md$/u.test(name));
+  if (obsoleteAuditFiles.length > 0) {
+    fail(`Las auditorías fechadas deben estar fusionadas en AUDITORIA.md: ${obsoleteAuditFiles.join(", ")}.`);
+  }
   const packageManifest = JSON.parse(await readUtf8("package.json"));
   const readme = await readUtf8("README.md");
   validateReadmeSetupContract(readme, packageManifest);
@@ -183,7 +188,7 @@ try {
   if (!changelog.includes("Tier 5")) fail("CHANGELOG.md no documenta el estado de Tier 5.");
   if (!await readUtf8("ROADMAP.md").then((roadmap) => roadmap.includes("Tier 5"))) fail("ROADMAP.md no contiene el roadmap Tier 5.");
   if (!await readUtf8("CONTEXTO.md").then((context) => context.includes("Tier 5"))) fail("CONTEXTO.md no contiene el contexto Tier 5.");
-  if (!await readUtf8("AUDITORIA_PROFESIONAL_2026-08-28.md").then((audit) => audit.includes("T5-"))) fail("El informe de auditoría no contiene la trazabilidad Tier 5.");
+  if (!await readUtf8("AUDITORIA.md").then((audit) => audit.includes("Tier 5") && audit.includes("RV01"))) fail("La auditoría consolidada no contiene la trazabilidad histórica y vigente.");
   if (!docsIndex.includes("../DESIGN.md") || !docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/run-beta-validation.md") || !docsIndex.includes("templates/beta-session.md") || !docsIndex.includes("templates/beta-summary.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
     fail("docs/README.md no expone los cuatro cuadrantes Diátaxis.");
   }

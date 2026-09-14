@@ -15,6 +15,11 @@ los artefactos de validación locales.
 
 ### Interno
 
+- Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
+  `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
+  eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate
+  documental rechaza volver a crear auditorías paralelas en la raíz.
+
 - `npm run beta:prepare` crea una RC local ligada a un commit limpio y a su gate
   `Full` aprobado, con manifiesto y tres plantillas prellenadas bajo `.local/beta/`.
 
@@ -62,7 +67,7 @@ los artefactos de validación locales.
   Tier 7 con cuatro tareas (`T7-01`–`T7-04`) para recuperar el presupuesto CSS,
   sincronizar el inventario IPC, eliminar un falso positivo del gate de red y
   actualizar la evidencia documental. No incluye todavía correcciones de producto
-  ni de configuración. [Informe](AUDITORIA_PROFESIONAL_2026-09-07.md),
+  ni de configuración. [Informe consolidado](AUDITORIA.md),
   [plan](ROADMAP.md) y [contexto](CONTEXTO.md).
 
 - Reauditoría de escritorio del 2026-09-05: se documentan trece hallazgos,
@@ -71,7 +76,7 @@ los artefactos de validación locales.
   accesibilidad, cobertura y memoria; CLI y workflows quedan fuera del alcance.
   En el momento del cierre de la auditoría todavía no se había modificado el
   comportamiento del producto.
-  [Informe](AUDITORIA_PROFESIONAL_2026-09-05.md), [plan](ROADMAP.md) y [motivos/estado](CONTEXTO.md).
+  [Informe consolidado](AUDITORIA.md), [plan](ROADMAP.md) y [motivos/estado](CONTEXTO.md).
 
 ### Corregido
 
@@ -2010,7 +2015,7 @@ los artefactos de validación locales.
 ### Interno
 
 - Reauditoría profesional exhaustiva sobre `137520b`: se añadió
-  `AUDITORIA_PROFESIONAL_2026-08-28.md` y se abrió Tier 5 con 20 tareas
+  `AUDITORIA.md` y se abrió Tier 5 con 20 tareas
   trazables (`T5-01`–`T5-20`). No se modificó comportamiento del producto.
 - `Full`, `Release` y `Package` aprobaron; Package produjo MSI y NSIS ligados al
   commit auditado. Los gates de rendimiento y baseline visual release fallaron
