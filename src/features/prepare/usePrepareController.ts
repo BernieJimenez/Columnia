@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   applySafeCorrections,
@@ -50,6 +50,19 @@ export function usePrepareController({
 }: PrepareControllerOptions) {
   const [changeStatus, setChangeStatus] = useState<ChangeStatus>({ kind: "idle" });
   const [historyStatus, setHistoryStatus] = useState(EMPTY_HISTORY);
+  const operationInFlight = useRef(false);
+
+  function runExclusive<TArgs extends unknown[]>(operation: (...args: TArgs) => Promise<void>) {
+    return async (...args: TArgs) => {
+      if (operationInFlight.current) return;
+      operationInFlight.current = true;
+      try {
+        await operation(...args);
+      } finally {
+        operationInFlight.current = false;
+      }
+    };
+  }
 
   async function refreshHistory() {
     try {
@@ -611,33 +624,34 @@ export function usePrepareController({
     historyStatus,
     resetChangeStatus,
     refreshHistory,
-    applyDuplicateRemoval,
-    applyNearDuplicateRemoval,
-    applyEmptyRowRemoval,
-    applyConstantColumnRemoval,
-    applyEmptyColumnRemoval,
-    applyHighNullColumnRemoval,
-    applyIdentifierColumnRemoval,
-    applyPersonalColumnRemoval,
-    applyPersonalValueMasking,
-    applyBooleanNormalization,
-    applyDateParsing,
-    applyNumericCast,
-    applyEncodingFix,
-    applyInvalidTypeCleanup,
-    applyMissingValueImputation,
-    applyCategoricalImputation,
-    applyOutlierImputation,
-    applyOutlierCapping: () => applyOutlierTreatment("cap"),
-    applyOutlierRemoval: () => applyOutlierTreatment("drop"),
-    applyRowAudit,
-    applyColumnNormalization,
-    applyRecommendedCorrections,
-    trimText: () => applyTextChange("trim"),
-    normalizeText: (columns: string[], removeAccents: boolean) =>
+    applyDuplicateRemoval: runExclusive(applyDuplicateRemoval),
+    applyNearDuplicateRemoval: runExclusive(applyNearDuplicateRemoval),
+    applyEmptyRowRemoval: runExclusive(applyEmptyRowRemoval),
+    applyConstantColumnRemoval: runExclusive(applyConstantColumnRemoval),
+    applyEmptyColumnRemoval: runExclusive(applyEmptyColumnRemoval),
+    applyHighNullColumnRemoval: runExclusive(applyHighNullColumnRemoval),
+    applyIdentifierColumnRemoval: runExclusive(applyIdentifierColumnRemoval),
+    applyPersonalColumnRemoval: runExclusive(applyPersonalColumnRemoval),
+    applyPersonalValueMasking: runExclusive(applyPersonalValueMasking),
+    applyBooleanNormalization: runExclusive(applyBooleanNormalization),
+    applyDateParsing: runExclusive(applyDateParsing),
+    applyNumericCast: runExclusive(applyNumericCast),
+    applyEncodingFix: runExclusive(applyEncodingFix),
+    applyInvalidTypeCleanup: runExclusive(applyInvalidTypeCleanup),
+    applyMissingValueImputation: runExclusive(applyMissingValueImputation),
+    applyCategoricalImputation: runExclusive(applyCategoricalImputation),
+    applyOutlierImputation: runExclusive(applyOutlierImputation),
+    applyOutlierCapping: runExclusive(() => applyOutlierTreatment("cap")),
+    applyOutlierRemoval: runExclusive(() => applyOutlierTreatment("drop")),
+    applyRowAudit: runExclusive(applyRowAudit),
+    applyColumnNormalization: runExclusive(applyColumnNormalization),
+    applyRecommendedCorrections: runExclusive(applyRecommendedCorrections),
+    trimText: runExclusive(() => applyTextChange("trim")),
+    normalizeText: runExclusive((columns: string[], removeAccents: boolean) =>
       applyTextChange("text", columns, removeAccents),
-    applyStructuralTransforms,
-    undoChange: () => changeHistory("undo"),
-    redoChange: () => changeHistory("redo"),
+    ),
+    applyStructuralTransforms: runExclusive(applyStructuralTransforms),
+    undoChange: runExclusive(() => changeHistory("undo")),
+    redoChange: runExclusive(() => changeHistory("redo")),
   };
 }

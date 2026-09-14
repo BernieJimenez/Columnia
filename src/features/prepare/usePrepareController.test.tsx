@@ -108,6 +108,44 @@ describe("usePrepareController", () => {
     expect(screen.getByTestId("history-index")).toHaveTextContent("1");
   });
 
+  it("serializa las mutaciones hasta que termina la operación activa", async () => {
+    let resolveRemoval!: (result: Awaited<ReturnType<typeof bridge.removeDuplicates>>) => void;
+    const pendingRemoval = new Promise<Awaited<ReturnType<typeof bridge.removeDuplicates>>>((resolve) => {
+      resolveRemoval = resolve;
+    });
+    const removeDuplicates = vi.spyOn(bridge, "removeDuplicates").mockReturnValue(pendingRemoval);
+    const removeNearDuplicates = vi.spyOn(bridge, "removeNearDuplicates").mockResolvedValue({
+      dataset,
+      affectedRowCount: 0,
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
+    const callbacks = {
+      onDatasetChanged: vi.fn(),
+      onProfileInvalidated: vi.fn(),
+      onDeliveryInvalidated: vi.fn(),
+    };
+    render(<ControllerHarness {...callbacks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Parecidos" }));
+
+    expect(removeDuplicates).toHaveBeenCalledOnce();
+    expect(removeNearDuplicates).not.toHaveBeenCalled();
+
+    resolveRemoval({ dataset, affectedRowCount: 1 });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Se eliminaron 1 filas duplicadas adicionales.",
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: "Parecidos" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "No se detectaron duplicados parecidos adicionales.",
+    ));
+    expect(removeNearDuplicates).toHaveBeenCalledOnce();
+    expect(callbacks.onDatasetChanged).toHaveBeenCalledTimes(2);
+  });
+
   it("publica la eliminación de parecidos y refresca el historial", async () => {
     vi.spyOn(bridge, "removeNearDuplicates").mockResolvedValue({ dataset, affectedRowCount: 1 });
     vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
