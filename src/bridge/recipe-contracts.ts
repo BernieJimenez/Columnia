@@ -132,11 +132,17 @@ export interface TransformRecipe {
 }
 
 export interface SavedRecipe {
-  version: 1;
+  version: 1 | 2;
   name: string;
   savedAt: string;
   recipe: TransformRecipe;
+  sourceSchema?: RecipeSourceColumn[];
   exportOptions?: RecipeExportOptions;
+}
+
+export interface RecipeSourceColumn {
+  name: string;
+  dataType: string;
 }
 
 export type LoadedRecipe = SavedRecipe;

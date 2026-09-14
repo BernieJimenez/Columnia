@@ -14,13 +14,17 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::dataset::{
-    validate_project_profile_with_row_count, validate_project_workspace, DatasetPreview,
-    DatasetProfile, DatasetState, ProjectHistoryCapture, ProjectHistoryRestore,
-    ProjectHistoryRestoreEntry, QualityRule, StoredTransformRecipe,
+    validate_import_profile, validate_project_profile_with_row_count, validate_project_workspace,
+    DatasetPreview, DatasetProfile, DatasetState, ImportProfile, ProjectHistoryCapture,
+    ProjectHistoryRestore, ProjectHistoryRestoreEntry, QualityRule, StoredTransformRecipe,
 };
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: i64 = 12;
+#[cfg(test)]
+#[path = "projects/import_profile_tests.rs"]
+mod import_profile_tests;
+
+const SCHEMA_VERSION: i64 = 13;
 const ID_LENGTH: usize = 32;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
@@ -38,6 +42,8 @@ pub struct ProjectSummary {
     pub column_count: usize,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_bytes: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,6 +95,8 @@ pub struct ProjectWorkspace {
     pub comparison_key_columns: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub join_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_profile: Option<ImportProfile>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -170,6 +178,7 @@ struct StoredProject {
     privacy_mode: Option<String>,
     comparison_key_columns_json: String,
     join_type: Option<String>,
+    import_profile_json: Option<String>,
 }
 
 struct ValidatedProject {
@@ -195,6 +204,8 @@ struct DurableHistoryManifest {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DurableHistoryEntry {
+    #[serde(default)]
+    id: String,
     label: String,
     file_name: String,
     bytes: u64,
@@ -320,7 +331,8 @@ impl ProjectStore {
                            join_type TEXT
                          );
                           CREATE INDEX projects_updated_at ON projects(updated_at DESC, id ASC);
-                          PRAGMA user_version = 12;",
+                          ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -349,7 +361,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -375,7 +388,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -398,7 +412,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -420,7 +435,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -441,7 +457,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -461,7 +478,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -480,7 +498,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -498,7 +517,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -515,7 +535,8 @@ impl ProjectStore {
                            ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                            ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                            ALTER TABLE projects ADD COLUMN join_type TEXT;
-                           PRAGMA user_version = 12;",
+                           ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -531,7 +552,8 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                          ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                          ALTER TABLE projects ADD COLUMN join_type TEXT;
-                         PRAGMA user_version = 12;",
+                         ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -546,7 +568,20 @@ impl ProjectStore {
                          ALTER TABLE projects ADD COLUMN privacy_mode TEXT;
                          ALTER TABLE projects ADD COLUMN comparison_key_columns_json TEXT NOT NULL DEFAULT '[]';
                          ALTER TABLE projects ADD COLUMN join_type TEXT;
-                         PRAGMA user_version = 12;",
+                         ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                           PRAGMA user_version = 13;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
+            12 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE projects ADD COLUMN import_profile_json TEXT;
+                         PRAGMA user_version = 13;",
                     )
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
@@ -567,14 +602,20 @@ impl ProjectStore {
         let rows = statement
             .query_map([], summary_from_row)
             .map_err(|_| storage_error())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|_| storage_error())
+        let summaries = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| storage_error())?;
+        drop(statement);
+        summaries
+            .into_iter()
+            .map(|summary| self.with_storage_usage(&connection, summary))
+            .collect()
     }
 
     fn recovery_candidate(&self) -> Result<Option<ProjectSummary>, String> {
         self.ensure_initialized()?;
         let connection = self.connection()?;
-        connection
+        let summary = connection
             .query_row(
                 "SELECT id, name, dataset_file_name, row_count, column_count, created_at, updated_at
                  FROM projects WHERE last_opened_at IS NOT NULL
@@ -583,7 +624,10 @@ impl ProjectStore {
                 summary_from_row,
             )
             .optional()
-            .map_err(|_| storage_error())
+            .map_err(|_| storage_error())?;
+        summary
+            .map(|summary| self.with_storage_usage(&connection, summary))
+            .transpose()
     }
 
     fn save(
@@ -654,6 +698,15 @@ impl ProjectStore {
         let comparison_key_columns_json = serde_json::to_string(&comparison_key_columns)
             .map_err(|_| "No se pudo validar la configuración del proyecto.".to_owned())?;
         let join_type = validate_join_type(workspace.join_type.as_deref())?.map(str::to_owned);
+        if let Some(profile) = workspace.import_profile.as_ref() {
+            validate_import_profile(profile)?;
+        }
+        let import_profile_json = workspace
+            .import_profile
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| "No se pudo validar el perfil de importación del proyecto.".to_owned())?;
         let mut connection = self.connection()?;
         let updating = project_id.is_some();
         let id = match project_id {
@@ -686,6 +739,9 @@ impl ProjectStore {
             &active.history,
             &generation_path,
         )?;
+        let storage_bytes = self
+            .generation_storage_bytes(&generation_path, Some(&history_manifest))
+            .ok();
         let profile_cache_sha256 = active
             .profile
             .as_ref()
@@ -723,7 +779,8 @@ impl ProjectStore {
                  sql_history_json = ?13, review_tab = ?14, preview_offset = ?15,
                  active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18,
                  performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
-                 comparison_key_columns_json = ?22, join_type = ?23 WHERE id = ?24",
+                 comparison_key_columns_json = ?22, join_type = ?23,
+                 import_profile_json = ?24 WHERE id = ?25",
                 params![
                     name,
                     active.file_name,
@@ -748,6 +805,7 @@ impl ProjectStore {
                     privacy_mode,
                     comparison_key_columns_json,
                     join_type,
+                    import_profile_json,
                     id
                 ],
             )
@@ -759,8 +817,8 @@ impl ProjectStore {
                    generation_name, history_manifest_json, profile_json, profile_cache_sha256,
                     sql_history_json, review_tab, preview_offset, active_phase, query_engine,
                     analysis_sample_rows, performance_profile, export_format, privacy_mode,
-                    comparison_key_columns_json, join_type)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                    comparison_key_columns_json, join_type, import_profile_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
                 params![
                     id,
                     name,
@@ -786,6 +844,7 @@ impl ProjectStore {
                     privacy_mode,
                     comparison_key_columns_json,
                     join_type,
+                    import_profile_json,
                 ],
             )
         };
@@ -810,6 +869,7 @@ impl ProjectStore {
             column_count: active.column_count,
             created_at,
             updated_at: timestamp,
+            storage_bytes,
         })
     }
 
@@ -817,9 +877,10 @@ impl ProjectStore {
         self.ensure_initialized()?;
         validate_id(project_id)?;
         let connection = self.connection()?;
-        let stored = self
+        let mut stored = self
             .stored_project(&connection, project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
+        stored.summary.storage_bytes = self.stored_project_storage_bytes(&stored).ok();
         let workspace = decode_workspace(&stored)?;
         let mut profile = decode_profile(&stored)?;
         let candidate = if let Some(generation_name) = stored.generation_name.as_deref() {
@@ -956,7 +1017,8 @@ impl ProjectStore {
                         generation_name, history_manifest_json, profile_json,
                          profile_cache_sha256, sql_history_json, review_tab, preview_offset,
                          active_phase, query_engine, analysis_sample_rows, performance_profile,
-                         export_format, privacy_mode, comparison_key_columns_json, join_type
+                         export_format, privacy_mode, comparison_key_columns_json, join_type,
+                         import_profile_json
                  FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
@@ -980,11 +1042,72 @@ impl ProjectStore {
                         privacy_mode: row.get(22)?,
                         comparison_key_columns_json: row.get(23)?,
                         join_type: row.get(24)?,
+                        import_profile_json: row.get(25)?,
                     })
                 },
             )
             .optional()
             .map_err(|_| storage_error())
+    }
+
+    fn with_storage_usage(
+        &self,
+        connection: &Connection,
+        mut summary: ProjectSummary,
+    ) -> Result<ProjectSummary, String> {
+        let stored = self
+            .stored_project(connection, &summary.id)?
+            .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
+        summary.storage_bytes = self.stored_project_storage_bytes(&stored).ok();
+        Ok(summary)
+    }
+
+    fn stored_project_storage_bytes(&self, stored: &StoredProject) -> Result<u64, String> {
+        if let Some(generation_name) = stored.generation_name.as_deref() {
+            let generation = self.generation_path(&stored.summary.id, generation_name)?;
+            let history = stored
+                .history_manifest_json
+                .as_deref()
+                .map(|encoded| {
+                    serde_json::from_str::<DurableHistoryManifest>(encoded)
+                        .map_err(|_| "El manifiesto del historial no es válido.".to_owned())
+                })
+                .transpose()?;
+            return self.generation_storage_bytes(&generation, history.as_ref());
+        }
+
+        let snapshot = self.snapshot_path(&stored.summary.id, &stored.snapshot_name)?;
+        fs::metadata(snapshot)
+            .map(|metadata| metadata.len())
+            .map_err(|_| storage_error())
+    }
+
+    fn generation_storage_bytes(
+        &self,
+        generation: &Path,
+        history: Option<&DurableHistoryManifest>,
+    ) -> Result<u64, String> {
+        let current = self.generation_file(generation, "current.parquet")?;
+        let mut total = fs::metadata(current).map_err(|_| storage_error())?.len();
+        if let Some(history) = history {
+            if history.version != 1 {
+                return Err("La versión del manifiesto del historial no es compatible.".to_owned());
+            }
+            for (index, entry) in history.entries.iter().enumerate() {
+                if entry.file_name != format!("history-{index:03}.parquet") {
+                    return Err("El manifiesto del historial no tiene un orden válido.".to_owned());
+                }
+                let snapshot = self.generation_file(generation, &entry.file_name)?;
+                let bytes = fs::metadata(snapshot).map_err(|_| storage_error())?.len();
+                if bytes != entry.bytes {
+                    return Err(
+                        "El historial del proyecto no coincide con su manifiesto.".to_owned()
+                    );
+                }
+                total = total.checked_add(bytes).ok_or_else(storage_error)?;
+            }
+        }
+        Ok(total)
     }
 
     fn snapshot_path(&self, id: &str, snapshot_name: &str) -> Result<PathBuf, String> {
@@ -1075,6 +1198,7 @@ impl ProjectStore {
                     return Err("El manifiesto del historial no tiene un orden válido.".to_owned());
                 }
                 Ok(ProjectHistoryRestoreEntry {
+                    id: entry.id,
                     label: entry.label,
                     path: self.generation_file(generation, &entry.file_name)?,
                     bytes: entry.bytes,
@@ -1171,6 +1295,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectSummary>
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, column_count))?,
         created_at: row.get(5)?,
         updated_at: row.get(6)?,
+        storage_bytes: None,
     })
 }
 
@@ -1196,6 +1321,16 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
     let privacy_mode = parse_privacy_mode(stored.privacy_mode.clone())?;
     let comparison_key_columns = parse_comparison_key_columns(&stored.comparison_key_columns_json)?;
     let join_type = parse_join_type(stored.join_type.clone())?;
+    let import_profile = stored
+        .import_profile_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|_| "El perfil de importación guardado no es válido.".to_owned())?;
+    if let Some(profile) = import_profile.as_ref() {
+        validate_import_profile(profile)
+            .map_err(|_| "El perfil de importación guardado no es válido.".to_owned())?;
+    }
     Ok(ProjectWorkspace {
         quality_rules,
         recipe_draft,
@@ -1210,6 +1345,7 @@ fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> 
         privacy_mode,
         comparison_key_columns,
         join_type,
+        import_profile,
     })
 }
 
@@ -1517,6 +1653,7 @@ fn history_manifest(history: &ProjectHistoryCapture) -> DurableHistoryManifest {
             .iter()
             .enumerate()
             .map(|(index, entry)| DurableHistoryEntry {
+                id: entry.id.clone(),
                 label: entry.label.clone(),
                 file_name: format!("history-{index:03}.parquet"),
                 bytes: entry.bytes,
@@ -2171,7 +2308,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 13;")
+            .execute_batch("PRAGMA user_version = 14;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -2311,6 +2448,14 @@ mod tests {
             .project_test_undo()
             .unwrap()
             .equals_missing(&frame(&[1, 2, 3])));
+        let ids_before_save = state
+            .active_project_snapshot()
+            .unwrap()
+            .history
+            .entries
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
         let expected_profile = state.project_test_cache_profile().unwrap();
         let project = store
             .save(
@@ -2320,12 +2465,49 @@ mod tests {
                 ProjectWorkspace::default(),
             )
             .unwrap();
+        assert!(project.storage_bytes.is_some_and(|bytes| bytes > 0));
         drop(store);
 
-        let reopened = ProjectStore::initialize(root).unwrap();
+        let project_id = project.id.clone();
+        let reopened = ProjectStore::initialize(root.clone()).unwrap();
         let restored = DatasetState::default();
-        let result = reopened.open(&restored, project.id).unwrap();
+        let result = reopened.open(&restored, project_id.clone()).unwrap();
         assert_eq!(result.profile, Some(expected_profile));
+        assert_eq!(result.project.storage_bytes, project.storage_bytes);
+        assert_eq!(
+            reopened.list().unwrap().first().unwrap().storage_bytes,
+            project.storage_bytes
+        );
+        let stored_project = reopened
+            .stored_project(&reopened.connection().unwrap(), &project_id)
+            .unwrap()
+            .unwrap();
+        let initial_generation = reopened
+            .generation_path(
+                &project_id,
+                stored_project.generation_name.as_deref().unwrap(),
+            )
+            .unwrap();
+        let stored_history: DurableHistoryManifest =
+            serde_json::from_str(stored_project.history_manifest_json.as_deref().unwrap()).unwrap();
+        let expected_storage_bytes = fs::metadata(initial_generation.join("current.parquet"))
+            .unwrap()
+            .len()
+            + stored_history
+                .entries
+                .iter()
+                .map(|entry| entry.bytes)
+                .sum::<u64>();
+        assert_eq!(project.storage_bytes, Some(expected_storage_bytes));
+        let ids_after_reopen = restored
+            .active_project_snapshot()
+            .unwrap()
+            .history
+            .entries
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        assert_eq!(ids_after_reopen, ids_before_save);
         assert!(restored
             .project_test_undo()
             .unwrap()
@@ -2338,6 +2520,44 @@ mod tests {
             .project_test_redo()
             .unwrap()
             .equals_missing(&frame(&[9])));
+
+        let old_generation_name = reopened
+            .stored_project(&reopened.connection().unwrap(), &project_id)
+            .unwrap()
+            .unwrap()
+            .generation_name
+            .unwrap();
+        let old_generation = reopened
+            .generation_path(&project_id, &old_generation_name)
+            .unwrap();
+        let updated = reopened
+            .save(
+                &restored,
+                Some(project_id.clone()),
+                "Con historia actualizada".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        assert!(updated.storage_bytes.is_some_and(|bytes| bytes > 0));
+        assert!(!old_generation.exists());
+
+        let reopened = ProjectStore::initialize(root).unwrap();
+        let updated_state = DatasetState::default();
+        let updated_result = reopened.open(&updated_state, project_id.clone()).unwrap();
+        let updated_history_ids = updated_state
+            .active_project_snapshot()
+            .unwrap()
+            .history
+            .entries
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        assert_eq!(updated_history_ids, ids_before_save);
+        assert_eq!(updated_result.project.storage_bytes, updated.storage_bytes);
+        assert_eq!(
+            reopened.recovery_candidate().unwrap().unwrap().id,
+            project_id
+        );
     }
 
     #[test]
@@ -2574,7 +2794,8 @@ mod tests {
                 "version": 2,
                 "name": "Futura",
                 "savedAt": "2026-08-21T12:00:00Z",
-                "recipe": {}
+                "recipe": {},
+                "sourceSchema": [{ "name": "", "dataType": "String" }]
             }
         }))
         .unwrap();
@@ -2624,6 +2845,7 @@ mod tests {
             privacy_mode: Default::default(),
             comparison_key_columns: Default::default(),
             join_type: Default::default(),
+            import_profile: None,
         };
         assert!(store
             .save(
@@ -2800,7 +3022,7 @@ mod tests {
                 "UPDATE projects SET quality_rules_json = '[]', recipe_draft_json = ?1
                  WHERE id = ?2",
                 params![
-                    r#"{"version":2,"name":"Futura","savedAt":"2026-08-21T12:00:00Z","recipe":{}}"#,
+                    r#"{"version":2,"name":"Futura","savedAt":"2026-08-21T12:00:00Z","recipe":{},"sourceSchema":[{"name":"","dataType":"String"}]}"#,
                     project.id
                 ],
             )

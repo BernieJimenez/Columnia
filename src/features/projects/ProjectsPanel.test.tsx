@@ -15,6 +15,7 @@ const recovery: ProjectSummary = {
   columnCount: 2,
   createdAt: "2026-08-20T10:00:00Z",
   updatedAt: "2026-08-21T10:00:00Z",
+  storageBytes: 1536,
 };
 
 function renderPanel(overrides: Partial<ComponentProps<typeof ProjectsPanel>> = {}) {
@@ -42,6 +43,7 @@ describe("ProjectsPanel", () => {
   it("destaca la recuperación y explica el estado durable del proyecto", () => {
     const props = renderPanel();
     expect(screen.getByText(/perfil calculado y el historial reversible/)).toBeInTheDocument();
+    expect(screen.getByText("Espacio persistente (snapshot + historial): 1,5 KiB")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Recuperar proyecto" }));
     expect(props.onOpen).toHaveBeenCalledWith("recovery-id");
     expect(screen.queryByText(/C:\\/)).not.toBeInTheDocument();

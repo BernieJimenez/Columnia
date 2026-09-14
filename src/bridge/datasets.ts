@@ -5,12 +5,15 @@ import type {
   DatasetConflictPage,
   DatasetJoinType,
   DatasetSourceInspection,
+  ImportProfile,
   SampleDatasetDescriptor,
   SpreadsheetHeaderMode,
   DatasetPage,
   DatasetQueryResult,
   DatasetQueryEngine,
   DatasetProfile,
+  SnapshotRevisionComparison,
+  QualityRule,
   TemporalAggregationKind,
   TemporalAggregationSeries,
   CancellableOperation,
@@ -40,11 +43,13 @@ export function loadDatasetSelection(
   sheetId: string | null,
   headerMode: SpreadsheetHeaderMode | null,
   onProgress?: ProgressHandler,
+  expectedProfile: ImportProfile | null = null,
 ): Promise<DatasetPreview> {
   return invoke<DatasetPreview>("load_dataset_selection", {
     selectionId,
     sheetId,
     headerMode,
+    expectedProfile,
     onProgress: progressChannel(onProgress),
   });
 }
@@ -108,6 +113,20 @@ export function getDatasetProfile(
   return invoke<DatasetProfile>("get_dataset_profile", {
     onProgress: progressChannel(onProgress),
     correlationSampleRows: correlationSampleRows,
+  });
+}
+
+export function compareHistorySnapshots(
+  beforeSnapshotId: string,
+  afterSnapshotId: string,
+  qualityRules: QualityRule[],
+  onProgress?: ProgressHandler,
+): Promise<SnapshotRevisionComparison> {
+  return invoke<SnapshotRevisionComparison>("compare_history_snapshots", {
+    beforeSnapshotId,
+    afterSnapshotId,
+    qualityRules,
+    onProgress: progressChannel(onProgress),
   });
 }
 

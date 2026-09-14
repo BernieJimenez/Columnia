@@ -1,3 +1,5 @@
+import type { QualityRuleKind } from "./delivery-contracts";
+
 export interface DatasetColumn {
   name: string;
   dataType: string;
@@ -70,6 +72,15 @@ export interface DatasetSourceInspection {
   sheets: WorkbookSheet[];
   defaultSheetId: string | null;
   isCompressedContainer: boolean;
+  resourceEstimate: DatasetResourceEstimate;
+}
+
+export type DatasetLoadPath = "inMemory" | "sourceBacked";
+
+export interface DatasetResourceEstimate {
+  processingPath: DatasetLoadPath;
+  estimatedMaterializationRamBytes: number;
+  estimatedTemporaryDiskBytes: number | null;
 }
 
 export interface SampleDatasetDescriptor {
@@ -80,6 +91,44 @@ export interface SampleDatasetDescriptor {
 }
 
 export type SpreadsheetHeaderMode = "firstRow" | "generated";
+
+export type ImportDateConvention = "unresolved" | "iso8601" | "ymd" | "dmy" | "mdy";
+export type ImportNumberConvention =
+  | "unresolved"
+  | "dotDecimalCommaGrouping"
+  | "commaDecimalDotGrouping"
+  | "dotDecimalSpaceGrouping"
+  | "commaDecimalSpaceGrouping"
+  | "integer";
+
+export interface ImportProfileColumn {
+  name: string;
+  dataType: string;
+}
+
+/** Versioned import options and schema only; never a path, temporary ID, or row sample. */
+export interface ImportProfile {
+  version: 1;
+  format: DatasetFormat;
+  sheetName?: string;
+  headerMode?: SpreadsheetHeaderMode;
+  dateConvention?: ImportDateConvention;
+  numberConvention?: ImportNumberConvention;
+  schema: ImportProfileColumn[];
+}
+
+export interface ImportProfileTypeChange {
+  column: string;
+  expected: string;
+  actual: string;
+}
+
+export interface ImportProfileMismatch {
+  code: "importProfileSchemaMismatch";
+  missingColumns: string[];
+  addedColumns: string[];
+  changedTypes: ImportProfileTypeChange[];
+}
 
 export interface DatasetPage {
   offset: number;
@@ -244,6 +293,7 @@ export interface PersonalDataMaskResult {
 }
 
 export interface HistoryEntryState {
+  id: string | null;
   index: number;
   label: string;
   isCurrent: boolean;
@@ -266,6 +316,76 @@ export interface HistoryResult {
   dataset: DatasetPreview;
   history: HistoryState;
   message: string;
+}
+
+export interface SnapshotRevisionComparison {
+  beforeSnapshotId: string;
+  afterSnapshotId: string;
+  beforeLabel: string;
+  afterLabel: string;
+  before: SnapshotRevisionSummary;
+  after: SnapshotRevisionSummary;
+  deltas: SnapshotRevisionDeltas;
+  columns: SnapshotColumnComparison[];
+  quality: SnapshotQualityComparison;
+}
+
+export interface SnapshotRevisionSummary {
+  rowCount: number;
+  columnCount: number;
+  nullCount: number;
+  invalidTypeCount: number;
+  duplicateRowCount: number;
+}
+
+export interface SnapshotRevisionDeltas {
+  rowCount: number | null;
+  columnCount: number | null;
+  nullCount: number | null;
+  invalidTypeCount: number | null;
+  duplicateRowCount: number | null;
+}
+
+export interface SnapshotColumnComparison {
+  name: string;
+  comparable: boolean;
+  reason: string | null;
+  before: SnapshotColumnSummary | null;
+  after: SnapshotColumnSummary | null;
+  typeChanged: boolean | null;
+  nullCountDelta: number | null;
+  invalidTypeCountDelta: number | null;
+}
+
+export interface SnapshotColumnSummary {
+  dataType: string;
+  nullCount: number;
+  invalidTypeCount: number;
+}
+
+export interface SnapshotQualityComparison {
+  configuredRuleCount: number;
+  comparableRuleCount: number;
+  nonComparableRuleCount: number;
+  improvedRuleCount: number;
+  degradedRuleCount: number;
+  beforePassedRuleCount: number;
+  afterPassedRuleCount: number;
+  rules: SnapshotQualityRuleComparison[];
+}
+
+export interface SnapshotQualityRuleComparison {
+  ruleIndex: number;
+  kind: QualityRuleKind;
+  column: string;
+  comparable: boolean;
+  reason: string | null;
+  beforeInvalidCount: number | null;
+  afterInvalidCount: number | null;
+  beforeInvalidPercentage: number | null;
+  afterInvalidPercentage: number | null;
+  beforePassed: boolean | null;
+  afterPassed: boolean | null;
 }
 
 export interface SafeCorrectionsResult {

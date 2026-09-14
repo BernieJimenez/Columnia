@@ -14,6 +14,7 @@ import type {
   RecipeExportOptions,
   TransformRecipeResult,
 } from "./contracts";
+import type { DatasetColumn } from "./dataset-contracts";
 
 export function removeDuplicates(): Promise<DatasetMutation> {
   return invoke<DatasetMutation>("remove_duplicates");
@@ -125,11 +126,13 @@ export function applyTransformRecipe(recipe: TransformRecipe): Promise<Transform
 export function saveTransformRecipe(
   recipe: TransformRecipe,
   name: string,
+  sourceSchema: DatasetColumn[],
   exportOptions: RecipeExportOptions | null = null,
 ): Promise<SavedRecipe | null> {
   return invoke<SavedRecipe | null>("save_transform_recipe", {
     recipe,
     name,
+    sourceSchema,
     exportOptions,
   });
 }

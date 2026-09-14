@@ -14,6 +14,7 @@ fn sensitive_recipe() -> StoredTransformRecipe {
             }],
             ..TransformRecipe::default()
         },
+        source_schema: None,
         export_options: None,
     }
 }

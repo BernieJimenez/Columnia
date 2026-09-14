@@ -31,6 +31,11 @@ un dataset, conserva el mismo alias. Estos alias solo sirven para validar la mue
 en `.local/beta/`: no guardes una correspondencia con identidades, nombres de
 archivo, rutas ni otros datos sensibles, y no los copies al resumen versionado.
 
+Los dos [recorridos candidatos](../reference/beta-workflows.md) son calentamientos
+sintéticos opcionales. Pregunta primero si cada flujo representa trabajo real para
+la persona; registra `no aplica` cuando no sea así. No enseñes los resultados
+esperados antes de observar la tarea y no cuentes las fixtures como uso real.
+
 ## Resultado y fricción por tarea
 
 Usar `sin ayuda`, `con ayuda` o `no completada`.

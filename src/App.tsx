@@ -17,18 +17,28 @@ import {
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import {
   beginDatasetLoad,
-  clearLoadInspectionError,
   createReadyDatasetStatus,
   requestDatasetLoadCancellation,
   restoreDatasetAfterLoadFailure,
   setLoadInspectionError,
   updateDatasetLoadProgress,
   updateSheetSelection,
+  updateProfileReview,
+  schemaMismatchInspection,
   workbookInspection,
+  needsResourcePreflight,
   type DatasetStatus,
   type LoadInspectionState,
+  type ProfileReviewAction,
+  type ResourcePreflightAction,
+  type SchemaMismatchAction,
   type SheetSelectionAction,
 } from "./features/load/loadModel";
+import {
+  createImportProfile,
+  importProfileApplicability,
+  parseImportProfileMismatch,
+} from "./features/load/importProfile";
 import {
   readRecentDatasets,
   rememberRecentDataset,
@@ -68,9 +78,12 @@ import {
   type AnalysisSampleRows,
   type ProfileStatus,
 } from "./features/review/reviewModel";
+import type { QualityActionTarget } from "./features/review/qualityActionPlan";
 import { ResourceMonitor } from "./components/ResourceMonitor";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { UpdatePanel } from "./components/UpdatePanel";
+import { DiagnosticsDialog } from "./features/diagnostics/DiagnosticsDialog";
+import type { DatasetMetricInput } from "./features/diagnostics/diagnosticsModel";
 import { WorkspaceNav } from "./features/workspaces/WorkspaceNav";
 import { workflowPhases, type WorkflowPhase } from "./features/workspaces/workspaceModel";
 
@@ -100,6 +113,7 @@ import {
   type ConflictResolution,
   testDatabaseConnection,
   type DatasetSourceInspection,
+  type ImportProfile,
   type DatasetQueryEngine,
   type ExportFormat,
   type OperationProgress,
@@ -178,8 +192,10 @@ export function App() {
   const [exportStatus, setExportStatus] = useState<DeliveryExportState>({ kind: "idle" });
   const [deliveryContract, setDeliveryContract] = useState<DeliveryContractState>(INITIAL_DELIVERY_CONTRACT);
   const [activePhase, setActivePhase] = useState<WorkflowPhase>("load");
+  const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
+  const [activeImportProfile, setActiveImportProfile] = useState<ImportProfile | null>(null);
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
   const [sampleDatasets, setSampleDatasets] = useState<SampleDatasetDescriptor[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
@@ -202,6 +218,7 @@ export function App() {
   }
   const [sidebarUtilitiesOpen, setSidebarUtilitiesOpen] = useState(false);
   const [sidebarLegalOpen, setSidebarLegalOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const prepare = usePrepareController({
     activeDataset: datasetStatus.kind === "ready" ? datasetStatus.dataset : null,
     onDatasetChanged: (dataset) => {
@@ -227,7 +244,11 @@ export function App() {
     exportStatus.kind === "loading" ||
     comparisonStatus.kind === "loading" ||
     joinStatus.kind === "loading";
-  const loadSelectionBusy = loadInspection.kind === "inspecting" || loadInspection.kind === "sheet";
+  const loadSelectionBusy = loadInspection.kind === "inspecting" ||
+    loadInspection.kind === "sheet" ||
+    loadInspection.kind === "profile_review" ||
+    loadInspection.kind === "resource_preflight" ||
+    loadInspection.kind === "schema_mismatch";
   const projects = useProjectsController({
     connected: status.kind === "ready",
     blocked: coreOperationBusy || loadSelectionBusy,
@@ -246,6 +267,7 @@ export function App() {
       privacyMode,
       comparisonKeyColumns,
       joinType,
+      importProfile: activeImportProfile ?? undefined,
     },
     onActiveProjectDeleted: () => {
       setSqlHistory([]);
@@ -281,6 +303,7 @@ export function App() {
         }
       }
       setLoadInspection({ kind: "idle" });
+      setActiveImportProfile(workspace.importProfile ?? null);
       setProfileStatus(profile ? { kind: "ready", profile } : { kind: "idle" });
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
@@ -406,13 +429,21 @@ export function App() {
     source: DatasetSourceInspection,
     sheetId: string | null,
     headerMode: SpreadsheetHeaderMode | null = null,
+    expectedProfile: ImportProfile | null = null,
+    profileSeed: ImportProfile | null = expectedProfile,
   ) {
     setDatasetStatus((current) => beginDatasetLoad(current));
-    setLoadInspection(clearLoadInspectionError);
+    setLoadInspection({ kind: "idle" });
     try {
       const dataset = await loadDatasetSelection(source.selectionId, sheetId, headerMode, (progress) => {
         setDatasetStatus((current) => updateDatasetLoadProgress(current, progress));
-      });
+      }, expectedProfile);
+      setActiveImportProfile(createImportProfile(
+        source,
+        dataset,
+        { sheetId, headerMode },
+        profileSeed,
+      ));
       setRecentDatasets((current) => rememberRecentDataset(current, {
         fileName: source.fileName,
         format: source.format,
@@ -444,6 +475,17 @@ export function App() {
       if (isCancellationError(error)) {
         return;
       }
+      const mismatch = parseImportProfileMismatch(error);
+      if (mismatch && expectedProfile) {
+        setLoadInspection(schemaMismatchInspection(
+          source,
+          expectedProfile,
+          mismatch,
+          sheetId,
+          headerMode,
+        ));
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       setLoadInspection((current) => setLoadInspectionError(current, message));
     }
@@ -459,7 +501,24 @@ export function App() {
         return;
       }
       if (source.format === "excel") {
-        setLoadInspection(workbookInspection(source));
+        setLoadInspection(workbookInspection(source, activeImportProfile));
+        return;
+      }
+      const applicability = activeImportProfile
+        ? importProfileApplicability(activeImportProfile, source)
+        : null;
+      if (activeImportProfile && applicability?.kind === "applicable") {
+        setLoadInspection({
+          kind: "profile_review",
+          source,
+          profile: activeImportProfile,
+          dateConvention: activeImportProfile.dateConvention ?? "unresolved",
+          numberConvention: activeImportProfile.numberConvention ?? "unresolved",
+        });
+        return;
+      }
+      if (needsResourcePreflight(source)) {
+        setLoadInspection({ kind: "resource_preflight", source });
         return;
       }
       await loadSelection(source, source.sheets[0]?.id ?? null);
@@ -484,8 +543,10 @@ export function App() {
     void selectDataset();
   }
 
-  async function cancelSheetSelection() {
-    const source = loadInspection.kind === "sheet" ? loadInspection.source : undefined;
+  async function cancelPendingSelection() {
+    const source = loadInspection.kind === "sheet" || loadInspection.kind === "profile_review" || loadInspection.kind === "resource_preflight" || loadInspection.kind === "schema_mismatch"
+      ? loadInspection.source
+      : undefined;
     setLoadInspection({ kind: "idle" });
     if (source) {
       try {
@@ -501,7 +562,7 @@ export function App() {
 
   function handleSheetSelection(action: SheetSelectionAction) {
     if (action.kind === "cancelled") {
-      void cancelSheetSelection();
+      void cancelPendingSelection();
       return;
     }
     if (action.kind === "confirmed") {
@@ -510,11 +571,58 @@ export function App() {
           loadInspection.source,
           loadInspection.selectedSheetId,
           loadInspection.headerMode,
+          loadInspection.useSavedProfile ? loadInspection.savedProfile : null,
+          loadInspection.useSavedProfile ? loadInspection.savedProfile : null,
         );
       }
       return;
     }
     setLoadInspection((current) => updateSheetSelection(current, action));
+  }
+
+  function handleProfileReviewAction(action: ProfileReviewAction) {
+    if (loadInspection.kind !== "profile_review") return;
+    if (action.kind === "cancelled") {
+      void cancelPendingSelection();
+      return;
+    }
+    const { source, profile } = loadInspection;
+    if (action.kind === "use_defaults") {
+      void loadSelection(source, null, null, null, null);
+      return;
+    }
+    if (action.kind === "use_profile") {
+      const selectedProfile: ImportProfile = {
+        ...profile,
+        dateConvention: loadInspection.dateConvention,
+        numberConvention: loadInspection.numberConvention,
+      };
+      void loadSelection(source, null, null, selectedProfile, selectedProfile);
+      return;
+    }
+    setLoadInspection((current) => updateProfileReview(current, action));
+  }
+
+  function handleResourcePreflightAction(action: ResourcePreflightAction) {
+    if (loadInspection.kind !== "resource_preflight") return;
+    if (action.kind === "cancelled") {
+      void cancelPendingSelection();
+      return;
+    }
+    const { source } = loadInspection;
+    void loadSelection(source, source.sheets[0]?.id ?? null);
+  }
+
+  function handleSchemaMismatchAction(action: SchemaMismatchAction) {
+    if (loadInspection.kind !== "schema_mismatch") return;
+    if (action.kind === "cancelled") {
+      void cancelPendingSelection();
+      return;
+    }
+    const { source, profile, sheetId, headerMode } = loadInspection;
+    // The user explicitly approved the changed schema. Import remains lexical;
+    // no casts, column aliases, or sample values are applied.
+    void loadSelection(source, sheetId, headerMode, null, profile);
   }
 
   async function analyzeQuality() {
@@ -586,6 +694,7 @@ export function App() {
       setPrivacyMode("none");
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
+      setActiveImportProfile(null);
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
@@ -613,6 +722,7 @@ export function App() {
       setPrivacyMode("none");
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
+      setActiveImportProfile(null);
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
@@ -645,6 +755,7 @@ export function App() {
       setJoinStatus(clearJoin());
       setProfileStatus({ kind: "idle" });
       projects.unlinkActiveProject();
+      setActiveImportProfile(null);
       setSqlHistory([]);
       setDeliveryContract(INITIAL_DELIVERY_CONTRACT);
       setRecipeDraft(null);
@@ -857,6 +968,16 @@ export function App() {
               enabled={status.kind === "ready" && status.info?.updaterConfigured === true}
               currentVersion={status.kind === "ready" && status.info ? status.info.version : null}
             />
+            <button
+              type="button"
+              className="sidebar__diagnostics-trigger"
+              onClick={() => {
+                setSidebarUtilitiesOpen(false);
+                setDiagnosticsOpen(true);
+              }}
+            >
+              Preparar diagnóstico local
+            </button>
           </div>
           </details>
 
@@ -949,6 +1070,9 @@ export function App() {
                 onClearRecent={() => setRecentDatasets([])}
                 onRemoveRecent={(id) => setRecentDatasets((current) => removeRecentDataset(current, id))}
                 onSheetAction={handleSheetSelection}
+                onProfileReviewAction={handleProfileReviewAction}
+                onResourcePreflightAction={handleResourcePreflightAction}
+                onSchemaMismatchAction={handleSchemaMismatchAction}
                 onCancelLoad={() => cancelActiveOperation("load")}
               >
                 <ProjectsPanel
@@ -978,7 +1102,8 @@ export function App() {
                 onPageChange={changePage}
                 onAnalyzeQuality={analyzeQuality}
                 onCancelProfile={() => cancelActiveOperation("profile")}
-                onContinueToPrepare={() => {
+                onContinueToPrepare={(target) => {
+                  setPrepareFocusTarget(target ?? null);
                   setCompletedPhases((current) => new Set(current).add("review"));
                   setActivePhase("prepare");
                 }}
@@ -1009,9 +1134,12 @@ export function App() {
               <PreparePhase
                 dataset={readyDataset.dataset}
                 datasetRevision={datasetRevision}
+                initialQualityFocus={prepareFocusTarget}
+                onQualityFocusHandled={() => setPrepareFocusTarget(null)}
                 profileStatus={profileStatus}
                 changeStatus={prepare.changeStatus}
                 historyStatus={prepare.historyStatus}
+                qualityRules={deliveryRules(deliveryContract)}
                 recipeDraft={recipeDraft}
                 recipeSession={recipeSession}
                 onAnalyzeQuality={analyzeQuality}
@@ -1104,6 +1232,21 @@ export function App() {
           </footer>
         </section>
       </main>
+
+      {diagnosticsOpen && (
+        <DiagnosticsDialog
+          appVersion={status.kind === "ready" ? status.info?.version ?? null : null}
+          activePhase={activePhase}
+          datasetMetrics={activeDataset
+            ? {
+              rowCount: activeDataset.dataset.rowCount,
+              columnCount: activeDataset.dataset.columnCount,
+              fileSizeBytes: activeDataset.dataset.fileSizeBytes,
+            } satisfies DatasetMetricInput
+            : null}
+          onDismiss={() => setDiagnosticsOpen(false)}
+        />
+      )}
     </div>
   );
 }

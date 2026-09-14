@@ -3,6 +3,7 @@
   "sourceFiles": [
     "src-tauri/src/lib.rs",
     "src-tauri/src/dataset.rs",
+    "src-tauri/src/diagnostics.rs",
     "src-tauri/src/dataset/samples.rs",
     "src-tauri/src/projects.rs",
     "src-tauri/src/resource.rs",
@@ -18,7 +19,9 @@
     "src/bridge/prepare.ts",
     "src/bridge/progress.ts",
     "src/bridge/project-contracts.ts",
+    "src/bridge/diagnostics-contracts.ts",
     "src/bridge/projects.ts",
+    "src/bridge/diagnostics.ts",
     "src/bridge/recipe-contracts.ts",
     "src/bridge/system-contracts.ts",
     "src/bridge/system.ts"
@@ -42,6 +45,11 @@
     {
       "name": "set_performance_profile",
       "module": "lib",
+      "debug": false
+    },
+    {
+      "name": "save_diagnostic_report",
+      "module": "diagnostics",
       "debug": false
     },
     {
@@ -330,6 +338,11 @@
       "debug": false
     },
     {
+      "name": "compare_history_snapshots",
+      "module": "dataset",
+      "debug": false
+    },
+    {
       "name": "undo_last_change",
       "module": "dataset",
       "debug": false
@@ -457,6 +470,10 @@
       "typescript": "WorkbookSheet"
     },
     {
+      "rust": "DatasetResourceEstimate",
+      "typescript": "DatasetResourceEstimate"
+    },
+    {
       "rust": "DatasetSourceInspection",
       "typescript": "DatasetSourceInspection"
     },
@@ -545,6 +562,10 @@
       "typescript": "SafeCorrectionsResult"
     },
     {
+      "rust": "RecipeSourceColumn",
+      "typescript": "DatasetColumn"
+    },
+    {
       "rust": "RecipeRename",
       "typescript": "RecipeRename"
     },
@@ -627,6 +648,14 @@
     {
       "rust": "ProjectWorkspace",
       "typescript": "ProjectWorkspace"
+    },
+    {
+      "rust": "DiagnosticReport",
+      "typescript": "DiagnosticReport"
+    },
+    {
+      "rust": "DiagnosticMetrics",
+      "typescript": "DiagnosticMetrics"
     }
   ]
 }

@@ -338,7 +338,15 @@ function normalizeRustFieldType(type: string): string {
       "ExtractionKind",
       "SessionReferenceStatus",
       "PerformanceProfile",
+      "DatasetLoadPath",
       "TemporalAggregationKind",
+      "DiagnosticContract",
+      "DiagnosticPhase",
+      "DiagnosticStatus",
+      "DiagnosticErrorCode",
+      "DiagnosticRowBucket",
+      "DiagnosticColumnBucket",
+      "DiagnosticSizeBucket",
     ].includes(withoutReference)
   ) return "string";
   return withoutReference;

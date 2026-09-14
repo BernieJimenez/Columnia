@@ -129,6 +129,7 @@ export function ProjectsPanel({
                 <div>
                   <strong>{project.name}{active ? " · activo" : ""}</strong>
                   <span>{project.datasetFileName} · {project.rowCount.toLocaleString("es")} filas · {project.columnCount} columnas</span>
+                  <small>Espacio persistente (snapshot + historial): {formatProjectStorage(project.storageBytes)}</small>
                   <small>Actualizado {projectDate(project.updatedAt)}</small>
                 </div>
                 <div className="project-list__actions">
@@ -159,4 +160,19 @@ export function ProjectsPanel({
       )}
     </section>
   );
+}
+
+function formatProjectStorage(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes) || bytes < 0) {
+    return "tamaño no disponible";
+  }
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let unitIndex = -1;
+  do {
+    value /= 1024;
+    unitIndex += 1;
+  } while (value >= 1024 && unitIndex < units.length - 1);
+  return `${value.toLocaleString("es", { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
 }

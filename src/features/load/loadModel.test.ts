@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { DatasetPreview, DatasetSourceInspection } from "../../bridge";
+import type { DatasetPreview, DatasetSourceInspection, ImportProfile } from "../../bridge";
 import {
   beginDatasetLoad,
   createReadyDatasetStatus,
+  needsResourcePreflight,
   requestDatasetLoadCancellation,
   restoreDatasetAfterLoadFailure,
   setLoadInspectionError,
@@ -32,6 +33,11 @@ const workbook: DatasetSourceInspection = {
     { id: "sheet-1", name: "Enero" },
     { id: "sheet-2", name: "Febrero" },
   ],
+  resourceEstimate: {
+    processingPath: "inMemory",
+    estimatedMaterializationRamBytes: 256 * 1024 * 1024 + 8192,
+    estimatedTemporaryDiskBytes: 2048,
+  },
 };
 
 describe("loadModel", () => {
@@ -81,6 +87,63 @@ describe("loadModel", () => {
       source: workbook,
       headerMode: "generated",
       error: "No se pudo leer la hoja",
+    });
+  });
+
+  it("pide revisar recursos antes de un archivo grande o una ruta source-backed", () => {
+    expect(needsResourcePreflight(workbook)).toBe(true);
+    expect(needsResourcePreflight({
+      ...workbook,
+      fileSizeBytes: 12,
+      isCompressedContainer: false,
+      resourceEstimate: { ...workbook.resourceEstimate, processingPath: "inMemory" },
+    })).toBe(false);
+    expect(needsResourcePreflight({
+      ...workbook,
+      fileSizeBytes: 12,
+      isCompressedContainer: false,
+      resourceEstimate: { ...workbook.resourceEstimate, processingPath: "sourceBacked" },
+    })).toBe(true);
+  });
+
+  it("reutiliza solo la hoja exacta y el modo de encabezados guardado", () => {
+    const profile: ImportProfile = {
+      version: 1,
+      format: "excel",
+      sheetName: "Enero",
+      headerMode: "generated",
+      schema: [{ name: "column_1", dataType: "String" }],
+    };
+    const selected = workbookInspection(workbook, profile);
+    expect(selected).toMatchObject({
+      kind: "sheet",
+      selectedSheetId: "sheet-1",
+      headerMode: "generated",
+      useSavedProfile: true,
+      profileCanBeApplied: true,
+    });
+
+    const changed = updateSheetSelection(selected, { kind: "sheet_changed", sheetId: "sheet-2" });
+    expect(changed).toMatchObject({ kind: "sheet", selectedSheetId: "sheet-2", useSavedProfile: false });
+    const reused = updateSheetSelection(changed, { kind: "profile_toggled", useProfile: true });
+    expect(reused).toMatchObject({ kind: "sheet", selectedSheetId: "sheet-1", headerMode: "generated", useSavedProfile: true });
+  });
+
+  it("no sustituye una hoja guardada que ya no existe por la hoja predeterminada", () => {
+    const profile: ImportProfile = {
+      version: 1,
+      format: "excel",
+      sheetName: "Marzo",
+      headerMode: "generated",
+      schema: [{ name: "column_1", dataType: "String" }],
+    };
+    expect(workbookInspection(workbook, profile)).toMatchObject({
+      kind: "sheet",
+      selectedSheetId: "sheet-2",
+      headerMode: "firstRow",
+      profileCanBeApplied: false,
+      useSavedProfile: false,
+      suggestedProfile: profile,
     });
   });
 });

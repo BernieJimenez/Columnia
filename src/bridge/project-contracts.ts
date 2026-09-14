@@ -7,6 +7,7 @@ import type {
   DatasetQueryEngine,
   DatasetProfile,
 } from "./dataset-contracts";
+import type { ImportProfile } from "./dataset-contracts";
 import type {
   SavedRecipe,
 } from "./recipe-contracts";
@@ -24,6 +25,7 @@ export interface ProjectSummary {
   columnCount: number;
   createdAt: string;
   updatedAt: string;
+  storageBytes?: number;
 }
 
 export interface ProjectOpenResult {
@@ -54,6 +56,7 @@ export interface ProjectWorkspace {
   privacyMode?: PrivacyMode;
   comparisonKeyColumns?: string[];
   joinType?: DatasetJoinType;
+  importProfile?: ImportProfile;
 }
 
 export type ProjectReviewTab = "diagnosis" | "preview";

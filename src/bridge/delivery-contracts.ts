@@ -4,7 +4,7 @@ export interface OperationProgress {
   percent: number;
 }
 
-export type CancellableOperation = OperationProgress["operation"] | "query" | "temporal";
+export type CancellableOperation = OperationProgress["operation"] | "query" | "temporal" | "snapshotComparison";
 export type LocalExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserver";
 export type PrivacyMode = "none" | "mask" | "hash";

@@ -1313,6 +1313,7 @@ pub fn project_save(
             privacy_mode: Default::default(),
             comparison_key_columns: Default::default(),
             join_type: Default::default(),
+            import_profile: None,
         },
     )
     .map_err(|_| AutomationError::new("No se pudo guardar el proyecto."))?;

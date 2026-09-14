@@ -19,6 +19,8 @@
     "test:coverage": "vitest run --coverage && node tools/check-coverage.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
+    "beta:workflows:check": "node --test tools/check-beta-workflows.test.mjs",
+    "incremental:check": "node tools/check-incremental-matrix.mjs --run-native",
     "docs:check": "node tools/check-documentation.mjs && node --test tools/check-documentation.test.mjs",
     "beta:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-beta-gate.ps1",
     "beta:check-gate1": "node tools/check-beta-gate-evidence.mjs",

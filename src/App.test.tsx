@@ -8,10 +8,18 @@ import type { DatasetPreview, DatasetProfile, HistoryState, ProjectSummary, Save
 function historyState(overrides: Partial<HistoryState> = {}): HistoryState {
   return {
     canUndo: true, canRedo: false, currentIndex: 1, entryCount: 2,
-    entries: [{ index: 0, label: "Dataset cargado", isCurrent: false }, { index: 1, label: "Cambio", isCurrent: true }],
+    entries: [{ id: "history-test-0", index: 0, label: "Dataset cargado", isCurrent: false }, { id: "history-test-1", index: 1, label: "Cambio", isCurrent: true }],
     snapshotsEnabled: true, degradedReason: null, maxEntries: 12, diskBytes: 100,
     diskBudgetBytes: 1024, ...overrides,
   };
+}
+
+function resourceEstimate(fileSizeBytes: number, processingPath: "inMemory" | "sourceBacked" = "inMemory") {
+  return {
+    processingPath,
+    estimatedMaterializationRamBytes: fileSizeBytes * 4 + 256 * 1024 * 1024,
+    estimatedTemporaryDiskBytes: processingPath === "sourceBacked" ? null : fileSizeBytes,
+  } as const;
 }
 
 afterEach(() => {
@@ -38,11 +46,24 @@ function mockDatasetLoad(dataset: DatasetPreview) {
     sheets: [],
     defaultSheetId: null,
     isCompressedContainer: false,
+    resourceEstimate: resourceEstimate(dataset.fileSizeBytes),
   });
   return vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue(dataset);
 }
 
 describe("App", () => {
+  it("abre el diagnóstico local desde las preferencias tras una acción explícita", async () => {
+    const saveDiagnostic = vi.spyOn(bridge, "saveDiagnosticReport");
+
+    render(<App />);
+    fireEvent.click(screen.getByText("Preferencias y recursos"));
+    fireEvent.click(screen.getByRole("button", { name: "Preparar diagnóstico local" }));
+
+    expect(await screen.findByRole("dialog", { name: "Diagnóstico local revisable" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Crear vista previa" })).toBeDisabled();
+    expect(saveDiagnostic).not.toHaveBeenCalled();
+  });
+
   it("restaura reglas y borrador de un proyecto y refresca gates e historial", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.25.0", platform: "windows" });
@@ -84,6 +105,7 @@ describe("App", () => {
     vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
       selectionId: "external-selection", fileName: "externo.csv", fileSizeBytes: 64,
       format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(64),
     });
     vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
       fileName: "externo.csv", fileSizeBytes: 64, rowCount: 1, columnCount: 1,
@@ -91,7 +113,7 @@ describe("App", () => {
     });
     vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({
       canUndo: false, entryCount: 1, currentIndex: 0,
-      entries: [{ index: 0, label: "Dataset cargado", isCurrent: true }],
+      entries: [{ id: "history-test-0", index: 0, label: "Dataset cargado", isCurrent: true }],
     }));
     const profileSpy = vi.spyOn(bridge, "getDatasetProfile");
 
@@ -165,7 +187,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner" },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner", importProfile: { version: 1, format: "csv", dateConvention: "unresolved", numberConvention: "unresolved", schema: [{ name: "total", dataType: "Int64" }] } },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -227,7 +249,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner" },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner", importProfile: { version: 1, format: "csv", dateConvention: "unresolved", numberConvention: "unresolved", schema: [{ name: "email", dataType: "String" }] } },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
@@ -384,6 +406,88 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
   });
 
+  it("requiere confirmar la estimación antes de materializar una fuente grande", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.26.0",
+      platform: "windows",
+    });
+    const fileSizeBytes = 512 * 1024 * 1024;
+    vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
+      selectionId: "large-source-selection",
+      fileName: "clientes-grande.csv",
+      fileSizeBytes,
+      format: "csv",
+      sheets: [],
+      defaultSheetId: null,
+      isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(fileSizeBytes, "sourceBacked"),
+    });
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({
+      canUndo: false,
+      entryCount: 1,
+      currentIndex: 0,
+      entries: [{ id: "history-test-0", index: 0, label: "Dataset cargado", isCurrent: true }],
+    }));
+    const loadSpy = vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
+      fileName: "clientes-grande.csv",
+      fileSizeBytes,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "cliente_id", dataType: "String" }],
+      rows: [["00123"]],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const dialog = await screen.findByRole("dialog", { name: "Revisa el costo estimado de la carga" });
+    expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
+    expect(loadSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
+    expect(await screen.findByRole("heading", { name: "clientes-grande.csv" })).toBeInTheDocument();
+    expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, null, expect.any(Function), null);
+  });
+
+  it("deja revisar valores con ceros iniciales y columnas ambiguas en la vista previa", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia",
+      version: "0.26.0",
+      platform: "windows",
+    });
+    mockDatasetLoad({
+      fileName: "identificadores.csv",
+      fileSizeBytes: 80,
+      rowCount: 1,
+      columnCount: 3,
+      columns: [
+        { name: "identificador", dataType: "String" },
+        { name: "total", dataType: "String" },
+        { name: "total_duplicated_0", dataType: "String" },
+      ],
+      rows: [["00123", "1.00", "2.50"]],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
+
+    expect(screen.getByRole("columnheader", { name: /identificador/ })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /^total / })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /total_duplicated_0/ })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "00123" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "1.00" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "2.50" })).toBeInTheDocument();
+  });
+
   it("navega por páginas usando el dataset activo en Rust", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
@@ -437,6 +541,7 @@ describe("App", () => {
       selectionId: "selection-progress", fileName: "progreso.csv", fileSizeBytes: 128,
       format: "csv", sheets: [], defaultSheetId: null,
       isCompressedContainer: false,
+      resourceEstimate: resourceEstimate(128),
     });
     vi.spyOn(bridge, "loadDatasetSelection").mockImplementation((_selectionId, _sheetId, _headerMode, onProgress) => {
       onProgress?.({ operation: "load", stage: "Leyendo y detectando columnas", percent: 25 });
@@ -507,8 +612,8 @@ describe("App", () => {
       rejectReplacement = reject;
     });
     vi.spyOn(bridge, "pickDatasetSource")
-      .mockResolvedValueOnce({ selectionId: "selection-active", fileName: "activo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false })
-      .mockResolvedValueOnce({ selectionId: "selection-replacement", fileName: "nuevo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false });
+      .mockResolvedValueOnce({ selectionId: "selection-active", fileName: "activo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false, resourceEstimate: resourceEstimate(128) })
+      .mockResolvedValueOnce({ selectionId: "selection-replacement", fileName: "nuevo.csv", fileSizeBytes: 128, format: "csv", sheets: [], defaultSheetId: null, isCompressedContainer: false, resourceEstimate: resourceEstimate(128) });
     vi.spyOn(bridge, "loadDatasetSelection")
       .mockResolvedValueOnce(activeDataset)
       .mockImplementationOnce((_selectionId, _sheetId, _headerMode, onProgress) => {
@@ -522,6 +627,7 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "activo.csv" });
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Importar sin perfil" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
 
     expect(cancelSpy).toHaveBeenCalledWith("load");
@@ -1093,6 +1199,7 @@ describe("App", () => {
       sheets: [{ id: "0", name: "Resumen" }, { id: "1", name: "Ventas 2026" }],
       defaultSheetId: "0",
       isCompressedContainer: true,
+      resourceEstimate: resourceEstimate(4096),
     });
     const loadSpy = vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue({
       fileName: "ventas.xlsx",
@@ -1124,7 +1231,7 @@ describe("App", () => {
     fireEvent.click(loadSheet);
 
     expect(await screen.findByRole("heading", { name: "ventas.xlsx" })).toBeInTheDocument();
-    expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function));
+    expect(loadSpy).toHaveBeenCalledWith("opaque-workbook-1", "1", "generated", expect.any(Function), null);
     expect(JSON.stringify(loadSpy.mock.calls)).not.toContain("C:\\\\");
   });
 
@@ -1226,7 +1333,7 @@ describe("App", () => {
     };
     mockDatasetLoad(original);
     const saveSpy = vi.spyOn(bridge, "saveTransformRecipe").mockResolvedValue({
-      version: 1, name: "Limpieza ventas", savedAt: "2026-08-14T12:00:00Z",
+      version: 2, name: "Limpieza ventas", savedAt: "2026-08-14T12:00:00Z", sourceSchema: original.columns,
       recipe: { renames: [{ from: "estado", to: "situacion" }], casts: [], dateParses: [], filters: [], calculatedColumn: null, findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null, outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [] },
     });
 
@@ -1241,7 +1348,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Guardar receta" }));
 
     expect(await screen.findByText(/Receta guardada: Limpieza ventas/)).toBeInTheDocument();
-    expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ renames: [{ from: "estado", to: "situacion" }] }), "Limpieza ventas", null);
+    expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ renames: [{ from: "estado", to: "situacion" }] }), "Limpieza ventas", [{ name: "estado", dataType: "String" }], null);
     expect(JSON.stringify(saveSpy.mock.calls)).not.toMatch(/path|\\\\/i);
     fireEvent.change(screen.getByLabelText("Nuevo nombre 1"), { target: { value: "estado_final" } });
     expect(screen.queryByText(/Receta guardada: Limpieza ventas/)).not.toBeInTheDocument();
@@ -1472,7 +1579,7 @@ describe("App", () => {
       columns: [{ name: "valor", dataType: "Float64" }], rows: [["1"], ["2"], ["3"], ["4"]],
     };
     mockDatasetLoad(original);
-    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({ canUndo: false, canRedo: false, currentIndex: 0, entryCount: 1, entries: [{ index: 0, label: "Dataset cargado", isCurrent: true }] }));
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({ canUndo: false, canRedo: false, currentIndex: 0, entryCount: 1, entries: [{ id: "history-test-0", index: 0, label: "Dataset cargado", isCurrent: true }] }));
     vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset: original,
       changed: false,
@@ -1591,7 +1698,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({
       canUndo: false, canRedo: false, snapshotsEnabled: false,
       degradedReason: "No hay espacio disponible para snapshots.", currentIndex: 0,
-      entryCount: 1, entries: [{ index: 0, label: "Dataset cargado", isCurrent: true }],
+      entryCount: 1, entries: [{ id: null, index: 0, label: "Dataset cargado", isCurrent: true }],
     }));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));

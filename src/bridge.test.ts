@@ -55,6 +55,7 @@ import {
   removeIdentifierColumns,
   redoLastChange,
   saveProject,
+  saveDiagnosticReport,
   saveQualityRulesDocument,
   saveTransformRecipe,
   setPerformanceProfile,
@@ -138,6 +139,24 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(4, "install_update");
   });
 
+  it("envía el contrato tipado solo al comando local de guardado diagnóstico", async () => {
+    const report: import("./bridge/diagnostics-contracts").DiagnosticReport = {
+      contract: "columnia-diagnostic-report",
+      schemaVersion: 1,
+      appVersion: "0.167.0",
+      phase: "prepare",
+      status: "issue_reported",
+      errorCodes: ["TRANSFORM_APPLY_FAILED"],
+      metrics: null,
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await expect(saveDiagnosticReport(report)).resolves.toBeUndefined();
+
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("save_diagnostic_report", { report });
+  });
+
   it("conecta el monitor de recursos y el perfil de rendimiento al IPC", async () => {
     const usage = {
       processCpuPercentage: 3.5,
@@ -212,6 +231,7 @@ describe("desktop bridge", () => {
       selectionId: "selection-1",
       sheetId: "2",
       headerMode: "generated",
+      expectedProfile: null,
       onProgress: expect.any(Channel),
     });
     const args = vi.mocked(invoke).mock.calls[0][1] as {
@@ -794,5 +814,23 @@ describe("desktop bridge", () => {
     });
     expect(invoke).toHaveBeenCalledWith("save_quality_rules_document", { qualityRules });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
+  });
+
+  it("guarda el esquema de origen dentro del contrato versionado de receta", async () => {
+    const recipe: TransformRecipe = {
+      renames: [], casts: [], dateParses: [], filters: [], calculatedColumn: null,
+      findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
+      outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
+    };
+    const sourceSchema = [{ name: "id", dataType: "Int64" }];
+
+    await saveTransformRecipe(recipe, "Receta semanal", sourceSchema);
+
+    expect(invoke).toHaveBeenCalledWith("save_transform_recipe", {
+      recipe,
+      name: "Receta semanal",
+      sourceSchema,
+      exportOptions: null,
+    });
   });
 });

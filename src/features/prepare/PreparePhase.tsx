@@ -2,18 +2,24 @@ import { useEffect, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ModalDialog } from "../../components/ModalDialog";
-import type { DatasetPreview, DatasetProfile, HistoryState, SavedRecipe, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, QualityRule, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
+import { RevisionComparison } from "./RevisionComparison";
 import type { ChangeStatus } from "./prepareModel";
+import { qualityActionTargetDomId } from "../review/qualityActionPlan";
+import type { QualityActionTarget } from "../review/qualityActionPlan";
 
 interface PreparePhaseProps {
   dataset: DatasetPreview;
   datasetRevision?: number;
+  initialQualityFocus?: QualityActionTarget | null;
+  onQualityFocusHandled?: () => void;
   profileStatus: ProfileStatus;
   changeStatus: ChangeStatus;
   historyStatus: HistoryState;
+  qualityRules?: QualityRule[];
   recipeDraft: SavedRecipe | null;
   recipeSession: number;
   onAnalyzeQuality: () => void;
@@ -52,9 +58,12 @@ interface PreparePhaseProps {
 export function PreparePhase({
   dataset,
   datasetRevision = 0,
+  initialQualityFocus = null,
+  onQualityFocusHandled = () => undefined,
   profileStatus,
   changeStatus,
   historyStatus,
+  qualityRules = [],
   recipeDraft,
   recipeSession,
   onAnalyzeQuality,
@@ -121,6 +130,22 @@ export function PreparePhase({
     setSelectedTextColumns((current) => current.filter((name) => available.has(name)));
   }, [dataset.columns]);
 
+  useEffect(() => {
+    if (!initialQualityFocus) return;
+    setActiveTab("corrections");
+    const target = document.getElementById(qualityActionTargetDomId(initialQualityFocus));
+    if (target) {
+      let ancestor = target.parentElement;
+      while (ancestor) {
+        if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+        ancestor = ancestor.parentElement;
+      }
+      target.focus({ preventScroll: true });
+      target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    }
+    onQualityFocusHandled();
+  }, [initialQualityFocus, onQualityFocusHandled]);
+
   return (
     <>
       <header className="phase-header phase-header--compact">
@@ -137,6 +162,12 @@ export function PreparePhase({
         latestChange={changeStatus.kind === "applied" ? changeStatus.message : undefined}
         onUndo={onUndo}
         onRedo={onRedo}
+      />
+      <RevisionComparison
+        historyStatus={historyStatus}
+        qualityRules={qualityRules}
+        datasetRevision={datasetRevision}
+        busy={changing || profileStatus.kind === "loading"}
       />
       <ChangeFeedback status={changeStatus} />
       <div className="stage-tabs" role="tablist" aria-label="Herramientas de preparación">
@@ -370,7 +401,12 @@ export function PreparePhase({
             : { kind: "available", onCancel: onCancelProfile }}
         />
       ) : (
-        <section className="prepare-card" aria-labelledby="duplicates-title">
+        <section
+          id={qualityActionTargetDomId("duplicates")}
+          className="prepare-card"
+          aria-labelledby="duplicates-title"
+          tabIndex={-1}
+        >
           <div>
             <p className="step">Corrección disponible</p>
             <h3 id="duplicates-title">Filas duplicadas</h3>
@@ -750,7 +786,12 @@ function CleaningSignals({
         <h3 id="cleaning-signals-title">Señales para revisar</h3>
         <p>Las señales usan solo esquema y métricas agregadas; no muestran celdas ni valores personales.</p>
       </div>
-      <section className="missing-data-plan" aria-labelledby="missing-data-title">
+      <section
+        id={qualityActionTargetDomId("missingValues")}
+        className="missing-data-plan"
+        aria-labelledby="missing-data-title"
+        tabIndex={-1}
+      >
         <div className="missing-data-plan__heading">
           <div>
             <p className="step">Ruta guiada</p>
@@ -940,7 +981,11 @@ function CleaningSignals({
             </div>
           )}
           {typeDrift.length > 0 && (
-            <div className="cleaning-signals__action">
+            <div
+              id={qualityActionTargetDomId("incompatibleTypes")}
+              className="cleaning-signals__action"
+              tabIndex={-1}
+            >
               <p>
                 Puedes apartar como nulos los valores que no coincidan con una sugerencia con al
                 menos 90% de confianza. La acción no muestra celdas, requiere confirmación y es

@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "title": "Matriz curada de rutas incrementales de Columnia",
+  "sourceTestFile": "src-tauri/src/dataset/tests.rs",
+  "cases": [
+    {
+      "id": "csv-filter",
+      "format": "CSV",
+      "operation": "Filtro de receta",
+      "expectedPath": "incremental",
+      "privacy": "Procesamiento local; el caso no exporta ni registra valores.",
+      "quality": "No evalúa reglas; conserva semántica equivalente al camino en memoria.",
+      "test": "source_backed_filters_execute_on_disk_and_match_the_eager_recipe"
+    },
+    {
+      "id": "csv-profile",
+      "format": "CSV",
+      "operation": "Perfilado agregado",
+      "expectedPath": "incremental",
+      "privacy": "Conserva agregados sin retener filas del dataset en memoria.",
+      "quality": "No aplica reglas de calidad durante este perfilado.",
+      "test": "source_backed_profile_matches_the_in_memory_profile_without_retaining_rows"
+    },
+    {
+      "id": "csv-quality",
+      "format": "CSV",
+      "operation": "Validación de reglas",
+      "expectedPath": "incremental",
+      "privacy": "Devuelve resultados agregados; no incluye muestras ni valores de celdas.",
+      "quality": "Compara el contrato de reglas con la evaluación en memoria.",
+      "test": "source_backed_quality_validation_matches_the_in_memory_contract"
+    },
+    {
+      "id": "csv-global-duplicates",
+      "format": "CSV",
+      "operation": "Regla de unicidad entre bloques",
+      "expectedPath": "incremental",
+      "privacy": "Compara claves internamente y expone conteos de infracciones.",
+      "quality": "Detecta duplicados entre bloques; el conteo debe ser global y exacto.",
+      "test": "source_backed_global_quality_rules_count_duplicates_across_blocks"
+    },
+    {
+      "id": "csv-export",
+      "format": "CSV",
+      "operation": "Exportación CSV",
+      "expectedPath": "incremental",
+      "privacy": "Neutraliza fórmulas en el artefacto CSV final.",
+      "quality": "El gate de calidad se decide explícitamente por separado de la escritura.",
+      "test": "source_backed_csv_export_streams_without_materializing_the_active_frame",
+      "additionalTests": [
+        "csv_export_neutralizes_spreadsheet_formulas_and_parquet_preserves_values",
+        "export_quality_gate_blocks_before_destination_and_requires_explicit_bypass"
+      ]
+    },
+    {
+      "id": "csv-private-export",
+      "format": "CSV",
+      "operation": "Exportación con máscara/hash",
+      "expectedPath": "incremental",
+      "privacy": "Aplica máscara/hash sobre el snapshot privado sin materializar las filas activas.",
+      "quality": "No agrega un gate de calidad implícito.",
+      "test": "source_backed_privacy_snapshot_masks_and_hashes_without_materializing_rows"
+    },
+    {
+      "id": "json-import",
+      "format": "JSON",
+      "operation": "Carga por snapshot privado Parquet",
+      "expectedPath": "snapshot-privado",
+      "privacy": "La conversión intermedia permanece en almacenamiento local privado.",
+      "quality": "No valida reglas de calidad al importar.",
+      "test": "loads_json_variants_through_private_parquet_snapshots"
+    },
+    {
+      "id": "xlsx-import",
+      "format": "XLSX",
+      "operation": "Carga en bloques a snapshot privado Parquet",
+      "expectedPath": "snapshot-privado",
+      "privacy": "El snapshot intermedio queda en almacenamiento local privado.",
+      "quality": "Conserva valores tipados; no ejecuta reglas de calidad al importar.",
+      "test": "loads_xlsx_through_a_source_backed_parquet_snapshot"
+    },
+    {
+      "id": "parquet-page",
+      "format": "Parquet",
+      "operation": "Lectura paginada",
+      "expectedPath": "incremental",
+      "privacy": "Lee solo la página solicitada; no incorpora muestras al diagnóstico.",
+      "quality": "La lectura de página no evalúa reglas de calidad.",
+      "test": "reads_a_page_from_the_parquet_snapshot_with_slice_pushdown"
+    },
+    {
+      "id": "parquet-cancel-query",
+      "format": "Parquet",
+      "operation": "Consulta local cancelable",
+      "expectedPath": "rechazo-cancelable",
+      "privacy": "No publica una respuesta obsoleta después de cancelar.",
+      "quality": "No emite un resultado parcial como validación completa.",
+      "test": "parquet_backed_local_query_honors_cancellation_and_rejects_stale_row_count"
+    },
+    {
+      "id": "csv-unsupported-date-fallback",
+      "format": "CSV",
+      "operation": "Parseo ISO con offsets no soportados por el camino incremental",
+      "expectedPath": "fallback-en-memoria",
+      "privacy": "Sigue siendo local; aplica la misma semántica validada al resultado.",
+      "quality": "No omite ni sustituye reglas; esta operación no las ejecuta.",
+      "test": "source_backed_iso8601_falls_back_for_non_utc_offsets"
+    },
+    {
+      "id": "parquet-memory-admission",
+      "format": "Parquet",
+      "operation": "Materialización sobre presupuesto disponible",
+      "expectedPath": "rechazo-antes-de-materializar",
+      "privacy": "No crea una copia completa al exceder el presupuesto de memoria.",
+      "quality": "No publica resultado parcial ni declara una validación terminada.",
+      "test": "large_source_backed_materialization_requires_available_memory_budget"
+    },
+    {
+      "id": "parquet-join",
+      "format": "Parquet + CSV",
+      "operation": "JOIN local source-backed",
+      "expectedPath": "incremental-con-salida-materializada",
+      "privacy": "El resultado local se limita al JOIN solicitado; no genera muestras de telemetría.",
+      "quality": "La calidad del resultado requiere validación explícita posterior.",
+      "test": "source_backed_file_queries_support_all_join_types_without_a_snapshot"
+    },
+    {
+      "id": "csv-delivery-bundle",
+      "format": "CSV",
+      "operation": "Bundle de entrega",
+      "expectedPath": "incremental",
+      "privacy": "La entrega es explícita; los artefactos internos no filtran rutas ni muestras.",
+      "quality": "Incluye la receta validada cuando se solicitó para el bundle.",
+      "test": "source_backed_bundle_includes_validated_recipe_without_materializing_rows"
+    }
+  ]
+}

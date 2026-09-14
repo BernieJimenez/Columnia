@@ -649,6 +649,11 @@ describe("DeliveryPhase", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} initialContract={failedContract} />);
     expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido");
+    expect(screen.getByText("Problemas detectados")).toBeInTheDocument();
+    expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
+    expect(screen.getByText(/1 incumplimientos entre 2 elementos evaluados \(50\.00%\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Revisar regla 1" }));
+    expect(document.activeElement).toBe(document.getElementById("quality-rule-1"));
     expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
 
     const staleContract: DeliveryContractState = {
@@ -658,6 +663,7 @@ describe("DeliveryPhase", () => {
     cleanup();
     render(<DeliveryHarness onExport={onExport} initialContract={staleContract} />);
     expect(screen.getByRole("status")).toHaveTextContent("Resultado desactualizado");
+    expect(screen.queryByRole("button", { name: "Revisar regla 1" })).not.toBeInTheDocument();
 
     vi.restoreAllMocks();
     vi.spyOn(bridge, "validateQualityRules").mockRejectedValue(new Error("gate no disponible"));

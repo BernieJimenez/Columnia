@@ -53,6 +53,26 @@ fn sample_dataset_creation_is_allowlisted_and_reuses_a_regular_file() {
     assert!(ensure_sample_dataset(&app_data_dir, "unknown").is_err());
 }
 
+#[test]
+fn resource_preflight_uses_the_native_load_route_and_guard_estimate() {
+    let file_size = 512 * 1024 * 1024;
+    let csv = dataset_resource_estimate("csv", file_size);
+    assert_eq!(csv.processing_path, DatasetLoadPath::SourceBacked);
+    assert_eq!(
+        csv.estimated_materialization_ram_bytes,
+        file_size * 4 + 256 * 1024 * 1024
+    );
+    assert_eq!(csv.estimated_temporary_disk_bytes, None);
+
+    let json = dataset_resource_estimate("json", file_size);
+    assert_eq!(json.processing_path, DatasetLoadPath::SourceBacked);
+    assert_eq!(json.estimated_temporary_disk_bytes, Some(file_size));
+
+    let ods = dataset_resource_estimate("ods", file_size);
+    assert_eq!(ods.processing_path, DatasetLoadPath::InMemory);
+    assert_eq!(ods.estimated_temporary_disk_bytes, Some(file_size));
+}
+
 fn complete_stored_recipe() -> StoredTransformRecipe {
     build_stored_recipe(
         TransformRecipe {
@@ -162,16 +182,63 @@ fn recipe_save_atomically_replaces_the_destination_and_leaves_no_temporary_file(
 }
 
 #[test]
+fn recipe_v2_persists_source_schema_and_v1_remains_loadable() {
+    let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
+    let destination = directory.path().join("recipe.json");
+    let mut current = complete_stored_recipe();
+    current.source_schema = Some(vec![
+        RecipeSourceColumn {
+            name: "amount".to_owned(),
+            data_type: "Float64".to_owned(),
+        },
+        RecipeSourceColumn {
+            name: "status".to_owned(),
+            data_type: "String".to_owned(),
+        },
+    ]);
+    validate_stored_recipe(&current).expect("el esquema v2 válido debe aceptarse");
+    save_recipe_atomic(&current, &destination).expect("la receta v2 debe guardarse");
+    assert_eq!(load_recipe_file(&destination).unwrap(), current);
+
+    let mut legacy = complete_stored_recipe();
+    legacy.version = PREVIOUS_RECIPE_FILE_VERSION;
+    legacy.source_schema = None;
+    save_recipe_atomic(&legacy, &destination).expect("la receta v1 debe seguir guardándose");
+    assert_eq!(load_recipe_file(&destination).unwrap(), legacy);
+
+    let mut invalid_legacy = legacy.clone();
+    invalid_legacy.source_schema = Some(vec![RecipeSourceColumn {
+        name: "amount".to_owned(),
+        data_type: "Float64".to_owned(),
+    }]);
+    assert!(validate_stored_recipe(&invalid_legacy)
+        .unwrap_err()
+        .contains("receta v1"));
+
+    current
+        .source_schema
+        .as_mut()
+        .unwrap()
+        .push(RecipeSourceColumn {
+            name: "amount".to_owned(),
+            data_type: "String".to_owned(),
+        });
+    assert!(validate_stored_recipe(&current)
+        .unwrap_err()
+        .contains("vacías, repetidas o fuera de límite"));
+}
+
+#[test]
 fn recipe_load_rejects_future_versions_corruption_unknown_fields_and_oversize() {
     let directory = tempfile::tempdir().expect("se debe crear la carpeta temporal");
     let path = directory.path().join("recipe.json");
 
     fs::write(
         &path,
-        r#"{"version":2,"name":"Futura","savedAt":"2026-01-01T00:00:00Z","recipe":{}}"#,
+        r#"{"version":3,"name":"Futura","savedAt":"2026-01-01T00:00:00Z","recipe":{}}"#,
     )
     .unwrap();
-    assert!(load_recipe_file(&path).unwrap_err().contains("versión 2"));
+    assert!(load_recipe_file(&path).unwrap_err().contains("versión 3"));
 
     fs::write(&path, b"{not-json").unwrap();
     assert!(load_recipe_file(&path)
@@ -6286,6 +6353,37 @@ fn csv_preserves_lexical_values_and_does_not_profile_identifiers_as_numbers() {
     assert!((profile.columns[1].mean.unwrap() - 2.166_666).abs() < 0.001);
     assert_eq!(profile.columns[2].suggested_type, None);
     assert_eq!(profile.columns[2].mean, None);
+
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn csv_import_keeps_zero_padded_values_and_all_duplicate_header_columns() {
+    let path = temporary_csv("identifier,total,total\n00123,1.00,2.50\n");
+    let original_bytes = fs::read(&path).expect("se deben leer los bytes originales");
+
+    let (frame, preview) = load_dataset_with_progress(&path, |_, _| {}, || false)
+        .expect("el CSV con encabezados repetidos debe permanecer cargable");
+
+    let names = frame
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(names.len(), 3);
+    assert_eq!(names[0], "identifier");
+    assert!(names[1].starts_with("total"));
+    assert!(names[2].starts_with("total"));
+    assert_ne!(names[1], names[2]);
+    assert_eq!(
+        preview.rows[0],
+        vec![
+            Some("00123".to_owned()),
+            Some("1.00".to_owned()),
+            Some("2.50".to_owned()),
+        ]
+    );
+    assert_eq!(fs::read(&path).unwrap(), original_bytes);
 
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
@@ -14204,6 +14302,7 @@ fn automation_source_backed_transform_and_quality_validation_stream_the_source()
             }],
             ..TransformRecipe::default()
         },
+        source_schema: None,
         export_options: None,
     };
 

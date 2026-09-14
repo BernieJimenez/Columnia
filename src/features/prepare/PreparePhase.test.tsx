@@ -264,7 +264,7 @@ describe("PreparePhase", () => {
       ...EMPTY_HISTORY,
       canUndo: true,
       entryCount: 1,
-      entries: [{ index: 0, label: "Normalizar texto", isCurrent: true }],
+      entries: [{ id: "history-test-0", index: 0, label: "Normalizar texto", isCurrent: true }],
     };
     render(<PreparePhase
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
@@ -299,8 +299,11 @@ describe("PreparePhase", () => {
     const onCapOutliers = vi.fn();
     const onDropOutliers = vi.fn();
     const onEnableRowAudit = vi.fn();
+    const onQualityFocusHandled = vi.fn();
     render(<PreparePhase
       dataset={dataset}
+      initialQualityFocus="incompatibleTypes"
+      onQualityFocusHandled={onQualityFocusHandled}
       profileStatus={{ kind: "ready", profile: cleaningSignalsProfile }}
       changeStatus={{ kind: "idle" }}
       historyStatus={EMPTY_HISTORY}
@@ -335,6 +338,9 @@ describe("PreparePhase", () => {
     />);
 
     expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
+    expect(document.getElementById("prepare-quality-incompatibleTypes")).toHaveFocus();
+    expect(screen.getByText("Otras señales detectadas").closest("details")).toHaveAttribute("open");
+    expect(onQualityFocusHandled).toHaveBeenCalledOnce();
     expect(screen.getByRole("heading", { name: "Valores nulos y datos faltantes" })).toBeInTheDocument();
     expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent("10 nulos");
     expect(screen.getByLabelText("Resumen de valores nulos")).toHaveTextContent("3 columnas afectadas");
@@ -769,6 +775,8 @@ describe("TransformRecipeEditor", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Nuevo nombre 1" }), { target: { value: "persona" } });
     await waitFor(() => expect(onDraftChange).toHaveBeenCalledWith({
       ...restored,
+      version: 2,
+      sourceSchema: [{ name: "nombre", dataType: "String" }],
       recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "persona" }] },
     }));
     expect(onDraftChange).toHaveBeenCalledTimes(1);
@@ -801,6 +809,8 @@ describe("TransformRecipeEditor", () => {
     });
     await waitFor(() => expect(onDraftChange).toHaveBeenCalledWith({
       ...restored,
+      version: 2,
+      sourceSchema: [{ name: "nombre", dataType: "String" }],
       recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "persona" }] },
     }));
     expect(onDraftChange).toHaveBeenCalledTimes(1);
@@ -808,10 +818,11 @@ describe("TransformRecipeEditor", () => {
 
   it("guarda el borrador validado con el nombre visible", async () => {
     const saved: LoadedRecipe = {
-      version: 1,
+      version: 2,
       name: "Mi receta",
       savedAt: "2026-08-21T00:00:00Z",
       recipe: { ...emptyRecipe, renames: [{ from: "nombre", to: "cliente" }] },
+      sourceSchema: [{ name: "nombre", dataType: "String" }],
     };
     const save = vi.spyOn(bridge, "saveTransformRecipe").mockResolvedValue(saved);
     render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={() => undefined} onDraftChange={() => undefined} />);
@@ -822,7 +833,7 @@ describe("TransformRecipeEditor", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Receta guardada: Mi receta"));
     expect(save).toHaveBeenCalledWith(expect.objectContaining({
       renames: [{ from: "nombre", to: "cliente" }],
-    }), "Mi receta", null);
+    }), "Mi receta", [{ name: "nombre", dataType: "String" }], null);
   });
 
   it("expone el modo regex seguro de buscar y reemplazar en recetas cargadas", () => {
@@ -981,6 +992,34 @@ describe("TransformRecipeEditor", () => {
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
       renames: [{ from: "nombre", to: "cliente" }],
     }));
+  });
+
+  it("exige revisar el cambio de tipo en una columna referenciada por una receta v2", async () => {
+    const loaded: LoadedRecipe = {
+      version: 2,
+      name: "Filtro periódico",
+      savedAt: "2026-09-01T00:00:00Z",
+      recipe: { ...emptyRecipe, filters: [{ column: "total", operator: "eq", value: "10" }] },
+      sourceSchema: [{ name: "total", dataType: "String" }],
+    };
+    const onDraftChange = vi.fn();
+    vi.spyOn(bridge, "pickTransformRecipe").mockResolvedValue(loaded);
+    render(<TransformRecipeEditor dataset={dataset} busy={false} initialDraft={null} onApply={() => undefined} onDraftChange={onDraftChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cargar receta" }));
+    expect(await screen.findByRole("heading", { name: "Revisar columnas de la receta" })).toBeInTheDocument();
+    expect(screen.getByText("El tipo cambió desde String hasta Int64 desde que se guardó la receta.")).toBeInTheDocument();
+    const mapping = screen.getByRole("combobox", { name: "Columna nueva para total" });
+    expect(mapping).toHaveValue("");
+    fireEvent.change(mapping, { target: { value: "total" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar mapeo y cargar" }));
+
+    await waitFor(() => expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
+      version: 2,
+      sourceSchema: [{ name: "total", dataType: "Int64" }],
+      recipe: expect.objectContaining({ filters: [{ column: "total", operator: "eq", value: "10" }] }),
+    })));
+    expect(screen.getByRole("button", { name: "Aplicar receta" })).toBeEnabled();
   });
 
   it("cancelar una revisión de esquema conserva el borrador actual", async () => {

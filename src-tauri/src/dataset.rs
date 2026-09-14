@@ -11,6 +11,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc, Mutex,
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use ::zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
@@ -112,10 +113,12 @@ const DELIMITED_SAMPLE_BYTES: u64 = 64 * 1024;
 const HISTORY_MAX_ENTRIES: usize = 12;
 const HISTORY_DISK_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_AUDIT_CELL_CHARS: usize = 2048;
-const RECIPE_FILE_VERSION: u32 = 1;
+const RECIPE_FILE_VERSION: u32 = 2;
+const PREVIOUS_RECIPE_FILE_VERSION: u32 = 1;
 const RECIPE_FILE_LIMIT_BYTES: u64 = 1024 * 1024;
 const MAX_RECIPE_TEXT_FIELD_CHARS: usize = 4 * 1024;
 const MAX_RECIPE_TOTAL_TEXT_CHARS: usize = 64 * 1024;
+const MAX_RECIPE_SOURCE_COLUMNS: usize = 2_000;
 const NORMALIZED_DUPLICATE_CHUNK_ROWS: usize = 262_144;
 // Fingerprints are spilled into fixed buckets before sorting. Equal values
 // always land in the same bucket, while the in-memory sort only holds one
@@ -161,6 +164,7 @@ const BUNDLE_DICTIONARY_VERSION: u8 = 1;
 const BUNDLE_QUALITY_REPORT_VERSION: u8 = 1;
 const BUNDLE_DELIVERY_SUMMARY_VERSION: u8 = 1;
 const BUNDLE_DELIVERY_SUMMARY_FILE: &str = "delivery-summary.md";
+static NEXT_HISTORY_ENTRY_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -639,6 +643,22 @@ pub struct DatasetSourceInspection {
     sheets: Vec<WorkbookSheet>,
     default_sheet_id: Option<String>,
     is_compressed_container: bool,
+    resource_estimate: DatasetResourceEstimate,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum DatasetLoadPath {
+    InMemory,
+    SourceBacked,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetResourceEstimate {
+    processing_path: DatasetLoadPath,
+    estimated_materialization_ram_bytes: u64,
+    estimated_temporary_disk_bytes: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -650,11 +670,209 @@ pub struct SampleDatasetDescriptor {
     description: String,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SpreadsheetHeaderMode {
     FirstRow,
     Generated,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportDateConvention {
+    Unresolved,
+    Iso8601,
+    Ymd,
+    Dmy,
+    Mdy,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportNumberConvention {
+    Unresolved,
+    DotDecimalCommaGrouping,
+    CommaDecimalDotGrouping,
+    DotDecimalSpaceGrouping,
+    CommaDecimalSpaceGrouping,
+    Integer,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportProfileColumn {
+    pub name: String,
+    pub data_type: String,
+}
+
+/// Reusable, versioned import guidance. This deliberately contains schema metadata
+/// only: never a native selection ID, source path, file name, or data sample.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportProfile {
+    pub version: u8,
+    pub format: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_mode: Option<SpreadsheetHeaderMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_convention: Option<ImportDateConvention>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number_convention: Option<ImportNumberConvention>,
+    pub schema: Vec<ImportProfileColumn>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportProfileTypeChange {
+    pub column: String,
+    pub expected: String,
+    pub actual: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportProfileMismatch {
+    pub code: String,
+    pub missing_columns: Vec<String>,
+    pub added_columns: Vec<String>,
+    pub changed_types: Vec<ImportProfileTypeChange>,
+}
+
+pub const IMPORT_PROFILE_MISMATCH_PREFIX: &str = "__columnia_import_profile_mismatch__:";
+const MAX_IMPORT_PROFILE_COLUMNS: usize = 2_000;
+const MAX_IMPORT_PROFILE_COLUMN_NAME_CHARS: usize = 512;
+
+pub fn validate_import_profile(profile: &ImportProfile) -> Result<(), String> {
+    if profile.version != 1 {
+        return Err("La versión del perfil de importación no es compatible.".to_owned());
+    }
+    if !matches!(
+        profile.format.as_str(),
+        "csv" | "tsv" | "json" | "parquet" | "excel"
+    ) {
+        return Err("El formato del perfil de importación no es compatible.".to_owned());
+    }
+    let is_excel = profile.format == "excel";
+    if is_excel != profile.sheet_name.is_some() || is_excel != profile.header_mode.is_some() {
+        return Err("Las opciones de hoja del perfil no coinciden con su formato.".to_owned());
+    }
+    if profile.sheet_name.as_deref().is_some_and(|name| {
+        name.trim().is_empty()
+            || name.chars().count() > MAX_IMPORT_PROFILE_COLUMN_NAME_CHARS
+            || name.chars().any(char::is_control)
+    }) {
+        return Err("El nombre de hoja del perfil no es válido.".to_owned());
+    }
+    if profile.schema.is_empty() || profile.schema.len() > MAX_IMPORT_PROFILE_COLUMNS {
+        return Err("El esquema del perfil de importación no es válido.".to_owned());
+    }
+    let mut seen = HashSet::with_capacity(profile.schema.len());
+    if profile.schema.iter().any(|column| {
+        column.name.trim().is_empty()
+            || column.name.chars().count() > MAX_IMPORT_PROFILE_COLUMN_NAME_CHARS
+            || column.name.chars().any(char::is_control)
+            || column.data_type.is_empty()
+            || column.data_type.chars().count() > 64
+            || column.data_type.chars().any(char::is_control)
+            || !seen.insert(column.name.clone())
+    }) {
+        return Err("Las columnas del perfil de importación no son válidas.".to_owned());
+    }
+    Ok(())
+}
+
+pub fn import_profile_schema_mismatch(
+    profile: &ImportProfile,
+    frame: &DataFrame,
+) -> Option<ImportProfileMismatch> {
+    let actual = frame
+        .columns()
+        .iter()
+        .map(|column| {
+            (
+                column.name().as_str(),
+                canonical_import_profile_data_type(&column.dtype().to_string()),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let expected_names = profile
+        .schema
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    let expected = profile
+        .schema
+        .iter()
+        .map(|column| {
+            (
+                column.name.as_str(),
+                canonical_import_profile_data_type(&column.data_type),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    let missing_columns = profile
+        .schema
+        .iter()
+        .filter(|column| !actual.contains_key(column.name.as_str()))
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    let added_columns = frame
+        .columns()
+        .iter()
+        .filter(|column| !expected_names.contains(column.name().as_str()))
+        .map(|column| column.name().to_string())
+        .collect::<Vec<_>>();
+    let changed_types = profile
+        .schema
+        .iter()
+        .filter_map(|column| {
+            let actual_type = actual.get(column.name.as_str())?;
+            let expected_type = expected.get(column.name.as_str())?;
+            (actual_type != expected_type).then(|| ImportProfileTypeChange {
+                column: column.name.clone(),
+                expected: expected_type.clone(),
+                actual: actual_type.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if missing_columns.is_empty() && added_columns.is_empty() && changed_types.is_empty() {
+        None
+    } else {
+        Some(ImportProfileMismatch {
+            code: "importProfileSchemaMismatch".to_owned(),
+            missing_columns,
+            added_columns,
+            changed_types,
+        })
+    }
+}
+
+/// Polars uses compact names for primitive dtypes (`str`, `i64`, `f64`), while
+/// older saved profiles and UI fixtures may use their display names. Compare
+/// only established aliases and keep genuinely distinct dtypes distinct.
+fn canonical_import_profile_data_type(data_type: &str) -> String {
+    match data_type.trim() {
+        "str" | "String" | "string" | "Utf8" | "Utf8View" => "String".to_owned(),
+        "bool" | "Boolean" => "Boolean".to_owned(),
+        "i8" | "Int8" => "Int8".to_owned(),
+        "i16" | "Int16" => "Int16".to_owned(),
+        "i32" | "Int32" => "Int32".to_owned(),
+        "i64" | "Int64" => "Int64".to_owned(),
+        "u8" | "UInt8" => "UInt8".to_owned(),
+        "u16" | "UInt16" => "UInt16".to_owned(),
+        "u32" | "UInt32" => "UInt32".to_owned(),
+        "u64" | "UInt64" => "UInt64".to_owned(),
+        "f32" | "Float32" => "Float32".to_owned(),
+        "f64" | "Float64" => "Float64".to_owned(),
+        "date" | "Date" => "Date".to_owned(),
+        "time" | "Time" => "Time".to_owned(),
+        "null" | "Null" => "Null".to_owned(),
+        other => other.to_owned(),
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -871,6 +1089,7 @@ pub struct HistoryResult {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntryState {
+    id: Option<String>,
     index: usize,
     label: String,
     is_current: bool,
@@ -889,6 +1108,90 @@ pub struct HistoryState {
     max_entries: usize,
     disk_bytes: u64,
     disk_budget_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotRevisionComparison {
+    before_snapshot_id: String,
+    after_snapshot_id: String,
+    before_label: String,
+    after_label: String,
+    before: SnapshotRevisionSummary,
+    after: SnapshotRevisionSummary,
+    deltas: SnapshotRevisionDeltas,
+    columns: Vec<SnapshotColumnComparison>,
+    quality: SnapshotQualityComparison,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotRevisionSummary {
+    row_count: usize,
+    column_count: usize,
+    null_count: usize,
+    invalid_type_count: usize,
+    duplicate_row_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotRevisionDeltas {
+    row_count: Option<i64>,
+    column_count: Option<i64>,
+    null_count: Option<i64>,
+    invalid_type_count: Option<i64>,
+    duplicate_row_count: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotColumnSummary {
+    data_type: String,
+    null_count: usize,
+    invalid_type_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotColumnComparison {
+    name: String,
+    comparable: bool,
+    reason: Option<String>,
+    before: Option<SnapshotColumnSummary>,
+    after: Option<SnapshotColumnSummary>,
+    type_changed: Option<bool>,
+    null_count_delta: Option<i64>,
+    invalid_type_count_delta: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotQualityComparison {
+    configured_rule_count: usize,
+    comparable_rule_count: usize,
+    non_comparable_rule_count: usize,
+    improved_rule_count: usize,
+    degraded_rule_count: usize,
+    before_passed_rule_count: usize,
+    after_passed_rule_count: usize,
+    rules: Vec<SnapshotQualityRuleComparison>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotQualityRuleComparison {
+    rule_index: usize,
+    kind: QualityRuleKind,
+    column: String,
+    comparable: bool,
+    reason: Option<String>,
+    before_invalid_count: Option<usize>,
+    after_invalid_count: Option<usize>,
+    before_invalid_percentage: Option<f64>,
+    after_invalid_percentage: Option<f64>,
+    before_passed: Option<bool>,
+    after_passed: Option<bool>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -1174,11 +1477,20 @@ pub struct RecipeExportOptions {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecipeSourceColumn {
+    pub name: String,
+    pub data_type: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredTransformRecipe {
     pub version: u32,
     pub name: String,
     pub saved_at: String,
     pub recipe: TransformRecipe,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_schema: Option<Vec<RecipeSourceColumn>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export_options: Option<RecipeExportOptions>,
 }
@@ -1222,6 +1534,7 @@ struct LoadedDataset {
 
 #[derive(Debug)]
 struct HistoryEntry {
+    id: String,
     label: String,
     path: PathBuf,
     bytes: u64,
@@ -1298,6 +1611,7 @@ impl HistoryManager {
                 .iter()
                 .enumerate()
                 .map(|(index, entry)| HistoryEntryState {
+                    id: Some(entry.id.clone()),
                     index,
                     label: entry.label.clone(),
                     is_current: index == self.cursor,
@@ -1305,6 +1619,7 @@ impl HistoryManager {
                 .collect()
         } else {
             vec![HistoryEntryState {
+                id: None,
                 index: 0,
                 label: self.current_label.clone(),
                 is_current: true,
@@ -1386,6 +1701,7 @@ impl HistoryManager {
             let _ = fs::remove_file(entry.path);
         }
         self.entries.push(HistoryEntry {
+            id: fresh_history_entry_id(),
             label: label.to_owned(),
             path: destination,
             bytes,
@@ -1445,6 +1761,7 @@ impl HistoryManager {
             let _ = fs::remove_file(entry.path);
         }
         self.entries.push(HistoryEntry {
+            id: fresh_history_entry_id(),
             label: label.to_owned(),
             path: destination,
             bytes,
@@ -1468,6 +1785,358 @@ impl HistoryManager {
         read_parquet_frame(&entry.path)
             .map_err(|error| format!("No se pudo restaurar el snapshot del historial: {error}"))
     }
+
+    fn restore_by_id(&self, id: &str) -> Result<(DataFrame, String), String> {
+        if !self.snapshots_enabled {
+            return Err(self.degraded_reason.clone().unwrap_or_else(|| {
+                "La comparación no está disponible porque el historial está desactivado.".to_owned()
+            }));
+        }
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| "La revisión seleccionada ya no está disponible.".to_owned())?;
+        let frame = read_parquet_frame(&entry.path)
+            .map_err(|_| "No se pudo leer una revisión del historial.".to_owned())?;
+        Ok((frame, entry.label.clone()))
+    }
+
+    fn contains_id(&self, id: &str) -> bool {
+        self.snapshots_enabled && self.entries.iter().any(|entry| entry.id == id)
+    }
+}
+
+fn fresh_history_entry_id() -> String {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let sequence = NEXT_HISTORY_ENTRY_ID.fetch_add(1, Ordering::Relaxed);
+    format!(
+        "rev-{timestamp:032x}-{:08x}-{sequence:016x}",
+        std::process::id()
+    )
+}
+
+fn snapshot_count_delta(before: usize, after: usize) -> Option<i64> {
+    let before = i64::try_from(before).ok()?;
+    let after = i64::try_from(after).ok()?;
+    after.checked_sub(before)
+}
+
+fn snapshot_rule_columns(rule: &QualityRule) -> Vec<String> {
+    let mut columns = Vec::new();
+    if !matches!(
+        rule.kind,
+        QualityRuleKind::SchemaContract | QualityRuleKind::RowCount
+    ) && !rule.column.is_empty()
+        && rule.column != QUALITY_DATASET_COLUMN
+    {
+        columns.push(rule.column.clone());
+    }
+    if let Some(names) = rule.columns.as_deref() {
+        columns.extend(names.iter().cloned());
+    }
+    if let Some(condition) = rule.when.as_ref() {
+        columns.push(condition.column.clone());
+    }
+    if let Some(then) = rule.then.as_deref() {
+        columns.extend(snapshot_rule_columns(then));
+    }
+    columns.sort();
+    columns.dedup();
+    columns
+}
+
+fn snapshot_rule_missing_columns(rule: &QualityRule, frame: &DataFrame) -> Vec<String> {
+    let actual = frame
+        .get_column_names()
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<HashSet<_>>();
+    snapshot_rule_columns(rule)
+        .into_iter()
+        .filter(|name| !actual.contains(name.as_str()))
+        .collect()
+}
+
+fn snapshot_quality_comparison<C>(
+    before: &DataFrame,
+    after: &DataFrame,
+    rules: &[QualityRule],
+    is_cancelled: C,
+) -> Result<SnapshotQualityComparison, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    validate_quality_rules_payload(rules)?;
+    let mut results = Vec::with_capacity(rules.len());
+    for (index, rule) in rules.iter().enumerate() {
+        ensure_not_cancelled(is_cancelled())?;
+        let before_missing = snapshot_rule_missing_columns(rule, before);
+        let after_missing = snapshot_rule_missing_columns(rule, after);
+        let missing = before_missing
+            .iter()
+            .chain(after_missing.iter())
+            .cloned()
+            .collect::<HashSet<_>>();
+        if !missing.is_empty() {
+            let mut missing = missing.into_iter().collect::<Vec<_>>();
+            missing.sort();
+            results.push(SnapshotQualityRuleComparison {
+                rule_index: index + 1,
+                kind: rule.kind,
+                column: rule.column.clone(),
+                comparable: false,
+                reason: Some(format!(
+                    "La regla requiere columnas que faltan en una revisión: {}.",
+                    missing.join(", ")
+                )),
+                before_invalid_count: None,
+                after_invalid_count: None,
+                before_invalid_percentage: None,
+                after_invalid_percentage: None,
+                before_passed: None,
+                after_passed: None,
+            });
+            continue;
+        }
+        let before_result =
+            evaluate_quality_rules_with_cancel(before, std::slice::from_ref(rule), &is_cancelled)?;
+        let after_result =
+            evaluate_quality_rules_with_cancel(after, std::slice::from_ref(rule), &is_cancelled)?;
+        let before_result = before_result
+            .rules
+            .first()
+            .ok_or_else(|| "No se pudo calcular la regla sobre la primera revisión.".to_owned())?;
+        let after_result = after_result
+            .rules
+            .first()
+            .ok_or_else(|| "No se pudo calcular la regla sobre la segunda revisión.".to_owned())?;
+        results.push(SnapshotQualityRuleComparison {
+            rule_index: index + 1,
+            kind: rule.kind,
+            column: rule.column.clone(),
+            comparable: true,
+            reason: None,
+            before_invalid_count: Some(before_result.invalid_count),
+            after_invalid_count: Some(after_result.invalid_count),
+            before_invalid_percentage: Some(before_result.invalid_pct),
+            after_invalid_percentage: Some(after_result.invalid_pct),
+            before_passed: Some(before_result.passed),
+            after_passed: Some(after_result.passed),
+        });
+    }
+
+    let comparable = results
+        .iter()
+        .filter(|rule| rule.comparable)
+        .collect::<Vec<_>>();
+    Ok(SnapshotQualityComparison {
+        configured_rule_count: rules.len(),
+        comparable_rule_count: comparable.len(),
+        non_comparable_rule_count: rules.len().saturating_sub(comparable.len()),
+        improved_rule_count: comparable
+            .iter()
+            .filter(|rule| {
+                rule.before_invalid_percentage
+                    .zip(rule.after_invalid_percentage)
+                    .is_some_and(|(before, after)| after < before)
+            })
+            .count(),
+        degraded_rule_count: comparable
+            .iter()
+            .filter(|rule| {
+                rule.before_invalid_percentage
+                    .zip(rule.after_invalid_percentage)
+                    .is_some_and(|(before, after)| after > before)
+            })
+            .count(),
+        before_passed_rule_count: comparable
+            .iter()
+            .filter(|rule| rule.before_passed == Some(true))
+            .count(),
+        after_passed_rule_count: comparable
+            .iter()
+            .filter(|rule| rule.after_passed == Some(true))
+            .count(),
+        rules: results,
+    })
+}
+
+fn profile_snapshot_comparison_side<F, C>(
+    frame: &DataFrame,
+    mut report: F,
+    is_cancelled: C,
+) -> Result<DatasetProfile, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Sync,
+{
+    // Recalcula sobre el Parquet inmutable del historial. No consulta ni modifica
+    // el perfil cacheado del dataset activo.
+    profile_dataset_with_progress(
+        frame,
+        |stage, percent| report(stage, percent),
+        is_cancelled,
+        MAX_NUMERIC_CORRELATION_SAMPLE_ROWS,
+    )
+}
+
+fn compare_snapshot_frames<F, C>(
+    before_snapshot_id: String,
+    after_snapshot_id: String,
+    before_label: String,
+    after_label: String,
+    before_frame: &DataFrame,
+    after_frame: &DataFrame,
+    quality_rules: &[QualityRule],
+    mut report: F,
+    is_cancelled: C,
+) -> Result<SnapshotRevisionComparison, String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool + Sync,
+{
+    if before_snapshot_id == after_snapshot_id {
+        return Err("Selecciona dos revisiones distintas para compararlas.".to_owned());
+    }
+    validate_quality_rules_payload(quality_rules)?;
+    let before_profile = profile_snapshot_comparison_side(
+        before_frame,
+        |stage, percent| report(stage, percent / 2),
+        &is_cancelled,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let after_profile = profile_snapshot_comparison_side(
+        after_frame,
+        |stage, percent| report(stage, 50 + percent / 2),
+        &is_cancelled,
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let quality =
+        snapshot_quality_comparison(before_frame, after_frame, quality_rules, &is_cancelled)?;
+
+    let before_summary = SnapshotRevisionSummary {
+        row_count: before_profile.row_count,
+        column_count: before_profile.columns.len(),
+        null_count: before_profile
+            .columns
+            .iter()
+            .map(|column| column.null_count)
+            .sum(),
+        invalid_type_count: before_profile
+            .columns
+            .iter()
+            .map(|column| column.invalid_type_count.unwrap_or_default())
+            .sum(),
+        duplicate_row_count: before_profile.duplicate_row_count,
+    };
+    let after_summary = SnapshotRevisionSummary {
+        row_count: after_profile.row_count,
+        column_count: after_profile.columns.len(),
+        null_count: after_profile
+            .columns
+            .iter()
+            .map(|column| column.null_count)
+            .sum(),
+        invalid_type_count: after_profile
+            .columns
+            .iter()
+            .map(|column| column.invalid_type_count.unwrap_or_default())
+            .sum(),
+        duplicate_row_count: after_profile.duplicate_row_count,
+    };
+
+    let before_columns = before_profile
+        .columns
+        .iter()
+        .map(|column| (column.name.as_str(), column))
+        .collect::<HashMap<_, _>>();
+    let after_columns = after_profile
+        .columns
+        .iter()
+        .map(|column| (column.name.as_str(), column))
+        .collect::<HashMap<_, _>>();
+    let mut names = before_profile
+        .columns
+        .iter()
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    for column in &after_profile.columns {
+        if !before_columns.contains_key(column.name.as_str()) {
+            names.push(column.name.clone());
+        }
+    }
+    let columns = names
+        .into_iter()
+        .map(|name| {
+            let before = before_columns.get(name.as_str()).map(|column| {
+                SnapshotColumnSummary {
+                    data_type: column.data_type.clone(),
+                    null_count: column.null_count,
+                    invalid_type_count: column.invalid_type_count.unwrap_or_default(),
+                }
+            });
+            let after = after_columns.get(name.as_str()).map(|column| {
+                SnapshotColumnSummary {
+                    data_type: column.data_type.clone(),
+                    null_count: column.null_count,
+                    invalid_type_count: column.invalid_type_count.unwrap_or_default(),
+                }
+            });
+            let comparable = before.is_some() && after.is_some();
+            SnapshotColumnComparison {
+                name: name.clone(),
+                comparable,
+                reason: (!comparable).then(|| {
+                    "La columna existe solo en una de las dos revisiones; no se comparan sus métricas.".to_owned()
+                }),
+                type_changed: before
+                    .as_ref()
+                    .zip(after.as_ref())
+                    .map(|(before, after)| before.data_type != after.data_type),
+                null_count_delta: before
+                    .as_ref()
+                    .zip(after.as_ref())
+                    .and_then(|(before, after)| snapshot_count_delta(before.null_count, after.null_count)),
+                invalid_type_count_delta: before
+                    .as_ref()
+                    .zip(after.as_ref())
+                    .and_then(|(before, after)| snapshot_count_delta(before.invalid_type_count, after.invalid_type_count)),
+                before,
+                after,
+            }
+        })
+        .collect();
+
+    let deltas = SnapshotRevisionDeltas {
+        row_count: snapshot_count_delta(before_summary.row_count, after_summary.row_count),
+        column_count: snapshot_count_delta(before_summary.column_count, after_summary.column_count),
+        null_count: snapshot_count_delta(before_summary.null_count, after_summary.null_count),
+        invalid_type_count: snapshot_count_delta(
+            before_summary.invalid_type_count,
+            after_summary.invalid_type_count,
+        ),
+        duplicate_row_count: snapshot_count_delta(
+            before_summary.duplicate_row_count,
+            after_summary.duplicate_row_count,
+        ),
+    };
+    report("Comparación agregada completada", 100);
+
+    Ok(SnapshotRevisionComparison {
+        before_snapshot_id,
+        after_snapshot_id,
+        before_label,
+        after_label,
+        before: before_summary,
+        after: after_summary,
+        deltas,
+        columns,
+        quality,
+    })
 }
 
 fn publish_candidate(
@@ -1581,6 +2250,7 @@ pub struct DatasetState {
     temporal_generation: AtomicU64,
     export_generation: AtomicU64,
     query_generation: AtomicU64,
+    snapshot_comparison_generation: AtomicU64,
 }
 
 impl DatasetState {
@@ -1627,6 +2297,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_snapshot_comparison(&self) -> u64 {
+        self.snapshot_comparison_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn load_was_cancelled(&self, generation: u64) -> bool {
         self.load_generation.load(Ordering::SeqCst) != generation
     }
@@ -1645,6 +2321,10 @@ impl DatasetState {
 
     fn query_was_cancelled(&self, generation: u64) -> bool {
         self.query_generation.load(Ordering::SeqCst) != generation
+    }
+
+    fn snapshot_comparison_was_cancelled(&self, generation: u64) -> bool {
+        self.snapshot_comparison_generation.load(Ordering::SeqCst) != generation
     }
 
     fn remember_last_export(&self, path: PathBuf) {
@@ -1668,6 +2348,7 @@ impl DatasetState {
             "temporal" => &self.temporal_generation,
             "export" => &self.export_generation,
             "query" => &self.query_generation,
+            "snapshotComparison" => &self.snapshot_comparison_generation,
             _ => return Err("La operación indicada no admite cancelación.".to_owned()),
         };
         generation.fetch_add(1, Ordering::SeqCst);
@@ -11859,6 +12540,20 @@ fn spreadsheet_extensions(extension: &str) -> bool {
     matches!(extension, "xlsx" | "xls" | "xlsb" | "ods")
 }
 
+fn import_format_for_extension(extension: &str) -> &'static str {
+    if spreadsheet_extensions(extension) {
+        "excel"
+    } else if extension == "parquet" {
+        "parquet"
+    } else if matches!(extension, "json" | "jsonl" | "ndjson") {
+        "json"
+    } else if extension == "tsv" {
+        "tsv"
+    } else {
+        "csv"
+    }
+}
+
 fn inspect_workbook(path: &Path) -> Result<Vec<String>, String> {
     let workbook = open_workbook_auto(path)
         .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
@@ -13186,6 +13881,23 @@ fn should_defer_source_load(extension: &str, file_size_bytes: u64) -> bool {
         )
 }
 
+fn dataset_resource_estimate(extension: &str, file_size_bytes: u64) -> DatasetResourceEstimate {
+    let is_source_backed = should_defer_source_load(extension, file_size_bytes);
+    let needs_temporary_snapshot =
+        !is_source_backed || matches!(extension, "json" | "jsonl" | "ndjson" | "xlsx" | "xlsb");
+    DatasetResourceEstimate {
+        processing_path: if is_source_backed {
+            DatasetLoadPath::SourceBacked
+        } else {
+            DatasetLoadPath::InMemory
+        },
+        estimated_materialization_ram_bytes: file_size_bytes
+            .saturating_mul(MATERIALIZATION_ESTIMATE_MULTIPLIER)
+            .saturating_add(MATERIALIZATION_RESERVE_BYTES),
+        estimated_temporary_disk_bytes: needs_temporary_snapshot.then_some(file_size_bytes),
+    }
+}
+
 fn load_source_backed_dataset_for_automation(
     input: &Path,
     sheet_name: Option<&str>,
@@ -13468,6 +14180,7 @@ fn build_stored_recipe(
         name,
         saved_at: current_recipe_timestamp(),
         recipe,
+        source_schema: None,
         export_options: None,
     };
     validate_stored_recipe(&document)?;
@@ -13493,11 +14206,42 @@ fn validate_recipe_export_options(options: &RecipeExportOptions) -> Result<(), S
 }
 
 fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result<(), String> {
-    if document.version != RECIPE_FILE_VERSION {
+    if ![PREVIOUS_RECIPE_FILE_VERSION, RECIPE_FILE_VERSION].contains(&document.version) {
         return Err(format!(
-            "La receta usa la versión {}, pero Columnia admite exactamente la versión {}.",
-            document.version, RECIPE_FILE_VERSION
+            "La receta usa la versión {}, pero Columnia admite las versiones {} y {}.",
+            document.version, PREVIOUS_RECIPE_FILE_VERSION, RECIPE_FILE_VERSION
         ));
+    }
+    if document.version == PREVIOUS_RECIPE_FILE_VERSION && document.source_schema.is_some() {
+        return Err("Una receta v1 no puede incluir el esquema de origen v2.".to_owned());
+    }
+    if let Some(schema) = &document.source_schema {
+        if schema.len() > MAX_RECIPE_SOURCE_COLUMNS {
+            return Err(format!("El esquema de origen puede incluir como máximo {MAX_RECIPE_SOURCE_COLUMNS} columnas."));
+        }
+        let mut names = HashSet::with_capacity(schema.len());
+        for column in schema {
+            if column.name.is_empty()
+                || column.data_type.is_empty()
+                || column.name.chars().any(char::is_control)
+                || column.data_type.chars().any(char::is_control)
+                || column.data_type.chars().count() > 128
+                || !names.insert(column.name.as_str())
+            {
+                return Err("El esquema de origen de la receta contiene columnas vacías, repetidas o fuera de límite.".to_owned());
+            }
+        }
+        validate_semantic_text_budget(
+            "esquema de origen de receta",
+            schema.iter().flat_map(|column| {
+                [
+                    ("nombre de columna", column.name.as_str()),
+                    ("tipo de columna", column.data_type.as_str()),
+                ]
+            }),
+            MAX_RECIPE_TEXT_FIELD_CHARS,
+            MAX_RECIPE_TOTAL_TEXT_CHARS,
+        )?;
     }
     validate_recipe_name(&document.name)?;
     DateTime::parse_from_rfc3339(&document.saved_at)
@@ -23472,6 +24216,7 @@ async fn inspect_dataset_path(
             None
         },
         is_compressed_container: matches!(extension.as_str(), "xlsx" | "xlsb" | "ods"),
+        resource_estimate: dataset_resource_estimate(&extension, file_size_bytes),
     })
 }
 
@@ -23493,6 +24238,7 @@ pub async fn load_dataset_selection(
     selection_id: String,
     sheet_id: Option<String>,
     header_mode: Option<SpreadsheetHeaderMode>,
+    expected_profile: Option<ImportProfile>,
     on_progress: Channel<OperationProgress>,
 ) -> Result<DatasetPreview, String> {
     let generation = app.state::<DatasetState>().begin_load();
@@ -23520,6 +24266,31 @@ pub async fn load_dataset_selection(
             );
         }
         let extension = dataset_extension(&pending.path)?;
+        if let Some(profile) = expected_profile.as_ref() {
+            validate_import_profile(profile)?;
+            if profile.format != import_format_for_extension(&extension) {
+                return Err(
+                    "El perfil guardado no corresponde al formato de este archivo.".to_owned(),
+                );
+            }
+            if spreadsheet_extensions(&extension) {
+                let index = sheet_id
+                    .as_deref()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .ok_or_else(|| "El perfil requiere elegir la hoja guardada.".to_owned())?;
+                let selected_sheet = pending
+                    .sheets
+                    .get(index)
+                    .ok_or_else(|| "La hoja guardada ya no está disponible.".to_owned())?;
+                if profile.sheet_name.as_deref() != Some(selected_sheet.as_str())
+                    || profile.header_mode != header_mode
+                {
+                    return Err(
+                        "Las opciones elegidas no coinciden con el perfil guardado.".to_owned()
+                    );
+                }
+            }
+        }
         let mut deferred_history = None;
         let (frame, preview, row_count, source_backed) = if spreadsheet_extensions(&extension) {
             let header_mode = header_mode
@@ -23621,6 +24392,14 @@ pub async fn load_dataset_selection(
         };
         let state = app.state::<DatasetState>();
         ensure_not_cancelled(state.load_was_cancelled(generation))?;
+        if let Some(profile) = expected_profile.as_ref() {
+            if let Some(mismatch) = import_profile_schema_mismatch(profile, &frame) {
+                let details = serde_json::to_string(&mismatch).map_err(|_| {
+                    "No se pudo comparar el esquema del perfil de importación.".to_owned()
+                })?;
+                return Err(format!("{IMPORT_PROFILE_MISMATCH_PREFIX}{details}"));
+            }
+        }
         let history = if source_backed {
             deferred_history.unwrap_or(HistoryManager::deferred()?)
         } else {
@@ -25062,9 +25841,11 @@ pub async fn save_transform_recipe(
     app: AppHandle,
     recipe: TransformRecipe,
     name: String,
+    source_schema: Vec<RecipeSourceColumn>,
     export_options: Option<RecipeExportOptions>,
 ) -> Result<Option<StoredTransformRecipe>, String> {
     let mut document = build_stored_recipe(recipe, name)?;
+    document.source_schema = Some(source_schema);
     document.export_options = export_options;
     validate_stored_recipe(&document)?;
     let suggested_name = recipe_suggested_file_name(&document.name);
@@ -26116,6 +26897,78 @@ pub fn get_history_state(state: State<'_, DatasetState>) -> Result<HistoryState,
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
     Ok(dataset.history.state())
+}
+
+#[tauri::command]
+pub async fn compare_history_snapshots(
+    app: AppHandle,
+    before_snapshot_id: String,
+    after_snapshot_id: String,
+    quality_rules: Vec<QualityRule>,
+    on_progress: Channel<OperationProgress>,
+) -> Result<SnapshotRevisionComparison, String> {
+    validate_quality_rules_payload(&quality_rules)?;
+    validate_history_entry_id(&before_snapshot_id)?;
+    validate_history_entry_id(&after_snapshot_id)?;
+    if before_snapshot_id == after_snapshot_id {
+        return Err("Selecciona dos revisiones distintas para compararlas.".to_owned());
+    }
+
+    let generation = app.state::<DatasetState>().begin_snapshot_comparison();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (before_frame, before_label, after_frame, after_label) = {
+            let state = app.state::<DatasetState>();
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+            let dataset = current
+                .as_ref()
+                .ok_or_else(|| "No hay un dataset activo para comparar revisiones.".to_owned())?;
+            if !dataset.history.snapshots_enabled {
+                return Err(dataset.history.degraded_reason.clone().unwrap_or_else(|| {
+                    "La comparación no está disponible porque el historial está desactivado."
+                        .to_owned()
+                }));
+            }
+            let (before_frame, before_label) =
+                dataset.history.restore_by_id(&before_snapshot_id)?;
+            let (after_frame, after_label) = dataset.history.restore_by_id(&after_snapshot_id)?;
+            (before_frame, before_label, after_frame, after_label)
+        };
+
+        let state = app.state::<DatasetState>();
+        let comparison = compare_snapshot_frames(
+            before_snapshot_id.clone(),
+            after_snapshot_id.clone(),
+            before_label,
+            after_label,
+            &before_frame,
+            &after_frame,
+            &quality_rules,
+            |stage, percent| send_progress(&on_progress, "profile", stage, percent),
+            || state.snapshot_comparison_was_cancelled(generation),
+        )?;
+        ensure_not_cancelled(state.snapshot_comparison_was_cancelled(generation))?;
+
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos no está disponible.".to_owned())?;
+        let dataset = current
+            .as_ref()
+            .ok_or_else(|| "El dataset cambió durante la comparación.".to_owned())?;
+        if !dataset.history.contains_id(&before_snapshot_id)
+            || !dataset.history.contains_id(&after_snapshot_id)
+        {
+            return Err(
+                "La comparación quedó obsoleta porque una revisión salió del historial.".to_owned(),
+            );
+        }
+        Ok(comparison)
+    })
+    .await
+    .map_err(|error| format!("La comparación de revisiones se interrumpió: {error}"))?
 }
 
 fn strict_column_text(column: &Column) -> Result<Vec<Option<String>>, String> {
@@ -33092,6 +33945,7 @@ pub(crate) struct ActiveDatasetSnapshot {
 }
 
 pub(crate) struct ProjectHistoryCaptureEntry {
+    pub(crate) id: String,
     pub(crate) label: String,
     pub(crate) path: PathBuf,
     pub(crate) bytes: u64,
@@ -33109,6 +33963,7 @@ pub(crate) struct ProjectHistoryCapture {
 }
 
 pub(crate) struct ProjectHistoryRestoreEntry {
+    pub(crate) id: String,
     pub(crate) label: String,
     pub(crate) path: PathBuf,
     pub(crate) bytes: u64,
@@ -33184,6 +34039,17 @@ fn validate_history_label(label: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_history_entry_id(id: &str) -> Result<(), String> {
+    if !(8..=96).contains(&id.len())
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err("Un ID de revisión del historial no es válido.".to_owned());
+    }
+    Ok(())
+}
+
 fn capture_project_history(
     history: &HistoryManager,
     current_frame: &DataFrame,
@@ -33218,8 +34084,13 @@ fn capture_project_history(
     let mut entries = Vec::with_capacity(history.entries.len());
     let mut total_bytes = 0_u64;
     let mut cursor_matches = !history.snapshots_enabled;
+    let mut ids = HashSet::with_capacity(history.entries.len());
     for (index, entry) in history.entries.iter().enumerate() {
         validate_history_label(&entry.label)?;
+        validate_history_entry_id(&entry.id)?;
+        if !ids.insert(entry.id.as_str()) {
+            return Err("El historial activo contiene IDs de revisión repetidos.".to_owned());
+        }
         let metadata = fs::symlink_metadata(&entry.path)
             .map_err(|_| "No se pudo leer el historial activo.".to_owned())?;
         if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != entry.bytes
@@ -33248,6 +34119,7 @@ fn capture_project_history(
             cursor_matches = matches;
         }
         entries.push(ProjectHistoryCaptureEntry {
+            id: entry.id.clone(),
             label: entry.label.clone(),
             path: destination,
             bytes: copied,
@@ -33302,8 +34174,19 @@ fn restore_project_history(
     let mut entries = Vec::with_capacity(history.entries.len());
     let mut cursor_matches = !history.snapshots_enabled;
     let mut total_bytes = 0_u64;
+    let mut ids = HashSet::with_capacity(history.entries.len());
     for (index, entry) in history.entries.into_iter().enumerate() {
         validate_history_label(&entry.label)?;
+        let id = if entry.id.is_empty() {
+            // Manifiestos anteriores a D03 no incluían IDs estables.
+            fresh_history_entry_id()
+        } else {
+            validate_history_entry_id(&entry.id)?;
+            entry.id
+        };
+        if !ids.insert(id.clone()) {
+            return Err("El historial guardado contiene IDs de revisión repetidos.".to_owned());
+        }
         let metadata = fs::symlink_metadata(&entry.path)
             .map_err(|_| "Un snapshot del historial no está disponible.".to_owned())?;
         if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != entry.bytes
@@ -33334,6 +34217,7 @@ fn restore_project_history(
             cursor_matches = matches;
         }
         entries.push(HistoryEntry {
+            id,
             label: entry.label,
             path: destination,
             bytes: copied,
@@ -33857,6 +34741,10 @@ pub async fn apply_transform_recipe(
 #[cfg(test)]
 #[path = "dataset/delivery_summary_tests.rs"]
 mod delivery_summary_tests;
+
+#[cfg(test)]
+#[path = "dataset/snapshot_comparison_tests.rs"]
+mod snapshot_comparison_tests;
 
 #[cfg(test)]
 mod tests;

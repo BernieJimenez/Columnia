@@ -10,6 +10,7 @@ import type {
 import * as bridge from "../../bridge";
 import { DatasetPreviewPanel, ReviewPhase } from "./ReviewPhase";
 import { createReadyDatasetStatus } from "../load/loadModel";
+import type { QualityActionTarget } from "./qualityActionPlan";
 
 afterEach(() => {
   cleanup();
@@ -291,6 +292,7 @@ const temporalMeanSeries: TemporalAggregationSeries = {
 function temporalTrendElement(
   profileForTest: DatasetProfile = numericTemporalProfile,
   datasetRevision = 17,
+  onContinueToPrepare?: (target?: QualityActionTarget) => void,
 ) {
   return (
     <ReviewPhase
@@ -301,6 +303,7 @@ function temporalTrendElement(
       onPageChange={() => undefined}
       onAnalyzeQuality={() => undefined}
       onCancelProfile={() => undefined}
+      onContinueToPrepare={onContinueToPrepare}
       comparisonStatus={{ kind: "idle" }}
       datasetColumns={dataset.columns}
       comparisonKeyColumns={[]}
@@ -327,6 +330,19 @@ function renderTemporalTrend(
 }
 
 describe("ReviewPhase", () => {
+  it("explica señales prioritarias y dirige cada una a su corrección específica", () => {
+    const onContinueToPrepare = vi.fn();
+    render(temporalTrendElement(profile, 17, onContinueToPrepare));
+
+    const plan = screen.getByRole("list", { name: "Acciones recomendadas por señal" });
+    expect(plan).toHaveTextContent("6 celdas sin valor en 1 columna.");
+    expect(plan).toHaveTextContent("3 filas adicionales coinciden con otra fila en todas las columnas");
+    expect(plan).toHaveTextContent("6 celdas no coinciden con un tipo sugerido");
+    expect(plan).toHaveTextContent("puede cambiar la interpretación");
+    fireEvent.click(within(plan).getByRole("button", { name: "Revisar duplicados exactos" }));
+    expect(onContinueToPrepare).toHaveBeenCalledWith("duplicates");
+  });
+
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
     const onAnalyzeQuality = vi.fn();
     const onAnalysisSampleRowsChange = vi.fn();

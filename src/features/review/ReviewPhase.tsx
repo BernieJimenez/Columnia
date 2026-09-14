@@ -38,6 +38,8 @@ import {
 import type { ComparisonStatus } from "./compareModel";
 import type { JoinStatus } from "./joinModel";
 import { QualitySnapshot } from "./QualitySnapshot";
+import { buildQualityActionPlan } from "./qualityActionPlan";
+import type { QualityActionTarget } from "./qualityActionPlan";
 
 const CONFLICT_PAGE_SIZE = 50;
 
@@ -49,7 +51,7 @@ interface ReviewPhaseProps {
   onPageChange: (offset: number) => void;
   onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
-  onContinueToPrepare?: () => void;
+  onContinueToPrepare?: (target?: QualityActionTarget) => void;
   comparisonStatus: ComparisonStatus;
   datasetColumns: DatasetColumn[];
   comparisonKeyColumns: string[];
@@ -520,7 +522,7 @@ function QualitySection({
   status: ProfileStatus;
   onAnalyze: () => void;
   onCancel: () => void;
-  onContinueToPrepare: () => void;
+  onContinueToPrepare: (target?: QualityActionTarget) => void;
   comparisonAvailable: boolean;
   sqlHistory: SqlQueryHistoryEntry[];
   onSqlHistoryChange: (entries: SqlQueryHistoryEntry[]) => void;
@@ -959,20 +961,24 @@ function QualityProfile({
   datasetRevision,
 }: {
   profile: DatasetProfile;
-  onContinueToPrepare: () => void;
+  onContinueToPrepare: (target?: QualityActionTarget) => void;
   datasetRevision: number;
 }) {
   const textColumns = profile.columns.filter((column) => column.emptyCount !== null);
   const numericColumns = profile.columns.filter((column) => column.outlierCount !== null);
-  const columnsWithNulls = profile.columns.filter((column) => column.nullCount > 0);
+  const columnsWithNulls = profile.columns.filter((column) => column.nullCount > 0 && column.name !== "_cambios");
   const totalNullCount = columnsWithNulls.reduce((total, column) => total + column.nullCount, 0);
   const invalidTypeCount = profile.columns.reduce(
-    (total, column) => total + Math.max(0, column.invalidTypeCount ?? 0),
+    (total, column) => total + (column.name === "_cambios" ? 0 : Math.max(0, column.invalidTypeCount ?? 0)),
     0,
   );
-  const priorityCount = Number(totalNullCount > 0)
-    + Number(profile.duplicateRowCount > 0)
-    + Number(invalidTypeCount > 0);
+  const actionPlan = buildQualityActionPlan({
+    nullCount: totalNullCount,
+    nullColumnCount: columnsWithNulls.length,
+    duplicateCount: profile.duplicateRowCount,
+    invalidTypeCount,
+  });
+  const priorityCount = actionPlan.length;
 
   return (
     <>
@@ -986,9 +992,11 @@ function QualityProfile({
                 : `${priorityCount} ${priorityCount === 1 ? "señal requiere" : "señales requieren"} atención`}
             </h4>
           </div>
-          <button type="button" className="primary-action" onClick={onContinueToPrepare}>
-            {priorityCount === 0 ? "Continuar a Preparar" : "Resolver en Preparar"}
-          </button>
+          {priorityCount === 0 && (
+            <button type="button" className="primary-action" onClick={() => onContinueToPrepare()}>
+              Continuar a Preparar
+            </button>
+          )}
         </div>
         <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
         <div>
@@ -1009,12 +1017,28 @@ function QualityProfile({
         </dl>
         <QualitySnapshot
           rowCount={profile.rowCount}
-          columnCount={profile.columns.length}
+          columnCount={profile.columns.filter((column) => column.name !== "_cambios").length}
           nullCount={totalNullCount}
           duplicateCount={profile.duplicateRowCount}
           duplicatePercentage={profile.duplicatePercentage}
           invalidTypeCount={invalidTypeCount}
         />
+        {actionPlan.length > 0 && (
+          <ol className="quality-action-plan" aria-label="Acciones recomendadas por señal">
+            {actionPlan.map((action) => (
+              <li key={action.target}>
+                <div>
+                  <h5>{action.title}</h5>
+                  <p>{action.explanation}</p>
+                  <p className="quality-action-plan__impact">{action.impact}</p>
+                </div>
+                <button type="button" onClick={() => onContinueToPrepare(action.target)}>
+                  {action.actionLabel}
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
         <p className="quality-overview__meta">
           <span>Filas analizadas</span>
           <strong>{profile.rowCount.toLocaleString()}</strong>

@@ -5,6 +5,7 @@ use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 pub mod automation;
 mod dataset;
 mod dataset_fingerprints;
+mod diagnostics;
 mod duckdb_query;
 pub mod privacy;
 mod project_recovery;
@@ -151,6 +152,7 @@ pub fn run() {
             get_resource_usage,
             get_performance_settings,
             set_performance_profile,
+            diagnostics::save_diagnostic_report,
             dataset::samples::list_sample_datasets,
             dataset::samples::inspect_sample_dataset,
             dataset::pick_dataset_source,
@@ -212,6 +214,7 @@ pub fn run() {
             dataset::apply_safe_corrections,
             dataset::apply_transform_recipe,
             dataset::get_history_state,
+            dataset::compare_history_snapshots,
             dataset::undo_last_change,
             dataset::redo_last_change,
             #[cfg(debug_assertions)]

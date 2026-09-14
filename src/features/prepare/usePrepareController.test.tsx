@@ -26,8 +26,8 @@ const history: HistoryState = {
   entryCount: 2,
   currentIndex: 1,
   entries: [
-    { index: 0, label: "Dataset cargado", isCurrent: false },
-    { index: 1, label: "Eliminar duplicados", isCurrent: true },
+    { id: "history-test-0", index: 0, label: "Dataset cargado", isCurrent: false },
+    { id: "history-test-1", index: 1, label: "Eliminar duplicados", isCurrent: true },
   ],
 };
 

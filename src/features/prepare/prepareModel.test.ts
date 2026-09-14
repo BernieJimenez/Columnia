@@ -34,13 +34,40 @@ describe("modelo de preparación", () => {
     });
   });
 
-  it("reconoce únicamente documentos de receta v1 completos", () => {
+  it("reconoce documentos completos de receta v1 y v2, con o sin esquema legado", () => {
     expect(isLoadedRecipe({
       version: 1,
       name: "Limpieza",
       savedAt: "2026-08-21T00:00:00Z",
       recipe: emptyRecipe,
     })).toBe(true);
+    expect(isLoadedRecipe({
+      version: 2,
+      name: "Receta con esquema",
+      savedAt: "2026-08-21T00:00:00Z",
+      recipe: emptyRecipe,
+      sourceSchema: [{ name: "id", dataType: "Int64" }],
+    })).toBe(true);
+    expect(isLoadedRecipe({
+      version: 2,
+      name: "Receta automatizada",
+      savedAt: "2026-08-21T00:00:00Z",
+      recipe: emptyRecipe,
+    })).toBe(true);
+    expect(isLoadedRecipe({
+      version: 2,
+      name: "Esquema incompleto",
+      savedAt: "2026-08-21T00:00:00Z",
+      recipe: emptyRecipe,
+      sourceSchema: [{ name: "id", dataType: "" }],
+    })).toBe(false);
+    expect(isLoadedRecipe({
+      version: 1,
+      name: "v1 con campo v2",
+      savedAt: "2026-08-21T00:00:00Z",
+      recipe: emptyRecipe,
+      sourceSchema: [{ name: "id", dataType: "Int64" }],
+    })).toBe(false);
     expect(isLoadedRecipe({ version: 1, name: "Incompleta", savedAt: "ahora", recipe: {} })).toBe(false);
     expect(isLoadedRecipe(null)).toBe(false);
   });

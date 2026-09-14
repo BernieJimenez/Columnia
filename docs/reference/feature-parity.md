@@ -83,6 +83,12 @@ revisiones reversibles y la publicación de un resultado es atómica. Las rutas,
 filas y valores permanecen en Rust; React recibe únicamente metadatos acotados,
 identificadores opacos y resultados agregados.
 
+La receta v2 guarda los nombres y tipos de las columnas que sus operaciones
+referencian. Al reabrirla, un cambio de tipo requiere revisión explícita; el
+mapeo de nombres sigue siendo manual. Las recetas v1 y las generadas por CLI
+sin esquema adjunto se aceptan con las comprobaciones de existencia y tipo que
+permite su contenido, pero no pueden demostrar deriva frente al esquema original.
+
 Las operaciones compatibles con el plan lazy se ejecutan sobre fuentes y
 snapshots sin clonar innecesariamente el dataset completo. Las recetas
 source-backed que combinan selección/renombrado con hasta tres filtros, casts,

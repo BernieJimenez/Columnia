@@ -1,4 +1,4 @@
-import type { DatasetPreview, TransformRecipe } from "../../bridge";
+import type { DatasetColumn, DatasetPreview, TransformRecipe } from "../../bridge";
 
 type RequiredColumnKind = "text" | "numeric" | "date";
 
@@ -60,6 +60,11 @@ function usesFor(recipe: TransformRecipe): Map<string, RecipeColumnUse> {
   return uses;
 }
 
+export function recipeSourceSchema(recipe: TransformRecipe, dataset: DatasetPreview): DatasetColumn[] {
+  const referencedColumns = usesFor(recipe);
+  return dataset.columns.filter((column) => referencedColumns.has(column.name));
+}
+
 function effectiveKind(recipe: TransformRecipe, recipeColumn: string, datasetColumn: string, dataset: DatasetPreview): string {
   const cast = [...recipe.casts].reverse().find((item) => item.column === recipeColumn);
   if (cast) {
@@ -88,30 +93,52 @@ function expectedKinds(acceptedKinds: RequiredColumnKind[][]): string {
   return acceptedKinds.map((accepted) => accepted.map(label).join(" o ")).join(" y ");
 }
 
+function normalizedDataType(dataType: string): string {
+  const normalized = dataType.toLowerCase().replaceAll(" ", "");
+  if (["str", "string", "utf8", "largeutf8"].includes(normalized)) return "string";
+  if (["i8", "i16", "i32", "i64", "int8", "int16", "int32", "int64"].includes(normalized)) return "integer";
+  if (["f32", "f64", "float32", "float64"].includes(normalized)) return "float";
+  if (normalized.startsWith("datetime(")) return "datetime";
+  return normalized;
+}
+
 /**
- * Finds recipe references that cannot safely bind to the active dataset. The v1
- * recipe format does not retain its source schema, so this only checks existence
- * and the input kinds required by the recorded operations.
+ * Finds recipe references that need review against the active dataset. Legacy v1
+ * recipes have no source schema, so those still receive existence and semantic checks.
  */
-export function inspectRecipeSchema(recipe: TransformRecipe, dataset: DatasetPreview): RecipeSchemaIssue[] {
+export function inspectRecipeSchema(
+  recipe: TransformRecipe,
+  dataset: DatasetPreview,
+  sourceSchema?: DatasetColumn[],
+): RecipeSchemaIssue[] {
   const uses = usesFor(recipe);
   const issueColumns = new Set<string>();
   const preliminary = [...uses.entries()].flatMap(([column, use]) => {
-    const exists = dataset.columns.some((item) => item.name === column);
-    if (!exists || !supportsRequirements(recipe, column, column, dataset, use.acceptedKinds)) {
+    const currentColumn = dataset.columns.find((item) => item.name === column);
+    const exists = currentColumn !== undefined;
+    const originalColumn = sourceSchema?.find((item) => item.name === column);
+    const typeChanged = originalColumn !== undefined && currentColumn !== undefined &&
+      normalizedDataType(originalColumn.dataType) !== normalizedDataType(currentColumn.dataType);
+    if (!exists || typeChanged || !supportsRequirements(recipe, column, column, dataset, use.acceptedKinds)) {
       issueColumns.add(column);
-      return [{ column, use, exists }];
+      return [{ column, use, exists, originalType: originalColumn?.dataType, currentType: currentColumn?.dataType }];
     }
     return [];
   });
   const reservedColumns = new Set([...uses.keys()].filter((column) => !issueColumns.has(column)));
 
-  return preliminary.map(({ column, use, exists }) => {
-    const currentType = dataset.columns.find((item) => item.name === column)?.dataType;
+  return preliminary.map(({ column, use, exists, originalType, currentType }) => {
     const operationNames = [...use.operations].join(", ");
-    const reasons = exists
-      ? [`${operationNames} requiere ${expectedKinds(use.acceptedKinds)}; el tipo actual es ${currentType ?? "desconocido"}.`]
-      : [`No existe en el esquema actual; se usa en ${operationNames}.`];
+    const reasons = !exists
+      ? [`No existe en el esquema actual; se usa en ${operationNames}.`]
+      : [
+          ...(originalType && currentType && normalizedDataType(originalType) !== normalizedDataType(currentType)
+            ? [`El tipo cambió desde ${originalType} hasta ${currentType} desde que se guardó la receta.`]
+            : []),
+          ...(!supportsRequirements(recipe, column, column, dataset, use.acceptedKinds)
+            ? [`${operationNames} requiere ${expectedKinds(use.acceptedKinds)}; el tipo actual es ${currentType ?? "desconocido"}.`]
+            : []),
+        ];
     const compatibleColumns = dataset.columns
       .filter((candidate) => !reservedColumns.has(candidate.name))
       .filter((candidate) => supportsRequirements(recipe, column, candidate.name, dataset, use.acceptedKinds))

@@ -82,7 +82,7 @@ describe("ReviewPhase design", () => {
     expect(screen.getByText("Explorar análisis detallado").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("Configuración del análisis").closest("details")).not.toHaveAttribute("open");
 
-    fireEvent.click(screen.getByRole("button", { name: "Resolver en Preparar" }));
-    expect(onContinueToPrepare).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Revisar opciones para nulos" }));
+    expect(onContinueToPrepare).toHaveBeenCalledWith("missingValues");
   });
 });

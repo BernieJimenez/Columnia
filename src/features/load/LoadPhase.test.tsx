@@ -20,6 +20,11 @@ const workbook: DatasetSourceInspection = {
     { id: "sheet-1", name: "Enero" },
     { id: "sheet-2", name: "Febrero" },
   ],
+  resourceEstimate: {
+    processingPath: "inMemory",
+    estimatedMaterializationRamBytes: 256 * 1024 * 1024 + 8192,
+    estimatedTemporaryDiskBytes: 2048,
+  },
 };
 
 const recentDataset: RecentDataset = {
@@ -67,6 +72,9 @@ describe("LoadPhase", () => {
     expect(summary.getByText("Usar la primera fila")).toBeInTheDocument();
     expect(screen.getByText(/no muestra el esquema ni los tipos/)).toBeInTheDocument();
     expect(screen.getByText(/pueden ocupar bastante más memoria/)).toBeInTheDocument();
+    const resourceSummary = screen.getByRole("region", { name: "Estimación de recursos" });
+    expect(resourceSummary).toHaveTextContent("Aprox. 256 MiB (4× archivo + 256 MiB)");
+    expect(within(resourceSummary).getByText(/Snapshot e historial inicial/)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Hoja" })).toHaveFocus();
     fireEvent.change(screen.getByRole("combobox", { name: "Hoja" }), {
       target: { value: "sheet-2" },
@@ -113,6 +121,53 @@ describe("LoadPhase", () => {
     expect(screen.getByLabelText("Progreso: Leyendo filas")).toHaveValue(25);
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(onCancelLoad).toHaveBeenCalledOnce();
+  });
+
+  it("cancelar una discrepancia conserva el dataset activo y descarta la selección pendiente", () => {
+    const onSchemaMismatchAction = vi.fn();
+    render(
+      <LoadPhase
+        {...loadPhaseProps({ onSchemaMismatchAction })}
+        datasetStatus={{
+          kind: "ready",
+          dataset: {
+            fileName: "anterior.csv",
+            fileSizeBytes: 10,
+            rowCount: 1,
+            columnCount: 1,
+            columns: [{ name: "id", dataType: "String" }],
+            rows: [["1"]],
+          },
+          pageOffset: 0,
+          pageLoading: false,
+        }}
+        inspection={{
+          kind: "schema_mismatch",
+          source: workbook,
+          profile: {
+            version: 1,
+            format: "excel",
+            sheetName: "Enero",
+            headerMode: "firstRow",
+            schema: [{ name: "id", dataType: "String" }],
+          },
+          mismatch: {
+            code: "importProfileSchemaMismatch",
+            missingColumns: ["id"],
+            addedColumns: ["id_actual"],
+            changedTypes: [],
+          },
+          sheetId: "sheet-1",
+          headerMode: "firstRow",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "El esquema difiere del perfil guardado" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar y conservar dataset" }));
+    expect(onSchemaMismatchAction).toHaveBeenCalledWith({ kind: "cancelled" });
+    expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
   });
 
   it("ofrece volver a elegir desde el historial y permite limpiarlo", () => {
@@ -199,4 +254,34 @@ describe("LoadPhase", () => {
     expect(summary.getByText("Febrero")).toBeInTheDocument();
     expect(summary.getByText("Generar nombres de columna")).toBeInTheDocument();
     expect(summary.queryByText("Usar la primera fila")).not.toBeInTheDocument();
+  });
+
+  it("pide confirmación nominal antes de cargar una fuente costosa", () => {
+    const onResourcePreflightAction = vi.fn();
+    const source: DatasetSourceInspection = {
+      ...workbook,
+      format: "csv",
+      fileName: "clientes-grande.csv",
+      fileSizeBytes: 512 * 1024 * 1024,
+      sheets: [],
+      defaultSheetId: null,
+      resourceEstimate: {
+        processingPath: "sourceBacked",
+        estimatedMaterializationRamBytes: 2.25 * 1024 * 1024 * 1024,
+        estimatedTemporaryDiskBytes: null,
+      },
+    };
+    render(
+      <LoadPhase
+        {...loadPhaseProps({ onResourcePreflightAction })}
+        inspection={{ kind: "resource_preflight", source }}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Revisa el costo estimado de la carga" });
+    expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("Aprox. 2.3 GiB");
+    expect(within(dialog).getByText(/No se prevé un snapshot/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
+    expect(onResourcePreflightAction).toHaveBeenCalledWith({ kind: "confirmed" });
   });

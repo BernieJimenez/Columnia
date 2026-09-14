@@ -14,7 +14,7 @@ import {
   requiresImpactConfirmation,
   type RecipeFileStatus,
 } from "./prepareModel";
-import { canMapRecipeSchema, inspectRecipeSchema, mapRecipeColumns } from "./recipeSchema";
+import { canMapRecipeSchema, inspectRecipeSchema, mapRecipeColumns, recipeSourceSchema } from "./recipeSchema";
 import { buildTransformPreview, visibleColumnNames, type TransformPreview } from "./transformAdvisor";
 
 function operationGroupStatus(count: number, singular: string, plural: string) {
@@ -162,8 +162,9 @@ export function TransformRecipeEditor({
     datasetRevision: number;
   } | null>(null);
   const [staleConfirmation, setStaleConfirmation] = useState(false);
+  const [referenceSchema, setReferenceSchema] = useState(initialDraft?.sourceSchema ?? []);
   const [pendingSchemaReview, setPendingSchemaReview] = useState<LoadedRecipe | null>(() =>
-    initialDraft && inspectRecipeSchema(initialDraft.recipe, dataset).length > 0 ? initialDraft : null,
+    initialDraft && inspectRecipeSchema(initialDraft.recipe, dataset, initialDraft.sourceSchema).length > 0 ? initialDraft : null,
   );
   const [schemaMappings, setSchemaMappings] = useState<Record<string, string>>({});
   const [schemaReviewDismissed, setSchemaReviewDismissed] = useState(false);
@@ -265,15 +266,15 @@ export function TransformRecipeEditor({
     !["eq", "neq", "is_null", "not_null"].includes(item.operator) && !item.value?.trim(),
   );
   const currentRecipeForSchema = buildRecipe();
-  const currentSchemaIssues = inspectRecipeSchema(currentRecipeForSchema, dataset);
+  const currentSchemaIssues = inspectRecipeSchema(currentRecipeForSchema, dataset, referenceSchema);
   const schemaReviewRecipe = pendingSchemaReview ?? (!schemaReviewDismissed && currentSchemaIssues.length > 0
-    ? { version: 1 as const, name: recipeName, savedAt: draftSavedAt.current, recipe: currentRecipeForSchema }
+    ? { version: 2 as const, name: recipeName, savedAt: draftSavedAt.current, recipe: currentRecipeForSchema, sourceSchema: referenceSchema }
     : null);
   useEffect(() => {
     if (currentSchemaIssues.length === 0) setSchemaReviewDismissed(false);
   }, [currentSchemaIssues.length]);
   const schemaReviewIssues = pendingSchemaReview
-    ? inspectRecipeSchema(pendingSchemaReview.recipe, dataset)
+    ? inspectRecipeSchema(pendingSchemaReview.recipe, dataset, pendingSchemaReview.sourceSchema)
     : currentSchemaIssues;
   const schemaReviewReady = schemaReviewRecipe !== null && (
     schemaReviewIssues.length === 0 || canMapRecipeSchema(schemaReviewIssues, schemaMappings)
@@ -325,7 +326,7 @@ export function TransformRecipeEditor({
       ? schemaReviewRecipe.recipe
       : mapRecipeColumns(schemaReviewRecipe.recipe, schemaReviewIssues, schemaMappings);
     if (!mappedRecipe) return;
-    replaceDraft({ ...schemaReviewRecipe, recipe: mappedRecipe });
+    replaceDraft({ ...schemaReviewRecipe, version: 2, sourceSchema: recipeSourceSchema(mappedRecipe, dataset), recipe: mappedRecipe });
     setPendingSchemaReview(null);
     setSchemaMappings({});
     setRecipeFileStatus({ kind: "success", message: `Receta cargada: ${schemaReviewRecipe.name}. Revísala antes de aplicarla.` });
@@ -341,10 +342,11 @@ export function TransformRecipeEditor({
     if (lastWorkspaceDraftFingerprint.current === workspaceDraftFingerprint) return;
     lastWorkspaceDraftFingerprint.current = workspaceDraftFingerprint;
     const nextDraft: SavedRecipe = {
-      version: 1,
+      version: 2,
       name: recipeName.trim() || "Mi receta",
       savedAt: draftSavedAt.current,
       recipe: buildRecipe(),
+      sourceSchema: recipeSourceSchema(buildRecipe(), dataset),
     };
     if (exportOptions) nextDraft.exportOptions = exportOptions;
     onDraftChange(nextDraft);
@@ -373,7 +375,8 @@ export function TransformRecipeEditor({
     if (recipeBusy || operationCount === 0 || invalid || !recipeName.trim()) return;
     setRecipeFileStatus({ kind: "working", action: "save" });
     try {
-      const saved = await saveTransformRecipe(buildRecipe(), recipeName.trim(), exportOptions);
+      const recipe = buildRecipe();
+      const saved = await saveTransformRecipe(recipe, recipeName.trim(), recipeSourceSchema(recipe, dataset), exportOptions);
       if (saved) {
         acknowledgedRecipeFingerprint.current = draftFingerprint;
         draftSavedAt.current = saved.savedAt;
@@ -392,6 +395,7 @@ export function TransformRecipeEditor({
 
   function replaceDraft(loaded: LoadedRecipe) {
     const recipe = loaded.recipe;
+    setReferenceSchema(loaded.sourceSchema ?? recipeSourceSchema(recipe, dataset));
     setRenames(recipe.renames.length > 0 ? recipe.renames : [{ from: "", to: "" }]);
     setCasts(recipe.casts.length > 0 ? recipe.casts : [{ column: "", target: "string" }]);
     setDateParses(recipe.dateParses.length > 0 ? recipe.dateParses : [{ column: "", format: "iso8601", target: "date" }]);
@@ -433,7 +437,7 @@ export function TransformRecipeEditor({
         return;
       }
       acknowledgedRecipeFingerprint.current = null;
-      const schemaIssues = inspectRecipeSchema(loaded.recipe, dataset);
+      const schemaIssues = inspectRecipeSchema(loaded.recipe, dataset, loaded.sourceSchema);
       if (schemaIssues.length > 0) {
         setPendingSchemaReview(loaded);
         setSchemaMappings({});

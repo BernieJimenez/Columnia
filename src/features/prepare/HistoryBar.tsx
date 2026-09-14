@@ -27,6 +27,19 @@ export function HistoryBar({
               : "Todavía no hay versiones guardadas."
             : status.degradedReason ?? "El historial reversible no está disponible."}
         </small>
+        {status.snapshotsEnabled && (
+          <div className="history-retention" aria-label="Uso y retención del historial">
+            <p>
+              {status.entryCount.toLocaleString()} / {status.maxEntries.toLocaleString()} estados · {formatHistoryBytes(status.diskBytes)} / {formatHistoryBytes(status.diskBudgetBytes)} de historial local
+            </p>
+            <details>
+              <summary>Política local</summary>
+              <p>
+                Se conservan hasta {status.maxEntries.toLocaleString()} estados o {formatHistoryBytes(status.diskBudgetBytes)} por dataset. Al llegar a un límite, se retiran primero los estados más antiguos del historial y se mantiene el actual. Si un snapshot individual supera el presupuesto, la operación puede quedar sin historial reversible.
+              </p>
+            </details>
+          </div>
+        )}
         {latestChange && (
           <div className="history-latest" role="status">
             <span>Último resultado</span>
@@ -59,6 +72,20 @@ export function HistoryBar({
     </section>
   );
 }
+
+function formatHistoryBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "No disponible";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let unitIndex = -1;
+  do {
+    value /= 1024;
+    unitIndex += 1;
+  } while (value >= 1024 && unitIndex < units.length - 1);
+  return `${value.toLocaleString("es", { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
+}
+
 export function ChangeFeedback({ status }: { status: ChangeStatus }) {
   if (status.kind === "idle" || status.kind === "applied") return null;
 

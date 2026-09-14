@@ -10,9 +10,9 @@ const history: HistoryState = {
   currentIndex: 2,
   entryCount: 3,
   entries: [
-    { index: 0, label: "Dataset original", isCurrent: false },
-    { index: 1, label: "Normalizar nombres", isCurrent: false },
-    { index: 2, label: "Imputación conservadora", isCurrent: true },
+    { id: "history-test-0", index: 0, label: "Dataset original", isCurrent: false },
+    { id: "history-test-1", index: 1, label: "Normalizar nombres", isCurrent: false },
+    { id: "history-test-2", index: 2, label: "Imputación conservadora", isCurrent: true },
   ],
   snapshotsEnabled: true,
   degradedReason: null,
@@ -39,6 +39,11 @@ describe("HistoryBar design", () => {
     expect(screen.getByText("Cambios realizados (2)")).toBeInTheDocument();
     expect(screen.getByText("Cambio 2")).toBeInTheDocument();
     expect(screen.getByText("Imputación conservadora")).toBeInTheDocument();
+    const retention = screen.getByLabelText("Uso y retención del historial");
+    expect(retention).toHaveTextContent("3 / 12 estados · 512 B / 1 KiB de historial local");
+    fireEvent.click(screen.getByText("Política local"));
+    expect(retention).toHaveTextContent("se retiran primero los estados más antiguos");
+    expect(retention).toHaveTextContent("la operación puede quedar sin historial reversible");
     fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
     expect(onUndo).toHaveBeenCalledOnce();
   });

@@ -42,6 +42,34 @@ describe("recipe schema preflight", () => {
     expect(issues[1].reasons[0]).toContain("tipo actual es String");
   });
 
+  it("requires an explicit review when a referenced column changes type", () => {
+    const recipe: TransformRecipe = {
+      ...emptyRecipe,
+      filters: [{ column: "value", operator: "eq", value: "2" }],
+    };
+    const sourceSchema = [{ name: "value", dataType: "String" }];
+    const issues = inspectRecipeSchema(recipe, dataset, sourceSchema);
+
+    expect(issues).toEqual([
+      expect.objectContaining({
+        column: "value",
+        kind: "incompatible",
+        reasons: ["El tipo cambió desde String hasta Int64 desde que se guardó la receta."],
+        compatibleColumns: expect.arrayContaining(["value"]),
+      }),
+    ]);
+    expect(canMapRecipeSchema(issues, {})).toBe(false);
+    expect(canMapRecipeSchema(issues, { value: "value" })).toBe(true);
+  });
+
+  it("treats equivalent string type aliases as the same stored schema", () => {
+    const recipe: TransformRecipe = {
+      ...emptyRecipe,
+      renames: [{ from: "name", to: "client" }],
+    };
+    expect(inspectRecipeSchema(recipe, dataset, [{ name: "name", dataType: "str" }])).toEqual([]);
+  });
+
   it("accepts temporal ordering and concatenation over non-text columns", () => {
     const recipe: TransformRecipe = {
       ...emptyRecipe,

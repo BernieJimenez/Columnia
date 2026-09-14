@@ -50,6 +50,87 @@ interface DeliveryPhaseProps {
   onCancelExport: () => void;
 }
 
+const QUALITY_ISSUE_GUIDANCE: Record<QualityRuleKind, { title: string; nextStep: string }> = {
+  not_null: {
+    title: "Valores nulos",
+    nextStep: "Confirma si el campo debe ser obligatorio. Corrige los faltantes en Preparar o ajusta el contrato si son válidos.",
+  },
+  non_empty: {
+    title: "Texto vacío",
+    nextStep: "Revisa si los textos vacíos representan datos faltantes y si la regla debe permitirlos.",
+  },
+  unique: {
+    title: "Valores repetidos",
+    nextStep: "Confirma que esta columna sea una clave única; corrige duplicados o elige la clave adecuada.",
+  },
+  numeric_range: {
+    title: "Fuera del rango numérico",
+    nextStep: "Revisa los límites y unidades esperados; corrige los valores fuera de rango o actualiza el contrato.",
+  },
+  allowed_values: {
+    title: "Fuera de los valores permitidos",
+    nextStep: "Compara el catálogo del contrato con los valores esperados; conserva las diferencias válidas o normalízalas en Preparar.",
+  },
+  regex: {
+    title: "Formato distinto al patrón",
+    nextStep: "Comprueba que el patrón describa el formato esperado y revisa los datos que no coinciden.",
+  },
+  dtype: {
+    title: "Tipo de dato distinto",
+    nextStep: "Verifica el tipo requerido y si corresponde convertir la columna en Preparar.",
+  },
+  unique_together: {
+    title: "Combinación de valores repetida",
+    nextStep: "Confirma que las columnas elegidas formen la clave compuesta y revisa las combinaciones repetidas.",
+  },
+  column_compare: {
+    title: "Comparación entre columnas incumplida",
+    nextStep: "Revisa las columnas y la relación configurada; verifica las filas que incumplen esa condición.",
+  },
+  referential_integrity: {
+    title: "Valor fuera de las referencias",
+    nextStep: "Comprueba que el conjunto de referencias y el alcance de los datos sean los esperados.",
+  },
+  monotonic: {
+    title: "Orden esperado incumplido",
+    nextStep: "Verifica la dirección esperada y el orden de los registros antes de cambiar la regla.",
+  },
+  aggregate_check: {
+    title: "Agregado fuera del objetivo",
+    nextStep: "Revisa la agregación, el alcance de filas, el valor objetivo y su tolerancia.",
+  },
+  aggregate_reconciliation: {
+    title: "Agregados no conciliados",
+    nextStep: "Confirma las columnas comparadas, el alcance de datos y la tolerancia de conciliación.",
+  },
+  distribution_drift: {
+    title: "Distribución fuera de tolerancia",
+    nextStep: "Verifica que la línea base y la población actual sean comparables antes de ajustar el umbral.",
+  },
+  date_range: {
+    title: "Fecha fuera del rango esperado",
+    nextStep: "Comprueba los límites de fecha y si el periodo de los datos coincide con el esperado.",
+  },
+  conditional: {
+    title: "Condición incumplida",
+    nextStep: "Revisa la condición y la obligación asociada; corrige datos o ajusta la regla según el proceso esperado.",
+  },
+  schema_contract: {
+    title: "Contrato de esquema incumplido",
+    nextStep: "Revisa las columnas requeridas, el orden y las columnas adicionales configuradas en el contrato.",
+  },
+  row_count: {
+    title: "Cantidad de filas fuera del rango",
+    nextStep: "Comprueba el periodo y el alcance de los datos, además del mínimo y máximo configurados.",
+  },
+};
+
+function focusQualityRule(index: number) {
+  const ruleElement = document.getElementById(`quality-rule-${index + 1}`);
+  ruleElement?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  ruleElement?.focus({ preventScroll: true });
+}
+
 export function DeliveryPhase({
   dataset,
   recipeDraft = null,
@@ -470,7 +551,13 @@ export function DeliveryPhase({
                 const isConditionalRule = rule.kind === "conditional";
                 const isSchemaRule = rule.kind === "schema_contract";
                 return (
-                  <fieldset className="quality-rule" key={index} disabled={busy}>
+                  <fieldset
+                    className="quality-rule"
+                    id={`quality-rule-${index + 1}`}
+                    key={index}
+                    tabIndex={-1}
+                    disabled={busy}
+                  >
                     <legend>Regla {index + 1}</legend>
                     {!isDatasetRule && !isSchemaRule && !isTogetherRule && !isCompareRule && !isReferentialRule && !isAggregateReconciliationRule && <label>Columna
                       <select aria-label={`Columna regla ${index + 1}`} value={rule.column}
@@ -1122,11 +1209,31 @@ export function DeliveryPhase({
               ? "Resultado desactualizado"
               : contract.gate.result.passed ? "Contrato aprobado" : "Contrato fallido"}</strong>
             <span>{contract.gate.result.failedRules} de {contract.gate.result.totalRules} reglas fallaron · {contract.gate.result.rowCount.toLocaleString()} filas comprobadas</span>
-            <ul>
-              {contract.gate.result.rules.map((result, index) => (
-                <li key={index}>{result.column === QUALITY_DATASET_COLUMN ? "Dataset" : result.column}: {result.invalidCount.toLocaleString()} inválidos ({result.invalidPct.toFixed(2)}%) · {result.passed ? "aprobada" : "fallida"}</li>
-              ))}
-            </ul>
+            {contract.gate.result.failedRules > 0 && (
+              <div className="quality-gate__issues" aria-label="Resumen de problemas de calidad">
+                <strong>Problemas detectados</strong>
+                <ul>
+                  {contract.gate.result.rules.map((result, index) => {
+                    if (result.passed) return null;
+                    const guidance = QUALITY_ISSUE_GUIDANCE[result.kind];
+                    return (
+                      <li key={index}>
+                        <strong>{guidance.title} · {result.column === QUALITY_DATASET_COLUMN ? "Dataset" : result.column}</strong>
+                        <span>
+                          {result.invalidCount.toLocaleString()} incumplimientos entre {result.checkedCount.toLocaleString()} elementos evaluados
+                          ({result.invalidPct.toFixed(2)}%). {guidance.nextStep}
+                        </span>
+                        {contract.gate.kind === "ready" && rules[index] && (
+                          <button type="button" onClick={() => focusQualityRule(index)}>
+                            Revisar regla {index + 1}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </section>

@@ -46,7 +46,14 @@ export function isLoadedRecipe(value: unknown): value is LoadedRecipe {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LoadedRecipe>;
   const recipe = candidate.recipe as Partial<TransformRecipe> | undefined;
-  return candidate.version === 1 && typeof candidate.name === "string" &&
+  const sourceSchema = candidate.sourceSchema;
+  const sourceSchemaValid = sourceSchema === undefined || (Array.isArray(sourceSchema) && sourceSchema.every((column) =>
+    !!column && typeof column.name === "string" && column.name.length > 0 &&
+    typeof column.dataType === "string" && column.dataType.length > 0,
+  ));
+  return (candidate.version === 1 || candidate.version === 2) && sourceSchemaValid &&
+    !(candidate.version === 1 && sourceSchema !== undefined) &&
+    typeof candidate.name === "string" &&
     typeof candidate.savedAt === "string" && !!recipe &&
     Array.isArray(recipe.renames) && Array.isArray(recipe.casts) &&
     Array.isArray(recipe.dateParses) && Array.isArray(recipe.filters) &&

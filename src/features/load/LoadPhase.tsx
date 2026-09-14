@@ -6,9 +6,19 @@ import { DatasetMetrics } from "../delivery/DatasetMetrics";
 import type {
   DatasetStatus,
   LoadInspectionState,
+  ProfileReviewAction,
+  ResourcePreflightAction,
+  SchemaMismatchAction,
   SheetSelectionAction,
 } from "./loadModel";
-import type { SampleDatasetDescriptor } from "../../bridge";
+import type {
+  DatasetSourceInspection,
+  ImportDateConvention,
+  ImportNumberConvention,
+  ImportProfileMismatch,
+  SampleDatasetDescriptor,
+} from "../../bridge";
+import { DATE_CONVENTIONS, NUMBER_CONVENTIONS } from "./importProfile";
 import {
   formatRecentDatasetDate,
   formatRecentDatasetFormat,
@@ -48,6 +58,9 @@ interface LoadPhaseProps {
   onClearRecent: () => void;
   onRemoveRecent: (id: string) => void;
   onSheetAction: (action: SheetSelectionAction) => void;
+  onProfileReviewAction?: (action: ProfileReviewAction) => void;
+  onResourcePreflightAction?: (action: ResourcePreflightAction) => void;
+  onSchemaMismatchAction?: (action: SchemaMismatchAction) => void;
   onCancelLoad: () => void;
 }
 
@@ -65,6 +78,9 @@ export function LoadPhase({
   onClearRecent,
   onRemoveRecent,
   onSheetAction,
+  onProfileReviewAction = () => undefined,
+  onResourcePreflightAction = () => undefined,
+  onSchemaMismatchAction = () => undefined,
   onCancelLoad,
 }: LoadPhaseProps) {
   const current =
@@ -74,13 +90,19 @@ export function LoadPhase({
         ? datasetStatus.previous?.dataset
         : undefined;
   const sheetSelection = inspection.kind === "sheet" ? inspection : undefined;
+  const profileReview = inspection.kind === "profile_review" ? inspection : undefined;
+  const resourcePreflight = inspection.kind === "resource_preflight" ? inspection : undefined;
+  const schemaMismatch = inspection.kind === "schema_mismatch" ? inspection : undefined;
   const importError = inspection.kind === "error"
     ? inspection.message
     : sheetSelection?.error;
   const selectionDisabled = disabled || runtime.kind !== "connected" ||
     inspection.kind === "inspecting" ||
     datasetStatus.kind === "loading" ||
-    inspection.kind === "sheet";
+    inspection.kind === "sheet" ||
+    inspection.kind === "profile_review" ||
+    inspection.kind === "resource_preflight" ||
+    inspection.kind === "schema_mismatch";
 
   const selectionAction = (
     <button className="primary-action" type="button" onClick={onSelect} disabled={selectionDisabled}>
@@ -236,6 +258,105 @@ export function LoadPhase({
           No se pudo importar el archivo: {importError}
         </p>
       )}
+      {profileReview && (
+        <ModalDialog
+          role="dialog"
+          labelledBy="import-profile-title"
+          describedBy="import-profile-description"
+          onDismiss={() => onProfileReviewAction({ kind: "cancelled" })}
+        >
+          <p className="eyebrow">Perfil del proyecto</p>
+          <h3 id="import-profile-title">Reutilizar interpretación guardada</h3>
+          <p id="import-profile-description">
+            El perfil es v{profileReview.profile.version} para {profileReview.profile.format.toUpperCase()} y contiene {profileReview.profile.schema.length} columnas de esquema.
+            Columnia lo comparará antes de reemplazar el dataset activo.
+          </p>
+          <div className="sheet-import-summary">
+            <dl>
+              <div>
+                <dt>Fechas</dt>
+                <dd>{dateConventionLabel(profileReview.dateConvention)}</dd>
+              </div>
+              <div>
+                <dt>Números</dt>
+                <dd>{numberConventionLabel(profileReview.numberConvention)}</dd>
+              </div>
+            </dl>
+          </div>
+          <ResourceEstimateSummary source={profileReview.source} />
+          <label htmlFor="profile-date-convention">Convención de fechas</label>
+          <select
+            id="profile-date-convention"
+            value={profileReview.dateConvention}
+            onChange={(event) => onProfileReviewAction({
+              kind: "date_convention_changed",
+              value: event.target.value as ImportDateConvention,
+            })}
+          >
+            {DATE_CONVENTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+          <label htmlFor="profile-number-convention">Convención numérica</label>
+          <select
+            id="profile-number-convention"
+            value={profileReview.numberConvention}
+            onChange={(event) => onProfileReviewAction({
+              kind: "number_convention_changed",
+              value: event.target.value as ImportNumberConvention,
+            })}
+          >
+            {NUMBER_CONVENTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+          <p className="notice" role="note">
+            Estas convenciones quedan como guía reutilizable. La importación conserva los valores originales y no aplica conversiones ni mapeos automáticos.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => onProfileReviewAction({ kind: "cancelled" })}>Cancelar</button>
+            <button type="button" className="secondary-action" onClick={() => onProfileReviewAction({ kind: "use_defaults" })}>Importar sin perfil</button>
+            <button type="button" className="primary-action" onClick={() => onProfileReviewAction({ kind: "use_profile" })}>Usar perfil y revisar esquema</button>
+          </div>
+        </ModalDialog>
+      )}
+      {resourcePreflight && (
+        <ModalDialog
+          role="dialog"
+          labelledBy="resource-preflight-title"
+          describedBy="resource-preflight-description"
+          onDismiss={() => onResourcePreflightAction({ kind: "cancelled" })}
+        >
+          <p className="eyebrow">Preflight local</p>
+          <h3 id="resource-preflight-title">Revisa el costo estimado de la carga</h3>
+          <p id="resource-preflight-description">
+            El tamaño y la ruta orientan la decisión antes de abrir {resourcePreflight.source.fileName}. Columnia conserva el archivo original.
+          </p>
+          <ResourceEstimateSummary source={resourcePreflight.source} />
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => onResourcePreflightAction({ kind: "cancelled" })}>Cancelar</button>
+            <button type="button" className="primary-action" onClick={() => onResourcePreflightAction({ kind: "confirmed" })}>Continuar con la carga</button>
+          </div>
+        </ModalDialog>
+      )}
+      {schemaMismatch && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="import-schema-mismatch-title"
+          describedBy="import-schema-mismatch-description"
+          onDismiss={() => onSchemaMismatchAction({ kind: "cancelled" })}
+        >
+          <p className="eyebrow">Revisión requerida</p>
+          <h3 id="import-schema-mismatch-title">El esquema difiere del perfil guardado</h3>
+          <p id="import-schema-mismatch-description">
+            El dataset activo se conserva. No se aplicó ningún cast ni mapeo. Revisa los cambios antes de decidir.
+          </p>
+          <SchemaDifferenceList mismatch={schemaMismatch.mismatch} />
+          <p className="notice" role="note">
+            Si continúas, se importará el archivo con el nuevo esquema sin modificar sus valores. Puedes cancelar y mantener el dataset anterior.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => onSchemaMismatchAction({ kind: "cancelled" })}>Cancelar y conservar dataset</button>
+            <button type="button" className="primary-action" onClick={() => onSchemaMismatchAction({ kind: "import_new_schema" })}>Importar con esquema nuevo</button>
+          </div>
+        </ModalDialog>
+      )}
       {sheetSelection && (
         <ModalDialog
           role="dialog"
@@ -252,6 +373,7 @@ export function LoadPhase({
               Cierra otras aplicaciones si el archivo es grande.
             </p>
           )}
+          <ResourceEstimateSummary source={sheetSelection.source} />
           <label htmlFor="workbook-sheet">Hoja</label>
           <select
             id="workbook-sheet"
@@ -283,6 +405,30 @@ export function LoadPhase({
               Generar encabezados (column_1, column_2…)
             </label>
           </fieldset>
+          {sheetSelection.suggestedProfile && (
+            <section className="sheet-import-summary" aria-labelledby="saved-import-profile-title">
+              <h4 id="saved-import-profile-title">Perfil reutilizable del proyecto</h4>
+              {sheetSelection.profileCanBeApplied ? (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={sheetSelection.useSavedProfile}
+                    onChange={(event) => onSheetAction({ kind: "profile_toggled", useProfile: event.target.checked })}
+                  />
+                  Usar la hoja, encabezado y esquema guardados si coinciden
+                </label>
+              ) : (
+                <p role="note">
+                  La hoja guardada “{sheetSelection.suggestedProfile.sheetName}” no está disponible. No se elegirá otra hoja automáticamente.
+                </p>
+              )}
+              <p role="note">
+                Fechas: {dateConventionLabel(sheetSelection.suggestedProfile.dateConvention ?? "unresolved")} ·
+                números: {numberConventionLabel(sheetSelection.suggestedProfile.numberConvention ?? "unresolved")}.
+                Se conservan valores originales; no hay conversiones ni mapeos automáticos.
+              </p>
+            </section>
+          )}
           <section className="sheet-import-summary" aria-labelledby="sheet-import-summary-title" aria-live="polite">
             <h4 id="sheet-import-summary-title">Resumen antes de cargar</h4>
             <dl>
@@ -336,5 +482,68 @@ export function LoadPhase({
       )}
       {current && <DatasetMetrics dataset={current} />}
     </>
+  );
+}
+
+function dateConventionLabel(value: ImportDateConvention): string {
+  return DATE_CONVENTIONS.find((item) => item.value === value)?.label ?? "Sin definir";
+}
+
+function numberConventionLabel(value: ImportNumberConvention): string {
+  return NUMBER_CONVENTIONS.find((item) => item.value === value)?.label ?? "Sin definir";
+}
+
+function ResourceEstimateSummary({ source }: { source: DatasetSourceInspection }) {
+  const estimate = source.resourceEstimate;
+  const pathLabel = estimate.processingPath === "sourceBacked"
+    ? "Lectura source-backed: procesa desde la fuente o un snapshot privado por bloques cuando la operación es compatible."
+    : "Carga en memoria: el dataset completo se materializa para iniciar el historial de trabajo.";
+  const temporaryDiskLabel = estimate.estimatedTemporaryDiskBytes === null
+    ? "No se prevé un snapshot de datos adicional al abrir esta fuente. Las ediciones posteriores pueden crear historial temporal."
+    : `Snapshot e historial inicial: alrededor de ${formatFileSize(estimate.estimatedTemporaryDiskBytes)}; el tamaño real depende del contenido.`;
+
+  return (
+    <section className="sheet-import-summary load-resource-estimate" aria-label="Estimación de recursos">
+      <h4>Recursos orientativos</h4>
+      <dl>
+        <div>
+          <dt>Tamaño en disco</dt>
+          <dd>{formatFileSize(source.fileSizeBytes)}</dd>
+        </div>
+        <div>
+          <dt>Ruta de procesamiento</dt>
+          <dd>{pathLabel}</dd>
+        </div>
+        <div>
+          <dt>RAM si se materializa</dt>
+          <dd>Aprox. {formatFileSize(estimate.estimatedMaterializationRamBytes)} (4× archivo + 256 MiB)</dd>
+        </div>
+        <div>
+          <dt>Disco temporal</dt>
+          <dd>{temporaryDiskLabel}</dd>
+        </div>
+      </dl>
+      <p role="note">
+        Son aproximaciones, no límites ni reservas. Libros comprimidos y datos de alta cardinalidad pueden requerir bastante más espacio o memoria. La admisión nativa decide cada operación de materialización.
+      </p>
+    </section>
+  );
+}
+
+function SchemaDifferenceList({ mismatch }: { mismatch: ImportProfileMismatch }) {
+  const items = [
+    ...mismatch.missingColumns.map((column) => ({ key: `missing:${column}`, text: `Falta la columna “${column}”` })),
+    ...mismatch.addedColumns.map((column) => ({ key: `added:${column}`, text: `Columna nueva “${column}”` })),
+    ...mismatch.changedTypes.map(({ column, expected, actual }) => ({
+      key: `type:${column}`,
+      text: `“${column}”: tipo guardado ${expected}; tipo actual ${actual}`,
+    })),
+  ];
+  const visible = items.slice(0, 12);
+  return (
+    <ul aria-label="Diferencias de esquema">
+      {visible.map((item) => <li key={item.key}>{item.text}</li>)}
+      {items.length > visible.length && <li>Y {items.length - visible.length} diferencias más.</li>}
+    </ul>
   );
 }

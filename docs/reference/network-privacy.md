@@ -29,6 +29,16 @@ producción solo permita el transporte IPC interno. `supply-chain:check` lo
 ejecuta junto con npm audit, cargo-audit, cargo-deny, el escaneo de secretos y
 el inventario de avisos de terceros.
 
+El informe de diagnóstico v1 es una exportación local iniciada por la persona:
+primero muestra una vista previa y solo escribe JSON después de confirmar en el
+selector nativo de archivos. Su contrato Rust/TypeScript permite exclusivamente
+la versión de Columnia, una etapa, un estado, hasta cinco códigos enumerados y,
+si se eligen, rangos agregados de filas, columnas y tamaño de origen. Rechaza
+campos desconocidos y no acepta mensajes de error, rutas, consultas, nombres,
+valores, trazas, credenciales, logs ni identificadores del dispositivo. La
+acción no tiene destino de red ni activa captura en segundo plano; cancelar el
+selector no crea un archivo.
+
 No se guardan URLs de datasets, contenido de filas, nombres de usuario ni
 telemetría en servicios externos. Cualquier futura excepción requiere:
 
