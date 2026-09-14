@@ -141,6 +141,8 @@ describe("App", () => {
 
     await switchPhase("Entregar");
     expect(screen.getByRole("radio", { name: /^Validar calidad/ })).toBeChecked();
+    expect(screen.getByText("total: no admite valores nulos · no se permiten incumplimientos.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("total");
     expect(screen.queryByText("Contrato aprobado")).not.toBeInTheDocument();
 
@@ -289,6 +291,8 @@ describe("App", () => {
     expect(pageSpy).toHaveBeenCalledWith(50, 50);
 
     await switchPhase("Entregar");
+    expect(screen.getByText("email: no admite valores nulos · no se permiten incumplimientos.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     expect(screen.getByRole("combobox", { name: "Columna regla 1" })).toHaveValue("email");
     expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("bundle");
     expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("hash");

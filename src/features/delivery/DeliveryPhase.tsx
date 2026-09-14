@@ -125,6 +125,43 @@ const QUALITY_ISSUE_GUIDANCE: Record<QualityRuleKind, { title: string; nextStep:
   },
 };
 
+const QUALITY_RULE_SUMMARY: Record<QualityRuleKind, string> = {
+  not_null: "no admite valores nulos",
+  non_empty: "no admite texto vacío",
+  unique: "debe contener valores únicos",
+  numeric_range: "debe permanecer dentro del rango definido",
+  allowed_values: "solo admite los valores permitidos",
+  regex: "debe cumplir el formato configurado",
+  dtype: "debe conservar el tipo de dato esperado",
+  unique_together: "debe formar una combinación única",
+  column_compare: "debe cumplir la comparación entre columnas",
+  referential_integrity: "solo admite valores incluidos en la referencia",
+  monotonic: "debe mantener el orden esperado",
+  aggregate_check: "debe cumplir el total o agregado esperado",
+  aggregate_reconciliation: "debe conciliar los agregados comparados",
+  distribution_drift: "debe permanecer dentro de la variación permitida",
+  date_range: "debe permanecer dentro del periodo definido",
+  conditional: "debe cumplir la condición configurada",
+  schema_contract: "debe conservar las columnas requeridas",
+  row_count: "debe mantener la cantidad de filas permitida",
+};
+
+function summarizeQualityRule(rule: QualityRule): string {
+  const columns = rule.kind === "schema_contract" || rule.kind === "row_count"
+    ? "Dataset"
+    : rule.columns?.length
+      ? rule.columns.join(", ")
+      : rule.column;
+  const tolerance = [
+    rule.maxInvalid !== undefined ? `${rule.maxInvalid} incumplimientos` : null,
+    rule.maxInvalidPct !== undefined ? `${rule.maxInvalidPct}%` : null,
+  ].filter(Boolean).join(" y ");
+  const toleranceSummary = rule.maxInvalid === 0 && rule.maxInvalidPct === undefined
+    ? " · no se permiten incumplimientos"
+    : tolerance ? ` · tolerancia ${tolerance}` : "";
+  return `${columns}: ${QUALITY_RULE_SUMMARY[rule.kind]}${toleranceSummary}.`;
+}
+
 function focusQualityRule(index: number) {
   const ruleElement = document.getElementById(`quality-rule-${index + 1}`);
   ruleElement?.scrollIntoView?.({ behavior: "smooth", block: "center" });
@@ -186,6 +223,8 @@ export function DeliveryPhase({
   const [openOutputState, setOpenOutputState] = useState<
     "idle" | "working" | "opened" | "error"
   >("idle");
+  const [rulesEditorOpen, setRulesEditorOpen] = useState(false);
+  const [pendingRuleFocus, setPendingRuleFocus] = useState<number | null>(null);
   const rules = contract.kind === "with_contract" ? contract.rules : [];
   const validationError = validateQualityRuleDraft(rules, dataset);
   const gatePassed = contract.gate.kind === "ready" && contract.gate.result.passed;
@@ -215,6 +254,16 @@ export function DeliveryPhase({
     mysql: "MySQL",
     sqlserver: "SQL Server",
   }[selectedExportFormat];
+  useEffect(() => {
+    if (!rulesEditorOpen || pendingRuleFocus === null) return;
+    focusQualityRule(pendingRuleFocus);
+    setPendingRuleFocus(null);
+  }, [pendingRuleFocus, rulesEditorOpen]);
+
+  function editQualityRule(index: number) {
+    setPendingRuleFocus(index);
+    setRulesEditorOpen(true);
+  }
   function changeRules(nextRules: QualityRule[]) {
     setQualityFileState({ kind: "idle" });
     onContractAction({ kind: "rules_changed", rules: nextRules });
@@ -498,7 +547,11 @@ export function DeliveryPhase({
               name="delivery-validation-route"
               checked={contract.kind === "with_contract"}
               disabled={busy || dataset.columns.length === 0}
-              onChange={() => contract.kind !== "with_contract" && addRule()}
+              onChange={() => {
+                if (contract.kind === "with_contract") return;
+                setRulesEditorOpen(true);
+                addRule();
+              }}
             />
             <span>
               <strong>Validar calidad</strong>
@@ -528,7 +581,28 @@ export function DeliveryPhase({
 
         {contract.kind === "with_contract" ? (
           <>
-            <div className="quality-rules">
+            <div className="quality-contract__summary" aria-labelledby="quality-rules-summary-title">
+              <div>
+                <p className="step">Reglas activas</p>
+                <h4 id="quality-rules-summary-title">Qué se exige</h4>
+                <p>{rules.length === 1 ? "1 regla se comprobará antes de guardar la copia." : `${rules.length} reglas se comprobarán antes de guardar la copia.`}</p>
+              </div>
+              <ul>
+                {rules.map((rule, index) => <li key={index}>{summarizeQualityRule(rule)}</li>)}
+              </ul>
+              <button
+                type="button"
+                className="secondary-action"
+                aria-expanded={rulesEditorOpen}
+                aria-controls="quality-rules-editor"
+                onClick={() => setRulesEditorOpen((current) => !current)}
+                disabled={busy}
+              >
+                {rulesEditorOpen ? "Cerrar edición" : "Editar reglas"}
+              </button>
+            </div>
+            {rulesEditorOpen && <div id="quality-rules-editor" className="quality-rules-editor">
+              <div className="quality-rules">
               {rules.map((rule, index) => {
                 const hasCountTolerance = rule.maxInvalid !== undefined;
                 const hasPercentageTolerance = rule.maxInvalidPct !== undefined;
@@ -1123,19 +1197,22 @@ export function DeliveryPhase({
                   </fieldset>
                 );
               })}
-            </div>
-            <div className="quality-contract__commandbar" aria-label="Acciones del contrato">
-              <div className="quality-contract__management">
-                <span className="quality-contract__management-label">Administrar contrato</span>
-                <button type="button" aria-label="Importar contrato" onClick={() => void importQualityRules()} disabled={busy}>Importar</button>
-                <button type="button" aria-label="Guardar contrato" onClick={() => void saveQualityContract()}
-                  disabled={busy || validationError !== null}>Guardar</button>
               </div>
               <div className="quality-contract__actions">
                 <span>{rules.length}/{MAX_QUALITY_RULES} reglas</span>
                 <button type="button" onClick={addRule} disabled={busy || rules.length >= MAX_QUALITY_RULES}>Añadir regla</button>
               </div>
-            </div>
+            </div>}
+            <details className="quality-contract__utilities">
+              <summary>Importar o guardar reglas</summary>
+              <div className="quality-contract__commandbar" aria-label="Acciones del contrato">
+              <div className="quality-contract__management">
+                <button type="button" aria-label="Importar contrato" onClick={() => void importQualityRules()} disabled={busy}>Importar</button>
+                <button type="button" aria-label="Guardar contrato" onClick={() => void saveQualityContract()}
+                  disabled={busy || validationError !== null}>Guardar</button>
+              </div>
+              </div>
+            </details>
             {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
             {migrationState.kind === "working" && <p className="notice" role="status">Importando y comprobando compatibilidad…</p>}
             {migrationState.kind === "ready" && (
@@ -1218,7 +1295,7 @@ export function DeliveryPhase({
                           ({result.invalidPct.toFixed(2)}%). {guidance.nextStep}
                         </span>
                         {contract.gate.kind === "ready" && rules[index] && (
-                          <button type="button" onClick={() => focusQualityRule(index)}>
+                          <button type="button" onClick={() => editQualityRule(index)}>
                             Revisar regla {index + 1}
                           </button>
                         )}

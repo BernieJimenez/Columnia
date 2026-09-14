@@ -215,6 +215,24 @@ describe("DeliveryPhase", () => {
     });
   });
 
+  it("resume las reglas guardadas y mantiene el constructor fuera del recorrido habitual", () => {
+    const initialContract: DeliveryContractState = {
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: { kind: "idle" },
+    };
+    render(<DeliveryHarness onExport={vi.fn()} initialContract={initialContract} />);
+
+    expect(screen.getByRole("heading", { name: "Qué se exige" })).toBeInTheDocument();
+    expect(screen.getByText("total: no admite valores nulos · no se permiten incumplimientos.")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Comprobación regla 1" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
+    expect(screen.getByRole("combobox", { name: "Comprobación regla 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cerrar edición" })).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("ofrece exportación JSON con la misma compuerta de calidad", () => {
     const onExport = vi.fn();
     render(<DeliveryHarness onExport={onExport} />);
@@ -837,6 +855,7 @@ describe("DeliveryPhase", () => {
       />;
     }
     render(<ControlledDelivery />);
+    fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     const kind = screen.getByRole("combobox", { name: "Comprobación regla 1" });
     fireEvent.change(screen.getByRole("combobox", { name: "Tolerancia regla 1" }), { target: { value: "both" } });
     fireEvent.change(screen.getByRole("spinbutton", { name: "Porcentaje regla 1" }), { target: { value: "5" } });

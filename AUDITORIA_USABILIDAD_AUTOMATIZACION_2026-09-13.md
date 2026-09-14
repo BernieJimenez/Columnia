@@ -140,7 +140,7 @@ La lista conserva el diseño y los criterios; las casillas reflejan el estado de
 ### Tercera entrega: salida y reutilización
 
 - [x] **OUT01 · P1 · M — Validar y guardar copia.** Coordinar contrato existente y exportación desde una acción. **Cierre:** contrato fallido detiene la escritura; exportación sin reglas sigue siendo una elección explícita y comprensible.
-- [ ] **OUT02 · P1 · M — Reglas resumidas.** Mostrar «qué se exige» y los incumplimientos; mover el constructor a edición. **Cierre:** un usuario puede exportar con reglas guardadas sin manejar tipos técnicos de reglas.
+- [x] **OUT02 · P1 · M — Reglas resumidas.** Mostrar «qué se exige» y los incumplimientos; mover el constructor a edición. **Cierre:** un usuario puede exportar con reglas guardadas sin manejar tipos técnicos de reglas.
 - [ ] **OUT03 · P2 · M — Preferencias de entrega reutilizables.** Recordar formato y selección compatibles con la tarea. **Cierre:** cambios de esquema invalidan selecciones incompatibles; no persistir credenciales ni asumir permiso de sobrescritura.
 - [ ] **OUT04 · P2 · M — Resultado accionable.** Mostrar archivo generado, cambios, calidad y limitaciones; abrir archivo o carpeta cuando exista soporte. **Cierre:** «terminado» aparece solo tras publicación exitosa; fallo/cancelación preserva el trabajo recuperable.
 - [ ] **REP01 · P1 · L — Repetir preparación.** Guardar importación, receta, reglas y política de salida como tarea con nombre del resultado. **Cierre:** otro archivo compatible puede recorrer el flujo sin reconstruir formularios; esquema distinto exige revisión.
@@ -203,7 +203,11 @@ Esto es avance parcial de AU01, AU02, AU03 y CO05. El plan aún no reúne las se
 
 ### Avance de implementación · entrega integrada · 2026-09-14
 
-En Entregar, la acción principal combina validación y exportación cuando existe un contrato. Si las reglas fallan o la validación da error, no solicita la exportación; si aprueban, continúa con el exportador, que conserva su comprobación final antes de escribir. Se eliminó el botón separado «Validar contrato». Sin contrato, se conserva la confirmación explícita de exportar sin validar. Las pruebas de integración verifican el fallo, la aprobación, la invalidación al cambiar reglas y que una exportación sin contrato no se vuelve implícita. OUT02, sobre resumir reglas y esconder el constructor tras edición, sigue pendiente.
+En Entregar, la acción principal combina validación y exportación cuando existe un contrato. Si las reglas fallan o la validación da error, no solicita la exportación; si aprueban, continúa con el exportador, que conserva su comprobación final antes de escribir. Se eliminó el botón separado «Validar contrato». Sin contrato, se conserva la confirmación explícita de exportar sin validar. Las pruebas de integración verifican el fallo, la aprobación, la invalidación al cambiar reglas y que una exportación sin contrato no se vuelve implícita.
+
+### Avance de implementación · reglas resumidas · 2026-09-14
+
+Entregar muestra primero «Qué se exige» con cada regla descrita en lenguaje de datos y su tolerancia. Los selectores técnicos quedan bajo «Editar reglas» y la importación o guardado del contrato bajo una utilidad plegada. Un contrato restaurado desde un proyecto puede validarse y exportarse directamente desde el resumen. Cuando una regla falla, «Revisar regla» abre la edición y lleva el foco al control correspondiente. OUT02 queda cerrado; el constructor conserva todas sus capacidades para quien necesite personalizarlo.
 
 ## Fuentes locales
 
