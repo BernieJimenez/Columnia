@@ -4,7 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatasetSourceInspection } from "../../bridge";
 import type { SampleDatasetDescriptor } from "../../bridge";
 import { LoadPhase } from "./LoadPhase";
-import { workbookInspection } from "./loadModel";
+import {
+  completeDelimitedHeaderReview,
+  delimitedHeaderInspection,
+  workbookInspection,
+} from "./loadModel";
 import type { RecentDataset } from "./recentFilesModel";
 
 afterEach(cleanup);
@@ -34,6 +38,35 @@ const recentDataset: RecentDataset = {
   lastOpenedAt: 1_724_640_000_000,
 };
 
+const delimitedSource: DatasetSourceInspection = {
+  ...workbook,
+  selectionId: "csv-selection",
+  fileName: "ventas.csv",
+  format: "csv",
+  fileSizeBytes: 128,
+  isCompressedContainer: false,
+  defaultSheetId: null,
+  sheets: [],
+};
+
+const delimitedHeaderReview = {
+  delimiter: ";",
+  firstRow: {
+    headerMode: "firstRow" as const,
+    columns: [{ name: "id", dataType: "String" }],
+    rows: [["1"]],
+    includesFirstRow: false,
+    sampleTruncated: false,
+  },
+  generated: {
+    headerMode: "generated" as const,
+    columns: [{ name: "column_1", dataType: "String" }],
+    rows: [["id"], ["1"]],
+    includesFirstRow: true,
+    sampleTruncated: false,
+  },
+};
+
 function loadPhaseProps(overrides: Partial<React.ComponentProps<typeof LoadPhase>> = {}) {
   return {
     runtime: { kind: "connected" as const },
@@ -51,6 +84,78 @@ function loadPhaseProps(overrides: Partial<React.ComponentProps<typeof LoadPhase
 }
 
 describe("LoadPhase", () => {
+  it("mantiene el panel de tareas en su propio disclosure, fuera del de proyectos", () => {
+    render(
+      <LoadPhase
+        {...loadPhaseProps({
+          children: <p>Contenido de proyectos</p>,
+          reusableTaskPanel: (
+            <details aria-label="Tareas reutilizables">
+              <summary>Reutilizar una tarea</summary>
+              <p>Configuración local guardada</p>
+            </details>
+          ),
+        })}
+      />,
+    );
+
+    const tasksPanel = screen.getByText("Reutilizar una tarea").closest("details");
+    const projectsPanel = screen.getByText("Continuar un proyecto").closest("details");
+    expect(tasksPanel).not.toBeNull();
+    expect(tasksPanel?.open).toBe(false);
+    expect(projectsPanel).not.toContainElement(tasksPanel);
+    expect(screen.getByText("Configuración local guardada")).toBeInTheDocument();
+  });
+
+  it("muestra una muestra acotada y bloquea la carga delimitada hasta revisar encabezados", () => {
+    const onSheetAction = vi.fn();
+    const previousDataset = {
+      kind: "ready" as const,
+      dataset: {
+        fileName: "anterior.csv",
+        fileSizeBytes: 10,
+        rowCount: 1,
+        columnCount: 1,
+        columns: [{ name: "id", dataType: "String" }],
+        rows: [["anterior"]],
+      },
+      pageOffset: 0,
+      pageLoading: false,
+    };
+    const pendingInspection = delimitedHeaderInspection(delimitedSource);
+    const { rerender } = render(
+      <LoadPhase
+        {...loadPhaseProps({ onSheetAction })}
+        datasetStatus={previousDataset}
+        inspection={pendingInspection}
+      />,
+    );
+
+    expect(screen.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" })).toBeInTheDocument();
+    expect(screen.getByText("Preparando una muestra local de hasta 64 KiB…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cargar archivo" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
+
+    const readyInspection = completeDelimitedHeaderReview(pendingInspection, delimitedHeaderReview);
+    rerender(
+      <LoadPhase
+        {...loadPhaseProps({ onSheetAction })}
+        datasetStatus={previousDataset}
+        inspection={readyInspection}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "Vista previa de la interpretación" })).toHaveTextContent(
+      "La primera fila se usa para nombrar columnas y se excluye de los registros.",
+    );
+    expect(screen.getByText("Separador detectado").parentElement).toHaveTextContent("“;”");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Conservar la primera fila como datos/ }));
+    expect(onSheetAction).toHaveBeenCalledWith({ kind: "header_mode_changed", headerMode: "generated" });
+    fireEvent.click(screen.getByRole("button", { name: "Cargar archivo" }));
+    expect(onSheetAction).toHaveBeenCalledWith({ kind: "confirmed" });
+    expect(screen.getByRole("heading", { name: "anterior.csv" })).toBeInTheDocument();
+  });
+
   it("expone el diálogo accesible y emite acciones nominales para la hoja", () => {
     const onSheetAction = vi.fn();
     render(

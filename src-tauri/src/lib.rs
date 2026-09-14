@@ -12,6 +12,7 @@ mod project_recovery;
 mod projects;
 mod remote_databases;
 mod resource;
+mod reusable_tasks;
 #[cfg(desktop)]
 mod updater;
 
@@ -131,9 +132,12 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .map_err(Box::<dyn std::error::Error>::from)?;
-            let projects =
-                projects::ProjectState::initialize(app_data_dir).map_err(std::io::Error::other)?;
+            let projects = projects::ProjectState::initialize(app_data_dir.clone())
+                .map_err(std::io::Error::other)?;
             app.manage(projects);
+            let reusable_tasks = reusable_tasks::ReusableTaskState::initialize(app_data_dir)
+                .map_err(std::io::Error::other)?;
+            app.manage(reusable_tasks);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -157,6 +161,7 @@ pub fn run() {
             dataset::samples::inspect_sample_dataset,
             dataset::pick_dataset_source,
             dataset::inspect_dropped_dataset,
+            dataset::preview_delimited_header_review,
             dataset::load_dataset_selection,
             dataset::discard_dataset_selection,
             dataset::compare_dataset,
@@ -230,6 +235,11 @@ pub fn run() {
             projects::save_project,
             projects::open_project,
             projects::delete_project,
+            reusable_tasks::list_reusable_tasks,
+            reusable_tasks::save_reusable_task,
+            reusable_tasks::open_reusable_task,
+            reusable_tasks::delete_reusable_task,
+            reusable_tasks::check_reusable_task_schema,
         ])
         .run(tauri::generate_context!())
         .expect("Columnia no pudo iniciar el runtime de escritorio");

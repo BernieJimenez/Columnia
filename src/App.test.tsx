@@ -1,9 +1,20 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import * as bridge from "./bridge";
-import type { DatasetPreview, DatasetProfile, HistoryState, ProjectSummary, SavedRecipe } from "./bridge";
+import type {
+  DatasetPreview,
+  DatasetProfile,
+  DelimitedHeaderReview,
+  HistoryState,
+  ProjectSummary,
+  ReusableTask,
+  ReusableTaskSummary,
+  SavedRecipe,
+} from "./bridge";
+
+const headerConfirmationTimers = new Set<number>();
 
 function historyState(overrides: Partial<HistoryState> = {}): HistoryState {
   return {
@@ -23,17 +34,69 @@ function resourceEstimate(fileSizeBytes: number, processingPath: "inMemory" | "s
 }
 
 afterEach(() => {
+  for (const timer of headerConfirmationTimers) window.clearInterval(timer);
+  headerConfirmationTimers.clear();
   cleanup();
   vi.restoreAllMocks();
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
+
+function defaultDelimitedHeaderReview(): DelimitedHeaderReview {
+  return {
+    delimiter: ",",
+    firstRow: {
+      headerMode: "firstRow",
+      columns: [{ name: "value", dataType: "String" }],
+      rows: [["sample"]],
+      includesFirstRow: false,
+      sampleTruncated: false,
+    },
+    generated: {
+      headerMode: "generated",
+      columns: [{ name: "column_1", dataType: "String" }],
+      rows: [["value"], ["sample"]],
+      includesFirstRow: true,
+      sampleTruncated: false,
+    },
+  };
+}
+
+beforeEach(() => {
+  vi.spyOn(bridge, "previewDelimitedHeaderReview").mockResolvedValue(defaultDelimitedHeaderReview());
+});
+
+function renderAppWithHeaderConfirmation() {
+  const view = render(<App />);
+  const timer = window.setInterval(() => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.textContent?.trim() === "Cargar archivo",
+    );
+    if (!button || button.disabled || button.dataset.testAutoConfirm === "true") return;
+    button.dataset.testAutoConfirm = "true";
+    act(() => fireEvent.click(button));
+  }, 10);
+  headerConfirmationTimers.add(timer);
+  return view;
+}
 async function openQualityAndAnalyze() {
   await screen.findByText("Filas analizadas");
 }
 
 async function switchPhase(label: "Cargar" | "Revisar" | "Preparar" | "Entregar") {
-  fireEvent.click(await screen.findByRole("button", { name: label }));
-  await waitFor(() => expect(screen.queryByText("Cargando etapa…")).not.toBeInTheDocument());
+  const stageHeading: Record<typeof label, RegExp> = {
+    Cargar: /^(Selecciona un dataset|Dataset listo para continuar)$/,
+    Revisar: /^Revisa antes de modificar$/,
+    Preparar: /^Prepara datos consistentes$/,
+    Entregar: /^Valida y crea una copia$/,
+  };
+  const phaseButton = await screen.findByRole("button", { name: label });
+  await waitFor(() => {
+    expect(phaseButton).toBeEnabled();
+    if (label !== "Cargar") expect(phaseButton).not.toHaveAttribute("aria-disabled", "true");
+  });
+  fireEvent.click(phaseButton);
+  await waitFor(() => expect(screen.getByRole("region", { name: `Etapa ${label}` })).toBeInTheDocument());
+  await screen.findByRole("heading", { name: stageHeading[label] });
 }
 
 function mockDatasetLoad(dataset: DatasetPreview) {
@@ -61,10 +124,147 @@ function mockDatasetLoad(dataset: DatasetPreview) {
 }
 
 describe("App", () => {
+  it("usa la acción contextual de Review y marca Review como hecha al continuar explícitamente", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    mockDatasetLoad({
+      fileName: "revisar.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    });
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ });
+
+    const actions = screen.getByLabelText("Navegación entre etapas");
+    expect(within(actions).queryByText("Siguiente paso")).not.toBeInTheDocument();
+    expect(within(actions).queryByRole("button", { name: "Ver plan de preparación" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", {
+      name: /Continuar a Preparar|Empezar con la prioridad principal/,
+    })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", {
+      name: /Continuar a Preparar|Empezar con la prioridad principal/,
+    }));
+    expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
+    expect(within(screen.getByRole("button", { name: "Revisar" })).getByText("Hecho")).toBeInTheDocument();
+  });
+
+  it("no marca Preparar como completada por avanzar solo con el footer genérico", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    mockDatasetLoad({
+      fileName: "navegacion.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    });
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ });
+    expect(within(screen.getByRole("button", { name: "Cargar" })).getByText("Hecho")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar opciones de entrega" }));
+
+    expect(screen.getByRole("button", { name: "Entregar" })).toHaveAttribute("aria-current", "step");
+    expect(within(screen.getByRole("button", { name: "Preparar" })).queryByText("Hecho")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Revisar" })).queryByText("Hecho")).not.toBeInTheDocument();
+  });
+
+  it("aplica una tarea compatible a la preparación sin ejecutar transformaciones sobre las filas", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const task: ReusableTask = {
+      version: 1,
+      name: "Cierre semanal",
+      importProfile: {
+        version: 1,
+        format: "csv",
+        headerMode: "firstRow",
+        dateConvention: "unresolved",
+        numberConvention: "unresolved",
+        schema: [{ name: "id", dataType: "Int64" }],
+      },
+      recipe: {
+        version: 1,
+        name: "Renombrar id",
+        savedAt: "2026-09-01T10:00:00Z",
+        recipe: {
+          renames: [{ from: "id", to: "id_limpio" }],
+          casts: [], dateParses: [], filters: [], calculatedColumn: null,
+          findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
+          outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
+        },
+      },
+      qualityRules: [{ column: "id", kind: "not_null", maxInvalid: 0 }],
+      outputFormat: "json",
+      privacyMode: "mask",
+    };
+    const taskSummary: ReusableTaskSummary = {
+      id: "task-weekly",
+      name: task.name,
+      createdAt: "2026-09-01T10:00:00Z",
+      updatedAt: "2026-09-01T10:00:00Z",
+      inputColumnCount: 1,
+      hasRecipe: true,
+      qualityRuleCount: 1,
+      outputFormat: "json",
+    };
+    const checkSchemaSpy = vi.spyOn(bridge, "checkReusableTaskSchema").mockResolvedValue({
+      status: "ready", missingColumns: [], addedColumns: [], changedTypes: [], orderChanged: false,
+    });
+    vi.spyOn(bridge, "listReusableTasks").mockResolvedValue([taskSummary]);
+    vi.spyOn(bridge, "openReusableTask").mockResolvedValue(task);
+    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState({
+      canUndo: false,
+      currentIndex: 0,
+      entryCount: 1,
+      entries: [{ id: "history-test-0", index: 0, label: "Dataset cargado", isCurrent: true }],
+    }));
+    mockDatasetLoad({
+      fileName: "entrada.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["10"]],
+    });
+    const applyRecipeSpy = vi.spyOn(bridge, "applyTransformRecipe");
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("heading", { name: "entrada.csv" });
+    fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    await screen.findByLabelText("Tarea guardada");
+    fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
+    await screen.findByText("El esquema es compatible. Puedes aplicar la configuración guardada.");
+    expect(checkSchemaSpy).toHaveBeenCalledWith(taskSummary.id, [{ name: "id", dataType: "Int64" }]);
+    fireEvent.click(screen.getByRole("button", { name: "Usar esta configuración" }));
+
+    expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }));
+    expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
+    expect(screen.getByRole("textbox", { name: "Nuevo nombre 1" })).toHaveValue("id_limpio");
+    expect(applyRecipeSpy).not.toHaveBeenCalled();
+
+    await switchPhase("Entregar");
+    expect(screen.getByText(/id: no admite valores nulos/)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("json");
+    expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("mask");
+
+    await switchPhase("Revisar");
+    fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
+    expect(await screen.findByRole("cell", { name: "10" })).toBeInTheDocument();
+    expect(applyRecipeSpy).not.toHaveBeenCalled();
+  });
+
   it("abre el diagnóstico local desde las preferencias tras una acción explícita", async () => {
     const saveDiagnostic = vi.spyOn(bridge, "saveDiagnosticReport");
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(screen.getByText("Preferencias y recursos"));
     fireEvent.click(screen.getByRole("button", { name: "Preparar diagnóstico local" }));
 
@@ -132,11 +332,11 @@ describe("App", () => {
       columns: [],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
     expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
-    expect(screen.getByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
     await switchPhase("Entregar");
@@ -155,7 +355,7 @@ describe("App", () => {
     await switchPhase("Cargar");
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Preferencias y recursos"));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Modo de rendimiento" })).toHaveValue("balanced"));
     await switchPhase("Entregar");
@@ -193,7 +393,7 @@ describe("App", () => {
     });
     mockDatasetLoad(dataset);
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
@@ -204,7 +404,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner", importProfile: { version: 1, format: "csv", dateConvention: "unresolved", numberConvention: "unresolved", schema: [{ name: "total", dataType: "Int64" }] } },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner", importProfile: { version: 1, format: "csv", headerMode: "firstRow", dateConvention: "unresolved", numberConvention: "unresolved", schema: [{ name: "total", dataType: "Int64" }] } },
     ));
     expect(await screen.findByText(`Proyecto “${project.name}” guardado.`)).toBeInTheDocument();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -256,9 +456,12 @@ describe("App", () => {
     });
     mockDatasetLoad(dataset);
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Cargar" }));
+    await screen.findByRole("heading", { name: "Revisa antes de modificar" });
+    await switchPhase("Cargar");
+    fireEvent.click(screen.getByText("Continuar un proyecto"));
+    fireEvent.click(screen.getByText("Guardar y administrar proyectos"));
 
     const projectName = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
     fireEvent.change(projectName, { target: { value: project.name } });
@@ -266,7 +469,7 @@ describe("App", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(
       null,
       project.name,
-      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner", importProfile: { version: 1, format: "csv", dateConvention: "unresolved", numberConvention: "unresolved", schema: [{ name: "email", dataType: "String" }] } },
+      { qualityRules: [], recipeDraft: null, reviewTab: "diagnosis", previewOffset: 0, activePhase: "load", queryEngine: "polars", analysisSampleRows: 100_000, performanceProfile: "balanced", exportFormat: "csv", privacyMode: "none", comparisonKeyColumns: [], joinType: "inner", importProfile: { version: 1, format: "csv", headerMode: "firstRow", dateConvention: "unresolved", numberConvention: "unresolved", schema: [{ name: "email", dataType: "String" }] } },
     ));
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
 
@@ -325,10 +528,10 @@ describe("App", () => {
       columns: [],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
 
-    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
     expect(profileSpy).toHaveBeenCalledOnce();
   });
@@ -350,7 +553,7 @@ describe("App", () => {
       });
     mockDatasetLoad(dataset);
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
 
     const retry = await screen.findByRole("button", { name: "Reintentar análisis" });
@@ -394,9 +597,9 @@ describe("App", () => {
       .mockResolvedValueOnce({ dataset: afterFirstChange, affectedRowCount: 1 })
       .mockResolvedValueOnce({ dataset: afterSecondChange, affectedRowCount: 1 });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    await screen.findByRole("button", { name: "Ver plan de preparación" });
+    await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ });
     await switchPhase("Preparar");
     fireEvent.click(screen.getByText("Más herramientas"));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
@@ -406,17 +609,20 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
     await waitFor(() => expect(removeRowsSpy).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(3));
-    expect(await screen.findByRole("heading", { name: "Filas duplicadas" })).toBeInTheDocument();
+    const currentDuplicatePlan = screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ });
+    await waitFor(() => expect(currentDuplicatePlan).toBeChecked());
 
     await act(async () => {
       resolveStaleProfile(staleProfile);
       await staleProfilePromise;
     });
-    expect(screen.getByRole("heading", { name: "Filas duplicadas" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ })).toBeChecked();
+    });
   });
 
   it("explica cómo conectar el motor cuando se abre en navegador", async () => {
-    render(<App />);
+    renderAppWithHeaderConfirmation();
 
     expect(screen.getByRole("heading", { name: "Columnia" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Flujo de preparación de datos" })).toBeInTheDocument();
@@ -438,7 +644,7 @@ describe("App", () => {
   });
 
   it("expone landmarks y la descripción accesible del panel legal en la interfaz renderizada", async () => {
-    render(<App />);
+    renderAppWithHeaderConfirmation();
 
     expect(screen.getByRole("link", { name: "Saltar al contenido principal" })).toHaveAttribute(
       "href",
@@ -468,7 +674,7 @@ describe("App", () => {
       version: "0.1.0",
       platform: "windows",
     });
-    mockDatasetLoad({
+    const loadSpy = mockDatasetLoad({
       fileName: "temperaturas.csv",
       fileSizeBytes: 2048,
       rowCount: 2,
@@ -486,10 +692,15 @@ describe("App", () => {
     render(<App />);
     const button = await screen.findByRole("button", { name: "Seleccionar dataset" });
     fireEvent.click(button);
+    const headerDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de temperaturas.csv" });
+    expect(loadSpy).not.toHaveBeenCalled();
+    fireEvent.click(within(headerDialog).getByRole("radio", { name: /Conservar la primera fila como datos/ }));
+    fireEvent.click(within(headerDialog).getByRole("button", { name: "Cargar archivo" }));
 
     expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
+    expect(loadSpy).toHaveBeenCalledWith("selection-test", null, "generated", expect.any(Function), null);
     expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuetext", "Paso 2 de 4: Revisar");
-    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
@@ -553,13 +764,13 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
-    const dialog = await screen.findByRole("dialog", { name: "Revisa el costo estimado de la carga" });
+    const dialog = await screen.findByRole("dialog", { name: "Revisar encabezados de clientes-grande.csv" });
     expect(within(dialog).getByText(/Lectura source-backed/)).toBeInTheDocument();
     expect(loadSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Continuar con la carga" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cargar archivo" }));
     expect(await screen.findByRole("heading", { name: "clientes-grande.csv" })).toBeInTheDocument();
-    expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, null, expect.any(Function), null);
+    expect(loadSpy).toHaveBeenCalledWith("large-source-selection", null, "firstRow", expect.any(Function), null);
   });
 
   it("deja revisar valores con ceros iniciales y columnas ambiguas en la vista previa", async () => {
@@ -585,7 +796,7 @@ describe("App", () => {
       rows: [["00123", "1.00", "2.50"]],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
 
@@ -620,7 +831,7 @@ describe("App", () => {
       rows: [["Puerto Plata"]],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
     fireEvent.click(await screen.findByRole("button", { name: "Siguiente" }));
@@ -666,7 +877,7 @@ describe("App", () => {
       return profilePromise;
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
 
     expect(
@@ -693,7 +904,7 @@ describe("App", () => {
       duplicatePercentage: 0,
       columns: [],
     });
-    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continuar a Preparar|Empezar con la prioridad principal/ })).toBeInTheDocument();
   });
 
   it("conserva el dataset activo cuando se cancela una sustitución", async () => {
@@ -731,10 +942,13 @@ describe("App", () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    const activeHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de activo.csv" });
+    fireEvent.click(within(activeHeaderDialog).getByRole("button", { name: "Cargar archivo" }));
     await screen.findByRole("heading", { name: "activo.csv" });
     fireEvent.click(screen.getByRole("button", { name: "Cargar" }));
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Importar sin perfil" }));
+    const replacementHeaderDialog = await screen.findByRole("dialog", { name: "Revisar encabezados de nuevo.csv" });
+    fireEvent.click(within(replacementHeaderDialog).getByRole("button", { name: "Cargar archivo" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
 
     expect(cancelSpy).toHaveBeenCalledWith("load");
@@ -778,7 +992,7 @@ describe("App", () => {
       },
     );
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await screen.findByRole("heading", { name: "ventas.csv" });
     expect(screen.queryByRole("button", { name: "Exportar Parquet" })).not.toBeInTheDocument();
@@ -810,7 +1024,7 @@ describe("App", () => {
     });
     const exportSpy = vi.spyOn(bridge, "exportDataset").mockResolvedValue(null);
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
@@ -841,7 +1055,7 @@ describe("App", () => {
       });
     const exportSpy = vi.spyOn(bridge, "exportDataset").mockResolvedValue(null);
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
@@ -883,11 +1097,12 @@ describe("App", () => {
       },
       changedCellCount: 0,
       affectedRowCount: 0,
+      removedRowCount: 0,
       renamedColumnCount: 1,
       renames: [{ from: "Año Venta", to: "ano_venta" }],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ }));
@@ -895,7 +1110,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
-    expect(normalizeSpy).toHaveBeenCalledWith({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true });
+    expect(normalizeSpy).toHaveBeenCalledWith({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false });
 
     await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
@@ -928,6 +1143,7 @@ describe("App", () => {
       dataset: { ...original, rows: [["Bogotá", "A1"]] },
       affectedRowCount: 1,
       changedCellCount: 1,
+      removedRowCount: 0,
       renamedColumnCount: 0,
       renames: [],
     });
@@ -938,13 +1154,13 @@ describe("App", () => {
       changedColumns: [{ name: "city", changedCellCount: 1 }],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
 
     expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
-    expect(trimSpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false });
+    expect(trimSpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: false });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
@@ -980,11 +1196,12 @@ describe("App", () => {
       },
       changedCellCount: 1,
       affectedRowCount: 1,
+      removedRowCount: 0,
       renamedColumnCount: 1,
       renames: [{ from: "Ciudad Nombre", to: "ciudad_nombre" }],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ }));
@@ -995,7 +1212,7 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
-    expect(applySpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true });
+    expect(applySpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false });
   });
 
   it("calcula y presenta el perfil de calidad del dataset", async () => {
@@ -1050,8 +1267,7 @@ describe("App", () => {
         },
       ],
     });
-    const removeSpy = vi.spyOn(bridge, "removeDuplicates").mockResolvedValue({
-      affectedRowCount: 1,
+    const safeCorrectionSpy = vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
       dataset: {
         fileName: "calidad.csv",
         fileSizeBytes: 1024,
@@ -1060,6 +1276,11 @@ describe("App", () => {
         columns: [{ name: "temperature", dataType: "Int64" }],
         rows: [["30"], ["28"]],
       },
+      changedCellCount: 0,
+      affectedRowCount: 0,
+      removedRowCount: 1,
+      renamedColumnCount: 0,
+      renames: [],
     });
     const undoSpy = vi.spyOn(bridge, "undoLastChange").mockResolvedValue({
       dataset: {
@@ -1086,7 +1307,7 @@ describe("App", () => {
       message: "Se rehízo el último cambio.",
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
@@ -1099,11 +1320,12 @@ describe("App", () => {
     expect(profileSpy).toHaveBeenCalledOnce();
 
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("button", { name: "Eliminar duplicados" }));
-    expect(
-      await screen.findByText("Se eliminaron 1 filas duplicadas adicionales."),
-    ).toBeInTheDocument();
-    expect(removeSpy).toHaveBeenCalledOnce();
+    expect(screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    expect(await screen.findByText(/^Plan aplicado:/)).toBeInTheDocument();
+    expect(safeCorrectionSpy).toHaveBeenCalledWith({
+      trimText: false, normalizeSentinels: false, normalizeColumnNames: false, removeDuplicates: true,
+    });
     await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
 
     fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
@@ -1169,7 +1391,7 @@ describe("App", () => {
       ],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
@@ -1230,7 +1452,7 @@ describe("App", () => {
       ],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
@@ -1291,7 +1513,7 @@ describe("App", () => {
       ],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await openQualityAndAnalyze();
 
@@ -1324,7 +1546,7 @@ describe("App", () => {
       rows: [["125.5"]],
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     const selectDataset = await screen.findByRole("button", { name: "Seleccionar dataset" });
     selectDataset.focus();
     fireEvent.click(selectDataset);
@@ -1388,7 +1610,7 @@ describe("App", () => {
       normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
 
@@ -1451,7 +1673,7 @@ describe("App", () => {
       recipe: { renames: [{ from: "estado", to: "situacion" }], casts: [], dateParses: [], filters: [], calculatedColumn: null, findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null, outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [] },
     });
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1497,7 +1719,7 @@ describe("App", () => {
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1524,7 +1746,7 @@ describe("App", () => {
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.23.0", platform: "windows" });
     mockDatasetLoad({ fileName: "datos.csv", fileSizeBytes: 10, rowCount: 1, columnCount: 1, columns: [{ name: "dato", dataType: "String" }], rows: [["a"]] });
     vi.spyOn(bridge, "pickTransformRecipe").mockRejectedValue(new Error("JSON inválido"));
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1552,7 +1774,7 @@ describe("App", () => {
       groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
       normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
     });
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1620,7 +1842,7 @@ describe("App", () => {
     };
     mockDatasetLoad(original);
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1656,7 +1878,7 @@ describe("App", () => {
     };
     mockDatasetLoad(original);
     const applySpy = vi.spyOn(bridge, "applyTransformRecipe");
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1705,7 +1927,7 @@ describe("App", () => {
       groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
       normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
     });
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1737,7 +1959,7 @@ describe("App", () => {
       groupCount: 2, aggregatedColumnCount: 2, collapsedRowCount: 4,
       normalizedContactCellCount: 0, normalizedContactColumnCount: 0, extractedColumnCount: 0,
     });
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1779,7 +2001,7 @@ describe("App", () => {
       groupCount: 0, aggregatedColumnCount: 0, collapsedRowCount: 0,
       normalizedContactCellCount: 1, normalizedContactColumnCount: 1, extractedColumnCount: 1,
     });
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
@@ -1814,7 +2036,7 @@ describe("App", () => {
       degradedReason: "No hay espacio disponible para snapshots.", currentIndex: 0,
       entryCount: 1, entries: [{ id: null, index: 0, label: "Dataset cargado", isCurrent: true }],
     }));
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     expect(screen.getByText("No hay espacio disponible para snapshots.")).toBeInTheDocument();
@@ -1838,7 +2060,7 @@ describe("App", () => {
       protectedColumnCount: 0,
       protectedColumns: [],
     });
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("checkbox", {
@@ -1867,7 +2089,7 @@ describe("App", () => {
   });
 
   it("expone el estado web y la ficha local de licencia y privacidad", () => {
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     expect(screen.getByText("Vista web · motor no conectado")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Licencia y privacidad"));
     const legalPanel = screen.getByRole("region", { name: "Licencia y privacidad de Columnia" });
@@ -1877,7 +2099,7 @@ describe("App", () => {
   });
 
   it("mantiene exclusivos los paneles flotantes de la barra lateral", () => {
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     const utilitiesSummary = screen.getByText("Preferencias y recursos");
     const legalSummary = screen.getByText("Licencia y privacidad");
     const utilitiesDetails = utilitiesSummary.closest("details");
@@ -1929,7 +2151,7 @@ describe("App", () => {
     vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
     vi.spyOn(bridge, "useConsolidatedDataset").mockResolvedValue(dataset);
     const joinSpy = vi.spyOn(bridge, "joinDataset").mockResolvedValue(dataset);
-    render(<App />);
+    renderAppWithHeaderConfirmation();
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await waitFor(() => expect(screen.getByText("Comparar con otro dataset")).toBeInTheDocument());
     fireEvent.click(screen.getByText("Comparar con otro dataset"));
@@ -1965,8 +2187,10 @@ describe("App", () => {
       { id: "recent-2", fileName: "clientes.json", format: "json", lastOpenedAt: 1 },
     ]));
 
-    render(<App />);
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("catálogo temporalmente"));
+    renderAppWithHeaderConfirmation();
+    await waitFor(() => expect(
+      screen.getAllByRole("alert").some((alert) => alert.textContent?.includes("catálogo temporalmente")),
+    ).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
     await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(2));
 

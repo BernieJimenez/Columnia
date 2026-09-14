@@ -1,6 +1,8 @@
 param(
     [ValidateRange(1, 500)]
     [int]$TargetMiB = 100,
+    [ValidateSet("standard", "wide", "low-cardinality", "long-text")]
+    [string]$ShapeProfile = "standard",
     [ValidateRange(2, 5)]
     [int]$SustainedRuns = 3,
     [ValidateRange(1, 3)]
@@ -11,6 +13,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot "performance-matrix.psm1") -Force
 $TauriRoot = Join-Path $ProjectRoot "src-tauri"
 $StartedAt = [DateTimeOffset]::UtcNow
 $Timestamp = $StartedAt.ToString("yyyyMMddTHHmmssZ")
@@ -19,6 +22,8 @@ $EvidenceDirectory = Join-Path $ProjectRoot ($EvidenceRelativePath -replace "/",
 $WorkDirectory = Join-Path $EvidenceDirectory "work"
 $SummaryPath = Join-Path $EvidenceDirectory "summary.json"
 $InputPath = Join-Path $WorkDirectory "benchmark-input.csv"
+$ScaleMatrixDefinition = Get-PerformanceScaleMatrixDefinition -Path (Join-Path $ProjectRoot "fixtures\performance\dataset-scale-matrix-v1.json")
+$ShapeProfileDefinition = Get-PerformanceScaleProfile -ProfileId $ShapeProfile -Definition $ScaleMatrixDefinition
 $RecipePath = Join-Path $WorkDirectory "benchmark-recipe.json"
 $RulesPath = Join-Path $WorkDirectory "benchmark-rules.json"
 $ProjectRulesPath = Join-Path $WorkDirectory "benchmark-project-rules.json"
@@ -32,6 +37,17 @@ $Timer = [System.Diagnostics.Stopwatch]::StartNew()
 $BuildDurationMs = $null
 $InputRowCount = 0
 $InputSizeBytes = 0L
+$InputInfo = [ordered]@{
+    profileId = $ShapeProfile
+    rowCount = 0
+    sizeBytes = 0L
+    columnCount = [int]$ShapeProfileDefinition.columnCount
+    nameDistinctCount = 0
+    notesDistinctCount = 0
+    notesBytesPerRow = [int]$ShapeProfileDefinition.notesBytesPerRow
+    generatedColumnCount = [int]$ShapeProfileDefinition.columnCount - 4
+}
+$PeakWorkspaceDiskBytes = 0L
 $CommandResults = [System.Collections.Generic.List[object]]::new()
 $OutputResults = [System.Collections.Generic.List[object]]::new()
 $CliPath = $null
@@ -53,47 +69,12 @@ function Write-SanitizedEvidenceText {
     [System.IO.File]::WriteAllText($Path, $Sanitized)
 }
 
-function Write-SyntheticCsv {
-    param(
-        [string]$Destination,
-        [long]$TargetBytes
-    )
-
-    $Encoding = [System.Text.UTF8Encoding]::new($false)
-    $Stream = [System.IO.FileStream]::new(
-        $Destination,
-        [System.IO.FileMode]::Create,
-        [System.IO.FileAccess]::Write,
-        [System.IO.FileShare]::None,
-        1024 * 1024,
-        [System.IO.FileOptions]::SequentialScan
-    )
-    $Writer = [System.IO.StreamWriter]::new($Stream, $Encoding, 1024 * 1024)
-    $Rows = 0
-    try {
-        $Writer.WriteLine("id,name,amount,notes")
-        while ($Stream.Length -lt $TargetBytes) {
-            for ($Index = 0; $Index -lt 8192 -and $Stream.Length -lt $TargetBytes; $Index++) {
-                $Rows++
-                $Writer.Write("row-")
-                $Writer.Write($Rows)
-                $Writer.Write(",Synthetic name ")
-                $Writer.Write($Rows)
-                $Writer.Write(",123.45,Columnia benchmark deterministic payload 0123456789 abcdefghijklmnopqrstuvwxyz")
-                $Writer.WriteLine()
-            }
-            $Writer.Flush()
-        }
+function Get-WorkspaceDiskBytes {
+    $Files = @(Get-ChildItem -LiteralPath $WorkDirectory -File -Recurse -Force -ErrorAction SilentlyContinue)
+    if ($Files.Count -eq 0) {
+        return 0L
     }
-    finally {
-        $Writer.Dispose()
-        $Stream.Dispose()
-    }
-
-    return [ordered]@{
-        rowCount = $Rows
-        sizeBytes = (Get-Item -LiteralPath $Destination).Length
-    }
+    return [int64](($Files | Measure-Object -Property Length -Sum).Sum)
 }
 
 function New-BenchmarkFiles {
@@ -176,10 +157,12 @@ function Invoke-MeasuredCli {
     $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
     $StderrTask = $Process.StandardError.ReadToEndAsync()
     $PeakWorkingSetBytes = 0L
+    $PeakCommandWorkspaceDiskBytes = Get-WorkspaceDiskBytes
     try {
         while (-not $Process.HasExited) {
             $Process.Refresh()
             $PeakWorkingSetBytes = [math]::Max($PeakWorkingSetBytes, [int64]$Process.WorkingSet64)
+            $PeakCommandWorkspaceDiskBytes = [math]::Max($PeakCommandWorkspaceDiskBytes, (Get-WorkspaceDiskBytes))
             if ($Stopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
                 try { $Process.Kill($true) } catch { $Process.Kill() }
                 throw "$Name excedió el timeout de $TimeoutSeconds segundos."
@@ -188,6 +171,7 @@ function Invoke-MeasuredCli {
         }
         $Process.Refresh()
         $PeakWorkingSetBytes = [math]::Max($PeakWorkingSetBytes, [int64]$Process.PeakWorkingSet64)
+        $PeakCommandWorkspaceDiskBytes = [math]::Max($PeakCommandWorkspaceDiskBytes, (Get-WorkspaceDiskBytes))
         $Process.WaitForExit()
         $Stdout = $StdoutTask.Result
         $Stderr = $StderrTask.Result
@@ -223,7 +207,9 @@ function Invoke-MeasuredCli {
         exitCode = $ExitCode
         durationMs = [math]::Round($Stopwatch.Elapsed.TotalMilliseconds, 2)
         peakWorkingSetBytes = $PeakWorkingSetBytes
+        peakSampledWorkspaceDiskBytes = $PeakCommandWorkspaceDiskBytes
     }
+    $script:PeakWorkspaceDiskBytes = [math]::Max($script:PeakWorkspaceDiskBytes, $PeakCommandWorkspaceDiskBytes)
     if ($ReturnStdout) {
         $Result.stdout = $Stdout
     }
@@ -298,9 +284,10 @@ try {
         throw "La compilación no produjo columnia-cli."
     }
 
-    $InputInfo = Write-SyntheticCsv -Destination $InputPath -TargetBytes $TargetBytes
+    $InputInfo = Write-PerformanceScaleCsv -Destination $InputPath -TargetBytes $TargetBytes -Profile $ShapeProfileDefinition
     $InputRowCount = $InputInfo.rowCount
     $InputSizeBytes = $InputInfo.sizeBytes
+    $PeakWorkspaceDiskBytes = Get-WorkspaceDiskBytes
     New-BenchmarkFiles
 
     $InputRelative = Get-RelativePath -Path $InputPath
@@ -442,6 +429,42 @@ finally {
         }
     }
     $Timer.Stop()
+    $CommandDurations = @($CommandResults | ForEach-Object { [double]$_.durationMs })
+    $MeasuredWorkingSets = @($CommandResults | ForEach-Object { [int64]$_.peakWorkingSetBytes })
+    $MeasuredDiskPeaks = @($CommandResults | ForEach-Object { [int64]$_.peakSampledWorkspaceDiskBytes })
+    $MaximumCommandDurationMs = if ($CommandDurations.Count -eq 0) { 0.0 } else { [double](($CommandDurations | Measure-Object -Maximum).Maximum) }
+    $TotalCommandDurationMs = if ($CommandDurations.Count -eq 0) { 0.0 } else { [double](($CommandDurations | Measure-Object -Sum).Sum) }
+    $MaximumWorkingSetBytes = if ($MeasuredWorkingSets.Count -eq 0) { 0L } else { [int64](($MeasuredWorkingSets | Measure-Object -Maximum).Maximum) }
+    $MaximumWorkspaceDiskBytes = if ($MeasuredDiskPeaks.Count -eq 0) { [int64]$PeakWorkspaceDiskBytes } else { [int64](($MeasuredDiskPeaks | Measure-Object -Maximum).Maximum) }
+    $OutputSizeValues = @($OutputResults | ForEach-Object { [int64]$_.sizeBytes })
+    $RecordedOutputBytes = if ($OutputSizeValues.Count -eq 0) { 0L } else { [int64](($OutputSizeValues | Measure-Object -Sum).Sum) }
+    $CleanupConfirmed = -not (Test-Path -LiteralPath $WorkDirectory)
+    $ScaleMatrixEvidence = [ordered]@{
+        schemaVersion = 1
+        profileId = $ShapeProfile
+        dimensions = [ordered]@{
+            targetMiB = $TargetMiB
+            inputSizeBytes = $InputSizeBytes
+            rowCount = $InputInfo.rowCount
+            columnCount = $InputInfo.columnCount
+            idDistinctCount = $InputInfo.rowCount
+            nameDistinctCount = $InputInfo.nameDistinctCount
+            notesDistinctCount = $InputInfo.notesDistinctCount
+            notesBytesPerRow = $InputInfo.notesBytesPerRow
+            generatedColumnCount = $InputInfo.generatedColumnCount
+        }
+        measures = [ordered]@{
+            peakWorkingSetBytes = $MaximumWorkingSetBytes
+            peakSampledWorkspaceDiskBytes = $MaximumWorkspaceDiskBytes
+            workspaceDiskMeasurement = "workspace file sizes sampled while each CLI command runs"
+            recordedOutputBytes = $RecordedOutputBytes
+            commandCount = $CommandResults.Count
+            maxCommandDurationMs = $MaximumCommandDurationMs
+            totalCommandDurationMs = $TotalCommandDurationMs
+            cancellation = "not-measured-by-cli-benchmark"
+            cleanupConfirmed = $CleanupConfirmed
+        }
+    }
     [ordered]@{
         schemaVersion = 1
         status = $Status
@@ -455,12 +478,13 @@ finally {
             fileName = "benchmark-input.csv"
             sizeBytes = $InputSizeBytes
             rowCount = $InputRowCount
-            columnCount = 4
+            columnCount = $InputInfo.columnCount
         }
         buildDurationMs = $BuildDurationMs
+        scaleMatrix = $ScaleMatrixEvidence
         commands = @($CommandResults)
         outputs = @($OutputResults)
-        cleanupConfirmed = -not (Test-Path -LiteralPath $WorkDirectory)
+        cleanupConfirmed = $CleanupConfirmed
         command = "columnia-cli"
         evidenceDirectory = $EvidenceRelativePath
         error = $FailureMessage

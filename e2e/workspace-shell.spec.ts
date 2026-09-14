@@ -15,14 +15,10 @@ test.describe("shell informativo de espacios de trabajo", () => {
   test("muestra estados sin añadir controles ni landmarks de navegación", async ({ page }) => {
     await page.goto("/", { waitUntil: "commit" });
 
-    const region = page.getByRole("region", { name: "Espacios de trabajo" });
-    const items = region.getByRole("listitem");
+    const region = page.getByRole("region", { name: "Espacio actual" });
 
-    await expect(items).toHaveCount(3);
-    await expect(items.nth(0)).toHaveText("AnalizarActual");
-    await expect(items.nth(0)).toHaveAttribute("aria-current", "true");
-    await expect(items.nth(1)).toHaveText("AutomatizarCLI disponible · Interfaz en preparación");
-    await expect(items.nth(2)).toHaveText("Preparar para BIInterfaz planificada");
+    await expect(region.getByText("Analizar")).toBeVisible();
+    await expect(region).toContainText("En uso");
     await expect(region.getByRole("button")).toHaveCount(0);
     await expect(region.getByRole("link")).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "Espacios de trabajo" })).toHaveCount(0);
@@ -31,7 +27,7 @@ test.describe("shell informativo de espacios de trabajo", () => {
   test("mantiene el orden de marca, dataset, espacios y flujo en la vista compacta", async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 900 });
     await page.goto("/", { waitUntil: "commit" });
-    await expect(page.getByRole("region", { name: "Espacios de trabajo" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Espacio actual" })).toBeVisible();
 
     const layout = await page.evaluate(() => {
       const bounds = (selector: string) => {
@@ -42,13 +38,11 @@ test.describe("shell informativo de espacios de trabajo", () => {
       };
       return {
         brand: bounds(".brand"),
-        dataset: bounds(".sidebar__dataset"),
         workspaces: bounds(".workspace-list"),
         flow: bounds(".side-nav"),
       };
     });
 
-    expect(Math.abs(layout.brand.top - layout.dataset.top)).toBeLessThan(16);
     expect(layout.workspaces.top).toBeGreaterThan(layout.brand.bottom);
     expect(layout.flow.top).toBeGreaterThan(layout.workspaces.bottom);
   });
@@ -58,9 +52,9 @@ test.describe("shell informativo de espacios de trabajo", () => {
     await page.goto("/", { waitUntil: "commit" });
     await assertNoHorizontalOverflow(page);
 
-    const region = page.getByRole("region", { name: "Espacios de trabajo" });
-    await expect(region.getByRole("listitem").nth(0)).toHaveAttribute("aria-current", "true");
-    await expect(region.getByText("CLI disponible · Interfaz en preparación")).toBeVisible();
+    const region = page.getByRole("region", { name: "Espacio actual" });
+    await expect(region.getByText("Analizar")).toBeVisible();
+    await expect(region).toContainText("En uso");
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
@@ -69,8 +63,8 @@ test.describe("shell informativo de espacios de trabajo", () => {
       document.documentElement.dataset.columniaZoom = "2";
     });
     await assertNoHorizontalOverflow(page);
-    await expect(region.getByText("Actual")).toBeVisible();
-    await expect(region.getByText("Interfaz planificada")).toBeVisible();
+    await expect(region.getByText("Analizar")).toBeVisible();
+    await expect(region).toContainText("En uso");
     expect(await page.locator(".sidebar__tools").evaluate((element) => getComputedStyle(element).gridArea))
       .toBe("utilities");
     expect(await page.evaluate(() => window.matchMedia("(forced-colors: active)").matches)).toBe(true);

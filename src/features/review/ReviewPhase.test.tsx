@@ -329,17 +329,18 @@ function renderTemporalTrend(
 }
 
 describe("ReviewPhase", () => {
-  it("explica señales prioritarias y dirige cada una a su corrección específica", () => {
+  it("explica señales prioritarias con una sola acción para empezar", () => {
     const onContinueToPrepare = vi.fn();
     render(temporalTrendElement(profile, 17, onContinueToPrepare));
 
-    const plan = screen.getByRole("list", { name: "Acciones recomendadas por señal" });
+    const plan = screen.getByRole("list", { name: "Prioridades de revisión" });
     expect(plan).toHaveTextContent("6 celdas sin valor en 1 columna.");
     expect(plan).toHaveTextContent("3 filas adicionales coinciden con otra fila en todas las columnas");
     expect(plan).toHaveTextContent("6 celdas no coinciden con un tipo sugerido");
     expect(plan).toHaveTextContent("puede cambiar la interpretación");
-    fireEvent.click(within(plan).getByRole("button", { name: "Revisar duplicados exactos" }));
-    expect(onContinueToPrepare).toHaveBeenCalledWith("duplicates");
+    expect(within(plan).queryAllByRole("button")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Empezar con la prioridad principal" }));
+    expect(onContinueToPrepare).toHaveBeenCalledWith("missingValues");
   });
 
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {

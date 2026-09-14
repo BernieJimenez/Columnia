@@ -30,6 +30,10 @@ const emptyRecipe: TransformRecipe = {
   outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
 };
 
+function openIndividualSignalActions() {
+  fireEvent.click(screen.getByText("Revisar señales individuales"));
+}
+
 const cleaningSignalsProfile: DatasetProfile = {
   rowCount: 5,
   duplicateRowCount: 1,
@@ -351,8 +355,9 @@ describe("PreparePhase", () => {
     expect(signals).toHaveTextContent("Duplicados parecidos: 1");
     expect(signals).toHaveTextContent("Tipos sugeridos:");
     expect(signals).toHaveTextContent("Fechas detectadas: fecha_alta coincide con un formato de fecha cerrado.");
-    expect(screen.getByRole("button", { name: "Eliminar duplicados" }).closest("details")).toBeNull();
-    expect(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }).closest("details")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Eliminar duplicados" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Retirar 1 fila duplicada exacta/ })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }).closest("details")).toHaveClass("prepare-signal-details");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas vacías" }));
@@ -421,6 +426,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
+    openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
     const dialog = screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" });
     expect(dialog).toHaveTextContent("1 filas");
@@ -464,6 +470,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
+    openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Revisar identificadores detectados" }));
     const dialog = screen.getByRole("alertdialog", { name: "Retirar identificadores detectados" });
     expect(dialog).toHaveTextContent("1 columna identificadora");
@@ -511,6 +518,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
+    openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Revisar datos personales detectados" }));
     const dialog = screen.getByRole("alertdialog", { name: "Retirar datos personales detectados" });
     expect(dialog).toHaveTextContent("1 columna personal");
@@ -572,6 +580,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
+    openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Revisar tipos incompatibles" }));
     const dialog = screen.getByRole("alertdialog", { name: "Apartar valores incompatibles" });
     expect(dialog).toHaveTextContent("1 columna");
@@ -612,6 +621,7 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
+    openIndividualSignalActions();
     fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
     fireEvent.keyDown(screen.getByRole("alertdialog", { name: "Eliminar duplicados parecidos" }), { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }));
@@ -720,6 +730,7 @@ describe("PreparePhase", () => {
       recipeSession={0}
       {...callbacks}
     />);
+    openIndividualSignalActions();
     fireEvent.click(screen.getByText("Correcciones avanzadas"));
     fireEvent.click(screen.getByLabelText("nombre"));
     fireEvent.click(screen.getByLabelText("nombre"));
@@ -739,6 +750,7 @@ describe("PreparePhase", () => {
       trimText: true,
       normalizeSentinels: true,
       normalizeColumnNames: true,
+      removeDuplicates: true,
     });
 
     cleanup();
@@ -753,6 +765,74 @@ describe("PreparePhase", () => {
     />);
     expect(screen.getByRole("alert")).toHaveTextContent("perfil no disponible");
     expect(screen.getByRole("alert")).toHaveTextContent("Reintenta desde el pie de la aplicación.");
+  });
+
+  it("muestra el antes y después del perfil tras aplicar un plan", () => {
+    const onApplyRecommended = vi.fn<(options: SafeCorrectionOptions) => void>();
+    const props = {
+      dataset,
+      datasetRevision: 8,
+      profileStatus: { kind: "ready" as const, profile: cleaningSignalsProfile },
+      changeStatus: { kind: "idle" as const },
+      historyStatus: {
+        ...EMPTY_HISTORY,
+        entries: [{ id: "before", index: 8, label: "Dataset inicial", isCurrent: true }],
+      },
+      recipeDraft: null,
+      recipeSession: 0,
+      onCancelProfile: vi.fn(),
+      onRemoveDuplicates: vi.fn(),
+      onRemoveNearDuplicates: vi.fn(),
+      onRemoveEmptyRows: vi.fn(),
+      onRemoveConstantColumns: vi.fn(),
+      onRemoveEmptyColumns: vi.fn(),
+      onRemoveHighNullColumns: vi.fn(),
+      onNormalizeBooleans: vi.fn(),
+      onImputeMissingValues: vi.fn(),
+      onEnableRowAudit: vi.fn(),
+      onNormalizeColumns: vi.fn(),
+      onApplyRecommended,
+      onTrimText: vi.fn(),
+      onNormalizeText: vi.fn(),
+      onApplyTransforms: vi.fn(),
+      onRecipeDraftChange: vi.fn(),
+      onUndo: vi.fn(),
+      onRedo: vi.fn(),
+    };
+    const { rerender } = render(<PreparePhase {...props} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    expect(onApplyRecommended).toHaveBeenCalledOnce();
+
+    const afterProfile: DatasetProfile = {
+      ...cleaningSignalsProfile,
+      rowCount: 4,
+      duplicateRowCount: 0,
+      columns: cleaningSignalsProfile.columns.map((column) => ({
+        ...column,
+        nullCount: 0,
+        invalidTypeCount: 0,
+      })),
+    };
+    rerender(<PreparePhase
+      {...props}
+      datasetRevision={9}
+      profileStatus={{ kind: "ready", profile: afterProfile }}
+      changeStatus={{ kind: "applied", message: "Se retiraron 1 filas duplicadas exactas" }}
+      historyStatus={{
+        ...props.historyStatus,
+        entries: [
+          { id: "after", index: 9, label: "Aplicar correcciones recomendadas", isCurrent: true },
+        ],
+      }}
+    />);
+
+    const result = screen.getByRole("region", { name: "Resultado de la última preparación" });
+    expect(result).toHaveTextContent("Dataset inicial → Aplicar correcciones recomendadas");
+    expect(result).toHaveTextContent("9 → 10");
+    expect(result).toHaveTextContent("5 → 4");
+    expect(result).toHaveTextContent(/Filas duplicadas\s*1 → 0/);
+    expect(result).toHaveTextContent(/Valores incompatibles\s*\d+ → 0/);
   });
 
   it("prioriza correcciones con señal y oculta herramientas sin columnas compatibles", () => {
@@ -809,6 +889,9 @@ describe("PreparePhase", () => {
       onRedo={() => undefined}
     />);
 
+    expect(screen.getByText("Revisar señales individuales")).toBeInTheDocument();
+    expect(screen.getByText("Revisar señales individuales").closest("details")).not.toHaveAttribute("open");
+    openIndividualSignalActions();
     expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
     expect(screen.getByText("No se detectaron otras señales de limpieza en el perfil actual.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Filas duplicadas" })).not.toBeInTheDocument();

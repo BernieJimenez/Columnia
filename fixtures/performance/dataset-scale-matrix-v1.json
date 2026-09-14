@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "name": "Synthetic dataset scale profiles",
+  "sizeComparable": true,
+  "profiles": [
+    {
+      "id": "standard",
+      "columnCount": 4,
+      "nameCardinality": "row",
+      "notesBytesPerRow": 78
+    },
+    {
+      "id": "wide",
+      "columnCount": 32,
+      "nameCardinality": "row",
+      "notesBytesPerRow": 78
+    },
+    {
+      "id": "low-cardinality",
+      "columnCount": 4,
+      "nameCardinality": 16,
+      "notesBytesPerRow": 78
+    },
+    {
+      "id": "long-text",
+      "columnCount": 4,
+      "nameCardinality": "row",
+      "notesBytesPerRow": 4096
+    }
+  ]
+}

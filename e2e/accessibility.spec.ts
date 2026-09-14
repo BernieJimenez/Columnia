@@ -29,6 +29,9 @@ async function installTauriProjectMock(page: Page) {
       switch (command) {
         case "get_app_info":
           return { name: "Columnia", version: "0.49.0", platform: "windows" };
+        case "list_sample_datasets":
+        case "list_reusable_tasks":
+          return [];
         case "list_projects":
           return projects;
         case "get_recovery_candidate":
@@ -42,9 +45,34 @@ async function installTauriProjectMock(page: Page) {
             sheets: [],
             defaultSheetId: null,
             isCompressedContainer: false,
+            resourceEstimate: {
+              processingPath: "inMemory",
+              estimatedMaterializationRamBytes: 268435968,
+              estimatedTemporaryDiskBytes: null,
+            },
+          };
+        case "preview_delimited_header_review":
+          return {
+            delimiter: ",",
+            firstRow: {
+              headerMode: "firstRow",
+              columns: dataset.columns,
+              rows: dataset.rows,
+              includesFirstRow: false,
+              sampleTruncated: false,
+            },
+            generated: {
+              headerMode: "generated",
+              columns: dataset.columns.map((column, index) => ({ ...column, name: `column_${index + 1}` })),
+              rows: dataset.rows,
+              includesFirstRow: true,
+              sampleTruncated: false,
+            },
           };
         case "load_dataset_selection":
           return dataset;
+        case "get_dataset_profile":
+          return { rowCount: dataset.rowCount, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] };
         case "get_history_state":
           return { canUndo: false, canRedo: false, currentIndex: 0, entryCount: 0, entries: [], snapshotsEnabled: true };
         case "get_dataset_page":
@@ -74,6 +102,14 @@ async function installTauriProjectMock(page: Page) {
       },
     });
   });
+}
+
+async function selectAndConfirmDataset(page: Page) {
+  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
+  const loadButton = headerReview.getByRole("button", { name: "Cargar archivo" });
+  await expect(loadButton).toBeEnabled();
+  await loadButton.click();
 }
 
 test.describe("contratos de accesibilidad del shell", () => {
@@ -131,12 +167,13 @@ test.describe("contratos de accesibilidad del shell", () => {
     await installTauriProjectMock(page);
     await page.goto("/", { waitUntil: "commit" });
 
-    await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+    await selectAndConfirmDataset(page);
     await page
       .getByRole("navigation", { name: "Flujo de preparación de datos" })
       .getByRole("button", { name: "Cargar", exact: true })
       .click();
-    await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator("summary").click();
+    await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator(":scope > summary").click();
+    await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
     await page.getByLabel("Nombre del proyecto").fill("Ventas accesible");
     await page.getByRole("button", { name: "Guardar proyecto nuevo" }).click();
     await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas accesible");

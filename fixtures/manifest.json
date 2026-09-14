@@ -29,6 +29,7 @@
     "beta/inventory-before.csv",
     "beta/monthly-sales.csv",
     "incremental/paths-v1.json",
+    "performance/dataset-scale-matrix-v1.json",
     "performance/performance-baseline-v1.json",
     "updater/key-policy-v1.json"
   ]

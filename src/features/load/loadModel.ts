@@ -1,6 +1,7 @@
 import type {
   DatasetPreview,
   DatasetSourceInspection,
+  DelimitedHeaderReview,
   ImportDateConvention,
   ImportNumberConvention,
   ImportProfile,
@@ -42,6 +43,8 @@ export type LoadInspectionState =
       savedProfile: ImportProfile | null;
       profileCanBeApplied: boolean;
       useSavedProfile: boolean;
+      headerReview?: DelimitedHeaderReview | null;
+      headerReviewLoading?: boolean;
       error: string | null;
     }
   | {
@@ -138,6 +141,33 @@ export function workbookInspection(
     useSavedProfile: profileCanBeApplied,
     error: null,
   };
+}
+
+export function delimitedHeaderInspection(
+  source: DatasetSourceInspection,
+  savedProfile: ImportProfile | null = null,
+): LoadInspectionState {
+  const inspection = workbookInspection(source, savedProfile);
+  if (inspection.kind !== "sheet") return inspection;
+  return {
+    ...inspection,
+    selectedSheetId: "",
+    headerReview: null,
+    headerReviewLoading: true,
+  };
+}
+
+export function completeDelimitedHeaderReview(
+  current: LoadInspectionState,
+  preview: DelimitedHeaderReview,
+): LoadInspectionState {
+  if (current.kind !== "sheet" || current.source.format === "excel") return current;
+  return { ...current, headerReview: preview, headerReviewLoading: false, error: null };
+}
+
+export function beginDelimitedHeaderReview(current: LoadInspectionState): LoadInspectionState {
+  if (current.kind !== "sheet" || current.source.format === "excel") return current;
+  return { ...current, headerReview: null, headerReviewLoading: true, error: null };
 }
 
 export function updateSheetSelection(

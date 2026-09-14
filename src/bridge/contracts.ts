@@ -3,4 +3,5 @@ export * from "./dataset-contracts";
 export * from "./recipe-contracts";
 export * from "./delivery-contracts";
 export * from "./project-contracts";
+export * from "./reusable-task-contracts";
 export * from "./diagnostics-contracts";

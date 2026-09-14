@@ -22,6 +22,10 @@ export function importProfileApplicability(
   if (profile.version !== 1 || profile.format !== source.format) {
     return { kind: "format_mismatch" };
   }
+  if (source.format === "csv" || source.format === "tsv") {
+    if (profile.sheetName || !profile.headerMode) return { kind: "format_mismatch" };
+    return { kind: "applicable", sheetId: null, headerMode: profile.headerMode };
+  }
   if (source.format !== "excel") {
     return profile.sheetName || profile.headerMode
       ? { kind: "format_mismatch" }
@@ -43,7 +47,9 @@ export function createImportProfile(
   const sheetName = source.format === "excel"
     ? source.sheets.find((sheet) => sheet.id === options.sheetId)?.name
     : undefined;
-  const headerMode = source.format === "excel" ? options.headerMode ?? "firstRow" : undefined;
+  const headerMode = source.format === "excel" || source.format === "csv" || source.format === "tsv"
+    ? options.headerMode ?? "firstRow"
+    : undefined;
   return {
     version: 1,
     format: source.format,

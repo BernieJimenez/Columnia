@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ModalDialog } from "../../components/ModalDialog";
@@ -53,6 +53,14 @@ interface PreparePhaseProps {
   onRedo: () => void;
 }
 
+function profileNullCount(profile: DatasetProfile): number {
+  return profile.columns.reduce((total, column) => total + column.nullCount, 0);
+}
+
+function profileInvalidTypeCount(profile: DatasetProfile): number {
+  return profile.columns.reduce((total, column) => total + (column.invalidTypeCount ?? 0), 0);
+}
+
 export function PreparePhase({
   dataset,
   datasetRevision = 0,
@@ -65,7 +73,6 @@ export function PreparePhase({
   recipeDraft,
   recipeSession,
   onCancelProfile,
-  onRemoveDuplicates,
   onRemoveNearDuplicates = () => undefined,
   onRemoveEmptyRows,
   onRemoveConstantColumns,
@@ -105,8 +112,22 @@ export function PreparePhase({
     trimText: textColumns.length > 0,
     normalizeSentinels: false,
     normalizeColumnNames: false,
+    removeDuplicates: duplicateCount !== null && duplicateCount > 0,
   }));
   const [planRevision, setPlanRevision] = useState(datasetRevision);
+  const pendingPlanComparison = useRef<{
+    sourceRevision: number;
+    sourceLabel: string;
+    profile: DatasetProfile;
+  } | null>(null);
+  const [planComparison, setPlanComparison] = useState<{
+    beforeRevision: number;
+    afterRevision: number;
+    beforeLabel: string;
+    afterLabel: string;
+    before: DatasetProfile;
+    after: DatasetProfile;
+  } | null>(null);
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
@@ -144,16 +165,49 @@ export function PreparePhase({
       trimText: textColumns.length > 0,
       normalizeSentinels: false,
       normalizeColumnNames: false,
+      removeDuplicates: duplicateCount !== null && duplicateCount > 0,
     });
-  }, [datasetRevision, textColumnSignature, sentinelColumnSignature]);
+  }, [datasetRevision, textColumnSignature, sentinelColumnSignature, duplicateCount]);
+
+  useEffect(() => {
+    const pending = pendingPlanComparison.current;
+    if (!pending) return;
+    if (changeStatus.kind === "error"
+      || (changeStatus.kind === "applied" && changeStatus.message.startsWith("El dataset ya cumplía"))) {
+      pendingPlanComparison.current = null;
+      return;
+    }
+    if (datasetRevision > pending.sourceRevision + 1) {
+      pendingPlanComparison.current = null;
+      return;
+    }
+    if (datasetRevision !== pending.sourceRevision + 1 || profileStatus.kind !== "ready") return;
+    const currentEntry = historyStatus.entries.find((entry) => entry.isCurrent);
+    setPlanComparison({
+      beforeRevision: pending.sourceRevision,
+      afterRevision: datasetRevision,
+      beforeLabel: pending.sourceLabel,
+      afterLabel: currentEntry?.label ?? "Preparación aplicada",
+      before: pending.profile,
+      after: profileStatus.profile,
+    });
+    pendingPlanComparison.current = null;
+  }, [changeStatus.kind, datasetRevision, historyStatus.entries, profileStatus]);
 
   function applySelectedPlan() {
     if (
       planRevision !== datasetRevision ||
       profileStatus.kind !== "ready" ||
       changing ||
-      (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames)
+      (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames && !planSelection.removeDuplicates)
     ) return;
+    const currentEntry = historyStatus.entries.find((entry) => entry.isCurrent);
+    pendingPlanComparison.current = {
+      sourceRevision: datasetRevision,
+      sourceLabel: currentEntry?.label ?? "Revisión anterior",
+      profile: profileStatus.profile,
+    };
+    setPlanComparison(null);
     onApplyRecommended(planSelection);
   }
 
@@ -197,6 +251,21 @@ export function PreparePhase({
         busy={changing || profileStatus.kind === "loading"}
       />
       <ChangeFeedback status={changeStatus} />
+      {planComparison && (
+        <section className="revision-comparison__result prepare-plan__result" aria-label="Resultado de la última preparación">
+          <p role="status">
+            <strong>{planComparison.beforeLabel}</strong> → <strong>{planComparison.afterLabel}</strong>
+            <span className="profile-note"> (revisión {planComparison.beforeRevision + 1} → {planComparison.afterRevision + 1})</span>
+          </p>
+          <dl className="revision-comparison__metrics">
+            <div><dt>Filas</dt><dd>{planComparison.before.rowCount.toLocaleString()} → {planComparison.after.rowCount.toLocaleString()}</dd></div>
+            <div><dt>Columnas</dt><dd>{planComparison.before.columns.length.toLocaleString()} → {planComparison.after.columns.length.toLocaleString()}</dd></div>
+            <div><dt>Nulos</dt><dd>{profileNullCount(planComparison.before).toLocaleString()} → {profileNullCount(planComparison.after).toLocaleString()}</dd></div>
+            <div><dt>Valores incompatibles</dt><dd>{profileInvalidTypeCount(planComparison.before).toLocaleString()} → {profileInvalidTypeCount(planComparison.after).toLocaleString()}</dd></div>
+            <div><dt>Filas duplicadas</dt><dd>{planComparison.before.duplicateRowCount.toLocaleString()} → {planComparison.after.duplicateRowCount.toLocaleString()}</dd></div>
+          </dl>
+        </section>
+      )}
       <div className="stage-tabs" role="tablist" aria-label="Herramientas de preparación">
         <button
           id="prepare-corrections-tab"
@@ -260,10 +329,16 @@ export function PreparePhase({
         aria-labelledby="prepare-corrections-tab"
       >
       {profileStatus.kind === "ready" && (
-        <CleaningSignals
-          profile={profileStatus.profile}
-          busy={changing}
-          onRemoveConstantColumns={onRemoveConstantColumns}
+        <details className="advanced-corrections prepare-signal-details">
+          <summary>
+            <span>Revisar señales individuales</span>
+            <small>Diagnóstico completo y acciones específicas</small>
+          </summary>
+          <div className="advanced-corrections__content">
+            <CleaningSignals
+              profile={profileStatus.profile}
+              busy={changing}
+              onRemoveConstantColumns={onRemoveConstantColumns}
               onRemoveEmptyColumns={onRemoveEmptyColumns}
               onRemoveHighNullColumns={onRemoveHighNullColumns}
               onRemoveIdentifierColumns={() => setIdentifierConfirmation(true)}
@@ -274,48 +349,33 @@ export function PreparePhase({
               onCastNumeric={onCastNumeric}
               onFixEncoding={onFixEncoding}
               onNullifyInvalidTypes={() => setInvalidTypeConfirmation(true)}
-               onImputeMissingValues={onImputeMissingValues}
-               onImputeCategoricalValues={onImputeCategoricalValues}
-               onImputeOutliers={onImputeOutliers}
-               onCapOutliers={() => setOutlierConfirmation("cap")}
-               onDropOutliers={() => setOutlierConfirmation("drop")}
-         />
-      )}
-      {profileStatus.kind === "ready" && duplicateCount !== null && duplicateCount > 0 && (
-        <section
-          id={qualityActionTargetDomId("duplicates")}
-          className="prepare-card"
-          aria-labelledby="duplicates-title"
-          tabIndex={-1}
-        >
-          <div>
-            <p className="step">Señal detectada</p>
-            <h3 id="duplicates-title">Filas duplicadas</h3>
-            <p>Se detectaron {duplicateCount.toLocaleString()} filas adicionales que puedes retirar de forma reversible.</p>
+              onImputeMissingValues={onImputeMissingValues}
+              onImputeCategoricalValues={onImputeCategoricalValues}
+              onImputeOutliers={onImputeOutliers}
+              onCapOutliers={() => setOutlierConfirmation("cap")}
+              onDropOutliers={() => setOutlierConfirmation("drop")}
+            />
+            {nearDuplicateCount !== null && nearDuplicateCount > 0 && (
+              <section className="prepare-card" aria-labelledby="near-duplicates-title">
+                <div>
+                  <p className="step">Revisión con confirmación</p>
+                  <h3 id="near-duplicates-title">Duplicados parecidos</h3>
+                  <p>
+                    Se identificaron {nearDuplicateCount.toLocaleString()} filas parecidas por normalización de texto.
+                    La primera fila y las copias exactas se conservarán.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNearDuplicateConfirmation(true)}
+                  disabled={changing}
+                >
+                  Revisar y eliminar parecidos
+                </button>
+              </section>
+            )}
           </div>
-          <button type="button" onClick={onRemoveDuplicates} disabled={changing}>
-            Eliminar duplicados
-          </button>
-        </section>
-      )}
-      {profileStatus.kind === "ready" && nearDuplicateCount !== null && nearDuplicateCount > 0 && (
-        <section className="prepare-card" aria-labelledby="near-duplicates-title">
-          <div>
-            <p className="step">Revisión con confirmación</p>
-            <h3 id="near-duplicates-title">Duplicados parecidos</h3>
-            <p>
-              Se identificaron {nearDuplicateCount.toLocaleString()} filas parecidas por normalización de texto.
-              La primera fila y las copias exactas se conservarán.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setNearDuplicateConfirmation(true)}
-            disabled={changing}
-          >
-            Revisar y eliminar parecidos
-          </button>
-        </section>
+        </details>
       )}
       {profileStatus.kind === "ready" && hasColumns && (
         <section className="recommended-batch prepare-plan" aria-labelledby="prepare-plan-title">
@@ -348,6 +408,17 @@ export function PreparePhase({
                   Convertir marcadores de ausencia detectados en {sentinelColumns.length} {sentinelColumns.length === 1 ? "columna" : "columnas"}
                 </label>
               )}
+              {duplicateCount !== null && duplicateCount > 0 && (
+                <label>
+                  <input
+                    id={qualityActionTargetDomId("duplicates")}
+                    type="checkbox"
+                    checked={planSelection.removeDuplicates}
+                    onChange={(event) => setPlanSelection((current) => ({ ...current, removeDuplicates: event.target.checked }))}
+                  />
+                  Retirar {duplicateCount.toLocaleString()} {duplicateCount === 1 ? "fila duplicada exacta" : "filas duplicadas exactas"} y conservar la primera
+                </label>
+              )}
               <label>
                 <input
                   type="checkbox"
@@ -359,13 +430,14 @@ export function PreparePhase({
             </fieldset>
             <p className="prepare-plan__note">
               {sentinelColumns.length > 0 && "Convertir marcadores conocidos como N/A a nulos reales. "}
+              {duplicateCount !== null && duplicateCount > 0 && "Los duplicados exactos se retiran solo al aplicar el plan; se conserva la primera fila y puedes deshacer el resultado. "}
               Normalizar encabezados puede afectar consultas e integraciones. Puedes deshacer el resultado desde el historial.
             </p>
           </div>
           <button
             type="button"
             onClick={applySelectedPlan}
-            disabled={changing || planRevision !== datasetRevision || (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames)}
+            disabled={changing || planRevision !== datasetRevision || (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames && !planSelection.removeDuplicates)}
           >
             Aplicar plan seleccionado
           </button>

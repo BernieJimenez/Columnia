@@ -45,6 +45,7 @@ use crate::dataset_fingerprints::{
 use crate::remote_databases::{self, DatabaseTarget};
 
 const PREVIEW_ROW_LIMIT: usize = 50;
+const HEADER_REVIEW_ROW_LIMIT: usize = 5;
 const MAX_PAGE_SIZE: usize = 200;
 const SOURCE_BACKED_LOAD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
@@ -513,6 +514,24 @@ pub struct DatasetPreview {
     pub(crate) column_count: usize,
     pub(crate) columns: Vec<DatasetColumn>,
     rows: Vec<Vec<Option<String>>>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DelimitedHeaderModePreview {
+    pub(crate) header_mode: SpreadsheetHeaderMode,
+    pub(crate) columns: Vec<DatasetColumn>,
+    pub(crate) rows: Vec<Vec<Option<String>>>,
+    pub(crate) includes_first_row: bool,
+    pub(crate) sample_truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DelimitedHeaderReview {
+    pub(crate) delimiter: String,
+    pub(crate) first_row: DelimitedHeaderModePreview,
+    pub(crate) generated: DelimitedHeaderModePreview,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -1200,6 +1219,7 @@ pub struct SafeCorrectionsResult {
     dataset: DatasetPreview,
     changed_cell_count: usize,
     affected_row_count: usize,
+    removed_row_count: usize,
     renamed_column_count: usize,
     renames: Vec<ColumnRename>,
 }
@@ -1528,6 +1548,7 @@ struct LoadedDataset {
     row_count: usize,
     frame: DataFrame,
     source_backed: bool,
+    delimited_header_mode: Option<SpreadsheetHeaderMode>,
     profile: Option<DatasetProfile>,
     history: HistoryManager,
 }
@@ -2383,6 +2404,7 @@ pub fn probe_seed_dataset(state: State<'_, DatasetState>) -> Result<DatasetPrevi
         row_count: frame.height(),
         frame,
         source_backed: false,
+        delimited_header_mode: None,
         profile: None,
         history,
     });
@@ -2690,13 +2712,35 @@ fn dataset_page_from_source(
     offset: usize,
     limit: usize,
 ) -> Result<DatasetPage, String> {
+    dataset_page_from_source_with_header(
+        path,
+        extension,
+        row_count,
+        offset,
+        limit,
+        SpreadsheetHeaderMode::FirstRow,
+    )
+}
+
+fn dataset_page_from_source_with_header(
+    path: &Path,
+    extension: &str,
+    row_count: usize,
+    offset: usize,
+    limit: usize,
+    header_mode: SpreadsheetHeaderMode,
+) -> Result<DatasetPage, String> {
     validate_dataset_page_request(row_count, offset, limit)?;
     let slice_offset = i64::try_from(offset)
         .map_err(|_| "La página solicitada excede la capacidad del lector.".to_owned())?;
     let plan =
         match extension {
             "parquet" => parquet_scan(path)?,
-            "csv" | "tsv" | "txt" => delimited_scan(path, extension)?,
+            "csv" | "tsv" | "txt" => delimited_scan_with_header(
+                path,
+                extension,
+                header_mode == SpreadsheetHeaderMode::FirstRow,
+            )?,
             _ => return Err(
                 "La paginación directa solo está disponible para Parquet y archivos delimitados."
                     .to_owned(),
@@ -4817,7 +4861,14 @@ fn current_duckdb_file_source(
         "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
         "csv" | "tsv" | "txt" => {
             let delimiter = detect_delimiter(&canonical, &extension).ok()?;
-            crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+            if dataset.delimited_header_mode == Some(SpreadsheetHeaderMode::Generated) {
+                crate::duckdb_query::DuckDbFileFormat::DelimitedWithoutHeader {
+                    delimiter,
+                    column_count: dataset.frame.width(),
+                }
+            } else {
+                crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+            }
         }
         "json" | "jsonl" | "ndjson" => crate::duckdb_query::DuckDbFileFormat::Json,
         _ => return None,
@@ -11374,6 +11425,7 @@ fn source_backed_safe_corrections(
     trim_text: bool,
     normalize_column_names: bool,
     normalize_sentinels: bool,
+    remove_duplicates: bool,
 ) -> Result<Option<SafeCorrectionsResult>, String> {
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
@@ -11433,11 +11485,12 @@ fn source_backed_safe_corrections(
         }
     };
     let changed_cell_count = changed_counts.iter().copied().sum::<usize>();
-    if changed_cell_count == 0 && renames.is_empty() {
+    if changed_cell_count == 0 && renames.is_empty() && !remove_duplicates {
         return Ok(Some(SafeCorrectionsResult {
             dataset: loaded_dataset_preview(dataset, &dataset.frame)?,
             changed_cell_count: 0,
             affected_row_count: 0,
+            removed_row_count: 0,
             renamed_column_count: 0,
             renames,
         }));
@@ -11464,19 +11517,50 @@ fn source_backed_safe_corrections(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let query = format!("SELECT {projection} FROM dataset");
+    let columns = names
+        .iter()
+        .map(|name| duckdb_identifier(name))
+        .collect::<Vec<_>>();
+    let prepared_query = format!("SELECT {projection} FROM dataset");
+    let query = if remove_duplicates {
+        let names = dataset
+            .frame
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<HashSet<_>>();
+        let mut order_name = "__columnia_plan_order".to_owned();
+        while names.contains(order_name.as_str()) {
+            order_name.push('_');
+        }
+        let mut rank_name = "__columnia_plan_rank".to_owned();
+        while names.contains(rank_name.as_str()) || rank_name == order_name {
+            rank_name.push('_');
+        }
+        let order_column = duckdb_identifier(&order_name);
+        let rank_column = duckdb_identifier(&rank_name);
+        format!(
+            "WITH prepared AS ({prepared_query}), ordered AS (SELECT prepared.*, ROW_NUMBER() OVER () AS {order_column} FROM prepared), ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY {} ORDER BY {order_column}) AS {rank_column} FROM ordered) SELECT {} FROM ranked WHERE {rank_column} = 1 ORDER BY {order_column}",
+            columns.join(", "),
+            columns.join(", "),
+        )
+    } else {
+        prepared_query
+    };
+    let force_publish = changed_cell_count > 0 || !renames.is_empty();
     let Some(mutation) = publish_source_backed_query(
         dataset,
         &source_path,
         source_format,
         &query,
         "Aplicar correcciones recomendadas",
-        true,
+        force_publish,
     )?
     else {
         return Ok(None);
     };
     Ok(Some(SafeCorrectionsResult {
+        removed_row_count: mutation.affected_row_count,
         dataset: mutation.dataset,
         changed_cell_count,
         affected_row_count,
@@ -12554,7 +12638,8 @@ fn safe_corrected_frame(
     trim_text: bool,
     normalize_column_names: bool,
     normalize_sentinels: bool,
-) -> Result<(DataFrame, usize, usize, Vec<ColumnRename>), String> {
+    remove_duplicates: bool,
+) -> Result<(DataFrame, usize, usize, usize, Vec<ColumnRename>), String> {
     let mut candidate = frame.clone();
     if trim_text {
         candidate = clean_text_columns(&candidate, None, TextCleaningMode::Trim)?.0;
@@ -12573,7 +12658,18 @@ fn safe_corrected_frame(
             .set_column_names(&names)
             .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
     }
-    Ok((candidate, affected_row_count, changed_cell_count, renames))
+    let (candidate, removed_row_count) = if remove_duplicates {
+        remove_duplicate_rows(&candidate)?
+    } else {
+        (candidate, 0)
+    };
+    Ok((
+        candidate,
+        affected_row_count,
+        changed_cell_count,
+        removed_row_count,
+        renames,
+    ))
 }
 
 fn count_changed_text_cells(
@@ -13700,11 +13796,27 @@ fn collect_lazy_frame_streaming(plan: LazyFrame, context: &str) -> Result<DataFr
 }
 
 fn delimited_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
+    delimited_scan_with_header(path, extension, true)
+}
+
+fn delimited_scan_with_header(
+    path: &Path,
+    extension: &str,
+    has_header: bool,
+) -> Result<LazyFrame, String> {
     let separator = detect_delimiter(path, extension)?;
+    delimited_scan_with_separator(path, separator, has_header)
+}
+
+fn delimited_scan_with_separator(
+    path: &Path,
+    separator: u8,
+    has_header: bool,
+) -> Result<LazyFrame, String> {
     let source = PlRefPath::try_from_path(path)
         .map_err(|error| format!("No se pudo preparar el lector delimitado: {error}"))?;
     LazyCsvReader::new(source)
-        .with_has_header(true)
+        .with_has_header(has_header)
         .with_infer_schema_length(Some(0))
         .with_low_memory(true)
         .with_rechunk(false)
@@ -13719,6 +13831,113 @@ fn read_delimited_frame(path: &Path, extension: &str) -> Result<DataFrame, Strin
         plan,
         "No se pudo interpretar el archivo delimitado como UTF-8",
     )
+}
+
+fn read_delimited_frame_with_header(
+    path: &Path,
+    extension: &str,
+    header_mode: SpreadsheetHeaderMode,
+) -> Result<DataFrame, String> {
+    let has_header = header_mode == SpreadsheetHeaderMode::FirstRow;
+    let plan = delimited_scan_with_header(path, extension, has_header)?;
+    collect_lazy_frame_streaming(
+        plan,
+        "No se pudo interpretar el archivo delimitado como UTF-8",
+    )
+}
+
+fn complete_delimited_sample_prefix(sample: &str, complete: bool) -> Result<&str, String> {
+    if complete {
+        return Ok(sample);
+    }
+
+    let bytes = sample.as_bytes();
+    let mut in_quotes = false;
+    let mut complete_record_end = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' if in_quotes && bytes.get(index + 1) == Some(&b'"') => index += 1,
+            b'"' => in_quotes = !in_quotes,
+            b'\n' if !in_quotes => complete_record_end = index + 1,
+            _ => {}
+        }
+        index += 1;
+    }
+    if complete_record_end == 0 {
+        return Err(
+            "La primera fila supera la muestra segura de 64 KiB; no se pudo previsualizar el encabezado."
+                .to_owned(),
+        );
+    }
+    Ok(&sample[..complete_record_end])
+}
+
+fn delimited_header_mode_preview(
+    sample_path: &Path,
+    separator: u8,
+    header_mode: SpreadsheetHeaderMode,
+    sample_truncated: bool,
+) -> Result<DelimitedHeaderModePreview, String> {
+    let limit = (HEADER_REVIEW_ROW_LIMIT + 1) as IdxSize;
+    let frame = collect_lazy_frame_streaming(
+        delimited_scan_with_separator(
+            sample_path,
+            separator,
+            header_mode == SpreadsheetHeaderMode::FirstRow,
+        )?
+        .slice(0, limit),
+        "No se pudo preparar la vista previa de encabezados",
+    )?;
+    let columns = frame
+        .columns()
+        .iter()
+        .map(|column| DatasetColumn {
+            name: column.name().to_string(),
+            data_type: column.dtype().to_string(),
+        })
+        .collect();
+    let rows = dataset_page(&frame, 0, HEADER_REVIEW_ROW_LIMIT)?.rows;
+    Ok(DelimitedHeaderModePreview {
+        header_mode,
+        columns,
+        rows,
+        includes_first_row: header_mode == SpreadsheetHeaderMode::Generated,
+        sample_truncated: sample_truncated || frame.height() > HEADER_REVIEW_ROW_LIMIT,
+    })
+}
+
+fn delimited_header_review(path: &Path, extension: &str) -> Result<DelimitedHeaderReview, String> {
+    let separator = detect_delimiter(path, extension)?;
+    let (sample, complete) = read_utf8_delimited_sample(path)?;
+    let sample = complete_delimited_sample_prefix(&sample, complete)?;
+    let mut bounded_sample = tempfile::NamedTempFile::new()
+        .map_err(|error| format!("No se pudo preparar la muestra de encabezados: {error}"))?;
+    bounded_sample
+        .write_all(sample.as_bytes())
+        .map_err(|error| format!("No se pudo preparar la muestra de encabezados: {error}"))?;
+    bounded_sample
+        .flush()
+        .map_err(|error| format!("No se pudo preparar la muestra de encabezados: {error}"))?;
+
+    let sample_truncated = !complete;
+    let first_row = delimited_header_mode_preview(
+        bounded_sample.path(),
+        separator,
+        SpreadsheetHeaderMode::FirstRow,
+        sample_truncated,
+    )?;
+    let generated = delimited_header_mode_preview(
+        bounded_sample.path(),
+        separator,
+        SpreadsheetHeaderMode::Generated,
+        sample_truncated,
+    )?;
+    Ok(DelimitedHeaderReview {
+        delimiter: char::from(separator).to_string(),
+        first_row,
+        generated,
+    })
 }
 
 fn parquet_scan(path: &Path) -> Result<LazyFrame, String> {
@@ -13768,8 +13987,16 @@ fn read_parquet_schema_frame(path: &Path) -> Result<DataFrame, String> {
 }
 
 fn source_scan(path: &Path, extension: &str) -> Result<LazyFrame, String> {
+    source_scan_with_header(path, extension, true)
+}
+
+fn source_scan_with_header(
+    path: &Path,
+    extension: &str,
+    has_header: bool,
+) -> Result<LazyFrame, String> {
     match extension {
-        "csv" | "tsv" | "txt" => delimited_scan(path, extension),
+        "csv" | "tsv" | "txt" => delimited_scan_with_header(path, extension, has_header),
         "parquet" => parquet_scan(path),
         _ => Err("El formato no admite una carga source-backed diferida.".to_owned()),
     }
@@ -13800,8 +14027,26 @@ fn source_backed_load<C>(
 where
     C: Fn() -> bool + Clone + Send + 'static,
 {
+    source_backed_load_with_header_mode(
+        path,
+        extension,
+        SpreadsheetHeaderMode::FirstRow,
+        is_cancelled,
+    )
+}
+
+fn source_backed_load_with_header_mode<C>(
+    path: &Path,
+    extension: &str,
+    header_mode: SpreadsheetHeaderMode,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview, usize), String>
+where
+    C: Fn() -> bool + Clone + Send + 'static,
+{
     ensure_not_cancelled(is_cancelled())?;
-    let mut schema_plan = source_scan(path, extension)?;
+    let has_header = header_mode == SpreadsheetHeaderMode::FirstRow;
+    let mut schema_plan = source_scan_with_header(path, extension, has_header)?;
     let schema = schema_plan
         .collect_schema()
         .map_err(|error| format!("No se pudo leer el esquema source-backed: {error}"))?;
@@ -13809,16 +14054,25 @@ where
     let schema_frame = DataFrame::empty_with_schema(&schema);
     let source_format = match extension {
         "parquet" => crate::duckdb_query::DuckDbFileFormat::Parquet,
-        "csv" | "tsv" | "txt" => crate::duckdb_query::DuckDbFileFormat::Delimited {
-            delimiter: detect_delimiter(path, extension)?,
-        },
+        "csv" | "tsv" | "txt" => {
+            let delimiter = detect_delimiter(path, extension)?;
+            if has_header {
+                crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter }
+            } else {
+                crate::duckdb_query::DuckDbFileFormat::DelimitedWithoutHeader {
+                    delimiter,
+                    column_count: schema_frame.width(),
+                }
+            }
+        }
         _ => return Err("El formato no admite un conteo source-backed.".to_owned()),
     };
     let row_count =
         crate::duckdb_query::count_file_rows(path, source_format, is_cancelled.clone())?;
     ensure_not_cancelled(is_cancelled())?;
     let page = collect_lazy_frame_streaming(
-        source_scan(path, extension)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+        source_scan_with_header(path, extension, has_header)?
+            .slice(0, PREVIEW_ROW_LIMIT as IdxSize),
         "No se pudo leer la vista previa source-backed",
     )?;
     ensure_not_cancelled(is_cancelled())?;
@@ -14037,6 +14291,7 @@ fn load_source_backed_dataset_for_automation(
         row_count,
         frame,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -14063,7 +14318,13 @@ fn materialize_loaded_dataset(dataset: &mut LoadedDataset) -> Result<(), String>
         .unwrap_or(&canonical);
     let materialized_extension = dataset_extension(materialized_path)?;
     let frame = match materialized_extension.as_str() {
-        "csv" | "tsv" | "txt" => read_delimited_frame(materialized_path, &extension)?,
+        "csv" | "tsv" | "txt" => read_delimited_frame_with_header(
+            materialized_path,
+            &extension,
+            dataset
+                .delimited_header_mode
+                .unwrap_or(SpreadsheetHeaderMode::FirstRow),
+        )?,
         "json" | "jsonl" | "ndjson" => load_json_records(materialized_path)?,
         "parquet" => read_parquet_frame(materialized_path)?,
         _ => return Err("El formato source-backed no se puede materializar.".to_owned()),
@@ -14154,6 +14415,19 @@ where
 
 fn load_dataset_with_progress<F, C>(
     path: &Path,
+    report: F,
+    is_cancelled: C,
+) -> Result<(DataFrame, DatasetPreview), String>
+where
+    F: FnMut(&'static str, u8),
+    C: Fn() -> bool,
+{
+    load_dataset_with_header_mode(path, SpreadsheetHeaderMode::FirstRow, report, is_cancelled)
+}
+
+fn load_dataset_with_header_mode<F, C>(
+    path: &Path,
+    header_mode: SpreadsheetHeaderMode,
     mut report: F,
     is_cancelled: C,
 ) -> Result<(DataFrame, DatasetPreview), String>
@@ -14169,7 +14443,7 @@ where
     ensure_materialization_budget(file_size_bytes)?;
 
     let frame = match extension.as_str() {
-        "csv" | "tsv" | "txt" => read_delimited_frame(path, &extension)?,
+        "csv" | "tsv" | "txt" => read_delimited_frame_with_header(path, &extension, header_mode)?,
         "parquet" => read_parquet_frame(path)?,
         "json" | "jsonl" | "ndjson" => load_json_records(path)?,
         extension if spreadsheet_extensions(extension) => {
@@ -14330,6 +14604,10 @@ fn validate_stored_recipe(document: &StoredTransformRecipe) -> Result<(), String
         ));
     }
     Ok(())
+}
+
+pub(crate) fn validate_reusable_recipe(document: &StoredTransformRecipe) -> Result<(), String> {
+    validate_stored_recipe(document)
 }
 
 fn validate_semantic_text_budget<'a, I>(
@@ -15988,6 +16266,10 @@ fn validate_quality_rules_payload(quality_rules: &[QualityRule]) -> Result<(), S
         MAX_QUALITY_COLUMN_CHARS,
         MAX_QUALITY_TOTAL_TEXT_CHARS,
     )
+}
+
+pub(crate) fn validate_reusable_quality_rules(quality_rules: &[QualityRule]) -> Result<(), String> {
+    validate_quality_rules_payload(quality_rules)
 }
 
 fn validate_quality_rule_definition(frame: &DataFrame, rule: &QualityRule) -> Result<(), String> {
@@ -24304,6 +24586,54 @@ pub async fn inspect_dropped_dataset(
 }
 
 #[tauri::command]
+pub async fn preview_delimited_header_review(
+    state: State<'_, DatasetState>,
+    selection_id: String,
+) -> Result<DelimitedHeaderReview, String> {
+    let pending = {
+        let selection = state
+            .pending_selection
+            .lock()
+            .map_err(|_| "La selección local quedó bloqueada inesperadamente.".to_owned())?;
+        let pending = selection
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "La selección caducó; vuelve a elegir el archivo.".to_owned())?;
+        if pending.id != selection_id {
+            return Err("La selección no coincide con el archivo pendiente.".to_owned());
+        }
+        pending
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let (path, file_size_bytes, extension) = validate_dataset_file(&pending.path)?;
+        if file_size_bytes != pending.file_size_bytes {
+            return Err(
+                "El archivo cambió después de seleccionarlo; vuelve a elegirlo.".to_owned(),
+            );
+        }
+        if !matches!(extension.as_str(), "csv" | "tsv" | "txt") {
+            return Err(
+                "La revisión de encabezados solo está disponible para archivos delimitados."
+                    .to_owned(),
+            );
+        }
+        let review = delimited_header_review(&path, &extension)?;
+        let size_after_preview = fs::metadata(&path)
+            .map_err(|error| {
+                format!("No se pudieron verificar los metadatos del archivo: {error}")
+            })?
+            .len();
+        if size_after_preview != pending.file_size_bytes {
+            return Err("El archivo cambió durante la vista previa; vuelve a elegirlo.".to_owned());
+        }
+        Ok(review)
+    })
+    .await
+    .map_err(|error| format!("La vista previa de encabezados se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn load_dataset_selection(
     app: AppHandle,
     selection_id: String,
@@ -24337,12 +24667,21 @@ pub async fn load_dataset_selection(
             );
         }
         let extension = dataset_extension(&pending.path)?;
+        let is_delimited = matches!(extension.as_str(), "csv" | "tsv" | "txt");
+        let selected_header_mode = if is_delimited {
+            header_mode.unwrap_or(SpreadsheetHeaderMode::FirstRow)
+        } else {
+            SpreadsheetHeaderMode::FirstRow
+        };
         if let Some(profile) = expected_profile.as_ref() {
             validate_import_profile(profile)?;
             if profile.format != import_format_for_extension(&extension) {
                 return Err(
                     "El perfil guardado no corresponde al formato de este archivo.".to_owned(),
                 );
+            }
+            if is_delimited && profile.header_mode != Some(selected_header_mode) {
+                return Err("Las opciones elegidas no coinciden con el perfil guardado.".to_owned());
             }
             if spreadsheet_extensions(&extension) {
                 let index = sheet_id
@@ -24411,12 +24750,47 @@ pub async fn load_dataset_selection(
                 let row_count = frame.height();
                 (frame, preview, row_count, false)
             }
+        } else if is_delimited {
+            if sheet_id.is_some() {
+                return Err("Este formato no utiliza hojas.".to_owned());
+            }
+            if should_defer_source_load(&extension, pending.file_size_bytes) {
+                send_progress(
+                    &on_progress,
+                    "load",
+                    "Inspeccionando estructura en disco",
+                    25,
+                );
+                let cancellation_app = app.clone();
+                let cancellation = move || {
+                    cancellation_app
+                        .state::<DatasetState>()
+                        .load_was_cancelled(generation)
+                };
+                let (frame, preview, row_count) = source_backed_load_with_header_mode(
+                    &pending.path,
+                    &extension,
+                    selected_header_mode,
+                    cancellation,
+                )?;
+                send_progress(&on_progress, "load", "Preparando vista previa", 85);
+                (frame, preview, row_count, true)
+            } else {
+                let (frame, preview) = load_dataset_with_header_mode(
+                    &pending.path,
+                    selected_header_mode,
+                    |stage, percent| send_progress(&on_progress, "load", stage, percent),
+                    || app.state::<DatasetState>().load_was_cancelled(generation),
+                )?;
+                let row_count = frame.height();
+                (frame, preview, row_count, false)
+            }
         } else {
             if sheet_id.is_some() {
                 return Err("Este formato no utiliza hojas.".to_owned());
             }
             if header_mode.is_some() {
-                return Err("Este formato no utiliza opciones de encabezado de Excel.".to_owned());
+                return Err("Este formato no utiliza opciones de encabezado.".to_owned());
             }
             if should_defer_source_load(&extension, pending.file_size_bytes) {
                 send_progress(
@@ -24492,6 +24866,7 @@ pub async fn load_dataset_selection(
                 row_count,
                 frame,
                 source_backed,
+                delimited_header_mode: is_delimited.then_some(selected_header_mode),
                 profile: None,
                 history,
             });
@@ -24558,9 +24933,16 @@ pub fn get_dataset_page(
     // disk instead of duplicating the whole active frame for the preview.
     if let Some((path, _)) = current_duckdb_file_source(dataset) {
         if let Ok(extension) = dataset_extension(&path) {
-            if let Ok(page) =
-                dataset_page_from_source(&path, &extension, dataset.row_count, offset, limit)
-            {
+            if let Ok(page) = dataset_page_from_source_with_header(
+                &path,
+                &extension,
+                dataset.row_count,
+                offset,
+                limit,
+                dataset
+                    .delimited_header_mode
+                    .unwrap_or(SpreadsheetHeaderMode::FirstRow),
+            ) {
                 return Ok(page);
             }
         }
@@ -26769,8 +27151,10 @@ pub async fn apply_safe_corrections(
     trim_text: bool,
     normalize_column_names: bool,
     normalize_sentinels: Option<bool>,
+    remove_duplicates: Option<bool>,
 ) -> Result<SafeCorrectionsResult, String> {
     let normalize_sentinels = normalize_sentinels.unwrap_or(false);
+    let remove_duplicates = remove_duplicates.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -26786,21 +27170,25 @@ pub async fn apply_safe_corrections(
                 trim_text,
                 normalize_column_names,
                 normalize_sentinels,
+                remove_duplicates,
             )? {
                 return Ok(result);
             }
         }
         materialize_loaded_dataset(dataset)?;
 
-        let (candidate, affected_row_count, changed_cell_count, renames) = safe_corrected_frame(
-            &dataset.frame,
-            trim_text,
-            normalize_column_names,
-            normalize_sentinels,
-        )?;
+        let (candidate, affected_row_count, changed_cell_count, removed_row_count, renames) =
+            safe_corrected_frame(
+                &dataset.frame,
+                trim_text,
+                normalize_column_names,
+                normalize_sentinels,
+                remove_duplicates,
+            )?;
         let renamed_column_count = renames.len();
 
-        let preview = if changed_cell_count > 0 || renamed_column_count > 0 {
+        let preview = if changed_cell_count > 0 || renamed_column_count > 0 || removed_row_count > 0
+        {
             publish_candidate(dataset, candidate, "Aplicar correcciones recomendadas")?
         } else {
             loaded_dataset_preview(dataset, &dataset.frame)?
@@ -26810,6 +27198,7 @@ pub async fn apply_safe_corrections(
             dataset: preview,
             changed_cell_count,
             affected_row_count,
+            removed_row_count,
             renamed_column_count,
             renames,
         })
@@ -34346,6 +34735,7 @@ impl DatasetState {
                 row_count: frame.height(),
                 frame,
                 source_backed: false,
+                delimited_header_mode: None,
                 profile: None,
                 history,
             })),
@@ -34604,6 +34994,7 @@ impl DatasetState {
                     row_count,
                     frame: schema,
                     source_backed: true,
+                    delimited_header_mode: None,
                     profile,
                     history,
                 },
@@ -34632,6 +35023,7 @@ impl DatasetState {
                 row_count: frame.height(),
                 frame,
                 source_backed: false,
+                delimited_header_mode: None,
                 profile,
                 history,
             },

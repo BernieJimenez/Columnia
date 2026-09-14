@@ -38,12 +38,18 @@ import {
   normalizeTextValues,
   openLastExport,
   openProject,
+  listReusableTasks,
+  saveReusableTask,
+  openReusableTask,
+  deleteReusableTask,
+  checkReusableTaskSchema,
   discardDatasetSelection,
   dropOutlierValues,
   inspectDroppedDataset,
   installUpdate,
   loadDatasetSelection,
   pickDatasetSource,
+  previewDelimitedHeaderReview,
   pickQualityRulesMigration,
   pickTransformRecipe,
   queryDataset,
@@ -70,6 +76,7 @@ import {
   type RecipeExportOptions,
   type TransformRecipe,
   type DatabaseTarget,
+  type ReusableTask,
 } from "./bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -393,7 +400,7 @@ describe("desktop bridge", () => {
     await fixEncodingValues();
     await nullifyInvalidTypeValues();
     await imputeMissingValues();
-    await applySafeCorrections({ trimText: true, normalizeSentinels: true, normalizeColumnNames: false });
+    await applySafeCorrections({ trimText: true, normalizeSentinels: true, normalizeColumnNames: false, removeDuplicates: true });
     await undoLastChange();
     await redoLastChange();
 
@@ -415,6 +422,7 @@ describe("desktop bridge", () => {
       trimText: true,
       normalizeSentinels: true,
       normalizeColumnNames: false,
+      removeDuplicates: true,
     });
     expect(invoke).toHaveBeenNthCalledWith(13, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(14, "redo_last_change");
@@ -635,6 +643,69 @@ describe("desktop bridge", () => {
 
     expect(invoke).toHaveBeenCalledWith("open_project", { projectId: "project-1" });
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
+  });
+
+  it("solicita la revisión delimitada por un identificador opaco", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      delimiter: ";",
+      firstRow: {
+        headerMode: "firstRow",
+        columns: [{ name: "id", dataType: "String" }],
+        rows: [["1"]],
+        includesFirstRow: false,
+        sampleTruncated: false,
+      },
+      generated: {
+        headerMode: "generated",
+        columns: [{ name: "column_1", dataType: "String" }],
+        rows: [["id"], ["1"]],
+        includesFirstRow: true,
+        sampleTruncated: false,
+      },
+    });
+
+    await expect(previewDelimitedHeaderReview("selection-1")).resolves.toMatchObject({
+      delimiter: ";",
+      firstRow: { headerMode: "firstRow", includesFirstRow: false },
+      generated: { headerMode: "generated", includesFirstRow: true },
+    });
+    expect(invoke).toHaveBeenCalledWith("preview_delimited_header_review", {
+      selectionId: "selection-1",
+    });
+  });
+
+  it("guarda tareas locales reutilizables y exige revisar cambios de esquema", async () => {
+    const task: ReusableTask = {
+      version: 1,
+      name: "Cierre mensual",
+      importProfile: {
+        version: 1,
+        format: "csv",
+        schema: [{ name: "id", dataType: "Int64" }],
+      },
+      recipe: null,
+      qualityRules: [{ column: "id", kind: "not_null", maxInvalid: 0 }],
+      outputFormat: "csv",
+      privacyMode: "mask",
+    };
+    const schema = [{ name: "id", dataType: "String" }];
+    vi.mocked(invoke).mockResolvedValue({ id: "task-1", name: task.name });
+
+    await saveReusableTask(null, task);
+    expect(invoke).toHaveBeenLastCalledWith("save_reusable_task", { taskId: null, task });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toMatch(/credentials|password|overwrite|sourcePath/i);
+
+    await checkReusableTaskSchema("task-1", schema);
+    expect(invoke).toHaveBeenLastCalledWith("check_reusable_task_schema", { taskId: "task-1", schema });
+    vi.mocked(invoke).mockResolvedValue([]);
+    await expect(listReusableTasks()).resolves.toEqual([]);
+    expect(invoke).toHaveBeenLastCalledWith("list_reusable_tasks");
+    vi.mocked(invoke).mockResolvedValue(task);
+    await expect(openReusableTask("task-1")).resolves.toEqual(task);
+    expect(invoke).toHaveBeenLastCalledWith("open_reusable_task", { taskId: "task-1" });
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    await expect(deleteReusableTask("task-1")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenLastCalledWith("delete_reusable_task", { taskId: "task-1" });
   });
 
   it("exporta mediante selector nativo sin recibir una ruta de React", async () => {

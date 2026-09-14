@@ -24,6 +24,153 @@ fn temporary_csv(contents: &str) -> PathBuf {
 }
 
 #[test]
+fn delimited_header_review_compares_first_row_and_generated_interpretations() {
+    let path = temporary_delimited("csv", "id;name\n001;Ana\n002;Luis\n");
+
+    let review = delimited_header_review(&path, "csv")
+        .expect("la previsualización debe comparar ambos encabezados");
+
+    assert_eq!(review.delimiter, ";");
+    assert_eq!(
+        review.first_row.header_mode,
+        SpreadsheetHeaderMode::FirstRow
+    );
+    assert_eq!(
+        review
+            .first_row
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["id", "name"]
+    );
+    assert_eq!(
+        review.first_row.rows[0],
+        vec![Some("001".to_owned()), Some("Ana".to_owned())]
+    );
+    assert_eq!(
+        review.generated.header_mode,
+        SpreadsheetHeaderMode::Generated
+    );
+    assert!(review.generated.includes_first_row);
+    assert_eq!(
+        review.generated.rows[0],
+        vec![Some("id".to_owned()), Some("name".to_owned())]
+    );
+    assert!(!review.first_row.sample_truncated);
+    assert!(!review.generated.sample_truncated);
+
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn delimited_header_review_caps_the_sample_and_rejects_an_oversized_first_row() {
+    let contents = format!("id,name\n1,Ana\n{}", "x".repeat(70 * 1024));
+    let path = temporary_delimited("csv", &contents);
+    let review = delimited_header_review(&path, "csv")
+        .expect("una muestra grande debe poder revisarse con prefijo acotado");
+    assert!(review.first_row.sample_truncated);
+    assert!(review.generated.sample_truncated);
+    assert!(review.first_row.rows.len() <= HEADER_REVIEW_ROW_LIMIT);
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+
+    let oversized_header =
+        temporary_delimited_bytes("csv", &vec![b'x'; DELIMITED_SAMPLE_BYTES as usize + 1]);
+    let error = delimited_header_review(&oversized_header, "csv")
+        .expect_err("una primera fila mayor al límite no debe leerse completa");
+    assert!(error.contains("64 KiB"));
+    fs::remove_file(oversized_header).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn source_backed_delimited_load_preserves_generated_header_semantics() {
+    let path = temporary_delimited("csv", "id,name\n001,Ana\n002,Luis\n");
+    let (schema, preview, row_count) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::Generated, || {
+            false
+        })
+        .expect("la carga diferida debe conservar la decisión de encabezado");
+
+    assert_eq!(row_count, 3);
+    assert_eq!(schema.width(), 2);
+    assert_eq!(
+        schema
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["column_1", "column_2"]
+    );
+    assert_eq!(
+        preview.rows[0],
+        vec![Some("id".to_owned()), Some("name".to_owned())]
+    );
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn duckdb_source_backed_query_uses_generated_polars_column_names() {
+    let path = temporary_delimited("csv", "id;name\n001;Ana\n002;Luis\n");
+    let (schema, _, row_count) =
+        source_backed_load_with_header_mode(&path, "csv", SpreadsheetHeaderMode::Generated, || {
+            false
+        })
+        .expect("la fuente debe abrirse sin tratar la primera fila como encabezado");
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "generated-columns.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema.clone(),
+        source_backed: true,
+        delimited_header_mode: Some(SpreadsheetHeaderMode::Generated),
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
+    };
+    let (source_path, source_format) = current_duckdb_file_source(&dataset)
+        .expect("el CSV sin encabezados debe quedar disponible para DuckDB");
+    let spec = prepare_duckdb_query_with_row_count(
+        "SELECT column_1, column_2 FROM dataset LIMIT 3",
+        &schema,
+        None,
+        row_count,
+    )
+    .expect("la proyección debe validar los nombres generados por Polars");
+
+    let result = crate::duckdb_query::execute_duckdb_query_from_file(
+        &source_path,
+        source_format,
+        None,
+        &spec,
+        || false,
+    )
+    .expect("DuckDB debe proyectar la fuente sin encabezados con los nombres de Polars");
+
+    assert_eq!(result.row_count, 3);
+    assert_eq!(
+        result.rows,
+        vec![
+            vec![Some("id".to_owned()), Some("name".to_owned())],
+            vec![Some("001".to_owned()), Some("Ana".to_owned())],
+            vec![Some("002".to_owned()), Some("Luis".to_owned())],
+        ]
+    );
+    let export_directory = tempfile::tempdir().expect("el destino temporal debe inicializarse");
+    let csv_export = export_directory.path().join("generated-columns.csv");
+    crate::duckdb_query::export_file_to_csv_with_cancel(
+        &source_path,
+        source_format,
+        &csv_export,
+        || false,
+    )
+    .expect("la exportación source-backed debe conservar los nombres visibles");
+    let exported = fs::read_to_string(&csv_export).expect("el CSV exportado debe poder leerse");
+    assert_eq!(exported.lines().next(), Some("column_1,column_2"));
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
 fn sample_dataset_catalog_is_static_and_paths_stay_native() {
     let samples = list_sample_datasets();
     assert_eq!(samples.len(), 2);
@@ -338,6 +485,7 @@ fn loaded_dataset(path: PathBuf, frame: DataFrame) -> LoadedDataset {
         row_count: frame.height(),
         frame,
         source_backed: false,
+        delimited_header_mode: None,
         profile: None,
         history,
     }
@@ -480,6 +628,7 @@ fn loads_json_variants_through_private_parquet_snapshots() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -539,6 +688,7 @@ fn removes_empty_rows_from_source_backed_snapshot_with_reversible_history() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -606,6 +756,7 @@ fn source_backed_cleanups_remove_duplicates_and_columns_with_reversible_history(
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -685,6 +836,7 @@ fn source_backed_near_duplicate_cleanup_matches_eager_and_preserves_exact_repeat
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -727,14 +879,15 @@ fn source_backed_safe_corrections_combine_trim_and_renames() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
-    let (expected, expected_rows, expected_cells, expected_renames) =
-        safe_corrected_frame(&source_frame, true, true, false)
+    let (expected, expected_rows, expected_cells, expected_removed_rows, expected_renames) =
+        safe_corrected_frame(&source_frame, true, true, false, false)
             .expect("la ruta eager debe procesarse");
 
-    let result = source_backed_safe_corrections(&mut dataset, true, true, false)
+    let result = source_backed_safe_corrections(&mut dataset, true, true, false, false)
         .expect("las correcciones source-backed deben procesarse")
         .expect("la fuente debe ser compatible");
     assert!(dataset.source_backed);
@@ -743,6 +896,7 @@ fn source_backed_safe_corrections_combine_trim_and_renames() {
     assert_eq!(result.affected_row_count, expected_rows);
     assert_eq!(result.changed_cell_count, expected_cells);
     assert_eq!(result.renames, expected_renames);
+    assert_eq!(result.removed_row_count, expected_removed_rows);
     let output_path = dataset
         .source_path
         .as_deref()
@@ -769,12 +923,13 @@ fn source_backed_safe_corrections_respect_options_and_skip_an_empty_plan() {
         row_count,
         frame: schema.clone(),
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial debe inicializarse"),
     };
 
     let mut trim_only = new_dataset();
-    let trim_result = source_backed_safe_corrections(&mut trim_only, true, false, false)
+    let trim_result = source_backed_safe_corrections(&mut trim_only, true, false, false, false)
         .expect("el recorte source-backed debe procesarse")
         .expect("la fuente debe ser compatible");
     let trimmed = read_parquet_frame(
@@ -803,7 +958,7 @@ fn source_backed_safe_corrections_respect_options_and_skip_an_empty_plan() {
     assert_eq!(trim_only.history.cursor, 1);
 
     let mut rename_only = new_dataset();
-    let rename_result = source_backed_safe_corrections(&mut rename_only, false, true, false)
+    let rename_result = source_backed_safe_corrections(&mut rename_only, false, true, false, false)
         .expect("la normalización source-backed debe procesarse")
         .expect("la fuente debe ser compatible");
     let renamed = read_parquet_frame(
@@ -833,7 +988,7 @@ fn source_backed_safe_corrections_respect_options_and_skip_an_empty_plan() {
     assert_eq!(rename_only.history.cursor, 1);
 
     let mut empty_plan = new_dataset();
-    let empty_result = source_backed_safe_corrections(&mut empty_plan, false, false, false)
+    let empty_result = source_backed_safe_corrections(&mut empty_plan, false, false, false, false)
         .expect("el plan vacío debe procesarse")
         .expect("la fuente debe ser compatible");
     assert_eq!(empty_result.changed_cell_count, 0);
@@ -844,6 +999,58 @@ fn source_backed_safe_corrections_respect_options_and_skip_an_empty_plan() {
     assert_eq!(empty_plan.source_path.as_deref(), Some(path.as_path()));
     assert!(empty_plan.source_backed);
 
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn source_backed_safe_plan_trims_then_removes_exact_duplicates_in_one_revision() {
+    let path = temporary_csv("city,value\n\" Ana \",1\nAna,1\nLuis,2\n");
+    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "safe-plan-duplicates.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    };
+    let (expected, expected_rows, expected_cells, expected_removed, _) =
+        safe_corrected_frame(&source_frame, true, false, false, true)
+            .expect("el plan eager debe aplicarse");
+
+    let result = source_backed_safe_corrections(&mut dataset, true, false, false, true)
+        .expect("el plan source-backed debe aplicarse")
+        .expect("el CSV debe poder procesarse source-backed");
+
+    assert_eq!(expected_removed, 1);
+    assert_eq!(result.removed_row_count, expected_removed);
+    assert_eq!(result.affected_row_count, expected_rows);
+    assert_eq!(result.changed_cell_count, expected_cells);
+    assert_eq!(result.dataset.row_count, 2);
+    assert_eq!(dataset.history.entries.len(), 2);
+    assert_eq!(dataset.history.cursor, 1);
+    let output = read_parquet_frame(
+        dataset
+            .source_path
+            .as_deref()
+            .expect("el plan debe conservar la fuente actual"),
+    )
+    .expect("el resultado Parquet debe leerse");
+    assert!(output.equals_missing(&expected));
+    assert_eq!(
+        output.column("city").unwrap().str().unwrap().get(0),
+        Some("Ana")
+    );
+    assert_eq!(
+        output.column("city").unwrap().str().unwrap().get(1),
+        Some("Luis")
+    );
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
@@ -861,11 +1068,12 @@ fn source_backed_safe_corrections_count_trim_and_sentinels_once_per_source_cell(
         row_count,
         frame: schema.clone(),
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial debe inicializarse"),
     };
 
-    let result = source_backed_safe_corrections(&mut dataset, true, false, true)
+    let result = source_backed_safe_corrections(&mut dataset, true, false, true, false)
         .expect("el plan source-backed debe procesarse")
         .expect("la fuente debe ser compatible");
     assert_eq!(result.changed_cell_count, 4);
@@ -897,10 +1105,11 @@ fn source_backed_safe_corrections_count_trim_and_sentinels_once_per_source_cell(
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial no-op debe inicializarse"),
     };
-    let no_op_result = source_backed_safe_corrections(&mut no_op, false, false, false)
+    let no_op_result = source_backed_safe_corrections(&mut no_op, false, false, false, false)
         .expect("un plan source-backed sin opciones debe ser válido")
         .expect("la fuente debe seguir siendo compatible");
     assert_eq!(no_op_result.changed_cell_count, 0);
@@ -938,6 +1147,7 @@ fn source_backed_privacy_column_cleanup_keeps_audit_and_history() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1006,6 +1216,7 @@ fn source_backed_personal_mask_counts_changes_without_materializing_rows() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1063,6 +1274,7 @@ fn source_backed_schema_changes_normalize_names_and_enable_audit_reversibly() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1133,6 +1345,7 @@ fn source_backed_text_cleaning_streams_trim_sentinels_and_normalization() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1224,6 +1437,7 @@ fn source_backed_boolean_normalization_preserves_the_candidate_threshold() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1264,6 +1478,7 @@ fn source_backed_invalid_type_cleanup_matches_eager_inference_without_rows_in_me
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1317,6 +1532,7 @@ fn source_backed_encoding_fix_handles_safe_mojibake_without_rows_in_memory() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1357,6 +1573,7 @@ fn source_backed_encoding_fix_falls_back_for_unsafe_values() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1386,6 +1603,7 @@ fn source_backed_inferred_numeric_and_date_casts_keep_safe_columns_lazy() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1445,6 +1663,7 @@ fn source_backed_imputation_matches_eager_replacements_without_rows_in_memory() 
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1510,6 +1729,7 @@ fn source_backed_direct_outlier_modes_match_eager_without_rows_in_memory() {
             row_count,
             frame: schema,
             source_backed: true,
+            delimited_header_mode: None,
             profile: None,
             history,
         };
@@ -1578,6 +1798,7 @@ fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state
             row_count,
             frame: schema,
             source_backed: true,
+            delimited_header_mode: None,
             profile: None,
             history,
         })),
@@ -1636,6 +1857,7 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1691,6 +1913,7 @@ fn source_backed_regex_replacement_matches_eager_and_counts_cells() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1746,6 +1969,7 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1802,6 +2026,7 @@ fn source_backed_division_matches_eager_and_rejects_zero_before_publish() {
         row_count: invalid_row_count,
         frame: invalid_schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: invalid_history,
     };
@@ -1832,6 +2057,7 @@ fn source_backed_date_parts_after_filters_match_eager() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1901,6 +2127,7 @@ fn source_backed_date_range_filters_match_eager() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -1965,6 +2192,7 @@ fn source_backed_date_equality_filters_match_eager() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2030,6 +2258,7 @@ fn source_backed_filters_execute_on_disk_and_match_the_eager_recipe() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2096,6 +2325,7 @@ fn source_backed_group_summary_preserves_stable_groups_nulls_and_counters() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2181,6 +2411,7 @@ fn source_backed_iqr_modes_match_eager_and_keep_separate_counts() {
             row_count,
             frame: schema,
             source_backed: true,
+            delimited_header_mode: None,
             profile: None,
             history,
         };
@@ -2232,6 +2463,7 @@ fn source_backed_iqr_uses_filtered_baseline_and_separates_removed_rows() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2287,6 +2519,7 @@ fn source_backed_cast_dates_and_calculations_match_the_eager_recipe() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2373,6 +2606,7 @@ fn source_backed_date_parts_match_the_eager_recipe_after_date_parse() {
             row_count,
             frame: schema,
             source_backed: true,
+            delimited_header_mode: None,
             profile: None,
             history,
         };
@@ -2430,6 +2664,7 @@ fn source_backed_iso8601_matches_eager_for_naive_and_utc_values() {
             row_count,
             frame: schema,
             source_backed: true,
+            delimited_header_mode: None,
             profile: None,
             history,
         };
@@ -2484,6 +2719,7 @@ fn source_backed_iso8601_validates_the_current_private_snapshot() {
         row_count: filtered_frame.height(),
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2531,6 +2767,7 @@ fn source_backed_iso8601_falls_back_for_non_utc_offsets() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2572,6 +2809,7 @@ fn source_backed_literal_replacement_matches_eager_order_and_counts_cells() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2648,6 +2886,7 @@ fn source_backed_merge_matches_eager_order_nulls_empty_strings_and_casts() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2751,6 +2990,7 @@ fn source_backed_split_matches_eager_remainder_nulls_empty_segments_and_drop_sou
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -2857,6 +3097,7 @@ fn source_backed_text_extractions_match_eager_unicode_nulls_and_empty_segments()
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -3015,6 +3256,7 @@ fn source_backed_contact_normalizations_match_eager_and_feed_extractions() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -3106,6 +3348,7 @@ fn source_backed_text_and_null_filters_keep_eager_semantics() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -3157,6 +3400,7 @@ fn materializes_a_deferred_dataset_only_when_an_operation_requires_rows() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -3270,6 +3514,7 @@ fn materialized_history_snapshot_profiles_without_using_the_active_frame() {
         row_count: frame.height(),
         frame: frame.clone(),
         source_backed: false,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -4371,6 +4616,7 @@ fn source_backed_file_queries_support_all_join_types_without_a_snapshot() {
             row_count,
             frame: current_frame.clone(),
             source_backed: true,
+            delimited_header_mode: None,
             profile: None,
             history: HistoryManager::deferred().unwrap(),
         })
@@ -4566,6 +4812,7 @@ fn source_backed_join_publishes_a_reversible_parquet_cursor() {
         row_count: current_row_count,
         frame: current_schema.clone(),
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
     };
@@ -4659,6 +4906,7 @@ fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_ac
         row_count: current_frame.height(),
         frame: current_frame.clone(),
         source_backed: false,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -4909,6 +5157,7 @@ fn source_backed_consolidation_publishes_a_reversible_parquet_cursor() {
         row_count: current_row_count,
         frame: current_schema.clone(),
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
     };
@@ -5014,6 +5263,7 @@ fn disk_backed_conflict_page_keeps_source_active_frame_deferred() {
         row_count: current_row_count,
         frame: current_frame,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
     });
@@ -5083,6 +5333,7 @@ fn disk_backed_conflict_page_uses_the_current_history_snapshot() {
         row_count: current_frame.height(),
         frame: current_frame,
         source_backed: false,
+        delimited_header_mode: None,
         profile: None,
         history,
     });
@@ -5162,6 +5413,7 @@ fn snapshot_backed_conflict_resolution_publishes_a_reversible_cursor() {
         row_count: current_frame.height(),
         frame: current_frame,
         source_backed: false,
+        delimited_header_mode: None,
         profile: None,
         history,
     });
@@ -5273,6 +5525,7 @@ fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
         row_count: current_frame.height(),
         frame: current_frame,
         source_backed: false,
+        delimited_header_mode: None,
         profile: None,
         history,
     });
@@ -5362,6 +5615,7 @@ fn source_backed_conflict_resolution_publishes_selected_values_reversibly() {
         row_count: current_row_count,
         frame: current_frame.clone(),
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
     });
@@ -5557,6 +5811,7 @@ fn duckdb_source_backed_join_handles_large_file() {
         row_count: loaded_row_count,
         frame: current_frame,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history: HistoryManager::deferred().expect("el historial diferido debe inicializarse"),
     };
@@ -9217,6 +9472,7 @@ fn source_backed_undo_and_redo_restore_schema_and_page_without_materializing_row
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };
@@ -9385,8 +9641,9 @@ fn applies_safe_corrections_in_one_candidate_frame() {
     let path = temporary_csv("Año Venta,city\n\"  uno \",\" Bogotá \"\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
 
-    let (corrected, rows, cells, renames) =
-        safe_corrected_frame(&frame, true, true, false).expect("las correcciones deben aplicarse");
+    let (corrected, rows, cells, removed, renames) =
+        safe_corrected_frame(&frame, true, true, false, false)
+            .expect("las correcciones deben aplicarse");
     let page = dataset_page(&corrected, 0, 50).expect("la vista previa debe generarse");
 
     assert_eq!(
@@ -9400,6 +9657,7 @@ fn applies_safe_corrections_in_one_candidate_frame() {
     assert_eq!(page.rows[0][1].as_deref(), Some("Bogotá"));
     assert_eq!(rows, 1);
     assert_eq!(cells, 2);
+    assert_eq!(removed, 0);
     assert_eq!(renames.len(), 1);
     assert_eq!(renames[0].to, "ano_venta");
     assert_eq!(page.rows[0][0].as_deref(), Some("uno"));
@@ -9418,8 +9676,9 @@ fn safe_correction_options_apply_individually_or_not_at_all() {
     let path = temporary_csv("Año Venta,city\n\"  uno \",\" Bogotá \"\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
 
-    let (trimmed, trim_rows, trim_cells, trim_renames) =
-        safe_corrected_frame(&frame, true, false, false).expect("se debe poder recortar texto");
+    let (trimmed, trim_rows, trim_cells, trim_removed, trim_renames) =
+        safe_corrected_frame(&frame, true, false, false, false)
+            .expect("se debe poder recortar texto");
     assert_eq!(
         trimmed
             .get_column_names()
@@ -9434,10 +9693,11 @@ fn safe_correction_options_apply_individually_or_not_at_all() {
     );
     assert_eq!(trim_rows, 1);
     assert_eq!(trim_cells, 2);
+    assert_eq!(trim_removed, 0);
     assert!(trim_renames.is_empty());
 
-    let (normalized, normalize_rows, normalize_cells, normalize_renames) =
-        safe_corrected_frame(&frame, false, true, false)
+    let (normalized, normalize_rows, normalize_cells, normalize_removed, normalize_renames) =
+        safe_corrected_frame(&frame, false, true, false, false)
             .expect("se deben poder normalizar encabezados");
     assert_eq!(
         normalized
@@ -9453,16 +9713,46 @@ fn safe_correction_options_apply_individually_or_not_at_all() {
     );
     assert_eq!(normalize_rows, 0);
     assert_eq!(normalize_cells, 0);
+    assert_eq!(normalize_removed, 0);
     assert_eq!(normalize_renames.len(), 1);
 
-    let (unchanged, no_op_rows, no_op_cells, no_op_renames) =
-        safe_corrected_frame(&frame, false, false, false).expect("el plan vacío debe ser válido");
+    let (unchanged, no_op_rows, no_op_cells, no_op_removed, no_op_renames) =
+        safe_corrected_frame(&frame, false, false, false, false)
+            .expect("el plan vacío debe ser válido");
     assert!(unchanged.equals_missing(&frame));
     assert_eq!(no_op_rows, 0);
     assert_eq!(no_op_cells, 0);
+    assert_eq!(no_op_removed, 0);
     assert!(no_op_renames.is_empty());
 
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn safe_correction_plan_trims_then_removes_exact_duplicates_stably() {
+    let frame = df![
+        "city" => &[" Ana ", "Ana", "Luis"],
+        "value" => &[1_i64, 1, 2]
+    ]
+    .unwrap();
+
+    let (corrected, affected_rows, changed_cells, removed_rows, renames) =
+        safe_corrected_frame(&frame, true, false, false, true)
+            .expect("el plan debe recortar y deduplicar como una operación");
+
+    assert_eq!(affected_rows, 1);
+    assert_eq!(changed_cells, 1);
+    assert_eq!(removed_rows, 1);
+    assert!(renames.is_empty());
+    assert_eq!(corrected.height(), 2);
+    assert_eq!(
+        corrected.column("city").unwrap().str().unwrap().get(0),
+        Some("Ana")
+    );
+    assert_eq!(
+        corrected.column("city").unwrap().str().unwrap().get(1),
+        Some("Luis")
+    );
 }
 
 #[test]
@@ -9471,11 +9761,12 @@ fn safe_corrections_count_trim_and_sentinels_once_per_source_cell() {
         temporary_csv("city,notes\n\" Bogotá \",\" N/A \"\n\" Santo Domingo \",keep\nplain,null\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
 
-    let (corrected, affected_rows, changed_cells, renames) =
-        safe_corrected_frame(&frame, true, false, true)
+    let (corrected, affected_rows, changed_cells, removed_rows, renames) =
+        safe_corrected_frame(&frame, true, false, true, false)
             .expect("el recorte y los centinelas deben formar una sola candidata");
     assert_eq!(changed_cells, 4);
     assert_eq!(affected_rows, 3);
+    assert_eq!(removed_rows, 0);
     assert!(renames.is_empty());
     assert_eq!(
         corrected.column("city").unwrap().str().unwrap().get(0),
@@ -9500,12 +9791,13 @@ fn safe_corrections_count_trim_and_sentinels_once_per_source_cell() {
     assert_eq!(dataset.history.entries.len(), 2);
     assert_eq!(dataset.history.cursor, 1);
 
-    let (unchanged, no_op_rows, no_op_cells, no_op_renames) =
-        safe_corrected_frame(&frame, false, false, false)
+    let (unchanged, no_op_rows, no_op_cells, no_op_removed, no_op_renames) =
+        safe_corrected_frame(&frame, false, false, false, false)
             .expect("el plan sin opciones debe ser válido");
     assert!(unchanged.equals_missing(&frame));
     assert_eq!(no_op_rows, 0);
     assert_eq!(no_op_cells, 0);
+    assert_eq!(no_op_removed, 0);
     assert!(no_op_renames.is_empty());
     assert_eq!(
         unchanged.column("notes").unwrap().str().unwrap().get(0),
@@ -9944,6 +10236,7 @@ fn loads_xlsx_through_a_source_backed_parquet_snapshot() {
         row_count,
         frame: schema,
         source_backed: true,
+        delimited_header_mode: None,
         profile: None,
         history,
     };

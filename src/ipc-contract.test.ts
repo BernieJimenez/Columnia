@@ -337,6 +337,7 @@ function normalizeRustFieldType(type: string): string {
       "ContactKind",
       "ExtractionKind",
       "SessionReferenceStatus",
+      "ReusableTaskCompatibilityStatus",
       "PerformanceProfile",
       "DatasetLoadPath",
       "TemporalAggregationKind",
@@ -480,7 +481,7 @@ function duplicates(values: string[]): string[] {
 
 describe("contrato IPC", () => {
   it("mantiene en paridad los comandos Tauri registrados y la fachada TypeScript", () => {
-    const rustSource = readFileSync(resolve("src-tauri/src/lib.rs"), "utf8");
+    const rustSource = rustIpcSource;
     const registered = registeredTauriCommands(rustSource);
     const invoked = invokedBridgeCommands(bridgeClientSource);
 

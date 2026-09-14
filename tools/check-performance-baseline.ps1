@@ -71,6 +71,45 @@ function Add-Check {
         })
 }
 
+function Test-PerformanceMatrixEvidence {
+    param([string]$SummaryPath)
+
+    $Node = Get-Command node.exe -ErrorAction SilentlyContinue
+    if ($null -eq $Node) {
+        return [ordered]@{
+            status = "failed"
+            profileId = $null
+            errors = @("No se encontró Node.js para validar la matriz comparable de escala.")
+        }
+    }
+    $ValidatorPath = Join-Path $ProjectRoot "tools\performance-matrix-contract.mjs"
+    $ValidatorOutput = @(& $Node.Source $ValidatorPath $SummaryPath 2>&1)
+    $ValidatorExitCode = $LASTEXITCODE
+    $JsonLine = @($ValidatorOutput | ForEach-Object { [string]$_ } | Where-Object { $_.TrimStart().StartsWith("{") } | Select-Object -Last 1)
+    if ($JsonLine.Count -eq 0) {
+        return [ordered]@{
+            status = "failed"
+            profileId = $null
+            errors = @("El validador de la matriz no produjo un resultado estructurado (código $ValidatorExitCode).")
+        }
+    }
+    try {
+        $Result = [string]$JsonLine[0] | ConvertFrom-Json
+        if ($ValidatorExitCode -ne 0 -and $Result.status -eq "passed") {
+            $Result.status = "failed"
+            $Result.errors = @($Result.errors) + "El validador de la matriz terminó con error."
+        }
+        return $Result
+    }
+    catch {
+        return [ordered]@{
+            status = "failed"
+            profileId = $null
+            errors = @("No se pudo interpretar el resultado del validador de la matriz.")
+        }
+    }
+}
+
 function Test-SampleFreshness {
     param($Sample)
 
@@ -294,8 +333,11 @@ try {
             $MaxProjectSaveDuration -le [double]$DurationBudgets.projectSave -and
             $MaxProjectInspectDuration -le [double]$DurationBudgets.projectInspect -and
             $MaxProjectExportDuration -le [double]$DurationBudgets.projectExport
+        $ScaleMatrixValidation = Test-PerformanceMatrixEvidence -SummaryPath $BenchmarkFile.FullName
+        $ScaleMatrixPassed = $ScaleMatrixValidation.status -eq "passed"
         $BenchmarkPassed = $BenchmarkHasPeaks -and $Benchmark.status -eq "passed" -and
             [bool]$Benchmark.cleanupConfirmed -and
+            $ScaleMatrixPassed -and
             [int]$Benchmark.targetMiB -ge [int]$Baseline.budgets.benchmark.minTargetMiB -and
             $SustainedRuns -ge [int]$Baseline.budgets.benchmark.minSustainedRuns -and
             $ProjectUpdateRuns -ge [int]$Baseline.budgets.benchmark.minProjectUpdateRuns -and
@@ -313,6 +355,7 @@ try {
                 cleanupConfirmed = [bool]$Benchmark.cleanupConfirmed
                 commandNames = $CommandNames
                 missingCommands = $MissingCommands
+                scaleMatrix = $ScaleMatrixValidation
                 peakWorkingSetBytes = $PeakWorkingSet
                 maxDurationsMs = [ordered]@{
                     transform = $MaxTransformDuration

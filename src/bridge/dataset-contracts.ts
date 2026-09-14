@@ -25,6 +25,20 @@ export interface DatasetPreview {
   rows: Array<Array<string | null>>;
 }
 
+export interface DelimitedHeaderModePreview {
+  headerMode: SpreadsheetHeaderMode;
+  columns: DatasetColumn[];
+  rows: Array<Array<string | null>>;
+  includesFirstRow: boolean;
+  sampleTruncated: boolean;
+}
+
+export interface DelimitedHeaderReview {
+  delimiter: string;
+  firstRow: DelimitedHeaderModePreview;
+  generated: DelimitedHeaderModePreview;
+}
+
 export interface DatasetComparison {
   currentFileName: string;
   comparedFileName: string;
@@ -392,6 +406,7 @@ export interface SafeCorrectionsResult {
   dataset: DatasetPreview;
   changedCellCount: number;
   affectedRowCount: number;
+  removedRowCount: number;
   renamedColumnCount: number;
   renames: ColumnRename[];
 }
@@ -400,4 +415,5 @@ export interface SafeCorrectionOptions {
   trimText: boolean;
   normalizeSentinels: boolean;
   normalizeColumnNames: boolean;
+  removeDuplicates: boolean;
 }

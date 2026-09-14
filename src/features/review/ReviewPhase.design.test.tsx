@@ -81,7 +81,8 @@ describe("ReviewPhase design", () => {
     expect(screen.getByText("Explorar análisis detallado").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("Configuración del análisis").closest("details")).not.toHaveAttribute("open");
 
-    fireEvent.click(screen.getByRole("button", { name: "Revisar opciones para nulos" }));
+    expect(screen.getByRole("list", { name: "Prioridades de revisión" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Empezar con la prioridad principal" }));
     expect(onContinueToPrepare).toHaveBeenCalledWith("missingValues");
   });
 });

@@ -528,13 +528,17 @@ export function usePrepareController({
 
   async function applyRecommendedCorrections(options: SafeCorrectionOptions) {
     if (activeDataset === null) return;
-    if (!options.trimText && !options.normalizeSentinels && !options.normalizeColumnNames) return;
+    if (!options.trimText && !options.normalizeSentinels && !options.normalizeColumnNames && !options.removeDuplicates) return;
     setChangeStatus({ kind: "working", action: "safe" });
     try {
       const result = await applySafeCorrections(options);
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      const changed = result.changedCellCount > 0 || result.renamedColumnCount > 0;
+      const changed = result.changedCellCount > 0
+        || result.removedRowCount > 0
+        || result.renamedColumnCount > 0;
+      if (changed) {
+        onDatasetChanged(result.dataset);
+        onProfileInvalidated();
+      }
       const changedCells = result.changedCellCount === 1
         ? "1 celda actualizada"
         : `${result.changedCellCount.toLocaleString()} celdas actualizadas`;
@@ -544,6 +548,9 @@ export function usePrepareController({
       const changes = [
         (options.trimText || options.normalizeSentinels) && result.changedCellCount > 0 ? changedCells : null,
         options.normalizeColumnNames && result.renamedColumnCount > 0 ? renamedColumns : null,
+        options.removeDuplicates && result.removedRowCount > 0
+          ? `se retiraron ${result.removedRowCount.toLocaleString()} filas duplicadas exactas`
+          : null,
       ].filter((change): change is string => change !== null);
       setChangeStatus({
         kind: "applied",
@@ -552,7 +559,7 @@ export function usePrepareController({
           : "El dataset ya cumplía las correcciones seleccionadas.",
       });
       await refreshHistory();
-      onDeliveryInvalidated();
+      if (changed) onDeliveryInvalidated();
     } catch (error: unknown) {
       setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
     }

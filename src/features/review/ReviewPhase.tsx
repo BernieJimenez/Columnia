@@ -1009,7 +1009,7 @@ function QualityProfile({
           invalidTypeCount={invalidTypeCount}
         />
         {actionPlan.length > 0 && (
-          <ol className="quality-action-plan" aria-label="Acciones recomendadas por señal">
+          <ol className="quality-action-plan" aria-label="Prioridades de revisión">
             {actionPlan.map((action) => (
               <li key={action.target}>
                 <div>
@@ -1017,13 +1017,17 @@ function QualityProfile({
                   <p>{action.explanation}</p>
                   <p className="quality-action-plan__impact">{action.impact}</p>
                 </div>
-                <button type="button" onClick={() => onContinueToPrepare(action.target)}>
-                  {action.actionLabel}
-                </button>
               </li>
             ))}
           </ol>
         )}
+        <button
+          className="primary-action quality-overview__continue"
+          type="button"
+          onClick={() => onContinueToPrepare(actionPlan[0]?.target)}
+        >
+          {actionPlan.length > 0 ? "Empezar con la prioridad principal" : "Continuar a Preparar"}
+        </button>
         <p className="quality-overview__meta">
           <span>Filas analizadas</span>
           <strong>{profile.rowCount.toLocaleString()}</strong>

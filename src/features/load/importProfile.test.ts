@@ -72,6 +72,29 @@ describe("perfiles reutilizables de importación", () => {
       .toEqual({ kind: "format_mismatch" });
   });
 
+  it("guarda y reaplica la decisión de encabezado para archivos delimitados", () => {
+    const csvSource = {
+      ...source,
+      fileName: "ventas.csv",
+      format: "csv" as const,
+      sheets: [],
+      defaultSheetId: null,
+      isCompressedContainer: false,
+    };
+    const profile = createImportProfile(
+      csvSource,
+      { ...dataset, fileName: "ventas.csv" },
+      { sheetId: null, headerMode: "generated" },
+    );
+
+    expect(profile).toMatchObject({ format: "csv", headerMode: "generated" });
+    expect(importProfileApplicability(profile, csvSource)).toEqual({
+      kind: "applicable",
+      sheetId: null,
+      headerMode: "generated",
+    });
+  });
+
   it("solo interpreta errores estructurados del guard de esquema", () => {
     const mismatch = {
       code: "importProfileSchemaMismatch",

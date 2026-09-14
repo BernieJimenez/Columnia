@@ -31,6 +31,9 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
       switch (command) {
         case "get_app_info":
           return { name: "Columnia", version: "0.49.0", platform: "windows" };
+        case "list_sample_datasets":
+        case "list_reusable_tasks":
+          return [];
         case "list_projects":
           return projects;
         case "get_recovery_candidate":
@@ -44,11 +47,47 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
             sheets: [],
             defaultSheetId: null,
             isCompressedContainer: false,
+            resourceEstimate: {
+              processingPath: "inMemory",
+              estimatedMaterializationRamBytes: 268435968,
+              estimatedTemporaryDiskBytes: null,
+            },
+          };
+        case "preview_delimited_header_review":
+          return {
+            delimiter: ",",
+            firstRow: {
+              headerMode: "firstRow",
+              columns: dataset.columns,
+              rows: dataset.rows,
+              includesFirstRow: false,
+              sampleTruncated: false,
+            },
+            generated: {
+              headerMode: "generated",
+              columns: dataset.columns.map((column, index) => ({ ...column, name: `column_${index + 1}` })),
+              rows: dataset.rows,
+              includesFirstRow: true,
+              sampleTruncated: false,
+            },
           };
         case "load_dataset_selection":
           return dataset;
+        case "get_dataset_profile":
+          return { rowCount: dataset.rowCount, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [] };
         case "get_history_state":
-          return { canUndo: false, canRedo: false, currentIndex: 0, entryCount: 0, entries: [], snapshotsEnabled: true };
+          return {
+            canUndo: false,
+            canRedo: false,
+            currentIndex: 0,
+            entryCount: 0,
+            entries: [],
+            snapshotsEnabled: true,
+            degradedReason: null,
+            maxEntries: 50,
+            diskBytes: 0,
+            diskBudgetBytes: 536870912,
+          };
         case "get_dataset_page":
           return { offset: args.offset ?? 0, rows: dataset.rows };
         case "save_project": {
@@ -102,12 +141,20 @@ async function installTauriProjectMock(page: Page, seedRecoveryCandidate = false
   }, seedRecoveryCandidate);
 }
 
+async function selectAndConfirmDataset(page: Page) {
+  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  const headerReview = page.getByRole("dialog", { name: "Revisar encabezados de ventas.csv" });
+  const loadButton = headerReview.getByRole("button", { name: "Cargar archivo" });
+  await expect(loadButton).toBeEnabled();
+  await loadButton.click();
+}
+
 test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulado", async ({ page }) => {
   await installTauriProjectMock(page);
   await page.goto("/", { waitUntil: "commit" });
 
   await expect(page.getByRole("button", { name: "Seleccionar dataset" })).toBeVisible();
-  await page.getByRole("button", { name: "Seleccionar dataset" }).click();
+  await selectAndConfirmDataset(page);
   const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
   await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");
 
@@ -115,8 +162,9 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
     .getByRole("navigation", { name: "Flujo de preparación de datos" })
     .getByRole("button", { name: "Cargar", exact: true })
     .click();
-  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator("summary").click();
+  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator(":scope > summary").click();
   await expect(page.getByRole("heading", { name: "Proyectos" })).toBeVisible();
+  await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   await page.getByLabel("Nombre del proyecto").fill("Ventas E2E");
   await page.getByRole("button", { name: "Guardar proyecto nuevo" }).click();
   await expect(page.locator("p.notice--success")).toContainText("Proyecto “Ventas E2E” guardado.");
@@ -124,10 +172,12 @@ test("recorre guardar, abrir y eliminar un proyecto desde el shell Tauri simulad
 
   await page.getByRole("button", { name: "Abrir" }).click();
   await expect(workflow.getByRole("button", { name: "Revisar", exact: true })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("heading", { name: "Revisa antes de modificar" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "ventas.csv" })).toBeVisible();
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
-  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator("summary").click();
+  await page.locator(".load-secondary").filter({ hasText: "Continuar un proyecto" }).locator(":scope > summary").click();
+  await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   await expect(page.getByRole("list", { name: "Proyectos guardados" })).toContainText("Ventas E2E · activo");
   await page.getByRole("button", { name: "Eliminar" }).click();
   await expect(page.getByRole("alertdialog", { name: "Eliminar “Ventas E2E”" })).toBeVisible();
@@ -143,16 +193,18 @@ test("recupera la última sesión, restaura su etapa y actualiza el mismo proyec
   const workflow = page.getByRole("navigation", { name: "Flujo de preparación de datos" });
   const projectDetails = page.locator(".load-secondary")
     .filter({ hasText: "Continuar un proyecto" });
-  await projectDetails.locator("summary").click();
+  await projectDetails.locator(":scope > summary").click();
   await expect(page.getByRole("button", { name: "Recuperar proyecto" })).toBeVisible();
   await page.getByRole("button", { name: "Recuperar proyecto" }).click();
 
   await expect(workflow.getByRole("button", { name: "Preparar", exact: true }))
     .toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("heading", { name: "Prepara datos consistentes" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "ventas.csv" })).toBeVisible();
 
   await workflow.getByRole("button", { name: "Cargar", exact: true }).click();
-  await projectDetails.locator("summary").click();
+  await projectDetails.locator(":scope > summary").click();
+  await page.getByText("Guardar y administrar proyectos", { exact: true }).click();
   const projects = page.getByRole("list", { name: "Proyectos guardados" });
   await expect(projects).toContainText("Ventas E2E · activo");
   const projectName = page.getByLabel("Nombre del proyecto");

@@ -76,6 +76,7 @@ function ControllerHarness({
       trimText: true,
       normalizeSentinels: true,
       normalizeColumnNames: true,
+      removeDuplicates: true,
     })}>Recomendadas</button>
     <button type="button" onClick={() => controller.applyStructuralTransforms({
       renames: [], casts: [], dateParses: [], filters: [], calculatedColumn: null,
@@ -576,7 +577,7 @@ describe("usePrepareController", () => {
       dataset, affectedRowCount: 0, changedCellCount: 0, changedColumns: [],
     });
     vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
-      dataset, changedCellCount: 0, affectedRowCount: 0, renamedColumnCount: 0, renames: [],
+      dataset, changedCellCount: 0, affectedRowCount: 0, removedRowCount: 0, renamedColumnCount: 0, renames: [],
     });
     vi.spyOn(bridge, "applyTransformRecipe").mockResolvedValue({
       dataset, changed: false, renamedColumnCount: 0, convertedColumnCount: 0,
@@ -625,6 +626,7 @@ describe("usePrepareController", () => {
       trimText: true,
       normalizeSentinels: true,
       normalizeColumnNames: true,
+      removeDuplicates: true,
     });
     fireEvent.click(screen.getByRole("button", { name: "Receta" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("no produjo cambios"));

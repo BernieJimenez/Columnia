@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   DatasetPreview,
+  DelimitedHeaderReview,
   DatasetComparison,
   DatasetConflictPage,
   DatasetJoinType,
@@ -36,6 +37,10 @@ export function pickDatasetSource(): Promise<DatasetSourceInspection | null> {
 /** Inspects the path captured by Tauri's native drag/drop event without exposing it to React. */
 export function inspectDroppedDataset(): Promise<DatasetSourceInspection | null> {
   return invoke<DatasetSourceInspection | null>("inspect_dropped_dataset");
+}
+
+export function previewDelimitedHeaderReview(selectionId: string): Promise<DelimitedHeaderReview> {
+  return invoke<DelimitedHeaderReview>("preview_delimited_header_review", { selectionId });
 }
 
 export function loadDatasetSelection(

@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { DatasetPreview, DatasetSourceInspection, ImportProfile } from "../../bridge";
 import {
   beginDatasetLoad,
+  completeDelimitedHeaderReview,
   createReadyDatasetStatus,
+  delimitedHeaderInspection,
   needsResourcePreflight,
   requestDatasetLoadCancellation,
   restoreDatasetAfterLoadFailure,
@@ -41,6 +43,55 @@ const workbook: DatasetSourceInspection = {
 };
 
 describe("loadModel", () => {
+  it("mantiene la carga pendiente hasta revisar ambas interpretaciones de encabezado", () => {
+    const source: DatasetSourceInspection = {
+      ...workbook,
+      fileName: "ventas.csv",
+      format: "csv",
+      fileSizeBytes: 128,
+      sheets: [],
+      defaultSheetId: null,
+      isCompressedContainer: false,
+    };
+    const pending = delimitedHeaderInspection(source);
+    expect(pending).toMatchObject({
+      kind: "sheet",
+      selectedSheetId: "",
+      headerMode: "firstRow",
+      headerReviewLoading: true,
+      headerReview: null,
+    });
+    if (pending.kind !== "sheet") throw new Error("Se esperaba una revisión delimitada.");
+
+    const ready = completeDelimitedHeaderReview(pending, {
+      delimiter: ";",
+      firstRow: {
+        headerMode: "firstRow",
+        columns: [{ name: "id", dataType: "String" }],
+        rows: [["1"]],
+        includesFirstRow: false,
+        sampleTruncated: false,
+      },
+      generated: {
+        headerMode: "generated",
+        columns: [{ name: "column_1", dataType: "String" }],
+        rows: [["id"], ["1"]],
+        includesFirstRow: true,
+        sampleTruncated: false,
+      },
+    });
+    const selected = updateSheetSelection(ready, {
+      kind: "header_mode_changed",
+      headerMode: "generated",
+    });
+    expect(selected).toMatchObject({
+      kind: "sheet",
+      headerMode: "generated",
+      headerReviewLoading: false,
+      headerReview: { delimiter: ";", generated: { includesFirstRow: true } },
+    });
+  });
+
   it("retiene y restaura el dataset activo si falla o se cancela un reemplazo", () => {
     const previous = createReadyDatasetStatus(dataset);
     const loading = beginDatasetLoad(previous);

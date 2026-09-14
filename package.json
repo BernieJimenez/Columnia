@@ -57,6 +57,8 @@
     "perf:summary": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/summarize-performance.ps1",
     "perf:check": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-performance-baseline.ps1",
     "perf:benchmark": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-datasets.ps1",
+    "perf:matrix:test": "node --test tools/performance-matrix-contract.test.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File tools/test-performance-matrix.ps1",
+    "perf:matrix:summary": "node tools/summarize-performance-matrix.mjs",
     "perf:duckdb:join": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-duckdb-join.ps1",
     "perf:webview2": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/benchmark-webview2-dataset.ps1",
     "verify:experience": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-experience.ps1",

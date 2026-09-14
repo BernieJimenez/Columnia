@@ -47,6 +47,7 @@ enum DatasetSource<'a> {
 pub(crate) enum DuckDbFileFormat {
     Parquet,
     Delimited { delimiter: u8 },
+    DelimitedWithoutHeader { delimiter: u8, column_count: usize },
     Json,
 }
 
@@ -1792,13 +1793,29 @@ fn file_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
                 "read_csv_auto('{escaped_path}', header = true, all_varchar = true, delim = '{escaped_delimiter}')"
             )
         }
+        DuckDbFileFormat::DelimitedWithoutHeader {
+            delimiter,
+            column_count,
+        } => {
+            let delimiter = char::from(delimiter);
+            let escaped_delimiter = delimiter.to_string().replace('\'', "''");
+            let names_option = generated_names_option(column_count);
+            format!(
+                "read_csv_auto('{escaped_path}', header = false, all_varchar = true{names_option}, delim = '{escaped_delimiter}')"
+            )
+        }
         DuckDbFileFormat::Json => format!("read_json_auto('{escaped_path}')"),
     }
 }
 
 fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
-    let DuckDbFileFormat::Delimited { delimiter } = format else {
-        return file_scan_expression(path, format);
+    let (delimiter, has_header, column_count) = match format {
+        DuckDbFileFormat::Delimited { delimiter } => (delimiter, true, 0),
+        DuckDbFileFormat::DelimitedWithoutHeader {
+            delimiter,
+            column_count,
+        } => (delimiter, false, column_count),
+        _ => return file_scan_expression(path, format),
     };
     let escaped_path = path
         .to_string_lossy()
@@ -1806,7 +1823,25 @@ fn csv_export_scan_expression(path: &Path, format: DuckDbFileFormat) -> String {
         .replace('\'', "''");
     let delimiter = char::from(delimiter);
     let escaped_delimiter = delimiter.to_string().replace('\'', "''");
-    format!("read_csv_auto('{escaped_path}', header = true, delim = '{escaped_delimiter}')")
+    let names_option = if has_header {
+        String::new()
+    } else {
+        generated_names_option(column_count)
+    };
+    format!(
+        "read_csv_auto('{escaped_path}', header = {has_header}{names_option}, delim = '{escaped_delimiter}')"
+    )
+}
+
+fn generated_names_option(column_count: usize) -> String {
+    if column_count == 0 {
+        return String::new();
+    }
+    let names = (1..=column_count)
+        .map(|index| format!("'column_{index}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(", names = [{names}]")
 }
 
 fn describe_source_columns(

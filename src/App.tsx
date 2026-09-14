@@ -15,12 +15,16 @@ import {
   type DeliveryExportState,
 } from "./features/delivery/deliveryModel";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
+import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
 import {
   beginDatasetLoad,
   createReadyDatasetStatus,
   requestDatasetLoadCancellation,
   restoreDatasetAfterLoadFailure,
   setLoadInspectionError,
+  beginDelimitedHeaderReview,
+  completeDelimitedHeaderReview,
+  delimitedHeaderInspection,
   updateDatasetLoadProgress,
   updateSheetSelection,
   updateProfileReview,
@@ -104,6 +108,7 @@ import {
   listSampleDatasets,
   loadDatasetSelection,
   pickDatasetSource,
+  previewDelimitedHeaderReview,
   resolveDatasetConflicts,
   useConsolidatedDataset,
   type AppInfo,
@@ -119,6 +124,9 @@ import {
   type OperationProgress,
   type PerformanceProfile,
   type PrivacyMode,
+  type ReusableTask,
+  type ReusableTaskOutputFormat,
+  type ReusableTaskSchema,
   type SavedRecipe,
   type SampleDatasetDescriptor,
   type SqlQueryHistoryEntry,
@@ -176,6 +184,17 @@ function isCancellationError(error: unknown): boolean {
   return String(error).includes("cancelada por el usuario");
 }
 
+function reusableOutputFormat(format: ExportFormat): ReusableTaskOutputFormat {
+  switch (format) {
+    case "postgresql":
+    case "mysql":
+    case "sqlserver":
+      return "csv";
+    default:
+      return format;
+  }
+}
+
 export function App() {
   const [status, setStatus] = useState<AppStatus>(initialAppStatus);
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>({ kind: "empty" });
@@ -195,6 +214,8 @@ export function App() {
   const [prepareFocusTarget, setPrepareFocusTarget] = useState<QualityActionTarget | null>(null);
   const [reviewTab, setReviewTab] = useState<ReviewTab>("diagnosis");
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
+  const [selectionFinalizing, setSelectionFinalizing] = useState(false);
+  const headerPreviewRequestRef = useRef(0);
   const [activeImportProfile, setActiveImportProfile] = useState<ImportProfile | null>(null);
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
   const [sampleDatasets, setSampleDatasets] = useState<SampleDatasetDescriptor[]>([]);
@@ -252,7 +273,8 @@ export function App() {
     loadInspection.kind === "sheet" ||
     loadInspection.kind === "profile_review" ||
     loadInspection.kind === "resource_preflight" ||
-    loadInspection.kind === "schema_mismatch";
+    loadInspection.kind === "schema_mismatch" ||
+    selectionFinalizing;
   const projects = useProjectsController({
     connected: status.kind === "ready",
     blocked: coreOperationBusy || loadSelectionBusy,
@@ -429,6 +451,34 @@ export function App() {
     if (action.kind === "rules_changed") setExportStatus({ kind: "idle" });
   }
 
+  async function requestDelimitedHeaderReview(source: DatasetSourceInspection) {
+    const requestId = ++headerPreviewRequestRef.current;
+    try {
+      const preview = await previewDelimitedHeaderReview(source.selectionId);
+      if (headerPreviewRequestRef.current !== requestId) return;
+      setLoadInspection((current) =>
+        current.kind === "sheet" && current.source.selectionId === source.selectionId
+          ? completeDelimitedHeaderReview(current, preview)
+          : current,
+      );
+    } catch (error: unknown) {
+      if (headerPreviewRequestRef.current !== requestId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setLoadInspection((current) =>
+        current.kind === "sheet" && current.source.selectionId === source.selectionId
+          ? setLoadInspectionError(current, message)
+          : current,
+      );
+    }
+  }
+
+  function retryDelimitedHeaderReview() {
+    if (loadInspection.kind !== "sheet" || loadInspection.source.format === "excel") return;
+    const source = loadInspection.source;
+    setLoadInspection((current) => beginDelimitedHeaderReview(current));
+    void requestDelimitedHeaderReview(source);
+  }
+
   async function loadSelection(
     source: DatasetSourceInspection,
     sheetId: string | null,
@@ -436,6 +486,7 @@ export function App() {
     expectedProfile: ImportProfile | null = null,
     profileSeed: ImportProfile | null = expectedProfile,
   ) {
+    setSelectionFinalizing(true);
     setDatasetStatus((current) => beginDatasetLoad(current));
     setLoadInspection({ kind: "idle" });
     try {
@@ -492,6 +543,8 @@ export function App() {
       }
       const message = error instanceof Error ? error.message : String(error);
       setLoadInspection((current) => setLoadInspectionError(current, message));
+    } finally {
+      setSelectionFinalizing(false);
     }
   }
 
@@ -506,6 +559,11 @@ export function App() {
       }
       if (source.format === "excel") {
         setLoadInspection(workbookInspection(source, activeImportProfile));
+        return;
+      }
+      if (source.format === "csv" || source.format === "tsv") {
+        setLoadInspection(delimitedHeaderInspection(source, activeImportProfile));
+        void requestDelimitedHeaderReview(source);
         return;
       }
       const applicability = activeImportProfile
@@ -571,9 +629,10 @@ export function App() {
     }
     if (action.kind === "confirmed") {
       if (loadInspection.kind === "sheet") {
+        if (loadInspection.source.format !== "excel" && !loadInspection.headerReview) return;
         void loadSelection(
           loadInspection.source,
-          loadInspection.selectedSheetId,
+          loadInspection.source.format === "excel" ? loadInspection.selectedSheetId : null,
           loadInspection.headerMode,
           loadInspection.useSavedProfile ? loadInspection.savedProfile : null,
           loadInspection.useSavedProfile ? loadInspection.savedProfile : null,
@@ -889,6 +948,20 @@ export function App() {
   const retainedDataset =
     datasetStatus.kind === "loading" ? datasetStatus.previous : undefined;
   const activeDataset = readyDataset ?? retainedDataset;
+  const reusableTaskSchema: ReusableTaskSchema | null = activeDataset
+    ? activeImportProfile?.schema
+      ?? activeDataset.dataset.columns.map(({ name, dataType }) => ({ name, dataType }))
+    : null;
+  const reusableTaskDraft = activeDataset && activeImportProfile
+    ? {
+        version: 1 as const,
+        importProfile: activeImportProfile,
+        recipe: recipeDraft,
+        qualityRules: deliveryRules(deliveryContract),
+        outputFormat: reusableOutputFormat(exportFormat),
+        privacyMode,
+      }
+    : null;
   const operationBusy = coreOperationBusy || loadSelectionBusy || projects.isBusy;
   operationBusyRef.current = operationBusy;
   const activePhaseIndex = Math.max(0, workflowPhases.findIndex((phase) => phase.id === activePhase));
@@ -924,9 +997,24 @@ export function App() {
       if (profileStatus.kind === "idle" || profileStatus.kind === "error") void analyzeQuality();
       return;
     }
-    setCompletedPhases((current) => new Set(current).add(activePhase));
     setActivePhase(nextPhase.id);
   }
+
+  function applyReusableTask(task: ReusableTask) {
+    setActiveImportProfile(task.importProfile);
+    setRecipeDraft(task.recipe);
+    setDeliveryContract(deliveryContractFromRules(task.qualityRules));
+    setExportFormat(task.outputFormat);
+    setPrivacyMode(task.privacyMode);
+    setExportStatus({ kind: "idle" });
+    setRecipeSession((current) => current + 1);
+    setCompletedPhases(new Set(["load"]));
+    setActivePhase(task.recipe ? "prepare" : "review");
+  }
+
+  const reviewHasContextualContinue = activePhase === "review"
+    && reviewTab === "diagnosis"
+    && profileStatus.kind === "ready";
   const loadRuntime: LoadRuntimeState = status.kind === "ready"
     ? { kind: "connected" }
     : status.kind === "browser"
@@ -1118,6 +1206,15 @@ export function App() {
             {activePhase === "load" && (
               <LoadPhase
                 runtime={loadRuntime}
+                reusableTaskPanel={(
+                  <ReusableTaskPanel
+                    connected={loadRuntime.kind === "connected"}
+                    blocked={operationBusy}
+                    schema={reusableTaskSchema}
+                    draft={reusableTaskDraft}
+                    onApply={applyReusableTask}
+                  />
+                )}
                 disabled={operationBusy}
                 datasetStatus={datasetStatus}
                 inspection={loadInspection}
@@ -1129,6 +1226,7 @@ export function App() {
                 onClearRecent={() => setRecentDatasets([])}
                 onRemoveRecent={(id) => setRecentDatasets((current) => removeRecentDataset(current, id))}
                 onSheetAction={handleSheetSelection}
+                onRetryHeaderPreview={retryDelimitedHeaderReview}
                 onProfileReviewAction={handleProfileReviewAction}
                 onResourcePreflightAction={handleResourcePreflightAction}
                 onSchemaMismatchAction={handleSchemaMismatchAction}
@@ -1254,7 +1352,7 @@ export function App() {
           </Suspense>
           </div>
           <footer className={`flow-footer${nextPhase ? "" : " flow-footer--terminal"}`} aria-label="Navegación entre etapas">
-            {nextPhase && (
+            {nextPhase && !reviewHasContextualContinue && (
               <div className="flow-footer__copy">
                 <p className="step">Siguiente paso</p>
                 <strong>{activePhase === "review" && profileStatus.kind === "ready" ? "Plan de preparación" : nextPhase.label}</strong>
@@ -1272,7 +1370,7 @@ export function App() {
                   Volver a {previousPhase.label}
                 </button>
               )}
-              {nextPhase && activeDataset && (
+              {nextPhase && activeDataset && !reviewHasContextualContinue && (
                 <button
                   type="button"
                   className="primary-action"

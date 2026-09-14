@@ -13,6 +13,7 @@ import type {
 } from "./loadModel";
 import type {
   DatasetSourceInspection,
+  DelimitedHeaderModePreview,
   ImportDateConvention,
   ImportNumberConvention,
   ImportProfileMismatch,
@@ -46,6 +47,7 @@ function formatFileSize(bytes: number): string {
 
 interface LoadPhaseProps {
   children?: ReactNode;
+  reusableTaskPanel?: ReactNode;
   runtime: LoadRuntimeState;
   disabled?: boolean;
   datasetStatus: DatasetStatus;
@@ -58,6 +60,7 @@ interface LoadPhaseProps {
   onClearRecent: () => void;
   onRemoveRecent: (id: string) => void;
   onSheetAction: (action: SheetSelectionAction) => void;
+  onRetryHeaderPreview?: () => void;
   onProfileReviewAction?: (action: ProfileReviewAction) => void;
   onResourcePreflightAction?: (action: ResourcePreflightAction) => void;
   onSchemaMismatchAction?: (action: SchemaMismatchAction) => void;
@@ -66,6 +69,7 @@ interface LoadPhaseProps {
 
 export function LoadPhase({
   children,
+  reusableTaskPanel,
   runtime,
   disabled = false,
   datasetStatus,
@@ -78,6 +82,7 @@ export function LoadPhase({
   onClearRecent,
   onRemoveRecent,
   onSheetAction,
+  onRetryHeaderPreview = () => undefined,
   onProfileReviewAction = () => undefined,
   onResourcePreflightAction = () => undefined,
   onSchemaMismatchAction = () => undefined,
@@ -237,6 +242,8 @@ export function LoadPhase({
         </details>
       )}
 
+      {reusableTaskPanel}
+
       {datasetStatus.kind === "loading" && (
         <OperationProgressView
           progress={datasetStatus.progress}
@@ -364,9 +371,17 @@ export function LoadPhase({
           describedBy="sheet-description"
           onDismiss={() => onSheetAction({ kind: "cancelled" })}
         >
-          <p className="eyebrow">Libro seleccionado</p>
-          <h3 id="sheet-title">Elegir hoja de {sheetSelection.source.fileName}</h3>
-          <p id="sheet-description">Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar.</p>
+          <p className="eyebrow">{sheetSelection.source.format === "excel" ? "Libro seleccionado" : "Archivo delimitado seleccionado"}</p>
+          <h3 id="sheet-title">
+            {sheetSelection.source.format === "excel"
+              ? `Elegir hoja de ${sheetSelection.source.fileName}`
+              : `Revisar encabezados de ${sheetSelection.source.fileName}`}
+          </h3>
+          <p id="sheet-description">
+            {sheetSelection.source.format === "excel"
+              ? "Columnia cargará únicamente la hoja elegida y conservará el dataset activo hasta terminar."
+              : "Compara una muestra con las dos interpretaciones. El dataset activo se conserva hasta que confirmes la carga."}
+          </p>
           {sheetSelection.source.isCompressedContainer && (
             <p className="notice" role="note">
               Los libros comprimidos pueden ocupar bastante más memoria al abrirse que su tamaño en disco.
@@ -374,16 +389,20 @@ export function LoadPhase({
             </p>
           )}
           <ResourceEstimateSummary source={sheetSelection.source} />
-          <label htmlFor="workbook-sheet">Hoja</label>
-          <select
-            id="workbook-sheet"
-            value={sheetSelection.selectedSheetId}
-            onChange={(event) => onSheetAction({ kind: "sheet_changed", sheetId: event.target.value })}
-          >
-            {sheetSelection.source.sheets.map((sheet) => (
-              <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
-            ))}
-          </select>
+          {sheetSelection.source.format === "excel" && (
+            <>
+              <label htmlFor="workbook-sheet">Hoja</label>
+              <select
+                id="workbook-sheet"
+                value={sheetSelection.selectedSheetId}
+                onChange={(event) => onSheetAction({ kind: "sheet_changed", sheetId: event.target.value })}
+              >
+                {sheetSelection.source.sheets.map((sheet) => (
+                  <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
+                ))}
+              </select>
+            </>
+          )}
           <fieldset className="sheet-dialog__options">
             <legend>Encabezados</legend>
             <label>
@@ -393,7 +412,9 @@ export function LoadPhase({
                 checked={sheetSelection.headerMode === "firstRow"}
                 onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "firstRow" })}
               />
-              Usar la primera fila como encabezados
+              {sheetSelection.source.format === "excel"
+                ? "Usar la primera fila como encabezados"
+                : "Usar la primera fila como encabezados y excluirla de los datos"}
             </label>
             <label>
               <input
@@ -402,7 +423,9 @@ export function LoadPhase({
                 checked={sheetSelection.headerMode === "generated"}
                 onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "generated" })}
               />
-              Generar encabezados (column_1, column_2…)
+              {sheetSelection.source.format === "excel"
+                ? "Generar encabezados (column_1, column_2…)"
+                : "Conservar la primera fila como datos y generar nombres (column_1, column_2…)"}
             </label>
           </fieldset>
           {sheetSelection.suggestedProfile && (
@@ -415,7 +438,7 @@ export function LoadPhase({
                     checked={sheetSelection.useSavedProfile}
                     onChange={(event) => onSheetAction({ kind: "profile_toggled", useProfile: event.target.checked })}
                   />
-                  Usar la hoja, encabezado y esquema guardados si coinciden
+                  Usar {sheetSelection.source.format === "excel" ? "la hoja, el encabezado" : "el encabezado"} y esquema guardados si coinciden
                 </label>
               ) : (
                 <p role="note">
@@ -434,34 +457,74 @@ export function LoadPhase({
             <dl>
               <div>
                 <dt>Formato y tamaño</dt>
-                <dd>Excel · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
+                <dd>{sheetSelection.source.format.toUpperCase()} · {formatFileSize(sheetSelection.source.fileSizeBytes)}</dd>
               </div>
-              <div>
-                <dt>Hojas disponibles</dt>
-                <dd>{sheetSelection.source.sheets.length}</dd>
-              </div>
-              <div>
-                <dt>Se cargará</dt>
-                <dd>{sheetSelection.source.sheets.find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.name ?? "Selecciona una hoja"}</dd>
-              </div>
+              {sheetSelection.source.format === "excel" ? (
+                <>
+                  <div>
+                    <dt>Hojas disponibles</dt>
+                    <dd>{sheetSelection.source.sheets.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Se cargará</dt>
+                    <dd>{sheetSelection.source.sheets.find((sheet) => sheet.id === sheetSelection.selectedSheetId)?.name ?? "Selecciona una hoja"}</dd>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <dt>Separador detectado</dt>
+                  <dd>
+                    {sheetSelection.headerReview
+                      ? sheetSelection.headerReview.delimiter === "\t" ? "Tabulador" : `“${sheetSelection.headerReview.delimiter}”`
+                      : "Calculando muestra…"}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>Encabezados</dt>
                 <dd>{sheetSelection.headerMode === "firstRow" ? "Usar la primera fila" : "Generar nombres de columna"}</dd>
               </div>
             </dl>
-            <p role="note">
-              Esta inspección previa no muestra el esquema ni los tipos de las columnas. Podrás revisarlos en Diagnóstico después de cargar.
-            </p>
+            {sheetSelection.source.format === "excel" ? (
+              <p role="note">
+                Esta inspección previa no muestra el esquema ni los tipos de las columnas. Podrás revisarlos en Diagnóstico después de cargar.
+              </p>
+            ) : (
+              <>
+                {sheetSelection.headerReviewLoading && (
+                  <p role="status">Preparando una muestra local de hasta 64 KiB…</p>
+                )}
+                {sheetSelection.error && (
+                  <p className="notice notice--error" role="alert">No se pudo previsualizar el archivo: {sheetSelection.error}</p>
+                )}
+                {sheetSelection.headerReview && (
+                  <HeaderInterpretationPreview
+                    preview={sheetSelection.headerReview[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"]}
+                  />
+                )}
+                <p role="note">
+                  La muestra lee como máximo 64 KiB y enseña hasta cinco filas. Los valores siguen como texto; la carga completa empieza solo al confirmar.
+                  {sheetSelection.headerReview?.[sheetSelection.headerMode === "firstRow" ? "firstRow" : "generated"].sampleTruncated
+                    ? " La muestra quedó truncada y puede no representar el archivo entero."
+                    : ""}
+                </p>
+              </>
+            )}
           </section>
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={() => onSheetAction({ kind: "cancelled" })}>Cancelar</button>
+            {sheetSelection.source.format !== "excel" && sheetSelection.error && (
+              <button type="button" className="secondary-action" onClick={onRetryHeaderPreview}>Reintentar muestra</button>
+            )}
             <button
               type="button"
               className="primary-action"
               onClick={() => onSheetAction({ kind: "confirmed" })}
-              disabled={!sheetSelection.selectedSheetId}
+              disabled={sheetSelection.source.format === "excel"
+                ? !sheetSelection.selectedSheetId
+                : sheetSelection.headerReviewLoading === true || !sheetSelection.headerReview}
             >
-              Cargar hoja
+              {sheetSelection.source.format === "excel" ? "Cargar hoja" : "Cargar archivo"}
             </button>
           </div>
         </ModalDialog>
@@ -482,6 +545,39 @@ export function LoadPhase({
       )}
       {current && <DatasetMetrics dataset={current} />}
     </>
+  );
+}
+
+function HeaderInterpretationPreview({ preview }: { preview: DelimitedHeaderModePreview }) {
+  return (
+    <section className="sheet-import-summary" aria-label="Vista previa de la interpretación">
+      <h4>{preview.headerMode === "firstRow" ? "Con primera fila como encabezado" : "Con nombres generados"}</h4>
+      <p role="note">
+        {preview.includesFirstRow
+          ? "La primera fila se conserva como un registro."
+          : "La primera fila se usa para nombrar columnas y se excluye de los registros."}
+      </p>
+      {preview.columns.length === 0 ? (
+        <p role="note">No se detectaron columnas en la muestra.</p>
+      ) : (
+        <div className="table-region" tabIndex={0} aria-label="Muestra importada">
+          <table>
+            <thead>
+              <tr>{preview.columns.map((column) => <th key={column.name} scope="col">{column.name}</th>)}</tr>
+            </thead>
+            <tbody>
+              {preview.rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {preview.columns.map((column, columnIndex) => (
+                    <td key={`${column.name}:${columnIndex}`}>{row[columnIndex] ?? <span className="null-value">null</span>}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

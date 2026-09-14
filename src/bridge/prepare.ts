@@ -121,6 +121,7 @@ export function applySafeCorrections(options: SafeCorrectionOptions): Promise<Sa
     trimText: options.trimText,
     normalizeSentinels: options.normalizeSentinels,
     normalizeColumnNames: options.normalizeColumnNames,
+    removeDuplicates: options.removeDuplicates,
   });
 }
 

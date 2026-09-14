@@ -2803,9 +2803,13 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 - [ ] **RV02 — Importación unificada y explicable.** Aceptar una sola vez hoja,
   encabezados, esquema, ambigüedades y recursos; permitir revisar encabezados
   CSV antes de activar el dataset.
-- [ ] **RV03 — Plan completo y resultado antes/después.** Reunir operaciones,
+- [x] **RV03 — Plan completo y resultado antes/después.** Reunir operaciones,
   motivos e impacto en una unidad reversible compatible y recalcular calidad al
   terminar.
+  - **Cerrada: 2026-09-14.** El plan de preparación combina recorte, marcadores,
+    normalización de nombres y duplicados exactos en una revisión reversible;
+    conserva la primera fila, compara calidad antes/después y recalcula el perfil
+    una vez. Cobertura nativa y de App.
 - [ ] **RV04 — Excepciones, cancelación y recuperación.** Resolver, conservar o
   excluir excepciones; una cancelación o fallo nunca publica éxito parcial.
 - [ ] **RV05 — Tarea reutilizable.** Guardar importación, receta, reglas y salida
@@ -2842,3 +2846,10 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 Diccionario de negocio, catálogos de equivalencias, reanudación avanzada de
 lotes, vigilancia de carpetas, macOS/Linux y nuevos conectores quedan fuera de
 la cola hasta demostrar demanda repetida.
+
+### Progreso de Tier 9
+
+| Fecha | Estado |
+| --- | --- |
+| 2026-09-14 | RV03 queda cerrada tras pruebas nativas y de App. RV01, RV02, RV04, RV05, RV06 y RV12 siguen parciales; RV07–RV11 requieren evidencia externa; RV13–RV14 siguen abiertos; RV15 queda condicionado a demanda y RV16 se hará gradualmente. |
+| 2026-09-14 | Validación local: 389 pruebas frontend y 15 E2E aprobadas; build TypeScript/Vite, `cargo fmt --check`, `ipc:check` (76 producción, 4 debug, 67 estructuras), seis pruebas del contrato de matriz y cuatro perfiles sintéticos de 1 y 100 MiB aprobados. `cargo test --lib` registró 444 aprobadas y 4 ignoradas por requerir servicios/drivers externos. El benchmark CLI aún no mide cancelación. |
