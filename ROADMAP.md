@@ -2062,7 +2062,7 @@ por el mero hecho de estar documentada aquí.
     valida 995 identidades; la revisión legal del canal y los textos completos
     que ese canal exija siguen pendientes.
 
-  - **Reauditoría 2026-09-05 (A-13):** la ficha `legal-distribution-decision.json` sigue en `pending-legal-review`, con diez campos pendientes. El control técnico no equivale a aceptación jurídica. Se conserva esta tarea sin duplicarla.
+  - **Reauditoría 2026-09-05 (A-13):** en esa fecha la ficha seguía en `pending-legal-review`; ese estado histórico quedó supersedido por la decisión versionada del 2026-09-09. La publicación de código fuente únicamente en GitHub está aprobada y `notices:check` aprobó el inventario técnico. Esta aprobación no autoriza instaladores, updater ni comercialización; esos gates externos siguen en RV11, con ONAPI como requisito previo a comercializar.
 
 ### Prioridad media
 
@@ -2212,7 +2212,7 @@ por el mero hecho de estar documentada aquí.
     `Release`/`Package` mientras falten aprobación y canal.
 
   - **Reauditoría 2026-09-05 (A-12):** el texto de `src/App.tsx:827` promete que ningún dataset sale del equipo, aunque existe ODBC remoto explícito. Corregir esa promesa e incluir destino/datos enviados/credenciales de sesión en la aceptación ya pendiente. A-13 conserva la dependencia jurídica.
-  - **Aplicación técnica 2026-09-05:** el panel ahora distingue procesamiento local, ausencia de conexiones automáticas y exportación ODBC explícita; también informa que la cadena y contraseña solo viven durante esa sesión. La revisión jurídica, jurisdicción, responsable, canal y prueba de retención/borrado siguen pendientes.
+  - **Aplicación técnica 2026-09-05:** el panel distingue procesamiento local, ausencia de conexiones automáticas y exportación ODBC explícita; también informa que la cadena y contraseña solo viven durante esa sesión. La decisión 2026-09-09 documenta responsable, jurisdicción dominicana, retención y canal de código fuente únicamente. Falta la aceptación nativa sobre un binario/canal autorizado, y la eventual comercialización requiere resolver ONAPI.
 
 ### Prioridad baja
 
@@ -2703,12 +2703,12 @@ Origen: [auditoría consolidada](AUDITORIA.md), base `7d83781`, versión `0.167.
 - No reintroducir compatibilidad externa retirada ni herramientas obligatorias de pago.
 - Conservar CONTEXTO.md como única fuente viva; las correcciones del producto necesitan aprobación posterior al informe.
 
-## Tier 7 — Regresiones de gates tras rediseño y modularización (abierto 2026-09-07)
+## Tier 7 — Regresiones de gates tras rediseño y modularización (cerrado 2026-09-07)
 
 Origen: [auditoría consolidada](AUDITORIA.md),
-base `d0e00fd`, versión `0.167.0`. Cuatro tareas registradas: una baja
-permanece abierta. El producto y el recorrido nativo pasan; esta tanda
-recupera controles locales que quedaron rojos o desactualizados.
+base `d0e00fd`, versión `0.167.0`. Las cuatro regresiones registradas están
+cerradas; se recuperaron los controles locales que habían quedado rojos o
+desactualizados.
 
 - [x] **[T7-01] Reducir el CSS al presupuesto contractual**
   - **Área:** Rendimiento / UI/UX
@@ -2820,15 +2820,23 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 ### Evidencia para declarar soporte
 
 - [ ] **RV07 — Beta con tareas reales.** Cerrar Gate 1 de Tier 8 con tres
-  participantes, 24/30 tareas sin ayuda y resumen sanitizado.
+  participantes distintos y el mismo release candidate/commit; probar dos casos
+  reales por sesión y al menos tres datasets distintos; lograr 24/30 tareas sin
+  ayuda, completar flujo/guardado/reapertura/entrega en cada sesión, no dejar
+  P0/P1 abierto y publicar resumen sanitizado con reportes detallados en
+  `.local/beta/`.
 - [ ] **RV08 — Regresiones derivadas de beta.** Convertir fallos observados en
   fixtures sintéticas y pruebas pertinentes.
 - [ ] **RV09 — Aceptación nativa de accesibilidad.** Completar Cargar→Entregar en
   Windows con teclado y lector de pantalla real.
 - [ ] **RV10 — Aceptación SQL Server.** Verificar round-trip booleano desde frame
   y fuente incremental; reemplaza el pendiente T6-05 sin duplicarlo.
-- [ ] **RV11 — Candidato instalable y distribución.** Resolver notices y decisión
-  de distribución; validar instalación, updater y recuperación del artefacto.
+- [ ] **RV11 — Candidato instalable y distribución.** La ficha vigente autoriza
+  publicar código fuente únicamente en GitHub y la revisión técnica de notices
+  está aprobada; eso no autoriza instaladores/updater ni comercialización. Para
+  ampliar canal, completar prueba en VM limpia, instalación/reapertura, updater
+  con fallos y firma inválida, recuperación y descarga/verificación de hashes y
+  firmas. ONAPI sigue como requisito previo a comercializar.
 
 ### Mejoras guiadas por la beta
 
@@ -2863,7 +2871,7 @@ la cola hasta demostrar demanda repetida.
 
 | Fecha | Estado |
 | --- | --- |
-| 2026-09-14 | RV03 y RV13 quedan cerradas tras regresiones nativas y de App. RV01, RV02, RV04, RV05, RV06 y RV12 siguen parciales; RV07–RV11 requieren evidencia externa; RV14 tiene implementación local lista y necesita aceptación BI; RV15 queda condicionado a demanda y RV16 se hará gradualmente. |
+| 2026-09-14 | RV03 y RV13 quedan cerradas tras regresiones nativas y de App. RV01, RV02, RV04, RV05, RV06 y RV12 siguen parciales; RV07–RV10 requieren evidencia externa; RV11 mantiene pendiente la distribución binaria/VM; RV14 tiene implementación local lista y necesita aceptación BI; RV15 queda condicionado a demanda y RV16 se hará gradualmente. |
 | 2026-09-14 | RV01 parcial: la navegación marca Preparar y Entregar «Hecho» solo desde resultados aplicados o exportados con éxito, y retira la marca al iniciar otro intento; siguen abiertas la coordinación central y la cobertura del resto de operaciones. | `src/App.tsx`, `src/App.test.tsx`, `docs/reference/roadmap-current.md` |
 | 2026-09-14 | Validación local: `npm test` (399/399), E2E (15/15), build TypeScript/Vite, `docs:check`, `governance:check`, `cargo fmt --check`, `ipc:check` (84 producción, 4 debug, 68 estructuras), contrato de matriz/perfiles sintéticos y `cargo test --lib` (458 aprobadas, 5 ignoradas por requerir servicios/drivers externos) pasaron. |
 | 2026-09-14 | RV12: `perf:benchmark` mide tres cancelaciones cooperativas del export CSV source-backed al observar bytes en el temporal; conserva byte a byte la salida anterior, no publica resultado parcial y confirma limpieza. La corrida `standard`, 1 MiB (7,61/15,80/16,56 ms) fue abreviada: 2 transformaciones y 1 actualización de proyecto. El contrato deja incompletos los ocho cruces hasta repetirlos con al menos 3 transformaciones y 2 actualizaciones; la medición de cancelación cubre motor nativo, sin despacho UI/IPC. |
