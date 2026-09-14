@@ -49,7 +49,6 @@ interface ReviewPhaseProps {
   reviewTab: ReviewTab;
   onTabChange: (tab: ReviewTab) => void;
   onPageChange: (offset: number) => void;
-  onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
   onContinueToPrepare?: (target?: QualityActionTarget) => void;
   comparisonStatus: ComparisonStatus;
@@ -80,7 +79,6 @@ export function ReviewPhase({
   reviewTab,
   onTabChange,
   onPageChange,
-  onAnalyzeQuality,
   onCancelProfile,
   onContinueToPrepare = () => undefined,
   comparisonStatus,
@@ -130,7 +128,6 @@ export function ReviewPhase({
           <QualitySection
             dataset={datasetStatus.dataset}
             status={profileStatus}
-            onAnalyze={onAnalyzeQuality}
             onCancel={onCancelProfile}
             onContinueToPrepare={onContinueToPrepare}
             comparisonAvailable={comparisonStatus.kind === "ready"}
@@ -506,7 +503,6 @@ function DatasetComparisonSection({
 function QualitySection({
   dataset,
   status,
-  onAnalyze,
   onCancel,
   onContinueToPrepare,
   comparisonAvailable,
@@ -520,7 +516,6 @@ function QualitySection({
 }: {
   dataset: DatasetPreview;
   status: ProfileStatus;
-  onAnalyze: () => void;
   onCancel: () => void;
   onContinueToPrepare: (target?: QualityActionTarget) => void;
   comparisonAvailable: boolean;
@@ -539,11 +534,6 @@ function QualitySection({
           <p className="step">Calidad inicial</p>
           <h3 id="quality-title">Diagnóstico del dataset</h3>
         </div>
-        {status.kind !== "loading" && (
-          <button className="primary-action" type="button" onClick={onAnalyze}>
-            {status.kind === "ready" ? "Analizar de nuevo" : "Analizar calidad"}
-          </button>
-        )}
       </div>
       <DatasetMetrics dataset={dataset} />
       {status.kind === "loading" && (
@@ -992,11 +982,6 @@ function QualityProfile({
                 : `${priorityCount} ${priorityCount === 1 ? "señal requiere" : "señales requieren"} atención`}
             </h4>
           </div>
-          {priorityCount === 0 && (
-            <button type="button" className="primary-action" onClick={() => onContinueToPrepare()}>
-              Continuar a Preparar
-            </button>
-          )}
         </div>
         <dl className="quality-summary" aria-label="Resumen de calidad del dataset">
         <div>

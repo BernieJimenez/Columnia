@@ -22,7 +22,6 @@ interface PreparePhaseProps {
   qualityRules?: QualityRule[];
   recipeDraft: SavedRecipe | null;
   recipeSession: number;
-  onAnalyzeQuality: () => void;
   onCancelProfile: () => void;
   onRemoveDuplicates: () => void;
   onRemoveNearDuplicates?: () => void;
@@ -66,7 +65,6 @@ export function PreparePhase({
   qualityRules = [],
   recipeDraft,
   recipeSession,
-  onAnalyzeQuality,
   onCancelProfile,
   onRemoveDuplicates,
   onRemoveNearDuplicates = () => undefined,
@@ -102,6 +100,9 @@ export function PreparePhase({
   const nearDuplicateCount = profileStatus.kind === "ready" ? profileStatus.profile.nearDuplicateRowCount : null;
   const changing = changeStatus.kind === "working";
   const textColumns = dataset.columns.filter((column) => column.dataType === "String" && column.name !== "_cambios");
+  const hasColumns = dataset.columns.length > 0;
+  const hasRowsAndColumns = dataset.rowCount > 0 && hasColumns;
+  const hasRowAuditColumn = dataset.columns.some((column) => column.name === "_cambios");
   const [selectedTextColumns, setSelectedTextColumns] = useState<string[]>([]);
   const [removeAccents, setRemoveAccents] = useState(true);
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
@@ -232,19 +233,6 @@ export function PreparePhase({
         role="tabpanel"
         aria-labelledby="prepare-corrections-tab"
       >
-      <section className="recommended-batch" aria-labelledby="recommended-batch-title">
-        <div>
-          <p className="step">Aplicación agrupada</p>
-          <h3 id="recommended-batch-title">Correcciones recomendadas</h3>
-          <p>
-            Recorta espacios exteriores y normaliza los encabezados en una sola operación
-            atómica y reversible.
-          </p>
-        </div>
-        <button type="button" onClick={onApplyRecommended} disabled={changing}>
-          Aplicar recomendadas
-        </button>
-      </section>
       {profileStatus.kind === "ready" && (
         <CleaningSignals
           profile={profileStatus.profile}
@@ -268,58 +256,130 @@ export function PreparePhase({
                onDropOutliers={() => setOutlierConfirmation("drop")}
          />
       )}
-      {profileStatus.kind === "idle" && (
-        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title">
+      {profileStatus.kind === "ready" && duplicateCount !== null && duplicateCount > 0 && (
+        <section
+          id={qualityActionTargetDomId("duplicates")}
+          className="prepare-card"
+          aria-labelledby="duplicates-title"
+          tabIndex={-1}
+        >
           <div>
-            <p className="step">Estado del análisis</p>
-            <h3 id="prepare-analysis-title">Actualiza las señales de calidad</h3>
-            <p>
-              El dataset cambió o todavía no se ha analizado. Vuelve a analizarlo para ver nulos,
-              duplicados y recomendaciones actualizadas.
-            </p>
+            <p className="step">Señal detectada</p>
+            <h3 id="duplicates-title">Filas duplicadas</h3>
+            <p>Se detectaron {duplicateCount.toLocaleString()} filas adicionales que puedes retirar de forma reversible.</p>
           </div>
-          <button type="button" onClick={onAnalyzeQuality} disabled={changing}>
-            Analizar calidad
+          <button type="button" onClick={onRemoveDuplicates} disabled={changing}>
+            Eliminar duplicados
           </button>
         </section>
       )}
+      {profileStatus.kind === "ready" && nearDuplicateCount !== null && nearDuplicateCount > 0 && (
+        <section className="prepare-card" aria-labelledby="near-duplicates-title">
+          <div>
+            <p className="step">Revisión con confirmación</p>
+            <h3 id="near-duplicates-title">Duplicados parecidos</h3>
+            <p>
+              Se identificaron {nearDuplicateCount.toLocaleString()} filas parecidas por normalización de texto.
+              La primera fila y las copias exactas se conservarán.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNearDuplicateConfirmation(true)}
+            disabled={changing}
+          >
+            Revisar y eliminar parecidos
+          </button>
+        </section>
+      )}
+      {profileStatus.kind === "idle" && (
+        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title" role="status">
+          <div>
+            <p className="step">Diagnóstico automático</p>
+            <h3 id="prepare-analysis-title">Preparando el diagnóstico del dataset</h3>
+            <p>
+              El análisis se ejecuta automáticamente. Aquí aparecerán las señales detectadas y las
+              correcciones que aplican a este archivo.
+            </p>
+          </div>
+        </section>
+      )}
+      {profileStatus.kind === "loading" && (
+        <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-loading-title">
+          <div>
+            <p className="step">Diagnóstico automático</p>
+            <h3 id="prepare-analysis-loading-title">Actualizando el diagnóstico</h3>
+            <p>Las correcciones basadas en señales estarán disponibles cuando termine el análisis.</p>
+          </div>
+          <OperationProgressView
+            progress={profileStatus.progress}
+            cancellation={profileStatus.cancelRequested
+              ? { kind: "requested" }
+              : { kind: "available", onCancel: onCancelProfile }}
+          />
+        </section>
+      )}
+      {profileStatus.kind === "error" && (
+        <p className="notice notice--error" role="alert">
+          No se pudo analizar la calidad: {profileStatus.message} Reintenta desde el pie de la aplicación.
+        </p>
+      )}
+      {hasColumns && (
       <details className="advanced-corrections">
         <summary>
           <span>Más herramientas</span>
           <small>Correcciones avanzadas</small>
         </summary>
         <div className="advanced-corrections__content">
+      {hasRowsAndColumns && (
       <section className="prepare-card" aria-labelledby="row-audit-title">
         <div>
           <p className="step">Trazabilidad local</p>
           <h3 id="row-audit-title">Cambios por fila</h3>
           <p>
-            {dataset.columns.some((column) => column.name === "_cambios")
+            {hasRowAuditColumn
               ? "La columna _cambios está activa; cada corrección posterior añadirá su operación a la fila afectada."
               : "Activa una columna reservada _cambios para conservar una etiqueta breve de las correcciones posteriores."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onEnableRowAudit}
-          disabled={changing || dataset.columns.some((column) => column.name === "_cambios")}
-        >
-          {dataset.columns.some((column) => column.name === "_cambios") ? "Trazabilidad activa" : "Activar trazabilidad"}
+        {!hasRowAuditColumn && (
+          <button type="button" onClick={onEnableRowAudit} disabled={changing}>
+            Activar trazabilidad
+          </button>
+        )}
+      </section>
+      )}
+      {textColumns.length > 0 && (
+      <section className="recommended-batch" aria-labelledby="recommended-batch-title">
+        <div>
+          <p className="step">Acción general reversible</p>
+          <h3 id="recommended-batch-title">Recortar espacios y normalizar encabezados</h3>
+          <p>
+            Recorta espacios exteriores de las columnas de texto y convierte los encabezados a
+            nombres consistentes en una sola operación reversible.
+          </p>
+          <p>Los encabezados pueden afectar consultas e integraciones que dependan de sus nombres actuales.</p>
+        </div>
+        <button type="button" onClick={onApplyRecommended} disabled={changing}>
+          Aplicar ambas correcciones
         </button>
       </section>
+      )}
       <section className="prepare-card" aria-labelledby="normalize-columns-title">
         <div>
           <p className="step">Recomendada y segura</p>
           <h3 id="normalize-columns-title">Normalizar nombres de columnas</h3>
           <p>
             Convierte los encabezados a nombres consistentes en minúsculas, sin acentos y con
-            guiones bajos. Las colisiones se numeran de forma determinista.
+            guiones bajos. Las colisiones se numeran de forma determinista. Esto puede afectar
+            consultas e integraciones que usen los nombres actuales.
           </p>
         </div>
         <button type="button" onClick={onNormalizeColumns} disabled={changing}>
           Normalizar columnas
         </button>
       </section>
+      {textColumns.length > 0 && (
       <section className="prepare-card" aria-labelledby="trim-text-title">
         <div>
           <p className="step">Recomendada y segura</p>
@@ -333,6 +393,8 @@ export function PreparePhase({
           Recortar espacios
         </button>
       </section>
+      )}
+      {textColumns.length > 0 && (
       <section className="prepare-card prepare-card--stacked" aria-labelledby="normalize-text-title">
         <div>
           <p className="step">Requiere selección</p>
@@ -342,8 +404,7 @@ export function PreparePhase({
             unir categorías que antes eran distintas; elige las columnas conscientemente.
           </p>
         </div>
-        {textColumns.length > 0 ? (
-          <div className="text-cleaning-options">
+        <div className="text-cleaning-options">
             <fieldset>
               <legend>Columnas de texto</legend>
               {textColumns.map((column) => (
@@ -378,11 +439,10 @@ export function PreparePhase({
             >
               Normalizar texto seleccionado
             </button>
-          </div>
-        ) : (
-          <p className="profile-note">Este dataset no contiene columnas de texto.</p>
-        )}
+        </div>
       </section>
+      )}
+      {hasRowsAndColumns && (
       <section className="prepare-card" aria-labelledby="empty-rows-title">
         <div>
           <p className="step">Corrección segura</p>
@@ -393,73 +453,10 @@ export function PreparePhase({
           Eliminar filas vacías
         </button>
       </section>
-      {profileStatus.kind === "loading" ? (
-        <OperationProgressView
-          progress={profileStatus.progress}
-          cancellation={profileStatus.cancelRequested
-            ? { kind: "requested" }
-            : { kind: "available", onCancel: onCancelProfile }}
-        />
-      ) : (
-        <section
-          id={qualityActionTargetDomId("duplicates")}
-          className="prepare-card"
-          aria-labelledby="duplicates-title"
-          tabIndex={-1}
-        >
-          <div>
-            <p className="step">Corrección disponible</p>
-            <h3 id="duplicates-title">Filas duplicadas</h3>
-            <p>
-              {duplicateCount === null
-                ? "Analiza la calidad para identificar duplicados antes de modificar los datos."
-                : duplicateCount === 0
-                  ? "No se detectaron filas duplicadas adicionales."
-                  : `Se detectaron ${duplicateCount.toLocaleString()} filas duplicadas adicionales.`}
-            </p>
-          </div>
-          {duplicateCount === null ? (
-            <button type="button" onClick={onAnalyzeQuality}>
-              Analizar antes de preparar
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onRemoveDuplicates}
-              disabled={duplicateCount === 0 || changing}
-            >
-              Eliminar duplicados
-            </button>
-          )}
-        </section>
-      )}
-      {profileStatus.kind === "ready" && (
-        <section className="prepare-card" aria-labelledby="near-duplicates-title">
-          <div>
-            <p className="step">Revisión con confirmación</p>
-            <h3 id="near-duplicates-title">Duplicados parecidos</h3>
-            <p>
-              {nearDuplicateCount === null || nearDuplicateCount === 0
-                ? "No se detectaron filas parecidas adicionales después de excluir los duplicados exactos."
-                : `Se identificaron ${nearDuplicateCount.toLocaleString()} filas parecidas por normalización de texto. La primera fila y las copias exactas se conservarán.`}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setNearDuplicateConfirmation(true)}
-            disabled={nearDuplicateCount === null || nearDuplicateCount === 0 || changing}
-          >
-            Revisar y eliminar parecidos
-          </button>
-        </section>
-      )}
-      {profileStatus.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo analizar la calidad: {profileStatus.message}
-        </p>
       )}
         </div>
       </details>
+      )}
       </div>
       )}
       {nearDuplicateConfirmation && nearDuplicateCount !== null && nearDuplicateCount > 0 && (

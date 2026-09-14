@@ -93,6 +93,15 @@
   font-weight: 700;
   line-height: 1.35;
 }
+.workspace-list p {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font-size: .875rem;
+}
+.workspace-list p strong { color: var(--text-primary); font-weight: 650; }
+.workspace-list p span { color: var(--text-secondary); font-size: .8125rem; }
 .workspace-list ul {
   display: grid;
   gap: 2px;

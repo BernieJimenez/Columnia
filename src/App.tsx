@@ -202,6 +202,7 @@ export function App() {
   const [sqlHistory, setSqlHistory] = useState<SqlQueryHistoryEntry[]>([]);
   const [datasetRevision, setDatasetRevision] = useState(0);
   const datasetRevisionRef = useRef(0);
+  const autoProfileRevisionRef = useRef<number | null>(null);
   const pageRequestRef = useRef(0);
   const operationBusyRef = useRef(false);
   const [completedPhases, setCompletedPhases] = useState<Set<WorkflowPhase>>(() => new Set());
@@ -642,6 +643,16 @@ export function App() {
     }
   }
 
+  useEffect(() => {
+    if (datasetStatus.kind !== "ready" || profileStatus.kind !== "idle") return;
+    if (autoProfileRevisionRef.current === datasetRevision) return;
+
+    // Cada revisión se analiza una vez de forma automática. Tras cancelar o fallar,
+    // el avance principal permite reintentarlo sin crear un bucle de reintentos.
+    autoProfileRevisionRef.current = datasetRevision;
+    void analyzeQuality();
+  }, [datasetRevision, datasetStatus.kind, profileStatus.kind]);
+
   async function compareActiveDataset() {
     setComparisonStatus(beginComparison());
     try {
@@ -868,6 +879,37 @@ export function App() {
   const previousPhase = workflowPhases[activePhaseIndex - 1];
   const nextPhase = workflowPhases[activePhaseIndex + 1];
   const progressValue = activePhaseIndex + 1;
+  const profileGatedPhase = activePhase === "review" || activePhase === "prepare";
+  const primaryNextLabel = profileGatedPhase && profileStatus.kind !== "ready"
+    ? profileStatus.kind === "error"
+      ? "Reintentar análisis"
+      : profileStatus.kind === "loading"
+        ? "Analizando calidad…"
+        : "Analizar calidad"
+    : activePhase === "review"
+      ? "Ver plan de preparación"
+      : activePhase === "prepare"
+        ? "Revisar opciones de entrega"
+        : nextPhase ? `Continuar a ${nextPhase.label}` : "";
+  const primaryNextDescription = profileGatedPhase && profileStatus.kind !== "ready"
+    ? profileStatus.kind === "error"
+      ? "El análisis tuvo un problema; puedes intentarlo de nuevo."
+      : "El diagnóstico se inicia automáticamente al cargar y puede tardar según el tamaño."
+    : profileGatedPhase
+      ? activePhase === "review"
+        ? "El diagnóstico está actualizado. Revisa las señales antes de cambiar los datos."
+        : "Prepara los datos; el diagnóstico se actualizará después de cada corrección."
+      : activeDataset ? nextPhase?.description : "Carga un dataset para continuar con la revisión.";
+
+  function handleNextPhase() {
+    if (!nextPhase) return;
+    if (profileGatedPhase && profileStatus.kind !== "ready") {
+      if (profileStatus.kind === "idle" || profileStatus.kind === "error") void analyzeQuality();
+      return;
+    }
+    setCompletedPhases((current) => new Set(current).add(activePhase));
+    setActivePhase(nextPhase.id);
+  }
   const loadRuntime: LoadRuntimeState = status.kind === "ready"
     ? { kind: "connected" }
     : status.kind === "browser"
@@ -1100,7 +1142,6 @@ export function App() {
                 reviewTab={reviewTab}
                 onTabChange={setReviewTab}
                 onPageChange={changePage}
-                onAnalyzeQuality={analyzeQuality}
                 onCancelProfile={() => cancelActiveOperation("profile")}
                 onContinueToPrepare={(target) => {
                   setPrepareFocusTarget(target ?? null);
@@ -1142,7 +1183,6 @@ export function App() {
                 qualityRules={deliveryRules(deliveryContract)}
                 recipeDraft={recipeDraft}
                 recipeSession={recipeSession}
-                onAnalyzeQuality={analyzeQuality}
                 onCancelProfile={() => cancelActiveOperation("profile")}
                 onRemoveDuplicates={prepare.applyDuplicateRemoval}
                 onRemoveNearDuplicates={prepare.applyNearDuplicateRemoval}
@@ -1198,8 +1238,8 @@ export function App() {
             {nextPhase && (
               <div className="flow-footer__copy">
                 <p className="step">Siguiente paso</p>
-                <strong>{nextPhase.label}</strong>
-                <p>{activeDataset ? nextPhase.description : "Carga un dataset para continuar con la revisión."}</p>
+                <strong>{activePhase === "review" && profileStatus.kind === "ready" ? "Plan de preparación" : nextPhase.label}</strong>
+                <p>{primaryNextDescription}</p>
               </div>
             )}
             <div className="flow-footer__actions">
@@ -1213,19 +1253,16 @@ export function App() {
                   Volver a {previousPhase.label}
                 </button>
               )}
-              {nextPhase && (
+              {nextPhase && activeDataset && (
                 <button
                   type="button"
                   className="primary-action"
                   onMouseEnter={() => preloadPhase(nextPhase.id)}
                   onFocus={() => preloadPhase(nextPhase.id)}
-                  onClick={() => {
-                    setCompletedPhases((current) => new Set(current).add(activePhase));
-                    setActivePhase(nextPhase.id);
-                  }}
+                  onClick={handleNextPhase}
                   disabled={!activeDataset || operationBusy}
                 >
-                  Continuar a {nextPhase.label}
+                  {primaryNextLabel}
                 </button>
               )}
             </div>

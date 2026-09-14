@@ -58,7 +58,6 @@ describe("ReviewPhase design", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         onContinueToPrepare={onContinueToPrepare}
         comparisonStatus={{ kind: "idle" }}

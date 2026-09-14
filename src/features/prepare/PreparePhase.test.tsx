@@ -223,7 +223,7 @@ describe("PreparePhase", () => {
       historyStatus={EMPTY_HISTORY}
       recipeDraft={null}
       recipeSession={0}
-      onAnalyzeQuality={() => undefined}
+
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
@@ -254,7 +254,7 @@ describe("PreparePhase", () => {
     const correctionsTab = screen.getByRole("tab", { name: "Correcciones" });
     fireEvent.keyDown(correctionsTab, { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Transformaciones" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("heading", { name: "Preparar estructura y tipos" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cambiar columnas y tipos" })).toBeInTheDocument();
   });
 
   it("respeta disponibilidad y callbacks de Deshacer/Rehacer", () => {
@@ -268,7 +268,7 @@ describe("PreparePhase", () => {
     };
     render(<PreparePhase
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
-      historyStatus={history} onAnalyzeQuality={() => undefined} onCancelProfile={() => undefined}
+      historyStatus={history}  onCancelProfile={() => undefined}
       recipeDraft={null} recipeSession={0}
       onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeSentinels={() => undefined} onNormalizeBooleans={() => undefined} onImputeMissingValues={() => undefined} onEnableRowAudit={() => undefined} onNormalizeColumns={() => undefined}
       onRemoveEmptyRows={() => undefined}
@@ -309,7 +309,7 @@ describe("PreparePhase", () => {
       historyStatus={EMPTY_HISTORY}
       recipeDraft={null}
       recipeSession={0}
-      onAnalyzeQuality={() => undefined}
+
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
@@ -354,6 +354,8 @@ describe("PreparePhase", () => {
     expect(signals).toHaveTextContent("Duplicados parecidos: 1");
     expect(signals).toHaveTextContent("Tipos sugeridos:");
     expect(signals).toHaveTextContent("Fechas detectadas: fecha_alta coincide con un formato de fecha cerrado.");
+    expect(screen.getByRole("button", { name: "Eliminar duplicados" }).closest("details")).toBeNull();
+    expect(screen.getByRole("button", { name: "Revisar y eliminar parecidos" }).closest("details")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas constantes" }));
     expect(onRemoveConstantColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas vacías" }));
@@ -401,7 +403,7 @@ describe("PreparePhase", () => {
       historyStatus={EMPTY_HISTORY}
       recipeDraft={null}
       recipeSession={0}
-      onAnalyzeQuality={() => undefined}
+
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={onRemoveNearDuplicates}
@@ -444,7 +446,7 @@ describe("PreparePhase", () => {
       historyStatus={EMPTY_HISTORY}
       recipeDraft={null}
       recipeSession={0}
-      onAnalyzeQuality={() => undefined}
+
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={() => undefined}
@@ -490,7 +492,7 @@ describe("PreparePhase", () => {
       historyStatus={EMPTY_HISTORY}
       recipeDraft={null}
       recipeSession={0}
-      onAnalyzeQuality={() => undefined}
+
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={() => undefined}
@@ -551,7 +553,7 @@ describe("PreparePhase", () => {
       historyStatus={EMPTY_HISTORY}
       recipeDraft={null}
       recipeSession={0}
-      onAnalyzeQuality={() => undefined}
+
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveNearDuplicates={() => undefined}
@@ -597,7 +599,7 @@ describe("PreparePhase", () => {
       historyStatus={EMPTY_HISTORY}
       recipeDraft={null}
       recipeSession={0}
-      onAnalyzeQuality={() => undefined}
+
       onCancelProfile={() => undefined}
       onRemoveDuplicates={() => undefined}
       onRemoveEmptyRows={() => undefined}
@@ -641,7 +643,6 @@ describe("PreparePhase", () => {
 
   it("cubre estados de análisis, navegación de tabs y limpieza de texto seleccionada", () => {
     const callbacks = {
-      onAnalyzeQuality: vi.fn(),
       onCancelProfile: vi.fn(),
       onRemoveDuplicates: vi.fn(),
       onRemoveNearDuplicates: vi.fn(),
@@ -675,8 +676,10 @@ describe("PreparePhase", () => {
       {...callbacks}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Analizar antes de preparar" }));
-    expect(callbacks.onAnalyzeQuality).toHaveBeenCalledOnce();
+    expect(screen.getByRole("heading", { name: "Preparando el diagnóstico del dataset" })).toBeInTheDocument();
+    expect(screen.getByText(/El análisis se ejecuta automáticamente/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Analizar antes de preparar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Analizar calidad" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.keyDown(screen.getByRole("tab", { name: "Transformaciones" }), { key: "ArrowLeft" });
     expect(screen.getByRole("tab", { name: "Correcciones" })).toHaveAttribute("aria-selected", "true");
@@ -735,6 +738,10 @@ describe("PreparePhase", () => {
     expect(callbacks.onNormalizeText).toHaveBeenCalledWith(["nombre"], false);
     fireEvent.click(screen.getByRole("button", { name: "Recortar espacios" }));
     expect(callbacks.onTrimText).toHaveBeenCalledOnce();
+    expect(screen.getByRole("heading", { name: "Recortar espacios y normalizar encabezados" })).toBeInTheDocument();
+    expect(screen.getAllByText(/Los encabezados pueden afectar consultas e integraciones/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar ambas correcciones" }));
+    expect(callbacks.onApplyRecommended).toHaveBeenCalledOnce();
 
     cleanup();
     render(<PreparePhase
@@ -747,10 +754,117 @@ describe("PreparePhase", () => {
       {...callbacks}
     />);
     expect(screen.getByRole("alert")).toHaveTextContent("perfil no disponible");
+    expect(screen.getByRole("alert")).toHaveTextContent("Reintenta desde el pie de la aplicación.");
+  });
+
+  it("prioriza correcciones con señal y oculta herramientas sin columnas compatibles", () => {
+    const onlyNumericDataset: DatasetPreview = {
+      ...dataset,
+      columns: [{ name: "amount", dataType: "Int64" }],
+      columnCount: 1,
+      rows: [["10"], ["20"]],
+    };
+    const cleanNumericProfile: DatasetProfile = {
+      ...cleaningSignalsProfile,
+      duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
+      duplicatePercentage: 0,
+      columns: [{
+        ...cleaningSignalsProfile.columns[5],
+        name: "amount",
+        dataType: "Int64",
+        nullCount: 0,
+        completenessPercentage: 100,
+        outlierCount: 0,
+        privacySignal: null,
+        suggestedType: null,
+        typeMatchPercentage: null,
+        invalidTypeCount: 0,
+        sentinelCount: 0,
+        encodingIssueCount: 0,
+      }],
+    };
+    render(<PreparePhase
+      dataset={onlyNumericDataset}
+      profileStatus={{ kind: "ready", profile: cleanNumericProfile }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={EMPTY_HISTORY}
+      recipeDraft={null}
+      recipeSession={0}
+
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeSentinels={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Señales para revisar" })).toBeInTheDocument();
+    expect(screen.getByText("No se detectaron otras señales de limpieza en el perfil actual.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Filas duplicadas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Duplicados parecidos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Eliminar espacios exteriores" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Normalizar texto" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Aplicar ambas correcciones" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Eliminar filas vacías" }).closest("details")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Normalizar columnas" }).closest("details")).toBeInTheDocument();
   });
 });
 
 describe("TransformRecipeEditor", () => {
+  it("explica en lenguaje claro los cambios de grupos y valores atípicos", () => {
+    const initialDraft: LoadedRecipe = {
+      version: 1,
+      name: "Resumen por cliente",
+      savedAt: "2026-09-13T00:00:00Z",
+      recipe: {
+        ...emptyRecipe,
+        outlierTreatments: [{ column: "total", action: "impute" }],
+        groupSummary: {
+          groupBy: ["nombre"],
+          aggregations: [{ column: "total", operation: "sum" }],
+        },
+        contactNormalizations: [{ column: "nombre", kind: "email" }],
+      },
+    };
+    render(<TransformRecipeEditor
+      dataset={dataset}
+      busy={false}
+      initialDraft={initialDraft}
+      onApply={() => undefined}
+      onDraftChange={() => undefined}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Cambiar columnas y tipos" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cambios estimados al aplicar" })).toBeInTheDocument();
+    expect(screen.getByText(/No se puede estimar cuántas filas quedarán/)).toBeInTheDocument();
+    expect(screen.getByText(/1 ajuste de valores atípicos · resumen por grupos/)).toBeInTheDocument();
+    expect(screen.getByText(/1 limpieza de datos de contacto/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByText("Tratar valores atípicos")[0]);
+    expect(screen.getByRole("combobox", { name: "Columna de valores atípicos 1" })).toHaveValue("total");
+    expect(screen.getByText(/1,5 veces la distancia entre cuartiles, con al menos 4 valores numéricos válidos/)).toBeInTheDocument();
+    expect(screen.getByText(/fuera del rango exacto ±2\^53/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByText("Resumir filas por grupo")[0]);
+    expect(screen.getByRole("group", { name: "Columnas para definir los grupos" })).toBeInTheDocument();
+    expect(screen.getByText(/Los valores sin dato forman un grupo propio/)).toBeInTheDocument();
+    expect(screen.queryByText(/granularidad|outliers|resumen agrupado/i)).not.toBeInTheDocument();
+  });
+
   it("inicializa un borrador restaurado y emite cambios en una sola dirección", async () => {
     const onDraftChange = vi.fn();
     const restored: LoadedRecipe = {
@@ -884,7 +998,7 @@ describe("TransformRecipeEditor", () => {
       onDraftChange={() => undefined}
     />);
 
-    expect(screen.getByRole("combobox", { name: "Acción de outliers 1" })).toHaveValue("impute");
+    expect(screen.getByRole("combobox", { name: "Acción para valores atípicos 1" })).toHaveValue("impute");
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     expect(screen.getByRole("alertdialog")).toHaveTextContent("reemplazarán valores atípicos por la mediana");
     fireEvent.click(screen.getByRole("button", { name: "Confirmar y aplicar" }));
@@ -1057,7 +1171,7 @@ describe("TransformRecipeEditor", () => {
     expect(screen.getByRole("heading", { name: "Revisar columnas de la receta" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancelar carga" }));
     expect(screen.queryByRole("heading", { name: "Revisar columnas de la receta" })).not.toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("Corrige las columnas manualmente");
+    expect(screen.getByRole("alert")).toHaveTextContent("Corrígelas manualmente antes de guardarla o aplicarla.");
     expect(screen.getByRole("button", { name: "Aplicar receta" })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText("Columna para renombrar 1"), { target: { value: "nombre" } });

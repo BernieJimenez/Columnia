@@ -22,13 +22,29 @@ function operationGroupStatus(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function readableCopy(text: string) {
+  const operationCopy = text
+    .replace(/(\d+) tratamientos? de outliers/, (_, count: string) => `${count} ${count === "1" ? "ajuste" : "ajustes"} de valores atípicos`)
+    .replace(/(\d+) normalizaci(?:ó|o)n(?:es)? de contacto/, (_, count: string) => `${count} ${count === "1" ? "limpieza" : "limpiezas"} de datos de contacto`);
+  return operationCopy
+    .replace(/resumen agrupado/gi, "resumen por grupos")
+    .replace(/\bdataset\b/gi, "tabla de datos")
+    .replace(/\boutliers\b/gi, "valores atípicos")
+    .replace(/columnas fuente/gi, "columnas originales")
+    .replace(/granularidad/gi, "cantidad de filas");
+}
+
+function readableOperationLabel(label: string) {
+  return readableCopy(label);
+}
+
 function TransformAdvisor({ preview }: { preview: TransformPreview }) {
   const riskLabel = preview.risk === "high" ? "Alto impacto" : preview.risk === "medium" ? "Impacto medio" : "Bajo riesgo";
   const riskDescription = preview.risk === "high"
-    ? "Puede reducir filas, columnas o granularidad. Revisa la estimación antes de aplicar."
+    ? "Puede reducir filas o columnas, o reunir varias filas en una. Revisa la estimación antes de aplicar."
     : preview.risk === "medium"
-      ? "Puede cambiar valores o retirar fuentes. Conserva una alternativa hasta validar."
-      : "No se detectan eliminaciones de filas ni columnas en esta receta.";
+      ? "Puede cambiar valores o quitar columnas originales. Revisa el resultado y deshaz los cambios si hace falta."
+      : "Esta receta no quitará filas ni columnas.";
   const rowDelta = preview.rowsDelta === null
     ? "Por determinar"
     : preview.rowsDelta === 0
@@ -43,7 +59,7 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
       <div className="transform-advisor__header">
         <div>
           <p className="step">Revisión antes de ejecutar</p>
-          <h4 id="transform-advisor-title">Impacto estimado de la receta</h4>
+          <h4 id="transform-advisor-title">Cambios estimados al aplicar</h4>
           <p>{riskDescription}</p>
         </div>
         <strong className="transform-advisor__risk" aria-label={`Riesgo: ${riskLabel}`}>{riskLabel}</strong>
@@ -56,29 +72,29 @@ function TransformAdvisor({ preview }: { preview: TransformPreview }) {
         </div>
         <div>
           <span>Después</span>
-          <strong>{preview.afterRows === null ? "Filas no estimables" : `${preview.afterRows.toLocaleString()} filas`} · {preview.afterColumns} columnas</strong>
+          <strong>{preview.afterRows === null ? "No se puede estimar cuántas filas quedarán" : `${preview.afterRows.toLocaleString()} filas`} · {preview.afterColumns} columnas</strong>
           <small>{visibleColumnNames(preview.afterColumnNames)}</small>
         </div>
       </div>
       <div className="transform-advisor__signals">
         <span>Variación de filas: <strong>{rowDelta}</strong></span>
         <span>Variación de columnas: <strong>{columnDelta}</strong></span>
-        <span>Confianza: <strong>{preview.confidence}% ({preview.confidenceLabel})</strong></span>
+        <span>Confianza de la estimación: <strong>{preview.confidence}% ({preview.confidenceLabel})</strong></span>
       </div>
-      <p className="transform-advisor__basis">{preview.basis}</p>
+      <p className="transform-advisor__basis">{readableCopy(preview.basis)}</p>
       <div className="transform-advisor__columns">
         <div>
-          <strong>Operaciones detectadas</strong>
-          <p>{preview.operationLabels.join(" · ")}</p>
+          <strong>Cambios incluidos</strong>
+          <p>{preview.operationLabels.map(readableOperationLabel).join(" · ")}</p>
         </div>
         <div>
           <strong>Recomendaciones</strong>
-          <ul>{preview.recommendations.map((recommendation) => <li key={recommendation}>{recommendation}</li>)}</ul>
+          <ul>{preview.recommendations.map((recommendation) => <li key={recommendation}>{readableCopy(recommendation)}</li>)}</ul>
         </div>
       </div>
       <details className="transform-advisor__recovery">
-        <summary>Alternativas de recuperación</summary>
-        <ul>{preview.recoveryOptions.map((option) => <li key={option}>{option}</li>)}</ul>
+        <summary>Cómo deshacer los cambios</summary>
+        <ul>{preview.recoveryOptions.map((option) => <li key={option}>{readableCopy(option)}</li>)}</ul>
       </details>
     </section>
   );
@@ -456,8 +472,8 @@ export function TransformRecipeEditor({
     <section className="transform-recipe" aria-labelledby="transform-recipe-title">
       <div className="transform-recipe__intro">
         <div>
-          <p className="step">Receta estructural</p>
-          <h3 id="transform-recipe-title">Preparar estructura y tipos</h3>
+          <p className="step">Cambios en los datos</p>
+          <h3 id="transform-recipe-title">Cambiar columnas y tipos</h3>
           <p>
             Configura varios cambios y aplícalos juntos. Si una operación no es válida, no se
             modifica ninguna columna.
@@ -502,8 +518,8 @@ export function TransformRecipeEditor({
             <h4 id="recipe-schema-review-title">Revisar columnas de la receta</h4>
             <p>
               {schemaReviewIssues.length > 0
-                ? "El esquema actual no satisface todas las referencias de esta receta. No se asigna ninguna columna automáticamente; elige cada reemplazo para continuar."
-                : "El esquema volvió a coincidir con la receta. Confirma para cargarla."}
+                ? "La receta usa columnas que faltan en el archivo actual o cuyo tipo cambió. Elige manualmente qué columna usar en cada caso; no cambiaremos ninguna sin que la elijas."
+                : "Las columnas vuelven a coincidir. Confirma para cargar los cambios."}
             </p>
             {schemaReviewIssues.length > 0 && (
               <div className="recipe-schema-review__mappings">
@@ -522,7 +538,7 @@ export function TransformRecipeEditor({
                         {issue.compatibleColumns.map((column) => <option key={column} value={column}>{column}</option>)}
                       </select>
                     ) : (
-                      <small role="alert">No hay columnas disponibles con tipo compatible. Cancela la carga o modifica la receta.</small>
+                      <small role="alert">No hay columnas del tipo necesario. Cancela la carga o edita la receta.</small>
                     )}
                   </label>
                 ))}
@@ -538,7 +554,7 @@ export function TransformRecipeEditor({
         )}
         {!schemaReviewRecipe && currentSchemaIssues.length > 0 && (
           <p className="recipe-error" role="alert">
-            La receta guardada aún tiene referencias incompatibles. Corrige las columnas manualmente antes de guardarla o aplicarla.
+            La receta guardada aún usa columnas que no coinciden con el archivo actual. Corrígelas manualmente antes de guardarla o aplicarla.
           </p>
         )}
       </div>
@@ -698,11 +714,11 @@ export function TransformRecipeEditor({
           {calculationEnabled && (
             <div className="calculation-grid">
               <label><span>Nombre nuevo</span><input aria-label="Nombre de la columna calculada" value={calculation.name} onChange={(event) => setCalculation((current) => ({ ...current, name: event.target.value }))} /></label>
-              <label><span>Columna origen</span><select aria-label="Columna origen del cálculo" value={calculation.source} onChange={(event) => setCalculation((current) => ({ ...current, source: event.target.value }))}><option value="">Selecciona…</option>{columnOptions()}</select></label>
+              <label><span>Columna para calcular</span><select aria-label="Columna para calcular" value={calculation.source} onChange={(event) => setCalculation((current) => ({ ...current, source: event.target.value }))}><option value="">Selecciona…</option>{columnOptions()}</select></label>
               <label><span>Operación</span><select aria-label="Operación calculada" value={calculation.operation} onChange={(event) => { const operation = event.target.value as CalculationDraft["operation"]; setCalculation((current) => ({ ...current, operation, operand: ["year", "month", "day"].includes(operation) ? null : (current.operand ?? { kind: "literal", value: "" }) })); }}>
                 <option value="add">Sumar</option><option value="subtract">Restar</option><option value="multiply">Multiplicar</option><option value="divide">Dividir</option><option value="concat">Concatenar</option><option value="year">Extraer año</option><option value="month">Extraer mes</option><option value="day">Extraer día</option>
               </select></label>
-              {operandRequired && <><label><span>Operando</span><select aria-label="Origen del operando" value={calculation.operand?.kind ?? "literal"} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: event.target.value as "literal" | "column", value: "" } }))}><option value="literal">Valor fijo</option><option value="column">Columna</option></select></label>{calculation.operand?.kind === "column" ? <label><span>Columna operando</span><select aria-label="Columna operando" value={calculation.operand.value} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: "column", value: event.target.value } }))}><option value="">Selecciona…</option>{columnOptions()}</select></label> : <label><span>Valor fijo</span><input aria-label="Valor fijo del cálculo" value={calculation.operand?.value ?? ""} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: "literal", value: event.target.value } }))} /></label>}</>}
+              {operandRequired && <><label><span>Usar como segundo valor</span><select aria-label="Usar como segundo valor" value={calculation.operand?.kind ?? "literal"} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: event.target.value as "literal" | "column", value: "" } }))}><option value="literal">Escribir un valor</option><option value="column">Elegir una columna</option></select></label>{calculation.operand?.kind === "column" ? <label><span>Columna adicional</span><select aria-label="Columna adicional para calcular" value={calculation.operand.value} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: "column", value: event.target.value } }))}><option value="">Selecciona…</option>{columnOptions()}</select></label> : <label><span>Valor fijo</span><input aria-label="Valor fijo del cálculo" value={calculation.operand?.value ?? ""} onChange={(event) => setCalculation((current) => ({ ...current, operand: { kind: "literal", value: event.target.value } }))} /></label>}</>}
             </div>
           )}
           <p className="recipe-hint">La evaluación es estricta: tipos incompatibles o división por cero cancelan toda la receta.</p>
@@ -746,7 +762,7 @@ export function TransformRecipeEditor({
             <label><span>Columna origen</span><select aria-label="Columna para dividir" value={split.source} onChange={(event) => setSplit((current) => ({ ...current, source: event.target.value }))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
             <label><span>Delimitador literal</span><input aria-label="Delimitador para dividir" value={split.delimiter} onChange={(event) => setSplit((current) => ({ ...current, delimiter: event.target.value }))} /></label>
             <label className="calculation-grid__wide"><span>Nombres separados por coma</span><input aria-label="Nombres de columnas divididas" value={splitNamesInput} placeholder="nombre, apellido" onChange={(event) => setSplitNamesInput(event.target.value)} /></label>
-            <label className="option-toggle"><input type="checkbox" checked={split.dropSource} onChange={(event) => setSplit((current) => ({ ...current, dropSource: event.target.checked }))} />Eliminar columna origen</label>
+            <label className="option-toggle"><input type="checkbox" checked={split.dropSource} onChange={(event) => setSplit((current) => ({ ...current, dropSource: event.target.checked }))} />Eliminar la columna original</label>
           </div>}
           <p className="recipe-hint">Define entre 2 y 16 nombres únicos. La última columna recibe el resto; las partes faltantes quedan como null.</p>
         </RecipeOperationGroup>
@@ -759,7 +775,7 @@ export function TransformRecipeEditor({
           <label className="option-toggle"><input type="checkbox" checked={mergeEnabled} onChange={(event) => setMergeEnabled(event.target.checked)} />Combinar columnas</label>
           {mergeEnabled && <>
             <div className="keep-columns" role="group" aria-label="Columnas para combinar">{searchableTextColumns.map((column) => <label key={column.name}><input type="checkbox" checked={merge.sources.includes(column.name)} onChange={(event) => setMerge((current) => ({ ...current, sources: event.target.checked ? searchableTextColumns.map((item) => item.name).filter((name) => current.sources.includes(name) || name === column.name) : current.sources.filter((name) => name !== column.name) }))} />{column.name}</label>)}</div>
-            <div className="calculation-grid"><label><span>Nombre nuevo</span><input aria-label="Nombre de columna combinada" value={merge.name} onChange={(event) => setMerge((current) => ({ ...current, name: event.target.value }))} /></label><label><span>Separador</span><input aria-label="Separador para combinar" value={merge.separator} placeholder="Vacío permitido" onChange={(event) => setMerge((current) => ({ ...current, separator: event.target.value }))} /></label><label className="option-toggle"><input type="checkbox" checked={merge.dropSources} onChange={(event) => setMerge((current) => ({ ...current, dropSources: event.target.checked }))} />Eliminar columnas origen</label></div>
+            <div className="calculation-grid"><label><span>Nombre nuevo</span><input aria-label="Nombre de columna combinada" value={merge.name} onChange={(event) => setMerge((current) => ({ ...current, name: event.target.value }))} /></label><label><span>Separador</span><input aria-label="Separador para combinar" value={merge.separator} placeholder="Vacío permitido" onChange={(event) => setMerge((current) => ({ ...current, separator: event.target.value }))} /></label><label className="option-toggle"><input type="checkbox" checked={merge.dropSources} onChange={(event) => setMerge((current) => ({ ...current, dropSources: event.target.checked }))} />Eliminar las columnas originales</label></div>
           </>}
           <p className="recipe-hint">Selecciona entre 2 y 16 columnas existentes. Los valores null se omiten; si todos son null, el resultado queda null.</p>
         </RecipeOperationGroup>
@@ -769,44 +785,44 @@ export function TransformRecipeEditor({
           status={operationGroupStatus(outlierTreatments.length, "tratamiento", "tratamientos")}
           active={outlierTreatments.length > 0}
         >
-          <p className="recipe-hint">Usa límites IQR de 1.5 con al menos 4 valores finitos. Los null se preservan; valores no finitos cancelan toda la receta. Imputar usa la mediana y conserva enteros; limitar puede convertirlos a decimal y rechaza enteros fuera del rango exacto ±2^53 para evitar pérdida de precisión.</p>
+          <p className="recipe-hint">Detecta valores muy alejados con una regla estándar: 1,5 veces la distancia entre cuartiles, con al menos 4 valores numéricos válidos. Conserva los valores nulos y cancela todos los cambios si encuentra un número infinito o no válido. Para rellenar, usa la mediana y conserva los enteros. Al limitar, puede convertirlos a decimales; rechaza enteros fuera del rango exacto ±2^53 para evitar redondearlos.</p>
           {outlierTreatments.map((treatment, index) => <div className="recipe-row" key={`outlier-${index}`}>
-            <label><span>Columna numérica</span><select aria-label={`Columna de outliers ${index + 1}`} value={treatment.column} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}><option value="">Selecciona…</option>{numericColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
-            <label><span>Acción</span><select aria-label={`Acción de outliers ${index + 1}`} value={treatment.action} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, action: event.target.value as OutlierDraft["action"] } : item))}><option value="cap">Limitar a los umbrales</option><option value="impute">Reemplazar por la mediana</option><option value="drop">Eliminar filas</option></select></label>
+            <label><span>Columna numérica</span><select aria-label={`Columna de valores atípicos ${index + 1}`} value={treatment.column} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}><option value="">Selecciona…</option>{numericColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
+            <label><span>Qué hacer</span><select aria-label={`Acción para valores atípicos ${index + 1}`} value={treatment.action} onChange={(event) => setOutlierTreatments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, action: event.target.value as OutlierDraft["action"] } : item))}><option value="cap">Limitar a los valores permitidos</option><option value="impute">Reemplazar por la mediana</option><option value="drop">Eliminar las filas</option></select></label>
             <button type="button" aria-label={`Quitar tratamiento ${index + 1}`} title="Quitar tratamiento" onClick={() => setOutlierTreatments((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
           </div>)}
-          {outlierTreatments.length < 16 && <button type="button" className="recipe-add" onClick={() => setOutlierTreatments((current) => [...current, { column: "", action: "cap" }])}>+ Añadir tratamiento</button>}
+          {outlierTreatments.length < 16 && <button type="button" className="recipe-add" onClick={() => setOutlierTreatments((current) => [...current, { column: "", action: "cap" }])}>+ Añadir regla</button>}
         </RecipeOperationGroup>
 
         <RecipeOperationGroup
-          title="Resumen agrupado"
+          title="Resumir filas por grupo"
           status={groupEnabled
-            ? `${groupSummary.groupBy.length} claves, ${groupSummary.aggregations.length} cálculos`
+            ? `${groupSummary.groupBy.length} columnas de grupo, ${groupSummary.aggregations.length} cálculos`
             : "Inactivo"}
           active={groupEnabled}
         >
-          <label className="option-toggle"><input type="checkbox" checked={groupEnabled} onChange={(event) => setGroupEnabled(event.target.checked)} />Reemplazar el dataset por un resumen</label>
+          <label className="option-toggle"><input type="checkbox" checked={groupEnabled} onChange={(event) => setGroupEnabled(event.target.checked)} />Sustituir las filas por un resumen</label>
           {groupEnabled && <>
-            <div className="keep-columns" role="group" aria-label="Columnas para agrupar">{dataset.columns.map((column) => <label key={column.name}><input type="checkbox" checked={groupSummary.groupBy.includes(column.name)} disabled={!groupSummary.groupBy.includes(column.name) && groupSummary.groupBy.length >= 8} onChange={(event) => setGroupSummary((current) => ({ ...current, groupBy: event.target.checked ? dataset.columns.map((item) => item.name).filter((name) => current.groupBy.includes(name) || name === column.name) : current.groupBy.filter((name) => name !== column.name) }))} />{effectiveName(column.name)}</label>)}</div>
+            <div className="keep-columns" role="group" aria-label="Columnas para definir los grupos">{dataset.columns.map((column) => <label key={column.name}><input type="checkbox" checked={groupSummary.groupBy.includes(column.name)} disabled={!groupSummary.groupBy.includes(column.name) && groupSummary.groupBy.length >= 8} onChange={(event) => setGroupSummary((current) => ({ ...current, groupBy: event.target.checked ? dataset.columns.map((item) => item.name).filter((name) => current.groupBy.includes(name) || name === column.name) : current.groupBy.filter((name) => name !== column.name) }))} />{effectiveName(column.name)}</label>)}</div>
             {groupSummary.aggregations.map((aggregation, index) => {
               const dtype = effectiveType(aggregation.column);
               const numeric = ["Int64", "Float64"].includes(dtype);
               const orderable = numeric || ["String", "Date", "Datetime"].includes(dtype);
-              return <div className="recipe-row" key={`aggregation-${index}`}><label><span>Columna</span><select aria-label={`Columna de agregación ${index + 1}`} value={aggregation.column} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value, operation: "count" } : item) }))}><option value="">Selecciona…</option>{dataset.columns.map((column) => <option key={column.name} value={column.name}>{effectiveName(column.name)}</option>)}</select></label><label><span>Operación</span><select aria-label={`Operación de agregación ${index + 1}`} value={aggregation.operation} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, operation: event.target.value as GroupSummaryDraft["aggregations"][number]["operation"] } : item) }))}>{numeric && <><option value="sum">Suma</option><option value="mean">Promedio</option></>}{orderable && <><option value="min">Mínimo</option><option value="max">Máximo</option></>}<option value="count">Contar filas</option><option value="count_unique">Contar únicos</option></select></label><span className="recipe-output" aria-label={`Salida ${index + 1}`}>{aggregation.column ? `${effectiveName(aggregation.column)}_${aggregation.operation}` : "—"}</span><button type="button" aria-label={`Quitar agregación ${index + 1}`} onClick={() => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.filter((_, itemIndex) => itemIndex !== index) }))}>×</button></div>;
+              return <div className="recipe-row" key={`aggregation-${index}`}><label><span>Columna</span><select aria-label={`Columna para el cálculo ${index + 1}`} value={aggregation.column} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value, operation: "count" } : item) }))}><option value="">Selecciona…</option>{dataset.columns.map((column) => <option key={column.name} value={column.name}>{effectiveName(column.name)}</option>)}</select></label><label><span>Qué calcular</span><select aria-label={`Cálculo ${index + 1}`} value={aggregation.operation} onChange={(event) => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.map((item, itemIndex) => itemIndex === index ? { ...item, operation: event.target.value as GroupSummaryDraft["aggregations"][number]["operation"] } : item) }))}>{numeric && <><option value="sum">Suma</option><option value="mean">Promedio</option></>}{orderable && <><option value="min">Mínimo</option><option value="max">Máximo</option></>}<option value="count">Contar filas</option><option value="count_unique">Contar valores distintos</option></select></label><span className="recipe-output" aria-label={`Resultado ${index + 1}`}>{aggregation.column ? `${effectiveName(aggregation.column)}_${aggregation.operation}` : "—"}</span><button type="button" aria-label={`Quitar cálculo ${index + 1}`} onClick={() => setGroupSummary((current) => ({ ...current, aggregations: current.aggregations.filter((_, itemIndex) => itemIndex !== index) }))}>×</button></div>;
             })}
-            {groupSummary.aggregations.length < 32 && <button type="button" className="recipe-add" onClick={() => setGroupSummary((current) => ({ ...current, aggregations: [...current.aggregations, { column: "", operation: "count" }] }))}>+ Añadir agregación</button>}
+            {groupSummary.aggregations.length < 32 && <button type="button" className="recipe-add" onClick={() => setGroupSummary((current) => ({ ...current, aggregations: [...current.aggregations, { column: "", operation: "count" }] }))}>+ Añadir cálculo</button>}
           </>}
-          <p className="recipe-hint">Los grupos null forman un grupo propio. Contar filas incluye null; contar únicos excluye null. Se conserva el orden de primera aparición y el resumen reemplaza la granularidad actual.</p>
+          <p className="recipe-hint">Los valores sin dato forman un grupo propio. «Contar filas» los incluye; «Contar valores distintos» los excluye. Se conserva el orden de primera aparición. El resumen sustituye las filas originales.</p>
         </RecipeOperationGroup>
 
         <RecipeOperationGroup
-          title="Normalizar datos de contacto"
+          title="Limpiar datos de contacto"
           status={operationGroupStatus(contacts.length, "regla", "reglas")}
           active={contacts.length > 0}
         >
           {contacts.map((contact, index) => <div className="recipe-row" key={`contact-${index}`}><label><span>Columna de texto</span><select aria-label={`Columna de contacto ${index + 1}`} value={contact.column} onChange={(event) => setContacts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, column: event.target.value } : item))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label><label><span>Regla</span><select aria-label={`Regla de contacto ${index + 1}`} value={contact.kind} onChange={(event) => setContacts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, kind: event.target.value as ContactDraft["kind"] } : item))}><option value="email">Email: recortar y minúsculas</option><option value="phone">Teléfono: + opcional y dígitos ASCII</option><option value="address">Dirección: compactar espacios</option></select></label><button type="button" aria-label={`Quitar contacto ${index + 1}`} onClick={() => setContacts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}
           {contacts.length < 16 && <button type="button" className="recipe-add" onClick={() => setContacts((current) => [...current, { column: "", kind: "email" }])}>+ Añadir contacto</button>}
-          <p className="recipe-hint">Email recorta y pasa a minúsculas; teléfono conserva un + inicial opcional y dígitos ASCII; dirección compacta espacios sin aplicar título.</p>
+          <p className="recipe-hint">Email: quita espacios al inicio y al final y pasa a minúsculas. Teléfono: conserva un + inicial opcional y dígitos del 0 al 9. Dirección: reduce espacios repetidos sin cambiar las mayúsculas.</p>
         </RecipeOperationGroup>
 
         <RecipeOperationGroup
@@ -814,10 +830,10 @@ export function TransformRecipeEditor({
           status={operationGroupStatus(extractions.length, "extracción", "extracciones")}
           active={extractions.length > 0}
         >
-          {extractions.map((extraction, index) => <div className="recipe-row recipe-row--date" key={`extraction-${index}`}><label><span>Origen</span><select aria-label={`Columna de extracción ${index + 1}`} value={extraction.source} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, source: event.target.value } : item))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label><label><span>Extracción</span><select aria-label={`Regla de extracción ${index + 1}`} value={extraction.kind} onChange={(event) => { const kind = event.target.value as ExtractionDraft["kind"]; setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, kind, delimiter: ["before", "after"].includes(kind) ? "" : null } : item)); }}><option value="first_token">Primer token</option><option value="last_token">Último token</option><option value="digits">Dígitos</option><option value="letters">Letras</option><option value="before">Antes de delimitador</option><option value="after">Después de delimitador</option></select></label><label><span>Nombre nuevo</span><input aria-label={`Nombre de extracción ${index + 1}`} value={extraction.name} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} /></label>{["before", "after"].includes(extraction.kind) && <label><span>Delimitador literal</span><input aria-label={`Delimitador de extracción ${index + 1}`} value={extraction.delimiter ?? ""} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, delimiter: event.target.value } : item))} /></label>}<button type="button" aria-label={`Quitar extracción ${index + 1}`} onClick={() => setExtractions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}
+          {extractions.map((extraction, index) => <div className="recipe-row recipe-row--date" key={`extraction-${index}`}><label><span>Columna de texto</span><select aria-label={`Columna de extracción ${index + 1}`} value={extraction.source} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, source: event.target.value } : item))}><option value="">Selecciona…</option>{searchableTextColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label><label><span>Qué texto tomar</span><select aria-label={`Texto que extraer ${index + 1}`} value={extraction.kind} onChange={(event) => { const kind = event.target.value as ExtractionDraft["kind"]; setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, kind, delimiter: ["before", "after"].includes(kind) ? "" : null } : item)); }}><option value="first_token">Primera palabra</option><option value="last_token">Última palabra</option><option value="digits">Números</option><option value="letters">Letras</option><option value="before">Texto antes de un separador</option><option value="after">Texto después de un separador</option></select></label><label><span>Nombre nuevo</span><input aria-label={`Nombre de extracción ${index + 1}`} value={extraction.name} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} /></label>{["before", "after"].includes(extraction.kind) && <label><span>Separador exacto</span><input aria-label={`Separador para extraer texto ${index + 1}`} value={extraction.delimiter ?? ""} onChange={(event) => setExtractions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, delimiter: event.target.value } : item))} /></label>}<button type="button" aria-label={`Quitar extracción ${index + 1}`} onClick={() => setExtractions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}
           {extractions.length < 16 && <button type="button" className="recipe-add" disabled={groupEnabled} onClick={() => setExtractions((current) => [...current, { source: "", kind: "first_token", name: "", delimiter: null }])}>+ Añadir extracción</button>}
-          <p className="recipe-hint">Las extracciones crean columnas nuevas desde entradas originales. Antes/después requiere delimitador literal no vacío; se permiten espacios.</p>
-          {groupEnabled && <p className="recipe-error">Las extracciones no son compatibles con un resumen agrupado en la misma receta; las normalizaciones de contacto sí.</p>}
+          <p className="recipe-hint">Cada regla crea una columna nueva a partir del texto elegido. Para tomar el texto antes o después de un separador, escribe ese separador; puede ser un espacio.</p>
+          {groupEnabled && <p className="recipe-error">No puedes extraer texto y resumir filas en el mismo paso; sí puedes limpiar datos de contacto.</p>}
         </RecipeOperationGroup>
       </div>
       </details>
@@ -826,21 +842,21 @@ export function TransformRecipeEditor({
 
       {renameInvalid && <p className="recipe-error" role="alert">Renombres: completa la columna y su nombre nuevo.</p>}
       {filterInvalid && <p className="recipe-error" role="alert">Filtros: las comparaciones numéricas y de contenido requieren un valor.</p>}
-      {calculationInvalid && <p className="recipe-error" role="alert">Columna calculada: completa el nombre, el origen y el operando requerido.</p>}
-      {calculationSourceDropped && <p className="recipe-error" role="alert">Columna calculada: conserva la columna origen y la columna usada como operando.</p>}
-      {findReplaceInvalid && <p className="recipe-error" role="alert">Buscar y reemplazar: selecciona el alcance y escribe un texto de búsqueda; el reemplazo puede quedar vacío.</p>}
+      {calculationInvalid && <p className="recipe-error" role="alert">Cálculo: completa el nombre, la columna de origen y el segundo valor o columna cuando la operación lo requiera.</p>}
+      {calculationSourceDropped && <p className="recipe-error" role="alert">Cálculo: conserva la columna de origen y, si elegiste otra columna, conserva también esa columna.</p>}
+      {findReplaceInvalid && <p className="recipe-error" role="alert">Buscar y reemplazar: elige dónde buscar y escribe el texto que quieres encontrar; el reemplazo puede quedar vacío.</p>}
       {keptColumns.length === 0 && <p className="recipe-error" role="alert">Columnas: conserva al menos una columna.</p>}
-      {splitInvalid && <p className="recipe-error" role="alert">Dividir: selecciona una columna, un delimitador no vacío y entre 2 y 16 nombres únicos que no colisionen.</p>}
-      {mergeInvalid && <p className="recipe-error" role="alert">Combinar: selecciona entre 2 y 16 columnas y usa un nombre nuevo sin colisiones.</p>}
-      {sourceConflict && <p className="recipe-error" role="alert">Dependencias: no elimines al dividir una columna que también usarás para combinar.</p>}
-      {sourceNotKept && <p className="recipe-error" role="alert">Dependencias: conserva todas las columnas usadas para dividir o combinar.</p>}
-      {outlierDuplicate && <p className="recipe-error" role="alert">Outliers: configura una sola acción por columna.</p>}
-      {outlierDependencyInvalid && <p className="recipe-error" role="alert">Outliers: conserva cada columna objetivo y no la elimines como fuente antes del tratamiento.</p>}
-      {outlierInvalid && !outlierDuplicate && !outlierDependencyInvalid && <p className="recipe-error" role="alert">Outliers: selecciona únicamente columnas numéricas elegibles.</p>}
-      {groupInvalid && <p className="recipe-error" role="alert">Resumen: elige entre 1 y 8 claves, agrega al menos una operación, evita pares o salidas duplicadas y conserva todas las columnas utilizadas.</p>}
-      {contactDuplicate && <p className="recipe-error" role="alert">Contactos: configura una sola regla por columna.</p>}
-      {contactInvalid && !contactDuplicate && <p className="recipe-error" role="alert">Contactos: usa columnas de texto que sobrevivan a la receta.</p>}
-      {extractionInvalid && <p className="recipe-error" role="alert">Extracciones: completa entradas y nombres únicos sin colisiones, conserva sus fuentes y no las combines con un resumen.</p>}
+      {splitInvalid && <p className="recipe-error" role="alert">Dividir: elige una columna, escribe un separador y entre 2 y 16 nombres nuevos, todos distintos y que no existan ya.</p>}
+      {mergeInvalid && <p className="recipe-error" role="alert">Combinar: elige entre 2 y 16 columnas y escribe un nombre nuevo que no exista ya.</p>}
+      {sourceConflict && <p className="recipe-error" role="alert">Columnas necesarias: al dividir, conserva la columna si también la usarás para combinar.</p>}
+      {sourceNotKept && <p className="recipe-error" role="alert">Columnas necesarias: conserva todas las columnas que usarás para dividir o combinar.</p>}
+      {outlierDuplicate && <p className="recipe-error" role="alert">Valores atípicos: configura una sola regla para cada columna.</p>}
+      {outlierDependencyInvalid && <p className="recipe-error" role="alert">Valores atípicos: conserva cada columna que vas a revisar y no la elimines como columna original antes de aplicar la regla.</p>}
+      {outlierInvalid && !outlierDuplicate && !outlierDependencyInvalid && <p className="recipe-error" role="alert">Valores atípicos: elige solo columnas numéricas disponibles.</p>}
+      {groupInvalid && <p className="recipe-error" role="alert">Resumen por grupos: elige de 1 a 8 columnas para agrupar y al menos un cálculo. No repitas cálculos ni nombres de resultado, y conserva las columnas que usa el resumen.</p>}
+      {contactDuplicate && <p className="recipe-error" role="alert">Datos de contacto: configura una sola regla por columna.</p>}
+      {contactInvalid && !contactDuplicate && <p className="recipe-error" role="alert">Datos de contacto: elige columnas de texto que se conservarán al aplicar los cambios.</p>}
+      {extractionInvalid && <p className="recipe-error" role="alert">Extracción de texto: completa las columnas y usa nombres nuevos que no existan. Conserva las columnas usadas y no combines la extracción con un resumen por grupos.</p>}
       <div className="transform-recipe__footer">
         <p>
           Toda la receta referencia los nombres actuales. Booleano acepta únicamente true/false;

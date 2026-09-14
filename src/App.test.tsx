@@ -28,7 +28,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
 async function openQualityAndAnalyze() {
-  fireEvent.click(await screen.findByRole("button", { name: "Analizar calidad" }));
+  await screen.findByText("Filas analizadas");
 }
 
 async function switchPhase(label: "Cargar" | "Revisar" | "Preparar" | "Entregar") {
@@ -38,6 +38,15 @@ async function switchPhase(label: "Cargar" | "Revisar" | "Preparar" | "Entregar"
 
 function mockDatasetLoad(dataset: DatasetPreview) {
   vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
+  if (!vi.isMockFunction(bridge.getDatasetProfile)) {
+    vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
+      rowCount: dataset.rowCount,
+      duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
+      duplicatePercentage: 0,
+      columns: [],
+    });
+  }
   vi.spyOn(bridge, "pickDatasetSource").mockResolvedValue({
     selectionId: "selection-test",
     fileName: dataset.fileName,
@@ -115,13 +124,19 @@ describe("App", () => {
       canUndo: false, entryCount: 1, currentIndex: 0,
       entries: [{ id: "history-test-0", index: 0, label: "Dataset cargado", isCurrent: true }],
     }));
-    const profileSpy = vi.spyOn(bridge, "getDatasetProfile");
+    const profileSpy = vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
+      rowCount: 1,
+      duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
+      duplicatePercentage: 0,
+      columns: [],
+    });
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
     expect(await screen.findByRole("heading", { name: "ventas.csv" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revisar" })).toHaveAttribute("aria-current", "step");
-    expect(screen.getByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
     expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
 
     await switchPhase("Entregar");
@@ -138,7 +153,7 @@ describe("App", () => {
     await switchPhase("Cargar");
     fireEvent.click(screen.getByRole("button", { name: "Seleccionar otro dataset" }));
     expect(await screen.findByRole("heading", { name: "externo.csv" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Preferencias y recursos"));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Modo de rendimiento" })).toHaveValue("balanced"));
     await switchPhase("Entregar");
@@ -279,7 +294,7 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("hash");
   });
 
-  it("mantiene el perfil en idle cuando el proyecto no incluye uno durable", async () => {
+  it("analiza automáticamente un proyecto abierto que no incluya un perfil durable", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.26.0", platform: "windows" });
     const project: ProjectSummary = {
@@ -298,12 +313,52 @@ describe("App", () => {
       profile: null,
     });
     vi.spyOn(bridge, "getHistoryState").mockResolvedValue(historyState());
+    const profileSpy = vi.spyOn(bridge, "getDatasetProfile").mockResolvedValue({
+      rowCount: 1,
+      duplicateRowCount: 0,
+      nearDuplicateRowCount: 0,
+      duplicatePercentage: 0,
+      columns: [],
+    });
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Abrir" }));
 
-    expect(await screen.findByRole("button", { name: "Analizar calidad" })).toBeInTheDocument();
-    expect(screen.queryByText("Filas analizadas")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
+    expect(screen.getByText("Filas analizadas").parentElement).toHaveTextContent("Filas analizadas1");
+    expect(profileSpy).toHaveBeenCalledOnce();
+  });
+
+  it("permite reintentar el diagnóstico automático tras un fallo sin duplicar controles", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const dataset: DatasetPreview = {
+      fileName: "reintento.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["1"]],
+    };
+    const profileSpy = vi.spyOn(bridge, "getDatasetProfile")
+      .mockRejectedValueOnce(new Error("fallo temporal"))
+      .mockResolvedValue({
+        rowCount: 1, duplicateRowCount: 0, nearDuplicateRowCount: 0,
+        duplicatePercentage: 0, columns: [],
+      });
+    mockDatasetLoad(dataset);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+
+    const retry = await screen.findByRole("button", { name: "Reintentar análisis" });
+    expect(screen.queryByRole("button", { name: "Analizar calidad" })).not.toBeInTheDocument();
+    expect(profileSpy).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Preparar" }));
+    expect(await screen.findByRole("button", { name: "Reintentar análisis" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Revisar opciones de entrega" })).not.toBeInTheDocument();
+    fireEvent.click(retry);
+
+    expect(await screen.findByRole("button", { name: "Revisar opciones de entrega" })).toBeEnabled();
+    expect(profileSpy).toHaveBeenCalledTimes(2);
   });
 
   it("explica cómo conectar el motor cuando se abre en navegador", async () => {
@@ -312,7 +367,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Columnia" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Flujo de preparación de datos" })).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuenow", "1");
-    expect(screen.getByRole("button", { name: "Continuar a Revisar" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Continuar a Revisar" })).not.toBeInTheDocument();
     const lockedReview = screen.getByRole("button", { name: "Revisar" });
     expect(lockedReview).toHaveAttribute("aria-disabled", "true");
     expect(lockedReview).toHaveAttribute("aria-describedby", "dataset-required-hint");
@@ -380,7 +435,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "temperaturas.csv" })).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Progreso del flujo" })).toHaveAttribute("aria-valuetext", "Paso 2 de 4: Revisar");
-    expect(screen.getByRole("button", { name: "Continuar a Preparar" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Seleccionar dataset" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
@@ -573,8 +628,6 @@ describe("App", () => {
       rows: [["1"]],
     });
     await screen.findByRole("heading", { name: "progreso.csv" });
-    fireEvent.click(screen.getByRole("button", { name: "Analizar calidad" }));
-
     expect(
       await screen.findByRole("progressbar", { name: "Progreso: Analizando columnas" }),
     ).toHaveAttribute("value", "60");
@@ -586,7 +639,7 @@ describe("App", () => {
       duplicatePercentage: 0,
       columns: [],
     });
-    expect(await screen.findByRole("button", { name: "Analizar de nuevo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Ver plan de preparación" })).toBeInTheDocument();
   });
 
   it("conserva el dataset activo cuando se cancela una sustitución", async () => {
@@ -876,7 +929,7 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar recomendadas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar ambas correcciones" }));
 
     expect(
       await screen.findByText(/Correcciones recomendadas aplicadas: 1 celda recortada y 1 columna renombrada/),
@@ -992,13 +1045,15 @@ describe("App", () => {
       await screen.findByText("Se eliminaron 1 filas duplicadas adicionales."),
     ).toBeInTheDocument();
     expect(removeSpy).toHaveBeenCalledOnce();
+    await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
 
     fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
-    expect(await screen.findByRole("button", { name: "Analizar antes de preparar" })).toBeInTheDocument();
+    await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(3));
     expect(undoSpy).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Rehacer" }));
     expect(await screen.findByText("Se rehízo el último cambio.")).toBeInTheDocument();
+    await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(4));
     expect(redoSpy).toHaveBeenCalledOnce();
   });
 
@@ -1449,7 +1504,7 @@ describe("App", () => {
     expect(screen.getByLabelText("Valor del filtro 1")).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "Crear una columna en esta receta" }));
     fireEvent.change(screen.getByLabelText("Nombre de la columna calculada"), { target: { value: "doble" } });
-    fireEvent.change(screen.getByLabelText("Columna origen del cálculo"), { target: { value: "total" } });
+    fireEvent.change(screen.getByLabelText("Columna para calcular"), { target: { value: "total" } });
     fireEvent.change(screen.getByLabelText("Operación calculada"), { target: { value: "multiply" } });
     fireEvent.change(screen.getByLabelText("Valor fijo del cálculo"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Añadir búsqueda y reemplazo" }));
@@ -1466,7 +1521,7 @@ describe("App", () => {
     fireEvent.click(within(mergeGroup).getByRole("checkbox", { name: "categoria" }));
     fireEvent.change(screen.getByLabelText("Nombre de columna combinada"), { target: { value: "estado_categoria" } });
     fireEvent.change(screen.getByLabelText("Separador para combinar"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Eliminar columnas origen" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Eliminar las columnas originales" }));
     const applyRecipeButton = screen.getByRole("button", { name: "Aplicar receta" });
     applyRecipeButton.focus();
     fireEvent.click(applyRecipeButton);
@@ -1523,7 +1578,7 @@ describe("App", () => {
     fireEvent.change(source, { target: { value: "codigo" } });
     fireEvent.change(screen.getByLabelText("Delimitador para dividir"), { target: { value: " " } });
     fireEvent.change(screen.getByLabelText("Nombres de columnas divididas"), { target: { value: "parte_1, parte_2" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Eliminar columna origen" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Eliminar la columna original" }));
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
 
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
@@ -1551,14 +1606,14 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "+ Añadir conversión" }));
     fireEvent.change(screen.getByLabelText("Columna para convertir 2"), { target: { value: "cantidad" } });
     fireEvent.change(screen.getByLabelText("Tipo destino 2"), { target: { value: "string" } });
-    fireEvent.click(screen.getByRole("button", { name: "+ Añadir tratamiento" }));
-    const target = screen.getByLabelText("Columna de outliers 1");
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir regla" }));
+    const target = screen.getByLabelText("Columna de valores atípicos 1");
     expect(within(target).getByRole("option", { name: "importe" })).toBeInTheDocument();
     expect(within(target).queryByRole("option", { name: "cantidad" })).not.toBeInTheDocument();
     fireEvent.change(target, { target: { value: "importe" } });
-    fireEvent.click(screen.getByRole("button", { name: "+ Añadir tratamiento" }));
-    fireEvent.change(screen.getByLabelText("Columna de outliers 2"), { target: { value: "nota" } });
-    fireEvent.change(screen.getByLabelText("Acción de outliers 2"), { target: { value: "drop" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir regla" }));
+    fireEvent.change(screen.getByLabelText("Columna de valores atípicos 2"), { target: { value: "nota" } });
+    fireEvent.change(screen.getByLabelText("Acción para valores atípicos 2"), { target: { value: "drop" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     let dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     expect(within(dialog).getByText(/Se limitarán valores atípicos en 1 columnas/)).toBeInTheDocument();
@@ -1595,8 +1650,8 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ Añadir tratamiento" }));
-    fireEvent.change(screen.getByLabelText("Columna de outliers 1"), { target: { value: "valor" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir regla" }));
+    fireEvent.change(screen.getByLabelText("Columna de valores atípicos 1"), { target: { value: "valor" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar y aplicar" }));
@@ -1629,16 +1684,16 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
     fireEvent.change(screen.getByLabelText("Columna para convertir 1"), { target: { value: "importe" } });
     fireEvent.change(screen.getByLabelText("Tipo destino 1"), { target: { value: "decimal" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Reemplazar el dataset por un resumen" }));
-    const keys = screen.getByRole("group", { name: "Columnas para agrupar" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Sustituir las filas por un resumen" }));
+    const keys = screen.getByRole("group", { name: "Columnas para definir los grupos" });
     fireEvent.click(within(keys).getByRole("checkbox", { name: "region" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ Añadir agregación" }));
-    fireEvent.change(screen.getByLabelText("Columna de agregación 1"), { target: { value: "importe" } });
-    expect(within(screen.getByLabelText("Operación de agregación 1")).getByRole("option", { name: "Suma" })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Operación de agregación 1"), { target: { value: "sum" } });
-    fireEvent.click(screen.getByRole("button", { name: "+ Añadir agregación" }));
-    fireEvent.change(screen.getByLabelText("Columna de agregación 2"), { target: { value: "nota" } });
-    fireEvent.change(screen.getByLabelText("Operación de agregación 2"), { target: { value: "count_unique" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir cálculo" }));
+    fireEvent.change(screen.getByLabelText("Columna para el cálculo 1"), { target: { value: "importe" } });
+    expect(within(screen.getByLabelText("Cálculo 1")).getByRole("option", { name: "Suma" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Cálculo 1"), { target: { value: "sum" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Añadir cálculo" }));
+    fireEvent.change(screen.getByLabelText("Columna para el cálculo 2"), { target: { value: "nota" } });
+    fireEvent.change(screen.getByLabelText("Cálculo 2"), { target: { value: "count_unique" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     expect(within(dialog).getByText(/resumen de 1 claves y 2 agregaciones sobre 6 filas/)).toBeInTheDocument();
@@ -1676,9 +1731,9 @@ describe("App", () => {
     const source = screen.getByLabelText("Columna de extracción 1");
     expect(within(source).getByRole("option", { name: "codigo" })).toBeInTheDocument();
     fireEvent.change(source, { target: { value: "codigo" } });
-    fireEvent.change(screen.getByLabelText("Regla de extracción 1"), { target: { value: "before" } });
+    fireEvent.change(screen.getByLabelText("Texto que extraer 1"), { target: { value: "before" } });
     fireEvent.change(screen.getByLabelText("Nombre de extracción 1"), { target: { value: "prefijo" } });
-    fireEvent.change(screen.getByLabelText("Delimitador de extracción 1"), { target: { value: "-" } });
+    fireEvent.change(screen.getByLabelText("Separador para extraer texto 1"), { target: { value: "-" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar receta" }));
     const dialog = screen.getByRole("alertdialog", { name: "Confirmar cambios de alto impacto" });
     expect(within(dialog).getByText(/normalizarán valores de contacto en 1 columnas/)).toBeInTheDocument();

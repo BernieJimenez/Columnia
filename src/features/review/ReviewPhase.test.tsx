@@ -301,7 +301,6 @@ function temporalTrendElement(
       reviewTab="diagnosis"
       onTabChange={() => undefined}
       onPageChange={() => undefined}
-      onAnalyzeQuality={() => undefined}
       onCancelProfile={() => undefined}
       onContinueToPrepare={onContinueToPrepare}
       comparisonStatus={{ kind: "idle" }}
@@ -344,7 +343,6 @@ describe("ReviewPhase", () => {
   });
 
   it("conserva tabpanel ARIA y perfil bajo demanda", () => {
-    const onAnalyzeQuality = vi.fn();
     const onAnalysisSampleRowsChange = vi.fn();
     render(
       <ReviewPhase
@@ -353,7 +351,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={onAnalyzeQuality}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -377,8 +374,7 @@ describe("ReviewPhase", () => {
       "aria-labelledby",
       "review-diagnosis-tab",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Analizar calidad" }));
-    expect(onAnalyzeQuality).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Analizar calidad" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" })).toHaveValue("50000");
     fireEvent.change(screen.getByRole("combobox", { name: "Filas de muestra para correlaciones" }), {
       target: { value: "10000" },
@@ -400,7 +396,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{
           kind: "ready",
@@ -476,7 +471,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -534,7 +528,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -589,7 +582,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -615,7 +607,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={nextDataset.columns}
@@ -659,7 +650,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -743,7 +733,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -798,7 +787,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -835,7 +823,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{ kind: "idle" }}
         datasetColumns={dataset.columns}
@@ -1034,7 +1021,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{
           kind: "ready",
@@ -1099,7 +1085,6 @@ describe("ReviewPhase", () => {
         reviewTab="diagnosis"
         onTabChange={() => undefined}
         onPageChange={() => undefined}
-        onAnalyzeQuality={() => undefined}
         onCancelProfile={() => undefined}
         comparisonStatus={{
           kind: "ready",

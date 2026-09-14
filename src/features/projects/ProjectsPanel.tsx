@@ -61,6 +61,7 @@ export function ProjectsPanel({
 
   const projects = catalog.kind === "ready" ? catalog.projects : [];
   const recovery = catalog.kind === "ready" ? catalog.recoveryCandidate : null;
+  const hasProjectOptions = Boolean(datasetFileName) || projects.length > 0;
 
   return (
     <section className="projects" aria-labelledby="projects-title" aria-busy={disabled}>
@@ -68,17 +69,17 @@ export function ProjectsPanel({
         <div>
           <p className="eyebrow">Continuidad local</p>
           <h3 id="projects-title">Proyectos</h3>
-          <p>Un proyecto conserva el dataset, las reglas, el borrador, el perfil calculado y el historial reversible.</p>
-        </div>
-        <div className="projects__heading-actions">
-          {catalog.kind === "error" && (
-            <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>
-          )}
+          <p>Continúa la última sesión o abre un proyecto guardado. Guarda y administra copias desde las opciones secundarias.</p>
         </div>
       </div>
 
       {catalog.kind === "loading" && <p className="notice" role="status">Cargando proyectos locales…</p>}
-      {catalog.kind === "error" && <p className="notice notice--error" role="alert">No se pudieron cargar los proyectos: {catalog.message}</p>}
+      {catalog.kind === "error" && (
+        <div className="notice notice--error" role="alert">
+          <span>No se pudieron cargar los proyectos: {catalog.message}</span>
+          <button type="button" className="secondary-action" onClick={onRetry} disabled={disabled}>Reintentar</button>
+        </div>
+      )}
 
       {recovery && (
         <div className="project-recovery">
@@ -92,55 +93,72 @@ export function ProjectsPanel({
         </div>
       )}
 
-      <form className="project-save" onSubmit={(event) => { event.preventDefault(); onSave(name); }} noValidate>
-        <label htmlFor="project-name">Nombre del proyecto</label>
-        <div>
-          <input
-            id="project-name"
-            value={name}
-            maxLength={MAX_PROJECT_NAME_LENGTH}
-            onChange={(event) => { setName(event.target.value); onClearFeedback(); }}
-            disabled={disabled || !datasetFileName}
-            aria-invalid={!validation.valid && name.length > 0}
-            aria-describedby="project-name-help"
-          />
-          <button type="submit" className="primary-action" disabled={disabled || !datasetFileName || !validation.valid}>
-            {activeProject ? "Actualizar proyecto" : "Guardar proyecto nuevo"}
-          </button>
-        </div>
-        <small id="project-name-help">Entre 1 y {MAX_PROJECT_NAME_LENGTH} caracteres; se recortan espacios al guardar.</small>
-      </form>
+      {hasProjectOptions && (
+        <details className="projects__options">
+          <summary>{datasetFileName ? "Guardar y administrar proyectos" : "Abrir o administrar proyectos guardados"}</summary>
+          <p>
+            {datasetFileName
+              ? `Guarda “${datasetFileName}” para continuar después. Aquí también puedes abrir o eliminar copias locales.`
+              : "Abre o elimina las copias locales guardadas en este dispositivo."}
+          </p>
+
+          {datasetFileName && (
+            <form className="project-save" onSubmit={(event) => { event.preventDefault(); onSave(name); }} noValidate>
+              <label htmlFor="project-name">Nombre del proyecto</label>
+              <div>
+                <input
+                  id="project-name"
+                  value={name}
+                  maxLength={MAX_PROJECT_NAME_LENGTH}
+                  onChange={(event) => { setName(event.target.value); onClearFeedback(); }}
+                  disabled={disabled}
+                  aria-invalid={!validation.valid && name.length > 0}
+                  aria-describedby="project-name-help"
+                />
+                <button type="submit" className="primary-action" disabled={disabled || !validation.valid}>
+                  {activeProject ? "Actualizar proyecto" : "Guardar proyecto nuevo"}
+                </button>
+              </div>
+              <small id="project-name-help">Entre 1 y {MAX_PROJECT_NAME_LENGTH} caracteres; se recortan espacios al guardar.</small>
+            </form>
+          )}
+
+          {catalog.kind === "ready" && projects.length === 0 && (
+            <p className="projects__empty">Todavía no hay proyectos guardados.</p>
+          )}
+          {projects.length > 0 && (
+            <ul className="project-list" aria-label="Proyectos guardados">
+              {projects.map((project) => {
+                const active = activeProject?.id === project.id;
+                return (
+                  <li key={project.id} className={active ? "project-list__active" : undefined}>
+                    <div>
+                      <strong>{project.name}{active ? " · activo" : ""}</strong>
+                      <span>{project.datasetFileName} · {project.rowCount.toLocaleString("es")} filas · {project.columnCount} columnas</span>
+                      <small>Espacio persistente (snapshot + historial): {formatProjectStorage(project.storageBytes)}</small>
+                      <small>Actualizado {projectDate(project.updatedAt)}</small>
+                    </div>
+                    <div className="project-list__actions">
+                      <button type="button" onClick={() => onOpen(project.id)} disabled={disabled}>Abrir</button>
+                      <button type="button" className="project-list__delete" onClick={() => onDeleteRequest(project)} disabled={disabled}>Eliminar</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </details>
+      )}
+
+      {!datasetFileName && catalog.kind === "ready" && projects.length === 0 && (
+        <p className="projects__empty">Todavía no hay proyectos guardados. Carga un archivo para empezar.</p>
+      )}
 
       {operation.kind === "working" && <p className="notice" role="status">
         Procesando proyecto…
       </p>}
       {operation.kind === "success" && <p className="notice notice--success" role="status">{operation.message}</p>}
       {operation.kind === "error" && <p className="notice notice--error" role="alert">{operation.message}</p>}
-
-      {catalog.kind === "ready" && projects.length === 0 && (
-        <p className="projects__empty">Todavía no hay proyectos guardados.</p>
-      )}
-      {projects.length > 0 && (
-        <ul className="project-list" aria-label="Proyectos guardados">
-          {projects.map((project) => {
-            const active = activeProject?.id === project.id;
-            return (
-              <li key={project.id} className={active ? "project-list__active" : undefined}>
-                <div>
-                  <strong>{project.name}{active ? " · activo" : ""}</strong>
-                  <span>{project.datasetFileName} · {project.rowCount.toLocaleString("es")} filas · {project.columnCount} columnas</span>
-                  <small>Espacio persistente (snapshot + historial): {formatProjectStorage(project.storageBytes)}</small>
-                  <small>Actualizado {projectDate(project.updatedAt)}</small>
-                </div>
-                <div className="project-list__actions">
-                  <button type="button" onClick={() => onOpen(project.id)} disabled={disabled}>Abrir</button>
-                  <button type="button" className="project-list__delete" onClick={() => onDeleteRequest(project)} disabled={disabled}>Eliminar</button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
 
       {deletion.kind === "confirming" && (
         <ModalDialog

@@ -40,22 +40,49 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ProjectsPanel>> = 
 }
 
 describe("ProjectsPanel", () => {
-  it("destaca la recuperación y explica el estado durable del proyecto", () => {
+  it("prioriza la recuperación y oculta guardar y administrar hasta abrir sus opciones", () => {
     const props = renderPanel();
-    expect(screen.getByText(/perfil calculado y el historial reversible/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recuperar proyecto" })).toBeInTheDocument();
+    const summary = screen.getByText("Guardar y administrar proyectos", { selector: "summary" });
+    const options = summary.closest("details");
+    expect(options).not.toHaveAttribute("open");
+    expect(screen.getByRole("textbox", { name: "Nombre del proyecto" }).closest("details")).toBe(options);
+    expect(screen.getByRole("button", { name: "Abrir" }).closest("details")).toBe(options);
+    expect(screen.getByRole("button", { name: "Eliminar" }).closest("details")).toBe(options);
+
+    fireEvent.click(summary);
+    expect(options).toHaveAttribute("open");
     expect(screen.getByText("Espacio persistente (snapshot + historial): 1,5 KiB")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Recuperar proyecto" }));
     expect(props.onOpen).toHaveBeenCalledWith("recovery-id");
     expect(screen.queryByText(/C:\\/)).not.toBeInTheDocument();
   });
 
-  it("guarda el nombre propuesto y exige confirmación explícita al eliminar", () => {
+  it("conserva el guardado y la administración dentro de una divulgación contextual", () => {
     const props = renderPanel();
+    fireEvent.click(screen.getByText("Guardar y administrar proyectos", { selector: "summary" }));
+    expect(screen.getByText(/Guarda “actual.csv” para continuar después/)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Nombre del proyecto" })).toHaveValue("actual");
     fireEvent.click(screen.getByRole("button", { name: "Guardar proyecto nuevo" }));
     expect(props.onSave).toHaveBeenCalledWith("actual");
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
     expect(props.onDeleteRequest).toHaveBeenCalledWith(recovery);
+  });
+
+  it("ofrece abrir otros proyectos guardados aunque no haya recuperación disponible", () => {
+    const props = renderPanel({
+      catalog: { kind: "ready", projects: [recovery], recoveryCandidate: null },
+      datasetFileName: null,
+    });
+    const summary = screen.getByText("Abrir o administrar proyectos guardados", { selector: "summary" });
+    const options = summary.closest("details");
+    expect(options).not.toHaveAttribute("open");
+    expect(screen.getByRole("button", { name: "Abrir" }).closest("details")).toBe(options);
+
+    fireEvent.click(summary);
+    expect(options).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "Abrir" }));
+    expect(props.onOpen).toHaveBeenCalledWith("recovery-id");
   });
 
   it("presenta la eliminación como alertdialog y conserva el dataset en memoria", () => {
