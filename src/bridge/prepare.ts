@@ -119,6 +119,7 @@ export function dropOutlierValues(): Promise<TextCleaningResult> {
 export function applySafeCorrections(options: SafeCorrectionOptions): Promise<SafeCorrectionsResult> {
   return invoke<SafeCorrectionsResult>("apply_safe_corrections", {
     trimText: options.trimText,
+    normalizeSentinels: options.normalizeSentinels,
     normalizeColumnNames: options.normalizeColumnNames,
   });
 }

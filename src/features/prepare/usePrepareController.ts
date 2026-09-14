@@ -13,7 +13,6 @@ import {
   imputeOutlierValues,
   nullifyInvalidTypeValues,
   normalizeColumnNames,
-  normalizeSentinelValues,
   normalizeBooleanValues,
   normalizeTextValues,
   parseDateValues,
@@ -242,27 +241,6 @@ export function usePrepareController({
         message: result.changedCellCount === 0
           ? "No se encontraron valores personales no nulos que proteger."
           : `Se protegieron ${cells} en ${columns} con [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.`,
-      });
-      await refreshHistory();
-      onDeliveryInvalidated();
-    } catch (error: unknown) {
-      setChangeStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  async function applySentinelNormalization() {
-    if (activeDataset === null) return;
-    setChangeStatus({ kind: "working", action: "sentinels" });
-    try {
-      const result = await normalizeSentinelValues();
-      onDatasetChanged(result.dataset);
-      onProfileInvalidated();
-      const columns = result.changedColumns.map((column) => column.name).join(", ");
-      setChangeStatus({
-        kind: "applied",
-        message: result.changedCellCount === 0
-          ? "No se detectaron valores centinela conocidos en las columnas de texto."
-          : `Se convirtieron ${result.changedCellCount.toLocaleString()} valores centinela a nulos en: ${columns}.`,
       });
       await refreshHistory();
       onDeliveryInvalidated();
@@ -550,7 +528,7 @@ export function usePrepareController({
 
   async function applyRecommendedCorrections(options: SafeCorrectionOptions) {
     if (activeDataset === null) return;
-    if (!options.trimText && !options.normalizeColumnNames) return;
+    if (!options.trimText && !options.normalizeSentinels && !options.normalizeColumnNames) return;
     setChangeStatus({ kind: "working", action: "safe" });
     try {
       const result = await applySafeCorrections(options);
@@ -558,13 +536,13 @@ export function usePrepareController({
       onProfileInvalidated();
       const changed = result.changedCellCount > 0 || result.renamedColumnCount > 0;
       const changedCells = result.changedCellCount === 1
-        ? "1 celda recortada"
-        : `${result.changedCellCount.toLocaleString()} celdas recortadas`;
+        ? "1 celda actualizada"
+        : `${result.changedCellCount.toLocaleString()} celdas actualizadas`;
       const renamedColumns = result.renamedColumnCount === 1
         ? "1 columna renombrada"
         : `${result.renamedColumnCount.toLocaleString()} columnas renombradas`;
       const changes = [
-        options.trimText && result.changedCellCount > 0 ? changedCells : null,
+        (options.trimText || options.normalizeSentinels) && result.changedCellCount > 0 ? changedCells : null,
         options.normalizeColumnNames && result.renamedColumnCount > 0 ? renamedColumns : null,
       ].filter((change): change is string => change !== null);
       setChangeStatus({
@@ -635,7 +613,6 @@ export function usePrepareController({
     applyIdentifierColumnRemoval,
     applyPersonalColumnRemoval,
     applyPersonalValueMasking,
-    applySentinelNormalization,
     applyBooleanNormalization,
     applyDateParsing,
     applyNumericCast,

@@ -32,7 +32,6 @@ interface PreparePhaseProps {
   onRemoveIdentifierColumns?: () => void;
   onRemovePersonalColumns?: () => void;
   onMaskPersonalValues?: () => void;
-  onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onParseDates?: () => void;
   onCastNumeric?: () => void;
@@ -75,7 +74,6 @@ export function PreparePhase({
   onRemoveIdentifierColumns = () => undefined,
   onRemovePersonalColumns = () => undefined,
   onMaskPersonalValues = () => undefined,
-  onNormalizeSentinels,
   onNormalizeBooleans,
   onParseDates = () => undefined,
   onCastNumeric = () => undefined,
@@ -105,6 +103,7 @@ export function PreparePhase({
   const [removeAccents, setRemoveAccents] = useState(true);
   const [planSelection, setPlanSelection] = useState<SafeCorrectionOptions>(() => ({
     trimText: textColumns.length > 0,
+    normalizeSentinels: false,
     normalizeColumnNames: false,
   }));
   const [planRevision, setPlanRevision] = useState(datasetRevision);
@@ -124,11 +123,15 @@ export function PreparePhase({
   const typeDriftColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.invalidTypeCount ?? 0) > 0)
     : [];
+  const sentinelColumns = profileStatus.kind === "ready"
+    ? profileStatus.profile.columns.filter((column) => (column.sentinelCount ?? 0) > 0)
+    : [];
   const outlierColumns = profileStatus.kind === "ready"
     ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios")
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
   const textColumnSignature = textColumns.map((column) => column.name).join("\u0000");
+  const sentinelColumnSignature = sentinelColumns.map((column) => column.name).join("\u0000");
 
   useEffect(() => {
     const available = new Set(textColumns.map((column) => column.name));
@@ -137,15 +140,19 @@ export function PreparePhase({
 
   useEffect(() => {
     setPlanRevision(datasetRevision);
-    setPlanSelection({ trimText: textColumns.length > 0, normalizeColumnNames: false });
-  }, [datasetRevision, textColumnSignature]);
+    setPlanSelection({
+      trimText: textColumns.length > 0,
+      normalizeSentinels: false,
+      normalizeColumnNames: false,
+    });
+  }, [datasetRevision, textColumnSignature, sentinelColumnSignature]);
 
   function applySelectedPlan() {
     if (
       planRevision !== datasetRevision ||
       profileStatus.kind !== "ready" ||
       changing ||
-      (!planSelection.trimText && !planSelection.normalizeColumnNames)
+      (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames)
     ) return;
     onApplyRecommended(planSelection);
   }
@@ -262,7 +269,6 @@ export function PreparePhase({
               onRemoveIdentifierColumns={() => setIdentifierConfirmation(true)}
               onRemovePersonalColumns={() => setPersonalConfirmation(true)}
               onMaskPersonalValues={() => setMaskPersonalConfirmation(true)}
-              onNormalizeSentinels={onNormalizeSentinels}
               onNormalizeBooleans={onNormalizeBooleans}
               onParseDates={onParseDates}
               onCastNumeric={onCastNumeric}
@@ -332,6 +338,16 @@ export function PreparePhase({
                   Recortar espacios exteriores en {textColumns.length} {textColumns.length === 1 ? "columna de texto" : "columnas de texto"}
                 </label>
               )}
+              {sentinelColumns.length > 0 && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={planSelection.normalizeSentinels}
+                    onChange={(event) => setPlanSelection((current) => ({ ...current, normalizeSentinels: event.target.checked }))}
+                  />
+                  Convertir marcadores de ausencia detectados en {sentinelColumns.length} {sentinelColumns.length === 1 ? "columna" : "columnas"}
+                </label>
+              )}
               <label>
                 <input
                   type="checkbox"
@@ -342,14 +358,14 @@ export function PreparePhase({
               </label>
             </fieldset>
             <p className="prepare-plan__note">
-              Normalizar encabezados puede afectar consultas e integraciones que usan los nombres actuales.
-              Puedes deshacer el resultado desde el historial.
+              {sentinelColumns.length > 0 && "Convertir marcadores conocidos como N/A a nulos reales. "}
+              Normalizar encabezados puede afectar consultas e integraciones. Puedes deshacer el resultado desde el historial.
             </p>
           </div>
           <button
             type="button"
             onClick={applySelectedPlan}
-            disabled={changing || planRevision !== datasetRevision || (!planSelection.trimText && !planSelection.normalizeColumnNames)}
+            disabled={changing || planRevision !== datasetRevision || (!planSelection.trimText && !planSelection.normalizeSentinels && !planSelection.normalizeColumnNames)}
           >
             Aplicar plan seleccionado
           </button>
@@ -711,7 +727,6 @@ function CleaningSignals({
   onRemoveIdentifierColumns,
   onRemovePersonalColumns,
   onMaskPersonalValues,
-  onNormalizeSentinels,
   onNormalizeBooleans,
   onParseDates,
   onCastNumeric,
@@ -731,7 +746,6 @@ function CleaningSignals({
   onRemoveIdentifierColumns: () => void;
   onRemovePersonalColumns: () => void;
   onMaskPersonalValues: () => void;
-  onNormalizeSentinels: () => void;
   onNormalizeBooleans: () => void;
   onParseDates: () => void;
   onCastNumeric: () => void;
@@ -782,6 +796,7 @@ function CleaningSignals({
   const categoricalImputable = profile.columns.filter(
     (column) => column.dataType === "String" && column.nullCount > 0 && column.name !== "_cambios",
   );
+  const hasNullActions = empty.length > 0 || highNull.length > 0 || imputable.length > 0 || categoricalImputable.length > 0;
   const dataColumns = profile.columns.filter((column) => column.name !== "_cambios");
   const totalNullCount = dataColumns.reduce((total, column) => total + column.nullCount, 0);
   const columnsWithNulls = dataColumns.filter((column) => column.nullCount > 0);
@@ -823,19 +838,12 @@ function CleaningSignals({
           <p className="notice notice--success" role="status">
             No se detectaron nulos ni marcadores conocidos de datos ausentes.
           </p>
-        ) : (
+        ) : totalNullCount === 0 && sentinels.length > 0 ? (
+          <p className="notice" role="note">
+            Se detectaron marcadores de ausencia. Puedes convertirlos desde el plan de correcciones de arriba.
+          </p>
+        ) : hasNullActions ? (
           <ol className="missing-data-plan__steps">
-            {sentinels.length > 0 && (
-              <li>
-                <div>
-                  <strong>Unificar ausencias</strong>
-                  <p>Convierte tokens como N/A o null en nulos reales para medirlos de forma consistente.</p>
-                </div>
-                <button type="button" onClick={onNormalizeSentinels} disabled={busy}>
-                  Convertir centinelas a nulos
-                </button>
-              </li>
-            )}
             {(empty.length > 0 || highNull.length > 0) && (
               <li>
                 <div>
@@ -880,7 +888,7 @@ function CleaningSignals({
               </li>
             )}
           </ol>
-        )}
+        ) : null}
         <details className="missing-data-plan__help">
           <summary>Cómo decide Columnia</summary>
           <div>

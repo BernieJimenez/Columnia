@@ -230,7 +230,6 @@ describe("PreparePhase", () => {
       onRemoveConstantColumns={() => undefined}
     onRemoveEmptyColumns={() => undefined}
       onRemoveHighNullColumns={() => undefined}
-      onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
@@ -270,7 +269,7 @@ describe("PreparePhase", () => {
       dataset={dataset} profileStatus={{ kind: "idle" }} changeStatus={{ kind: "idle" }}
       historyStatus={history}  onCancelProfile={() => undefined}
       recipeDraft={null} recipeSession={0}
-      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeSentinels={() => undefined} onNormalizeBooleans={() => undefined} onImputeMissingValues={() => undefined} onEnableRowAudit={() => undefined} onNormalizeColumns={() => undefined}
+      onRemoveDuplicates={() => undefined} onRemoveConstantColumns={() => undefined} onRemoveEmptyColumns={() => undefined} onRemoveHighNullColumns={() => undefined} onNormalizeBooleans={() => undefined} onImputeMissingValues={() => undefined} onEnableRowAudit={() => undefined} onNormalizeColumns={() => undefined}
       onRemoveEmptyRows={() => undefined}
       onApplyRecommended={() => undefined} onTrimText={() => undefined}
       onNormalizeText={() => undefined} onApplyTransforms={() => undefined}
@@ -288,7 +287,6 @@ describe("PreparePhase", () => {
     const onRemoveConstantColumns = vi.fn();
     const onRemoveEmptyColumns = vi.fn();
     const onRemoveHighNullColumns = vi.fn();
-    const onNormalizeSentinels = vi.fn();
     const onNormalizeBooleans = vi.fn();
     const onParseDates = vi.fn();
     const onCastNumeric = vi.fn();
@@ -316,7 +314,6 @@ describe("PreparePhase", () => {
       onRemoveConstantColumns={onRemoveConstantColumns}
       onRemoveEmptyColumns={onRemoveEmptyColumns}
       onRemoveHighNullColumns={onRemoveHighNullColumns}
-      onNormalizeSentinels={onNormalizeSentinels}
       onNormalizeBooleans={onNormalizeBooleans}
       onParseDates={onParseDates}
       onCastNumeric={onCastNumeric}
@@ -362,8 +359,8 @@ describe("PreparePhase", () => {
     expect(onRemoveEmptyColumns).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Eliminar columnas con alta nulidad" }));
     expect(onRemoveHighNullColumns).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "Convertir centinelas a nulos" }));
-    expect(onNormalizeSentinels).toHaveBeenCalledOnce();
+    expect(screen.getByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ })).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: "Convertir centinelas a nulos" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Corregir codificación" }));
     expect(onFixEncoding).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Normalizar booleanos" }));
@@ -411,7 +408,6 @@ describe("PreparePhase", () => {
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
       onRemoveHighNullColumns={() => undefined}
-      onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
@@ -455,7 +451,6 @@ describe("PreparePhase", () => {
       onRemoveEmptyColumns={() => undefined}
       onRemoveHighNullColumns={() => undefined}
       onRemoveIdentifierColumns={onRemoveIdentifierColumns}
-      onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
@@ -503,7 +498,6 @@ describe("PreparePhase", () => {
       onRemoveIdentifierColumns={() => undefined}
       onRemovePersonalColumns={onRemovePersonalColumns}
       onMaskPersonalValues={onMaskPersonalValues}
-      onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
@@ -563,7 +557,6 @@ describe("PreparePhase", () => {
       onRemoveHighNullColumns={() => undefined}
       onRemoveIdentifierColumns={() => undefined}
       onRemovePersonalColumns={() => undefined}
-      onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onFixEncoding={() => undefined}
       onNullifyInvalidTypes={onNullifyInvalidTypes}
@@ -606,7 +599,6 @@ describe("PreparePhase", () => {
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
       onRemoveHighNullColumns={() => undefined}
-      onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
@@ -652,7 +644,6 @@ describe("PreparePhase", () => {
       onRemoveHighNullColumns: vi.fn(),
       onRemoveIdentifierColumns: vi.fn(),
       onRemovePersonalColumns: vi.fn(),
-      onNormalizeSentinels: vi.fn(),
       onNormalizeBooleans: vi.fn(),
       onFixEncoding: vi.fn(),
       onImputeMissingValues: vi.fn(),
@@ -740,8 +731,15 @@ describe("PreparePhase", () => {
     expect(screen.getByRole("checkbox", { name: /Recortar espacios exteriores/ })).toBeChecked();
     expect(screen.getAllByText(/Normalizar encabezados puede afectar consultas e integraciones/).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 2 columnas/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ }));
+    expect(screen.getByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ })).toBeChecked();
+    expect(screen.queryByRole("button", { name: "Convertir centinelas a nulos" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
-    expect(callbacks.onApplyRecommended).toHaveBeenCalledWith({ trimText: true, normalizeColumnNames: true });
+    expect(callbacks.onApplyRecommended).toHaveBeenCalledWith({
+      trimText: true,
+      normalizeSentinels: true,
+      normalizeColumnNames: true,
+    });
 
     cleanup();
     render(<PreparePhase
@@ -798,7 +796,6 @@ describe("PreparePhase", () => {
       onRemoveConstantColumns={() => undefined}
       onRemoveEmptyColumns={() => undefined}
       onRemoveHighNullColumns={() => undefined}
-      onNormalizeSentinels={() => undefined}
       onNormalizeBooleans={() => undefined}
       onImputeMissingValues={() => undefined}
       onEnableRowAudit={() => undefined}
@@ -821,6 +818,7 @@ describe("PreparePhase", () => {
     expect(screen.queryByRole("button", { name: "Aplicar plan seleccionado" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Eliminar filas vacías" }).closest("details")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /Recortar espacios exteriores/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Convertir marcadores de ausencia detectados/ })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ })).toBeInTheDocument();
   });
 });

@@ -197,6 +197,8 @@ UX01 y UX02 avanzaron con acciones contextuales y estados de análisis, pero su 
 
 Preparar ahora propone un plan ligado a la revisión actual: recortar espacios exteriores (seleccionado si hay columnas de texto) y normalizar encabezados (opcional y desmarcado porque puede afectar consultas). Una sola acción envía las opciones al motor. El backend ejecuta la combinación elegida sobre una candidata y la publica como una revisión reversible; el plan se oculta mientras el diagnóstico de la nueva revisión está pendiente. Los resultados de un análisis que termine tarde ya no pueden reemplazar el perfil de una revisión posterior.
 
+El plan también ofrece unificar marcadores conocidos de ausencia cuando el perfil detecta alguno. La opción aparece desmarcada por defecto y se combina con el recorte y la normalización de encabezados en una sola candidata; cada celda transformada cuenta una sola vez aunque pase por más de una operación. Se retiró la acción independiente «Convertir centinelas a nulos» de la ruta guiada.
+
 Esto es avance parcial de AU01, AU02, AU03 y CO05. El plan aún no reúne las señales de limpieza, decisiones sobre datos ambiguos, validación y salida en un contrato común; el estado común para todas las operaciones también queda pendiente. No se promete que esta unidad cubra las transformaciones que se ejecutan por otros comandos. La próxima etapa debe ampliar el plan sin encadenar llamadas que publiquen cada una un estado parcial. Los cambios que alteran significado o eliminan datos conservan aprobación explícita. La revisión estática y las pruebas automatizadas no sustituyen pruebas con usuarios; CO07 sigue pendiente.
 
 ## Fuentes locales

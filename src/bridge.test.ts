@@ -393,7 +393,7 @@ describe("desktop bridge", () => {
     await fixEncodingValues();
     await nullifyInvalidTypeValues();
     await imputeMissingValues();
-    await applySafeCorrections({ trimText: true, normalizeColumnNames: false });
+    await applySafeCorrections({ trimText: true, normalizeSentinels: true, normalizeColumnNames: false });
     await undoLastChange();
     await redoLastChange();
 
@@ -413,6 +413,7 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(11, "impute_missing_values");
     expect(invoke).toHaveBeenNthCalledWith(12, "apply_safe_corrections", {
       trimText: true,
+      normalizeSentinels: true,
       normalizeColumnNames: false,
     });
     expect(invoke).toHaveBeenNthCalledWith(13, "undo_last_change");

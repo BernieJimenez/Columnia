@@ -58,7 +58,6 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyIdentifierColumnRemoval}>Identificadores</button>
     <button type="button" onClick={controller.applyPersonalColumnRemoval}>Personales</button>
     <button type="button" onClick={controller.applyPersonalValueMasking}>Proteger personales</button>
-    <button type="button" onClick={controller.applySentinelNormalization}>Centinelas</button>
     <button type="button" onClick={controller.applyDateParsing}>Fechas</button>
     <button type="button" onClick={controller.applyNumericCast}>Números</button>
     <button type="button" onClick={controller.applyBooleanNormalization}>Booleanos</button>
@@ -75,6 +74,7 @@ function ControllerHarness({
     <button type="button" onClick={() => controller.normalizeText(["nombre"], true)}>Texto</button>
     <button type="button" onClick={() => controller.applyRecommendedCorrections({
       trimText: true,
+      normalizeSentinels: true,
       normalizeColumnNames: true,
     })}>Recomendadas</button>
     <button type="button" onClick={() => controller.applyStructuralTransforms({
@@ -291,28 +291,6 @@ describe("usePrepareController", () => {
       "Se protegieron 4 valores en 2 columnas con [REDACTED]. No se muestran nombres ni valores; el cambio puede revertirse desde el historial.",
     ));
     expect(bridge.maskPersonalValues).toHaveBeenCalledOnce();
-    expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
-    expect(onProfileInvalidated).toHaveBeenCalledOnce();
-    expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
-  });
-
-  it("convierte centinelas a nulos y publica el impacto por columna", async () => {
-    vi.spyOn(bridge, "normalizeSentinelValues").mockResolvedValue({
-      dataset,
-      affectedRowCount: 2,
-      changedCellCount: 3,
-      changedColumns: [{ name: "estado", changedCellCount: 3 }],
-    });
-    vi.spyOn(bridge, "getHistoryState").mockResolvedValue(history);
-    const onDatasetChanged = vi.fn();
-    const onProfileInvalidated = vi.fn();
-    const onDeliveryInvalidated = vi.fn();
-    render(<ControllerHarness {...{ onDatasetChanged, onProfileInvalidated, onDeliveryInvalidated }} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Centinelas" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
-      "Se convirtieron 3 valores centinela a nulos en: estado.",
-    ));
     expect(onDatasetChanged).toHaveBeenCalledWith(dataset);
     expect(onProfileInvalidated).toHaveBeenCalledOnce();
     expect(onDeliveryInvalidated).toHaveBeenCalledOnce();
@@ -629,8 +607,6 @@ describe("usePrepareController", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas identificadoras"));
     fireEvent.click(screen.getByRole("button", { name: "Personales" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron columnas de datos personales"));
-    fireEvent.click(screen.getByRole("button", { name: "Centinelas" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se detectaron valores centinela"));
     fireEvent.click(screen.getByRole("button", { name: "Booleanos" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se encontraron alias booleanos"));
     fireEvent.click(screen.getByRole("button", { name: "Imputar" }));
@@ -645,6 +621,11 @@ describe("usePrepareController", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No se encontraron valores"));
     fireEvent.click(screen.getByRole("button", { name: "Recomendadas" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("ya cumplía"));
+    expect(bridge.applySafeCorrections).toHaveBeenLastCalledWith({
+      trimText: true,
+      normalizeSentinels: true,
+      normalizeColumnNames: true,
+    });
     fireEvent.click(screen.getByRole("button", { name: "Receta" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("no produjo cambios"));
   });
@@ -693,7 +674,6 @@ describe("usePrepareController", () => {
       "Alta nulidad",
       "Identificadores",
       "Personales",
-      "Centinelas",
       "Booleanos",
       "Imputar",
       "Auditoría",

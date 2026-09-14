@@ -11373,6 +11373,7 @@ fn source_backed_safe_corrections(
     dataset: &mut LoadedDataset,
     trim_text: bool,
     normalize_column_names: bool,
+    normalize_sentinels: bool,
 ) -> Result<Option<SafeCorrectionsResult>, String> {
     let Some((source_path, source_format)) = current_duckdb_file_source(dataset) else {
         return Ok(None);
@@ -11390,7 +11391,7 @@ fn source_backed_safe_corrections(
             Vec::new(),
         )
     };
-    let trim_expressions = if trim_text {
+    let text_expressions = if trim_text || normalize_sentinels {
         dataset
             .frame
             .columns()
@@ -11398,25 +11399,33 @@ fn source_backed_safe_corrections(
             .filter(|column| column.dtype() == &DataType::String && column.name() != "_cambios")
             .map(|column| {
                 let name = column.name().to_string();
-                let expression = source_backed_text_expression(
-                    &duckdb_identifier(&name),
-                    TextCleaningMode::Trim,
-                    None,
-                )
-                .expect("el modo Trim tiene expresión source-backed");
+                let mut expression = duckdb_identifier(&name);
+                if trim_text {
+                    expression =
+                        source_backed_text_expression(&expression, TextCleaningMode::Trim, None)
+                            .expect("el modo Trim tiene expresión source-backed");
+                }
+                if normalize_sentinels {
+                    expression = source_backed_text_expression(
+                        &expression,
+                        TextCleaningMode::Sentinels,
+                        None,
+                    )
+                    .expect("el modo Sentinels tiene expresión source-backed");
+                }
                 (name, expression)
             })
             .collect::<Vec<_>>()
     } else {
         Vec::new()
     };
-    let (affected_row_count, changed_counts) = if trim_expressions.is_empty() {
+    let (affected_row_count, changed_counts) = if text_expressions.is_empty() {
         (0, Vec::new())
     } else {
         match crate::duckdb_query::count_file_expression_changes(
             &source_path,
             source_format,
-            &trim_expressions,
+            &text_expressions,
             || false,
         ) {
             Ok(counts) => counts,
@@ -11442,7 +11451,7 @@ fn source_backed_safe_corrections(
         .map(|(original, renamed)| {
             let source = duckdb_identifier(original);
             let destination = duckdb_identifier(renamed);
-            if let Some((_, expression)) = trim_expressions
+            if let Some((_, expression)) = text_expressions
                 .iter()
                 .find(|(name, _)| name == original.as_str())
             {
@@ -12544,14 +12553,16 @@ fn safe_corrected_frame(
     frame: &DataFrame,
     trim_text: bool,
     normalize_column_names: bool,
+    normalize_sentinels: bool,
 ) -> Result<(DataFrame, usize, usize, Vec<ColumnRename>), String> {
-    let (mut candidate, affected_row_count, changed_cell_count) = if trim_text {
-        let (candidate, affected_rows, changed_cells, _) =
-            clean_text_columns(frame, None, TextCleaningMode::Trim)?;
-        (candidate, affected_rows, changed_cells)
-    } else {
-        (frame.clone(), 0, 0)
-    };
+    let mut candidate = frame.clone();
+    if trim_text {
+        candidate = clean_text_columns(&candidate, None, TextCleaningMode::Trim)?.0;
+    }
+    if normalize_sentinels {
+        candidate = clean_text_columns(&candidate, None, TextCleaningMode::Sentinels)?.0;
+    }
+    let (affected_row_count, changed_cell_count) = count_changed_text_cells(frame, &candidate)?;
     let (names, renames) = if normalize_column_names {
         normalized_column_names(&candidate)
     } else {
@@ -12563,6 +12574,37 @@ fn safe_corrected_frame(
             .map_err(|error| format!("No se pudieron normalizar las columnas: {error}"))?;
     }
     Ok((candidate, affected_row_count, changed_cell_count, renames))
+}
+
+fn count_changed_text_cells(
+    before: &DataFrame,
+    after: &DataFrame,
+) -> Result<(usize, usize), String> {
+    let mut changed_rows = vec![false; before.height()];
+    let mut changed_cell_count = 0;
+    for column in before.columns() {
+        if column.dtype() != &DataType::String || column.name() == "_cambios" {
+            continue;
+        }
+        let name = column.name().as_str();
+        let before_values = column
+            .str()
+            .map_err(|error| format!("No se pudo leer la columna '{name}': {error}"))?;
+        let after_values = after
+            .column(name)
+            .and_then(|column| column.str())
+            .map_err(|error| format!("No se pudo leer la columna '{name}' corregida: {error}"))?;
+        for row_index in 0..before.height() {
+            if before_values.get(row_index) != after_values.get(row_index) {
+                changed_cell_count += 1;
+                changed_rows[row_index] = true;
+            }
+        }
+    }
+    Ok((
+        changed_rows.into_iter().filter(|changed| *changed).count(),
+        changed_cell_count,
+    ))
 }
 
 fn spreadsheet_extensions(extension: &str) -> bool {
@@ -26726,7 +26768,9 @@ pub async fn apply_safe_corrections(
     app: AppHandle,
     trim_text: bool,
     normalize_column_names: bool,
+    normalize_sentinels: Option<bool>,
 ) -> Result<SafeCorrectionsResult, String> {
+    let normalize_sentinels = normalize_sentinels.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatasetState>();
         let mut current = state
@@ -26737,16 +26781,23 @@ pub async fn apply_safe_corrections(
             "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
         })?;
         if dataset.source_backed {
-            if let Some(result) =
-                source_backed_safe_corrections(dataset, trim_text, normalize_column_names)?
-            {
+            if let Some(result) = source_backed_safe_corrections(
+                dataset,
+                trim_text,
+                normalize_column_names,
+                normalize_sentinels,
+            )? {
                 return Ok(result);
             }
         }
         materialize_loaded_dataset(dataset)?;
 
-        let (candidate, affected_row_count, changed_cell_count, renames) =
-            safe_corrected_frame(&dataset.frame, trim_text, normalize_column_names)?;
+        let (candidate, affected_row_count, changed_cell_count, renames) = safe_corrected_frame(
+            &dataset.frame,
+            trim_text,
+            normalize_column_names,
+            normalize_sentinels,
+        )?;
         let renamed_column_count = renames.len();
 
         let preview = if changed_cell_count > 0 || renamed_column_count > 0 {

@@ -1210,7 +1210,6 @@ export function App() {
                 onRemoveIdentifierColumns={prepare.applyIdentifierColumnRemoval}
                 onRemovePersonalColumns={prepare.applyPersonalColumnRemoval}
                 onMaskPersonalValues={prepare.applyPersonalValueMasking}
-                onNormalizeSentinels={prepare.applySentinelNormalization}
                 onNormalizeBooleans={prepare.applyBooleanNormalization}
                 onParseDates={prepare.applyDateParsing}
                 onCastNumeric={prepare.applyNumericCast}

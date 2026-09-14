@@ -398,5 +398,6 @@ export interface SafeCorrectionsResult {
 
 export interface SafeCorrectionOptions {
   trimText: boolean;
+  normalizeSentinels: boolean;
   normalizeColumnNames: boolean;
 }

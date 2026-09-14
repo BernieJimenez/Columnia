@@ -891,7 +891,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
-    expect(normalizeSpy).toHaveBeenCalledWith({ trimText: false, normalizeColumnNames: true });
+    expect(normalizeSpy).toHaveBeenCalledWith({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true });
 
     await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
@@ -939,8 +939,8 @@ describe("App", () => {
     await switchPhase("Preparar");
     fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
 
-    expect(await screen.findByText("Plan aplicado: 1 celda recortada.")).toBeInTheDocument();
-    expect(trimSpy).toHaveBeenCalledWith({ trimText: true, normalizeColumnNames: false });
+    expect(await screen.findByText("Plan aplicado: 1 celda actualizada.")).toBeInTheDocument();
+    expect(trimSpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: false });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
@@ -987,11 +987,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
 
     expect(
-      await screen.findByText(/Plan aplicado: 1 celda recortada y 1 columna renombrada/),
+      await screen.findByText(/Plan aplicado: 1 celda actualizada y 1 columna renombrada/),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
-    expect(applySpy).toHaveBeenCalledWith({ trimText: true, normalizeColumnNames: true });
+    expect(applySpy).toHaveBeenCalledWith({ trimText: true, normalizeSentinels: false, normalizeColumnNames: true });
   });
 
   it("calcula y presenta el perfil de calidad del dataset", async () => {
