@@ -73,7 +73,10 @@ function ControllerHarness({
     <button type="button" onClick={controller.applyColumnNormalization}>Columnas</button>
     <button type="button" onClick={() => controller.trimText()}>Recortar</button>
     <button type="button" onClick={() => controller.normalizeText(["nombre"], true)}>Texto</button>
-    <button type="button" onClick={controller.applyRecommendedCorrections}>Recomendadas</button>
+    <button type="button" onClick={() => controller.applyRecommendedCorrections({
+      trimText: true,
+      normalizeColumnNames: true,
+    })}>Recomendadas</button>
     <button type="button" onClick={() => controller.applyStructuralTransforms({
       renames: [], casts: [], dateParses: [], filters: [], calculatedColumn: null,
       findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,

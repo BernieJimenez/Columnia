@@ -395,3 +395,8 @@ export interface SafeCorrectionsResult {
   renamedColumnCount: number;
   renames: ColumnRename[];
 }
+
+export interface SafeCorrectionOptions {
+  trimText: boolean;
+  normalizeColumnNames: boolean;
+}

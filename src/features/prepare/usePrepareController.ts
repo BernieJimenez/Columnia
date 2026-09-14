@@ -31,6 +31,7 @@ import {
   trimTextValues,
   undoLastChange,
   type DatasetPreview,
+  type SafeCorrectionOptions,
   type TransformRecipe,
 } from "../../bridge";
 import { EMPTY_HISTORY, type ChangeStatus } from "./prepareModel";
@@ -547,11 +548,12 @@ export function usePrepareController({
     }
   }
 
-  async function applyRecommendedCorrections() {
+  async function applyRecommendedCorrections(options: SafeCorrectionOptions) {
     if (activeDataset === null) return;
+    if (!options.trimText && !options.normalizeColumnNames) return;
     setChangeStatus({ kind: "working", action: "safe" });
     try {
-      const result = await applySafeCorrections();
+      const result = await applySafeCorrections(options);
       onDatasetChanged(result.dataset);
       onProfileInvalidated();
       const changed = result.changedCellCount > 0 || result.renamedColumnCount > 0;
@@ -561,11 +563,15 @@ export function usePrepareController({
       const renamedColumns = result.renamedColumnCount === 1
         ? "1 columna renombrada"
         : `${result.renamedColumnCount.toLocaleString()} columnas renombradas`;
+      const changes = [
+        options.trimText && result.changedCellCount > 0 ? changedCells : null,
+        options.normalizeColumnNames && result.renamedColumnCount > 0 ? renamedColumns : null,
+      ].filter((change): change is string => change !== null);
       setChangeStatus({
         kind: "applied",
         message: changed
-          ? `Correcciones recomendadas aplicadas: ${changedCells} y ${renamedColumns}.`
-          : "El dataset ya cumplía las correcciones recomendadas.",
+          ? "Plan aplicado: " + changes.join(" y ") + "."
+          : "El dataset ya cumplía las correcciones seleccionadas.",
       });
       await refreshHistory();
       onDeliveryInvalidated();

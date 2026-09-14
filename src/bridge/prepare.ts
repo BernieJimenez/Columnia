@@ -8,6 +8,7 @@ import type {
   HistoryState,
   HistoryResult,
   SafeCorrectionsResult,
+  SafeCorrectionOptions,
   TransformRecipe,
   SavedRecipe,
   LoadedRecipe,
@@ -115,8 +116,11 @@ export function dropOutlierValues(): Promise<TextCleaningResult> {
   return invoke<TextCleaningResult>("drop_outlier_values");
 }
 
-export function applySafeCorrections(): Promise<SafeCorrectionsResult> {
-  return invoke<SafeCorrectionsResult>("apply_safe_corrections");
+export function applySafeCorrections(options: SafeCorrectionOptions): Promise<SafeCorrectionsResult> {
+  return invoke<SafeCorrectionsResult>("apply_safe_corrections", {
+    trimText: options.trimText,
+    normalizeColumnNames: options.normalizeColumnNames,
+  });
 }
 
 export function applyTransformRecipe(recipe: TransformRecipe): Promise<TransformRecipeResult> {

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { OperationProgressView } from "../../components/OperationProgressView";
 import { ModalDialog } from "../../components/ModalDialog";
-import type { DatasetPreview, DatasetProfile, HistoryState, QualityRule, SavedRecipe, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, QualityRule, SafeCorrectionOptions, SavedRecipe, TransformRecipe } from "../../bridge";
 import type { ProfileStatus } from "../review/reviewModel";
 import { ChangeFeedback, HistoryBar } from "./HistoryBar";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
@@ -45,7 +45,7 @@ interface PreparePhaseProps {
   onDropOutliers?: () => void;
   onEnableRowAudit: () => void;
   onNormalizeColumns: () => void;
-  onApplyRecommended: () => void;
+  onApplyRecommended: (options: SafeCorrectionOptions) => void;
   onTrimText: () => void;
   onNormalizeText: (columns: string[], removeAccents: boolean) => void;
   onApplyTransforms: (recipe: TransformRecipe) => void;
@@ -87,9 +87,7 @@ export function PreparePhase({
   onCapOutliers = () => undefined,
   onDropOutliers = () => undefined,
   onEnableRowAudit,
-  onNormalizeColumns,
   onApplyRecommended,
-  onTrimText,
   onNormalizeText,
   onApplyTransforms,
   onRecipeDraftChange,
@@ -105,6 +103,11 @@ export function PreparePhase({
   const hasRowAuditColumn = dataset.columns.some((column) => column.name === "_cambios");
   const [selectedTextColumns, setSelectedTextColumns] = useState<string[]>([]);
   const [removeAccents, setRemoveAccents] = useState(true);
+  const [planSelection, setPlanSelection] = useState<SafeCorrectionOptions>(() => ({
+    trimText: textColumns.length > 0,
+    normalizeColumnNames: false,
+  }));
+  const [planRevision, setPlanRevision] = useState(datasetRevision);
   const [activeTab, setActiveTab] = useState<"corrections" | "transformations">("corrections");
   const [nearDuplicateConfirmation, setNearDuplicateConfirmation] = useState(false);
   const [identifierConfirmation, setIdentifierConfirmation] = useState(false);
@@ -125,11 +128,27 @@ export function PreparePhase({
     ? profileStatus.profile.columns.filter((column) => (column.outlierCount ?? 0) > 0 && column.name !== "_cambios")
     : [];
   const personalCategories = summarizePersonalPrivacySignals(personalColumns);
+  const textColumnSignature = textColumns.map((column) => column.name).join("\u0000");
 
   useEffect(() => {
     const available = new Set(textColumns.map((column) => column.name));
     setSelectedTextColumns((current) => current.filter((name) => available.has(name)));
   }, [dataset.columns]);
+
+  useEffect(() => {
+    setPlanRevision(datasetRevision);
+    setPlanSelection({ trimText: textColumns.length > 0, normalizeColumnNames: false });
+  }, [datasetRevision, textColumnSignature]);
+
+  function applySelectedPlan() {
+    if (
+      planRevision !== datasetRevision ||
+      profileStatus.kind !== "ready" ||
+      changing ||
+      (!planSelection.trimText && !planSelection.normalizeColumnNames)
+    ) return;
+    onApplyRecommended(planSelection);
+  }
 
   useEffect(() => {
     if (!initialQualityFocus) return;
@@ -292,6 +311,50 @@ export function PreparePhase({
           </button>
         </section>
       )}
+      {profileStatus.kind === "ready" && hasColumns && (
+        <section className="recommended-batch prepare-plan" aria-labelledby="prepare-plan-title">
+          <div>
+            <p className="step">Plan para esta revisión</p>
+            <h3 id="prepare-plan-title">Revisa las correcciones antes de aplicarlas</h3>
+            <p>
+              Selecciona cambios reversibles. El plan queda ligado a la revisión actual y no modifica
+              los datos hasta que lo apliques.
+            </p>
+            <fieldset className="prepare-plan__choices" disabled={changing || planRevision !== datasetRevision}>
+              <legend>Correcciones incluidas</legend>
+              {textColumns.length > 0 && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={planSelection.trimText}
+                    onChange={(event) => setPlanSelection((current) => ({ ...current, trimText: event.target.checked }))}
+                  />
+                  Recortar espacios exteriores en {textColumns.length} {textColumns.length === 1 ? "columna de texto" : "columnas de texto"}
+                </label>
+              )}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={planSelection.normalizeColumnNames}
+                  onChange={(event) => setPlanSelection((current) => ({ ...current, normalizeColumnNames: event.target.checked }))}
+                />
+                Normalizar nombres de las {dataset.columns.length} columnas
+              </label>
+            </fieldset>
+            <p className="prepare-plan__note">
+              Normalizar encabezados puede afectar consultas e integraciones que usan los nombres actuales.
+              Puedes deshacer el resultado desde el historial.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={applySelectedPlan}
+            disabled={changing || planRevision !== datasetRevision || (!planSelection.trimText && !planSelection.normalizeColumnNames)}
+          >
+            Aplicar plan seleccionado
+          </button>
+        </section>
+      )}
       {profileStatus.kind === "idle" && (
         <section className="prepare-analysis-prompt" aria-labelledby="prepare-analysis-title" role="status">
           <div>
@@ -347,51 +410,6 @@ export function PreparePhase({
             Activar trazabilidad
           </button>
         )}
-      </section>
-      )}
-      {textColumns.length > 0 && (
-      <section className="recommended-batch" aria-labelledby="recommended-batch-title">
-        <div>
-          <p className="step">Acción general reversible</p>
-          <h3 id="recommended-batch-title">Recortar espacios y normalizar encabezados</h3>
-          <p>
-            Recorta espacios exteriores de las columnas de texto y convierte los encabezados a
-            nombres consistentes en una sola operación reversible.
-          </p>
-          <p>Los encabezados pueden afectar consultas e integraciones que dependan de sus nombres actuales.</p>
-        </div>
-        <button type="button" onClick={onApplyRecommended} disabled={changing}>
-          Aplicar ambas correcciones
-        </button>
-      </section>
-      )}
-      <section className="prepare-card" aria-labelledby="normalize-columns-title">
-        <div>
-          <p className="step">Recomendada y segura</p>
-          <h3 id="normalize-columns-title">Normalizar nombres de columnas</h3>
-          <p>
-            Convierte los encabezados a nombres consistentes en minúsculas, sin acentos y con
-            guiones bajos. Las colisiones se numeran de forma determinista. Esto puede afectar
-            consultas e integraciones que usen los nombres actuales.
-          </p>
-        </div>
-        <button type="button" onClick={onNormalizeColumns} disabled={changing}>
-          Normalizar columnas
-        </button>
-      </section>
-      {textColumns.length > 0 && (
-      <section className="prepare-card" aria-labelledby="trim-text-title">
-        <div>
-          <p className="step">Recomendada y segura</p>
-          <h3 id="trim-text-title">Eliminar espacios exteriores</h3>
-          <p>
-            Recorta espacios al inicio y al final de todas las columnas de texto sin cambiar
-            mayúsculas, acentos ni espacios internos.
-          </p>
-        </div>
-        <button type="button" onClick={onTrimText} disabled={changing || textColumns.length === 0}>
-          Recortar espacios
-        </button>
       </section>
       )}
       {textColumns.length > 0 && (

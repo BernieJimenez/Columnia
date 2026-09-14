@@ -203,6 +203,8 @@ export function App() {
   const [datasetRevision, setDatasetRevision] = useState(0);
   const datasetRevisionRef = useRef(0);
   const autoProfileRevisionRef = useRef<number | null>(null);
+  const profileRequestSequenceRef = useRef(0);
+  const activeProfileRequestRef = useRef<{ revision: number; sequence: number } | null>(null);
   const pageRequestRef = useRef(0);
   const operationBusyRef = useRef(false);
   const [completedPhases, setCompletedPhases] = useState<Set<WorkflowPhase>>(() => new Set());
@@ -210,6 +212,7 @@ export function App() {
 
   function bumpDatasetRevision() {
     datasetRevisionRef.current += 1;
+    profileRequestSequenceRef.current += 1;
     pageRequestRef.current += 1;
     setDatasetRevision(datasetRevisionRef.current);
   }
@@ -627,19 +630,33 @@ export function App() {
   }
 
   async function analyzeQuality() {
+    const requestedRevision = datasetRevisionRef.current;
+    if (activeProfileRequestRef.current?.revision === requestedRevision) return;
+    const sequence = ++profileRequestSequenceRef.current;
+    activeProfileRequestRef.current = { revision: requestedRevision, sequence };
+    const isCurrentRequest = () =>
+      datasetRevisionRef.current === requestedRevision &&
+      activeProfileRequestRef.current?.sequence === sequence;
     setProfileStatus(beginProfileAnalysis());
     try {
       const profile = await getDatasetProfile((progress) => {
+        if (!isCurrentRequest()) return;
         setProfileStatus((current) => updateProfileProgress(current, progress));
       }, analysisSampleRows);
+      if (!isCurrentRequest()) return;
       setProfileStatus({ kind: "ready", profile });
     } catch (error: unknown) {
+      if (!isCurrentRequest()) return;
       if (isCancellationError(error)) {
         setProfileStatus({ kind: "idle" });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
       setProfileStatus({ kind: "error", message });
+    } finally {
+      if (activeProfileRequestRef.current?.sequence === sequence) {
+        activeProfileRequestRef.current = null;
+      }
     }
   }
 

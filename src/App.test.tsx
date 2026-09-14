@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -359,6 +359,56 @@ describe("App", () => {
 
     expect(await screen.findByRole("button", { name: "Revisar opciones de entrega" })).toBeEnabled();
     expect(profileSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("descarta perfiles que terminan después de una revisión más nueva", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.26.0", platform: "windows" });
+    const initial: DatasetPreview = {
+      fileName: "revision.csv", fileSizeBytes: 64, rowCount: 4, columnCount: 1,
+      columns: [{ name: "valor", dataType: "String" }], rows: [["1"], ["2"], ["3"], ["4"]],
+    };
+    const afterFirstChange = { ...initial, rowCount: 3, rows: [["1"], ["2"], ["3"]] };
+    const afterSecondChange = { ...initial, rowCount: 2, rows: [["1"], ["2"]] };
+    const initialProfile: DatasetProfile = {
+      rowCount: 4, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [],
+    };
+    const staleProfile: DatasetProfile = {
+      rowCount: 3, duplicateRowCount: 0, nearDuplicateRowCount: 0, duplicatePercentage: 0, columns: [],
+    };
+    const latestProfile: DatasetProfile = {
+      rowCount: 2, duplicateRowCount: 1, nearDuplicateRowCount: 0, duplicatePercentage: 50, columns: [],
+    };
+    let resolveStaleProfile!: (profile: DatasetProfile) => void;
+    const staleProfilePromise = new Promise<DatasetProfile>((resolve) => { resolveStaleProfile = resolve; });
+    const profileSpy = vi.spyOn(bridge, "getDatasetProfile")
+      .mockResolvedValueOnce(initialProfile)
+      .mockReturnValueOnce(staleProfilePromise)
+      .mockResolvedValue(latestProfile);
+    mockDatasetLoad(initial);
+    const removeRowsSpy = vi.spyOn(bridge, "removeEmptyRows")
+      .mockResolvedValueOnce({ dataset: afterFirstChange, affectedRowCount: 1 })
+      .mockResolvedValueOnce({ dataset: afterSecondChange, affectedRowCount: 1 });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("button", { name: "Ver plan de preparación" });
+    await switchPhase("Preparar");
+    fireEvent.click(screen.getByText("Más herramientas"));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
+    await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(2));
+    await screen.findByRole("heading", { name: "Actualizando el diagnóstico" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar filas vacías" }));
+    await waitFor(() => expect(removeRowsSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(profileSpy).toHaveBeenCalledTimes(3));
+    expect(await screen.findByRole("heading", { name: "Filas duplicadas" })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveStaleProfile(staleProfile);
+      await staleProfilePromise;
+    });
+    expect(screen.getByRole("heading", { name: "Filas duplicadas" })).toBeInTheDocument();
   });
 
   it("explica cómo conectar el motor cuando se abre en navegador", async () => {
@@ -822,11 +872,13 @@ describe("App", () => {
       rows: [["2026"]],
     };
     mockDatasetLoad(original);
-    const normalizeSpy = vi.spyOn(bridge, "normalizeColumnNames").mockResolvedValue({
+    const normalizeSpy = vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
       dataset: {
         ...original,
         columns: [{ name: "ano_venta", dataType: "Int64" }],
       },
+      changedCellCount: 0,
+      affectedRowCount: 0,
       renamedColumnCount: 1,
       renames: [{ from: "Año Venta", to: "ano_venta" }],
     });
@@ -834,11 +886,12 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("button", { name: "Normalizar columnas" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
 
-    expect(await screen.findByText("Se normalizó 1 nombre de columna.")).toBeInTheDocument();
+    expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
-    expect(normalizeSpy).toHaveBeenCalledOnce();
+    expect(normalizeSpy).toHaveBeenCalledWith({ trimText: false, normalizeColumnNames: true });
 
     await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
@@ -867,11 +920,12 @@ describe("App", () => {
       rows: [[" Bogotá ", "A1"]],
     };
     mockDatasetLoad(original);
-    const trimSpy = vi.spyOn(bridge, "trimTextValues").mockResolvedValue({
+    const trimSpy = vi.spyOn(bridge, "applySafeCorrections").mockResolvedValue({
       dataset: { ...original, rows: [["Bogotá", "A1"]] },
       affectedRowCount: 1,
       changedCellCount: 1,
-      changedColumns: [{ name: "city", changedCellCount: 1 }],
+      renamedColumnCount: 0,
+      renames: [],
     });
     const normalizeSpy = vi.spyOn(bridge, "normalizeTextValues").mockResolvedValue({
       dataset: { ...original, rows: [["bogota", "A1"]] },
@@ -883,10 +937,10 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("button", { name: "Recortar espacios" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
 
-    expect(await screen.findByText("Se recortaron espacios en 1 celda en 1 fila.")).toBeInTheDocument();
-    expect(trimSpy).toHaveBeenCalledOnce();
+    expect(await screen.findByText("Plan aplicado: 1 celda recortada.")).toBeInTheDocument();
+    expect(trimSpy).toHaveBeenCalledWith({ trimText: true, normalizeColumnNames: false });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "city" }));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
@@ -929,14 +983,15 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Preparar");
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar ambas correcciones" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
 
     expect(
-      await screen.findByText(/Correcciones recomendadas aplicadas: 1 celda recortada y 1 columna renombrada/),
+      await screen.findByText(/Plan aplicado: 1 celda recortada y 1 columna renombrada/),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Rehacer" })).toBeDisabled();
-    expect(applySpy).toHaveBeenCalledOnce();
+    expect(applySpy).toHaveBeenCalledWith({ trimText: true, normalizeColumnNames: true });
   });
 
   it("calcula y presenta el perfil de calidad del dataset", async () => {

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, SafeCorrectionOptions, TransformRecipe } from "../../bridge";
 import { PreparePhase } from "./PreparePhase";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { EMPTY_HISTORY } from "./prepareModel";
@@ -658,7 +658,7 @@ describe("PreparePhase", () => {
       onImputeMissingValues: vi.fn(),
       onEnableRowAudit: vi.fn(),
       onNormalizeColumns: vi.fn(),
-      onApplyRecommended: vi.fn(),
+      onApplyRecommended: vi.fn<(options: SafeCorrectionOptions) => void>(),
       onTrimText: vi.fn(),
       onNormalizeText: vi.fn(),
       onApplyTransforms: vi.fn(),
@@ -736,12 +736,12 @@ describe("PreparePhase", () => {
     fireEvent.click(screen.getByLabelText("Eliminar acentos"));
     fireEvent.click(screen.getByRole("button", { name: "Normalizar texto seleccionado" }));
     expect(callbacks.onNormalizeText).toHaveBeenCalledWith(["nombre"], false);
-    fireEvent.click(screen.getByRole("button", { name: "Recortar espacios" }));
-    expect(callbacks.onTrimText).toHaveBeenCalledOnce();
-    expect(screen.getByRole("heading", { name: "Recortar espacios y normalizar encabezados" })).toBeInTheDocument();
-    expect(screen.getAllByText(/Los encabezados pueden afectar consultas e integraciones/).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "Aplicar ambas correcciones" }));
-    expect(callbacks.onApplyRecommended).toHaveBeenCalledOnce();
+    expect(screen.getByRole("heading", { name: "Revisa las correcciones antes de aplicarlas" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Recortar espacios exteriores/ })).toBeChecked();
+    expect(screen.getAllByText(/Normalizar encabezados puede afectar consultas e integraciones/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Normalizar nombres de las 2 columnas/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar plan seleccionado" }));
+    expect(callbacks.onApplyRecommended).toHaveBeenCalledWith({ trimText: true, normalizeColumnNames: true });
 
     cleanup();
     render(<PreparePhase
@@ -818,9 +818,10 @@ describe("PreparePhase", () => {
     expect(screen.queryByRole("heading", { name: "Duplicados parecidos" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Eliminar espacios exteriores" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Normalizar texto" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Aplicar ambas correcciones" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Aplicar plan seleccionado" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Eliminar filas vacías" }).closest("details")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Normalizar columnas" }).closest("details")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Recortar espacios exteriores/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Normalizar nombres de las 1 columnas/ })).toBeInTheDocument();
   });
 });
 

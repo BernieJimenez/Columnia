@@ -379,7 +379,7 @@ describe("desktop bridge", () => {
     });
   });
 
-  it("aplica y deshace transformaciones mediante comandos sin argumentos", async () => {
+  it("aplica y deshace transformaciones mediante comandos con sus opciones", async () => {
     vi.mocked(invoke).mockResolvedValue({});
 
     await removeDuplicates();
@@ -393,7 +393,7 @@ describe("desktop bridge", () => {
     await fixEncodingValues();
     await nullifyInvalidTypeValues();
     await imputeMissingValues();
-    await applySafeCorrections();
+    await applySafeCorrections({ trimText: true, normalizeColumnNames: false });
     await undoLastChange();
     await redoLastChange();
 
@@ -411,7 +411,10 @@ describe("desktop bridge", () => {
     expect(invoke).toHaveBeenNthCalledWith(9, "fix_encoding_values");
     expect(invoke).toHaveBeenNthCalledWith(10, "nullify_invalid_type_values");
     expect(invoke).toHaveBeenNthCalledWith(11, "impute_missing_values");
-    expect(invoke).toHaveBeenNthCalledWith(12, "apply_safe_corrections");
+    expect(invoke).toHaveBeenNthCalledWith(12, "apply_safe_corrections", {
+      trimText: true,
+      normalizeColumnNames: false,
+    });
     expect(invoke).toHaveBeenNthCalledWith(13, "undo_last_change");
     expect(invoke).toHaveBeenNthCalledWith(14, "redo_last_change");
   });

@@ -731,9 +731,9 @@ fn source_backed_safe_corrections_combine_trim_and_renames() {
         history,
     };
     let (expected, expected_rows, expected_cells, expected_renames) =
-        safe_corrected_frame(&source_frame).expect("la ruta eager debe procesarse");
+        safe_corrected_frame(&source_frame, true, true).expect("la ruta eager debe procesarse");
 
-    let result = source_backed_safe_corrections(&mut dataset)
+    let result = source_backed_safe_corrections(&mut dataset, true, true)
         .expect("las correcciones source-backed deben procesarse")
         .expect("la fuente debe ser compatible");
     assert!(dataset.source_backed);
@@ -752,6 +752,97 @@ fn source_backed_safe_corrections_combine_trim_and_renames() {
         output.column("city").unwrap().str().unwrap().get(0),
         Some("Bogotá")
     );
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn source_backed_safe_corrections_respect_options_and_skip_an_empty_plan() {
+    let path = temporary_csv("Año Venta,city\n1,\" Bogotá \"\n2,\" Santo Domingo \"\n");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
+    let file_size_bytes = fs::metadata(&path).expect("la fuente debe existir").len();
+    let new_dataset = || LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "safe-corrections.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema.clone(),
+        source_backed: true,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    };
+
+    let mut trim_only = new_dataset();
+    let trim_result = source_backed_safe_corrections(&mut trim_only, true, false)
+        .expect("el recorte source-backed debe procesarse")
+        .expect("la fuente debe ser compatible");
+    let trimmed = read_parquet_frame(
+        trim_only
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar el snapshot actual"),
+    )
+    .expect("el resultado de recorte debe ser legible");
+    assert_eq!(
+        trimmed
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Año Venta", "city"]
+    );
+    assert_eq!(
+        trimmed.column("city").unwrap().str().unwrap().get(0),
+        Some("Bogotá")
+    );
+    assert_eq!(trim_result.changed_cell_count, 2);
+    assert_eq!(trim_result.renamed_column_count, 0);
+    assert_eq!(trim_result.renames, Vec::<ColumnRename>::new());
+    assert_eq!(trim_only.history.entries.len(), 2);
+    assert_eq!(trim_only.history.cursor, 1);
+
+    let mut rename_only = new_dataset();
+    let rename_result = source_backed_safe_corrections(&mut rename_only, false, true)
+        .expect("la normalización source-backed debe procesarse")
+        .expect("la fuente debe ser compatible");
+    let renamed = read_parquet_frame(
+        rename_only
+            .source_path
+            .as_deref()
+            .expect("el resultado debe conservar el snapshot actual"),
+    )
+    .expect("el resultado de normalización debe ser legible");
+    assert_eq!(
+        renamed
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ano_venta", "city"]
+    );
+    assert_eq!(
+        renamed.column("city").unwrap().str().unwrap().get(0),
+        Some(" Bogotá ")
+    );
+    assert_eq!(rename_result.changed_cell_count, 0);
+    assert_eq!(rename_result.renamed_column_count, 1);
+    assert_eq!(rename_result.renames[0].from, "Año Venta");
+    assert_eq!(rename_result.renames[0].to, "ano_venta");
+    assert_eq!(rename_only.history.entries.len(), 2);
+    assert_eq!(rename_only.history.cursor, 1);
+
+    let mut empty_plan = new_dataset();
+    let empty_result = source_backed_safe_corrections(&mut empty_plan, false, false)
+        .expect("el plan vacío debe procesarse")
+        .expect("la fuente debe ser compatible");
+    assert_eq!(empty_result.changed_cell_count, 0);
+    assert_eq!(empty_result.renamed_column_count, 0);
+    assert_eq!(empty_plan.history.entries.len(), 0);
+    assert_eq!(empty_plan.history.cursor, 0);
+    assert_eq!(empty_plan.row_count, row_count);
+    assert_eq!(empty_plan.source_path.as_deref(), Some(path.as_path()));
+    assert!(empty_plan.source_backed);
+
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
@@ -9224,11 +9315,11 @@ fn replacing_a_loaded_dataset_removes_the_previous_snapshot_directory() {
 
 #[test]
 fn applies_safe_corrections_in_one_candidate_frame() {
-    let path = temporary_csv("Año Venta,city\n1,\" Bogotá \"\n");
+    let path = temporary_csv("Año Venta,city\n\"  uno \",\" Bogotá \"\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
 
     let (corrected, rows, cells, renames) =
-        safe_corrected_frame(&frame).expect("las correcciones deben aplicarse");
+        safe_corrected_frame(&frame, true, true).expect("las correcciones deben aplicarse");
     let page = dataset_page(&corrected, 0, 50).expect("la vista previa debe generarse");
 
     assert_eq!(
@@ -9241,9 +9332,67 @@ fn applies_safe_corrections_in_one_candidate_frame() {
     );
     assert_eq!(page.rows[0][1].as_deref(), Some("Bogotá"));
     assert_eq!(rows, 1);
-    assert_eq!(cells, 1);
+    assert_eq!(cells, 2);
     assert_eq!(renames.len(), 1);
     assert_eq!(renames[0].to, "ano_venta");
+    assert_eq!(page.rows[0][0].as_deref(), Some("uno"));
+
+    let mut dataset = loaded_dataset(path.clone(), frame);
+    publish_candidate(&mut dataset, corrected, "Aplicar correcciones recomendadas")
+        .expect("la candidata combinada debe publicarse una sola vez");
+    assert_eq!(dataset.history.cursor, 1);
+    assert_eq!(dataset.history.entries.len(), 2);
+
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn safe_correction_options_apply_individually_or_not_at_all() {
+    let path = temporary_csv("Año Venta,city\n\"  uno \",\" Bogotá \"\n");
+    let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+
+    let (trimmed, trim_rows, trim_cells, trim_renames) =
+        safe_corrected_frame(&frame, true, false).expect("se debe poder recortar texto");
+    assert_eq!(
+        trimmed
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Año Venta", "city"]
+    );
+    assert_eq!(
+        trimmed.column("city").unwrap().str().unwrap().get(0),
+        Some("Bogotá")
+    );
+    assert_eq!(trim_rows, 1);
+    assert_eq!(trim_cells, 2);
+    assert!(trim_renames.is_empty());
+
+    let (normalized, normalize_rows, normalize_cells, normalize_renames) =
+        safe_corrected_frame(&frame, false, true).expect("se deben poder normalizar encabezados");
+    assert_eq!(
+        normalized
+            .get_column_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ano_venta", "city"]
+    );
+    assert_eq!(
+        normalized.column("city").unwrap().str().unwrap().get(0),
+        Some(" Bogotá ")
+    );
+    assert_eq!(normalize_rows, 0);
+    assert_eq!(normalize_cells, 0);
+    assert_eq!(normalize_renames.len(), 1);
+
+    let (unchanged, no_op_rows, no_op_cells, no_op_renames) =
+        safe_corrected_frame(&frame, false, false).expect("el plan vacío debe ser válido");
+    assert!(unchanged.equals_missing(&frame));
+    assert_eq!(no_op_rows, 0);
+    assert_eq!(no_op_cells, 0);
+    assert!(no_op_renames.is_empty());
 
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }

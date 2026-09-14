@@ -269,6 +269,16 @@ summary:focus-visible,
 .recommended-batch p:last-child { margin: 7px 0 0; color: var(--text-secondary); }
 .recommended-batch button { flex: 0 0 auto; padding: 9px 14px; border: 0; border-radius: 4px; background: var(--accent); color: white; font-weight: 750; cursor: pointer; }
 .recommended-batch button:disabled { cursor: wait; opacity: .45; }
+.prepare-plan { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.prepare-plan__choices { display: grid; gap: 8px; margin: 12px 0 0; padding: 12px; border: 1px solid var(--border-subtle); }
+.prepare-plan__choices legend { padding: 0 6px; color: var(--text-secondary); font-size: .75rem; font-weight: 750; }
+.prepare-plan__choices label { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; font-size: .86rem; }
+.prepare-plan__choices input { margin-top: 3px; }
+.prepare-plan__note { font-size: .82rem; }
+@media (max-width: 680px) {
+  .prepare-plan { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .prepare-plan > button { justify-self: start; }
+}
 .prepare-card--stacked { align-items: stretch; flex-direction: column; }
 .text-cleaning-options { display: grid; gap: 14px; }
 .text-cleaning-options fieldset { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--border-subtle); }
