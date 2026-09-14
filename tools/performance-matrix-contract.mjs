@@ -14,6 +14,7 @@ function maximum(values) {
 
 export function validatePerformanceMatrixSummary(summary, definition = matrixDefinition) {
   const errors = [];
+  const incompleteReasons = [];
   const matrix = summary?.scaleMatrix;
   const profile = definition.profiles?.find((candidate) => candidate.id === matrix?.profileId);
 
@@ -72,6 +73,10 @@ export function validatePerformanceMatrixSummary(summary, definition = matrixDef
   if (!isPositiveInteger(summary.targetMiB) || dimensions.targetMiB !== summary.targetMiB) {
     errors.push("Falta el tamaño objetivo comparable.");
   }
+  if (!Number.isSafeInteger(summary.sustainedRuns) || summary.sustainedRuns < 3 ||
+      !Number.isSafeInteger(summary.projectUpdateRuns) || summary.projectUpdateRuns < 2) {
+    incompleteReasons.push("La corrida no alcanzó las repeticiones mínimas comparables (3 transformaciones y 2 actualizaciones de proyecto).");
+  }
   if (commands.length === 0 || commandWorkingSet.some((value) => !isPositiveInteger(value))) {
     errors.push("Faltan muestras de memoria de los comandos.");
   }
@@ -100,17 +105,63 @@ export function validatePerformanceMatrixSummary(summary, definition = matrixDef
   if (!isPositiveInteger(measures.recordedOutputBytes) || measures.recordedOutputBytes !== recordedOutputBytes) {
     errors.push("El tamaño total de salidas no coincide con las salidas medidas.");
   }
-  if (measures.cancellation !== "not-measured-by-cli-benchmark") {
-    errors.push("La evidencia debe declarar que este benchmark no mide cancelación.");
+  const cancellation = measures.cancellation;
+  if (cancellation === "not-measured-by-cli-benchmark" ||
+      cancellation?.status === "not-measured" ||
+      cancellation == null) {
+    incompleteReasons.push("La evidencia no incluye mediciones de cancelación cooperativa.");
+  } else if (typeof cancellation !== "object" || Array.isArray(cancellation)) {
+    errors.push("La medición de cancelación debe ser un objeto versionado.");
+  } else {
+    const samples = Array.isArray(cancellation.samples) ? cancellation.samples : [];
+    const latencies = Array.isArray(cancellation.latencySamplesMs)
+      ? cancellation.latencySamplesMs
+      : [];
+    const expectedMaxCancellationLatency = maximum(latencies);
+    if (cancellation.schemaVersion !== 1 ||
+        cancellation.status !== "measured" ||
+        cancellation.operation !== "sourceBackedCsvExport" ||
+        typeof cancellation.scope !== "string" ||
+        !cancellation.scope.includes("excludes UI and IPC")) {
+      errors.push("Falta el contrato y el alcance de la medición cooperativa de cancelación.");
+    }
+    if (!isPositiveInteger(cancellation.sampleCount) ||
+        cancellation.sampleCount !== samples.length ||
+        cancellation.sampleCount !== latencies.length ||
+        cancellation.sampleCount < 3) {
+      errors.push("La cancelación requiere al menos tres muestras alineadas.");
+    }
+    if (latencies.some((latency) => !Number.isFinite(latency) || latency < 0) ||
+        samples.some((sample, index) =>
+          !Number.isFinite(sample.requestToTerminalLatencyMs) ||
+          sample.requestToTerminalLatencyMs !== latencies[index]) ||
+        !Number.isFinite(cancellation.maxRequestToTerminalLatencyMs) ||
+        cancellation.maxRequestToTerminalLatencyMs !== expectedMaxCancellationLatency) {
+      errors.push("La latencia máxima de cancelación no coincide con sus muestras.");
+    }
+    if (cancellation.partialPublication !== false ||
+        samples.some((sample) => sample.partialPublication !== false) ||
+        samples.some((sample) => !isPositiveInteger(sample.partialBytesObservedBeforeRequest))) {
+      errors.push("La cancelación debe observar salida temporal y no publicar resultados parciales.");
+    }
+    if (cancellation.previousOutputPreserved !== true ||
+        samples.some((sample) => sample.previousOutputPreserved !== true)) {
+      errors.push("La cancelación no preservó la exportación válida anterior.");
+    }
+    if (cancellation.cleanupConfirmed !== true ||
+        samples.some((sample) => sample.cleanupConfirmed !== true)) {
+      errors.push("La evidencia no confirmó la limpieza del scratch de cancelación.");
+    }
   }
   if (measures.cleanupConfirmed !== true || summary.cleanupConfirmed !== true) {
     errors.push("La evidencia no confirmó la limpieza del workspace.");
   }
 
   return {
-    status: errors.length === 0 ? "passed" : "failed",
+    status: errors.length > 0 ? "failed" : incompleteReasons.length > 0 ? "incomplete" : "passed",
     profileId: matrix.profileId,
     errors,
+    incompleteReasons,
     observed: {
       targetMiB: dimensions.targetMiB,
       columnCount: dimensions.columnCount,
@@ -142,12 +193,13 @@ export function summarizePerformanceMatrixSummaries(summaries, definition = matr
     const validation = validatePerformanceMatrixSummary(summary, definition);
     const candidate = {
       profileId,
-      status: summary.status === "passed" && validation.status === "passed" ? "passed" : "failed",
+      status: summary.status === "passed" ? validation.status : "failed",
       startedAt: summary.startedAt ?? null,
       evidenceDirectory: summary.evidenceDirectory ?? null,
       dimensions,
       measures: summary.scaleMatrix.measures ?? null,
       validationErrors: validation.errors,
+      validationIncompleteReasons: validation.incompleteReasons,
     };
     const current = profileRuns.get(profileId);
     const candidateTime = Date.parse(candidate.startedAt ?? "") || 0;

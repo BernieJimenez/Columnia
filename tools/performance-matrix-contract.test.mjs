@@ -19,11 +19,34 @@ function createSummary(profile) {
     peakWorkingSetBytes,
     peakSampledWorkspaceDiskBytes: diskPeaks[index],
   }));
+  const cancellation = {
+    schemaVersion: 1,
+    status: "measured",
+    operation: "sourceBackedCsvExport",
+    scope: "native engine request-to-terminal; excludes UI and IPC dispatch latency",
+    cancellationPoint: "after temporary CSV bytes are observed",
+    sampleCount: 3,
+    latencySamplesMs: [8, 11, 14],
+    maxRequestToTerminalLatencyMs: 14,
+    partialPublication: false,
+    previousOutputPreserved: true,
+    cleanupConfirmed: true,
+    samples: [8, 11, 14].map((requestToTerminalLatencyMs, index) => ({
+      run: index + 1,
+      requestToTerminalLatencyMs,
+      partialBytesObservedBeforeRequest: 65_536,
+      partialPublication: false,
+      previousOutputPreserved: true,
+      cleanupConfirmed: true,
+    })),
+  };
   return {
     status: "passed",
     startedAt: "2026-09-14T12:00:00.000Z",
     evidenceDirectory: `.local/validation/performance-benchmark/${profile.id}`,
     targetMiB: 10,
+    sustainedRuns: 3,
+    projectUpdateRuns: 2,
     input: {
       rowCount,
       columnCount: profile.columnCount,
@@ -56,7 +79,7 @@ function createSummary(profile) {
         commandCount: commands.length,
         maxCommandDurationMs: Math.max(...commands.map((command) => command.durationMs)),
         totalCommandDurationMs: commands.reduce((total, command) => total + command.durationMs, 0),
-        cancellation: "not-measured-by-cli-benchmark",
+        cancellation,
         cleanupConfirmed: true,
       },
     },
@@ -90,14 +113,37 @@ test("rechaza cardinalidad, texto o medidas faltantes", () => {
   assert.ok(result.errors.some((error) => error.includes("disco temporal")));
 });
 
-test("exige declarar explícitamente límites de medición y limpieza", () => {
+test("exige latencia cooperativa, atomicidad y limpieza para aprobar", () => {
   const summary = createSummary(definition.profiles.find((profile) => profile.id === "standard"));
-  summary.scaleMatrix.measures.cancellation = "passed";
+  summary.scaleMatrix.measures.cancellation.latencySamplesMs = [8, 11, 14];
+  summary.scaleMatrix.measures.cancellation.maxRequestToTerminalLatencyMs = 10;
+  summary.scaleMatrix.measures.cancellation.partialPublication = true;
+  summary.scaleMatrix.measures.cancellation.samples[1].partialPublication = true;
+  summary.scaleMatrix.measures.cancellation.cleanupConfirmed = false;
   summary.scaleMatrix.measures.cleanupConfirmed = false;
   const result = validatePerformanceMatrixSummary(summary, definition);
   assert.equal(result.status, "failed");
   assert.ok(result.errors.some((error) => error.includes("cancelación")));
+  assert.ok(result.errors.some((error) => error.includes("parciales")));
+  assert.ok(result.errors.some((error) => error.includes("scratch")));
   assert.ok(result.errors.some((error) => error.includes("limpieza")));
+});
+
+test("marca evidencia histórica sin medición de cancelación como incompleta", () => {
+  const summary = createSummary(definition.profiles.find((profile) => profile.id === "standard"));
+  summary.scaleMatrix.measures.cancellation = "not-measured-by-cli-benchmark";
+  const result = validatePerformanceMatrixSummary(summary, definition);
+  assert.equal(result.status, "incomplete");
+  assert.ok(result.incompleteReasons.some((reason) => reason.includes("cancelación cooperativa")));
+});
+
+test("mantiene incompleta una corrida abreviada aunque la cancelación esté medida", () => {
+  const summary = createSummary(definition.profiles.find((profile) => profile.id === "standard"));
+  summary.sustainedRuns = 2;
+  summary.projectUpdateRuns = 1;
+  const result = validatePerformanceMatrixSummary(summary, definition);
+  assert.equal(result.status, "incomplete");
+  assert.ok(result.incompleteReasons.some((reason) => reason.includes("repeticiones mínimas")));
 });
 
 test("compara perfiles del mismo tamaño y deja visibles los perfiles pendientes", () => {

@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 
 import { ModalDialog } from "../../components/ModalDialog";
-import type { ProjectSummary } from "../../bridge";
+import type { ProjectSummary, ProjectVersionSummary } from "../../bridge";
 import {
   MAX_PROJECT_NAME_LENGTH,
   suggestedProjectName,
   validateProjectName,
   type ProjectCatalogState,
   type ProjectDeletionState,
+  type ProjectAutoSaveState,
   type ProjectOperationState,
+  type ProjectVersionsState,
 } from "./projectModel";
 
 interface ProjectsPanelProps {
@@ -16,10 +18,15 @@ interface ProjectsPanelProps {
   operation: ProjectOperationState;
   deletion: ProjectDeletionState;
   activeProject: ProjectSummary | null;
+  versions: ProjectVersionsState;
+  autoSave: ProjectAutoSaveState;
+  autoSaveEnabled: boolean;
   datasetFileName: string | null;
   disabled: boolean;
   onSave: (name: string) => void;
   onOpen: (projectId: string) => void;
+  onRestore: (projectId: string, versionId: number) => void;
+  onAutoSaveChange: (enabled: boolean) => void;
   onDeleteRequest: (project: ProjectSummary) => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
@@ -40,10 +47,15 @@ export function ProjectsPanel({
   operation,
   deletion,
   activeProject,
+  versions,
+  autoSave,
+  autoSaveEnabled,
   datasetFileName,
   disabled,
   onSave,
   onOpen,
+  onRestore,
+  onAutoSaveChange,
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
@@ -51,6 +63,7 @@ export function ProjectsPanel({
   onClearFeedback,
 }: ProjectsPanelProps) {
   const [name, setName] = useState("");
+  const [versionToRestore, setVersionToRestore] = useState<ProjectVersionSummary | null>(null);
   const validation = validateProjectName(name);
 
   useEffect(() => {
@@ -137,6 +150,45 @@ export function ProjectsPanel({
                       <span>{project.datasetFileName} · {project.rowCount.toLocaleString("es")} filas · {project.columnCount} columnas</span>
                       <small>Espacio persistente (snapshot + historial): {formatProjectStorage(project.storageBytes)}</small>
                       <small>Actualizado {projectDate(project.updatedAt)}</small>
+                      {active && (
+                        <div className="project-continuity">
+                          <label className="project-autosave">
+                            <input
+                              type="checkbox"
+                              checked={autoSaveEnabled}
+                              onChange={(event) => onAutoSaveChange(event.target.checked)}
+                              disabled={disabled}
+                            />
+                            <span>Autoguardar este proyecto</span>
+                          </label>
+                          <small>Hasta 5 versiones anteriores y 512 MiB. La última versión válida se conserva aunque supere la cuota.</small>
+                          {autoSave.kind === "saving" && <small role="status">Guardando automáticamente…</small>}
+                          {autoSave.kind === "saved" && <small role="status">Guardado automáticamente · {projectDate(autoSave.savedAt)}</small>}
+                          {autoSave.kind === "error" && <small className="project-autosave__error" role="alert">Error al guardar automáticamente: {autoSave.message}</small>}
+                          {versions.kind === "loading" && <small role="status">Cargando versiones…</small>}
+                          {versions.kind === "error" && <small className="project-autosave__error" role="alert">No se pudieron cargar las versiones: {versions.message}</small>}
+                          {versions.kind === "ready" && versions.versions.length > 0 && (
+                            <details className="project-versions">
+                              <summary>Versiones anteriores ({versions.versions.length})</summary>
+                              <ul>
+                                {versions.versions.map((version) => (
+                                  <li key={version.id}>
+                                    <span>{projectDate(version.createdAt)} · {version.rowCount.toLocaleString("es")} filas · {formatProjectStorage(version.storageBytes)}</span>
+                                    <button
+                                      type="button"
+                                      className="secondary-action"
+                                      disabled={disabled}
+                                      onClick={() => setVersionToRestore(version)}
+                                    >
+                                      Restaurar
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="project-list__actions">
                       <button type="button" onClick={() => onOpen(project.id)} disabled={disabled}>Abrir</button>
@@ -173,6 +225,35 @@ export function ProjectsPanel({
           <div className="sheet-dialog__actions">
             <button type="button" className="secondary-action" onClick={onDeleteCancel} disabled={disabled}>Cancelar</button>
             <button type="button" className="danger-action" onClick={onDeleteConfirm} disabled={disabled}>Eliminar proyecto</button>
+          </div>
+        </ModalDialog>
+      )}
+
+      {versionToRestore && activeProject && (
+        <ModalDialog
+          role="alertdialog"
+          labelledBy="restore-project-version-title"
+          describedBy="restore-project-version-description"
+          onDismiss={() => setVersionToRestore(null)}
+        >
+          <p className="eyebrow">Restauración segura</p>
+          <h3 id="restore-project-version-title">Restaurar versión anterior</h3>
+          <p id="restore-project-version-description">
+            La versión actual quedará guardada como una versión anterior antes de restaurar la del {projectDate(versionToRestore.createdAt)}.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={() => setVersionToRestore(null)} disabled={disabled}>Cancelar</button>
+            <button
+              type="button"
+              className="primary-action"
+              disabled={disabled}
+              onClick={() => {
+                onRestore(activeProject.id, versionToRestore.id);
+                setVersionToRestore(null);
+              }}
+            >
+              Restaurar versión
+            </button>
           </div>
         </ModalDialog>
       )}

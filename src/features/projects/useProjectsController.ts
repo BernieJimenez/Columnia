@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  autosaveProject,
   deleteProject,
   getRecoveryCandidate,
+  listProjectVersions,
   listProjects,
   openProject,
+  restoreProjectVersion,
   saveProject,
   type ProjectOpenResult,
   type ProjectSummary,
@@ -14,15 +17,39 @@ import {
   sortProjects,
   validateProjectName,
   type ProjectCatalogState,
+  type ProjectAutoSaveState,
   type ProjectDeletionState,
   type ProjectOperationState,
+  type ProjectVersionsState,
 } from "./projectModel";
+
+const AUTO_SAVE_PREFERENCE_PREFIX = "columnia.project.auto-save.";
+
+function readAutoSavePreference(projectId: string): boolean {
+  try {
+    return window.localStorage.getItem(`${AUTO_SAVE_PREFERENCE_PREFIX}${projectId}`) === "enabled";
+  } catch {
+    return false;
+  }
+}
+
+function writeAutoSavePreference(projectId: string, enabled: boolean): void {
+  try {
+    window.localStorage.setItem(
+      `${AUTO_SAVE_PREFERENCE_PREFIX}${projectId}`,
+      enabled ? "enabled" : "disabled",
+    );
+  } catch {
+    // The setting still applies for this session when browser storage is unavailable.
+  }
+}
 
 interface ProjectsControllerOptions {
   connected: boolean;
   blocked: boolean;
   hasDataset: boolean;
   workspace: ProjectWorkspace;
+  datasetRevision?: number;
   onProjectOpened: (result: ProjectOpenResult) => Promise<void> | void;
   onActiveProjectDeleted?: () => void;
   onActiveProjectUnlinked?: () => void;
@@ -42,6 +69,7 @@ export function useProjectsController({
   blocked,
   hasDataset,
   workspace,
+  datasetRevision = 0,
   onProjectOpened,
   onActiveProjectDeleted,
   onActiveProjectUnlinked,
@@ -49,8 +77,24 @@ export function useProjectsController({
   const [catalog, setCatalog] = useState<ProjectCatalogState>({ kind: "unavailable" });
   const [operation, setOperation] = useState<ProjectOperationState>({ kind: "idle" });
   const [deletion, setDeletion] = useState<ProjectDeletionState>({ kind: "idle" });
+  const [versions, setVersions] = useState<ProjectVersionsState>({ kind: "ready", versions: [] });
+  const [autoSavePreference, setAutoSavePreference] = useState<{
+    projectId: string | null;
+    enabled: boolean;
+  }>({ projectId: null, enabled: false });
+  const [autoSave, setAutoSave] = useState<ProjectAutoSaveState>({ kind: "disabled" });
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
   const operationLock = useRef(false);
+  const autoSaveInProgress = useRef(false);
+  const lastAutoSaveSignature = useRef<string | null>(null);
+  const failedAutoSaveSignature = useRef<string | null>(null);
+  const skipAutoSaveForProject = useRef<string | null>(null);
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const workspaceSignature = JSON.stringify(workspace);
+  const autoSaveEnabled = Boolean(
+    activeProject && autoSavePreference.projectId === activeProject.id && autoSavePreference.enabled,
+  );
 
   const refresh = useCallback(async () => {
     if (!connected) {
@@ -72,6 +116,37 @@ export function useProjectsController({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const refreshVersions = useCallback(async (projectId: string) => {
+    setVersions({ kind: "loading" });
+    try {
+      setVersions({ kind: "ready", versions: await listProjectVersions(projectId) });
+    } catch (error: unknown) {
+      setVersions({ kind: "error", message: errorMessage(error) });
+    }
+  }, []);
+
+  useEffect(() => {
+    const projectId = activeProject?.id ?? null;
+    if (!connected || !projectId) {
+      setVersions({ kind: "ready", versions: [] });
+      return;
+    }
+    void refreshVersions(projectId);
+  }, [activeProject?.id, activeProject?.updatedAt, connected, refreshVersions]);
+
+  useEffect(() => {
+    const projectId = activeProject?.id ?? null;
+    setAutoSavePreference({
+      projectId,
+      enabled: projectId ? readAutoSavePreference(projectId) : false,
+    });
+    setAutoSave(projectId && readAutoSavePreference(projectId)
+      ? { kind: "idle" }
+      : { kind: "disabled" });
+    lastAutoSaveSignature.current = null;
+    failedAutoSaveSignature.current = null;
+  }, [activeProject?.id]);
 
   const runExclusive = useCallback(async (
     next: Extract<ProjectOperationState, { kind: "working" }>,
@@ -104,19 +179,22 @@ export function useProjectsController({
       async () => {
         const saved = await saveProject(activeProject?.id ?? null, validation.name, workspace);
         setActiveProject(saved);
+        lastAutoSaveSignature.current = `${saved.id}:${datasetRevision}:${JSON.stringify(workspace)}`;
+        failedAutoSaveSignature.current = null;
         setOperation({ kind: "success", message: activeProject
           ? `Proyecto “${saved.name}” actualizado.`
           : `Proyecto “${saved.name}” guardado.` });
         await refresh();
       },
     );
-  }, [activeProject, hasDataset, refresh, runExclusive, workspace]);
+  }, [activeProject, datasetRevision, hasDataset, refresh, runExclusive, workspace]);
 
   const open = useCallback(async (projectId: string) => {
     await runExclusive(
       { kind: "working", operation: "open", projectId },
       async () => {
         const result = await openProject(projectId);
+        skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
         await onProjectOpened(result);
         setActiveProject(result.project);
         setOperation({ kind: "success", message: `Proyecto “${result.project.name}” abierto.` });
@@ -124,6 +202,79 @@ export function useProjectsController({
       },
     );
   }, [onProjectOpened, refresh, runExclusive]);
+
+  const restore = useCallback(async (projectId: string, versionId: number) => {
+    await runExclusive(
+      { kind: "working", operation: "open", projectId },
+      async () => {
+        const result = await restoreProjectVersion(projectId, versionId);
+        skipAutoSaveForProject.current = readAutoSavePreference(projectId) ? projectId : null;
+        await onProjectOpened(result);
+        setActiveProject(result.project);
+        setOperation({ kind: "success", message: `Versión restaurada: “${result.project.name}”.` });
+        await refresh();
+      },
+    );
+  }, [onProjectOpened, refresh, runExclusive]);
+
+  const setAutoSaveEnabled = useCallback((enabled: boolean) => {
+    if (!activeProject) return;
+    writeAutoSavePreference(activeProject.id, enabled);
+    setAutoSavePreference({ projectId: activeProject.id, enabled });
+    setAutoSave(enabled ? { kind: "idle" } : { kind: "disabled" });
+    lastAutoSaveSignature.current = null;
+    failedAutoSaveSignature.current = null;
+  }, [activeProject]);
+
+  useEffect(() => {
+    if (!activeProject || !autoSaveEnabled || !connected || !hasDataset || blocked) return;
+    if (operationLock.current || autoSaveInProgress.current || autoSave.kind === "saving") return;
+    const signature = `${activeProject.id}:${datasetRevision}:${workspaceSignature}`;
+    if (lastAutoSaveSignature.current === signature || failedAutoSaveSignature.current === signature) return;
+    if (skipAutoSaveForProject.current === activeProject.id) {
+      skipAutoSaveForProject.current = null;
+      lastAutoSaveSignature.current = signature;
+      setAutoSave({ kind: "idle" });
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      if (operationLock.current || autoSaveInProgress.current) return;
+      autoSaveInProgress.current = true;
+      operationLock.current = true;
+      setAutoSave({ kind: "saving" });
+      void (async () => {
+        try {
+          const saved = await autosaveProject(activeProject.id, activeProject.name, workspaceRef.current);
+          lastAutoSaveSignature.current = signature;
+          failedAutoSaveSignature.current = null;
+          setActiveProject(saved);
+          setAutoSave({ kind: "saved", savedAt: new Date().toISOString() });
+          await refresh();
+        } catch (error: unknown) {
+          failedAutoSaveSignature.current = signature;
+          setAutoSave({
+            kind: "error",
+            message: `${errorMessage(error)} La última versión válida se conserva.`,
+          });
+        } finally {
+          operationLock.current = false;
+          autoSaveInProgress.current = false;
+        }
+      })();
+    }, 900);
+    return () => window.clearTimeout(timeout);
+  }, [
+    activeProject,
+    autoSave.kind,
+    autoSaveEnabled,
+    blocked,
+    connected,
+    datasetRevision,
+    hasDataset,
+    operation.kind,
+    refresh,
+    workspaceSignature,
+  ]);
 
   const confirmDelete = useCallback(async () => {
     if (deletion.kind !== "confirming") return;
@@ -148,10 +299,16 @@ export function useProjectsController({
     operation,
     deletion,
     activeProject,
-    isBusy: operation.kind === "working",
+    isBusy: operation.kind === "working" || autoSave.kind === "saving",
     refresh,
     save,
     open,
+    versions,
+    refreshVersions,
+    restore,
+    autoSave,
+    autoSaveEnabled,
+    setAutoSaveEnabled,
     requestDelete: (project: ProjectSummary) => setDeletion({ kind: "confirming", project }),
     cancelDelete: () => setDeletion({ kind: "idle" }),
     confirmDelete,

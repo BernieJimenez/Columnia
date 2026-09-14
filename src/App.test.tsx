@@ -1008,7 +1008,7 @@ describe("App", () => {
     expect(screen.getByText("ventas-columnia.parquet")).toBeInTheDocument();
     expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
     expect(exportSpy).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Ruta de exportación")).not.toBeInTheDocument();
   });
 
   it("valida un contrato aprobado y envía sus reglas al exportar", async () => {
@@ -1110,6 +1110,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Plan aplicado: 1 columna renombrada.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deshacer" })).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Preparar" })).getByText("Hecho")).toBeInTheDocument();
     expect(normalizeSpy).toHaveBeenCalledWith({ trimText: false, normalizeSentinels: false, normalizeColumnNames: true, removeDuplicates: false });
 
     await switchPhase("Revisar");
@@ -2072,11 +2073,13 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Copia lista" })).toBeInTheDocument());
     expect(screen.getByText("entrega.zip")).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: "Entregar" })).getByText("Hecho")).toBeInTheDocument();
     expect(exportSpy).toHaveBeenCalledWith("bundle", [], true, expect.anything(), "none");
 
     exportSpy.mockResolvedValueOnce(null);
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Copia lista" })).not.toBeInTheDocument());
+    expect(within(screen.getByRole("button", { name: "Entregar" })).queryByText("Hecho")).not.toBeInTheDocument();
 
     exportSpy.mockRejectedValueOnce(new Error("operación cancelada por el usuario"));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));

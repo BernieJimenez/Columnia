@@ -116,7 +116,6 @@ import {
   type DatasetJoinType,
   type DatasetPreview,
   type ConflictResolution,
-  testDatabaseConnection,
   type DatasetSourceInspection,
   type ImportProfile,
   type DatasetQueryEngine,
@@ -279,6 +278,7 @@ export function App() {
     connected: status.kind === "ready",
     blocked: coreOperationBusy || loadSelectionBusy,
     hasDataset: datasetStatus.kind === "ready",
+    datasetRevision,
     workspace: {
       qualityRules: deliveryRules(deliveryContract),
       recipeDraft,
@@ -1000,6 +1000,18 @@ export function App() {
     setActivePhase(nextPhase.id);
   }
 
+  function isPhaseComplete(phase: WorkflowPhase): boolean {
+    switch (phase) {
+      case "load":
+      case "review":
+        return completedPhases.has(phase);
+      case "prepare":
+        return prepare.changeStatus.kind === "applied";
+      case "deliver":
+        return exportStatus.kind === "success";
+    }
+  }
+
   function applyReusableTask(task: ReusableTask) {
     setActiveImportProfile(task.importProfile);
     setRecipeDraft(task.recipe);
@@ -1041,14 +1053,16 @@ export function App() {
         <nav className="side-nav" aria-label="Flujo de preparación de datos">
           {workflowPhases.map((phase, phaseIndex) => {
             const available = phase.id === "load" || Boolean(activeDataset);
+            const phaseComplete = isPhaseComplete(phase.id);
             const phaseState = phaseIndex === activePhaseIndex
               ? "current"
-              : completedPhases.has(phase.id) ? "complete" : "upcoming";
+              : phaseComplete ? "complete" : "upcoming";
             return (
               <button
                 key={phase.id}
                 type="button"
                 aria-label={phase.label}
+                aria-description={phaseComplete ? "Completada" : undefined}
                 className={`side-nav__item side-nav__item--${phaseState}${activePhase === phase.id ? " side-nav__active" : ""}`}
                 aria-current={activePhase === phase.id ? "step" : undefined}
                 aria-disabled={!available || undefined}
@@ -1060,13 +1074,13 @@ export function App() {
                 title={!available ? "Carga un dataset para habilitar esta etapa" : undefined}
               >
                 <span className="side-nav__marker" aria-hidden="true">
-                  {phaseState === "complete" ? "✓" : phase.number}
+                  {phaseComplete ? "✓" : phase.number}
                 </span>
                 <span className="side-nav__copy">
                   <span className="side-nav__label-row">
                     <strong>{phase.label}</strong>
                     <small className="side-nav__state" aria-hidden="true">
-                      {phaseState === "complete" ? "Hecho" : phaseState === "current" ? "Ahora" : "Después"}
+                      {phaseComplete ? "Hecho" : phaseState === "current" ? "Ahora" : "Después"}
                     </small>
                   </span>
                   <small aria-hidden="true">{phase.description}</small>
@@ -1237,10 +1251,15 @@ export function App() {
                   operation={projects.operation}
                   deletion={projects.deletion}
                   activeProject={projects.activeProject}
+                  versions={projects.versions}
+                  autoSave={projects.autoSave}
+                  autoSaveEnabled={projects.autoSaveEnabled}
                   datasetFileName={activeDataset?.dataset.fileName ?? null}
                   disabled={operationBusy}
                   onSave={(name) => void projects.save(name)}
                   onOpen={(projectId) => void projects.open(projectId)}
+                  onRestore={(projectId, versionId) => void projects.restore(projectId, versionId)}
+                  onAutoSaveChange={projects.setAutoSaveEnabled}
                   onDeleteRequest={projects.requestDelete}
                   onDeleteCancel={projects.cancelDelete}
                   onDeleteConfirm={() => void projects.confirmDelete()}
@@ -1343,7 +1362,6 @@ export function App() {
                 onExportFormatChange={setExportFormat}
                 privacyMode={privacyMode}
                 onPrivacyModeChange={setPrivacyMode}
-                onTestDatabaseConnection={testDatabaseConnection}
                 onContractAction={updateDeliveryContract}
                 onExport={exportActiveDataset}
                 onCancelExport={() => cancelActiveOperation("export")}

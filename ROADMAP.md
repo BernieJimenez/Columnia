@@ -2091,7 +2091,7 @@ por el mero hecho de estar documentada aquí.
 - [x] **[T5-09] Corregir la política de advisories de `quick-xml`**
   - **Área:** Seguridad / Supply chain
   - **Severidad:** Media
-  - **Ubicación:** `src-tauri/deny.toml:5`, `docs/reference/dependency-audit.md:65`
+  - **Ubicación:** `src-tauri/deny.toml:5`, `AUDITORIA.md#inventario-de-dependencias-y-controles`
   - **Qué hacer:** retirar el feature cloud, actualizar dependencias o demostrar
     no alcanzabilidad; sustituir la razón factual falsa de las excepciones.
   - **Criterio de aceptación:** `cargo tree -e features` y la justificación
@@ -2162,7 +2162,7 @@ por el mero hecho de estar documentada aquí.
 - [x] **[T5-15] Reconstruir la trazabilidad de cambios y dependencias**
   - **Área:** Documentación
   - **Severidad:** Media; regresión
-  - **Ubicación:** `CHANGELOG.md:3`, `docs/reference/dependency-audit.md:3`
+  - **Ubicación:** `CHANGELOG.md:3`, `AUDITORIA.md#inventario-de-dependencias-y-controles`
   - **Qué hacer:** revisar los commits posteriores al último changelog, completar
     `[Unreleased]` orientado al usuario y refrescar el snapshot SCA de `0.57.0`.
   - **Criterio de aceptación:** cada cambio visible actual está representado y el
@@ -2743,7 +2743,7 @@ recupera controles locales que quedaron rojos o desactualizados.
 - [x] **[T7-04] Actualizar la evidencia publicada de dependencias y gates**
   - **Área:** Documentación / Redacción
   - **Severidad:** Baja · Regresión de T6-11
-  - **Ubicación:** `docs/reference/dependency-audit.md:69`
+  - **Ubicación:** `AUDITORIA.md#inventario-de-dependencias-y-controles`
   - **Qué hacer:** publicar los conteos y estados actuales después de T7-02/T7-03 y evitar que la ficha pueda contradecir los gates vigentes.
   - **Criterio de aceptación:** ficha, inventario, contexto y resultados reproducibles coinciden; documentación detecta conteos vigentes incompatibles.
   - **Esfuerzo:** bajo
@@ -2834,10 +2834,22 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 
 - [ ] **RV12 — Recursos y escala medibles.** Ampliar la matriz de RAM, disco,
   tiempo, cancelación y limpieza según los datasets observados.
-- [ ] **RV13 — Respaldo y autoguardado recuperables.** Restauración transaccional
+- [x] **RV13 — Respaldo y autoguardado recuperables.** Restauración transaccional
   y guardado opt-in con cuota y última versión válida.
+  - **Cerrada: 2026-09-14.** Los respaldos versionados se restauran
+    transaccionalmente; el autoguardado opt-in informa sus estados y retiene
+    hasta 5 versiones/512 MiB. Guardado/restauración incluyen poda en la misma
+    transacción, de modo que un error revierte la publicación y deja restaurable
+    la versión válida previa. Regresión con error inyectado `BEFORE DELETE`
+    (1/1) y pruebas de retención; no se simuló saturación física del disco.
 - [ ] **RV14 — Preflight y presets de entrega.** Explicar incompatibilidades antes
   de escribir y verificar presets en el destino BI elegido.
+  - **Implementación local lista: 2026-09-14.** El preflight se repite antes de
+    DDL y bloquea enteros fuera de `i64` y decimales no representables como
+    `f64` finitos; el binding no los sustituye por `NULL`. Los nulos reales
+    conservan binding tipado. Los presets no guardan credenciales ni aplican
+    `replace` al cargarse. Falta aceptar formatos y presets en la herramienta BI
+    elegida para beta; ODBC por sí solo no demuestra consumo BI.
 - [ ] **RV15 — Lotes gráficos.** Implementar solo si la beta confirma repetición
   frecuente, reutilizando el contrato batch existente.
 - [ ] **RV16 — Modularización gradual del motor.** Extraer responsabilidades de
@@ -2851,5 +2863,9 @@ la cola hasta demostrar demanda repetida.
 
 | Fecha | Estado |
 | --- | --- |
-| 2026-09-14 | RV03 queda cerrada tras pruebas nativas y de App. RV01, RV02, RV04, RV05, RV06 y RV12 siguen parciales; RV07–RV11 requieren evidencia externa; RV13–RV14 siguen abiertos; RV15 queda condicionado a demanda y RV16 se hará gradualmente. |
-| 2026-09-14 | Validación local: 389 pruebas frontend y 15 E2E aprobadas; build TypeScript/Vite, `cargo fmt --check`, `ipc:check` (76 producción, 4 debug, 67 estructuras), seis pruebas del contrato de matriz y cuatro perfiles sintéticos de 1 y 100 MiB aprobados. `cargo test --lib` registró 444 aprobadas y 4 ignoradas por requerir servicios/drivers externos. El benchmark CLI aún no mide cancelación. |
+| 2026-09-14 | RV03 y RV13 quedan cerradas tras regresiones nativas y de App. RV01, RV02, RV04, RV05, RV06 y RV12 siguen parciales; RV07–RV11 requieren evidencia externa; RV14 tiene implementación local lista y necesita aceptación BI; RV15 queda condicionado a demanda y RV16 se hará gradualmente. |
+| 2026-09-14 | RV01 parcial: la navegación marca Preparar y Entregar «Hecho» solo desde resultados aplicados o exportados con éxito, y retira la marca al iniciar otro intento; siguen abiertas la coordinación central y la cobertura del resto de operaciones. | `src/App.tsx`, `src/App.test.tsx`, `docs/reference/roadmap-current.md` |
+| 2026-09-14 | Validación local: `npm test` (399/399), E2E (15/15), build TypeScript/Vite, `docs:check`, `governance:check`, `cargo fmt --check`, `ipc:check` (84 producción, 4 debug, 68 estructuras), contrato de matriz/perfiles sintéticos y `cargo test --lib` (458 aprobadas, 5 ignoradas por requerir servicios/drivers externos) pasaron. |
+| 2026-09-14 | RV12: `perf:benchmark` mide tres cancelaciones cooperativas del export CSV source-backed al observar bytes en el temporal; conserva byte a byte la salida anterior, no publica resultado parcial y confirma limpieza. La corrida `standard`, 1 MiB (7,61/15,80/16,56 ms) fue abreviada: 2 transformaciones y 1 actualización de proyecto. El contrato deja incompletos los ocho cruces hasta repetirlos con al menos 3 transformaciones y 2 actualizaciones; la medición de cancelación cubre motor nativo, sin despacho UI/IPC. |
+| 2026-09-14 | RV13 cerrada: autoguardado opt-in, respaldos versionados, restore transaccional y retención de 5 versiones/512 MiB. Una falla de poda inyectada antes de DELETE revierte guardado/restauración y conserva disponible la versión previa. No se simuló saturación física del disco. | `src-tauri/src/projects.rs`, `src/features/projects/useProjectsController.ts`, `src/features/projects/ProjectsPanel.tsx` |
+| 2026-09-14 | RV14: el preflight bloquea conversiones numéricas no representables antes de DDL y el binding ya no fabrica NULL; 11 pruebas Rust focalizadas y 3 ODBC externas ignoradas. Suite frontend y E2E pasan. Queda elegir destino en beta y validar allí los formatos y presets. | `src/features/delivery/DeliveryPhase.tsx`, `src-tauri/src/remote_databases.rs`, `src-tauri/src/delivery_presets.rs` |

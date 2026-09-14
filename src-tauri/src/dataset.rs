@@ -25977,6 +25977,142 @@ pub async fn export_dataset(
 }
 
 #[tauri::command]
+pub async fn preflight_database_export(
+    app: AppHandle,
+    target: DatabaseTarget,
+    privacy_mode: PrivacyMode,
+) -> Result<remote_databases::RemoteExportPreflight, String> {
+    remote_databases::validate_database_target(&target)?;
+    let (source_context, frame) = {
+        let state = app.state::<DatasetState>();
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+        let dataset = current.as_mut().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let source_context = if dataset.source_backed {
+            let (_, source_size, row_count) =
+                current_source_backed_context(dataset).ok_or_else(|| {
+                    "La fuente source-backed cambió o ya no está disponible.".to_owned()
+                })?;
+            let (source_path, source_format) =
+                current_duckdb_file_source(dataset).ok_or_else(|| {
+                    "La fuente source-backed ya no está disponible para el preflight.".to_owned()
+                })?;
+            let original_source_path = dataset.source_path.as_ref().cloned().ok_or_else(|| {
+                "La fuente source-backed ya no está disponible para el preflight.".to_owned()
+            })?;
+            Some((
+                source_path,
+                source_format,
+                dataset.frame.clone(),
+                source_size,
+                row_count,
+                original_source_path,
+                dataset.file_size_bytes,
+            ))
+        } else if let Some((snapshot_path, snapshot_size, row_count)) =
+            current_history_parquet_snapshot(dataset)
+        {
+            Some((
+                snapshot_path.clone(),
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                dataset.frame.slice(0, 0),
+                snapshot_size,
+                row_count,
+                snapshot_path,
+                snapshot_size,
+            ))
+        } else {
+            None
+        };
+        let frame = if source_context.is_some() {
+            None
+        } else {
+            materialize_loaded_dataset(dataset)?;
+            Some(dataset.frame.clone())
+        };
+        (source_context, frame)
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some((
+            source_path,
+            source_format,
+            schema,
+            expected_source_size,
+            row_count,
+            original_source_path,
+            expected_original_file_size,
+        )) = source_context
+        {
+            let (_, source_size, _) = validate_dataset_file(&source_path)?;
+            if source_size != expected_source_size {
+                return Err(
+                    "La fuente cambió desde su carga; vuelve a revisarla antes de entregar."
+                        .to_owned(),
+                );
+            }
+            let (_, original_source_size, _) = validate_dataset_file(&original_source_path)?;
+            if original_source_size != expected_original_file_size {
+                return Err(
+                    "El archivo original cambió desde su carga; vuelve a seleccionarlo.".to_owned(),
+                );
+            }
+            if privacy_mode == PrivacyMode::None {
+                return remote_databases::preflight_source_backed(
+                    &source_path,
+                    source_format,
+                    &schema,
+                    row_count,
+                    &target,
+                    || false,
+                );
+            }
+            let scratch = tempfile::tempdir()
+                .map_err(|error| format!("No se pudo preparar el preflight protegido: {error}"))?;
+            let protected_snapshot = scratch.path().join("preflight-protected.parquet");
+            let protected_columns = source_backed_privacy_snapshot(
+                &source_path,
+                expected_source_size,
+                &protected_snapshot,
+                privacy_mode,
+                || false,
+            )?;
+            if protected_columns.is_empty() {
+                return remote_databases::preflight_source_backed(
+                    &source_path,
+                    source_format,
+                    &schema,
+                    row_count,
+                    &target,
+                    || false,
+                );
+            }
+            let protected_schema = read_parquet_schema_frame(&protected_snapshot)?;
+            remote_databases::preflight_source_backed(
+                &protected_snapshot,
+                crate::duckdb_query::DuckDbFileFormat::Parquet,
+                &protected_schema,
+                row_count,
+                &target,
+                || false,
+            )
+        } else {
+            let frame = frame
+                .ok_or_else(|| "No se pudo preparar el dataset para el preflight.".to_owned())?;
+            let (protected_frame, _) = privacy_safe_frame(&frame, privacy_mode)?;
+            let input_columns = remote_databases::input_shape_from_frame(&protected_frame)?;
+            remote_databases::preflight_export(&target, &input_columns)
+        }
+    })
+    .await
+    .map_err(|error| format!("El preflight remoto se interrumpió: {error}"))?
+}
+
+#[tauri::command]
 pub async fn export_dataset_to_database(
     app: AppHandle,
     target: DatabaseTarget,

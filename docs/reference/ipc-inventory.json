@@ -10,6 +10,7 @@
     "src-tauri/src/reusable_tasks.rs",
     "src-tauri/src/updater.rs",
     "src-tauri/src/remote_databases.rs",
+    "src-tauri/src/delivery_presets.rs",
     "src/bridge.ts",
     "src/bridge/client.ts",
     "src/bridge/contracts.ts",
@@ -148,6 +149,11 @@
     {
       "name": "test_database_connection",
       "module": "remote_databases",
+      "debug": false
+    },
+    {
+      "name": "preflight_database_export",
+      "module": "dataset",
       "debug": false
     },
     {
@@ -371,7 +377,22 @@
       "debug": false
     },
     {
+      "name": "list_project_versions",
+      "module": "projects",
+      "debug": false
+    },
+    {
       "name": "save_project",
+      "module": "projects",
+      "debug": false
+    },
+    {
+      "name": "autosave_project",
+      "module": "projects",
+      "debug": false
+    },
+    {
+      "name": "restore_project_version",
       "module": "projects",
       "debug": false
     },
@@ -408,6 +429,26 @@
     {
       "name": "check_reusable_task_schema",
       "module": "reusable_tasks",
+      "debug": false
+    },
+    {
+      "name": "list_delivery_presets",
+      "module": "delivery_presets",
+      "debug": false
+    },
+    {
+      "name": "open_delivery_preset",
+      "module": "delivery_presets",
+      "debug": false
+    },
+    {
+      "name": "save_delivery_preset",
+      "module": "delivery_presets",
+      "debug": false
+    },
+    {
+      "name": "delete_delivery_preset",
+      "module": "delivery_presets",
       "debug": false
     }
   ],
@@ -681,6 +722,10 @@
     {
       "rust": "ProjectSummary",
       "typescript": "ProjectSummary"
+    },
+    {
+      "rust": "ProjectVersionSummary",
+      "typescript": "ProjectVersionSummary"
     },
     {
       "rust": "ProjectOpenResult",

@@ -227,7 +227,10 @@ function genericContents(type: string, generic: string): string | null {
 }
 
 function normalizeRustReturnType(type: string): string {
-  const compact = type.replace(/\s+/g, " ").trim();
+  const compact = type
+    .replace(/\s+/g, " ")
+    .replace(/\b(?:[A-Za-z_]\w*::)+([A-Za-z_]\w*)/g, "$1")
+    .trim();
   const result = genericContents(compact, "Result");
   if (result !== null) return normalizeRustReturnType(splitTopLevel(result)[0]);
 

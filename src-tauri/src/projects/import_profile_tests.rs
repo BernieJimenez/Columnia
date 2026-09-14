@@ -186,6 +186,7 @@ fn v12_catalog_migrates_and_old_project_opens_without_an_import_profile() {
         .unwrap()
         .execute_batch(
             "ALTER TABLE projects DROP COLUMN import_profile_json;
+             DROP TABLE project_versions;
              PRAGMA user_version = 12;",
         )
         .unwrap();
@@ -195,7 +196,7 @@ fn v12_catalog_migrates_and_old_project_opens_without_an_import_profile() {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 13);
+    assert_eq!(version, SCHEMA_VERSION);
     let has_profile_column: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('projects') WHERE name = 'import_profile_json')",

@@ -146,3 +146,46 @@ export interface DatabaseConnectionResult {
   kind: DatabaseKind;
   message: string;
 }
+
+export interface RemotePreflightIssue {
+  severity: "info" | "warning" | "blocking";
+  category: "policy" | "type" | "nullability" | "length" | "value";
+  column: string | null;
+  message: string;
+}
+
+export interface RemoteExportPreflight {
+  kind: DatabaseKind;
+  schema: string;
+  table: string;
+  tablePolicy: DatabaseTablePolicy;
+  tableExists: boolean;
+  ready: boolean;
+  issues: RemotePreflightIssue[];
+}
+
+/** Local preset: destination credentials and current-session overwrite approval are excluded. */
+export interface DeliveryPresetDatabaseTarget {
+  kind: DatabaseKind;
+  schema: string;
+  table: string;
+  tablePolicy: DatabaseTablePolicy;
+}
+
+export interface DeliveryPreset {
+  version: 1;
+  name: string;
+  format: ExportFormat;
+  selectedColumns: string[];
+  privacyMode: PrivacyMode;
+  databaseTarget?: DeliveryPresetDatabaseTarget;
+}
+
+export interface DeliveryPresetSummary {
+  id: string;
+  name: string;
+  format: ExportFormat;
+  updatedAt: string;
+  selectedColumnCount: number;
+  remote: boolean;
+}

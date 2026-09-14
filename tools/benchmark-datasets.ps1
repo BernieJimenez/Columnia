@@ -51,6 +51,10 @@ $PeakWorkspaceDiskBytes = 0L
 $CommandResults = [System.Collections.Generic.List[object]]::new()
 $OutputResults = [System.Collections.Generic.List[object]]::new()
 $CliPath = $null
+$CancellationBenchmark = [ordered]@{
+    status = "not-measured"
+    reason = "probe-not-run"
+}
 
 function Get-RelativePath {
     param([string]$Path)
@@ -214,6 +218,100 @@ function Invoke-MeasuredCli {
         $Result.stdout = $Stdout
     }
     return $Result
+}
+
+function Invoke-CancellationBenchmark {
+    $CancellationOutputDirectory = Join-Path $WorkDirectory "cancellation"
+    New-Item -ItemType Directory -Path $CancellationOutputDirectory -Force | Out-Null
+
+    $StdoutPath = Join-Path $EvidenceDirectory "cancellation.stdout.log"
+    $StderrPath = Join-Path $EvidenceDirectory "cancellation.stderr.log"
+    $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $StartInfo.FileName = "cargo"
+    $StartInfo.WorkingDirectory = $TauriRoot
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
+    $Arguments = @(
+        "test",
+        "--lib",
+        "dataset::tests::benchmark_source_backed_export_cooperative_cancellation",
+        "--",
+        "--exact",
+        "--ignored",
+        "--nocapture"
+    )
+    if ($StartInfo.PSObject.Properties.Name -contains "ArgumentList") {
+        foreach ($Argument in $Arguments) {
+            [void]$StartInfo.ArgumentList.Add($Argument)
+        }
+    }
+    else {
+        $StartInfo.Arguments = ($Arguments | ForEach-Object {
+            if ($_ -notmatch '[\s"]') {
+                $_
+            }
+            else {
+                $Escaped = $_ -replace '(\\*)"', '$1$1\"'
+                $Escaped = $Escaped -replace '(\\+)$', '$1$1'
+                '"' + $Escaped + '"'
+            }
+        }) -join " "
+    }
+    $StartInfo.Environment["COLUMNIA_BENCHMARK_CANCELLATION_INPUT"] = $InputPath
+    $StartInfo.Environment["COLUMNIA_BENCHMARK_CANCELLATION_OUTPUT"] = $CancellationOutputDirectory
+
+    $Process = [System.Diagnostics.Process]::new()
+    $Process.StartInfo = $StartInfo
+    $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    [void]$Process.Start()
+    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    try {
+        while (-not $Process.HasExited) {
+            if ($Stopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
+                try { $Process.Kill($true) } catch { $Process.Kill() }
+                throw "La medición de cancelación excedió el timeout de $TimeoutSeconds segundos."
+            }
+            Start-Sleep -Milliseconds 25
+        }
+        $Process.WaitForExit()
+        $Stdout = $StdoutTask.Result
+        $Stderr = $StderrTask.Result
+        $ExitCode = $Process.ExitCode
+    }
+    finally {
+        $Stopwatch.Stop()
+        $Process.Dispose()
+    }
+
+    Write-SanitizedEvidenceText -Path $StdoutPath -Text $Stdout
+    Write-SanitizedEvidenceText -Path $StderrPath -Text $Stderr
+    if ($ExitCode -ne 0) {
+        throw "La prueba nativa de cancelación terminó con código $ExitCode."
+    }
+
+    $JsonMatches = [regex]::Matches($Stdout, '(?m)^COLUMNIA_CANCELLATION_BENCHMARK_JSON=(.+)$')
+    if ($JsonMatches.Count -ne 1) {
+        throw "La prueba nativa no produjo una medición JSON de cancelación."
+    }
+    $Benchmark = $JsonMatches[0].Groups[1].Value.Trim() | ConvertFrom-Json
+    if ($Benchmark.schemaVersion -ne 1 -or
+        $Benchmark.status -ne "measured" -or
+        $Benchmark.operation -ne "sourceBackedCsvExport" -or
+        [int]$Benchmark.sampleCount -ne 3 -or
+        @($Benchmark.latencySamplesMs).Count -ne 3 -or
+        [double]$Benchmark.maxRequestToTerminalLatencyMs -lt 0 -or
+        $Benchmark.partialPublication -ne $false -or
+        $Benchmark.previousOutputPreserved -ne $true -or
+        $Benchmark.cleanupConfirmed -ne $true) {
+        throw "La evidencia de cancelación no confirmó latencia, atomicidad y limpieza."
+    }
+    if (@(Get-ChildItem -LiteralPath $CancellationOutputDirectory -Force).Count -ne 0) {
+        throw "La prueba nativa dejó restos en su directorio temporal."
+    }
+    return $Benchmark
 }
 
 function Assert-Output {
@@ -409,10 +507,14 @@ try {
         throw "project-list conservó proyectos después del cleanup."
     }
     [void]$CommandResults.Add($ListAfterDelete)
+    $CancellationBenchmark = Invoke-CancellationBenchmark
     $Status = "passed"
 }
 catch {
     $FailureMessage = $_.Exception.Message
+    if ($CancellationBenchmark.status -eq "not-measured") {
+        $CancellationBenchmark.reason = "probe-failed-or-not-reached"
+    }
     $FailureLog = $_ | Format-List * -Force | Out-String
     Write-SanitizedEvidenceText -Path (Join-Path $EvidenceDirectory "failure.log") -Text $FailureLog
 }
@@ -461,7 +563,7 @@ finally {
             commandCount = $CommandResults.Count
             maxCommandDurationMs = $MaximumCommandDurationMs
             totalCommandDurationMs = $TotalCommandDurationMs
-            cancellation = "not-measured-by-cli-benchmark"
+            cancellation = $CancellationBenchmark
             cleanupConfirmed = $CleanupConfirmed
         }
     }
@@ -497,4 +599,5 @@ if ($Status -ne "passed") {
 }
 
 Write-Host "Benchmark de datasets aprobado: $InputSizeBytes bytes, $InputRowCount filas, transformaciones sostenidas y ciclo durable de proyecto medidos."
+Write-Host ("Cancelación source-backed: máximo {0} ms; publicación parcial={1}; limpieza={2}." -f $CancellationBenchmark.maxRequestToTerminalLatencyMs, $CancellationBenchmark.partialPublication, $CancellationBenchmark.cleanupConfirmed)
 Write-Host "Evidencia: $EvidenceRelativePath"

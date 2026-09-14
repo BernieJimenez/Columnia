@@ -1,7 +1,8 @@
 use std::{fmt::Debug, path::Path};
 
 use odbc_api::{
-    parameter::InputParameter, Bit, ConnectionOptions, Environment, IntoParameter, Nullable,
+    parameter::InputParameter, Bit, ColumnsRow, ConnectionOptions, Environment, IntoParameter,
+    Nullable, TablesRow,
 };
 use polars::prelude::{AnyValue, DataFrame};
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,57 @@ pub struct DatabaseConnectionResult {
     pub message: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RemoteInputColumn {
+    pub(crate) name: String,
+    pub(crate) data_type: String,
+    pub(crate) null_count: usize,
+    pub(crate) maximum_length: Option<usize>,
+    pub(crate) contains_nul: bool,
+    pub(crate) unrepresentable_integer_count: usize,
+    pub(crate) unrepresentable_decimal_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteExportPreflight {
+    pub kind: DatabaseKind,
+    pub schema: String,
+    pub table: String,
+    pub table_policy: DatabaseTablePolicy,
+    pub table_exists: bool,
+    pub ready: bool,
+    pub issues: Vec<RemotePreflightIssue>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePreflightIssue {
+    pub severity: &'static str,
+    pub category: &'static str,
+    pub column: Option<String>,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ExistingColumn {
+    name: String,
+    data_type: String,
+    maximum_length: Option<usize>,
+    nullable: bool,
+    has_default: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TypeFamily {
+    Text,
+    Boolean,
+    Integer,
+    Decimal,
+    Temporal,
+    Unknown,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RemoteExportResult {
     pub(crate) rows_written: usize,
@@ -79,6 +131,543 @@ pub fn test_database_connection(
         kind: target.kind,
         message: format!("Conexión ODBC verificada para {}.", target.kind.label()),
     })
+}
+
+pub(crate) fn preflight_export(
+    target: &DatabaseTarget,
+    input_columns: &[RemoteInputColumn],
+) -> Result<RemoteExportPreflight, String> {
+    validate_database_target(target)?;
+    let environment = Environment::new()
+        .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
+    let connection = environment
+        .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
+        .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    connection
+        .execute("SELECT 1", (), Some(10))
+        .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
+    let (table_exists, is_base_table, existing_columns) = inspect_destination(&connection, target)?;
+    Ok(assess_remote_export(
+        target,
+        input_columns,
+        table_exists,
+        is_base_table,
+        &existing_columns,
+    ))
+}
+
+pub(crate) fn preflight_source_backed<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    schema: &DataFrame,
+    row_count: usize,
+    target: &DatabaseTarget,
+    is_cancelled: C,
+) -> Result<RemoteExportPreflight, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    let input_columns =
+        input_shape_from_source(source_path, source_format, schema, row_count, is_cancelled)?;
+    preflight_export(target, &input_columns)
+}
+
+pub(crate) fn input_shape_from_frame(frame: &DataFrame) -> Result<Vec<RemoteInputColumn>, String> {
+    frame
+        .columns()
+        .iter()
+        .map(|column| {
+            let data_type = column.dtype().to_string();
+            let is_text = type_family(&data_type) == TypeFamily::Text;
+            let normalized_dtype = data_type.to_ascii_lowercase();
+            let is_integer = is_integer_dtype(&normalized_dtype);
+            let is_decimal = is_decimal_dtype(&normalized_dtype);
+            let mut null_count = 0usize;
+            let mut maximum_length = 0usize;
+            let mut contains_nul = false;
+            let mut unrepresentable_integer_count = 0usize;
+            let mut unrepresentable_decimal_count = 0usize;
+            if is_text || is_integer || is_decimal {
+                for row_index in 0..column.len() {
+                    let value = column.get(row_index).map_err(|error| {
+                        format!(
+                            "No se pudo revisar la columna '{}' para la entrega: {error}",
+                            column.name()
+                        )
+                    })?;
+                    let text = match value {
+                        AnyValue::Null => {
+                            null_count += 1;
+                            continue;
+                        }
+                        AnyValue::String(value) => value.to_owned(),
+                        AnyValue::StringOwned(value) => value.as_str().to_owned(),
+                        value => value.to_string(),
+                    };
+                    if is_text {
+                        maximum_length = maximum_length.max(text.chars().count());
+                        contains_nul |= text.contains('\0');
+                    }
+                    if is_integer && text.parse::<i64>().is_err() {
+                        unrepresentable_integer_count =
+                            unrepresentable_integer_count.saturating_add(1);
+                    }
+                    if is_decimal && !matches!(text.parse::<f64>(), Ok(value) if value.is_finite())
+                    {
+                        unrepresentable_decimal_count =
+                            unrepresentable_decimal_count.saturating_add(1);
+                    }
+                }
+            } else {
+                null_count = column.null_count() as usize;
+            }
+            Ok(RemoteInputColumn {
+                name: column.name().to_string(),
+                data_type,
+                null_count,
+                maximum_length: is_text.then_some(maximum_length),
+                contains_nul,
+                unrepresentable_integer_count,
+                unrepresentable_decimal_count,
+            })
+        })
+        .collect()
+}
+
+fn input_shape_from_source<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    schema: &DataFrame,
+    expected_row_count: usize,
+    is_cancelled: C,
+) -> Result<Vec<RemoteInputColumn>, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    let mut columns = schema
+        .columns()
+        .iter()
+        .map(|column| RemoteInputColumn {
+            name: column.name().to_string(),
+            data_type: column.dtype().to_string(),
+            null_count: 0,
+            maximum_length: (type_family(&column.dtype().to_string()) == TypeFamily::Text)
+                .then_some(0),
+            contains_nul: false,
+            unrepresentable_integer_count: 0,
+            unrepresentable_decimal_count: 0,
+        })
+        .collect::<Vec<_>>();
+    let integer_columns = columns
+        .iter()
+        .map(|column| is_integer_dtype(&column.data_type.to_ascii_lowercase()))
+        .collect::<Vec<_>>();
+    let decimal_columns = columns
+        .iter()
+        .map(|column| is_decimal_dtype(&column.data_type.to_ascii_lowercase()))
+        .collect::<Vec<_>>();
+    let mut row_count = 0usize;
+    let streamed_columns = crate::duckdb_query::stream_file_rows(
+        source_path,
+        source_format,
+        |values| {
+            if values.len() != columns.len() {
+                return Err("El ancho de la fuente cambió durante el preflight remoto.".to_owned());
+            }
+            for (index, (column, value)) in columns.iter_mut().zip(values.iter()).enumerate() {
+                match value {
+                    None => column.null_count = column.null_count.saturating_add(1),
+                    Some(value) => {
+                        if let Some(maximum_length) = column.maximum_length.as_mut() {
+                            *maximum_length = (*maximum_length).max(value.chars().count());
+                            column.contains_nul |= value.contains('\0');
+                        }
+                        if integer_columns[index] && value.parse::<i64>().is_err() {
+                            column.unrepresentable_integer_count =
+                                column.unrepresentable_integer_count.saturating_add(1);
+                        }
+                        if decimal_columns[index]
+                            && !matches!(value.parse::<f64>(), Ok(number) if number.is_finite())
+                        {
+                            column.unrepresentable_decimal_count =
+                                column.unrepresentable_decimal_count.saturating_add(1);
+                        }
+                    }
+                }
+            }
+            row_count = row_count.saturating_add(1);
+            Ok(())
+        },
+        is_cancelled,
+    )?;
+    if row_count != expected_row_count {
+        return Err(
+            "El conteo de filas cambió durante el preflight remoto; vuelve a revisar el dataset."
+                .to_owned(),
+        );
+    }
+    let expected_names = columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
+    let actual_names = streamed_columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
+    if actual_names != expected_names {
+        return Err("El esquema source-backed cambió durante el preflight remoto.".to_owned());
+    }
+    Ok(columns)
+}
+
+fn inspect_destination(
+    connection: &odbc_api::Connection<'_>,
+    target: &DatabaseTarget,
+) -> Result<(bool, bool, Vec<ExistingColumn>), String> {
+    let table_rows = connection
+        .tables("", &target.schema, &target.table, "")
+        .map_err(|error| {
+            format_driver_error("No se pudo revisar la política del destino", error, target)
+        })?
+        .collect::<Result<Vec<TablesRow>, _>>()
+        .map_err(|error| {
+            format_driver_error("No se pudo leer la política del destino", error, target)
+        })?;
+    let matching_objects = table_rows
+        .iter()
+        .filter(|row| {
+            let table_name = row.table.as_str().ok().flatten().unwrap_or_default();
+            let schema_name = row.schema.as_str().ok().flatten().unwrap_or_default();
+            table_name.eq_ignore_ascii_case(&target.table)
+                && (target.schema.trim().is_empty()
+                    || schema_name.eq_ignore_ascii_case(&target.schema))
+        })
+        .collect::<Vec<_>>();
+    let table_exists = !matching_objects.is_empty();
+    let is_base_table = matching_objects.iter().any(|row| {
+        row.table_type
+            .as_str()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .contains("table")
+    });
+    if !table_exists || !is_base_table {
+        return Ok((table_exists, is_base_table, Vec::new()));
+    }
+
+    let columns = connection
+        .columns("", &target.schema, &target.table, "")
+        .map_err(|error| {
+            format_driver_error("No se pudo revisar el esquema remoto", error, target)
+        })?
+        .collect::<Result<Vec<ColumnsRow>, _>>()
+        .map_err(|error| format_driver_error("No se pudo leer el esquema remoto", error, target))?
+        .into_iter()
+        .map(|column| {
+            let maximum_length = column
+                .column_size
+                .into_opt()
+                .and_then(|value| usize::try_from(value).ok())
+                .filter(|value| *value > 0);
+            let nullable = column
+                .is_nullable
+                .as_str()
+                .ok()
+                .flatten()
+                .is_none_or(|value| !value.eq_ignore_ascii_case("NO"));
+            let has_default = column
+                .column_default
+                .as_str()
+                .ok()
+                .flatten()
+                .is_some_and(|value| !value.trim().is_empty());
+            ExistingColumn {
+                name: column
+                    .column_name
+                    .as_str()
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .to_owned(),
+                data_type: column
+                    .type_name
+                    .as_str()
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .to_owned(),
+                maximum_length,
+                nullable,
+                has_default,
+            }
+        })
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Err(
+            "El controlador no devolvió el esquema de la tabla. La entrega se detuvo antes de escribir."
+                .to_owned(),
+        );
+    }
+    Ok((table_exists, is_base_table, columns))
+}
+
+fn assess_remote_export(
+    target: &DatabaseTarget,
+    input_columns: &[RemoteInputColumn],
+    table_exists: bool,
+    is_base_table: bool,
+    existing_columns: &[ExistingColumn],
+) -> RemoteExportPreflight {
+    let mut issues = Vec::new();
+    if input_columns.is_empty() {
+        push_issue(
+            &mut issues,
+            "blocking",
+            "type",
+            None,
+            "El dataset no contiene columnas para entregar.".to_owned(),
+        );
+    }
+    for column in input_columns {
+        if column.unrepresentable_integer_count > 0 {
+            push_issue(
+                &mut issues,
+                "blocking",
+                "value",
+                Some(column.name.clone()),
+                format!(
+                    "La columna '{}' tiene {} entero(s) que no caben en el parámetro Int64 usado por ODBC; no se escribirán como NULL.",
+                    column.name, column.unrepresentable_integer_count
+                ),
+            );
+        }
+        if column.unrepresentable_decimal_count > 0 {
+            push_issue(
+                &mut issues,
+                "blocking",
+                "value",
+                Some(column.name.clone()),
+                format!(
+                    "La columna '{}' tiene {} valor(es) numérico(s) no finito(s) o no representable(s) por ODBC; no se escribirán como NULL.",
+                    column.name, column.unrepresentable_decimal_count
+                ),
+            );
+        }
+    }
+    if table_exists && !is_base_table {
+        push_issue(
+            &mut issues,
+            "blocking",
+            "policy",
+            None,
+            "El destino existe, pero no se identificó como una tabla escribible.".to_owned(),
+        );
+    }
+    match (target.table_policy, table_exists) {
+        (DatabaseTablePolicy::Append, false) => push_issue(
+            &mut issues,
+            "blocking",
+            "policy",
+            None,
+            "Añadir a tabla existente requiere que el destino ya exista.".to_owned(),
+        ),
+        (DatabaseTablePolicy::CreateOnly, true) => push_issue(
+            &mut issues,
+            "blocking",
+            "policy",
+            None,
+            "Crear; fallar si existe está seleccionado y la tabla ya existe.".to_owned(),
+        ),
+        (DatabaseTablePolicy::Replace, true) => push_issue(
+            &mut issues,
+            "warning",
+            "policy",
+            None,
+            "La tabla existente se eliminará y se volverá a crear. La política Reemplazar fue seleccionada explícitamente.".to_owned(),
+        ),
+        (DatabaseTablePolicy::CreateOnly | DatabaseTablePolicy::Replace, false) => push_issue(
+            &mut issues,
+            "info",
+            "policy",
+            None,
+            "El destino no existe; se creará una tabla nueva.".to_owned(),
+        ),
+        (DatabaseTablePolicy::Append, true) => {}
+    }
+
+    if table_exists && is_base_table && target.table_policy == DatabaseTablePolicy::Append {
+        for source in input_columns {
+            let destination = existing_columns
+                .iter()
+                .find(|column| column.name == source.name);
+            let Some(destination) = destination else {
+                push_issue(
+                    &mut issues,
+                    "blocking",
+                    "type",
+                    Some(source.name.clone()),
+                    format!(
+                        "La tabla remota no contiene la columna '{}' con ese nombre exacto.",
+                        source.name
+                    ),
+                );
+                continue;
+            };
+            if !remote_types_compatible(&source.data_type, &destination.data_type) {
+                push_issue(
+                    &mut issues,
+                    "blocking",
+                    "type",
+                    Some(source.name.clone()),
+                    format!(
+                        "La columna '{}' llega como {} y el destino usa {}; no se garantiza una conversión segura.",
+                        source.name, source.data_type, destination.data_type
+                    ),
+                );
+            }
+            if source.null_count > 0 && !destination.nullable {
+                push_issue(
+                    &mut issues,
+                    "blocking",
+                    "nullability",
+                    Some(source.name.clone()),
+                    format!(
+                        "La columna '{}' contiene {} nulos y el destino los rechaza.",
+                        source.name, source.null_count
+                    ),
+                );
+            }
+            if source.contains_nul {
+                push_issue(
+                    &mut issues,
+                    "blocking",
+                    "value",
+                    Some(source.name.clone()),
+                    format!(
+                        "La columna '{}' contiene caracteres NUL no compatibles con ODBC.",
+                        source.name
+                    ),
+                );
+            }
+            if type_family(&source.data_type) == TypeFamily::Text {
+                match (source.maximum_length, destination.maximum_length) {
+                    (Some(actual), Some(limit)) if actual > limit => push_issue(
+                        &mut issues,
+                        "blocking",
+                        "length",
+                        Some(source.name.clone()),
+                        format!(
+                            "La columna '{}' alcanza {} caracteres y el destino admite {}.",
+                            source.name, actual, limit
+                        ),
+                    ),
+                    (None, Some(_)) => push_issue(
+                        &mut issues,
+                        "blocking",
+                        "length",
+                        Some(source.name.clone()),
+                        format!(
+                            "No se pudo verificar la longitud máxima de '{}'; se requiere un destino sin límite o revisar la columna.",
+                            source.name
+                        ),
+                    ),
+                    _ => {}
+                }
+            }
+        }
+        for destination in existing_columns {
+            if input_columns
+                .iter()
+                .any(|source| source.name == destination.name)
+            {
+                continue;
+            }
+            if !destination.nullable && !destination.has_default {
+                push_issue(
+                    &mut issues,
+                    "blocking",
+                    "nullability",
+                    Some(destination.name.clone()),
+                    format!(
+                        "La columna adicional '{}' es obligatoria y no tiene valor predeterminado; la inserción no podría completarla.",
+                        destination.name
+                    ),
+                );
+            }
+        }
+    }
+
+    let ready = !issues.iter().any(|issue| issue.severity == "blocking");
+    RemoteExportPreflight {
+        kind: target.kind,
+        schema: target.schema.clone(),
+        table: target.table.clone(),
+        table_policy: target.table_policy,
+        table_exists,
+        ready,
+        issues,
+    }
+}
+
+fn push_issue(
+    issues: &mut Vec<RemotePreflightIssue>,
+    severity: &'static str,
+    category: &'static str,
+    column: Option<String>,
+    message: String,
+) {
+    issues.push(RemotePreflightIssue {
+        severity,
+        category,
+        column,
+        message,
+    });
+}
+
+fn remote_types_compatible(source_type: &str, destination_type: &str) -> bool {
+    let source = type_family(source_type);
+    let destination = type_family(destination_type);
+    match source {
+        TypeFamily::Integer => matches!(destination, TypeFamily::Integer | TypeFamily::Decimal),
+        TypeFamily::Decimal => matches!(destination, TypeFamily::Decimal),
+        TypeFamily::Boolean => matches!(destination, TypeFamily::Boolean),
+        TypeFamily::Temporal => matches!(destination, TypeFamily::Temporal | TypeFamily::Text),
+        TypeFamily::Text => matches!(destination, TypeFamily::Text),
+        TypeFamily::Unknown => false,
+    }
+}
+
+fn type_family(data_type: &str) -> TypeFamily {
+    let normalized = data_type.to_ascii_lowercase();
+    if normalized.contains("bool") || normalized == "bit" {
+        TypeFamily::Boolean
+    } else if normalized.contains("int")
+        || normalized.starts_with('u')
+        || normalized.starts_with('i')
+    {
+        TypeFamily::Integer
+    } else if ["float", "double", "decimal", "numeric", "real", "money"]
+        .iter()
+        .any(|kind| normalized.contains(kind))
+    {
+        TypeFamily::Decimal
+    } else if ["date", "time", "timestamp", "datetime"]
+        .iter()
+        .any(|kind| normalized.contains(kind))
+    {
+        TypeFamily::Temporal
+    } else if [
+        "string", "text", "char", "clob", "varchar", "nvarchar", "longtext",
+    ]
+    .iter()
+    .any(|kind| normalized.contains(kind))
+    {
+        TypeFamily::Text
+    } else {
+        TypeFamily::Unknown
+    }
 }
 
 pub(crate) fn validate_database_target(target: &DatabaseTarget) -> Result<(), String> {
@@ -119,11 +708,24 @@ where
 {
     validate_database_target(target)?;
     ensure_not_cancelled(&is_cancelled)?;
+    let input_columns = input_shape_from_frame(frame)?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
     let connection = environment
         .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    connection
+        .execute("SELECT 1", (), Some(10))
+        .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
+    let (table_exists, is_base_table, existing_columns) = inspect_destination(&connection, target)?;
+    let preflight = assess_remote_export(
+        target,
+        &input_columns,
+        table_exists,
+        is_base_table,
+        &existing_columns,
+    );
+    ensure_preflight_ready(&preflight)?;
     connection
         .set_autocommit(false)
         .map_err(|error| format_driver_error("No se pudo iniciar la transacción", error, target))?;
@@ -221,11 +823,30 @@ where
     if schema.width() == 0 {
         return Err("No se puede entregar un dataset sin columnas.".to_owned());
     }
+    let input_columns = input_shape_from_source(
+        source_path,
+        source_format,
+        schema,
+        row_count,
+        is_cancelled.clone(),
+    )?;
     let environment = Environment::new()
         .map_err(|error| format_driver_error("No se pudo inicializar ODBC", error, target))?;
     let connection = environment
         .connect_with_connection_string(&target.connection_string, ConnectionOptions::default())
         .map_err(|error| format_driver_error("No se pudo abrir la conexión", error, target))?;
+    connection
+        .execute("SELECT 1", (), Some(10))
+        .map_err(|error| format_driver_error("La prueba SELECT 1 falló", error, target))?;
+    let (table_exists, is_base_table, existing_columns) = inspect_destination(&connection, target)?;
+    let preflight = assess_remote_export(
+        target,
+        &input_columns,
+        table_exists,
+        is_base_table,
+        &existing_columns,
+    );
+    ensure_preflight_ready(&preflight)?;
     connection
         .set_autocommit(false)
         .map_err(|error| format_driver_error("No se pudo iniciar la transacción", error, target))?;
@@ -331,6 +952,22 @@ where
         table_name: table,
         format: target.kind.label(),
     })
+}
+
+fn ensure_preflight_ready(preflight: &RemoteExportPreflight) -> Result<(), String> {
+    if preflight.ready {
+        return Ok(());
+    }
+    let blocking = preflight
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == "blocking")
+        .map(|issue| issue.message.as_str())
+        .collect::<Vec<_>>();
+    Err(format!(
+        "Preflight remoto bloqueó la entrega antes de escribir: {}",
+        blocking.join(" ")
+    ))
 }
 
 fn execute_statement(
@@ -458,7 +1095,8 @@ fn database_type(dtype: &polars::prelude::DataType, kind: DatabaseKind) -> &'sta
     }
     match kind {
         DatabaseKind::SqlServer => "NVARCHAR(MAX)",
-        _ => "TEXT",
+        DatabaseKind::Postgresql => "TEXT",
+        DatabaseKind::Mysql => "LONGTEXT",
     }
 }
 
@@ -498,17 +1136,18 @@ fn sql_parameter_text(
     }
     if is_integer_dtype(&normalized_dtype) || is_decimal_dtype(&normalized_dtype) {
         if is_integer_dtype(&normalized_dtype) {
-            if let Ok(value) = text.parse::<i64>() {
-                return Ok(Box::new(value));
-            }
-            return Ok(Box::new(Nullable::<i64>::null()));
+            let value = text.parse::<i64>().map_err(|_| {
+                "Una celda entera no cabe en el parámetro Int64 usado por ODBC.".to_owned()
+            })?;
+            return Ok(Box::new(value));
         }
-        if let Ok(value) = text.parse::<f64>() {
-            if value.is_finite() {
-                return Ok(Box::new(value));
-            }
+        let value = text
+            .parse::<f64>()
+            .map_err(|_| "Una celda decimal no puede representarse como número ODBC.".to_owned())?;
+        if !value.is_finite() {
+            return Err("Una celda decimal no finita no se puede escribir con ODBC.".to_owned());
         }
-        return Ok(Box::new(Nullable::<f64>::null()));
+        return Ok(Box::new(value));
     }
     if text.contains('\0') {
         return Err("Una celda contiene un carácter NUL no compatible con SQL/ODBC.".to_owned());
@@ -568,7 +1207,7 @@ mod tests {
     use odbc_api::{buffers::RowVec, parameter::VarWCharArray, Cursor};
     use polars::{
         df,
-        prelude::{DataFrame, DataType},
+        prelude::{DataFrame, DataType, ParquetWriter},
     };
     use tempfile::tempdir;
 
@@ -622,13 +1261,90 @@ mod tests {
     fn streamed_parameters_preserve_adversarial_text_and_typed_nulls() {
         assert!(sql_parameter_text(Some("O'Brien; DROP TABLE users"), &DataType::String).is_ok());
         assert!(sql_parameter_text(Some("42"), &DataType::Int64).is_ok());
-        assert!(sql_parameter_text(Some("not-a-number"), &DataType::Float64).is_ok());
+        assert!(sql_parameter_text(Some("not-a-number"), &DataType::Float64).is_err());
         assert!(sql_parameter_text(None, &DataType::String).is_ok());
         let columns = vec!["name".to_owned(), "active".to_owned()];
         assert_eq!(
             parameterized_insert_sql("`ventas`", &columns, 2),
             "INSERT INTO `ventas` (name, active) VALUES (?, ?)"
         );
+    }
+
+    #[test]
+    fn materialized_preflight_blocks_unsigned_overflow_and_non_finite_numbers() {
+        let frame = df!(
+            "unsigned" => &[u64::MAX, 42_u64],
+            "measurement" => &[f64::NAN, f64::INFINITY]
+        )
+        .expect("frame numérico válido");
+        let input = input_shape_from_frame(&frame).expect("se debe revisar cada valor numérico");
+
+        assert_eq!(input[0].unrepresentable_integer_count, 1);
+        assert_eq!(input[0].null_count, 0);
+        assert_eq!(input[1].unrepresentable_decimal_count, 2);
+        assert_eq!(input[1].null_count, 0);
+
+        let report =
+            assess_remote_export(&target(DatabaseKind::Postgresql), &input, false, false, &[]);
+        assert!(
+            !report.ready,
+            "CreateOnly no debe aceptar valores convertidos silenciosamente en NULL"
+        );
+        assert!(report.issues.iter().any(|issue| {
+            issue.column.as_deref() == Some("unsigned")
+                && issue.message.contains("no caben en el parámetro Int64")
+        }));
+        assert!(report.issues.iter().any(|issue| {
+            issue.column.as_deref() == Some("measurement") && issue.message.contains("no finito(s)")
+        }));
+    }
+
+    #[test]
+    fn source_backed_preflight_blocks_unsigned_overflow_and_non_finite_numbers() {
+        let directory = tempdir().expect("se debe crear la carpeta temporal");
+        let path = directory.path().join("unrepresentable.parquet");
+        let mut frame = df!(
+            "unsigned" => &[u64::MAX, 42_u64],
+            "measurement" => &[f64::NAN, f64::INFINITY]
+        )
+        .expect("frame Parquet válido");
+        let mut file = fs::File::create(&path).expect("se debe crear Parquet");
+        ParquetWriter::new(&mut file)
+            .finish(&mut frame)
+            .expect("se debe escribir Parquet");
+
+        let schema = frame.slice(0, 0);
+        let input = input_shape_from_source(&path, DuckDbFileFormat::Parquet, &schema, 2, || false)
+            .expect("el preflight debe inspeccionar todos los valores source-backed");
+
+        assert_eq!(input[0].unrepresentable_integer_count, 1);
+        assert_eq!(input[0].null_count, 0);
+        assert_eq!(input[1].unrepresentable_decimal_count, 2);
+        assert_eq!(input[1].null_count, 0);
+        let report =
+            assess_remote_export(&target(DatabaseKind::Postgresql), &input, false, false, &[]);
+        assert!(!report.ready);
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.severity == "blocking")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn numeric_binding_rejects_overflow_and_non_finite_values_but_preserves_real_nulls() {
+        assert!(sql_parameter(AnyValue::UInt64(u64::MAX), &DataType::UInt64).is_err());
+        assert!(sql_parameter(AnyValue::Float64(f64::NAN), &DataType::Float64).is_err());
+        assert!(sql_parameter(AnyValue::Float64(f64::INFINITY), &DataType::Float64).is_err());
+        assert!(sql_parameter(AnyValue::UInt64(42), &DataType::UInt64).is_ok());
+        assert!(sql_parameter(AnyValue::Null, &DataType::UInt64).is_ok());
+        assert!(sql_parameter(AnyValue::Null, &DataType::Float64).is_ok());
+        assert!(sql_parameter_text(Some("18446744073709551615"), &DataType::UInt64).is_err());
+        assert!(sql_parameter_text(Some("NaN"), &DataType::Float64).is_err());
+        assert!(sql_parameter_text(Some("Infinity"), &DataType::Float64).is_err());
     }
 
     #[test]
@@ -670,6 +1386,107 @@ mod tests {
         ));
         table.table_policy = DatabaseTablePolicy::Replace;
         assert!(validate_database_target(&table).is_err());
+    }
+
+    #[test]
+    fn preflight_explains_safe_new_table_and_blocks_conflicting_policies() {
+        let input = vec![RemoteInputColumn {
+            name: "name".to_owned(),
+            data_type: "String".to_owned(),
+            null_count: 0,
+            maximum_length: Some(12),
+            contains_nul: false,
+            unrepresentable_integer_count: 0,
+            unrepresentable_decimal_count: 0,
+        }];
+        let mut destination = target(DatabaseKind::Postgresql);
+        let create = assess_remote_export(&destination, &input, false, false, &[]);
+        assert!(create.ready);
+        assert!(create.issues.iter().any(|issue| issue.category == "policy"));
+
+        let exists = assess_remote_export(&destination, &input, true, true, &[]);
+        assert!(!exists.ready);
+        assert!(exists
+            .issues
+            .iter()
+            .any(|issue| { issue.severity == "blocking" && issue.message.contains("ya existe") }));
+
+        destination.table_policy = DatabaseTablePolicy::Append;
+        let missing_append = assess_remote_export(&destination, &input, false, false, &[]);
+        assert!(!missing_append.ready);
+    }
+
+    #[test]
+    fn append_preflight_checks_types_nulls_lengths_nul_and_required_extra_columns() {
+        let mut destination = target(DatabaseKind::SqlServer);
+        destination.table_policy = DatabaseTablePolicy::Append;
+        let input = vec![
+            RemoteInputColumn {
+                name: "name".to_owned(),
+                data_type: "String".to_owned(),
+                null_count: 2,
+                maximum_length: Some(14),
+                contains_nul: true,
+                unrepresentable_integer_count: 0,
+                unrepresentable_decimal_count: 0,
+            },
+            RemoteInputColumn {
+                name: "amount".to_owned(),
+                data_type: "Boolean".to_owned(),
+                null_count: 0,
+                maximum_length: None,
+                contains_nul: false,
+                unrepresentable_integer_count: 0,
+                unrepresentable_decimal_count: 0,
+            },
+        ];
+        let existing = vec![
+            ExistingColumn {
+                name: "name".to_owned(),
+                data_type: "NVARCHAR(10)".to_owned(),
+                maximum_length: Some(10),
+                nullable: false,
+                has_default: false,
+            },
+            ExistingColumn {
+                name: "amount".to_owned(),
+                data_type: "BIGINT".to_owned(),
+                maximum_length: None,
+                nullable: true,
+                has_default: false,
+            },
+            ExistingColumn {
+                name: "required_at_destination".to_owned(),
+                data_type: "INT".to_owned(),
+                maximum_length: None,
+                nullable: false,
+                has_default: false,
+            },
+        ];
+        let report = assess_remote_export(&destination, &input, true, true, &existing);
+        assert!(!report.ready);
+        assert!(report.issues.iter().any(|issue| issue.category == "type"));
+        assert!(report
+            .issues
+            .iter()
+            .any(|issue| issue.category == "nullability"));
+        assert!(report.issues.iter().any(|issue| issue.category == "length"));
+        assert!(report.issues.iter().any(|issue| issue.category == "value"));
+        assert!(report
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("required_at_destination")));
+    }
+
+    #[test]
+    fn replace_policy_is_reported_as_explicit_warning() {
+        let mut destination = target(DatabaseKind::Postgresql);
+        destination.table_policy = DatabaseTablePolicy::Replace;
+        let report = assess_remote_export(&destination, &[], true, true, &[]);
+        assert!(report
+            .issues
+            .iter()
+            .any(|issue| issue.severity == "warning" && issue.category == "policy"));
     }
 
     fn external_target(kind: DatabaseKind, variable: &str) -> DatabaseTarget {

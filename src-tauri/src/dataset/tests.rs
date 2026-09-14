@@ -8813,6 +8813,193 @@ fn cancellation_keeps_the_previous_export_untouched() {
 }
 
 #[test]
+#[ignore = "Se ejecuta desde tools/benchmark-datasets.ps1 con una entrada sintética versionada."]
+fn benchmark_source_backed_export_cooperative_cancellation() {
+    use std::{
+        sync::{
+            atomic::{AtomicBool, AtomicU64, Ordering},
+            Arc, Mutex,
+        },
+        thread,
+        time::Duration,
+    };
+
+    const RUN_COUNT: usize = 3;
+    const MAX_PARTIAL_BYTES: u64 = 256 * 1024;
+    const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(90);
+    const PREVIOUS_EXPORT: &[u8] = b"previous complete export\n";
+
+    let source = std::env::var_os("COLUMNIA_BENCHMARK_CANCELLATION_INPUT")
+        .map(PathBuf::from)
+        .expect("el benchmark debe indicar la entrada sintética");
+    let output_root = std::env::var_os("COLUMNIA_BENCHMARK_CANCELLATION_OUTPUT")
+        .map(PathBuf::from)
+        .expect("el benchmark debe indicar su directorio de salida");
+    let source_size = fs::metadata(&source)
+        .expect("la entrada sintética debe existir")
+        .len();
+    assert!(source_size > 0, "la entrada sintética no puede estar vacía");
+    fs::create_dir_all(&output_root).expect("se debe crear el directorio del benchmark");
+    assert!(
+        fs::read_dir(&output_root)
+            .expect("se debe poder revisar el directorio del benchmark")
+            .next()
+            .is_none(),
+        "el directorio del benchmark debe estar vacío antes de iniciar"
+    );
+
+    let cancellation_state = Arc::new(DatasetState::default());
+    let mut samples = Vec::with_capacity(RUN_COUNT);
+
+    for run_number in 1..=RUN_COUNT {
+        let run_directory = output_root.join(format!("run-{run_number}"));
+        fs::create_dir(&run_directory).expect("se debe crear el área aislada de cada corrida");
+        let destination = run_directory.join("previous-export.csv");
+        fs::write(&destination, PREVIOUS_EXPORT)
+            .expect("se debe preparar una exportación anterior válida");
+
+        let generation = cancellation_state.begin_export();
+        let finished = Arc::new(AtomicBool::new(false));
+        let observed_partial_bytes = Arc::new(AtomicU64::new(0));
+        let requested_at = Arc::new(Mutex::new(None::<Instant>));
+        let minimum_partial_bytes = (source_size / 20).clamp(1, MAX_PARTIAL_BYTES);
+
+        let watcher_state = Arc::clone(&cancellation_state);
+        let watcher_finished = Arc::clone(&finished);
+        let watcher_bytes = Arc::clone(&observed_partial_bytes);
+        let watcher_requested_at = Arc::clone(&requested_at);
+        let watcher_directory = run_directory.clone();
+        let cancellation_watcher = thread::spawn(move || -> Result<(), String> {
+            let deadline = Instant::now() + CANCELLATION_TIMEOUT;
+            while Instant::now() < deadline {
+                let mut largest_partial = 0_u64;
+                let entries = fs::read_dir(&watcher_directory).map_err(|error| {
+                    format!("No se pudo observar el temporal de cancelación: {error}")
+                })?;
+                for entry in entries {
+                    let entry = entry.map_err(|error| {
+                        format!("No se pudo leer el área temporal de cancelación: {error}")
+                    })?;
+                    if !entry
+                        .file_type()
+                        .map_err(|error| {
+                            format!("No se pudo inspeccionar el área temporal: {error}")
+                        })?
+                        .is_dir()
+                    {
+                        continue;
+                    }
+                    let partial = entry.path().join("dataset.partial.csv");
+                    if let Ok(metadata) = fs::metadata(partial) {
+                        largest_partial = largest_partial.max(metadata.len());
+                    }
+                }
+
+                if largest_partial >= minimum_partial_bytes {
+                    watcher_bytes.store(largest_partial, Ordering::SeqCst);
+                    let request_started = Instant::now();
+                    *watcher_requested_at
+                        .lock()
+                        .map_err(|_| "El reloj de cancelación quedó bloqueado.".to_owned())? =
+                        Some(request_started);
+                    watcher_state.cancel("export")?;
+                    return Ok(());
+                }
+                if watcher_finished.load(Ordering::SeqCst) {
+                    return Err(
+                        "La exportación terminó antes de observar datos parciales temporales."
+                            .to_owned(),
+                    );
+                }
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(
+                "No se alcanzó a cancelar la exportación dentro del límite de 90 segundos."
+                    .to_owned(),
+            )
+        });
+
+        let operation_state = Arc::clone(&cancellation_state);
+        let result = export_source_backed_csv_atomic(
+            &source,
+            source_size,
+            &destination,
+            |_, _| {},
+            move || operation_state.export_was_cancelled(generation),
+        );
+        finished.store(true, Ordering::SeqCst);
+
+        cancellation_watcher
+            .join()
+            .expect("el observador de cancelación no debe entrar en pánico")
+            .expect("la solicitud debe ocurrir mientras existe salida temporal parcial");
+        let request_started = requested_at
+            .lock()
+            .expect("el reloj de cancelación debe estar disponible")
+            .expect("el observador debe registrar el inicio de la solicitud");
+        let latency_ms = request_started.elapsed().as_secs_f64() * 1000.0;
+        let error = result.expect_err("la exportación cancelada no debe devolver éxito");
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+
+        let previous_output_preserved =
+            fs::read(&destination).is_ok_and(|bytes| bytes.as_slice() == PREVIOUS_EXPORT);
+        let remaining_entries = fs::read_dir(&run_directory)
+            .expect("se debe inspeccionar el área después de cancelar")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name())
+            .collect::<Vec<_>>();
+        let cleanup_confirmed = previous_output_preserved
+            && remaining_entries.len() == 1
+            && remaining_entries[0] == destination.file_name().unwrap();
+        let partial_publication = !previous_output_preserved;
+        assert!(
+            cleanup_confirmed,
+            "la cancelación debe limpiar sus temporales y preservar la exportación previa"
+        );
+
+        samples.push(serde_json::json!({
+            "run": run_number,
+            "requestToTerminalLatencyMs": latency_ms,
+            "partialBytesObservedBeforeRequest": observed_partial_bytes.load(Ordering::SeqCst),
+            "partialPublication": partial_publication,
+            "previousOutputPreserved": previous_output_preserved,
+            "cleanupConfirmed": cleanup_confirmed,
+        }));
+
+        fs::remove_dir_all(&run_directory)
+            .expect("se debe retirar la salida previa del caso de benchmark");
+        assert!(
+            !run_directory.exists(),
+            "el directorio aislado de la corrida debe quedar eliminado"
+        );
+    }
+
+    let latency_samples = samples
+        .iter()
+        .map(|sample| sample["requestToTerminalLatencyMs"].as_f64().unwrap())
+        .collect::<Vec<_>>();
+    let max_latency_ms = latency_samples.iter().copied().fold(0.0_f64, f64::max);
+    let report = serde_json::json!({
+        "schemaVersion": 1,
+        "status": "measured",
+        "operation": "sourceBackedCsvExport",
+        "scope": "native engine request-to-terminal; excludes UI and IPC dispatch latency",
+        "cancellationPoint": "after the temporary CSV contains at least 5% of input bytes, capped at 256 KiB",
+        "sampleCount": samples.len(),
+        "latencySamplesMs": latency_samples,
+        "maxRequestToTerminalLatencyMs": max_latency_ms,
+        "partialPublication": samples.iter().any(|sample| sample["partialPublication"] == true),
+        "previousOutputPreserved": samples.iter().all(|sample| sample["previousOutputPreserved"] == true),
+        "cleanupConfirmed": samples.iter().all(|sample| sample["cleanupConfirmed"] == true),
+        "samples": samples,
+    });
+    println!(
+        "COLUMNIA_CANCELLATION_BENCHMARK_JSON={}",
+        serde_json::to_string(&report).expect("el reporte de cancelación debe serializarse")
+    );
+}
+
+#[test]
 fn counts_blank_text_and_unicode_characters() {
     let path = temporary_csv("text\n\"  \"\nCafé\nRepública\n");
     let (frame, _) = load_csv(&path).expect("el CSV debe cargar");

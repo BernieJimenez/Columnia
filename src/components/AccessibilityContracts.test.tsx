@@ -1,7 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ProjectSummary } from "../bridge";
+import type { ProjectSummary, ProjectVersionSummary } from "../bridge";
 import { ProjectsPanel } from "../features/projects/ProjectsPanel";
 import { ModalDialog } from "./ModalDialog";
 
@@ -25,10 +25,15 @@ describe("contratos de accesibilidad de la interfaz", () => {
         operation={{ kind: "idle" }}
         deletion={{ kind: "idle" }}
         activeProject={null}
+        versions={{ kind: "ready", versions: [] }}
+        autoSave={{ kind: "disabled" }}
+        autoSaveEnabled={false}
         datasetFileName="ventas.csv"
         disabled={true}
         onSave={vi.fn()}
         onOpen={vi.fn()}
+        onRestore={vi.fn()}
+        onAutoSaveChange={vi.fn()}
         onDeleteRequest={vi.fn()}
         onDeleteCancel={vi.fn()}
         onDeleteConfirm={vi.fn()}
@@ -43,6 +48,49 @@ describe("contratos de accesibilidad de la interfaz", () => {
     expect(screen.getByRole("button", { name: "Guardar proyecto nuevo" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Abrir" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Eliminar" })).toBeDisabled();
+  });
+
+  it("expone el estado de autoguardado y la acción accesible para versiones", () => {
+    const version: ProjectVersionSummary = {
+      id: 17,
+      createdAt: "2026-08-20T10:00:00Z",
+      datasetFileName: "ventas.csv",
+      rowCount: 8,
+      columnCount: 2,
+      storageBytes: 2048,
+    };
+
+    render(
+      <ProjectsPanel
+        catalog={{ kind: "ready", projects: [project], recoveryCandidate: null }}
+        operation={{ kind: "idle" }}
+        deletion={{ kind: "idle" }}
+        activeProject={project}
+        versions={{ kind: "ready", versions: [version] }}
+        autoSave={{ kind: "saving" }}
+        autoSaveEnabled={true}
+        datasetFileName="ventas.csv"
+        disabled={true}
+        onSave={vi.fn()}
+        onOpen={vi.fn()}
+        onRestore={vi.fn()}
+        onAutoSaveChange={vi.fn()}
+        onDeleteRequest={vi.fn()}
+        onDeleteCancel={vi.fn()}
+        onDeleteConfirm={vi.fn()}
+        onRetry={vi.fn()}
+        onClearFeedback={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Guardar y administrar proyectos", { selector: "summary" }));
+    expect(screen.getByRole("checkbox", { name: "Autoguardar este proyecto" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Autoguardar este proyecto" })).toBeDisabled();
+    expect(screen.getByText("Guardando automáticamente…")).toHaveAttribute("role", "status");
+    expect(screen.getByText(/Hasta 5 versiones anteriores y 512 MiB/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Versiones anteriores (1)", { selector: "summary" }));
+    expect(screen.getByRole("button", { name: "Restaurar" })).toBeDisabled();
   });
 
   it("expone un alertdialog modal con nombre y descripción asociados", () => {

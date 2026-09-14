@@ -1,4 +1,4 @@
-import type { OperationProgress, ProjectSummary } from "../../bridge";
+import type { OperationProgress, ProjectSummary, ProjectVersionSummary } from "../../bridge";
 
 export const MAX_PROJECT_NAME_LENGTH = 128;
 
@@ -26,6 +26,16 @@ export type ProjectOperationState =
 export type ProjectDeletionState =
   | { kind: "idle" }
   | { kind: "confirming"; project: ProjectSummary };
+
+export type ProjectVersionsState =
+  | { kind: "loading" }
+  | { kind: "ready"; versions: ProjectVersionSummary[] }
+  | { kind: "error"; message: string };
+
+export type ProjectAutoSaveState =
+  | { kind: "disabled" | "idle" | "saving" }
+  | { kind: "saved"; savedAt: string }
+  | { kind: "error"; message: string };
 
 export function validateProjectName(value: string): { valid: true; name: string } | { valid: false; message: string } {
   const name = value.trim();

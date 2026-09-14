@@ -33,7 +33,7 @@ foreach ($RelativePath in @(
         "docs\README.md",
         "docs\adr\0001-contratos-del-repositorio.md",
         "docs\reference\repository-governance.md",
-        "docs\reference\dependency-audit.md",
+        "AUDITORIA.md",
         "THIRD_PARTY_NOTICES.md",
         "docs\reference\fixtures-policy.md",
         "fixtures\README.md",
@@ -56,8 +56,8 @@ Require-Text "LICENSE" "MIT License" "LICENSE debe contener el texto MIT."
 Require-Text "CONTRIBUTING.md" "(?m)^## Ramas" "CONTRIBUTING.md debe definir la política de ramas."
 Require-Text "CONTRIBUTING.md" "(?m)^## Commits" "CONTRIBUTING.md debe definir la política de commits."
 Require-Text "CONTRIBUTING.md" "(?m)^## Revisión local" "CONTRIBUTING.md debe definir la revisión local."
-Require-Text "docs\reference\dependency-audit.md" "npm outdated" "El inventario debe conservar el comando npm outdated."
-Require-Text "docs\reference\dependency-audit.md" "cargo audit" "El inventario debe registrar la auditoría Cargo."
+Require-Text "AUDITORIA.md" "npm outdated" "La auditoría consolidada debe conservar el comando npm outdated."
+Require-Text "AUDITORIA.md" "cargo audit" "La auditoría consolidada debe registrar la auditoría Cargo."
 Require-Text "docs\reference\fixtures-policy.md" "sint" "La política debe declarar que las fixtures son sintéticas."
 
 $Manifest = Get-Content -LiteralPath (Join-Path $ProjectRoot "fixtures\manifest.json") -Raw | ConvertFrom-Json

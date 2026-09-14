@@ -24,15 +24,18 @@ use sha2::{Digest, Sha256};
 #[path = "projects/import_profile_tests.rs"]
 mod import_profile_tests;
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 const ID_LENGTH: usize = 32;
+const MAX_PROJECT_VERSIONS: usize = 5;
+const AUTOSAVE_QUOTA_BYTES: u64 = 512 * 1024 * 1024;
+const PROJECT_VERSION_FORMAT: u8 = 1;
 const MAX_SQL_QUERY_HISTORY_ENTRIES: usize = 5;
 const MAX_SQL_QUERY_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_COMPARISON_KEY_COLUMNS: usize = 16;
 const MAX_COMPARISON_KEY_COLUMN_CHARS: usize = 256;
 const PREVIEW_PAGE_SIZE: usize = 50;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
     pub id: String,
@@ -44,6 +47,17 @@ pub struct ProjectSummary {
     pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectVersionSummary {
+    pub id: i64,
+    pub created_at: String,
+    pub dataset_file_name: String,
+    pub row_count: usize,
+    pub column_count: usize,
+    pub storage_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,7 +171,8 @@ struct ProjectStore {
     initialized: Arc<Mutex<bool>>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct StoredProject {
     summary: ProjectSummary,
     snapshot_name: String,
@@ -179,6 +194,13 @@ struct StoredProject {
     comparison_key_columns_json: String,
     join_type: Option<String>,
     import_profile_json: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredProjectVersion {
+    format_version: u8,
+    project: StoredProject,
 }
 
 struct ValidatedProject {
@@ -254,7 +276,9 @@ impl ProjectStore {
             .and_then(|connection| {
                 let mut statement = connection
                     .prepare(
-                        "SELECT generation_name FROM projects WHERE generation_name IS NOT NULL",
+                        "SELECT generation_name FROM projects WHERE generation_name IS NOT NULL
+                         UNION SELECT generation_name FROM project_versions
+                         WHERE generation_name IS NOT NULL",
                     )
                     .ok()?;
                 let rows = statement
@@ -294,7 +318,7 @@ impl ProjectStore {
                 "El catálogo de proyectos pertenece a una versión más reciente.".to_owned(),
             );
         }
-        match version {
+        let migration = match version {
             SCHEMA_VERSION => Ok(()),
             0 => {
                 let transaction = connection
@@ -586,8 +610,34 @@ impl ProjectStore {
                     .map_err(|_| storage_error())?;
                 transaction.commit().map_err(|_| storage_error())
             }
+            13 => {
+                let transaction = connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|_| storage_error())?;
+                transaction
+                    .execute_batch(
+                        "CREATE TABLE project_versions (
+                           id INTEGER PRIMARY KEY AUTOINCREMENT,
+                           project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                           created_at TEXT NOT NULL,
+                           payload_json TEXT NOT NULL,
+                           generation_name TEXT,
+                           snapshot_name TEXT NOT NULL,
+                           storage_bytes INTEGER NOT NULL CHECK (storage_bytes >= 0)
+                         );
+                         CREATE INDEX project_versions_project
+                           ON project_versions(project_id, id DESC);
+                         PRAGMA user_version = 14;",
+                    )
+                    .map_err(|_| storage_error())?;
+                transaction.commit().map_err(|_| storage_error())
+            }
             _ => Err(storage_error()),
+        };
+        if migration.is_ok() && version < SCHEMA_VERSION {
+            return self.migrate();
         }
+        migration
     }
 
     fn list(&self) -> Result<Vec<ProjectSummary>, String> {
@@ -630,6 +680,249 @@ impl ProjectStore {
             .transpose()
     }
 
+    fn list_versions(&self, project_id: &str) -> Result<Vec<ProjectVersionSummary>, String> {
+        self.ensure_initialized()?;
+        validate_id(project_id)?;
+        let connection = self.connection()?;
+        if self.stored_project(&connection, project_id)?.is_none() {
+            return Err("El proyecto solicitado no existe.".to_owned());
+        }
+        let mut statement = connection
+            .prepare(
+                "SELECT id, created_at, payload_json, storage_bytes
+                 FROM project_versions WHERE project_id = ?1 ORDER BY id DESC",
+            )
+            .map_err(|_| storage_error())?;
+        let rows = statement
+            .query_map(params![project_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(|_| storage_error())?;
+        let mut versions = Vec::new();
+        for row in rows {
+            let (id, created_at, payload_json, storage_bytes) = row.map_err(|_| storage_error())?;
+            let stored = decode_project_version(&payload_json)?;
+            if stored.summary.id != project_id {
+                return Err(storage_error());
+            }
+            versions.push(ProjectVersionSummary {
+                id,
+                created_at,
+                dataset_file_name: stored.summary.dataset_file_name,
+                row_count: stored.summary.row_count,
+                column_count: stored.summary.column_count,
+                storage_bytes: u64::try_from(storage_bytes).unwrap_or(0),
+            });
+        }
+        Ok(versions)
+    }
+
+    fn restore_version(&self, project_id: &str, version_id: i64) -> Result<ProjectSummary, String> {
+        self.ensure_initialized()?;
+        validate_id(project_id)?;
+        if version_id <= 0 {
+            return Err("La versión del proyecto no es válida.".to_owned());
+        }
+        let mut connection = self.connection()?;
+        let current = self
+            .stored_project(&connection, project_id)?
+            .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
+        let payload_json: String = connection
+            .query_row(
+                "SELECT payload_json FROM project_versions WHERE project_id = ?1 AND id = ?2",
+                params![project_id, version_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| storage_error())?
+            .ok_or_else(|| "La versión seleccionada ya no está disponible.".to_owned())?;
+        let mut restored = decode_project_version(&payload_json)?;
+        if restored.summary.id != project_id {
+            return Err(storage_error());
+        }
+        // Validate the complete stored version before changing the catalog pointer.
+        let _validated = self.validate_stored_project(restored.clone())?;
+        let current_storage_bytes = self
+            .stored_project_storage_bytes(&current)
+            .unwrap_or_default();
+        let timestamp = now_utc();
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| storage_error())?;
+        insert_project_version(&transaction, &current, current_storage_bytes)?;
+        let created_at = current.summary.created_at.clone();
+        let update = transaction.execute(
+            "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
+             column_count = ?4, snapshot_name = ?5, updated_at = ?6, last_opened_at = ?6,
+             quality_rules_json = ?7, recipe_draft_json = ?8, generation_name = ?9,
+             history_manifest_json = ?10, profile_json = ?11, profile_cache_sha256 = ?12,
+             sql_history_json = ?13, review_tab = ?14, preview_offset = ?15,
+             active_phase = ?16, query_engine = ?17, analysis_sample_rows = ?18,
+             performance_profile = ?19, export_format = ?20, privacy_mode = ?21,
+             comparison_key_columns_json = ?22, join_type = ?23,
+             import_profile_json = ?24 WHERE id = ?25",
+            params![
+                restored.summary.name,
+                restored.summary.dataset_file_name,
+                usize_to_i64(restored.summary.row_count)?,
+                usize_to_i64(restored.summary.column_count)?,
+                restored.snapshot_name,
+                timestamp,
+                restored.quality_rules_json,
+                restored.recipe_draft_json,
+                restored.generation_name,
+                restored.history_manifest_json,
+                restored.profile_json,
+                restored.profile_cache_sha256,
+                restored.sql_history_json,
+                restored.review_tab,
+                restored.preview_offset,
+                restored.active_phase,
+                restored.query_engine,
+                restored.analysis_sample_rows,
+                restored.performance_profile,
+                restored.export_format,
+                restored.privacy_mode,
+                restored.comparison_key_columns_json,
+                restored.join_type,
+                restored.import_profile_json,
+                project_id,
+            ],
+        );
+        if !matches!(update, Ok(1)) {
+            return Err(storage_error());
+        }
+        let pruned = self.prune_versions_in_transaction(&transaction, project_id)?;
+        transaction.commit().map_err(|_| storage_error())?;
+        restored.summary.created_at = created_at;
+        restored.summary.updated_at = timestamp;
+        restored.summary.storage_bytes = self.stored_project_storage_bytes(&restored).ok();
+        self.cleanup_pruned_version_files(project_id, pruned);
+        Ok(restored.summary)
+    }
+
+    fn prune_versions_in_transaction(
+        &self,
+        transaction: &rusqlite::Transaction<'_>,
+        project_id: &str,
+    ) -> Result<Vec<(Option<String>, String)>, String> {
+        let mut statement = transaction
+            .prepare(
+                "SELECT id, generation_name, snapshot_name, storage_bytes
+                 FROM project_versions WHERE project_id = ?1 ORDER BY id DESC",
+            )
+            .map_err(|_| storage_error())?;
+        let versions = statement
+            .query_map(params![project_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(|_| storage_error())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| storage_error())?;
+        drop(statement);
+        let mut kept_count = 0usize;
+        let mut kept_bytes = 0u64;
+        let mut remove = Vec::new();
+        for version in versions {
+            let bytes = u64::try_from(version.3).unwrap_or(0);
+            let is_safety_version = kept_count == 0;
+            if is_safety_version
+                || (kept_count < MAX_PROJECT_VERSIONS
+                    && kept_bytes.saturating_add(bytes) <= AUTOSAVE_QUOTA_BYTES)
+            {
+                kept_count += 1;
+                kept_bytes = kept_bytes.saturating_add(bytes);
+            } else {
+                remove.push(version);
+            }
+        }
+        if remove.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut pruned = Vec::with_capacity(remove.len());
+        for version in &remove {
+            let deleted = transaction
+                .execute(
+                    "DELETE FROM project_versions WHERE id = ?1 AND project_id = ?2",
+                    params![version.0, project_id],
+                )
+                .map_err(|_| storage_error())?;
+            if deleted != 1 {
+                return Err(storage_error());
+            }
+            pruned.push((version.1.clone(), version.2.clone()));
+        }
+        Ok(pruned)
+    }
+
+    fn cleanup_pruned_version_files(
+        &self,
+        project_id: &str,
+        pruned: Vec<(Option<String>, String)>,
+    ) {
+        for (generation_name, snapshot_name) in pruned {
+            if let Some(name) = generation_name {
+                let Ok(connection) = self.connection() else {
+                    continue;
+                };
+                let still_referenced: Result<bool, _> = connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM projects WHERE generation_name = ?1)
+                         OR EXISTS(SELECT 1 FROM project_versions WHERE generation_name = ?1)",
+                    params![name],
+                    |row| row.get(0),
+                );
+                let Ok(still_referenced) = still_referenced else {
+                    continue;
+                };
+                if !still_referenced {
+                    if let Ok(path) = self.generation_path(project_id, &name) {
+                        let _ = fs::remove_dir_all(path);
+                    }
+                }
+            } else {
+                let Ok(connection) = self.connection() else {
+                    continue;
+                };
+                let still_referenced: Result<bool, _> = connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM projects WHERE snapshot_name = ?1)
+                         OR EXISTS(SELECT 1 FROM project_versions WHERE snapshot_name = ?1)",
+                    params![snapshot_name],
+                    |row| row.get(0),
+                );
+                let Ok(still_referenced) = still_referenced else {
+                    continue;
+                };
+                if !still_referenced {
+                    if let Ok(path) = self.managed_snapshot_path(project_id, &snapshot_name) {
+                        let _ = fs::remove_file(path);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn prune_versions(&self, project_id: &str) -> Result<(), String> {
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| storage_error())?;
+        let pruned = self.prune_versions_in_transaction(&transaction, project_id)?;
+        transaction.commit().map_err(|_| storage_error())?;
+        self.cleanup_pruned_version_files(project_id, pruned);
+        Ok(())
+    }
+
     fn save(
         &self,
         dataset_state: &DatasetState,
@@ -640,7 +933,34 @@ impl ProjectStore {
         self.save_inner(dataset_state, project_id, name, workspace, false)
     }
 
+    fn autosave(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: String,
+        name: String,
+        workspace: ProjectWorkspace,
+    ) -> Result<ProjectSummary, String> {
+        self.save_inner_with_options(dataset_state, Some(project_id), name, workspace, false)
+    }
+
     fn save_inner(
+        &self,
+        dataset_state: &DatasetState,
+        project_id: Option<String>,
+        name: String,
+        workspace: ProjectWorkspace,
+        fail_before_database: bool,
+    ) -> Result<ProjectSummary, String> {
+        self.save_inner_with_options(
+            dataset_state,
+            project_id,
+            name,
+            workspace,
+            fail_before_database,
+        )
+    }
+
+    fn save_inner_with_options(
         &self,
         dataset_state: &DatasetState,
         project_id: Option<String>,
@@ -754,12 +1074,10 @@ impl ProjectStore {
         }
 
         let timestamp = now_utc();
-        let old_snapshot = existing
+        let old_storage_bytes = existing
             .as_ref()
-            .map(|project| project.snapshot_name.clone());
-        let old_generation = existing
-            .as_ref()
-            .and_then(|project| project.generation_name.clone());
+            .and_then(|project| self.stored_project_storage_bytes(project).ok())
+            .unwrap_or(0);
         let created_at = existing
             .as_ref()
             .map(|project| project.summary.created_at.clone())
@@ -770,6 +1088,12 @@ impl ProjectStore {
                 let _ = fs::remove_dir_all(&generation_path);
                 storage_error()
             })?;
+        if let Some(previous) = existing.as_ref() {
+            if insert_project_version(&transaction, previous, old_storage_bytes).is_err() {
+                let _ = fs::remove_dir_all(&generation_path);
+                return Err(storage_error());
+            }
+        }
         let database_result = if existing.is_some() {
             transaction.execute(
                 "UPDATE projects SET name = ?1, dataset_file_name = ?2, row_count = ?3,
@@ -848,19 +1172,22 @@ impl ProjectStore {
                 ],
             )
         };
-        if !matches!(database_result, Ok(1)) || transaction.commit().is_err() {
+        if !matches!(database_result, Ok(1)) {
             let _ = fs::remove_dir_all(&generation_path);
             return Err(storage_error());
         }
-        if let Some(old_generation) = old_generation {
-            if let Ok(path) = self.generation_path(&id, &old_generation) {
-                let _ = fs::remove_dir_all(path);
+        let pruned = match self.prune_versions_in_transaction(&transaction, &id) {
+            Ok(pruned) => pruned,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&generation_path);
+                return Err(error);
             }
-        } else if let Some(old_snapshot) = old_snapshot {
-            if let Ok(old_path) = self.snapshot_path(&id, &old_snapshot) {
-                let _ = fs::remove_file(old_path);
-            }
+        };
+        if transaction.commit().is_err() {
+            let _ = fs::remove_dir_all(&generation_path);
+            return Err(storage_error());
         }
+        self.cleanup_pruned_version_files(&id, pruned);
         Ok(ProjectSummary {
             id,
             name,
@@ -877,14 +1204,21 @@ impl ProjectStore {
         self.ensure_initialized()?;
         validate_id(project_id)?;
         let connection = self.connection()?;
-        let mut stored = self
+        let stored = self
             .stored_project(&connection, project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
+        self.validate_stored_project(stored)
+    }
+
+    fn validate_stored_project(
+        &self,
+        mut stored: StoredProject,
+    ) -> Result<ValidatedProject, String> {
         stored.summary.storage_bytes = self.stored_project_storage_bytes(&stored).ok();
         let workspace = decode_workspace(&stored)?;
         let mut profile = decode_profile(&stored)?;
         let candidate = if let Some(generation_name) = stored.generation_name.as_deref() {
-            let generation = self.generation_path(project_id, generation_name)?;
+            let generation = self.generation_path(&stored.summary.id, generation_name)?;
             let current = self.generation_file(&generation, "current.parquet")?;
             if profile.is_some() && !profile_cache_matches(&stored, &current)? {
                 // A cache from a different generation is not fatal; Review can
@@ -905,7 +1239,7 @@ impl ProjectStore {
             {
                 return Err("El estado persistente del proyecto no es consistente.".to_owned());
             }
-            let snapshot_path = self.snapshot_path(project_id, &stored.snapshot_name)?;
+            let snapshot_path = self.snapshot_path(&stored.summary.id, &stored.snapshot_name)?;
             DatasetState::prepare_project_candidate(
                 snapshot_path,
                 stored.summary.dataset_file_name.clone(),
@@ -966,16 +1300,25 @@ impl ProjectStore {
         let stored = self
             .stored_project(&connection, &project_id)?
             .ok_or_else(|| "El proyecto solicitado no existe.".to_owned())?;
-        let generation_path = stored
-            .generation_name
-            .as_deref()
-            .map(|name| self.generation_path(&project_id, name))
-            .transpose()?;
-        let snapshot_path = if generation_path.is_none() {
-            Some(self.managed_snapshot_path(&project_id, &stored.snapshot_name)?)
-        } else {
-            None
-        };
+        let mut generations = HashSet::new();
+        let mut snapshots = HashSet::new();
+        collect_project_storage_paths(self, &stored, &mut generations, &mut snapshots)?;
+        let mut statement = connection
+            .prepare("SELECT payload_json FROM project_versions WHERE project_id = ?1")
+            .map_err(|_| storage_error())?;
+        let backups = statement
+            .query_map(params![project_id], |row| row.get::<_, String>(0))
+            .map_err(|_| storage_error())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| storage_error())?;
+        drop(statement);
+        for payload in backups {
+            let backup = decode_project_version(&payload)?;
+            if backup.summary.id != project_id {
+                return Err(storage_error());
+            }
+            collect_project_storage_paths(self, &backup, &mut generations, &mut snapshots)?;
+        }
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| storage_error())?;
@@ -987,22 +1330,37 @@ impl ProjectStore {
             return Err("El proyecto solicitado no existe.".to_owned());
         }
         transaction.commit().map_err(|_| storage_error())?;
-        if let Some(generation_path) = generation_path {
-            return fs::remove_dir_all(generation_path).map_err(|_| {
-                "El proyecto se eliminó, pero no se pudo limpiar su generación.".to_owned()
-            });
-        }
-        let snapshot_path = snapshot_path.expect("la ruta legacy se calculó sin generación");
-        if snapshot_path.exists() {
-            reject_link_or_reparse(&snapshot_path)?;
-        }
-        match fs::remove_file(snapshot_path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => {
-                Err("El proyecto se eliminó, pero no se pudo limpiar su snapshot.".to_owned())
+        for name in generations {
+            let path = self.generation_path(&project_id, &name)?;
+            match fs::remove_dir_all(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => {
+                    return Err(
+                        "El proyecto se eliminó, pero no se pudo limpiar una versión.".to_owned(),
+                    )
+                }
             }
         }
+        for name in &snapshots {
+            let path = self.managed_snapshot_path(&project_id, name)?;
+            if path.exists() {
+                reject_link_or_reparse(&path)?;
+            }
+        }
+        for name in snapshots {
+            let path = self.managed_snapshot_path(&project_id, &name)?;
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => {
+                    return Err(
+                        "El proyecto se eliminó, pero no se pudo limpiar un snapshot.".to_owned(),
+                    )
+                }
+            }
+        }
+        Ok(())
     }
 
     fn stored_project(
@@ -1297,6 +1655,63 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectSummary>
         updated_at: row.get(6)?,
         storage_bytes: None,
     })
+}
+
+fn insert_project_version(
+    transaction: &rusqlite::Transaction<'_>,
+    stored: &StoredProject,
+    storage_bytes: u64,
+) -> Result<i64, String> {
+    let payload_json = serde_json::to_string(&StoredProjectVersion {
+        format_version: PROJECT_VERSION_FORMAT,
+        project: stored.clone(),
+    })
+    .map_err(|_| storage_error())?;
+    transaction
+        .execute(
+            "INSERT INTO project_versions
+             (project_id, created_at, payload_json, generation_name, snapshot_name, storage_bytes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                stored.summary.id,
+                stored.summary.updated_at,
+                payload_json,
+                stored.generation_name,
+                stored.snapshot_name,
+                i64::try_from(storage_bytes).unwrap_or(i64::MAX)
+            ],
+        )
+        .map_err(|_| storage_error())?;
+    Ok(transaction.last_insert_rowid())
+}
+
+fn decode_project_version(payload_json: &str) -> Result<StoredProject, String> {
+    let payload: StoredProjectVersion =
+        serde_json::from_str(payload_json).map_err(|_| storage_error())?;
+    if payload.format_version != PROJECT_VERSION_FORMAT {
+        return Err("La versión del respaldo del proyecto no es compatible.".to_owned());
+    }
+    Ok(payload.project)
+}
+
+fn collect_project_storage_paths(
+    store: &ProjectStore,
+    stored: &StoredProject,
+    generations: &mut HashSet<String>,
+    snapshots: &mut HashSet<String>,
+) -> Result<(), String> {
+    if let Some(name) = stored.generation_name.as_deref() {
+        // Resolve now to reject unsafe names or reparse points before deleting the catalog row.
+        store.generation_path(&stored.summary.id, name)?;
+        generations.insert(name.to_owned());
+    } else {
+        let path = store.managed_snapshot_path(&stored.summary.id, &stored.snapshot_name)?;
+        if path.exists() {
+            reject_link_or_reparse(&path)?;
+        }
+        snapshots.insert(stored.snapshot_name.clone());
+    }
+    Ok(())
 }
 
 fn decode_workspace(stored: &StoredProject) -> Result<ProjectWorkspace, String> {
@@ -1877,6 +2292,14 @@ pub async fn get_recovery_candidate(app: AppHandle) -> Result<Option<ProjectSumm
 }
 
 #[tauri::command]
+pub async fn list_project_versions(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Vec<ProjectVersionSummary>, String> {
+    run_project_operation(app, move |store, _| store.list_versions(&project_id)).await
+}
+
+#[tauri::command]
 pub async fn save_project(
     app: AppHandle,
     project_id: Option<String>,
@@ -1885,6 +2308,32 @@ pub async fn save_project(
 ) -> Result<ProjectSummary, String> {
     run_project_operation(app, move |store, dataset| {
         store.save(dataset, project_id, name, workspace)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn autosave_project(
+    app: AppHandle,
+    project_id: String,
+    name: String,
+    workspace: ProjectWorkspace,
+) -> Result<ProjectSummary, String> {
+    run_project_operation(app, move |store, dataset| {
+        store.autosave(dataset, project_id, name, workspace)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn restore_project_version(
+    app: AppHandle,
+    project_id: String,
+    version_id: i64,
+) -> Result<ProjectOpenResult, String> {
+    run_project_operation(app, move |store, dataset| {
+        store.restore_version(&project_id, version_id)?;
+        store.open(dataset, project_id)
     })
     .await
 }
@@ -2308,7 +2757,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         Connection::open(root.join("projects.sqlite3"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 14;")
+            .execute_batch("PRAGMA user_version = 15;")
             .unwrap();
 
         let error = ProjectStore::initialize(root.clone())
@@ -2406,6 +2855,35 @@ mod tests {
         assert!(columns.contains(&"privacy_mode".to_owned()));
         assert!(columns.contains(&"comparison_key_columns_json".to_owned()));
         assert!(columns.contains(&"join_type".to_owned()));
+    }
+
+    #[test]
+    fn migration_from_v13_adds_versioned_project_backups() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data-v13");
+        fs::create_dir_all(&root).unwrap();
+        Connection::open(root.join("projects.sqlite3"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL);
+                 PRAGMA user_version = 13;",
+            )
+            .unwrap();
+
+        let store = ProjectStore::initialize(root).unwrap();
+        let connection = store.connection().unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 14);
+        let tables = connection
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(tables.contains(&"project_versions".to_owned()));
     }
 
     #[test]
@@ -2539,7 +3017,8 @@ mod tests {
             )
             .unwrap();
         assert!(updated.storage_bytes.is_some_and(|bytes| bytes > 0));
-        assert!(!old_generation.exists());
+        assert!(old_generation.exists());
+        assert_eq!(reopened.list_versions(&project_id).unwrap().len(), 1);
 
         let reopened = ProjectStore::initialize(root).unwrap();
         let updated_state = DatasetState::default();
@@ -2673,8 +3152,8 @@ mod tests {
         assert_eq!(updated.id, created.id);
         assert_eq!(updated.created_at, created.created_at);
         assert_eq!(updated.name, "Renombrado");
-        assert_eq!(snapshot_count(&store), 1, "el snapshot anterior se limpia");
-        assert!(!first_generation.exists());
+        assert_eq!(snapshot_count(&store), 2, "la versión anterior se conserva");
+        assert!(first_generation.exists());
         let second_stored = store
             .stored_project(&store.connection().unwrap(), &created.id)
             .unwrap()
@@ -2773,6 +3252,248 @@ mod tests {
         assert_eq!(reopened.workspace, workspace());
         let reopened_snapshot = restored_state.active_project_snapshot().unwrap();
         assert!(reopened_snapshot.frame.equals_missing(&frame(&[1])));
+    }
+
+    #[test]
+    fn project_updates_retain_and_restore_a_validated_version_transactionally() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("data");
+        let store = ProjectStore::initialize(root.clone()).unwrap();
+        let (first_state, _) = active_state(directory.path(), &[1, 2], "version-one.csv");
+        let first = store
+            .save(
+                &first_state,
+                None,
+                "Versión uno".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let first_generation = store
+            .stored_project(&store.connection().unwrap(), &first.id)
+            .unwrap()
+            .unwrap()
+            .generation_name
+            .unwrap();
+
+        let (second_state, _) = active_state(directory.path(), &[9], "version-two.csv");
+        let second = store
+            .save(
+                &second_state,
+                Some(first.id.clone()),
+                "Versión dos".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let versions = store.list_versions(&first.id).unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].row_count, 2);
+        assert!(store
+            .generation_path(&first.id, &first_generation)
+            .unwrap()
+            .exists());
+
+        let restored = store.restore_version(&first.id, versions[0].id).unwrap();
+        assert_eq!(restored.name, "Versión uno");
+        assert_eq!(restored.row_count, 2);
+        assert!(restored.updated_at >= second.updated_at);
+        assert_eq!(store.list_versions(&first.id).unwrap().len(), 2);
+
+        let active_state = DatasetState::default();
+        let opened = store.open(&active_state, first.id.clone()).unwrap();
+        assert_eq!(opened.project.name, "Versión uno");
+        assert_eq!(opened.dataset.file_name, "version-one.csv");
+        assert!(active_state
+            .active_project_snapshot()
+            .unwrap()
+            .frame
+            .equals_missing(&frame(&[1, 2])));
+    }
+
+    #[test]
+    fn version_retention_obeys_count_quota_but_keeps_the_last_valid_copy() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (state, _) = active_state(directory.path(), &[1], "input.csv");
+        let project = store
+            .save(
+                &state,
+                None,
+                "Proyecto".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        for value in 2..=9 {
+            let (updated, _) = active_state(directory.path(), &[value], "input.csv");
+            store
+                .autosave(
+                    &updated,
+                    project.id.clone(),
+                    "Proyecto".to_owned(),
+                    ProjectWorkspace::default(),
+                )
+                .unwrap();
+        }
+        let retained = store.list_versions(&project.id).unwrap();
+        assert_eq!(retained.len(), MAX_PROJECT_VERSIONS);
+
+        store
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE project_versions SET storage_bytes = ?1 WHERE project_id = ?2",
+                params![i64::try_from(AUTOSAVE_QUOTA_BYTES).unwrap(), project.id],
+            )
+            .unwrap();
+        store.prune_versions(&project.id).unwrap();
+        assert_eq!(store.list_versions(&project.id).unwrap().len(), 1);
+        let remaining = store.list_versions(&project.id).unwrap()[0].id;
+        store.restore_version(&project.id, remaining).unwrap();
+        let opened = store.open(&DatasetState::default(), project.id).unwrap();
+        assert_eq!(opened.dataset.file_name, "input.csv");
+    }
+
+    #[test]
+    fn failed_restore_rolls_back_catalog_pointer_and_backup_insert() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (first_state, _) = active_state(directory.path(), &[1, 2], "version-one.csv");
+        let first = store
+            .save(
+                &first_state,
+                None,
+                "Versión uno".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let (second_state, _) = active_state(directory.path(), &[9], "version-two.csv");
+        store
+            .save(
+                &second_state,
+                Some(first.id.clone()),
+                "Versión dos".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+        let version_id = store.list_versions(&first.id).unwrap()[0].id;
+        store
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER prevent_project_restore
+                 BEFORE UPDATE ON projects
+                 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;",
+            )
+            .unwrap();
+
+        assert!(store.restore_version(&first.id, version_id).is_err());
+        let active = store
+            .stored_project(&store.connection().unwrap(), &first.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(active.summary.name, "Versión dos");
+        assert_eq!(store.list_versions(&first.id).unwrap().len(), 1);
+        store
+            .connection()
+            .unwrap()
+            .execute_batch("DROP TRIGGER prevent_project_restore;")
+            .unwrap();
+        let opened = store.open(&DatasetState::default(), first.id).unwrap();
+        assert_eq!(opened.dataset.file_name, "version-two.csv");
+        assert_eq!(opened.project.name, "Versión dos");
+    }
+
+    #[test]
+    fn failed_version_pruning_rolls_back_save_and_restore_publication() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ProjectStore::initialize(directory.path().join("data")).unwrap();
+        let (initial_state, _) = active_state(directory.path(), &[1], "input.csv");
+        let project = store
+            .save(
+                &initial_state,
+                None,
+                "Proyecto estable".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .unwrap();
+
+        for value in 2..=6 {
+            let (updated, _) = active_state(directory.path(), &[value], "input.csv");
+            store
+                .autosave(
+                    &updated,
+                    project.id.clone(),
+                    "Proyecto estable".to_owned(),
+                    ProjectWorkspace::default(),
+                )
+                .unwrap();
+        }
+        let versions_before = store.list_versions(&project.id).unwrap();
+        assert_eq!(versions_before.len(), MAX_PROJECT_VERSIONS);
+        let active_before = store
+            .stored_project(&store.connection().unwrap(), &project.id)
+            .unwrap()
+            .unwrap();
+
+        store
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER prevent_version_pruning
+                 BEFORE DELETE ON project_versions
+                 BEGIN SELECT RAISE(ABORT, 'injected prune failure'); END;",
+            )
+            .unwrap();
+
+        let (unsaved, _) = active_state(directory.path(), &[7], "input.csv");
+        assert!(store
+            .autosave(
+                &unsaved,
+                project.id.clone(),
+                "No publicado".to_owned(),
+                ProjectWorkspace::default(),
+            )
+            .is_err());
+
+        let after_failed_save = store
+            .stored_project(&store.connection().unwrap(), &project.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(after_failed_save.summary.name, active_before.summary.name);
+        assert_eq!(
+            after_failed_save.generation_name,
+            active_before.generation_name
+        );
+        assert_eq!(store.list_versions(&project.id).unwrap(), versions_before);
+
+        let restore_target = versions_before[0].id;
+        assert!(store.restore_version(&project.id, restore_target).is_err());
+        let after_failed_restore = store
+            .stored_project(&store.connection().unwrap(), &project.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            after_failed_restore.summary.name,
+            active_before.summary.name
+        );
+        assert_eq!(
+            after_failed_restore.generation_name,
+            active_before.generation_name
+        );
+        assert_eq!(store.list_versions(&project.id).unwrap(), versions_before);
+
+        store
+            .connection()
+            .unwrap()
+            .execute_batch("DROP TRIGGER prevent_version_pruning;")
+            .unwrap();
+        store.restore_version(&project.id, restore_target).unwrap();
+        let restored_state = DatasetState::default();
+        store.open(&restored_state, project.id).unwrap();
+        assert!(restored_state
+            .active_project_snapshot()
+            .unwrap()
+            .frame
+            .equals_missing(&frame(&[5])));
     }
 
     #[test]

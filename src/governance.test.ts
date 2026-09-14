@@ -35,7 +35,7 @@ describe("repository governance", () => {
       "docs/README.md",
       "docs/adr/0001-contratos-del-repositorio.md",
       "docs/reference/repository-governance.md",
-      "docs/reference/dependency-audit.md",
+      "AUDITORIA.md",
       "docs/reference/fixtures-policy.md",
     ]) {
       expect(existsSync(join(projectRoot, path)), `${path} must exist`).toBe(true);

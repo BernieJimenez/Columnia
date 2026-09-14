@@ -5,6 +5,7 @@ use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 pub mod automation;
 mod dataset;
 mod dataset_fingerprints;
+mod delivery_presets;
 mod diagnostics;
 mod duckdb_query;
 pub mod privacy;
@@ -135,9 +136,13 @@ pub fn run() {
             let projects = projects::ProjectState::initialize(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
             app.manage(projects);
-            let reusable_tasks = reusable_tasks::ReusableTaskState::initialize(app_data_dir)
-                .map_err(std::io::Error::other)?;
+            let reusable_tasks =
+                reusable_tasks::ReusableTaskState::initialize(app_data_dir.clone())
+                    .map_err(std::io::Error::other)?;
             app.manage(reusable_tasks);
+            let delivery_presets = delivery_presets::DeliveryPresetState::initialize(app_data_dir)
+                .map_err(std::io::Error::other)?;
+            app.manage(delivery_presets);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -176,6 +181,7 @@ pub fn run() {
             dataset::get_temporal_aggregation,
             dataset::validate_quality_rules,
             remote_databases::test_database_connection,
+            dataset::preflight_database_export,
             dataset::export_dataset_to_database,
             dataset::cancel_operation,
             dataset::export_dataset,
@@ -232,7 +238,10 @@ pub fn run() {
             projects::probe_reopen_project,
             projects::list_projects,
             projects::get_recovery_candidate,
+            projects::list_project_versions,
             projects::save_project,
+            projects::autosave_project,
+            projects::restore_project_version,
             projects::open_project,
             projects::delete_project,
             reusable_tasks::list_reusable_tasks,
@@ -240,6 +249,10 @@ pub fn run() {
             reusable_tasks::open_reusable_task,
             reusable_tasks::delete_reusable_task,
             reusable_tasks::check_reusable_task_schema,
+            delivery_presets::list_delivery_presets,
+            delivery_presets::open_delivery_preset,
+            delivery_presets::save_delivery_preset,
+            delivery_presets::delete_delivery_preset,
         ])
         .run(tauri::generate_context!())
         .expect("Columnia no pudo iniciar el runtime de escritorio");

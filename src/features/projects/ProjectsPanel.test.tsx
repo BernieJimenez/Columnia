@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ProjectSummary } from "../../bridge";
+import type { ProjectSummary, ProjectVersionSummary } from "../../bridge";
 import { ProjectsPanel } from "./ProjectsPanel";
 
 afterEach(cleanup);
@@ -24,10 +24,15 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ProjectsPanel>> = 
     operation: { kind: "idle" },
     deletion: { kind: "idle" },
     activeProject: null,
+    versions: { kind: "ready", versions: [] },
+    autoSave: { kind: "disabled" },
+    autoSaveEnabled: false,
     datasetFileName: "actual.csv",
     disabled: false,
     onSave: vi.fn(),
     onOpen: vi.fn(),
+    onRestore: vi.fn(),
+    onAutoSaveChange: vi.fn(),
     onDeleteRequest: vi.fn(),
     onDeleteCancel: vi.fn(),
     onDeleteConfirm: vi.fn(),
@@ -92,5 +97,36 @@ describe("ProjectsPanel", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Eliminar proyecto" }));
     expect(props.onDeleteConfirm).toHaveBeenCalledOnce();
+  });
+
+  it("ofrece autoguardado opt-in y restauración explícita de versiones anteriores", () => {
+    const version: ProjectVersionSummary = {
+      id: 17,
+      createdAt: "2026-08-20T10:00:00Z",
+      datasetFileName: "ventas.csv",
+      rowCount: 8,
+      columnCount: 2,
+      storageBytes: 2048,
+    };
+    const props = renderPanel({
+      activeProject: recovery,
+      versions: { kind: "ready", versions: [version] },
+      autoSave: { kind: "saved", savedAt: "2026-08-21T11:00:00Z" },
+      autoSaveEnabled: true,
+    });
+    fireEvent.click(screen.getByText("Guardar y administrar proyectos", { selector: "summary" }));
+    const checkbox = screen.getByRole("checkbox", { name: "Autoguardar este proyecto" });
+    expect(checkbox).toBeChecked();
+    expect(screen.getByText(/Hasta 5 versiones anteriores y 512 MiB/)).toBeInTheDocument();
+    expect(screen.getByText(/Guardado automáticamente ·/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Versiones anteriores (1)", { selector: "summary" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restaurar" }));
+    expect(screen.getByRole("alertdialog", { name: "Restaurar versión anterior" })).toHaveTextContent(
+      "La versión actual quedará guardada como una versión anterior",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Restaurar versión" }));
+    expect(props.onRestore).toHaveBeenCalledWith(recovery.id, version.id);
+    fireEvent.click(checkbox);
+    expect(props.onAutoSaveChange).toHaveBeenCalledWith(false);
   });
 });

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatabaseConnectionResult, DatabaseTarget, DatasetPreview, SavedRecipe } from "../../bridge";
+import type { DatabaseKind, DatasetPreview, RemoteExportPreflight, SavedRecipe } from "../../bridge";
 import { DeliveryPhase } from "./DeliveryPhase";
 import {
   INITIAL_DELIVERY_CONTRACT,
@@ -39,7 +39,6 @@ function DeliveryHarness({
   initialContract = INITIAL_DELIVERY_CONTRACT,
   exportState = { kind: "idle" },
   onCancelExport = () => undefined,
-  onTestDatabaseConnection,
 }: {
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
@@ -47,7 +46,6 @@ function DeliveryHarness({
   initialContract?: DeliveryContractState;
   exportState?: DeliveryExportState;
   onCancelExport?: () => void;
-  onTestDatabaseConnection?: (target: DatabaseTarget) => Promise<DatabaseConnectionResult>;
 }) {
   const [contract, setContract] = useState<DeliveryContractState>(initialContract);
   return (
@@ -59,7 +57,6 @@ function DeliveryHarness({
       exportState={exportState}
       onContractAction={(action) => setContract((current) => reduceDeliveryContract(current, action))}
       onExport={onExport}
-      onTestDatabaseConnection={onTestDatabaseConnection}
       onCancelExport={onCancelExport}
     />
   );
@@ -85,6 +82,23 @@ const recipeDraft: SavedRecipe = {
     textExtractions: [],
   },
 };
+
+function preflightResult(kind: DatabaseKind, ready = true): RemoteExportPreflight {
+  return {
+    kind,
+    schema: "public",
+    table: "dataset",
+    tablePolicy: "create_only",
+    tableExists: false,
+    ready,
+    issues: ready ? [] : [{
+      severity: "blocking",
+      category: "policy",
+      column: null,
+      message: "La tabla ya existe y la política Crear requiere una tabla nueva.",
+    }],
+  };
+}
 
 describe("DeliveryPhase", () => {
   it("exige confirmación explícita antes de exportar sin contrato", () => {
@@ -380,13 +394,10 @@ describe("DeliveryPhase", () => {
     });
   });
 
-  it("prueba la conexión ODBC antes de habilitar una tabla remota", async () => {
+  it("analiza política y esquema antes de habilitar una tabla remota", async () => {
     const onExport = vi.fn();
-    const onTestDatabaseConnection = vi.fn().mockResolvedValue({
-      kind: "postgresql",
-      message: "Conexión ODBC verificada para PostgreSQL.",
-    });
-    render(<DeliveryHarness onExport={onExport} onTestDatabaseConnection={onTestDatabaseConnection} />);
+    const preflight = vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue(preflightResult("postgresql"));
+    render(<DeliveryHarness onExport={onExport} />);
 
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
@@ -399,15 +410,15 @@ describe("DeliveryPhase", () => {
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
       target: { value: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
 
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Conexión ODBC verificada"));
-    expect(onTestDatabaseConnection).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
+    expect(preflight).toHaveBeenCalledWith(expect.objectContaining({
       kind: "postgresql",
       connectionString: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret",
       table: "dataset",
       tablePolicy: "create_only",
-    }));
+    }), "none");
     expect(exportButton).toBeEnabled();
     fireEvent.click(exportButton);
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
@@ -418,11 +429,9 @@ describe("DeliveryPhase", () => {
   });
 
   it("deriva el motor ODBC del formato remoto seleccionado", async () => {
-    const onTestDatabaseConnection = vi.fn().mockImplementation(async (target: DatabaseTarget) => ({
-      kind: target.kind,
-      message: `Conexión ODBC verificada para ${target.kind}.`,
-    }));
-    render(<DeliveryHarness onExport={vi.fn()} onTestDatabaseConnection={onTestDatabaseConnection} />);
+    const preflight = vi.spyOn(bridge, "preflightDatabaseExport")
+      .mockImplementation(async (target) => preflightResult(target.kind));
+    render(<DeliveryHarness onExport={vi.fn()} />);
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
@@ -433,19 +442,19 @@ describe("DeliveryPhase", () => {
       fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
         target: { value: `Driver={${format}};Server=localhost` },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
-      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(`para ${format}`));
+      fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preflight completo"));
     }
-    expect(onTestDatabaseConnection.mock.calls.map(([target]) => target.kind)).toEqual(["mysql", "sqlserver"]);
+    expect(preflight.mock.calls.map(([target]) => target.kind)).toEqual(["mysql", "sqlserver"]);
   });
 
-  it("descarta una respuesta de conexión cuando la configuración cambia durante la petición", async () => {
-    let resolveConnection: (result: DatabaseConnectionResult) => void = () => undefined;
-    const pending = new Promise<DatabaseConnectionResult>((resolve) => {
-      resolveConnection = resolve;
+  it("descarta un preflight cuando cambia el destino durante la petición", async () => {
+    let resolvePreflight: (result: RemoteExportPreflight) => void = () => undefined;
+    const pending = new Promise<RemoteExportPreflight>((resolve) => {
+      resolvePreflight = resolve;
     });
-    const onTestDatabaseConnection = vi.fn().mockReturnValue(pending);
-    render(<DeliveryHarness onExport={vi.fn()} onTestDatabaseConnection={onTestDatabaseConnection} />);
+    vi.spyOn(bridge, "preflightDatabaseExport").mockReturnValue(pending);
+    render(<DeliveryHarness onExport={vi.fn()} />);
     fireEvent.click(screen.getByRole("checkbox", {
       name: "Confirmo que quiero exportar sin validar la calidad",
     }));
@@ -455,14 +464,80 @@ describe("DeliveryPhase", () => {
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
       target: { value: "Driver={mysql};Server=A" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
     fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
       target: { value: "Driver={mysql};Server=B" },
     });
-    resolveConnection({ kind: "mysql", message: "Conexión A verificada." });
+    resolvePreflight(preflightResult("mysql"));
     await Promise.resolve();
-    expect(screen.queryByText("Conexión A verificada.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Preflight completo para dataset.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exportar MySQL" })).toBeDisabled();
+  });
+
+  it("bloquea la exportación cuando el preflight detecta un conflicto de política", async () => {
+    vi.spyOn(bridge, "preflightDatabaseExport").mockResolvedValue(preflightResult("postgresql", false));
+    render(<DeliveryHarness onExport={vi.fn()} />);
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "Confirmo que quiero exportar sin validar la calidad",
+    }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Formato de exportación" }), {
+      target: { value: "postgresql" },
+    });
+    fireEvent.change(screen.getByLabelText("Cadena de conexión ODBC"), {
+      target: { value: "Driver={PostgreSQL Unicode};Server=localhost" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Analizar compatibilidad" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Preflight bloqueado");
+    expect(screen.getByRole("alert")).toHaveTextContent("La tabla ya existe");
+    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toBeDisabled();
+  });
+
+  it("relee presets, verifica el esquema y exige volver a autorizar una política replace", async () => {
+    const summary = {
+      id: "0123456789abcdef0123456789abcdef",
+      name: "Destino analítico",
+      format: "postgresql" as const,
+      updatedAt: "2026-09-14T00:00:00Z",
+      selectedColumnCount: 2,
+      remote: true,
+    };
+    const preset: bridge.DeliveryPreset = {
+      version: 1,
+      name: summary.name,
+      format: "postgresql",
+      selectedColumns: ["total", "cliente_antiguo"],
+      privacyMode: "hash",
+      databaseTarget: {
+        kind: "postgresql",
+        schema: "analytics",
+        table: "ventas",
+        tablePolicy: "replace",
+      },
+    };
+    const list = vi.spyOn(bridge, "listDeliveryPresets").mockResolvedValue([summary]);
+    vi.spyOn(bridge, "openDeliveryPreset").mockResolvedValue(preset);
+    render(<DeliveryHarness onExport={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Presets de entrega guardados"));
+    await waitFor(() => expect(list).toHaveBeenCalledOnce());
+    fireEvent.change(screen.getByRole("combobox", { name: "Preset de entrega local" }), {
+      target: { value: summary.id },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Abrir y verificar" }));
+
+    expect(await screen.findByText(/El esquema guardado no coincide exactamente/)).toBeInTheDocument();
+    expect(screen.getByText(/Faltan: cliente_antiguo/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar tras revisar esquema" }));
+
+    expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("postgresql");
+    expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("hash");
+    expect(screen.getByLabelText("Esquema de destino")).toHaveValue("analytics");
+    expect(screen.getByLabelText("Tabla")).toHaveValue("ventas");
+    expect(screen.getByLabelText("Política de tabla")).toHaveValue("create_only");
+    expect(screen.getByLabelText("Cadena de conexión ODBC")).toHaveValue("");
+    expect(screen.getByText(/El preset proponía reemplazar la tabla/)).toHaveTextContent("Se cargó Crear sin reemplazar");
+    expect(screen.getByRole("button", { name: "Exportar PostgreSQL" })).toBeDisabled();
   });
 
   it("expone los parámetros de una regla avanzada según su tipo", () => {

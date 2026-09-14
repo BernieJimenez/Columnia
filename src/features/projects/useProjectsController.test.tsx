@@ -5,10 +5,13 @@ import type { DatasetPreview, ProjectOpenResult, ProjectSummary, ProjectWorkspac
 import { useProjectsController } from "./useProjectsController";
 
 const bridge = vi.hoisted(() => ({
+  autosaveProject: vi.fn(),
   deleteProject: vi.fn(),
   getRecoveryCandidate: vi.fn(),
+  listProjectVersions: vi.fn(),
   listProjects: vi.fn(),
   openProject: vi.fn(),
+  restoreProjectVersion: vi.fn(),
   saveProject: vi.fn(),
 }));
 
@@ -35,8 +38,12 @@ const workspace: ProjectWorkspace = { qualityRules: [], recipeDraft: null };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
+  bridge.autosaveProject.mockResolvedValue(summary);
   bridge.listProjects.mockResolvedValue([summary]);
+  bridge.listProjectVersions.mockResolvedValue([]);
   bridge.getRecoveryCandidate.mockResolvedValue(summary);
+  bridge.restoreProjectVersion.mockResolvedValue({ project: summary, dataset, workspace, profile: null });
   bridge.saveProject.mockResolvedValue(summary);
   bridge.openProject.mockResolvedValue({ project: summary, dataset, workspace, profile: null } satisfies ProjectOpenResult);
   bridge.deleteProject.mockResolvedValue(undefined);
@@ -110,6 +117,23 @@ describe("useProjectsController", () => {
     expect(result.current.operation).toMatchObject({ kind: "success", message: expect.stringContaining("se conserva") });
   });
 
+  it("restaura una versión y activa su snapshot en un solo flujo del controlador", async () => {
+    const onProjectOpened = vi.fn();
+    const { result } = renderHook(() => useProjectsController({
+      connected: true,
+      blocked: false,
+      hasDataset: true,
+      workspace,
+      onProjectOpened,
+    }));
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    await act(async () => result.current.restore(summary.id, 12));
+    expect(bridge.restoreProjectVersion).toHaveBeenCalledWith(summary.id, 12);
+    expect(bridge.openProject).not.toHaveBeenCalled();
+    expect(onProjectOpened).toHaveBeenCalledWith({ project: summary, dataset, workspace, profile: null });
+    expect(result.current.activeProject).toEqual(summary);
+  });
+
   it("expone estados desconectado y error sin filtrar rutas del sistema", async () => {
     const disconnected = renderHook(() => useProjectsController({
       connected: false,
@@ -160,5 +184,61 @@ describe("useProjectsController", () => {
     await act(async () => result.current.save("No debe guardar"));
     expect(bridge.saveProject).not.toHaveBeenCalled();
     expect(result.current.operation).toEqual({ kind: "idle" });
+  });
+
+  it("autoguarda solo tras opt-in y cambios de workspace, y publica estado guardado", async () => {
+    const onProjectOpened = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ currentWorkspace, revision }: { currentWorkspace: ProjectWorkspace; revision: number }) =>
+        useProjectsController({
+          connected: true,
+          blocked: false,
+          hasDataset: true,
+          workspace: currentWorkspace,
+          datasetRevision: revision,
+          onProjectOpened,
+        }),
+      { initialProps: { currentWorkspace: workspace, revision: 1 } },
+    );
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    await act(async () => result.current.open(summary.id));
+    expect(bridge.autosaveProject).not.toHaveBeenCalled();
+
+    act(() => result.current.setAutoSaveEnabled(true));
+    rerender({
+      currentWorkspace: { ...workspace, activePhase: "prepare" },
+      revision: 2,
+    });
+    await waitFor(() => expect(bridge.autosaveProject).toHaveBeenCalledOnce(), { timeout: 3000 });
+    expect(bridge.autosaveProject).toHaveBeenCalledWith(
+      summary.id,
+      summary.name,
+      { ...workspace, activePhase: "prepare" },
+    );
+    expect(result.current.autoSave.kind).toBe("saved");
+  });
+
+  it("informa fallo de autoguardado sin perder la preferencia ni afirmar guardado", async () => {
+    window.localStorage.setItem("columnia.project.auto-save.project-1", "enabled");
+    bridge.autosaveProject.mockRejectedValueOnce(new Error("disco lleno"));
+    const { result, rerender } = renderHook(
+      ({ revision }: { revision: number }) => useProjectsController({
+        connected: true,
+        blocked: false,
+        hasDataset: true,
+        workspace: { ...workspace, activePhase: revision === 1 ? "review" : "prepare" },
+        datasetRevision: revision,
+        onProjectOpened: vi.fn(),
+      }),
+      { initialProps: { revision: 1 } },
+    );
+    await waitFor(() => expect(result.current.catalog.kind).toBe("ready"));
+    await act(async () => result.current.open(summary.id));
+    rerender({ revision: 2 });
+    await waitFor(() => expect(result.current.autoSave.kind).toBe("error"), { timeout: 3000 });
+    expect(result.current.autoSave).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("La última versión válida se conserva"),
+    });
   });
 });

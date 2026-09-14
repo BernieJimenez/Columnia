@@ -815,7 +815,7 @@ Las fases distintas de Cargar se deshabilitan mientras no exista un dataset. Una
 | `THREAT_MODEL.md` | Activos, fronteras de confianza, amenazas, controles implementados y riesgos residuales. |
 | `ROADMAP.md` | Plan, decisiones históricas, fases y pendientes. No sustituye la inspección del código. |
 | `CONTRIBUTING.md` | Ramas, commits, revisión local y límites de alcance. |
-| `docs/` | Tutoriales, how-to, referencias, explicaciones, ADRs, gobierno del repositorio, auditoría de dependencias y política de fixtures. |
+| `docs/` | Tutoriales, how-to, referencias, explicaciones, ADRs, gobierno del repositorio y política de fixtures. La auditoría consolidada está en `AUDITORIA.md`. |
 | `CHANGELOG.md` | Registro de cambios publicados y limitaciones conocidas por versión. |
 | `fixtures/accessibility/release-evidence-baseline-v1.json` | Casos, contrato, owner, propósito, fecha de aprobación y hashes de capturas generadas desde el binario release. |
 | `.codegraph/` | Índice semántico local del repositorio. Úsalo antes de búsquedas textuales para entender símbolos y rutas de llamadas. |
@@ -1185,10 +1185,10 @@ auditoría manual con lector de pantalla ni la validación de hardware real.
 Cada ejecución escribe un reporte JSON en `.local/validation/` con perfil, estado, tiempos, commit, rama, indicador de árbol sucio, sistema operativo, arquitectura y versiones de PowerShell, Node, npm, Rust y Cargo. También registra SHA-256 de `package-lock.json` y `src-tauri/Cargo.lock`, sin incluir rutas absolutas ni contenido; un lockfile ausente queda marcado como `unavailable`. El directorio es local y está ignorado por Git. Usa `-ReportPath <ruta>` para elegir otro destino; las rutas relativas se resuelven desde la raíz del proyecto. El reporte también se intenta escribir si falla una etapa, conservando el último resultado y su error. Todos los perfiles registran métricas raw/gzip del frontend; Release añade el SBOM y Package añade únicamente instaladores producidos o actualizados en esa ejecución.
 
 `check-governance.ps1` comprueba la licencia MIT, el ADR de contratos, las
-políticas de ramas/commits, el inventario local de dependencias y el manifest de
-fixtures sintéticas. Estos contratos son independientes de la cobertura manual
-de accesibilidad, los benchmarks grandes y la automatización Win32 pendientes
-en fases posteriores.
+políticas de ramas/commits, el inventario de dependencias incluido en
+`AUDITORIA.md` y el manifest de fixtures sintéticas. Estos contratos son
+independientes de la cobertura manual de accesibilidad, los benchmarks grandes y
+la automatización Win32 pendientes en fases posteriores.
 
 `npm run smoke:installer` ejecuta el instalador NSIS real como usuario sin
 privilegios en una ruta temporal con espacios y Unicode. Mide instalación y
@@ -1454,7 +1454,7 @@ Al actualizarlo:
 | 2026-09-07 | T7-03: el gate de red distingue patrones por lenguaje y conserva cobertura de cursor ODBC permitido, `fetch` web bloqueado y cliente HTTP Rust bloqueado; red y supply chain pasan. | `tools/check-network-policy.mjs`, `tools/check-network-policy.test.mjs`, `package.json`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-02: inventario IPC regenerado con módulos reales; checker y prueba de paridad comparten `sourceFiles` y validan su existencia. | `docs/reference/ipc-inventory.json`, `tools/check-ipc-inventory.mjs`, `src/ipc-contract.test.ts`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-07 | T7-01: declaraciones responsive redundantes retiradas; CSS raw/gzip bajo presupuesto y build, E2E y matriz visual aprobados. | `src/styles.css`, `.local/validation/audit-20260907-bundle.json`, `.local/validation/accessibility-visual/20260907T224737Z`, `ROADMAP.md`, `CHANGELOG.md` |
-| 2026-09-07 | T7-04: ficha de dependencias actualizada y `docs:check` endurecido para validar versión, package-lock e inventario IPC; Tier 7 completo. | `docs/reference/dependency-audit.md`, `tools/check-documentation.mjs`, `ROADMAP.md`, `CHANGELOG.md` |
+| 2026-09-07 | T7-04: ficha de dependencias actualizada y `docs:check` endurecido para validar versión, package-lock e inventario IPC; Tier 7 completo. | `AUDITORIA.md#inventario-de-dependencias-y-controles`, `tools/check-documentation.mjs`, `ROADMAP.md`, `CHANGELOG.md` |
 | 2026-09-04 | Versión 0.167.0: el perfilado source-backed conserva los candidatos categóricos durante el recorrido inicial, acelera la clasificación de texto ASCII y la detección conservadora de fechas, y lee columnas Parquet en paralelo sin alterar paridad ni límites source-backed. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.166.0: el perfilado source-backed usa el pool de concurrencia por bloque para calcular huellas normalizadas y actualizar columnas en paralelo sin cambiar orden ni semántica. | `src-tauri/src/dataset.rs`, `CHANGELOG.md`, `ROADMAP.md` |
 | 2026-09-04 | Versión 0.165.0: el perfilado source-backed cuenta filas distintas y distintos por columna en una sola agregación DuckDB, eliminando el derrame temporal de una clave completa por registro y manteniendo paridad con nulos/repeticiones. | `src-tauri/src/dataset.rs`, `src-tauri/src/duckdb_query.rs`, `CHANGELOG.md`, `ROADMAP.md` |

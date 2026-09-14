@@ -38,11 +38,19 @@ import {
   normalizeTextValues,
   openLastExport,
   openProject,
+  listProjectVersions,
+  autosaveProject,
+  restoreProjectVersion,
   listReusableTasks,
   saveReusableTask,
   openReusableTask,
   deleteReusableTask,
   checkReusableTaskSchema,
+  preflightDatabaseExport,
+  listDeliveryPresets,
+  openDeliveryPreset,
+  saveDeliveryPreset,
+  deleteDeliveryPreset,
   discardDatasetSelection,
   dropOutlierValues,
   inspectDroppedDataset,
@@ -77,6 +85,7 @@ import {
   type TransformRecipe,
   type DatabaseTarget,
   type ReusableTask,
+  type DeliveryPreset,
 } from "./bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -645,6 +654,27 @@ describe("desktop bridge", () => {
     expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("path");
   });
 
+  it("lista, autoguarda y restaura versiones mediante identificadores opacos", async () => {
+    const workspace: ProjectWorkspace = { qualityRules: [], recipeDraft: null };
+    vi.mocked(invoke).mockResolvedValue([{ id: 3, createdAt: "2026-09-14T12:00:00Z" }]);
+    await expect(listProjectVersions("project-1")).resolves.toMatchObject([{ id: 3 }]);
+    expect(invoke).toHaveBeenLastCalledWith("list_project_versions", { projectId: "project-1" });
+
+    vi.mocked(invoke).mockResolvedValue({ id: "project-1", name: "Ventas" });
+    await autosaveProject("project-1", "Ventas", workspace);
+    expect(invoke).toHaveBeenLastCalledWith("autosave_project", {
+      projectId: "project-1",
+      name: "Ventas",
+      workspace,
+    });
+
+    await restoreProjectVersion("project-1", 3);
+    expect(invoke).toHaveBeenLastCalledWith("restore_project_version", {
+      projectId: "project-1",
+      versionId: 3,
+    });
+  });
+
   it("solicita la revisión delimitada por un identificador opaco", async () => {
     vi.mocked(invoke).mockResolvedValue({
       delimiter: ";",
@@ -848,6 +878,67 @@ describe("desktop bridge", () => {
       privacyMode: "none",
       onProgress: expect.any(Channel),
     }));
+  });
+
+  it("preflight remoto usa destino y protección y devuelve el contrato de compatibilidad", async () => {
+    const target: DatabaseTarget = {
+      kind: "postgresql",
+      connectionString: "Driver={PostgreSQL Unicode};Server=localhost;Pwd=secret",
+      schema: "public",
+      table: "ventas",
+      tablePolicy: "append",
+    };
+    const report = {
+      kind: "postgresql",
+      schema: "public",
+      table: "ventas",
+      tablePolicy: "append",
+      tableExists: true,
+      ready: false,
+      issues: [{ severity: "blocking", category: "length", column: "cliente", message: "La columna supera el límite." }],
+    };
+    vi.mocked(invoke).mockResolvedValue(report);
+
+    await expect(preflightDatabaseExport(target, "mask")).resolves.toEqual(report);
+    expect(invoke).toHaveBeenCalledWith("preflight_database_export", { target, privacyMode: "mask" });
+  });
+
+  it("persiste y relee presets por identificador sin incluir credenciales ni permiso replace por defecto", async () => {
+    const preset: DeliveryPreset = {
+      version: 1,
+      name: "Entrega protegida",
+      format: "postgresql",
+      selectedColumns: ["cliente", "importe"],
+      privacyMode: "hash",
+      databaseTarget: {
+        kind: "postgresql",
+        schema: "public",
+        table: "ventas",
+        tablePolicy: "create_only",
+      },
+    };
+    const summary = {
+      id: "0123456789abcdef0123456789abcdef",
+      name: preset.name,
+      format: preset.format,
+      updatedAt: "2026-09-14T00:00:00Z",
+      selectedColumnCount: 2,
+      remote: true,
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(summary).mockResolvedValueOnce([summary])
+      .mockResolvedValueOnce(preset).mockResolvedValueOnce(undefined);
+
+    await expect(saveDeliveryPreset(null, preset)).resolves.toEqual(summary);
+    await expect(listDeliveryPresets()).resolves.toEqual([summary]);
+    await expect(openDeliveryPreset(summary.id)).resolves.toEqual(preset);
+    await expect(deleteDeliveryPreset(summary.id)).resolves.toBeUndefined();
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "save_delivery_preset", { presetId: null, preset });
+    expect(invoke).toHaveBeenNthCalledWith(2, "list_delivery_presets");
+    expect(invoke).toHaveBeenNthCalledWith(3, "open_delivery_preset", { presetId: summary.id });
+    expect(invoke).toHaveBeenNthCalledWith(4, "delete_delivery_preset", { presetId: summary.id });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("connectionString");
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls[0][1])).not.toContain("replace");
   });
 
   it("abre el último output sin recibir rutas desde React", async () => {

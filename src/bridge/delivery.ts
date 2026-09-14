@@ -10,6 +10,9 @@ import type {
   QualityRulesDocument,
   ExportResult,
   DatabaseConnectionResult,
+  DeliveryPreset,
+  DeliveryPresetSummary,
+  RemoteExportPreflight,
 } from "./contracts";
 import { progressChannel, type ProgressHandler } from "./progress";
 
@@ -33,6 +36,32 @@ export function exportDataset(
 
 export function testDatabaseConnection(target: DatabaseTarget): Promise<DatabaseConnectionResult> {
   return invoke<DatabaseConnectionResult>("test_database_connection", { target });
+}
+
+export function preflightDatabaseExport(
+  target: DatabaseTarget,
+  privacyMode: PrivacyMode,
+): Promise<RemoteExportPreflight> {
+  return invoke<RemoteExportPreflight>("preflight_database_export", { target, privacyMode });
+}
+
+export function listDeliveryPresets(): Promise<DeliveryPresetSummary[]> {
+  return invoke<DeliveryPresetSummary[]>("list_delivery_presets");
+}
+
+export function openDeliveryPreset(presetId: string): Promise<DeliveryPreset> {
+  return invoke<DeliveryPreset>("open_delivery_preset", { presetId });
+}
+
+export function saveDeliveryPreset(
+  presetId: string | null,
+  preset: DeliveryPreset,
+): Promise<DeliveryPresetSummary> {
+  return invoke<DeliveryPresetSummary>("save_delivery_preset", { presetId, preset });
+}
+
+export function deleteDeliveryPreset(presetId: string): Promise<void> {
+  return invoke<void>("delete_delivery_preset", { presetId });
 }
 
 export function exportDatasetToDatabase(

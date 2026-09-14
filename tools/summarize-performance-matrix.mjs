@@ -44,7 +44,7 @@ for (const comparisonGroup of result.comparisons) {
   const cases = comparisonGroup.cases.map((entry) => {
     const measure = entry.measures;
     return measure
-      ? `${entry.profileId}=${entry.status} (${entry.dimensions.columnCount} cols, ${entry.dimensions.rowCount} filas, ${measure.peakWorkingSetBytes} B RAM, ${measure.peakSampledWorkspaceDiskBytes} B disco, ${measure.maxCommandDurationMs} ms máx.)`
+      ? `${entry.profileId}=${entry.status} (${entry.dimensions.columnCount} cols, ${entry.dimensions.rowCount} filas, ${measure.peakWorkingSetBytes} B RAM, ${measure.peakSampledWorkspaceDiskBytes} B disco, ${measure.maxCommandDurationMs} ms máx., cancel ${measure.cancellation?.maxRequestToTerminalLatencyMs ?? "n/d"} ms, parcial=${measure.cancellation?.partialPublication ?? "n/d"}, limpieza=${measure.cancellation?.cleanupConfirmed ?? "n/d"})`
       : `${entry.profileId}=${entry.status}`;
   });
   console.log(`${comparisonGroup.targetMiB} MiB: ${cases.join(" | ")}`);

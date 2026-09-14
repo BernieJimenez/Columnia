@@ -145,14 +145,16 @@ try {
   }
   const obsoleteAuditFiles = (await readdir(projectRoot))
     .filter((name) => /^AUDITORIA_.+\.md$/u.test(name));
+  obsoleteAuditFiles.push(...(await markdownFiles("docs"))
+    .filter((relativePath) => relativePath === "docs/reference/dependency-audit.md"));
   if (obsoleteAuditFiles.length > 0) {
-    fail(`Las auditorías fechadas deben estar fusionadas en AUDITORIA.md: ${obsoleteAuditFiles.join(", ")}.`);
+    fail(`Las auditorías independientes deben estar fusionadas en AUDITORIA.md: ${obsoleteAuditFiles.join(", ")}.`);
   }
   const packageManifest = JSON.parse(await readUtf8("package.json"));
   const readme = await readUtf8("README.md");
   validateReadmeSetupContract(readme, packageManifest);
   const packageLock = JSON.parse(await readUtf8("package-lock.json"));
-  const dependencyAudit = await readUtf8("docs/reference/dependency-audit.md");
+  const auditDocument = await readUtf8("AUDITORIA.md");
   const ipcInventory = JSON.parse(await readUtf8("docs/reference/ipc-inventory.json"));
   const tauriConfig = JSON.parse(await readUtf8("src-tauri/tauri.conf.json"));
   const legalDecision = JSON.parse(await readUtf8("docs/reference/legal-distribution-decision.json"));
@@ -175,12 +177,12 @@ try {
     fail("La ficha legal/distribución debe usar schemaVersion 1 y un estado conocido.");
   }
   if (!changelog.includes(`[${version}]`)) fail(`CHANGELOG.md no contiene la versión ${version}.`);
-  if (!dependencyAudit.includes(`sobre \`${version}\``)) fail("La ficha de dependencias no está actualizada a la versión del proyecto.");
-  const npmAuditCount = dependencyAudit.match(/`npm audit --json --omit=optional`[^|]*\|[^|]*; (\d+) dependencias del lockfile/);
+  if (!auditDocument.includes(`sobre \`${version}\``)) fail("La ficha de dependencias no está actualizada a la versión del proyecto.");
+  const npmAuditCount = auditDocument.match(/`npm audit --json --omit=optional`[^|]*\|[^|]*; (\d+) dependencias del lockfile/);
   if (!npmAuditCount || Number(npmAuditCount[1]) !== packageCount) {
     fail(`La ficha de dependencias no coincide con package-lock.json: declara ${npmAuditCount?.[1] ?? "sin conteo"}, actual ${packageCount}.`);
   }
-  const ipcAuditCount = dependencyAudit.match(/`npm run ipc:check`[^|]*\| Aprobado; (\d+) comandos de producción, (\d+) debug y (\d+) estructuras compartidas/);
+  const ipcAuditCount = auditDocument.match(/`npm run ipc:check`[^|]*\| Aprobado; (\d+) comandos de producción, (\d+) debug y (\d+) estructuras compartidas/);
   const expectedIpcCount = [ipcInventory.productionCommands?.length, ipcInventory.debugCommands?.length, ipcInventory.sharedStructures?.length];
   if (!ipcAuditCount || expectedIpcCount.some((count, index) => Number(ipcAuditCount[index + 1]) !== count)) {
     fail(`La ficha de dependencias no coincide con el inventario IPC: declara ${ipcAuditCount?.[1] ?? "sin conteo"}/${ipcAuditCount?.[2] ?? "sin conteo"}/${ipcAuditCount?.[3] ?? "sin conteo"}, actual ${expectedIpcCount.join("/")}.`);
@@ -188,7 +190,7 @@ try {
   if (!changelog.includes("Tier 5")) fail("CHANGELOG.md no documenta el estado de Tier 5.");
   if (!await readUtf8("ROADMAP.md").then((roadmap) => roadmap.includes("Tier 5"))) fail("ROADMAP.md no contiene el roadmap Tier 5.");
   if (!await readUtf8("CONTEXTO.md").then((context) => context.includes("Tier 5"))) fail("CONTEXTO.md no contiene el contexto Tier 5.");
-  if (!await readUtf8("AUDITORIA.md").then((audit) => audit.includes("Tier 5") && audit.includes("RV01"))) fail("La auditoría consolidada no contiene la trazabilidad histórica y vigente.");
+  if (!auditDocument.includes("Tier 5") || !auditDocument.includes("RV01")) fail("La auditoría consolidada no contiene la trazabilidad histórica y vigente.");
   if (!docsIndex.includes("../DESIGN.md") || !docsIndex.includes("tutorials/first-dataset.md") || !docsIndex.includes("how-to/run-beta-validation.md") || !docsIndex.includes("templates/beta-session.md") || !docsIndex.includes("templates/beta-summary.md") || !docsIndex.includes("how-to/validate-release-evidence.md") || !docsIndex.includes("reference/cli.md") || !docsIndex.includes("explanation/local-first-architecture.md")) {
     fail("docs/README.md no expone los cuatro cuadrantes Diátaxis.");
   }

@@ -2,15 +2,22 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   QUALITY_DATASET_COLUMN,
+  deleteDeliveryPreset,
+  listDeliveryPresets,
+  openDeliveryPreset,
   openLastExport,
+  preflightDatabaseExport,
   pickQualityRulesMigration,
+  saveDeliveryPreset,
   saveQualityRulesDocument,
   validateQualityRules,
-  type DatabaseConnectionResult,
   type DatabaseTarget,
+  type DeliveryPreset,
+  type DeliveryPresetSummary,
   type DatasetPreview,
   type ExportFormat,
   type PrivacyMode,
+  type RemoteExportPreflight,
   type QualityMigrationResult,
   type QualityRulesDocument,
   type QualityComparison,
@@ -47,7 +54,6 @@ interface DeliveryPhaseProps {
   onPrivacyModeChange?: (mode: PrivacyMode) => void;
   onContractAction: (action: DeliveryContractAction) => void;
   onExport: (request: DeliveryExportRequest) => void;
-  onTestDatabaseConnection?: (target: DatabaseTarget) => Promise<DatabaseConnectionResult>;
   onCancelExport: () => void;
 }
 
@@ -181,7 +187,6 @@ export function DeliveryPhase({
   onPrivacyModeChange,
   onContractAction,
   onExport,
-  onTestDatabaseConnection,
   onCancelExport,
 }: DeliveryPhaseProps) {
   const [localPrivacyMode, setLocalPrivacyMode] = useState<PrivacyMode>("none");
@@ -195,25 +200,41 @@ export function DeliveryPhase({
   const selectedPrivacyMode = privacyMode ?? localPrivacyMode;
   const selectedExportFormat = exportFormat ?? localExportFormat;
   const [databaseTarget, setDatabaseTarget] = useState<DatabaseTarget>(INITIAL_DATABASE_TARGET);
-  const [databaseConnectionState, setDatabaseConnectionState] = useState<
+  const [databasePreflightState, setDatabasePreflightState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
-    | { kind: "ready"; result: DatabaseConnectionResult; fingerprint: string }
+    | { kind: "ready"; result: RemoteExportPreflight; fingerprint: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const databaseRequestGeneration = useRef(0);
-  const databaseTargetFingerprint = JSON.stringify(databaseTarget);
+  const databaseTargetFingerprint = JSON.stringify({
+    target: databaseTarget,
+    privacyMode: selectedPrivacyMode,
+    dataset: [dataset.fileName, dataset.fileSizeBytes, dataset.rowCount,
+      dataset.columns.map((column) => [column.name, column.dataType])],
+  });
+  const databaseTargetFingerprintRef = useRef(databaseTargetFingerprint);
+  databaseTargetFingerprintRef.current = databaseTargetFingerprint;
+  const [presets, setPresets] = useState<DeliveryPresetSummary[]>([]);
+  const [presetsLoaded, setPresetsLoaded] = useState(false);
+  const [presetsLoading, setPresetsLoading] = useState(false);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
+  const [presetName, setPresetName] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [openedPreset, setOpenedPreset] = useState<DeliveryPreset | null>(null);
+  const [presetNotice, setPresetNotice] = useState<string | null>(null);
+  const [presetWorking, setPresetWorking] = useState(false);
   useEffect(() => {
     const kind = databaseKindForExportFormat(selectedExportFormat);
     setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(kind ? { kind } : {}) });
-    setDatabaseConnectionState({ kind: "idle" });
+    setDatabasePreflightState({ kind: "idle" });
     databaseRequestGeneration.current += 1;
   }, [dataset.fileName, dataset.fileSizeBytes, dataset.rowCount]);
   useEffect(() => {
     const kind = databaseKindForExportFormat(selectedExportFormat);
     if (!kind || databaseTarget.kind === kind) return;
     setDatabaseTarget((current) => ({ ...current, kind }));
-    setDatabaseConnectionState({ kind: "idle" });
+    setDatabasePreflightState({ kind: "idle" });
     databaseRequestGeneration.current += 1;
   }, [databaseTarget.kind, selectedExportFormat]);
   const [qualityFileState, setQualityFileState] = useState<
@@ -237,9 +258,16 @@ export function DeliveryPhase({
     : null;
   const databaseReady = !isDatabaseExportFormat(selectedExportFormat)
     || (databaseTargetError === null
-      && databaseConnectionState.kind === "ready"
-      && databaseConnectionState.fingerprint === databaseTargetFingerprint
-      && databaseConnectionState.result.kind === databaseTarget.kind);
+      && databasePreflightState.kind === "ready"
+      && databasePreflightState.fingerprint === databaseTargetFingerprint
+      && databasePreflightState.result.kind === databaseTarget.kind
+      && databasePreflightState.result.ready);
+  const activePreflight = databasePreflightState.kind === "ready"
+    && databasePreflightState.fingerprint === databaseTargetFingerprint
+    ? databasePreflightState.result
+    : null;
+  const openedPresetSchemaMatches = openedPreset !== null
+    && JSON.stringify(openedPreset.selectedColumns) === JSON.stringify(dataset.columns.map((column) => column.name));
   const busy = exportState.kind === "loading"
     || contract.gate.kind === "loading"
     || migrationState.kind === "working"
@@ -432,7 +460,10 @@ export function DeliveryPhase({
   async function requestExport(format: ExportFormat) {
     setOpenOutputState("idle");
     if (isDatabaseExportFormat(format)
-      && (databaseTargetError !== null || databaseConnectionState.kind !== "ready")) return;
+      && (databaseTargetError !== null
+        || databasePreflightState.kind !== "ready"
+        || databasePreflightState.fingerprint !== databaseTargetFingerprint
+        || !databasePreflightState.result.ready)) return;
     const databaseOptions = isDatabaseExportFormat(format) ? { databaseTarget } : {};
     if (contract.kind === "with_contract") {
       if (validationError) return;
@@ -471,39 +502,39 @@ export function DeliveryPhase({
           ? { tablePolicy: "create_only" as const }
           : {}),
       }));
-      setDatabaseConnectionState({ kind: "idle" });
+      setDatabasePreflightState({ kind: "idle" });
       databaseRequestGeneration.current += 1;
     }
   }
 
   function changeDatabaseTarget(update: Partial<DatabaseTarget>) {
     setDatabaseTarget((current) => ({ ...current, ...update }));
-    setDatabaseConnectionState({ kind: "idle" });
+    setDatabasePreflightState({ kind: "idle" });
     databaseRequestGeneration.current += 1;
   }
 
-  async function testDatabaseTarget() {
-    if (!onTestDatabaseConnection || databaseTargetError) return;
+  async function preflightDatabaseTarget() {
+    if (databaseTargetError) return;
     const requestGeneration = databaseRequestGeneration.current;
     const requestFingerprint = databaseTargetFingerprint;
     const requestedTarget = databaseTarget;
-    setDatabaseConnectionState({ kind: "working" });
+    setDatabasePreflightState({ kind: "working" });
     try {
-      const result = await onTestDatabaseConnection(requestedTarget);
+      const result = await preflightDatabaseExport(requestedTarget, selectedPrivacyMode);
       if (requestGeneration !== databaseRequestGeneration.current
-        || requestFingerprint !== JSON.stringify(databaseTarget)) return;
+        || requestFingerprint !== databaseTargetFingerprintRef.current) return;
       if (result.kind !== requestedTarget.kind) {
-        setDatabaseConnectionState({
+        setDatabasePreflightState({
           kind: "error",
-          message: "La respuesta de conexión no corresponde al motor seleccionado.",
+          message: "El preflight no corresponde al motor de destino seleccionado.",
         });
         return;
       }
-      setDatabaseConnectionState({ kind: "ready", result, fingerprint: requestFingerprint });
+      setDatabasePreflightState({ kind: "ready", result, fingerprint: requestFingerprint });
     } catch (error: unknown) {
       if (requestGeneration !== databaseRequestGeneration.current
-        || requestFingerprint !== JSON.stringify(databaseTarget)) return;
-      setDatabaseConnectionState({
+        || requestFingerprint !== databaseTargetFingerprintRef.current) return;
+      setDatabasePreflightState({
         kind: "error",
         message: error instanceof Error ? error.message : String(error),
       });
@@ -513,6 +544,132 @@ export function DeliveryPhase({
   function changePrivacyMode(mode: PrivacyMode) {
     setLocalPrivacyMode(mode);
     onPrivacyModeChange?.(mode);
+    setDatabasePreflightState({ kind: "idle" });
+    databaseRequestGeneration.current += 1;
+  }
+
+  async function refreshDeliveryPresets() {
+    setPresetsLoading(true);
+    setPresetsError(null);
+    try {
+      setPresets(await listDeliveryPresets());
+      setPresetsLoaded(true);
+    } catch (error: unknown) {
+      setPresetsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPresetsLoading(false);
+    }
+  }
+
+  async function saveCurrentDeliveryPreset() {
+    const trimmedName = presetName.trim();
+    if (!trimmedName || presetWorking) return;
+    const preset: DeliveryPreset = {
+      version: 1,
+      name: trimmedName,
+      format: selectedExportFormat,
+      selectedColumns: dataset.columns.map((column) => column.name),
+      privacyMode: selectedPrivacyMode,
+      ...(isDatabaseExportFormat(selectedExportFormat) ? {
+        databaseTarget: {
+          kind: databaseTarget.kind,
+          schema: databaseTarget.schema,
+          table: databaseTarget.table,
+          tablePolicy: databaseTarget.tablePolicy,
+        },
+      } : {}),
+    };
+    setPresetWorking(true);
+    setPresetNotice(null);
+    setPresetsError(null);
+    try {
+      const summary = await saveDeliveryPreset(selectedPresetId || null, preset);
+      setPresets((current) => [summary, ...current.filter((item) => item.id !== summary.id)]);
+      setPresetsLoaded(true);
+      setSelectedPresetId(summary.id);
+      setOpenedPreset(preset);
+      setPresetNotice("Preset guardado localmente. Las credenciales de conexión no se almacenan.");
+    } catch (error: unknown) {
+      setPresetsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPresetWorking(false);
+    }
+  }
+
+  async function loadSelectedDeliveryPreset() {
+    if (!selectedPresetId || presetWorking) return;
+    setPresetWorking(true);
+    setPresetNotice(null);
+    setPresetsError(null);
+    try {
+      const preset = await openDeliveryPreset(selectedPresetId);
+      setOpenedPreset(preset);
+      setPresetName(preset.name);
+      setPresetNotice(null);
+    } catch (error: unknown) {
+      setPresetsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPresetWorking(false);
+    }
+  }
+
+  function applyOpenedDeliveryPreset() {
+    if (!openedPreset) return;
+    const currentColumns = dataset.columns.map((column) => column.name);
+    const schemaMatches = JSON.stringify(openedPreset.selectedColumns) === JSON.stringify(currentColumns);
+    if (!schemaMatches) {
+      const missing = openedPreset.selectedColumns.filter((column) => !currentColumns.includes(column));
+      const added = currentColumns.filter((column) => !openedPreset.selectedColumns.includes(column));
+      setPresetNotice(`Esquema distinto: ${missing.length} columna(s) guardada(s) no aparecen y ${added.length} columna(s) nueva(s). Se aplicará la configuración a todas las columnas actuales.`);
+    } else {
+      setPresetNotice("Preset verificado contra el esquema actual.");
+    }
+    changeExportFormat(openedPreset.format);
+    setLocalPrivacyMode(openedPreset.privacyMode);
+    onPrivacyModeChange?.(openedPreset.privacyMode);
+    if (openedPreset.databaseTarget) {
+      const storedTarget = openedPreset.databaseTarget;
+      const destructivePolicy = storedTarget.tablePolicy === "replace";
+      setDatabaseTarget({
+        ...INITIAL_DATABASE_TARGET,
+        kind: storedTarget.kind,
+        schema: storedTarget.schema,
+        table: storedTarget.table,
+        tablePolicy: destructivePolicy ? "create_only" : storedTarget.tablePolicy,
+      });
+      setDatabasePreflightState({ kind: "idle" });
+      databaseRequestGeneration.current += 1;
+      if (destructivePolicy) {
+        setPresetNotice("El preset proponía reemplazar la tabla. Se cargó Crear sin reemplazar; elige Reemplazar explícitamente y vuelve a analizar si quieres autorizarlo en esta sesión.");
+      } else {
+        setPresetNotice("Preset aplicado. Reingresa la conexión de esta sesión y ejecuta el preflight antes de escribir.");
+      }
+    } else {
+      setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(databaseKindForExportFormat(openedPreset.format)
+        ? { kind: databaseKindForExportFormat(openedPreset.format)! }
+        : {}) });
+      setDatabasePreflightState({ kind: "idle" });
+      databaseRequestGeneration.current += 1;
+    }
+  }
+
+  async function deleteSelectedDeliveryPreset() {
+    if (!selectedPresetId || presetWorking) return;
+    setPresetWorking(true);
+    setPresetsError(null);
+    setPresetNotice(null);
+    try {
+      await deleteDeliveryPreset(selectedPresetId);
+      setPresets((current) => current.filter((item) => item.id !== selectedPresetId));
+      setSelectedPresetId("");
+      setOpenedPreset(null);
+      setPresetName("");
+      setPresetNotice("Preset eliminado del catálogo local.");
+    } catch (error: unknown) {
+      setPresetsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPresetWorking(false);
+    }
   }
 
   async function revealLastExport() {
@@ -1361,6 +1518,86 @@ export function DeliveryPhase({
               SHA-256 es determinista y no usa salt: valores predecibles pueden adivinarse. No equivale a anonimización; revisa el archivo antes de compartirlo.
             </small>
           </label>
+          <details
+            className="delivery-presets"
+            onToggle={(event) => {
+              if (event.currentTarget.open && !presetsLoaded && !presetsLoading) void refreshDeliveryPresets();
+            }}
+          >
+            <summary>Presets de entrega guardados</summary>
+            <p>Guarda formatos, protección y columnas para repetirlos. Las credenciales quedan fuera del preset.</p>
+            <label>
+              Preset local
+              <select
+                aria-label="Preset de entrega local"
+                value={selectedPresetId}
+                onChange={(event) => {
+                  setSelectedPresetId(event.target.value);
+                  setOpenedPreset(null);
+                  setPresetNotice(null);
+                  const summary = presets.find((item) => item.id === event.target.value);
+                  if (summary) setPresetName(summary.name);
+                }}
+                disabled={presetWorking || presetsLoading}
+              >
+                <option value="">Selecciona un preset</option>
+                {presets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} · {preset.format} · {preset.selectedColumnCount} columnas
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Nombre del preset
+              <input
+                aria-label="Nombre del preset de entrega"
+                value={presetName}
+                maxLength={80}
+                onChange={(event) => setPresetName(event.target.value)}
+                disabled={presetWorking}
+              />
+            </label>
+            <div className="delivery-presets__actions">
+              <button type="button" className="secondary-action" onClick={() => void loadSelectedDeliveryPreset()} disabled={!selectedPresetId || presetWorking || presetsLoading}>
+                {presetWorking ? "Procesando preset…" : "Abrir y verificar"}
+              </button>
+              <button type="button" className="secondary-action" onClick={() => void saveCurrentDeliveryPreset()} disabled={!presetName.trim() || presetWorking}>
+                Guardar preset
+              </button>
+              {selectedPresetId && (
+                <button type="button" className="secondary-action" onClick={() => void deleteSelectedDeliveryPreset()} disabled={presetWorking}>
+                  Eliminar preset
+                </button>
+              )}
+            </div>
+            {presetsLoading && <p role="status">Cargando catálogo local…</p>}
+            {!presetsLoading && presetsLoaded && presets.length === 0 && <p role="note">Aún no hay presets locales.</p>}
+            {presetsError && (
+              <div className="notice notice--error" role="alert">
+                <p>{presetsError}</p>
+                <button type="button" className="secondary-action" onClick={() => void refreshDeliveryPresets()} disabled={presetsLoading}>Reintentar catálogo</button>
+              </div>
+            )}
+            {openedPreset && (
+              <div className="delivery-presets__verification" role="status">
+                <p>
+                  {openedPresetSchemaMatches
+                    ? `Esquema verificado: ${openedPreset.selectedColumns.length} columnas, mismo orden.`
+                    : "El esquema guardado no coincide exactamente con el dataset actual; revisa la diferencia antes de aplicar."}
+                </p>
+                {!openedPresetSchemaMatches && (
+                  <p>
+                    Faltan: {openedPreset.selectedColumns.filter((column) => !dataset.columns.some((current) => current.name === column)).join(", ") || "ninguna"}. Nuevas: {dataset.columns.map((column) => column.name).filter((column) => !openedPreset.selectedColumns.includes(column)).join(", ") || "ninguna"}.
+                  </p>
+                )}
+                <button type="button" className="secondary-action" onClick={applyOpenedDeliveryPreset} disabled={presetWorking}>
+                  {openedPresetSchemaMatches ? "Aplicar preset verificado" : "Aplicar tras revisar esquema"}
+                </button>
+              </div>
+            )}
+            {presetNotice && <p className="notice notice--success" role="status">{presetNotice}</p>}
+          </details>
           {isDatabaseExportFormat(selectedExportFormat) && (
             <fieldset className="database-target">
               <legend>Destino remoto · {exportFormatLabel}</legend>
@@ -1416,19 +1653,32 @@ export function DeliveryPhase({
               <button
                 className="secondary-action"
                 type="button"
-                onClick={() => void testDatabaseTarget()}
-                disabled={busy || databaseTargetError !== null || !onTestDatabaseConnection || databaseConnectionState.kind === "working"}
+                onClick={() => void preflightDatabaseTarget()}
+                disabled={busy || databaseTargetError !== null || databasePreflightState.kind === "working"}
               >
-                {databaseConnectionState.kind === "working" ? "Probando conexión…" : "Probar conexión"}
+                {databasePreflightState.kind === "working" ? "Analizando compatibilidad…" : "Analizar compatibilidad"}
               </button>
-              {databaseConnectionState.kind === "ready" && (
-                <p className="notice notice--success" role="status">{databaseConnectionState.result.message}</p>
+              {activePreflight && (
+                <div className={activePreflight.ready ? "notice notice--success" : "notice notice--error"} role={activePreflight.ready ? "status" : "alert"}>
+                  <p>{activePreflight.ready
+                    ? `Preflight completo para ${activePreflight.schema ? `${activePreflight.schema}.` : ""}${activePreflight.table}. No se ha escrito ningún dato.`
+                    : "Preflight bloqueado. Resuelve los problemas antes de exportar; no se ha escrito ningún dato."}</p>
+                  {activePreflight.issues.length > 0 && (
+                    <ul>
+                      {activePreflight.issues.map((issue, index) => (
+                        <li key={`${issue.category}-${issue.column ?? "dataset"}-${index}`}>
+                          <strong>{issue.severity === "blocking" ? "Bloqueo" : issue.severity === "warning" ? "Advertencia" : "Información"}{issue.column ? ` · ${issue.column}` : ""}:</strong> {issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
-              {databaseConnectionState.kind === "error" && (
-                <p className="notice notice--error" role="alert">{databaseConnectionState.message}</p>
+              {databasePreflightState.kind === "error" && (
+                <p className="notice notice--error" role="alert">{databasePreflightState.message}</p>
               )}
-              {databaseConnectionState.kind !== "ready" && !databaseTargetError && (
-                <p className="export-requirement" role="note">Prueba la conexión para habilitar la entrega remota.</p>
+              {!activePreflight && databasePreflightState.kind !== "error" && !databaseTargetError && (
+                <p className="export-requirement" role="note">Analiza el esquema y los datos para habilitar la entrega remota. Este paso no escribe en el destino.</p>
               )}
             </fieldset>
           )}

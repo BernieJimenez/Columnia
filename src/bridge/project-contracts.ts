@@ -59,5 +59,14 @@ export interface ProjectWorkspace {
   importProfile?: ImportProfile;
 }
 
+export interface ProjectVersionSummary {
+  id: number;
+  createdAt: string;
+  datasetFileName: string;
+  rowCount: number;
+  columnCount: number;
+  storageBytes: number;
+}
+
 export type ProjectReviewTab = "diagnosis" | "preview";
 export type ProjectActivePhase = "load" | "review" | "prepare" | "deliver";
