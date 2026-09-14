@@ -790,9 +790,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Confirmo que quiero exportar sin validar/ }));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Parquet" }));
 
-    expect(
-      await screen.findByText(/Parquet exportado como ventas-columnia\.parquet/),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Copia lista" })).toBeInTheDocument();
+    expect(screen.getByText("ventas-columnia.parquet")).toBeInTheDocument();
     expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
     expect(exportSpy).toHaveBeenCalledOnce();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
@@ -1849,16 +1848,18 @@ describe("App", () => {
       target: { value: "bundle" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
-    await waitFor(() => expect(screen.getByText(/Paquete Columnia exportado como entrega\.zip/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Copia lista" })).toBeInTheDocument());
+    expect(screen.getByText("entrega.zip")).toBeInTheDocument();
     expect(exportSpy).toHaveBeenCalledWith("bundle", [], true, expect.anything(), "none");
 
     exportSpy.mockResolvedValueOnce(null);
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
-    await waitFor(() => expect(screen.queryByText(/Paquete Columnia exportado/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Copia lista" })).not.toBeInTheDocument());
 
     exportSpy.mockRejectedValueOnce(new Error("operación cancelada por el usuario"));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(await screen.findByText(/Exportación cancelada/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     exportSpy.mockRejectedValueOnce(new Error("disco lleno"));
     fireEvent.click(screen.getByRole("button", { name: "Exportar Paquete ZIP" }));

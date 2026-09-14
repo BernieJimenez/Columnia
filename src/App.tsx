@@ -858,7 +858,7 @@ export function App() {
       setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
     } catch (error: unknown) {
       if (isCancellationError(error)) {
-        setExportStatus({ kind: "idle" });
+        setExportStatus({ kind: "cancelled" });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
@@ -1236,6 +1236,9 @@ export function App() {
               <DeliveryPhase
                 dataset={readyDataset.dataset}
                 recipeDraft={recipeDraft}
+                preparationChanges={prepare.historyStatus.entries
+                  .filter((entry) => entry.index > 0 && entry.index <= prepare.historyStatus.currentIndex)
+                  .map((entry) => entry.label)}
                 contract={deliveryContract}
                 exportState={exportStatus}
                 exportFormat={exportFormat}

@@ -142,6 +142,7 @@ export type DeliveryExportState =
       cancellation: "available" | "requested";
     }
   | { kind: "success"; result: ExportResult }
+  | { kind: "cancelled" }
   | { kind: "error"; message: string };
 
 export type DeliveryExportRequest =

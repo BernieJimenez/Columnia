@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +35,7 @@ const dataset: DatasetPreview = {
 function DeliveryHarness({
   onExport,
   recipeDraft = null,
+  preparationChanges = [],
   initialContract = INITIAL_DELIVERY_CONTRACT,
   exportState = { kind: "idle" },
   onCancelExport = () => undefined,
@@ -42,6 +43,7 @@ function DeliveryHarness({
 }: {
   onExport: (request: DeliveryExportRequest) => void;
   recipeDraft?: SavedRecipe | null;
+  preparationChanges?: string[];
   initialContract?: DeliveryContractState;
   exportState?: DeliveryExportState;
   onCancelExport?: () => void;
@@ -52,6 +54,7 @@ function DeliveryHarness({
     <DeliveryPhase
       dataset={dataset}
       recipeDraft={recipeDraft}
+      preparationChanges={preparationChanges}
       contract={contract}
       exportState={exportState}
       onContractAction={(action) => setContract((current) => reduceDeliveryContract(current, action))}
@@ -231,6 +234,49 @@ describe("DeliveryPhase", () => {
     fireEvent.click(screen.getByRole("button", { name: "Editar reglas" }));
     expect(screen.getByRole("combobox", { name: "Comprobación regla 1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cerrar edición" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("incluye la calidad aprobada en el resultado publicado", () => {
+    const approvedContract: DeliveryContractState = {
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: {
+        kind: "ready",
+        result: {
+          passed: true,
+          rowCount: 2,
+          totalRules: 1,
+          failedRules: 0,
+          rules: [{
+            column: "total",
+            kind: "not_null",
+            maxInvalid: 0,
+            checkedCount: 2,
+            invalidCount: 0,
+            invalidPct: 0,
+            passed: true,
+          }],
+        },
+      },
+    };
+    render(<DeliveryHarness
+      onExport={vi.fn()}
+      initialContract={approvedContract}
+      exportState={{
+        kind: "success",
+        result: {
+          fileName: "ventas.csv",
+          fileSizeBytes: 512,
+          format: "CSV",
+          protectedColumnCount: 0,
+          protectedColumns: [],
+        },
+      }}
+    />);
+
+    const result = screen.getByRole("region", { name: "Copia lista" });
+    expect(within(result).getByText("1 regla aprobada sobre 2 filas")).toBeInTheDocument();
+    expect(within(result).queryByText("Esta copia no incluye una validación de calidad.")).not.toBeInTheDocument();
   });
 
   it("ofrece exportación JSON con la misma compuerta de calidad", () => {
@@ -807,6 +853,7 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness
       onExport={vi.fn()}
       recipeDraft={recipeDraft}
+      preparationChanges={["Espacios exteriores recortados", "Encabezados normalizados"]}
       exportState={{
         kind: "success",
         result: {
@@ -818,20 +865,35 @@ describe("DeliveryPhase", () => {
         },
       }}
     />);
-    expect(screen.getByRole("status")).toHaveTextContent("Paquete Columnia exportado");
-    expect(screen.getByRole("status")).toHaveTextContent("recipe.json incluye la receta validada");
-    expect(screen.getByRole("status")).toHaveTextContent("Privacidad aplicada a 1 columnas: email");
+    const result = screen.getByRole("region", { name: "Copia lista" });
+    expect(within(result).getByRole("heading", { name: "Copia lista" })).toBeInTheDocument();
+    expect(within(result).getByText("entrega.zip")).toBeInTheDocument();
+    expect(within(result).getByText("2.0 KB")).toBeInTheDocument();
+    expect(within(result).getByText("Salida confirmada sin reglas de calidad")).toBeInTheDocument();
+    expect(within(result).getByText("2 cambios del historial activo")).toBeInTheDocument();
+    expect(within(result).getByText("1 columnas: email")).toBeInTheDocument();
+    expect(within(result).getByText(/recipe\.json incluye la receta validada/)).toBeInTheDocument();
+    expect(within(result).getByText("Esta copia no incluye una validación de calidad.")).toBeInTheDocument();
+    fireEvent.click(within(result).getByText("Ver cambios incluidos (2)"));
+    expect(within(result).getByText("Espacios exteriores recortados")).toBeInTheDocument();
     const openLastExport = vi.spyOn(bridge, "openLastExport").mockResolvedValue(undefined);
-    fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta de exportación" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta" }));
     await waitFor(() => expect(openLastExport).toHaveBeenCalledOnce());
     expect(screen.getByText("Carpeta de exportación abierta.")).toBeInTheDocument();
     openLastExport.mockRejectedValueOnce(new Error("salida eliminada"));
-    fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta de exportación" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir carpeta" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("No se pudo abrir la carpeta de exportación."));
 
     cleanup();
+    render(<DeliveryHarness onExport={vi.fn()} exportState={{ kind: "cancelled" }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Exportación cancelada");
+    expect(screen.getByRole("status")).toHaveTextContent("dataset preparado sigue disponible");
+
+    cleanup();
     render(<DeliveryHarness onExport={vi.fn()} exportState={{ kind: "error", message: "disco lleno" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("No se pudo crear la copia");
     expect(screen.getByRole("alert")).toHaveTextContent("disco lleno");
+    expect(screen.getByRole("alert")).toHaveTextContent("dataset preparado sigue disponible");
   });
 
   it("cubre cambios de regla, tolerancias, columnas y eliminación", () => {

@@ -142,7 +142,7 @@ La lista conserva el diseño y los criterios; las casillas reflejan el estado de
 - [x] **OUT01 · P1 · M — Validar y guardar copia.** Coordinar contrato existente y exportación desde una acción. **Cierre:** contrato fallido detiene la escritura; exportación sin reglas sigue siendo una elección explícita y comprensible.
 - [x] **OUT02 · P1 · M — Reglas resumidas.** Mostrar «qué se exige» y los incumplimientos; mover el constructor a edición. **Cierre:** un usuario puede exportar con reglas guardadas sin manejar tipos técnicos de reglas.
 - [ ] **OUT03 · P2 · M — Preferencias de entrega reutilizables.** Recordar formato y selección compatibles con la tarea. **Cierre:** cambios de esquema invalidan selecciones incompatibles; no persistir credenciales ni asumir permiso de sobrescritura.
-- [ ] **OUT04 · P2 · M — Resultado accionable.** Mostrar archivo generado, cambios, calidad y limitaciones; abrir archivo o carpeta cuando exista soporte. **Cierre:** «terminado» aparece solo tras publicación exitosa; fallo/cancelación preserva el trabajo recuperable.
+- [x] **OUT04 · P2 · M — Resultado accionable.** Mostrar archivo generado, cambios, calidad y limitaciones; abrir archivo o carpeta cuando exista soporte. **Cierre:** «terminado» aparece solo tras publicación exitosa; fallo/cancelación preserva el trabajo recuperable.
 - [ ] **REP01 · P1 · L — Repetir preparación.** Guardar importación, receta, reglas y política de salida como tarea con nombre del resultado. **Cierre:** otro archivo compatible puede recorrer el flujo sin reconstruir formularios; esquema distinto exige revisión.
 - [ ] **REP02 · P2 · M — Editor avanzado a demanda.** Mantener el editor de recetas como personalización del plan. **Cierre:** no presentar todas las familias de transformaciones a quien solo desea repetir una tarea.
 - [ ] **REP03 · P2 · L — Lotes gráficos.** Usar el contrato batch existente, sus límites y validaciones. **Cierre:** preflight conjunto, progreso por trabajo, salida parcial honesta y ninguna sustitución implícita de archivos.
@@ -208,6 +208,10 @@ En Entregar, la acción principal combina validación y exportación cuando exis
 ### Avance de implementación · reglas resumidas · 2026-09-14
 
 Entregar muestra primero «Qué se exige» con cada regla descrita en lenguaje de datos y su tolerancia. Los selectores técnicos quedan bajo «Editar reglas» y la importación o guardado del contrato bajo una utilidad plegada. Un contrato restaurado desde un proyecto puede validarse y exportarse directamente desde el resumen. Cuando una regla falla, «Revisar regla» abre la edición y lleva el foco al control correspondiente. OUT02 queda cerrado; el constructor conserva todas sus capacidades para quien necesite personalizarlo.
+
+### Avance de implementación · resultado accionable · 2026-09-14
+
+Tras una publicación exitosa, Entregar muestra una ficha «Copia lista» con archivo o destino, formato, tamaño local, calidad aprobada o ausencia explícita de reglas, cambios de la rama activa del historial y protección aplicada. Los cambios pueden desplegarse y las salidas locales permiten abrir la carpeta. La cancelación y el error ahora tienen estados distintos y confirman que el dataset preparado sigue disponible para reintentar; el estado de éxito solo aparece cuando el backend devuelve una publicación terminada. OUT04 queda cerrado.
 
 ## Fuentes locales
 

@@ -38,6 +38,7 @@ import {
 interface DeliveryPhaseProps {
   dataset: DatasetPreview;
   recipeDraft?: SavedRecipe | null;
+  preparationChanges?: string[];
   contract: DeliveryContractState;
   exportState: DeliveryExportState;
   exportFormat?: ExportFormat;
@@ -171,6 +172,7 @@ function focusQualityRule(index: number) {
 export function DeliveryPhase({
   dataset,
   recipeDraft = null,
+  preparationChanges = [],
   contract,
   exportState,
   exportFormat,
@@ -254,6 +256,11 @@ export function DeliveryPhase({
     mysql: "MySQL",
     sqlserver: "SQL Server",
   }[selectedExportFormat];
+  const approvedQualitySummary = contract.kind === "with_contract"
+    && contract.gate.kind === "ready"
+    && contract.gate.result.passed
+    ? `${contract.gate.result.totalRules.toLocaleString()} ${contract.gate.result.totalRules === 1 ? "regla aprobada" : "reglas aprobadas"} sobre ${contract.gate.result.rowCount.toLocaleString()} ${contract.gate.result.rowCount === 1 ? "fila" : "filas"}`
+    : null;
   useEffect(() => {
     if (!rulesEditorOpen || pendingRuleFocus === null) return;
     focusQualityRule(pendingRuleFocus);
@@ -1459,46 +1466,92 @@ export function DeliveryPhase({
         />
       )}
       {exportState.kind === "success" && (
-        <>
-          <p className="notice notice--success" role="status">
-            {exportState.result.format === "PostgreSQL" || exportState.result.format === "MySQL" || exportState.result.format === "SQL Server"
-              ? `${exportState.result.format} actualizado en ${exportState.result.fileName}.`
-              : `${exportState.result.format} exportado como ${exportState.result.fileName} (${formatFileSize(exportState.result.fileSizeBytes)}).`}
-            {exportState.result.protectedColumnCount > 0 && (
-              <> Privacidad aplicada a {exportState.result.protectedColumnCount} columnas: {exportState.result.protectedColumns?.join(", ")}.</>
+        <section className="delivery-result" aria-labelledby="delivery-result-title" aria-live="polite">
+          <div className="delivery-result__heading">
+            <div>
+              <p className="step">Entrega completada</p>
+              <h3 id="delivery-result-title">Copia lista</h3>
+              <p>La salida se publicó correctamente. El dataset preparado sigue disponible en Columnia.</p>
+            </div>
+            {exportState.result.format !== "PostgreSQL"
+              && exportState.result.format !== "MySQL"
+              && exportState.result.format !== "SQL Server" && (
+              <button
+                type="button"
+                className="primary-action"
+                onClick={() => void revealLastExport()}
+                disabled={openOutputState === "working"}
+              >
+                {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta"}
+              </button>
             )}
-            {exportState.result.format === "Paquete Columnia" && (
-              <> Incluye dataset.csv, dictionary.json, delivery-summary.md y manifest.json{recipeDraft ? "; recipe.json incluye la receta validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.</>
-            )}
-          </p>
-          {exportState.result.format !== "PostgreSQL"
-            && exportState.result.format !== "MySQL"
-            && exportState.result.format !== "SQL Server" && (
-            <>
-              <div className="notice__actions">
-                <button
-                  type="button"
-                  className="secondary-action"
-                  onClick={() => void revealLastExport()}
-                  disabled={openOutputState === "working"}
-                >
-                  {openOutputState === "working" ? "Abriendo carpeta…" : "Abrir carpeta de exportación"}
-                </button>
+          </div>
+          <dl className="delivery-result__facts">
+            <div>
+              <dt>{exportState.result.format === "PostgreSQL" || exportState.result.format === "MySQL" || exportState.result.format === "SQL Server" ? "Destino" : "Archivo"}</dt>
+              <dd>{exportState.result.fileName}</dd>
+            </div>
+            <div>
+              <dt>Formato</dt>
+              <dd>{exportState.result.format}</dd>
+            </div>
+            {exportState.result.format !== "PostgreSQL"
+              && exportState.result.format !== "MySQL"
+              && exportState.result.format !== "SQL Server" && (
+              <div>
+                <dt>Tamaño</dt>
+                <dd>{formatFileSize(exportState.result.fileSizeBytes)}</dd>
               </div>
-              {openOutputState === "opened" && (
-                <p className="notice notice--success" role="status">Carpeta de exportación abierta.</p>
-              )}
-              {openOutputState === "error" && (
-                <p className="notice notice--error" role="alert">No se pudo abrir la carpeta de exportación.</p>
-              )}
-            </>
+            )}
+            <div>
+              <dt>Calidad</dt>
+              <dd>{approvedQualitySummary ?? "Salida confirmada sin reglas de calidad"}</dd>
+            </div>
+            <div>
+              <dt>Preparación incluida</dt>
+              <dd>{preparationChanges.length > 0
+                ? `${preparationChanges.length.toLocaleString()} cambios del historial activo`
+                : "Dataset activo sin cambios registrados en el historial"}</dd>
+            </div>
+            <div>
+              <dt>Protección adicional</dt>
+              <dd>{exportState.result.protectedColumnCount > 0
+                ? `${exportState.result.protectedColumnCount.toLocaleString()} columnas: ${exportState.result.protectedColumns?.join(", ")}`
+                : "No aplicada"}</dd>
+            </div>
+          </dl>
+          {preparationChanges.length > 0 && (
+            <details className="delivery-result__changes">
+              <summary>Ver cambios incluidos ({preparationChanges.length.toLocaleString()})</summary>
+              <ol>{preparationChanges.map((change, index) => <li key={`${index}-${change}`}>{change}</li>)}</ol>
+            </details>
           )}
-        </>
+          {exportState.result.format === "Paquete Columnia" && (
+            <p className="delivery-result__note">
+              Incluye dataset.csv, dictionary.json, delivery-summary.md y manifest.json{recipeDraft ? "; recipe.json incluye la receta validada" : ""}, además del reporte de calidad cuando hay reglas aprobadas.
+            </p>
+          )}
+          {contract.kind === "without_contract" && (
+            <p className="notice notice--warning">Esta copia no incluye una validación de calidad.</p>
+          )}
+          {openOutputState === "opened" && (
+            <p className="notice notice--success" role="status">Carpeta de exportación abierta.</p>
+          )}
+          {openOutputState === "error" && (
+            <p className="notice notice--error" role="alert">No se pudo abrir la carpeta de exportación.</p>
+          )}
+        </section>
+      )}
+      {exportState.kind === "cancelled" && (
+        <div className="notice" role="status">
+          <strong>Exportación cancelada.</strong> No se publicó una salida; el dataset preparado sigue disponible para reintentar.
+        </div>
       )}
       {exportState.kind === "error" && (
-        <p className="notice notice--error" role="alert">
-          No se pudo exportar: {exportState.message}
-        </p>
+        <div className="notice notice--error" role="alert">
+          <strong>No se pudo crear la copia.</strong> {exportState.message}
+          <p>El dataset preparado sigue disponible. Revisa el destino e inténtalo de nuevo.</p>
+        </div>
       )}
     </>
   );
