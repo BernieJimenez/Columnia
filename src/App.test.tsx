@@ -811,11 +811,10 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
 
     expect(await screen.findByText("Contrato aprobado")).toBeInTheDocument();
     expect(validationSpy).toHaveBeenCalledWith([{ column: "total", kind: "not_null", maxInvalid: 0 }]);
-    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
     await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(
       "csv", [{ column: "total", kind: "not_null", maxInvalid: 0 }], false, expect.any(Function), "none",
     ));
@@ -837,20 +836,22 @@ describe("App", () => {
         passed: true, rowCount: 4, totalRules: 1, failedRules: 0,
         rules: [{ column: "correo", kind: "not_null", maxInvalid: 0, checkedCount: 4, invalidCount: 0, invalidPct: 0, passed: true }],
       });
+    const exportSpy = vi.spyOn(bridge, "exportDataset").mockResolvedValue(null);
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
     await switchPhase("Entregar");
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
     expect(await screen.findByText("Contrato fallido")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+    expect(exportSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
     expect(await screen.findByText("Contrato aprobado")).toBeInTheDocument();
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Inválidos regla 1" }), { target: { value: "1" } });
     expect(screen.getByText("Resultado desactualizado")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
   });
 
   it("normaliza los nombres de columnas desde Preparar", async () => {

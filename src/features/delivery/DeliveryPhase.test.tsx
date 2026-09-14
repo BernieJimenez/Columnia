@@ -106,8 +106,8 @@ describe("DeliveryPhase", () => {
     });
   });
 
-  it("habilita la exportación con contrato solo después de aprobar el gate", async () => {
-    vi.spyOn(bridge, "validateQualityRules").mockResolvedValue({
+  it("valida y exporta desde una acción cuando el contrato aprueba", async () => {
+    const validate = vi.spyOn(bridge, "validateQualityRules").mockResolvedValue({
       passed: true,
       rowCount: 2,
       totalRules: 1,
@@ -126,23 +126,93 @@ describe("DeliveryPhase", () => {
     render(<DeliveryHarness onExport={onExport} />);
 
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
-    const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
-    expect(exportButton).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    const exportButton = screen.getByRole("button", { name: "Validar y exportar CSV" });
+    expect(exportButton).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Validar contrato" })).not.toBeInTheDocument();
+    fireEvent.click(exportButton);
 
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent("Contrato aprobado"),
     );
-    expect(exportButton).toBeEnabled();
-    fireEvent.click(exportButton);
-    await waitFor(() => expect(onExport).toHaveBeenCalledWith({
+    expect(validate).toHaveBeenCalledOnce();
+    expect(onExport).toHaveBeenCalledWith({
       format: "csv",
       privacyMode: "none",
       validation: {
         kind: "contract",
         rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
       },
-    }));
+    });
+    expect(onExport).toHaveBeenCalledOnce();
+  });
+
+  it("no exporta si falla la validación iniciada desde la acción principal", async () => {
+    const validate = vi.spyOn(bridge, "validateQualityRules").mockResolvedValue({
+      passed: false,
+      rowCount: 2,
+      totalRules: 1,
+      failedRules: 1,
+      rules: [{
+        column: "total",
+        kind: "not_null",
+        maxInvalid: 0,
+        checkedCount: 2,
+        invalidCount: 1,
+        invalidPct: 50,
+        passed: false,
+      }],
+    });
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Contrato fallido"));
+    expect(screen.getByText("Valores nulos · total")).toBeInTheDocument();
+    expect(validate).toHaveBeenCalledOnce();
+    expect(onExport).not.toHaveBeenCalled();
+  });
+
+  it("exporta directamente cuando el gate vigente ya está aprobado", () => {
+    const validate = vi.spyOn(bridge, "validateQualityRules");
+    const onExport = vi.fn();
+    const passedContract: DeliveryContractState = {
+      kind: "with_contract",
+      rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      gate: {
+        kind: "ready",
+        result: {
+          passed: true,
+          rowCount: 2,
+          totalRules: 1,
+          failedRules: 0,
+          rules: [{
+            column: "total",
+            kind: "not_null",
+            maxInvalid: 0,
+            checkedCount: 2,
+            invalidCount: 0,
+            invalidPct: 0,
+            passed: true,
+          }],
+        },
+      },
+    };
+    render(<DeliveryHarness onExport={onExport} initialContract={passedContract} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar CSV" }));
+
+    expect(validate).not.toHaveBeenCalled();
+    expect(onExport).toHaveBeenCalledOnce();
+    expect(onExport).toHaveBeenCalledWith({
+      format: "csv",
+      privacyMode: "none",
+      validation: {
+        kind: "contract",
+        rules: [{ column: "total", kind: "not_null", maxInvalid: 0 }],
+      },
+    });
   });
 
   it("ofrece exportación JSON con la misma compuerta de calidad", () => {
@@ -654,7 +724,7 @@ describe("DeliveryPhase", () => {
     expect(screen.getByText(/1 incumplimientos entre 2 elementos evaluados \(50\.00%\)/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Revisar regla 1" }));
     expect(document.activeElement).toBe(document.getElementById("quality-rule-1"));
-    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Validar y exportar CSV" })).toBeEnabled();
 
     const staleContract: DeliveryContractState = {
       ...failedContract,
@@ -670,8 +740,9 @@ describe("DeliveryPhase", () => {
     cleanup();
     render(<DeliveryHarness onExport={onExport} />);
     fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Validar contrato" }));
+    fireEvent.click(screen.getByRole("button", { name: "Validar y exportar CSV" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("gate no disponible"));
+    expect(onExport).not.toHaveBeenCalled();
   });
 
   it("maneja importaciones y guardados cancelados, nulos y fallidos", async () => {

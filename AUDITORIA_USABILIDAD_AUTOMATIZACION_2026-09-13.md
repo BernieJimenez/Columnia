@@ -115,7 +115,7 @@ Ejemplo conceptual, no resultado medido de un archivo real. Las casillas anterio
 
 ## Casillas de implementación priorizadas
 
-Todas están pendientes: esta revisión produce el diseño y los criterios, no implementa el rediseño. P1 = desbloquea el flujo; P2 = mejora productividad; P3 = ampliación condicionada por uso. S/M/L son tamaños relativos, no estimaciones de calendario.
+La lista conserva el diseño y los criterios; las casillas reflejan el estado de implementación a la fecha indicada en cada avance. P1 = desbloquea el flujo; P2 = mejora productividad; P3 = ampliación condicionada por uso. S/M/L son tamaños relativos, no estimaciones de calendario.
 
 ### Primera entrega: menos decisiones y estados honestos
 
@@ -139,7 +139,7 @@ Todas están pendientes: esta revisión produce el diseño y los criterios, no i
 
 ### Tercera entrega: salida y reutilización
 
-- [ ] **OUT01 · P1 · M — Validar y guardar copia.** Coordinar contrato existente y exportación desde una acción. **Cierre:** contrato fallido detiene la escritura; exportación sin reglas sigue siendo una elección explícita y comprensible.
+- [x] **OUT01 · P1 · M — Validar y guardar copia.** Coordinar contrato existente y exportación desde una acción. **Cierre:** contrato fallido detiene la escritura; exportación sin reglas sigue siendo una elección explícita y comprensible.
 - [ ] **OUT02 · P1 · M — Reglas resumidas.** Mostrar «qué se exige» y los incumplimientos; mover el constructor a edición. **Cierre:** un usuario puede exportar con reglas guardadas sin manejar tipos técnicos de reglas.
 - [ ] **OUT03 · P2 · M — Preferencias de entrega reutilizables.** Recordar formato y selección compatibles con la tarea. **Cierre:** cambios de esquema invalidan selecciones incompatibles; no persistir credenciales ni asumir permiso de sobrescritura.
 - [ ] **OUT04 · P2 · M — Resultado accionable.** Mostrar archivo generado, cambios, calidad y limitaciones; abrir archivo o carpeta cuando exista soporte. **Cierre:** «terminado» aparece solo tras publicación exitosa; fallo/cancelación preserva el trabajo recuperable.
@@ -200,6 +200,10 @@ Preparar ahora propone un plan ligado a la revisión actual: recortar espacios e
 El plan también ofrece unificar marcadores conocidos de ausencia cuando el perfil detecta alguno. La opción aparece desmarcada por defecto y se combina con el recorte y la normalización de encabezados en una sola candidata; cada celda transformada cuenta una sola vez aunque pase por más de una operación. Se retiró la acción independiente «Convertir centinelas a nulos» de la ruta guiada.
 
 Esto es avance parcial de AU01, AU02, AU03 y CO05. El plan aún no reúne las señales de limpieza, decisiones sobre datos ambiguos, validación y salida en un contrato común; el estado común para todas las operaciones también queda pendiente. No se promete que esta unidad cubra las transformaciones que se ejecutan por otros comandos. La próxima etapa debe ampliar el plan sin encadenar llamadas que publiquen cada una un estado parcial. Los cambios que alteran significado o eliminan datos conservan aprobación explícita. La revisión estática y las pruebas automatizadas no sustituyen pruebas con usuarios; CO07 sigue pendiente.
+
+### Avance de implementación · entrega integrada · 2026-09-14
+
+En Entregar, la acción principal combina validación y exportación cuando existe un contrato. Si las reglas fallan o la validación da error, no solicita la exportación; si aprueban, continúa con el exportador, que conserva su comprobación final antes de escribir. Se eliminó el botón separado «Validar contrato». Sin contrato, se conserva la confirmación explícita de exportar sin validar. Las pruebas de integración verifican el fallo, la aprobación, la invalidación al cambiar reglas y que una exportación sin contrato no se vuelve implícita. OUT02, sobre resumir reglas y esconder el constructor tras edición, sigue pendiente.
 
 ## Fuentes locales
 

@@ -189,9 +189,8 @@ export function DeliveryPhase({
   const rules = contract.kind === "with_contract" ? contract.rules : [];
   const validationError = validateQualityRuleDraft(rules, dataset);
   const gatePassed = contract.gate.kind === "ready" && contract.gate.result.passed;
-  const exportAllowed = contract.kind === "with_contract"
-    ? gatePassed
-    : contract.confirmation === "confirmed";
+  const needsUnvalidatedConfirmation = contract.kind === "without_contract"
+    && contract.confirmation !== "confirmed";
   const databaseTargetError = isDatabaseExportFormat(selectedExportFormat)
     ? validateDatabaseTargetDraft(databaseTarget)
     : null;
@@ -216,10 +215,6 @@ export function DeliveryPhase({
     mysql: "MySQL",
     sqlserver: "SQL Server",
   }[selectedExportFormat];
-  const exportRequirement = contract.kind === "with_contract"
-    ? "Valida y aprueba las reglas para habilitar la exportación."
-    : "Confirma abajo que quieres exportar sin validar la calidad.";
-
   function changeRules(nextRules: QualityRule[]) {
     setQualityFileState({ kind: "idle" });
     onContractAction({ kind: "rules_changed", rules: nextRules });
@@ -344,23 +339,6 @@ export function DeliveryPhase({
     });
   }
 
-  async function runQualityGate() {
-    if (contract.kind !== "with_contract" || validationError) return;
-    onContractAction({ kind: "gate_changed", gate: { kind: "loading" } });
-    try {
-      const result = await validateQualityRules(contract.rules);
-      onContractAction({ kind: "gate_changed", gate: { kind: "ready", result } });
-    } catch (error: unknown) {
-      onContractAction({
-        kind: "gate_changed",
-        gate: {
-          kind: "error",
-          message: error instanceof Error ? error.message : String(error),
-        },
-      });
-    }
-  }
-
   async function importQualityRules() {
     setQualityFileState({ kind: "idle" });
     setMigrationState({ kind: "working" });
@@ -395,12 +373,30 @@ export function DeliveryPhase({
     }
   }
 
-  function requestExport(format: ExportFormat) {
+  async function requestExport(format: ExportFormat) {
     setOpenOutputState("idle");
     if (isDatabaseExportFormat(format)
       && (databaseTargetError !== null || databaseConnectionState.kind !== "ready")) return;
     const databaseOptions = isDatabaseExportFormat(format) ? { databaseTarget } : {};
     if (contract.kind === "with_contract") {
+      if (validationError) return;
+      if (!gatePassed) {
+        onContractAction({ kind: "gate_changed", gate: { kind: "loading" } });
+        try {
+          const result = await validateQualityRules(contract.rules);
+          onContractAction({ kind: "gate_changed", gate: { kind: "ready", result } });
+          if (!result.passed) return;
+        } catch (error: unknown) {
+          onContractAction({
+            kind: "gate_changed",
+            gate: {
+              kind: "error",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          });
+          return;
+        }
+      }
       onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "contract", rules: contract.rules } });
     } else if (contract.confirmation === "confirmed") {
       onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "explicitly_unvalidated" } });
@@ -1138,8 +1134,6 @@ export function DeliveryPhase({
               <div className="quality-contract__actions">
                 <span>{rules.length}/{MAX_QUALITY_RULES} reglas</span>
                 <button type="button" onClick={addRule} disabled={busy || rules.length >= MAX_QUALITY_RULES}>Añadir regla</button>
-                <button type="button" className="primary-action" onClick={() => void runQualityGate()}
-                  disabled={busy || validationError !== null}>Validar contrato</button>
               </div>
             </div>
             {validationError && <p className="notice notice--error" role="alert">{validationError}</p>}
@@ -1357,10 +1351,12 @@ export function DeliveryPhase({
           <button
             className="primary-action export-action"
             type="button"
-            onClick={() => requestExport(selectedExportFormat)}
-            disabled={busy || !exportAllowed || !databaseReady}
+            onClick={() => void requestExport(selectedExportFormat)}
+            disabled={busy || validationError !== null || needsUnvalidatedConfirmation || !databaseReady}
           >
-            Exportar {exportFormatLabel}
+            {contract.kind === "with_contract" && !gatePassed
+              ? `Validar y exportar ${exportFormatLabel}`
+              : `Exportar ${exportFormatLabel}`}
           </button>
         </div>
         {selectedExportFormat === "bundle" && (
@@ -1370,7 +1366,12 @@ export function DeliveryPhase({
               : "No hay una receta activa para incluir; el paquete contendrá dataset.csv, dictionary.json, delivery-summary.md y manifest.json."}
           </p>
         )}
-        {!exportAllowed && <p className="export-requirement">{exportRequirement}</p>}
+        {contract.kind === "with_contract" && !gatePassed && !validationError && (
+          <p className="export-requirement">El contrato se comprobará antes de crear la copia.</p>
+        )}
+        {needsUnvalidatedConfirmation && (
+          <p className="export-requirement">Confirma arriba si quieres exportar sin validar la calidad.</p>
+        )}
       </section>
       {exportState.kind === "loading" && (
         <OperationProgressView
