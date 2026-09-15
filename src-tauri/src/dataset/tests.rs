@@ -8929,10 +8929,15 @@ fn benchmark_source_backed_export_cooperative_cancellation() {
         );
         finished.store(true, Ordering::SeqCst);
 
-        cancellation_watcher
+        let watcher_result = cancellation_watcher
             .join()
-            .expect("el observador de cancelación no debe entrar en pánico")
-            .expect("la solicitud debe ocurrir mientras existe salida temporal parcial");
+            .expect("el observador de cancelación no debe entrar en pánico");
+        if let Err(watcher_error) = watcher_result {
+            if let Err(export_error) = &result {
+                panic!("{watcher_error} Error de exportación observado: {export_error}");
+            }
+            panic!("{watcher_error}");
+        }
         let request_started = requested_at
             .lock()
             .expect("el reloj de cancelación debe estar disponible")

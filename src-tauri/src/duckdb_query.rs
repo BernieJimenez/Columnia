@@ -279,6 +279,13 @@ where
             format!("No se pudo preparar el espacio temporal para la exportación CSV: {error}")
         })?;
         configure_duckdb_resources(connection, resource_directory.path())?;
+        // A single writer keeps wide source-backed exports within the bounded
+        // memory contract while preserve_insertion_order retains input order.
+        connection
+            .execute_batch("SET threads = 1;")
+            .map_err(|error| {
+                format!("DuckDB no pudo limitar los hilos de exportación CSV: {error}")
+            })?;
         let source = csv_export_scan_expression(source_path, source_format);
         let destination = destination
             .to_string_lossy()
