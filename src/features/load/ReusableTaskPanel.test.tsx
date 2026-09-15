@@ -72,7 +72,7 @@ beforeEach(() => {
 });
 
 describe("ReusableTaskPanel", () => {
-  it("permanece plegado y revisa una tarea antes de habilitar su uso", async () => {
+  it("permanece plegado y revisa una tarea antes de permitir su uso en el dataset actual", async () => {
     const onApply = vi.fn();
     render(
       <ReusableTaskPanel
@@ -90,7 +90,7 @@ describe("ReusableTaskPanel", () => {
     fireEvent.click(screen.getByText("Reutilizar una tarea"));
 
     fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
-    const apply = screen.getByRole("button", { name: "Usar esta configuración" });
+    const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
     expect(apply).toBeDisabled();
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("El esquema es compatible"));
@@ -129,11 +129,12 @@ describe("ReusableTaskPanel", () => {
     expect(mismatch).toHaveTextContent("Falta la columna “id”.");
     expect(mismatch).toHaveTextContent("“amount” cambió de Float64 a String.");
     expect(mismatch).toHaveTextContent("Cambió el orden de las columnas.");
-    expect(screen.getByRole("button", { name: "Usar esta configuración" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aplicar al dataset actual" })).toBeDisabled();
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it("permite abrir una tarea sin esquema, pero no aplicarla", async () => {
+  it("permite preparar una tarea sin esquema para que su perfil gobierne la próxima importación", async () => {
+    const onPrepareImport = vi.fn();
     render(
       <ReusableTaskPanel
         connected
@@ -141,6 +142,7 @@ describe("ReusableTaskPanel", () => {
         schema={null}
         draft={draft}
         onApply={vi.fn()}
+        onPrepareImport={onPrepareImport}
       />,
     );
     await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
@@ -150,7 +152,11 @@ describe("ReusableTaskPanel", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Abre un archivo para comprobar su esquema");
     expect(bridge.openReusableTask).toHaveBeenCalledWith(taskSummary.id);
     expect(bridge.checkReusableTaskSchema).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Usar esta configuración" })).toBeDisabled();
+    expect(screen.getByText("Configuración que se reutilizará")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
+    expect(onPrepareImport).toHaveBeenCalledWith(taskSummary.id, savedTask);
   });
 
   it("guarda la configuración actual con solo el nombre y no ofrece borrado", async () => {

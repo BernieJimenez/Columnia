@@ -123,6 +123,59 @@ function mockDatasetLoad(dataset: DatasetPreview) {
   return vi.spyOn(bridge, "loadDatasetSelection").mockResolvedValue(dataset);
 }
 
+function reusableTaskFixture() {
+  const task: ReusableTask = {
+    version: 1,
+    name: "Cierre recurrente",
+    importProfile: {
+      version: 1,
+      format: "csv",
+      headerMode: "firstRow",
+      dateConvention: "dmy",
+      numberConvention: "commaDecimalDotGrouping",
+      schema: [{ name: "id", dataType: "Int64" }],
+    },
+    recipe: {
+      version: 1,
+      name: "Renombrar id",
+      savedAt: "2026-09-01T10:00:00Z",
+      recipe: {
+        renames: [{ from: "id", to: "id_limpio" }],
+        casts: [], dateParses: [], filters: [], calculatedColumn: null,
+        findReplace: null, keepColumns: null, splitColumn: null, mergeColumns: null,
+        outlierTreatments: [], groupSummary: null, contactNormalizations: [], textExtractions: [],
+      },
+    },
+    qualityRules: [{ column: "id", kind: "not_null", maxInvalid: 0 }],
+    outputFormat: "json",
+    privacyMode: "mask",
+  };
+  const summary: ReusableTaskSummary = {
+    id: "task-recurring",
+    name: task.name,
+    createdAt: "2026-09-01T10:00:00Z",
+    updatedAt: "2026-09-01T10:00:00Z",
+    inputColumnCount: 1,
+    hasRecipe: true,
+    qualityRuleCount: 1,
+    outputFormat: "json",
+  };
+  return { task, summary };
+}
+
+async function prepareReusableTaskBeforeImport(task: ReusableTask, summary: ReusableTaskSummary) {
+  vi.spyOn(bridge, "listReusableTasks").mockResolvedValue([summary]);
+  vi.spyOn(bridge, "openReusableTask").mockResolvedValue(task);
+  renderAppWithHeaderConfirmation();
+  fireEvent.click(await screen.findByText("Reutilizar una tarea"));
+  await screen.findByLabelText("Tarea guardada");
+  fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: summary.id } });
+  await screen.findByText("Configuración que se reutilizará");
+  fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
+  expect(await screen.findByText(/Tarea “Cierre recurrente” preparada/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Seleccionar dataset" }));
+}
+
 describe("App", () => {
   it("usa la acción contextual de Review y marca Review como hecha al continuar explícitamente", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -242,7 +295,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
     await screen.findByText("El esquema es compatible. Puedes aplicar la configuración guardada.");
     expect(checkSchemaSpy).toHaveBeenCalledWith(taskSummary.id, [{ name: "id", dataType: "Int64" }]);
-    fireEvent.click(screen.getByRole("button", { name: "Usar esta configuración" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar al dataset actual" }));
 
     expect(screen.getByRole("button", { name: "Preparar" })).toHaveAttribute("aria-current", "step");
     fireEvent.click(await screen.findByRole("tab", { name: "Transformaciones" }));
@@ -258,6 +311,81 @@ describe("App", () => {
     await switchPhase("Revisar");
     fireEvent.click(screen.getByRole("tab", { name: "Vista previa" }));
     expect(await screen.findByRole("cell", { name: "10" })).toBeInTheDocument();
+    expect(applyRecipeSpy).not.toHaveBeenCalled();
+  });
+
+  it("preselecciona una tarea antes del archivo, usa su perfil y pide aplicar el resto de la configuración", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const { task, summary } = reusableTaskFixture();
+    mockDatasetLoad({
+      fileName: "cierre-nuevo.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "id", dataType: "Int64" }], rows: [["20"]],
+    });
+    const applyRecipeSpy = vi.spyOn(bridge, "applyTransformRecipe");
+
+    await prepareReusableTaskBeforeImport(task, summary);
+    await screen.findByRole("button", { name: "Cargar archivo" });
+    await waitFor(() => expect(bridge.loadDatasetSelection).toHaveBeenCalledOnce());
+    const importCall = vi.mocked(bridge.loadDatasetSelection).mock.calls[0];
+    expect(importCall?.[4]).toEqual(task.importProfile);
+
+    const review = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
+    expect(within(review).getByText("Renombrar id")).toBeInTheDocument();
+    expect(within(review).getByText("JSON · mask")).toBeInTheDocument();
+    expect(applyRecipeSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(review).getByRole("button", { name: "Aplicar tarea guardada" }));
+    await screen.findByRole("tab", { name: "Transformaciones" });
+    fireEvent.click(screen.getByRole("tab", { name: "Transformaciones" }));
+    expect(screen.getByRole("textbox", { name: "Nombre de la receta" })).toHaveValue("Renombrar id");
+    expect(applyRecipeSpy).not.toHaveBeenCalled();
+
+    await switchPhase("Entregar");
+    expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("json");
+    expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("mask");
+  });
+
+  it("detiene el reuso ante un esquema distinto y requiere confirmación antes de importar o aplicar los ajustes", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const { task, summary } = reusableTaskFixture();
+    const mismatch = {
+      code: "importProfileSchemaMismatch",
+      missingColumns: ["id"],
+      addedColumns: ["identificador"],
+      changedTypes: [],
+    } as const;
+    mockDatasetLoad({
+      fileName: "cierre-cambiado.csv", fileSizeBytes: 32, rowCount: 1, columnCount: 1,
+      columns: [{ name: "identificador", dataType: "String" }], rows: [["20"]],
+    }).mockRejectedValueOnce(new Error(`__columnia_import_profile_mismatch__:${JSON.stringify(mismatch)}`));
+    const loadSpy = vi.mocked(bridge.loadDatasetSelection);
+    const applyRecipeSpy = vi.spyOn(bridge, "applyTransformRecipe");
+
+    await prepareReusableTaskBeforeImport(task, summary);
+    const mismatchDialog = await screen.findByRole("alertdialog", { name: "El esquema difiere del perfil guardado" });
+    expect(within(mismatchDialog).getByText("Falta la columna “id”")).toBeInTheDocument();
+    expect(within(mismatchDialog).getByText("Columna nueva “identificador”")).toBeInTheDocument();
+    expect(loadSpy).toHaveBeenCalledOnce();
+    expect(loadSpy.mock.calls[0]?.[4]).toEqual(task.importProfile);
+    expect(applyRecipeSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(mismatchDialog).getByRole("button", { name: "Importar con esquema nuevo" }));
+    const applicationReview = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
+    expect(applicationReview).toHaveTextContent("Confirmaste un esquema distinto");
+    expect(loadSpy).toHaveBeenCalledTimes(2);
+    expect(loadSpy.mock.calls[1]?.[4]).toBeNull();
+    expect(applyRecipeSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(applicationReview).getByRole("button", { name: "Seguir sin esos ajustes" }));
+    await switchPhase("Entregar");
+    expect(screen.getByRole("combobox", { name: "Formato de exportación" })).toHaveValue("csv");
+    expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("none");
     expect(applyRecipeSpy).not.toHaveBeenCalled();
   });
 

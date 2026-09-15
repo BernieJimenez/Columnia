@@ -48,6 +48,7 @@ function formatFileSize(bytes: number): string {
 interface LoadPhaseProps {
   children?: ReactNode;
   reusableTaskPanel?: ReactNode;
+  pendingTaskName?: string | null;
   runtime: LoadRuntimeState;
   disabled?: boolean;
   datasetStatus: DatasetStatus;
@@ -70,6 +71,7 @@ interface LoadPhaseProps {
 export function LoadPhase({
   children,
   reusableTaskPanel,
+  pendingTaskName = null,
   runtime,
   disabled = false,
   datasetStatus,
@@ -278,6 +280,11 @@ export function LoadPhase({
             El perfil es v{profileReview.profile.version} para {profileReview.profile.format.toUpperCase()} y contiene {profileReview.profile.schema.length} columnas de esquema.
             Columnia lo comparará antes de reemplazar el dataset activo.
           </p>
+          {pendingTaskName && (
+            <p className="notice" role="note">
+              El perfil de “{pendingTaskName}” se usará en esta importación. La receta, las reglas y la salida se ofrecerán para aplicar después de cargar.
+            </p>
+          )}
           <div className="sheet-import-summary">
             <dl>
               <div>
@@ -353,6 +360,7 @@ export function LoadPhase({
           <h3 id="import-schema-mismatch-title">El esquema difiere del perfil guardado</h3>
           <p id="import-schema-mismatch-description">
             El dataset activo se conserva. No se aplicó ningún cast ni mapeo. Revisa los cambios antes de decidir.
+            {pendingTaskName ? ` La tarea “${pendingTaskName}” no se aplicará sin una confirmación posterior.` : ""}
           </p>
           <SchemaDifferenceList mismatch={schemaMismatch.mismatch} />
           <p className="notice" role="note">
@@ -396,6 +404,7 @@ export function LoadPhase({
                 id="workbook-sheet"
                 value={sheetSelection.selectedSheetId}
                 onChange={(event) => onSheetAction({ kind: "sheet_changed", sheetId: event.target.value })}
+                disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
               >
                 {sheetSelection.source.sheets.map((sheet) => (
                   <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
@@ -411,6 +420,7 @@ export function LoadPhase({
                 name="spreadsheet-header-mode"
                 checked={sheetSelection.headerMode === "firstRow"}
                 onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "firstRow" })}
+                disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
               />
               {sheetSelection.source.format === "excel"
                 ? "Usar la primera fila como encabezados"
@@ -422,6 +432,7 @@ export function LoadPhase({
                 name="spreadsheet-header-mode"
                 checked={sheetSelection.headerMode === "generated"}
                 onChange={() => onSheetAction({ kind: "header_mode_changed", headerMode: "generated" })}
+                disabled={Boolean(pendingTaskName && sheetSelection.profileCanBeApplied)}
               />
               {sheetSelection.source.format === "excel"
                 ? "Generar encabezados (column_1, column_2…)"
@@ -432,14 +443,20 @@ export function LoadPhase({
             <section className="sheet-import-summary" aria-labelledby="saved-import-profile-title">
               <h4 id="saved-import-profile-title">Perfil reutilizable del proyecto</h4>
               {sheetSelection.profileCanBeApplied ? (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={sheetSelection.useSavedProfile}
-                    onChange={(event) => onSheetAction({ kind: "profile_toggled", useProfile: event.target.checked })}
-                  />
-                  Usar {sheetSelection.source.format === "excel" ? "la hoja, el encabezado" : "el encabezado"} y esquema guardados si coinciden
-                </label>
+                pendingTaskName ? (
+                  <p role="note">
+                    Se usará el perfil de “{pendingTaskName}” para elegir {sheetSelection.source.format === "excel" ? "hoja y encabezado" : "encabezado"}. Si el esquema cambia, Columnia pedirá confirmación antes de importar.
+                  </p>
+                ) : (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={sheetSelection.useSavedProfile}
+                      onChange={(event) => onSheetAction({ kind: "profile_toggled", useProfile: event.target.checked })}
+                    />
+                    Usar {sheetSelection.source.format === "excel" ? "la hoja, el encabezado" : "el encabezado"} y esquema guardados si coinciden
+                  </label>
+                )
               ) : (
                 <p role="note">
                   La hoja guardada “{sheetSelection.suggestedProfile.sheetName}” no está disponible. No se elegirá otra hoja automáticamente.

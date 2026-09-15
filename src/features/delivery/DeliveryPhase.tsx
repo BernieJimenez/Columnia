@@ -169,6 +169,18 @@ function summarizeQualityRule(rule: QualityRule): string {
   return `${columns}: ${QUALITY_RULE_SUMMARY[rule.kind]}${toleranceSummary}.`;
 }
 
+function databaseTargetErrorField(
+  message: string | null,
+): "connectionString" | "schema" | "table" | null {
+  if (!message) return null;
+  if (message.startsWith("Indica la cadena") || message.startsWith("La cadena ODBC")) {
+    return "connectionString";
+  }
+  if (message.startsWith("El esquema")) return "schema";
+  if (message.startsWith("La tabla")) return "table";
+  return null;
+}
+
 function focusQualityRule(index: number) {
   const ruleElement = document.getElementById(`quality-rule-${index + 1}`);
   ruleElement?.scrollIntoView?.({ behavior: "smooth", block: "center" });
@@ -256,6 +268,7 @@ export function DeliveryPhase({
   const databaseTargetError = isDatabaseExportFormat(selectedExportFormat)
     ? validateDatabaseTargetDraft(databaseTarget)
     : null;
+  const invalidDatabaseTargetField = databaseTargetErrorField(databaseTargetError);
   const databaseReady = !isDatabaseExportFormat(selectedExportFormat)
     || (databaseTargetError === null
       && databasePreflightState.kind === "ready"
@@ -1611,6 +1624,8 @@ export function DeliveryPhase({
                   type="password"
                   autoComplete="off"
                   value={databaseTarget.connectionString}
+                  aria-invalid={invalidDatabaseTargetField === "connectionString" || undefined}
+                  aria-describedby={invalidDatabaseTargetField === "connectionString" ? "database-target-validation-error" : undefined}
                   onChange={(event) => changeDatabaseTarget({ connectionString: event.target.value })}
                   disabled={busy}
                   placeholder="Driver={...};Server=...;Database=...;Uid=...;Pwd=..."
@@ -1622,6 +1637,8 @@ export function DeliveryPhase({
                   <input
                     aria-label="Esquema de destino"
                     value={databaseTarget.schema}
+                    aria-invalid={invalidDatabaseTargetField === "schema" || undefined}
+                    aria-describedby={invalidDatabaseTargetField === "schema" ? "database-target-validation-error" : undefined}
                     onChange={(event) => changeDatabaseTarget({ schema: event.target.value })}
                     disabled={busy}
                   />
@@ -1631,6 +1648,8 @@ export function DeliveryPhase({
                   <input
                     aria-label="Tabla de destino"
                     value={databaseTarget.table}
+                    aria-invalid={invalidDatabaseTargetField === "table" || undefined}
+                    aria-describedby={invalidDatabaseTargetField === "table" ? "database-target-validation-error" : undefined}
                     onChange={(event) => changeDatabaseTarget({ table: event.target.value })}
                     disabled={busy}
                   />
@@ -1649,7 +1668,15 @@ export function DeliveryPhase({
                   </select>
                 </label>
               </div>
-              {databaseTargetError && <p className="notice notice--error" role="alert">{databaseTargetError}</p>}
+              {databaseTargetError && (
+                <p
+                  id={invalidDatabaseTargetField ? "database-target-validation-error" : undefined}
+                  className="notice notice--error"
+                  role="alert"
+                >
+                  {databaseTargetError}
+                </p>
+              )}
               <button
                 className="secondary-action"
                 type="button"

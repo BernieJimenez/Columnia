@@ -489,6 +489,8 @@ summary:focus-visible,
 .sheet-import-summary dt { color: var(--text-secondary); font-size: .78rem; font-weight: 800; }
 .sheet-import-summary dd { margin: 0; overflow-wrap: anywhere; font-size: .88rem; }
 .sheet-import-summary p { margin: 12px 0 0; color: var(--text-secondary); font-size: .82rem; }
+.reusable-task-panel__actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.reusable-task-panel__pending { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sheet-dialog__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .operation-progress {
   display: grid;

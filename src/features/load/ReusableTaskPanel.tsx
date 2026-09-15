@@ -9,6 +9,10 @@ interface ReusableTaskPanelProps {
   schema: ReusableTaskSchema | null;
   draft: Omit<ReusableTask, "name"> | null;
   onApply: (task: ReusableTask) => void;
+  onPrepareImport?: (taskId: string, task: ReusableTask) => void;
+  pendingTaskId?: string | null;
+  pendingTaskName?: string | null;
+  onClearPendingImport?: () => void;
 }
 
 export function ReusableTaskPanel({
@@ -17,6 +21,10 @@ export function ReusableTaskPanel({
   schema,
   draft,
   onApply,
+  onPrepareImport = () => undefined,
+  pendingTaskId = null,
+  pendingTaskName = null,
+  onClearPendingImport = () => undefined,
 }: ReusableTaskPanelProps) {
   const reusableTasks = useReusableTasks({ connected, blocked });
   const [selectedTaskId, setSelectedTaskId] = useState("");
@@ -38,6 +46,7 @@ export function ReusableTaskPanel({
     && openedTask !== null
     && reviewIsCurrent
     && checkedCompatibility?.status === "ready";
+  const canPrepareImport = !blocked && !reusableTasks.isBusy && openedTask !== null;
 
   async function openAndReviewTask(taskId: string) {
     if (!taskId || reusableTasks.isBusy) return;
@@ -69,6 +78,10 @@ export function ReusableTaskPanel({
 
   function applySelectedTask() {
     if (canApply && openedTask) onApply(openedTask);
+  }
+
+  function prepareSelectedTask() {
+    if (canPrepareImport && openedTask) onPrepareImport(selectedTaskId, openedTask);
   }
 
   return (
@@ -124,6 +137,38 @@ export function ReusableTaskPanel({
               <p className="recipe-hint" role="status">Comparando el esquema de entrada…</p>
             )}
 
+            {openedTask && (
+              <div className="sheet-import-summary" aria-label="Resumen de la tarea guardada">
+                <h4>Configuración que se reutilizará</h4>
+                <dl>
+                  <div>
+                    <dt>Perfil de entrada</dt>
+                    <dd>
+                      {openedTask.importProfile.format.toUpperCase()} · {openedTask.importProfile.schema.length} columnas ·
+                      {" "}{openedTask.importProfile.headerMode === "generated"
+                        ? "encabezados generados"
+                        : openedTask.importProfile.headerMode === "firstRow"
+                          ? "encabezados de la primera fila"
+                          : "sin selección de encabezados"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Preparación</dt>
+                    <dd>{openedTask.recipe?.name ?? "Sin receta guardada"}</dd>
+                  </div>
+                  <div>
+                    <dt>Validación y salida</dt>
+                    <dd>
+                      {openedTask.qualityRules.length} reglas · {openedTask.outputFormat.toUpperCase()} · privacidad {openedTask.privacyMode}
+                    </dd>
+                  </div>
+                </dl>
+                {openedTask.importProfile.schema.length > 0 && (
+                  <p>Columnas esperadas: {openedTask.importProfile.schema.map((column) => column.name).join(", ")}</p>
+                )}
+              </div>
+            )}
+
             {selectedTaskId && schema === null && (
               <p className="recipe-hint" role="status">
                 Abre un archivo para comprobar su esquema antes de usar esta tarea.
@@ -162,14 +207,37 @@ export function ReusableTaskPanel({
             )}
 
             {selectedTaskId && (
-              <button
-                type="button"
-                className="primary-action"
-                onClick={applySelectedTask}
-                disabled={!canApply}
-              >
-                Usar esta configuración
-              </button>
+              <div className="reusable-task-panel__actions">
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={prepareSelectedTask}
+                  disabled={!canPrepareImport}
+                >
+                  {pendingTaskId === selectedTaskId ? "Tarea lista para importar" : "Preparar próxima importación"}
+                </button>
+                {schema !== null && (
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={applySelectedTask}
+                    disabled={!canApply}
+                  >
+                    Aplicar al dataset actual
+                  </button>
+                )}
+              </div>
+            )}
+
+            {pendingTaskId && (
+              <div className="notice notice--success reusable-task-panel__pending" role="status">
+                <span>
+                  Tarea “{pendingTaskName ?? reusableTasks.tasks.find((task) => task.id === pendingTaskId)?.name ?? "guardada"}” preparada. Su perfil se usará al elegir otro archivo; los demás ajustes se pedirán antes de aplicarse.
+                </span>
+                <button type="button" className="inline-action" onClick={onClearPendingImport} disabled={blocked}>
+                  Quitar
+                </button>
+              </div>
             )}
 
             <form className="project-save reusable-task-panel__save" onSubmit={(event) => void saveCurrentTask(event)}>

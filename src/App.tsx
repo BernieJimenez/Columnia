@@ -16,6 +16,7 @@ import {
 } from "./features/delivery/deliveryModel";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
+import { ModalDialog } from "./components/ModalDialog";
 import {
   beginDatasetLoad,
   createReadyDatasetStatus,
@@ -142,6 +143,17 @@ type AppStatus =
   | { kind: "browser" }
   | { kind: "error"; message: string };
 
+interface QueuedReusableTask {
+  id: string;
+  task: ReusableTask;
+}
+
+interface ReusableTaskApplicationReview {
+  task: ReusableTask;
+  importProfileUsed: boolean;
+  schemaMismatchConfirmed: boolean;
+}
+
 const CONFLICT_PAGE_SIZE = 50;
 
 const loadDeliveryPhase = () => import("./features/delivery/DeliveryPhase");
@@ -216,6 +228,8 @@ export function App() {
   const [selectionFinalizing, setSelectionFinalizing] = useState(false);
   const headerPreviewRequestRef = useRef(0);
   const [activeImportProfile, setActiveImportProfile] = useState<ImportProfile | null>(null);
+  const [queuedReusableTask, setQueuedReusableTask] = useState<QueuedReusableTask | null>(null);
+  const [reusableTaskApplicationReview, setReusableTaskApplicationReview] = useState<ReusableTaskApplicationReview | null>(null);
   const [recentDatasets, setRecentDatasets] = useState<RecentDataset[]>(readRecentDatasets);
   const [sampleDatasets, setSampleDatasets] = useState<SampleDatasetDescriptor[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<SavedRecipe | null>(null);
@@ -229,6 +243,14 @@ export function App() {
   const operationBusyRef = useRef(false);
   const [completedPhases, setCompletedPhases] = useState<Set<WorkflowPhase>>(() => new Set());
   const [recipeSession, setRecipeSession] = useState(0);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const previousPhaseRef = useRef(activePhase);
+
+  useEffect(() => {
+    if (previousPhaseRef.current === activePhase) return;
+    previousPhaseRef.current = activePhase;
+    stageRef.current?.focus({ preventScroll: true });
+  }, [activePhase]);
 
   function bumpDatasetRevision() {
     datasetRevisionRef.current += 1;
@@ -329,6 +351,8 @@ export function App() {
         }
       }
       setLoadInspection({ kind: "idle" });
+      setQueuedReusableTask(null);
+      setReusableTaskApplicationReview(null);
       setActiveImportProfile(workspace.importProfile ?? null);
       setProfileStatus(profile ? { kind: "ready", profile } : { kind: "idle" });
       prepare.resetChangeStatus();
@@ -485,6 +509,8 @@ export function App() {
     headerMode: SpreadsheetHeaderMode | null = null,
     expectedProfile: ImportProfile | null = null,
     profileSeed: ImportProfile | null = expectedProfile,
+    taskForReview: ReusableTask | null = null,
+    schemaMismatchConfirmed = false,
   ) {
     setSelectionFinalizing(true);
     setDatasetStatus((current) => beginDatasetLoad(current));
@@ -499,6 +525,14 @@ export function App() {
         { sheetId, headerMode },
         profileSeed,
       ));
+      if (taskForReview) {
+        setQueuedReusableTask(null);
+        setReusableTaskApplicationReview({
+          task: taskForReview,
+          importProfileUsed: expectedProfile !== null || schemaMismatchConfirmed,
+          schemaMismatchConfirmed,
+        });
+      }
       setRecentDatasets((current) => rememberRecentDataset(current, {
         fileName: source.fileName,
         format: source.format,
@@ -557,25 +591,26 @@ export function App() {
         setLoadInspection({ kind: "idle" });
         return;
       }
+      const selectedImportProfile = queuedReusableTask?.task.importProfile ?? activeImportProfile;
       if (source.format === "excel") {
-        setLoadInspection(workbookInspection(source, activeImportProfile));
+        setLoadInspection(workbookInspection(source, selectedImportProfile));
         return;
       }
       if (source.format === "csv" || source.format === "tsv") {
-        setLoadInspection(delimitedHeaderInspection(source, activeImportProfile));
+        setLoadInspection(delimitedHeaderInspection(source, selectedImportProfile));
         void requestDelimitedHeaderReview(source);
         return;
       }
-      const applicability = activeImportProfile
-        ? importProfileApplicability(activeImportProfile, source)
+      const applicability = selectedImportProfile
+        ? importProfileApplicability(selectedImportProfile, source)
         : null;
-      if (activeImportProfile && applicability?.kind === "applicable") {
+      if (selectedImportProfile && applicability?.kind === "applicable") {
         setLoadInspection({
           kind: "profile_review",
           source,
-          profile: activeImportProfile,
-          dateConvention: activeImportProfile.dateConvention ?? "unresolved",
-          numberConvention: activeImportProfile.numberConvention ?? "unresolved",
+          profile: selectedImportProfile,
+          dateConvention: selectedImportProfile.dateConvention ?? "unresolved",
+          numberConvention: selectedImportProfile.numberConvention ?? "unresolved",
         });
         return;
       }
@@ -630,12 +665,19 @@ export function App() {
     if (action.kind === "confirmed") {
       if (loadInspection.kind === "sheet") {
         if (loadInspection.source.format !== "excel" && !loadInspection.headerReview) return;
+        const queuedProfile = queuedReusableTask?.task.importProfile;
+        const queuedProfileIsApplicable = queuedProfile !== undefined &&
+          importProfileApplicability(queuedProfile, loadInspection.source).kind === "applicable";
+        const selectedProfile = queuedReusableTask
+          ? queuedProfileIsApplicable ? queuedProfile : null
+          : loadInspection.useSavedProfile ? loadInspection.savedProfile : null;
         void loadSelection(
           loadInspection.source,
           loadInspection.source.format === "excel" ? loadInspection.selectedSheetId : null,
           loadInspection.headerMode,
-          loadInspection.useSavedProfile ? loadInspection.savedProfile : null,
-          loadInspection.useSavedProfile ? loadInspection.savedProfile : null,
+          selectedProfile,
+          selectedProfile,
+          queuedReusableTask?.task ?? null,
         );
       }
       return;
@@ -651,7 +693,14 @@ export function App() {
     }
     const { source, profile } = loadInspection;
     if (action.kind === "use_defaults") {
-      void loadSelection(source, null, null, null, null);
+      void loadSelection(
+        source,
+        null,
+        null,
+        null,
+        null,
+        queuedReusableTask?.task ?? null,
+      );
       return;
     }
     if (action.kind === "use_profile") {
@@ -660,7 +709,14 @@ export function App() {
         dateConvention: loadInspection.dateConvention,
         numberConvention: loadInspection.numberConvention,
       };
-      void loadSelection(source, null, null, selectedProfile, selectedProfile);
+      void loadSelection(
+        source,
+        null,
+        null,
+        selectedProfile,
+        selectedProfile,
+        queuedReusableTask?.task ?? null,
+      );
       return;
     }
     setLoadInspection((current) => updateProfileReview(current, action));
@@ -673,7 +729,19 @@ export function App() {
       return;
     }
     const { source } = loadInspection;
-    void loadSelection(source, source.sheets[0]?.id ?? null);
+    const selectedProfile = queuedReusableTask?.task.importProfile ?? activeImportProfile;
+    const applicableProfile = selectedProfile &&
+      importProfileApplicability(selectedProfile, source).kind === "applicable"
+      ? selectedProfile
+      : null;
+    void loadSelection(
+      source,
+      source.sheets[0]?.id ?? null,
+      applicableProfile?.headerMode ?? null,
+      applicableProfile,
+      applicableProfile,
+      queuedReusableTask?.task ?? null,
+    );
   }
 
   function handleSchemaMismatchAction(action: SchemaMismatchAction) {
@@ -685,7 +753,7 @@ export function App() {
     const { source, profile, sheetId, headerMode } = loadInspection;
     // The user explicitly approved the changed schema. Import remains lexical;
     // no casts, column aliases, or sample values are applied.
-    void loadSelection(source, sheetId, headerMode, null, profile);
+    void loadSelection(source, sheetId, headerMode, null, profile, queuedReusableTask?.task ?? null, true);
   }
 
   async function analyzeQuality() {
@@ -1012,8 +1080,10 @@ export function App() {
     }
   }
 
-  function applyReusableTask(task: ReusableTask) {
-    setActiveImportProfile(task.importProfile);
+  function applyReusableTask(task: ReusableTask, preserveActiveImportProfile = false) {
+    setQueuedReusableTask(null);
+    setReusableTaskApplicationReview(null);
+    if (!preserveActiveImportProfile) setActiveImportProfile(task.importProfile);
     setRecipeDraft(task.recipe);
     setDeliveryContract(deliveryContractFromRules(task.qualityRules));
     setExportFormat(task.outputFormat);
@@ -1022,6 +1092,21 @@ export function App() {
     setRecipeSession((current) => current + 1);
     setCompletedPhases(new Set(["load"]));
     setActivePhase(task.recipe ? "prepare" : "review");
+  }
+
+  function prepareReusableTaskImport(taskId: string, task: ReusableTask) {
+    setReusableTaskApplicationReview(null);
+    setQueuedReusableTask({ id: taskId, task });
+  }
+
+  function applyReviewedReusableTask() {
+    const review = reusableTaskApplicationReview;
+    if (!review) return;
+    applyReusableTask(review.task, true);
+  }
+
+  function dismissReusableTaskApplicationReview() {
+    setReusableTaskApplicationReview(null);
   }
 
   const reviewHasContextualContinue = activePhase === "review"
@@ -1215,7 +1300,13 @@ export function App() {
           aria-label={`Etapa ${activePhaseMeta.label}`}
           aria-busy={operationBusy}
         >
-          <div className="workspace__stage" key={activePhase}>
+          <div
+            ref={stageRef}
+            className="workspace__stage"
+            key={activePhase}
+            tabIndex={-1}
+            aria-label={`Contenido de la etapa ${activePhaseMeta.label}`}
+          >
           <Suspense fallback={<div className="phase-loading" role="status">Cargando etapa…</div>}>
             {activePhase === "load" && (
               <LoadPhase
@@ -1227,8 +1318,13 @@ export function App() {
                     schema={reusableTaskSchema}
                     draft={reusableTaskDraft}
                     onApply={applyReusableTask}
+                    onPrepareImport={prepareReusableTaskImport}
+                    pendingTaskId={queuedReusableTask?.id ?? null}
+                    pendingTaskName={queuedReusableTask?.task.name ?? null}
+                    onClearPendingImport={() => setQueuedReusableTask(null)}
                   />
                 )}
+                pendingTaskName={queuedReusableTask?.task.name ?? null}
                 disabled={operationBusy}
                 datasetStatus={datasetStatus}
                 inspection={loadInspection}
@@ -1404,6 +1500,56 @@ export function App() {
           </footer>
         </section>
       </main>
+
+      {reusableTaskApplicationReview && (
+        <ModalDialog
+          role="dialog"
+          labelledBy="reusable-task-apply-title"
+          describedBy="reusable-task-apply-description"
+          onDismiss={dismissReusableTaskApplicationReview}
+        >
+          <p className="eyebrow">Tarea reutilizable</p>
+          <h2 id="reusable-task-apply-title">Revisa la configuración guardada</h2>
+          <p id="reusable-task-apply-description">
+            Se importó el archivo con {reusableTaskApplicationReview.importProfileUsed
+              ? `el perfil de “${reusableTaskApplicationReview.task.name}”`
+              : "la interpretación predeterminada"}.
+            Elige si aplicas los ajustes restantes al espacio de trabajo.
+          </p>
+          <div className="sheet-import-summary">
+            <dl>
+              <div>
+                <dt>Preparación</dt>
+                <dd>{reusableTaskApplicationReview.task.recipe?.name ?? "Sin receta"}</dd>
+              </div>
+              <div>
+                <dt>Reglas de calidad</dt>
+                <dd>{reusableTaskApplicationReview.task.qualityRules.length}</dd>
+              </div>
+              <div>
+                <dt>Salida y privacidad</dt>
+                <dd>{reusableTaskApplicationReview.task.outputFormat.toUpperCase()} · {reusableTaskApplicationReview.task.privacyMode}</dd>
+              </div>
+            </dl>
+          </div>
+          {reusableTaskApplicationReview.schemaMismatchConfirmed && (
+            <p className="notice" role="note">
+              Confirmaste un esquema distinto. Revisa las columnas de la receta y las reglas antes de continuar; ninguna transformación se ejecutará ahora.
+            </p>
+          )}
+          <p className="notice" role="note">
+            La receta se cargará como borrador editable y no cambiará filas hasta que la revises y la ejecutes. No se guardaron credenciales ni autorización de sobrescritura.
+          </p>
+          <div className="sheet-dialog__actions">
+            <button type="button" className="secondary-action" onClick={dismissReusableTaskApplicationReview}>
+              Seguir sin esos ajustes
+            </button>
+            <button type="button" className="primary-action" onClick={applyReviewedReusableTask}>
+              Aplicar tarea guardada
+            </button>
+          </div>
+        </ModalDialog>
+      )}
 
       {diagnosticsOpen && (
         <DiagnosticsDialog
