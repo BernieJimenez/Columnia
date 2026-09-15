@@ -219,6 +219,8 @@ export function DeliveryPhase({
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const databaseRequestGeneration = useRef(0);
+  const exportRequestGeneration = useRef(0);
+  const exportInFlightRef = useRef(false);
   const databaseTargetFingerprint = JSON.stringify({
     target: databaseTarget,
     privacyMode: selectedPrivacyMode,
@@ -237,6 +239,7 @@ export function DeliveryPhase({
   const [presetNotice, setPresetNotice] = useState<string | null>(null);
   const [presetWorking, setPresetWorking] = useState(false);
   useEffect(() => {
+    exportRequestGeneration.current += 1;
     const kind = databaseKindForExportFormat(selectedExportFormat);
     setDatabaseTarget({ ...INITIAL_DATABASE_TARGET, ...(kind ? { kind } : {}) });
     setDatabasePreflightState({ kind: "idle" });
@@ -313,6 +316,7 @@ export function DeliveryPhase({
     setRulesEditorOpen(true);
   }
   function changeRules(nextRules: QualityRule[]) {
+    exportRequestGeneration.current += 1;
     setQualityFileState({ kind: "idle" });
     onContractAction({ kind: "rules_changed", rules: nextRules });
   }
@@ -471,39 +475,53 @@ export function DeliveryPhase({
   }
 
   async function requestExport(format: ExportFormat) {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    const requestId = exportRequestGeneration.current + 1;
+    exportRequestGeneration.current = requestId;
+    const requestedGeneration = requestId;
     setOpenOutputState("idle");
-    if (isDatabaseExportFormat(format)
-      && (databaseTargetError !== null
-        || databasePreflightState.kind !== "ready"
-        || databasePreflightState.fingerprint !== databaseTargetFingerprint
-        || !databasePreflightState.result.ready)) return;
-    const databaseOptions = isDatabaseExportFormat(format) ? { databaseTarget } : {};
-    if (contract.kind === "with_contract") {
-      if (validationError) return;
-      if (!gatePassed) {
-        onContractAction({ kind: "gate_changed", gate: { kind: "loading" } });
-        try {
-          const result = await validateQualityRules(contract.rules);
-          onContractAction({ kind: "gate_changed", gate: { kind: "ready", result } });
-          if (!result.passed) return;
-        } catch (error: unknown) {
-          onContractAction({
-            kind: "gate_changed",
-            gate: {
-              kind: "error",
-              message: error instanceof Error ? error.message : String(error),
-            },
-          });
-          return;
+    try {
+      if (isDatabaseExportFormat(format)
+        && (databaseTargetError !== null
+          || databasePreflightState.kind !== "ready"
+          || databasePreflightState.fingerprint !== databaseTargetFingerprint
+          || !databasePreflightState.result.ready)) return;
+      const databaseOptions = isDatabaseExportFormat(format) ? { databaseTarget } : {};
+      if (contract.kind === "with_contract") {
+        if (validationError) return;
+        if (!gatePassed) {
+          onContractAction({ kind: "gate_changed", gate: { kind: "loading" } });
+          try {
+            const result = await validateQualityRules(contract.rules);
+            if (exportRequestGeneration.current !== requestedGeneration) return;
+            onContractAction({ kind: "gate_changed", gate: { kind: "ready", result } });
+            if (!result.passed) return;
+          } catch (error: unknown) {
+            if (exportRequestGeneration.current !== requestedGeneration) return;
+            onContractAction({
+              kind: "gate_changed",
+              gate: {
+                kind: "error",
+                message: error instanceof Error ? error.message : String(error),
+              },
+            });
+            return;
+          }
         }
+        if (exportRequestGeneration.current !== requestedGeneration) return;
+        onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "contract", rules: contract.rules } });
+      } else if (contract.confirmation === "confirmed") {
+        if (exportRequestGeneration.current !== requestedGeneration) return;
+        onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "explicitly_unvalidated" } });
       }
-      onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "contract", rules: contract.rules } });
-    } else if (contract.confirmation === "confirmed") {
-      onExport({ format, privacyMode: selectedPrivacyMode, ...databaseOptions, validation: { kind: "explicitly_unvalidated" } });
+    } finally {
+      exportInFlightRef.current = false;
     }
   }
 
   function changeExportFormat(format: ExportFormat) {
+    exportRequestGeneration.current += 1;
     setLocalExportFormat(format);
     onExportFormatChange?.(format);
     const kind = databaseKindForExportFormat(format);
@@ -521,6 +539,7 @@ export function DeliveryPhase({
   }
 
   function changeDatabaseTarget(update: Partial<DatabaseTarget>) {
+    exportRequestGeneration.current += 1;
     setDatabaseTarget((current) => ({ ...current, ...update }));
     setDatabasePreflightState({ kind: "idle" });
     databaseRequestGeneration.current += 1;
@@ -555,6 +574,7 @@ export function DeliveryPhase({
   }
 
   function changePrivacyMode(mode: PrivacyMode) {
+    exportRequestGeneration.current += 1;
     setLocalPrivacyMode(mode);
     onPrivacyModeChange?.(mode);
     setDatabasePreflightState({ kind: "idle" });

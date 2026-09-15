@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -161,6 +161,41 @@ describe("DeliveryPhase", () => {
       },
     });
     expect(onExport).toHaveBeenCalledOnce();
+  });
+
+  it("no duplica la validación si la acción principal recibe dos clics síncronos", async () => {
+    let resolveValidation!: (result: Awaited<ReturnType<typeof bridge.validateQualityRules>>) => void;
+    const validationPromise = new Promise<Awaited<ReturnType<typeof bridge.validateQualityRules>>>((resolve) => {
+      resolveValidation = resolve;
+    });
+    const validate = vi.spyOn(bridge, "validateQualityRules").mockReturnValue(validationPromise);
+    const onExport = vi.fn();
+    render(<DeliveryHarness onExport={onExport} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Validar calidad/ }));
+    const exportButton = screen.getByRole("button", { name: "Validar y exportar CSV" });
+    act(() => {
+      fireEvent.click(exportButton);
+      fireEvent.click(exportButton);
+    });
+
+    expect(validate).toHaveBeenCalledOnce();
+    resolveValidation({
+      passed: true,
+      rowCount: 2,
+      totalRules: 1,
+      failedRules: 0,
+      rules: [{
+        column: "total",
+        kind: "not_null",
+        maxInvalid: 0,
+        checkedCount: 2,
+        invalidCount: 0,
+        invalidPct: 0,
+        passed: true,
+      }],
+    });
+    await waitFor(() => expect(onExport).toHaveBeenCalledOnce());
   });
 
   it("no exporta si falla la validación iniciada desde la acción principal", async () => {
