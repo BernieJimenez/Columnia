@@ -2840,8 +2840,15 @@ en [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md).
 
 ### Mejoras guiadas por la beta
 
-- [ ] **RV12 — Recursos y escala medibles.** Ampliar la matriz de RAM, disco,
+- [x] **RV12 — Recursos y escala medibles.** Ampliar la matriz de RAM, disco,
   tiempo, cancelación y limpieza según los datasets observados.
+  - **Cerrada localmente: 2026-09-15.** `perf:matrix:summary` valida los ocho
+    cruces de la matriz sintética v1 (1 y 100 MiB × cuatro perfiles), con 3
+    transformaciones y 2 actualizaciones por cruce, memoria, disco, cancelación
+    source-backed, salida previa intacta y limpieza. El exportador CSV limita
+    sus hilos a uno para mantener el orden dentro del límite de memoria; la
+    medición nativa no incluye UI/IPC. Se pueden añadir formas de beta sin
+    reabrir el contrato base.
 - [x] **RV13 — Respaldo y autoguardado recuperables.** Restauración transaccional
   y guardado opt-in con cuota y última versión válida.
   - **Cerrada: 2026-09-14.** Los respaldos versionados se restauran
@@ -2877,3 +2884,6 @@ la cola hasta demostrar demanda repetida.
 | 2026-09-14 | RV12: `perf:benchmark` mide tres cancelaciones cooperativas del export CSV source-backed al observar bytes en el temporal; conserva byte a byte la salida anterior, no publica resultado parcial y confirma limpieza. La corrida `standard`, 1 MiB (7,61/15,80/16,56 ms) fue abreviada: 2 transformaciones y 1 actualización de proyecto. El contrato deja incompletos los ocho cruces hasta repetirlos con al menos 3 transformaciones y 2 actualizaciones; la medición de cancelación cubre motor nativo, sin despacho UI/IPC. |
 | 2026-09-14 | RV13 cerrada: autoguardado opt-in, respaldos versionados, restore transaccional y retención de 5 versiones/512 MiB. Una falla de poda inyectada antes de DELETE revierte guardado/restauración y conserva disponible la versión previa. No se simuló saturación física del disco. | `src-tauri/src/projects.rs`, `src/features/projects/useProjectsController.ts`, `src/features/projects/ProjectsPanel.tsx` |
 | 2026-09-14 | RV14: el preflight bloquea conversiones numéricas no representables antes de DDL y el binding ya no fabrica NULL; 11 pruebas Rust focalizadas y 3 ODBC externas ignoradas. Suite frontend y E2E pasan. Queda elegir destino en beta y validar allí los formatos y presets. | `src/features/delivery/DeliveryPhase.tsx`, `src-tauri/src/remote_databases.rs`, `src-tauri/src/delivery_presets.rs` |
+| 2026-09-15 | RV01: el controlador de preparación serializa de forma síncrona las mutaciones y undo/redo; una regresión con clics repetidos confirma que no se despachan operaciones concurrentes. RV05: la tarea guardada puede prepararse antes del archivo, aplica su perfil solo al importar y exige confirmación ante esquema cambiado; App cubre ambos recorridos sin ejecutar recetas automáticamente. RV06: el E2E sintético cubre foco entre etapas, asociación de error ODBC y layout a 200 %/320 CSS px. | `src/features/prepare/usePrepareController.ts`, `src/features/load/ReusableTaskPanel.tsx`, `src/App.tsx`, `e2e/workflow-accessibility.spec.ts` |
+| 2026-09-15 | Validación local: `npm test` (402/402), E2E completo (18/18), build TypeScript/Vite, `docs:check`, `ipc:check`, `cargo fmt --check` y `cargo test --lib` (458 aprobadas, 5 ignoradas por servicios/ODBC externos) pasan. | `ROADMAP.md`, `docs/reference/roadmap-current.md` |
+| 2026-09-15 | RV12 cerrada localmente: `perf:matrix:summary` informa 8/8 cruces aprobados; cada perfil cumple 3 transformaciones, 2 actualizaciones de proyecto, mediciones de RAM/disco/tiempo, tres cancelaciones cooperativas, cero publicación parcial, preservación de salida y limpieza. | `tools/benchmark-datasets.ps1`, `tools/performance-matrix-contract.mjs`, `.local/validation/performance-matrix/summary.json` |
