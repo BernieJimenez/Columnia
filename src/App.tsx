@@ -227,6 +227,17 @@ export function App() {
   const [loadInspection, setLoadInspection] = useState<LoadInspectionState>({ kind: "idle" });
   const [selectionFinalizing, setSelectionFinalizing] = useState(false);
   const headerPreviewRequestRef = useRef(0);
+  const inspectionRequestRef = useRef(0);
+  const inspectionInFlightRef = useRef(false);
+  const loadRequestRef = useRef(0);
+  const loadInFlightRef = useRef(false);
+  const comparisonRequestRef = useRef(0);
+  const comparisonOperationInFlightRef = useRef(false);
+  const comparisonPageRequestRef = useRef(0);
+  const joinRequestRef = useRef(0);
+  const joinInFlightRef = useRef(false);
+  const exportRequestRef = useRef(0);
+  const exportInFlightRef = useRef(false);
   const [activeImportProfile, setActiveImportProfile] = useState<ImportProfile | null>(null);
   const [queuedReusableTask, setQueuedReusableTask] = useState<QueuedReusableTask | null>(null);
   const [reusableTaskApplicationReview, setReusableTaskApplicationReview] = useState<ReusableTaskApplicationReview | null>(null);
@@ -256,6 +267,10 @@ export function App() {
     datasetRevisionRef.current += 1;
     profileRequestSequenceRef.current += 1;
     pageRequestRef.current += 1;
+    comparisonRequestRef.current += 1;
+    comparisonPageRequestRef.current += 1;
+    joinRequestRef.current += 1;
+    exportRequestRef.current += 1;
     setDatasetRevision(datasetRevisionRef.current);
   }
 
@@ -512,13 +527,21 @@ export function App() {
     taskForReview: ReusableTask | null = null,
     schemaMismatchConfirmed = false,
   ) {
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+    const requestId = ++loadRequestRef.current;
+    const requestedRevision = datasetRevisionRef.current;
+    const isCurrentRequest = () =>
+      loadRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
     setSelectionFinalizing(true);
     setDatasetStatus((current) => beginDatasetLoad(current));
     setLoadInspection({ kind: "idle" });
     try {
       const dataset = await loadDatasetSelection(source.selectionId, sheetId, headerMode, (progress) => {
+        if (!isCurrentRequest()) return;
         setDatasetStatus((current) => updateDatasetLoadProgress(current, progress));
       }, expectedProfile);
+      if (!isCurrentRequest()) return;
       setActiveImportProfile(createImportProfile(
         source,
         dataset,
@@ -554,12 +577,15 @@ export function App() {
       setExportFormat("csv");
       setPrivacyMode("none");
       await clearDatasetComparison().catch(() => undefined);
+      if (loadRequestRef.current !== requestId) return;
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
+      if (loadRequestRef.current !== requestId) return;
       setExportStatus({ kind: "idle" });
       setReviewTab("diagnosis");
       setActivePhase("review");
     } catch (error: unknown) {
+      if (!isCurrentRequest()) return;
       setDatasetStatus(restoreDatasetAfterLoadFailure);
       if (isCancellationError(error)) {
         return;
@@ -578,25 +604,33 @@ export function App() {
       const message = error instanceof Error ? error.message : String(error);
       setLoadInspection((current) => setLoadInspectionError(current, message));
     } finally {
-      setSelectionFinalizing(false);
+      if (loadRequestRef.current === requestId) setSelectionFinalizing(false);
+      loadInFlightRef.current = false;
     }
   }
 
   async function inspectDatasetSource(sourcePromise: Promise<DatasetSourceInspection | null>) {
+    if (inspectionInFlightRef.current || loadInFlightRef.current) return;
+    inspectionInFlightRef.current = true;
+    const requestId = ++inspectionRequestRef.current;
+    const isCurrentRequest = () => inspectionRequestRef.current === requestId;
     setActivePhase("load");
     setLoadInspection({ kind: "inspecting" });
     try {
       const source = await sourcePromise;
+      if (!isCurrentRequest()) return;
       if (!source) {
         setLoadInspection({ kind: "idle" });
         return;
       }
       const selectedImportProfile = queuedReusableTask?.task.importProfile ?? activeImportProfile;
       if (source.format === "excel") {
+        if (!isCurrentRequest()) return;
         setLoadInspection(workbookInspection(source, selectedImportProfile));
         return;
       }
       if (source.format === "csv" || source.format === "tsv") {
+        if (!isCurrentRequest()) return;
         setLoadInspection(delimitedHeaderInspection(source, selectedImportProfile));
         void requestDelimitedHeaderReview(source);
         return;
@@ -605,6 +639,7 @@ export function App() {
         ? importProfileApplicability(selectedImportProfile, source)
         : null;
       if (selectedImportProfile && applicability?.kind === "applicable") {
+        if (!isCurrentRequest()) return;
         setLoadInspection({
           kind: "profile_review",
           source,
@@ -615,15 +650,20 @@ export function App() {
         return;
       }
       if (needsResourcePreflight(source)) {
+        if (!isCurrentRequest()) return;
         setLoadInspection({ kind: "resource_preflight", source });
         return;
       }
       await loadSelection(source, source.sheets[0]?.id ?? null);
     } catch (error: unknown) {
+      if (!isCurrentRequest()) return;
       const message = error instanceof Error ? error.message : String(error);
       setLoadInspection((current) => setLoadInspectionError(current, message));
     } finally {
-      setLoadInspection((current) => current.kind === "inspecting" ? { kind: "idle" } : current);
+      if (isCurrentRequest()) {
+        setLoadInspection((current) => current.kind === "inspecting" ? { kind: "idle" } : current);
+      }
+      inspectionInFlightRef.current = false;
     }
   }
 
@@ -641,6 +681,9 @@ export function App() {
   }
 
   async function cancelPendingSelection() {
+    inspectionRequestRef.current += 1;
+    loadRequestRef.current += 1;
+    headerPreviewRequestRef.current += 1;
     const source = loadInspection.kind === "sheet" || loadInspection.kind === "profile_review" || loadInspection.kind === "resource_preflight" || loadInspection.kind === "schema_mismatch"
       ? loadInspection.source
       : undefined;
@@ -798,30 +841,50 @@ export function App() {
   }, [datasetRevision, datasetStatus.kind, profileStatus.kind]);
 
   async function compareActiveDataset() {
+    if (comparisonOperationInFlightRef.current) return;
+    comparisonOperationInFlightRef.current = true;
+    const requestId = ++comparisonRequestRef.current;
+    const requestedRevision = datasetRevisionRef.current;
+    const isCurrentRequest = () =>
+      comparisonRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
     setComparisonStatus(beginComparison());
     try {
       const comparison = await compareDataset(comparisonKeyColumns);
+      if (!isCurrentRequest()) return;
       setComparisonStatus(comparison ? completeComparison(comparison) : clearComparison());
     } catch (error: unknown) {
+      if (!isCurrentRequest()) return;
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
+    } finally {
+      comparisonOperationInFlightRef.current = false;
     }
   }
 
   async function clearActiveComparison() {
+    if (comparisonOperationInFlightRef.current) return;
+    comparisonOperationInFlightRef.current = true;
+    const requestId = ++comparisonRequestRef.current;
     try {
       await clearDatasetComparison();
+      if (comparisonRequestRef.current !== requestId) return;
       setComparisonStatus(clearComparison());
     } catch (error: unknown) {
+      if (comparisonRequestRef.current !== requestId) return;
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
+    } finally {
+      comparisonOperationInFlightRef.current = false;
     }
   }
 
   async function changeConflictPage(offset: number) {
     if (comparisonStatus.kind !== "ready") return;
+    const requestId = ++comparisonPageRequestRef.current;
+    const requestedRevision = datasetRevisionRef.current;
     try {
       const page = await getDatasetConflictPage(offset, CONFLICT_PAGE_SIZE);
+      if (comparisonPageRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       if (!page) return;
       setComparisonStatus(completeComparison({
         ...comparisonStatus.comparison,
@@ -830,14 +893,20 @@ export function App() {
         conflictsTruncated: page.hasNext,
       }));
     } catch (error: unknown) {
+      if (comparisonPageRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
     }
   }
 
   async function consolidateComparedDataset() {
+    if (comparisonOperationInFlightRef.current) return;
+    comparisonOperationInFlightRef.current = true;
+    const requestId = ++comparisonRequestRef.current;
+    const requestedRevision = datasetRevisionRef.current;
     try {
       const dataset = await useConsolidatedDataset();
+      if (comparisonRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
       resetCompletedPhases();
@@ -857,15 +926,23 @@ export function App() {
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
     } catch (error: unknown) {
+      if (comparisonRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
+    } finally {
+      comparisonOperationInFlightRef.current = false;
     }
   }
 
   async function resolveComparedConflicts(decisions: ConflictResolution[]) {
+    if (comparisonOperationInFlightRef.current) return;
+    comparisonOperationInFlightRef.current = true;
+    const requestId = ++comparisonRequestRef.current;
+    const requestedRevision = datasetRevisionRef.current;
     setComparisonStatus(beginComparison());
     try {
       const dataset = await resolveDatasetConflicts(decisions);
+      if (comparisonRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       setDatasetStatus(createReadyDatasetStatus(dataset));
       bumpDatasetRevision();
       resetCompletedPhases();
@@ -885,8 +962,11 @@ export function App() {
       prepare.resetChangeStatus();
       await prepare.refreshHistory();
     } catch (error: unknown) {
+      if (comparisonRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
+    } finally {
+      comparisonOperationInFlightRef.current = false;
     }
   }
 
@@ -895,9 +975,14 @@ export function App() {
       setJoinStatus(failJoin("Selecciona al menos una columna clave para unir datasets."));
       return;
     }
+    if (joinInFlightRef.current) return;
+    joinInFlightRef.current = true;
+    const requestId = ++joinRequestRef.current;
+    const requestedRevision = datasetRevisionRef.current;
     setJoinStatus(beginJoin(requestedJoinType));
     try {
       const dataset = await joinDataset(comparisonKeyColumns, requestedJoinType);
+      if (joinRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       if (!dataset) {
         setJoinStatus(clearJoin());
         return;
@@ -921,8 +1006,11 @@ export function App() {
       setReviewTab("diagnosis");
       setActivePhase("review");
     } catch (error: unknown) {
+      if (joinRequestRef.current !== requestId || datasetRevisionRef.current !== requestedRevision) return;
       const message = error instanceof Error ? error.message : String(error);
       setJoinStatus(failJoin(message));
+    } finally {
+      joinInFlightRef.current = false;
     }
   }
 
@@ -953,6 +1041,12 @@ export function App() {
 
   async function exportActiveDataset(request: DeliveryExportRequest) {
     if (datasetStatus.kind !== "ready") return;
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    const requestId = ++exportRequestRef.current;
+    const requestedRevision = datasetRevisionRef.current;
+    const isCurrentRequest = () =>
+      exportRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
     const rules = request.validation.kind === "contract" ? request.validation.rules : [];
     const allowUnvalidated = request.validation.kind === "explicitly_unvalidated";
     setExportStatus({
@@ -963,6 +1057,7 @@ export function App() {
     });
     try {
       const onProgress = (progress: OperationProgress) => {
+        if (!isCurrentRequest()) return;
         setExportStatus((current) =>
           current.kind === "loading" ? { ...current, progress } : current,
         );
@@ -982,14 +1077,18 @@ export function App() {
           ? await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode, recipeDraft)
           : await exportDataset(request.format, rules, allowUnvalidated, onProgress, request.privacyMode);
       }
+      if (!isCurrentRequest()) return;
       setExportStatus(result ? { kind: "success", result } : { kind: "idle" });
     } catch (error: unknown) {
+      if (!isCurrentRequest()) return;
       if (isCancellationError(error)) {
         setExportStatus({ kind: "cancelled" });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
       setExportStatus({ kind: "error", message });
+    } finally {
+      exportInFlightRef.current = false;
     }
   }
 

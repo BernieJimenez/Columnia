@@ -1139,6 +1139,37 @@ describe("App", () => {
     expect(screen.queryByLabelText("Ruta de exportación")).not.toBeInTheDocument();
   });
 
+  it("ignora un segundo clic de exportación mientras la primera entrega sigue pendiente", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.5.0", platform: "windows" });
+    mockDatasetLoad({
+      fileName: "ventas.csv",
+      fileSizeBytes: 128,
+      rowCount: 1,
+      columnCount: 1,
+      columns: [{ name: "total", dataType: "Int64" }],
+      rows: [["100"]],
+    });
+    let resolveExport!: (value: null) => void;
+    const exportPromise = new Promise<null>((resolve) => { resolveExport = resolve; });
+    const exportSpy = vi.spyOn(bridge, "exportDataset").mockReturnValue(exportPromise);
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    await screen.findByRole("heading", { name: "ventas.csv" });
+    await switchPhase("Entregar");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmo que quiero exportar sin validar la calidad" }));
+    const exportButton = screen.getByRole("button", { name: "Exportar CSV" });
+    act(() => {
+      fireEvent.click(exportButton);
+      fireEvent.click(exportButton);
+    });
+
+    expect(exportSpy).toHaveBeenCalledOnce();
+    resolveExport(null);
+    await waitFor(() => expect(exportButton).toBeEnabled());
+  });
+
   it("valida un contrato aprobado y envía sus reglas al exportar", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.24.0", platform: "windows" });
