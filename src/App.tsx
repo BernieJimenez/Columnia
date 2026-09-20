@@ -221,6 +221,7 @@ export function App() {
   const [queryEngine, setQueryEngine] = useState<DatasetQueryEngine>(readQueryEnginePreference);
   const [performanceProfile, setPerformanceProfile] = useState<PerformanceProfile>(readPerformanceProfile);
   const [comparisonStatus, setComparisonStatus] = useState<ComparisonStatus>({ kind: "idle" });
+  const [comparisonCancellationPending, setComparisonCancellationPending] = useState(false);
   const [comparisonKeyColumns, setComparisonKeyColumns] = useState<string[]>([]);
   const [joinStatus, setJoinStatus] = useState<JoinStatus>({ kind: "idle" });
   const [reviewMutationStatus, setReviewMutationStatus] = useState<ReviewMutationStatus>({ kind: "idle" });
@@ -892,9 +893,11 @@ export function App() {
     comparisonOperationInFlightRef.current = true;
     const requestId = ++comparisonRequestRef.current;
     const requestedRevision = datasetRevisionRef.current;
+    const previousComparisonStatus = comparisonStatus;
     setReviewMutationStatus({ kind: "idle" });
     const isCurrentRequest = () =>
       comparisonRequestRef.current === requestId && datasetRevisionRef.current === requestedRevision;
+    setComparisonCancellationPending(false);
     setComparisonStatus(beginComparison());
     try {
       const comparison = await compareDataset(comparisonKeyColumns);
@@ -902,10 +905,17 @@ export function App() {
       setComparisonStatus(comparison ? completeComparison(comparison) : clearComparison());
     } catch (error: unknown) {
       if (!isCurrentRequest()) return;
+      if (isCancellationError(error)) {
+        setComparisonStatus(previousComparisonStatus);
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       setComparisonStatus(failComparison(message));
     } finally {
       comparisonOperationInFlightRef.current = false;
+      if (comparisonRequestRef.current === requestId) {
+        setComparisonCancellationPending(false);
+      }
     }
   }
 
@@ -1206,6 +1216,8 @@ export function App() {
       setExportStatus((current) =>
         current.kind === "loading" ? { ...current, cancellation: "requested" } : current,
       );
+    } else if (operation === "datasetComparison") {
+      setComparisonCancellationPending(true);
     }
 
     try {
@@ -1218,6 +1230,9 @@ export function App() {
         setProfileStatus({ kind: "error", message });
       } else if (operation === "export") {
         setExportStatus({ kind: "error", message });
+      } else if (operation === "datasetComparison") {
+        setComparisonCancellationPending(false);
+        setComparisonStatus(failComparison(message));
       }
     }
   }
@@ -1670,6 +1685,7 @@ export function App() {
                   setActivePhase("prepare");
                 }}
                 comparisonStatus={comparisonStatus}
+                comparisonCancellationPending={comparisonCancellationPending}
                 comparisonKeyColumns={comparisonKeyColumns}
                 onComparisonKeyColumnsChange={setComparisonKeyColumns}
                 datasetColumns={readyDataset.dataset.columns}
@@ -1679,6 +1695,7 @@ export function App() {
                 joinType={joinType}
                 onJoinTypeChange={setJoinType}
                 onCompare={() => void compareActiveDataset()}
+                onCancelComparison={() => void cancelActiveOperation("datasetComparison")}
                 onClearComparison={() => void clearActiveComparison()}
                 onConsolidate={() => void consolidateComparedDataset()}
                 onResolveConflicts={(decisions) => void resolveComparedConflicts(decisions)}

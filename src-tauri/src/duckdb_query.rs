@@ -207,6 +207,56 @@ pub(crate) fn materialize_file_to_parquet(
     Ok(())
 }
 
+pub(crate) fn materialize_file_to_parquet_with_cancel<C>(
+    source_path: &Path,
+    source_format: DuckDbFileFormat,
+    destination: &Path,
+    column_order: Option<&[String]>,
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!("No se pudo preparar el espacio temporal para el snapshot protegido: {error}")
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        let source = file_scan_expression(source_path, source_format);
+        let destination = destination
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let projection = if matches!(source_format, DuckDbFileFormat::Json) {
+            match column_order {
+                Some(columns) => json_projection(connection, &source, columns)?,
+                None => "*".to_owned(),
+            }
+        } else {
+            column_order
+                .map(|columns| {
+                    if columns.is_empty() {
+                        return Err("El JSON no contiene columnas utilizables.".to_owned());
+                    }
+                    Ok(columns
+                        .iter()
+                        .map(|column| quote_identifier(column))
+                        .collect::<Vec<_>>()
+                        .join(", "))
+                })
+                .transpose()?
+                .unwrap_or_else(|| "*".to_owned())
+        };
+        let query = format!(
+            "SET preserve_insertion_order = true; COPY (SELECT {projection} FROM {source}) TO '{destination}' (FORMAT PARQUET)"
+        );
+        connection
+            .execute_batch(&query)
+            .map_err(|error| format!("DuckDB no pudo crear el snapshot protegido: {error}"))?;
+        Ok(())
+    })
+}
+
 pub(crate) fn materialize_file_to_parquet_with_projection<C>(
     source_path: &Path,
     source_format: DuckDbFileFormat,

@@ -9,7 +9,7 @@ documentos equivalentes que puedan divergir.
 
 ## Estado operativo verificado — 2026-09-20
 
-La base de partida de esta revisión fue `master` en `b385d43`, versión
+La base de partida de esta revisión fue `master` en `beddef8`, versión
 `0.167.0`; desde ese corte se están verificando cambios de producto descritos
 abajo. La cola operativa vigente está en
 [`docs/reference/roadmap-current.md`](docs/reference/roadmap-current.md) y el
@@ -36,11 +36,16 @@ El JOIN eager de Review recorre bloques de filas activas y comprueba cancelació
 entre bloques, repitiendo el JOIN contra el dataset comparado para cada bloque.
 Las materializaciones eager source-backed usadas como fallback por JOIN,
 resolución/consolidación de Review, mutaciones/recetas de Preparar y exportaciones
-local/ODBC ahora aceptan el token de cancelación. CSV/TSV/TXT y Parquet
-interrumpen entre lotes; JSON/JSONL/NDJSON, entre registros. El dataset permanece
-source-backed hasta que termina la lectura. La comparación de archivos, otros
-comandos sin token y los selectores nativos modales siguen pendientes. Las rutas
-canceladas descartan el resultado incompleto.
+local/ODBC y la comparación de archivos aceptan el token de cancelación.
+CSV/TSV/TXT y Parquet interrumpen entre lotes; JSON/JSONL/NDJSON, entre registros;
+los índices y la comparación Parquet, entre bloques y registros derramados. DuckDB
+interrumpe una conversión source-backed activa. El resultado de comparación solo se
+publica al final, bajo un gate que ordena cancelación y commit. El selector nativo
+es modal y no se puede cerrar desde este control mientras está abierto; XLS/ODS
+conserva la lectura `worksheet_range` monolítica. El conteo y la escritura de un
+snapshot eager comprueban cancelación después de terminar su llamada síncrona. La
+paginación de conflictos y otros comandos todavía tienen rutas sin token; las
+rutas canceladas descartan el resultado incompleto.
 
 Las tareas reutilizables aplican reglas, formato, privacidad y receta como
 borrador al importar un archivo con el perfil y esquema guardados; la receta
@@ -63,9 +68,10 @@ Verificación frontend en el corte anterior: `npm test` 426/426,
 `npm run docs:check` y `npm audit --omit=optional` pasan; el audit reporta 0
 vulnerabilidades. La suite Rust del corte anterior pasó 490 pruebas (0 fallidas,
 5 ignoradas).
-En esta revisión, `cargo fmt --check` y `cargo check --tests` pasan; los tests
-nuevos compilan, pero no se ejecutaron por el fallo del loader de Windows descrito
-abajo. `smoke:cdp` pasó en WebView2 y
+En el avance de comparación, `cargo fmt`, `cargo check --lib`, `npm run build` y
+`git diff --check` pasan; no se ejecutaron pruebas. Los tests nuevos del corte
+anterior solo compilaron y no se ejecutaron por el fallo del loader de Windows
+descrito abajo. `smoke:cdp` pasó en WebView2 y
 verificó ProjectsPanel, IPC, transformaciones, exportación y reapertura de
 proyecto. `smoke:native-selectors` usó los diálogos reales de Windows para
 exportar y volver a cargar CSV, XLSX y Parquet generados por un dataset de prueba
@@ -93,8 +99,9 @@ Siguen abiertos los criterios con evidencia que no se puede fabricar localmente:
 la beta de tres participantes y su resumen sanitizado; accesibilidad manual con
 lector de pantalla/alto contraste; round-trip contra SQL Server real; y un
 candidato binario/canal autorizado probado en VM limpia.
-RV04 conserva los formatos `.xls`/`.ods` monolíticos, los comandos sin token de
-cancelación y el selector nativo modal. También falta medir el coste del JOIN
+RV04 conserva los formatos `.xls`/`.ods` monolíticos, la paginación de conflictos
+y otros comandos sin token de cancelación, el selector nativo modal y tramos
+síncronos de conteo/escritura de snapshots. También falta medir el coste del JOIN
 por bloques y validar cancelación con datos reales en una sesión nativa. RV14
 requiere seleccionar y validar la herramienta BI a partir de beta.
 No sustituir estas evidencias por fixtures o resultados sintéticos.

@@ -26,6 +26,11 @@ los artefactos de validación locales.
   JSON/JSONL/NDJSON, entre registros. El dataset conserva el estado
   source-backed si se cancela la lectura.
 
+- La comparación de archivos en Review acepta cancelación durante la copia,
+  conversión y comparación por bloques. El snapshot comparado se publica solo si
+  termina y la cancelación no gana la carrera de commit. El selector nativo sigue
+  siendo modal; XLS/ODS conserva su lectura monolítica.
+
 - Las seis auditorías fechadas se fusionan en `AUDITORIA.md`. Tier 9 y el índice
   `roadmap-current.md` reúnen 16 resultados pendientes con valor operativo,
   eliminan duplicados y dejan fuera ampliaciones sin demanda demostrada. El gate

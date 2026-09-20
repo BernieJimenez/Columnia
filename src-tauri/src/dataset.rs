@@ -2785,6 +2785,8 @@ pub struct DatasetState {
     export_generation: AtomicU64,
     query_generation: AtomicU64,
     snapshot_comparison_generation: AtomicU64,
+    dataset_comparison_generation: AtomicU64,
+    dataset_comparison_commit_lock: Mutex<()>,
     prepare_generation: AtomicU64,
     prepare_commit_lock: Mutex<()>,
     review_mutation_generation: AtomicU64,
@@ -2798,6 +2800,47 @@ struct PrepareCancellation {
     generation: u64,
     #[cfg(test)]
     cancelled_for_test: Option<std::sync::Arc<AtomicBool>>,
+}
+
+#[derive(Clone)]
+struct DatasetComparisonCancellation {
+    app: AppHandle,
+    generation: u64,
+}
+
+impl DatasetComparisonCancellation {
+    fn begin(app: &AppHandle) -> Self {
+        let generation = app.state::<DatasetState>().begin_dataset_comparison();
+        Self {
+            app: app.clone(),
+            generation,
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.app
+            .state::<DatasetState>()
+            .dataset_comparison_was_cancelled(self.generation)
+    }
+
+    fn ensure(&self) -> Result<(), String> {
+        ensure_not_cancelled(self.is_cancelled())
+    }
+
+    fn callback(&self) -> impl Fn() -> bool + Clone + Send + Sync + 'static {
+        let cancellation = self.clone();
+        move || cancellation.is_cancelled()
+    }
+
+    fn commit<T>(&self, operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        let state = self.app.state::<DatasetState>();
+        let _guard = state
+            .dataset_comparison_commit_lock
+            .lock()
+            .map_err(|_| "La publicación de la comparación quedó bloqueada.".to_owned())?;
+        self.ensure()?;
+        operation()
+    }
 }
 
 impl PrepareCancellation {
@@ -3104,6 +3147,12 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_dataset_comparison(&self) -> u64 {
+        self.dataset_comparison_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
+    }
+
     fn begin_prepare(&self) -> u64 {
         self.prepare_generation
             .fetch_add(1, Ordering::SeqCst)
@@ -3144,6 +3193,10 @@ impl DatasetState {
         self.snapshot_comparison_generation.load(Ordering::SeqCst) != generation
     }
 
+    fn dataset_comparison_was_cancelled(&self, generation: u64) -> bool {
+        self.dataset_comparison_generation.load(Ordering::SeqCst) != generation
+    }
+
     fn prepare_was_cancelled(&self, generation: u64) -> bool {
         self.prepare_generation.load(Ordering::SeqCst) != generation
     }
@@ -3181,6 +3234,15 @@ impl DatasetState {
                 .lock()
                 .map_err(|_| "La cancelación de Review quedó bloqueada.".to_owned())?;
             self.review_mutation_generation
+                .fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        if operation == "datasetComparison" {
+            let _guard = self
+                .dataset_comparison_commit_lock
+                .lock()
+                .map_err(|_| "La cancelación de la comparación quedó bloqueada.".to_owned())?;
+            self.dataset_comparison_generation
                 .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
@@ -14801,9 +14863,22 @@ fn empty_spreadsheet_block(plan: &SpreadsheetSnapshotPlan, block_index: usize) -
 fn write_spreadsheet_blocks<F>(
     destination: &Path,
     plan: &SpreadsheetSnapshotPlan,
+    fill_block: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, usize) -> Result<Vec<Vec<Data>>, String>,
+{
+    write_spreadsheet_blocks_with_cancel(destination, plan, &|| false, fill_block)
+}
+
+fn write_spreadsheet_blocks_with_cancel<C, F>(
+    destination: &Path,
+    plan: &SpreadsheetSnapshotPlan,
+    is_cancelled: &C,
     mut fill_block: F,
 ) -> Result<(), String>
 where
+    C: Fn() -> bool + Sync,
     F: FnMut(usize, usize) -> Result<Vec<Vec<Data>>, String>,
 {
     let schema_frame = spreadsheet_block_frame(plan, &[])?;
@@ -14815,16 +14890,19 @@ where
         .map_err(|error| format!("No se pudo preparar el snapshot Excel: {error}"))?;
     let block_count = plan.data_rows.div_ceil(SPREADSHEET_SNAPSHOT_BLOCK_ROWS);
     for block_index in 0..block_count {
+        ensure_not_cancelled(is_cancelled())?;
         let expected_rows = spreadsheet_block_row_count(plan, block_index);
         let rows = fill_block(block_index, expected_rows)?;
         if rows.len() != expected_rows {
             return Err("El bloque Excel no contiene el número esperado de filas.".to_owned());
         }
         let frame = spreadsheet_block_frame(plan, &rows)?;
+        ensure_not_cancelled(is_cancelled())?;
         writer
             .write_batch(&frame)
             .map_err(|error| format!("No se pudo escribir el snapshot Excel: {error}"))?;
     }
+    ensure_not_cancelled(is_cancelled())?;
     writer
         .finish()
         .map_err(|error| format!("No se pudo cerrar el snapshot Excel: {error}"))?;
@@ -14837,24 +14915,43 @@ fn write_spreadsheet_range_snapshot(
     header_mode: SpreadsheetHeaderMode,
     destination: &Path,
 ) -> Result<usize, String> {
+    write_spreadsheet_range_snapshot_with_cancel(range, header_mode, destination, &|| false)
+}
+
+fn write_spreadsheet_range_snapshot_with_cancel<C>(
+    range: &Range<Data>,
+    header_mode: SpreadsheetHeaderMode,
+    destination: &Path,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let plan = spreadsheet_snapshot_plan_from_range(range, header_mode)?;
-    write_spreadsheet_blocks(destination, &plan, |block_index, expected_rows| {
-        let first_row = plan
-            .data_start
-            .saturating_add(block_index.saturating_mul(SPREADSHEET_SNAPSHOT_BLOCK_ROWS));
-        Ok((0..expected_rows)
-            .map(|row_offset| {
-                (0..plan.width)
-                    .map(|column| {
-                        range
-                            .get((first_row + row_offset, column))
-                            .cloned()
-                            .unwrap_or(Data::Empty)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect())
-    })?;
+    write_spreadsheet_blocks_with_cancel(
+        destination,
+        &plan,
+        is_cancelled,
+        |block_index, expected_rows| {
+            let first_row = plan
+                .data_start
+                .saturating_add(block_index.saturating_mul(SPREADSHEET_SNAPSHOT_BLOCK_ROWS));
+            Ok((0..expected_rows)
+                .map(|row_offset| {
+                    (0..plan.width)
+                        .map(|column| {
+                            range
+                                .get((first_row + row_offset, column))
+                                .cloned()
+                                .unwrap_or(Data::Empty)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect())
+        },
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
     Ok(plan.data_rows)
 }
 
@@ -14957,14 +15054,17 @@ fn spreadsheet_snapshot_plan_from_stream(
         .finish(header_mode)
 }
 
-fn write_streamed_spreadsheet_cells<F>(
+fn write_streamed_spreadsheet_cells<C, F>(
     destination: &Path,
     plan: &SpreadsheetSnapshotPlan,
+    is_cancelled: C,
     mut next_cell: F,
 ) -> Result<(), String>
 where
+    C: Fn() -> bool,
     F: FnMut() -> Result<Option<((u32, u32), Data)>, String>,
 {
+    ensure_not_cancelled(is_cancelled())?;
     let schema_frame = spreadsheet_block_frame(plan, &[])?;
     let mut file = File::create(destination)
         .map_err(|error| format!("No se pudo crear el snapshot Excel: {error}"))?;
@@ -14976,7 +15076,11 @@ where
     let mut current_block = 0_usize;
     let mut rows = empty_spreadsheet_block(plan, current_block);
 
-    while let Some((position, value)) = next_cell()? {
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let Some((position, value)) = next_cell()? else {
+            break;
+        };
         let Some(row) = position.0.checked_sub(plan.start.0) else {
             continue;
         };
@@ -15001,6 +15105,7 @@ where
             return Err("El lector Excel devolvió celdas fuera de orden.".to_owned());
         }
         while current_block < block_index {
+            ensure_not_cancelled(is_cancelled())?;
             let frame = spreadsheet_block_frame(plan, &rows)?;
             writer
                 .write_batch(&frame)
@@ -15014,6 +15119,7 @@ where
     }
 
     while current_block < block_count {
+        ensure_not_cancelled(is_cancelled())?;
         let frame = spreadsheet_block_frame(plan, &rows)?;
         writer
             .write_batch(&frame)
@@ -15021,9 +15127,11 @@ where
         current_block += 1;
         rows = empty_spreadsheet_block(plan, current_block);
     }
+    ensure_not_cancelled(is_cancelled())?;
     writer
         .finish()
         .map_err(|error| format!("No se pudo cerrar el snapshot Excel: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
     file.sync_all()
         .map_err(|error| format!("No se pudo sincronizar el snapshot Excel: {error}"))
 }
@@ -15121,33 +15229,43 @@ fn write_streamed_spreadsheet_snapshot(
             let mut reader = workbook
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
-            write_streamed_spreadsheet_cells(destination, plan, || {
-                if is_cancelled() {
-                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-                }
-                reader
-                    .next_cell()
-                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
-                    .map(|cell| {
-                        cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
-                    })
-            })
+            write_streamed_spreadsheet_cells(
+                destination,
+                plan,
+                || is_cancelled(),
+                || {
+                    if is_cancelled() {
+                        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                    }
+                    reader
+                        .next_cell()
+                        .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
+                        .map(|cell| {
+                            cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
+                        })
+                },
+            )
         }
         Sheets::Xlsb(workbook) => {
             let mut reader = workbook
                 .worksheet_cells_reader(sheet_name)
                 .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
-            write_streamed_spreadsheet_cells(destination, plan, || {
-                if is_cancelled() {
-                    return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
-                }
-                reader
-                    .next_cell()
-                    .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
-                    .map(|cell| {
-                        cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
-                    })
-            })
+            write_streamed_spreadsheet_cells(
+                destination,
+                plan,
+                || is_cancelled(),
+                || {
+                    if is_cancelled() {
+                        return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+                    }
+                    reader
+                        .next_cell()
+                        .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))
+                        .map(|cell| {
+                            cell.map(|cell| (cell.get_position(), cell.get_value().clone().into()))
+                        })
+                },
+            )
         }
         Sheets::Xls(_) | Sheets::Ods(_) => Err(SPREADSHEET_STREAMING_UNSUPPORTED.to_owned()),
     }
@@ -15536,14 +15654,33 @@ where
     Ok(frame)
 }
 
-#[derive(Default)]
-struct JsonColumnNamesVisitor {
+struct JsonColumnNamesVisitor<C = fn() -> bool> {
     names: Vec<String>,
     seen: HashSet<String>,
     records: usize,
+    is_cancelled: C,
 }
 
-impl JsonColumnNamesVisitor {
+fn never_cancel() -> bool {
+    false
+}
+
+impl Default for JsonColumnNamesVisitor<fn() -> bool> {
+    fn default() -> Self {
+        Self::new(never_cancel)
+    }
+}
+
+impl<C> JsonColumnNamesVisitor<C> {
+    fn new(is_cancelled: C) -> Self {
+        Self {
+            names: Vec::new(),
+            seen: HashSet::new(),
+            records: 0,
+            is_cancelled,
+        }
+    }
+
     fn add_record(&mut self, record: &JsonMap<String, JsonValue>) {
         for name in record.keys() {
             if self.seen.insert(name.clone()) {
@@ -15554,7 +15691,10 @@ impl JsonColumnNamesVisitor {
     }
 }
 
-impl<'de> Visitor<'de> for JsonColumnNamesVisitor {
+impl<'de, C> Visitor<'de> for JsonColumnNamesVisitor<C>
+where
+    C: Fn() -> bool,
+{
     type Value = Self;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -15566,6 +15706,11 @@ impl<'de> Visitor<'de> for JsonColumnNamesVisitor {
         A: SeqAccess<'de>,
     {
         while let Some(record) = sequence.next_element::<JsonMap<String, JsonValue>>()? {
+            if self.records.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) && (self.is_cancelled)() {
+                return Err(<A::Error as serde::de::Error>::custom(
+                    OPERATION_CANCELLED_MESSAGE,
+                ));
+            }
             self.add_record(&record);
         }
         Ok(self)
@@ -15573,10 +15718,22 @@ impl<'de> Visitor<'de> for JsonColumnNamesVisitor {
 }
 
 fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
+    json_record_column_names_with_cancel(path, || false)
+}
+
+fn json_record_column_names_with_cancel<C>(
+    path: &Path,
+    is_cancelled: C,
+) -> Result<Vec<String>, String>
+where
+    C: Fn() -> bool + Clone,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let mut probe = BufReader::new(
         fs::File::open(path).map_err(|error| format!("No se pudo abrir el JSON: {error}"))?,
     );
     let first_byte = loop {
+        ensure_not_cancelled(is_cancelled())?;
         let mut byte = [0_u8; 1];
         let read = probe
             .read(&mut byte)
@@ -15594,9 +15751,12 @@ fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
         fs::File::open(path).map_err(|error| format!("No se pudo abrir el JSON: {error}"))?;
     if first_byte == b'[' {
         let mut deserializer = serde_json::Deserializer::from_reader(BufReader::new(file));
-        let collected = deserializer
-            .deserialize_any(JsonColumnNamesVisitor::default())
-            .map_err(|error| format!("El JSON no es válido: {error}"))?;
+        let collected_result =
+            deserializer.deserialize_any(JsonColumnNamesVisitor::new(is_cancelled.clone()));
+        ensure_not_cancelled(is_cancelled())?;
+        let collected =
+            collected_result.map_err(|error| format!("El JSON no es válido: {error}"))?;
+        ensure_not_cancelled(is_cancelled())?;
         deserializer
             .end()
             .map_err(|error| format!("El JSON no es válido: {error}"))?;
@@ -15613,8 +15773,9 @@ fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
     }
     let values =
         serde_json::Deserializer::from_reader(BufReader::new(file)).into_iter::<JsonValue>();
-    let mut collected = JsonColumnNamesVisitor::default();
+    let mut collected = JsonColumnNamesVisitor::new(is_cancelled.clone());
     for value in values {
+        ensure_not_cancelled(is_cancelled())?;
         let value = value.map_err(|error| format!("JSON Lines inválido: {error}"))?;
         match value {
             JsonValue::Object(record) => collected.add_record(&record),
@@ -15629,6 +15790,7 @@ fn json_record_column_names(path: &Path) -> Result<Vec<String>, String> {
     if collected.records == 0 || collected.names.is_empty() {
         return Err("El JSON no contiene registros con campos.".to_owned());
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(collected.names)
 }
 
@@ -16444,6 +16606,17 @@ fn ensure_materialization_budget_for_path(path: &Path) -> Result<(), String> {
 }
 
 fn materialize_current_dataset(state: &DatasetState) -> Result<(DataFrame, String), String> {
+    materialize_current_dataset_with_cancel(state, &|| false)
+}
+
+fn materialize_current_dataset_with_cancel<C>(
+    state: &DatasetState,
+    is_cancelled: &C,
+) -> Result<(DataFrame, String), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let mut current = state
         .current
         .lock()
@@ -16451,7 +16624,8 @@ fn materialize_current_dataset(state: &DatasetState) -> Result<(DataFrame, Strin
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
-    materialize_loaded_dataset(dataset)?;
+    materialize_loaded_dataset_with_cancel(dataset, || is_cancelled())?;
+    ensure_not_cancelled(is_cancelled())?;
     Ok((dataset.frame.clone(), dataset.file_name.clone()))
 }
 
@@ -23081,6 +23255,253 @@ fn persist_spreadsheet_comparison_source_file(
     Ok((directory, destination, row_count))
 }
 
+fn persist_comparison_source_file_with_cancel<C>(
+    path: &Path,
+    is_cancelled: &C,
+) -> Result<(tempfile::TempDir, PathBuf), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let source_size = fs::metadata(path)
+        .map_err(|error| format!("No se pudo inspeccionar la fuente comparada: {error}"))?
+        .len();
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(directory.path())
+        .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
+    let mut source = File::open(path)
+        .map_err(|error| format!("No se pudo abrir la fuente comparada: {error}"))?;
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut copied = 0_u64;
+    loop {
+        ensure_not_cancelled(is_cancelled())?;
+        let bytes_read = source
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo copiar la fuente comparada: {error}"))?;
+        if bytes_read == 0 {
+            break;
+        }
+        temporary
+            .as_file_mut()
+            .write_all(&buffer[..bytes_read])
+            .map_err(|error| format!("No se pudo copiar la fuente comparada: {error}"))?;
+        copied = copied.saturating_add(bytes_read as u64);
+    }
+    ensure_not_cancelled(is_cancelled())?;
+    if copied != source_size {
+        return Err("La fuente comparada cambió durante la copia al snapshot.".to_owned());
+    }
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el snapshot comparado: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = directory.path().join("compared.parquet");
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {}", error.error))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok((directory, destination))
+}
+
+fn persist_delimited_comparison_source_file_with_cancel<C>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<(tempfile::TempDir, PathBuf), String>
+where
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let delimiter = detect_delimiter(path, extension)?;
+    ensure_not_cancelled(is_cancelled())?;
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = directory.path().join("compared.partial.parquet");
+    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Delimited { delimiter },
+        &temporary,
+        None,
+        is_cancelled.clone(),
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = directory.path().join("compared.parquet");
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok((directory, destination))
+}
+
+fn persist_json_comparison_source_file_with_cancel<C>(
+    path: &Path,
+    is_cancelled: C,
+) -> Result<(tempfile::TempDir, PathBuf), String>
+where
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let column_names = json_record_column_names_with_cancel(path, is_cancelled.clone())?;
+    ensure_not_cancelled(is_cancelled())?;
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = directory.path().join("compared.partial.parquet");
+    crate::duckdb_query::materialize_file_to_parquet_with_cancel(
+        path,
+        crate::duckdb_query::DuckDbFileFormat::Json,
+        &temporary,
+        Some(&column_names),
+        is_cancelled.clone(),
+    )?;
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = directory.path().join("compared.parquet");
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok((directory, destination))
+}
+
+fn persist_spreadsheet_comparison_source_file_with_cancel<C>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<(tempfile::TempDir, PathBuf, usize), String>
+where
+    C: Fn() -> bool + Clone + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let source_size = fs::metadata(path)
+        .map_err(|error| format!("No se pudo inspeccionar la fuente comparada: {error}"))?
+        .len();
+    let sheets = inspect_workbook(path)?;
+    ensure_not_cancelled(is_cancelled())?;
+    let sheet = sheets
+        .first()
+        .ok_or_else(|| "El libro no contiene hojas que se puedan comparar.".to_owned())?;
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let temporary = directory.path().join("compared.partial.parquet");
+    let row_count = if matches!(extension, "xlsx" | "xlsb") {
+        let plan = spreadsheet_snapshot_plan_from_stream(
+            path,
+            sheet,
+            SpreadsheetHeaderMode::FirstRow,
+            || is_cancelled(),
+        )?;
+        write_streamed_spreadsheet_snapshot(path, sheet, &plan, &temporary, || is_cancelled())?;
+        plan.data_rows
+    } else {
+        let mut workbook = open_workbook_auto(path)
+            .map_err(|error| format!("No se pudo abrir el libro seleccionado: {error}"))?;
+        let range = workbook
+            .worksheet_range(sheet)
+            .map_err(|error| format!("No se pudo leer la hoja seleccionada: {error}"))?;
+        ensure_not_cancelled(is_cancelled())?;
+        write_spreadsheet_range_snapshot_with_cancel(
+            &range,
+            SpreadsheetHeaderMode::FirstRow,
+            &temporary,
+            &is_cancelled,
+        )?
+    };
+    ensure_not_cancelled(is_cancelled())?;
+    let final_size = fs::metadata(path)
+        .map_err(|error| format!("No se pudo verificar la fuente comparada: {error}"))?
+        .len();
+    if final_size != source_size {
+        return Err("La fuente comparada cambió durante la creación del snapshot.".to_owned());
+    }
+    let destination = directory.path().join("compared.parquet");
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok((directory, destination, row_count))
+}
+
+fn persist_comparison_snapshot_with_cancel<C>(
+    frame: &DataFrame,
+    is_cancelled: &C,
+) -> Result<(tempfile::TempDir, PathBuf), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot comparado: {error}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(directory.path())
+        .map_err(|error| format!("No se pudo crear el snapshot comparado: {error}"))?;
+    let mut snapshot = frame.clone();
+    ParquetWriter::new(temporary.as_file_mut())
+        .finish(&mut snapshot)
+        .map_err(|error| format!("No se pudo escribir el snapshot comparado: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el snapshot comparado: {error}"))?;
+    ensure_not_cancelled(is_cancelled())?;
+    let destination = directory.path().join("compared.parquet");
+    temporary
+        .persist(&destination)
+        .map_err(|error| format!("No se pudo publicar el snapshot comparado: {}", error.error))?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok((directory, destination))
+}
+
+fn persist_comparison_file_with_cancel<C>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<(tempfile::TempDir, PathBuf, usize), String>
+where
+    C: Fn() -> bool + Clone + Send + Sync + 'static,
+{
+    ensure_not_cancelled(is_cancelled())?;
+    let (directory, snapshot_path, row_count) = match extension {
+        "parquet" => {
+            let (directory, snapshot_path) =
+                persist_comparison_source_file_with_cancel(path, &is_cancelled)?;
+            ensure_not_cancelled(is_cancelled())?;
+            let row_count = parquet_row_count(&snapshot_path)?;
+            (directory, snapshot_path, row_count)
+        }
+        "json" => {
+            let (directory, snapshot_path) =
+                persist_json_comparison_source_file_with_cancel(path, is_cancelled.clone())?;
+            ensure_not_cancelled(is_cancelled())?;
+            let row_count = parquet_row_count(&snapshot_path)?;
+            (directory, snapshot_path, row_count)
+        }
+        "csv" | "tsv" | "txt" => {
+            let (directory, snapshot_path) = persist_delimited_comparison_source_file_with_cancel(
+                path,
+                extension,
+                is_cancelled.clone(),
+            )?;
+            ensure_not_cancelled(is_cancelled())?;
+            let row_count = parquet_row_count(&snapshot_path)?;
+            (directory, snapshot_path, row_count)
+        }
+        extension if spreadsheet_extensions(extension) => {
+            persist_spreadsheet_comparison_source_file_with_cancel(
+                path,
+                extension,
+                is_cancelled.clone(),
+            )?
+        }
+        _ => {
+            let frame = load_compare_frame_with_cancel(path, extension, &is_cancelled)?;
+            let row_count = frame.height();
+            let (directory, snapshot_path) =
+                persist_comparison_snapshot_with_cancel(&frame, &is_cancelled)?;
+            (directory, snapshot_path, row_count)
+        }
+    };
+    ensure_not_cancelled(is_cancelled())?;
+    Ok((directory, snapshot_path, row_count))
+}
+
 fn row_signature(
     frame: &DataFrame,
     columns: &[String],
@@ -23256,10 +23677,24 @@ fn spill_parquet_rows(
     row_count: usize,
     columns: &[String],
 ) -> Result<SpilledKeyRows, String> {
+    spill_parquet_rows_with_cancel(path, row_count, columns, &|| false)
+}
+
+fn spill_parquet_rows_with_cancel<C>(
+    path: &Path,
+    row_count: usize,
+    columns: &[String],
+    is_cancelled: &C,
+) -> Result<SpilledKeyRows, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let spill = create_spilled_key_rows()?;
-    for_each_parquet_block(path, row_count, |start, block| {
+    for_each_parquet_block_with_cancel(path, row_count, is_cancelled, |start, block| {
         append_spilled_key_rows(&spill, block, columns, start)
     })?;
+    ensure_not_cancelled(is_cancelled())?;
     Ok(spill)
 }
 
@@ -23637,23 +24072,42 @@ fn common_row_count_from_spilled_indexes(
     current_signatures: &SpilledKeyRows,
     compared_signatures: &SpilledKeyRows,
 ) -> Result<usize, String> {
+    common_row_count_from_spilled_indexes_with_cancel(
+        current_signatures,
+        compared_signatures,
+        &|| false,
+    )
+}
+
+fn common_row_count_from_spilled_indexes_with_cancel<C>(
+    current_signatures: &SpilledKeyRows,
+    compared_signatures: &SpilledKeyRows,
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
     let mut common = 0usize;
     for bucket in 0..COMPARISON_KEY_BUCKETS {
-        let current_bucket = read_spilled_key_bucket(current_signatures, bucket)?;
-        let compared_bucket = read_spilled_key_bucket(compared_signatures, bucket)?;
-        let bucket_common = current_bucket
-            .iter()
-            .fold(0usize, |total, (signature, group)| {
-                total.saturating_add(
-                    group.count.min(
-                        compared_bucket
-                            .get(signature)
-                            .map_or(0, |other| other.count),
-                    ),
-                )
-            });
-        common = common.saturating_add(bucket_common);
+        ensure_not_cancelled(is_cancelled())?;
+        let current_bucket =
+            read_spilled_key_bucket_with_cancel(current_signatures, bucket, is_cancelled)?;
+        let compared_bucket =
+            read_spilled_key_bucket_with_cancel(compared_signatures, bucket, is_cancelled)?;
+        for (record_index, (signature, group)) in current_bucket.iter().enumerate() {
+            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            common = common.saturating_add(
+                group.count.min(
+                    compared_bucket
+                        .get(signature)
+                        .map_or(0, |other| other.count),
+                ),
+            );
+        }
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(common)
 }
 
@@ -23662,9 +24116,27 @@ fn common_row_count_from_spilled_signatures(
     compared: &DataFrame,
     shared_columns: &[String],
 ) -> Result<usize, String> {
-    let current_signatures = spill_key_rows(current, shared_columns)?;
-    let compared_signatures = spill_key_rows(compared, shared_columns)?;
-    common_row_count_from_spilled_indexes(&current_signatures, &compared_signatures)
+    common_row_count_from_spilled_signatures_with_cancel(current, compared, shared_columns, &|| {
+        false
+    })
+}
+
+fn common_row_count_from_spilled_signatures_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    shared_columns: &[String],
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let current_signatures = spill_key_rows_with_cancel(current, shared_columns, is_cancelled)?;
+    let compared_signatures = spill_key_rows_with_cancel(compared, shared_columns, is_cancelled)?;
+    common_row_count_from_spilled_indexes_with_cancel(
+        &current_signatures,
+        &compared_signatures,
+        is_cancelled,
+    )
 }
 
 fn common_row_count_from_parquet(
@@ -23686,10 +24158,44 @@ fn common_row_count_between_parquet(
     compared_row_count: usize,
     shared_columns: &[String],
 ) -> Result<usize, String> {
-    let current_signatures = spill_parquet_rows(current_path, current_row_count, shared_columns)?;
-    let compared_signatures =
-        spill_parquet_rows(compared_path, compared_row_count, shared_columns)?;
-    common_row_count_from_spilled_indexes(&current_signatures, &compared_signatures)
+    common_row_count_between_parquet_with_cancel(
+        current_path,
+        current_row_count,
+        compared_path,
+        compared_row_count,
+        shared_columns,
+        &|| false,
+    )
+}
+
+fn common_row_count_between_parquet_with_cancel<C>(
+    current_path: &Path,
+    current_row_count: usize,
+    compared_path: &Path,
+    compared_row_count: usize,
+    shared_columns: &[String],
+    is_cancelled: &C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    let current_signatures = spill_parquet_rows_with_cancel(
+        current_path,
+        current_row_count,
+        shared_columns,
+        is_cancelled,
+    )?;
+    let compared_signatures = spill_parquet_rows_with_cancel(
+        compared_path,
+        compared_row_count,
+        shared_columns,
+        is_cancelled,
+    )?;
+    common_row_count_from_spilled_indexes_with_cancel(
+        &current_signatures,
+        &compared_signatures,
+        is_cancelled,
+    )
 }
 
 #[cfg(test)]
@@ -24155,55 +24661,69 @@ fn compare_keyed_parquet_sources(
     key_columns: &[String],
     shared_columns: &[String],
 ) -> Result<KeyComparisonSummary, String> {
+    compare_keyed_parquet_sources_with_cancel(
+        current,
+        compared,
+        current_schema,
+        compared_schema,
+        key_columns,
+        shared_columns,
+        &|| false,
+    )
+}
+
+fn compare_keyed_parquet_sources_with_cancel<C>(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    current_schema: &DataFrame,
+    compared_schema: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+    is_cancelled: &C,
+) -> Result<KeyComparisonSummary, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     validate_key_columns(current_schema, compared_schema, key_columns)?;
     let shared_payload_columns = shared_columns
         .iter()
         .filter(|column| !key_columns.contains(column))
         .cloned()
         .collect::<Vec<_>>();
-    let current_rows = spill_parquet_key_payload_rows(
+    let current_rows = spill_parquet_key_payload_rows_with_cancel(
         current.path,
         current.row_count,
         key_columns,
         &shared_payload_columns,
+        is_cancelled,
     )?;
-    let compared_rows = spill_parquet_key_payload_rows(
+    let compared_rows = spill_parquet_key_payload_rows_with_cancel(
         compared.path,
         compared.row_count,
         key_columns,
         &shared_payload_columns,
+        is_cancelled,
     )?;
     let mut summary = KeyComparisonSummary::default();
     for bucket in 0..COMPARISON_KEY_BUCKETS {
-        let current_bucket = read_spilled_key_payload_bucket(&current_rows, bucket)?;
-        let compared_bucket = read_spilled_key_payload_bucket(&compared_rows, bucket)?;
-        summary.matched_key_count += current_bucket
-            .keys()
-            .filter(|key| compared_bucket.contains_key(*key))
-            .count();
-        summary.current_only_key_count += current_bucket
-            .keys()
-            .filter(|key| !compared_bucket.contains_key(*key))
-            .count();
-        summary.compared_only_key_count += compared_bucket
-            .keys()
-            .filter(|key| !current_bucket.contains_key(*key))
-            .count();
-        summary.duplicate_key_count += current_bucket
-            .values()
-            .filter(|rows| rows.count > 1)
-            .count();
-        summary.duplicate_key_count += compared_bucket
-            .iter()
-            .filter(|(key, rows)| {
-                rows.count > 1
-                    && current_bucket
-                        .get(*key)
-                        .is_none_or(|current_rows| current_rows.count <= 1)
-            })
-            .count();
-        for (key, current_group) in current_bucket {
-            let Some(compared_group) = compared_bucket.get(&key) else {
+        ensure_not_cancelled(is_cancelled())?;
+        let current_bucket =
+            read_spilled_key_payload_bucket_with_cancel(&current_rows, bucket, is_cancelled)?;
+        let compared_bucket =
+            read_spilled_key_payload_bucket_with_cancel(&compared_rows, bucket, is_cancelled)?;
+        for (record_index, (key, current_group)) in current_bucket.iter().enumerate() {
+            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            match compared_bucket.get(key) {
+                Some(_) => summary.matched_key_count += 1,
+                None => summary.current_only_key_count += 1,
+            }
+            if current_group.count > 1 {
+                summary.duplicate_key_count += 1;
+            }
+            let Some(compared_group) = compared_bucket.get(key) else {
                 continue;
             };
             if current_group.count == 1
@@ -24213,7 +24733,23 @@ fn compare_keyed_parquet_sources(
                 summary.conflicting_key_count += 1;
             }
         }
+        for (record_index, (key, compared_group)) in compared_bucket.iter().enumerate() {
+            if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+                ensure_not_cancelled(is_cancelled())?;
+            }
+            if !current_bucket.contains_key(key) {
+                summary.compared_only_key_count += 1;
+            }
+            if compared_group.count > 1
+                && current_bucket
+                    .get(key)
+                    .is_none_or(|current_group| current_group.count <= 1)
+            {
+                summary.duplicate_key_count += 1;
+            }
+        }
     }
+    ensure_not_cancelled(is_cancelled())?;
     Ok(summary)
 }
 
@@ -24941,13 +25477,38 @@ fn collect_key_conflicts_page_between_parquet(
     offset: usize,
     limit: usize,
 ) -> Result<(Vec<KeyConflictRows>, bool), String> {
+    collect_key_conflicts_page_between_parquet_with_cancel(
+        current,
+        compared,
+        key_columns,
+        shared_columns,
+        offset,
+        limit,
+        &|| false,
+    )
+}
+
+fn collect_key_conflicts_page_between_parquet_with_cancel<C>(
+    current: ParquetComparisonSource<'_>,
+    compared: ParquetComparisonSource<'_>,
+    key_columns: &[String],
+    shared_columns: &[String],
+    offset: usize,
+    limit: usize,
+    is_cancelled: &C,
+) -> Result<(Vec<KeyConflictRows>, bool), String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let mut conflicts = Vec::new();
-    let total = for_each_key_conflict_between_parquet(
+    let total = for_each_key_conflict_between_parquet_with_cancel(
         current,
         compared,
         key_columns,
         shared_columns,
         None,
+        is_cancelled,
         |conflict_index,
          current_block,
          current_row_in_block,
@@ -24974,6 +25535,7 @@ fn collect_key_conflicts_page_between_parquet(
         },
     )?;
     let page_end = offset.saturating_add(conflicts.len());
+    ensure_not_cancelled(is_cancelled())?;
     Ok((conflicts, total > page_end))
 }
 
@@ -25508,6 +26070,28 @@ fn compare_frames(
     compared_file_name: &str,
     key_columns: &[String],
 ) -> Result<DatasetComparison, String> {
+    compare_frames_with_cancel(
+        current,
+        current_file_name,
+        compared,
+        compared_file_name,
+        key_columns,
+        &|| false,
+    )
+}
+
+fn compare_frames_with_cancel<C>(
+    current: &DataFrame,
+    current_file_name: &str,
+    compared: &DataFrame,
+    compared_file_name: &str,
+    key_columns: &[String],
+    is_cancelled: &C,
+) -> Result<DatasetComparison, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let current_columns = current
         .get_column_names()
         .iter()
@@ -25539,30 +26123,48 @@ fn compare_frames(
             .iter()
             .zip(compared.columns())
             .all(|(left, right)| left.dtype() == right.dtype());
-    let (common_row_count, current_only_row_count, compared_only_row_count) = if shared_columns
-        .is_empty()
-    {
-        (0, current.height(), compared.height())
-    } else {
-        let common = common_row_count_from_spilled_signatures(current, compared, &shared_columns)?;
-        (
-            common,
-            current.height().saturating_sub(common),
-            compared.height().saturating_sub(common),
-        )
-    };
+    let (common_row_count, current_only_row_count, compared_only_row_count) =
+        if shared_columns.is_empty() {
+            (0, current.height(), compared.height())
+        } else {
+            let common = common_row_count_from_spilled_signatures_with_cancel(
+                current,
+                compared,
+                &shared_columns,
+                is_cancelled,
+            )?;
+            (
+                common,
+                current.height().saturating_sub(common),
+                compared.height().saturating_sub(common),
+            )
+        };
     let (key_summary, conflicts, conflicts_truncated) = if key_columns.is_empty() {
         (KeyComparisonSummary::default(), Vec::new(), false)
     } else {
-        let summary = compare_keyed_frames(current, compared, key_columns, &shared_columns)?;
-        let (conflicts, truncated) =
-            collect_key_conflicts(current, compared, key_columns, &shared_columns)?;
+        let summary = compare_keyed_frames_with_cancel(
+            current,
+            compared,
+            key_columns,
+            &shared_columns,
+            || is_cancelled(),
+        )?;
+        let (conflicts, truncated) = collect_key_conflicts_page_with_cancel(
+            current,
+            compared,
+            key_columns,
+            &shared_columns,
+            0,
+            MAX_CONFLICT_PREVIEW,
+            is_cancelled,
+        )?;
         (summary, conflicts, truncated)
     };
     let can_consolidate = schema_compatible
         && key_summary.conflicting_key_count == 0
         && key_summary.duplicate_key_count == 0;
 
+    ensure_not_cancelled(is_cancelled())?;
     Ok(DatasetComparison {
         current_file_name: current_file_name.to_owned(),
         compared_file_name: compared_file_name.to_owned(),
@@ -25703,8 +26305,36 @@ fn compare_parquet_sources(
     compared_row_count: usize,
     key_columns: &[String],
 ) -> Result<DatasetComparison, String> {
+    compare_parquet_sources_with_cancel(
+        current_path,
+        current_file_name,
+        current_row_count,
+        compared_path,
+        compared_file_name,
+        compared_row_count,
+        key_columns,
+        &|| false,
+    )
+}
+
+fn compare_parquet_sources_with_cancel<C>(
+    current_path: &Path,
+    current_file_name: &str,
+    current_row_count: usize,
+    compared_path: &Path,
+    compared_file_name: &str,
+    compared_row_count: usize,
+    key_columns: &[String],
+    is_cancelled: &C,
+) -> Result<DatasetComparison, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     let current_schema = read_parquet_schema_frame(current_path)?;
+    ensure_not_cancelled(is_cancelled())?;
     let compared_schema = read_parquet_schema_frame(compared_path)?;
+    ensure_not_cancelled(is_cancelled())?;
     let current_columns = current_schema
         .get_column_names()
         .iter()
@@ -25740,12 +26370,13 @@ fn compare_parquet_sources(
         if shared_columns.is_empty() {
             (0, current_row_count, compared_row_count)
         } else {
-            let common = common_row_count_between_parquet(
+            let common = common_row_count_between_parquet_with_cancel(
                 current_path,
                 current_row_count,
                 compared_path,
                 compared_row_count,
                 &shared_columns,
+                is_cancelled,
             )?;
             (
                 common,
@@ -25756,7 +26387,7 @@ fn compare_parquet_sources(
     let (key_summary, conflicts, conflicts_truncated) = if key_columns.is_empty() {
         (KeyComparisonSummary::default(), Vec::new(), false)
     } else {
-        let summary = compare_keyed_parquet_sources(
+        let summary = compare_keyed_parquet_sources_with_cancel(
             ParquetComparisonSource {
                 path: current_path,
                 row_count: current_row_count,
@@ -25769,8 +26400,9 @@ fn compare_parquet_sources(
             &compared_schema,
             key_columns,
             &shared_columns,
+            is_cancelled,
         )?;
-        let (conflicts, truncated) = collect_key_conflicts_page_between_parquet(
+        let (conflicts, truncated) = collect_key_conflicts_page_between_parquet_with_cancel(
             ParquetComparisonSource {
                 path: current_path,
                 row_count: current_row_count,
@@ -25783,6 +26415,7 @@ fn compare_parquet_sources(
             &shared_columns,
             0,
             MAX_CONFLICT_PREVIEW,
+            is_cancelled,
         )?;
         (summary, conflicts, truncated)
     };
@@ -25790,6 +26423,7 @@ fn compare_parquet_sources(
         && key_summary.conflicting_key_count == 0
         && key_summary.duplicate_key_count == 0;
 
+    ensure_not_cancelled(is_cancelled())?;
     Ok(DatasetComparison {
         current_file_name: current_file_name.to_owned(),
         compared_file_name: compared_file_name.to_owned(),
@@ -25821,6 +26455,8 @@ pub async fn compare_dataset(
     key_columns: Option<Vec<String>>,
 ) -> Result<Option<DatasetComparison>, String> {
     let key_columns = normalize_key_columns(key_columns)?;
+    let cancellation = DatasetComparisonCancellation::begin(&app);
+    cancellation.ensure()?;
     let (current_file_name, current_row_count, current_snapshot, current_source) = {
         let state = app.state::<DatasetState>();
         let current = state
@@ -25843,6 +26479,7 @@ pub async fn compare_dataset(
             current_source,
         )
     };
+    cancellation.ensure()?;
     let selection = app
         .dialog()
         .file()
@@ -25855,6 +26492,7 @@ pub async fn compare_dataset(
         )
         .blocking_pick_file();
     let Some(selection) = selection else {
+        cancellation.ensure()?;
         return Ok(None);
     };
     let path = selection
@@ -25866,157 +26504,94 @@ pub async fn compare_dataset(
         .and_then(|name| name.to_str())
         .unwrap_or("dataset")
         .to_owned();
+    cancellation.ensure()?;
+    let cancellation_for_work = cancellation.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (comparison, directory, snapshot_path, compared_row_count) = if matches!(
-            extension.as_str(),
-            "parquet" | "csv" | "tsv" | "txt" | "json"
-        ) {
-            let (directory, snapshot_path) = match extension.as_str() {
-                "parquet" => persist_comparison_source_file(&path)?,
-                "json" => persist_json_comparison_source_file(&path)?,
-                _ => persist_delimited_comparison_source_file(&path, &extension)?,
-            };
-            let compared_row_count = parquet_row_count(&snapshot_path)?;
-            let comparison = if let Some(current_path) = current_snapshot.as_ref() {
-                compare_parquet_sources(
-                    current_path,
-                    &current_file_name,
-                    current_row_count,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                )
-            } else if let Some((current_path, current_extension)) = current_source.as_ref() {
-                let (_source_directory, source_snapshot_path) = match current_extension.as_str() {
-                    "parquet" => persist_comparison_source_file(current_path)?,
-                    "json" => persist_json_comparison_source_file(current_path)?,
-                    _ => persist_delimited_comparison_source_file(current_path, current_extension)?,
-                };
-                let current_source_row_count = parquet_row_count(&source_snapshot_path)?;
-                compare_parquet_sources(
-                    &source_snapshot_path,
-                    &current_file_name,
-                    current_source_row_count,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                )
-            } else {
-                let state = app.state::<DatasetState>();
-                let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
-                compare_parquet_source(
-                    &current_frame,
-                    &current_file_name,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                )
-            };
-            let comparison = match comparison {
-                Ok(comparison) => comparison,
-                Err(_) => {
-                    let state = app.state::<DatasetState>();
-                    let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
-                    compare_parquet_source(
-                        &current_frame,
-                        &current_file_name,
-                        &snapshot_path,
-                        &compared_file_name,
-                        compared_row_count,
-                        &key_columns,
-                    )?
+        let is_cancelled = cancellation_for_work.callback();
+        cancellation_for_work.ensure()?;
+        let (directory, snapshot_path, compared_row_count) =
+            match persist_comparison_file_with_cancel(&path, &extension, is_cancelled.clone()) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    cancellation_for_work.ensure()?;
+                    return Err(error);
                 }
             };
-            (comparison, directory, snapshot_path, compared_row_count)
-        } else if spreadsheet_extensions(&extension) {
-            let (directory, snapshot_path, compared_row_count) =
-                persist_spreadsheet_comparison_source_file(&path, &extension)?;
-            let comparison = if let Some(current_path) = current_snapshot.as_ref() {
-                compare_parquet_sources(
-                    current_path,
-                    &current_file_name,
-                    current_row_count,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                )
-            } else if let Some((current_path, current_extension)) = current_source.as_ref() {
-                let (_source_directory, source_snapshot_path) = match current_extension.as_str() {
-                    "parquet" => persist_comparison_source_file(current_path)?,
-                    "json" => persist_json_comparison_source_file(current_path)?,
-                    _ => persist_delimited_comparison_source_file(current_path, current_extension)?,
-                };
-                let current_source_row_count = parquet_row_count(&source_snapshot_path)?;
-                compare_parquet_sources(
-                    &source_snapshot_path,
-                    &current_file_name,
-                    current_source_row_count,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                )
-            } else {
-                let state = app.state::<DatasetState>();
-                let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
-                compare_parquet_source(
-                    &current_frame,
-                    &current_file_name,
-                    &snapshot_path,
-                    &compared_file_name,
-                    compared_row_count,
-                    &key_columns,
-                )
-            };
-            let comparison = match comparison {
-                Ok(comparison) => comparison,
-                Err(_) => {
-                    let state = app.state::<DatasetState>();
-                    let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
-                    compare_parquet_source(
-                        &current_frame,
-                        &current_file_name,
-                        &snapshot_path,
-                        &compared_file_name,
-                        compared_row_count,
-                        &key_columns,
-                    )?
-                }
-            };
-            (comparison, directory, snapshot_path, compared_row_count)
-        } else {
-            let state = app.state::<DatasetState>();
-            let (current_frame, current_file_name) = materialize_current_dataset(&state)?;
-            let compared_frame = load_compare_frame(&path, &extension)?;
-            let comparison = compare_frames(
-                &current_frame,
-                &current_file_name,
-                &compared_frame,
-                &compared_file_name,
-                &key_columns,
-            )?;
-            let (directory, snapshot_path) = persist_comparison_snapshot(&compared_frame)?;
-            let compared_row_count = compared_frame.height();
-            (comparison, directory, snapshot_path, compared_row_count)
-        };
+
         let state = app.state::<DatasetState>();
-        *state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? =
-            Some(PendingComparison {
-                file_name: compared_file_name,
-                file_size_bytes,
-                row_count: compared_row_count,
-                _directory: directory,
-                snapshot_path,
-                key_columns,
-            });
-        Ok(Some(comparison))
+        let (current_directory, current_path, current_row_count) = if let Some(current_path) =
+            current_snapshot
+        {
+            (None, current_path, current_row_count)
+        } else if let Some((current_path, current_extension)) = current_source {
+            let (directory, snapshot_path, row_count) = match persist_comparison_file_with_cancel(
+                &current_path,
+                &current_extension,
+                is_cancelled.clone(),
+            ) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    cancellation_for_work.ensure()?;
+                    return Err(error);
+                }
+            };
+            (Some(directory), snapshot_path, row_count)
+        } else {
+            let (current_frame, _) =
+                materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
+            let row_count = current_frame.height();
+            let (directory, snapshot_path) =
+                persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
+            (Some(directory), snapshot_path, row_count)
+        };
+
+        let comparison = match compare_parquet_sources_with_cancel(
+            &current_path,
+            &current_file_name,
+            current_row_count,
+            &snapshot_path,
+            &compared_file_name,
+            compared_row_count,
+            &key_columns,
+            &is_cancelled,
+        ) {
+            Ok(comparison) => comparison,
+            Err(_) => {
+                cancellation_for_work.ensure()?;
+                let (current_frame, fallback_file_name) =
+                    materialize_current_dataset_with_cancel(&state, &is_cancelled)?;
+                let fallback_row_count = current_frame.height();
+                let (_fallback_directory, fallback_path) =
+                    persist_comparison_snapshot_with_cancel(&current_frame, &is_cancelled)?;
+                compare_parquet_sources_with_cancel(
+                    &fallback_path,
+                    &fallback_file_name,
+                    fallback_row_count,
+                    &snapshot_path,
+                    &compared_file_name,
+                    compared_row_count,
+                    &key_columns,
+                    &is_cancelled,
+                )?
+            }
+        };
+        let _ = &current_directory;
+        cancellation_for_work.ensure()?;
+        cancellation_for_work.commit(|| {
+            *state
+                .comparison
+                .lock()
+                .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? =
+                Some(PendingComparison {
+                    file_name: compared_file_name,
+                    file_size_bytes,
+                    row_count: compared_row_count,
+                    _directory: directory,
+                    snapshot_path,
+                    key_columns,
+                });
+            Ok(Some(comparison))
+        })
     })
     .await
     .map_err(|error| format!("La comparación se interrumpió: {error}"))?

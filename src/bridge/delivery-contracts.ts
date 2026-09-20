@@ -10,6 +10,7 @@ export type CancellableOperation =
   | "query"
   | "temporal"
   | "snapshotComparison"
+  | "datasetComparison"
   | "reviewMutation";
 export type LocalExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserver";

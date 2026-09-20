@@ -56,6 +56,8 @@ interface ReviewPhaseProps {
   comparisonKeyColumns: string[];
   onComparisonKeyColumnsChange: (columns: string[]) => void;
   onCompare: () => void;
+  onCancelComparison?: () => void;
+  comparisonCancellationPending?: boolean;
   onClearComparison: () => void;
   onConsolidate: () => void;
   onResolveConflicts: (decisions: ConflictResolution[]) => void;
@@ -89,6 +91,8 @@ export function ReviewPhase({
   comparisonKeyColumns,
   onComparisonKeyColumnsChange,
   onCompare,
+  onCancelComparison = () => undefined,
+  comparisonCancellationPending = false,
   onClearComparison,
   onConsolidate,
   onResolveConflicts,
@@ -177,6 +181,8 @@ export function ReviewPhase({
           keyColumns={comparisonKeyColumns}
           onKeyColumnsChange={onComparisonKeyColumnsChange}
           onCompare={onCompare}
+          onCancelComparison={onCancelComparison}
+          comparisonCancellationPending={comparisonCancellationPending}
           onClear={onClearComparison}
           onConsolidate={onConsolidate}
           onResolveConflicts={onResolveConflicts}
@@ -201,6 +207,8 @@ function DatasetComparisonSection({
   keyColumns,
   onKeyColumnsChange,
   onCompare,
+  onCancelComparison,
+  comparisonCancellationPending,
   onClear,
   onConsolidate,
   onResolveConflicts,
@@ -219,6 +227,8 @@ function DatasetComparisonSection({
   keyColumns: string[];
   onKeyColumnsChange: (columns: string[]) => void;
   onCompare: () => void;
+  onCancelComparison: () => void;
+  comparisonCancellationPending: boolean;
   onClear: () => void;
   onConsolidate: () => void;
   onResolveConflicts: (decisions: ConflictResolution[]) => void;
@@ -331,10 +341,12 @@ function DatasetComparisonSection({
         </div>
         <button
           type="button"
-          onClick={onCompare}
-          disabled={status.kind === "loading" || reviewMutationBusy}
+          onClick={status.kind === "loading" ? onCancelComparison : onCompare}
+          disabled={reviewMutationBusy || (status.kind === "loading" && comparisonCancellationPending)}
         >
-          {status.kind === "loading" ? "Comparando…" : "Elegir dataset para comparar"}
+          {status.kind === "loading"
+            ? comparisonCancellationPending ? "Esperando cancelación…" : "Cancelar comparación"
+            : "Elegir dataset para comparar"}
         </button>
       </div>
       <p className="profile-note">
@@ -433,7 +445,11 @@ function DatasetComparisonSection({
         </p>
       )}
       {status.kind === "loading" && (
-        <p className="notice" role="status">Leyendo la segunda fuente local…</p>
+        <p className="notice" role="status">
+          {comparisonCancellationPending
+            ? "Cancelación solicitada. Si el selector de archivos sigue abierto, ciérralo para terminar."
+            : "Leyendo la segunda fuente local…"}
+        </p>
       )}
       {status.kind === "error" && (
         <p className="notice notice--error" role="alert">
