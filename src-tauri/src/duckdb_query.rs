@@ -487,61 +487,77 @@ pub(crate) struct DuckDbFileSourcesQuery<'a> {
 pub(crate) fn materialize_file_sources_query_to_parquet(
     request: DuckDbFileSourcesQuery<'_>,
 ) -> Result<usize, String> {
-    let connection = Connection::open_in_memory().map_err(|error| {
-        format!("No se pudo iniciar DuckDB para el resultado source-backed: {error}")
-    })?;
-    let resource_directory = tempfile::tempdir().map_err(|error| {
-        format!("No se pudo preparar el espacio temporal para el resultado source-backed: {error}")
-    })?;
-    configure_duckdb_resources(&connection, resource_directory.path())?;
-    register_file_view(
-        &connection,
-        "__columnia_current",
-        request.current_path,
-        request.current_format,
-        Some(request.current_order_column),
-    )?;
-    register_file_view(
-        &connection,
-        "__columnia_compared",
-        request.compared_path,
-        request.compared_format,
-        Some(request.compared_order_column),
-    )?;
-    connection
-        .execute_batch(request.dataset_view_query)
-        .map_err(|error| format!("DuckDB no pudo preparar el resultado source-backed: {error}"))?;
+    materialize_file_sources_query_to_parquet_with_cancel(request, || false)
+}
 
-    let count_query = format!(
-        "SELECT COUNT(*) FROM ({}) AS __columnia_join_count",
-        request.query
-    );
-    let total_i64 = connection
-        .query_row(&count_query, [], |row| row.get::<_, i64>(0))
-        .map_err(|error| format!("DuckDB no pudo contar el resultado source-backed: {error}"))?;
-    let row_count = usize::try_from(total_i64)
-        .map_err(|_| "DuckDB devolvió un conteo de resultado source-backed inválido.".to_owned())?;
-    if let Some(limit) = request.max_rows {
-        if row_count > limit {
-            return Err(format!(
-                "El resultado source-backed produciría {row_count} filas y supera el límite local de {limit}."
-            ));
+pub(crate) fn materialize_file_sources_query_to_parquet_with_cancel<C>(
+    request: DuckDbFileSourcesQuery<'_>,
+    is_cancelled: C,
+) -> Result<usize, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!(
+                "No se pudo preparar el espacio temporal para el resultado source-backed: {error}"
+            )
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(
+            connection,
+            "__columnia_current",
+            request.current_path,
+            request.current_format,
+            Some(request.current_order_column),
+        )?;
+        register_file_view(
+            connection,
+            "__columnia_compared",
+            request.compared_path,
+            request.compared_format,
+            Some(request.compared_order_column),
+        )?;
+        connection
+            .execute_batch(request.dataset_view_query)
+            .map_err(|error| {
+                format!("DuckDB no pudo preparar el resultado source-backed: {error}")
+            })?;
+
+        let count_query = format!(
+            "SELECT COUNT(*) FROM ({}) AS __columnia_join_count",
+            request.query
+        );
+        let total_i64 = connection
+            .query_row(&count_query, [], |row| row.get::<_, i64>(0))
+            .map_err(|error| {
+                format!("DuckDB no pudo contar el resultado source-backed: {error}")
+            })?;
+        let row_count = usize::try_from(total_i64).map_err(|_| {
+            "DuckDB devolvió un conteo de resultado source-backed inválido.".to_owned()
+        })?;
+        if let Some(limit) = request.max_rows {
+            if row_count > limit {
+                return Err(format!(
+                    "El resultado source-backed produciría {row_count} filas y supera el límite local de {limit}."
+                ));
+            }
         }
-    }
 
-    let destination = request
-        .destination
-        .to_string_lossy()
-        .replace('\\', "/")
-        .replace('\'', "''");
-    let statement = format!(
-        "SET preserve_insertion_order = true; COPY ({}) TO '{destination}' (FORMAT PARQUET)",
-        request.query
-    );
-    connection
-        .execute_batch(&statement)
-        .map_err(|error| format!("DuckDB no pudo publicar el resultado source-backed: {error}"))?;
-    Ok(row_count)
+        let destination = request
+            .destination
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let statement = format!(
+            "SET preserve_insertion_order = true; COPY ({}) TO '{destination}' (FORMAT PARQUET)",
+            request.query
+        );
+        connection.execute_batch(&statement).map_err(|error| {
+            format!("DuckDB no pudo publicar el resultado source-backed: {error}")
+        })?;
+        Ok(row_count)
+    })
 }
 
 pub(crate) struct DuckDbFileSourcesScalarQuery<'a> {
@@ -555,32 +571,43 @@ pub(crate) struct DuckDbFileSourcesScalarQuery<'a> {
 pub(crate) fn query_file_sources_scalar(
     request: DuckDbFileSourcesScalarQuery<'_>,
 ) -> Result<i64, String> {
-    let connection = Connection::open_in_memory().map_err(|error| {
-        format!("No se pudo iniciar DuckDB para validar la consolidación source-backed: {error}")
-    })?;
-    let resource_directory = tempfile::tempdir().map_err(|error| {
-        format!(
-            "No se pudo preparar el espacio temporal para validar la consolidación source-backed: {error}"
-        )
-    })?;
-    configure_duckdb_resources(&connection, resource_directory.path())?;
-    register_file_view(
-        &connection,
-        "__columnia_current",
-        request.current_path,
-        request.current_format,
-        None,
-    )?;
-    register_file_view(
-        &connection,
-        "__columnia_compared",
-        request.compared_path,
-        request.compared_format,
-        None,
-    )?;
-    connection
-        .query_row(request.query, [], |row| row.get::<_, i64>(0))
-        .map_err(|error| format!("DuckDB no pudo validar la consolidación source-backed: {error}"))
+    query_file_sources_scalar_with_cancel(request, || false)
+}
+
+pub(crate) fn query_file_sources_scalar_with_cancel<C>(
+    request: DuckDbFileSourcesScalarQuery<'_>,
+    is_cancelled: C,
+) -> Result<i64, String>
+where
+    C: Fn() -> bool + Send + 'static,
+{
+    execute_duckdb_operation(is_cancelled, |connection| {
+        let resource_directory = tempfile::tempdir().map_err(|error| {
+            format!(
+                "No se pudo preparar el espacio temporal para validar la consolidación source-backed: {error}"
+            )
+        })?;
+        configure_duckdb_resources(connection, resource_directory.path())?;
+        register_file_view(
+            connection,
+            "__columnia_current",
+            request.current_path,
+            request.current_format,
+            None,
+        )?;
+        register_file_view(
+            connection,
+            "__columnia_compared",
+            request.compared_path,
+            request.compared_format,
+            None,
+        )?;
+        connection
+            .query_row(request.query, [], |row| row.get::<_, i64>(0))
+            .map_err(|error| {
+                format!("DuckDB no pudo validar la consolidación source-backed: {error}")
+            })
+    })
 }
 
 pub(crate) fn query_file_scalar(
@@ -2618,6 +2645,70 @@ mod tests {
 
         let error = execute_duckdb_query(&current, None, &spec, || true)
             .expect_err("una consulta cancelada no debe iniciar DuckDB");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    }
+
+    #[test]
+    fn source_backed_copy_cancellation_does_not_publish_output() {
+        let directory = tempfile::tempdir().expect("el directorio temporal debe crearse");
+        let current_path = directory.path().join("current.csv");
+        let compared_path = directory.path().join("compared.csv");
+        let destination = directory.path().join("joined.parquet");
+        fs::write(&current_path, "id,name\n1,A\n").expect("la fuente actual debe escribirse");
+        fs::write(&compared_path, "id,amount\n1,10\n")
+            .expect("la fuente comparada debe escribirse");
+
+        let error = materialize_file_sources_query_to_parquet_with_cancel(
+            DuckDbFileSourcesQuery {
+                current_path: &current_path,
+                current_format: DuckDbFileFormat::Delimited { delimiter: b',' },
+                compared_path: &compared_path,
+                compared_format: DuckDbFileFormat::Delimited { delimiter: b',' },
+                dataset_view_query: "CREATE VIEW dataset AS SELECT * FROM __columnia_current",
+                query: "SELECT * FROM dataset",
+                destination: &destination,
+                current_order_column: "__current_order",
+                compared_order_column: "__compared_order",
+                max_rows: None,
+            },
+            || true,
+        )
+        .expect_err("COPY source-backed debe respetar la cancelación inicial");
+
+        assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn source_backed_validation_interrupts_an_active_duckdb_query() {
+        let directory = tempfile::tempdir().expect("el directorio temporal debe crearse");
+        let current_path = directory.path().join("current.csv");
+        let compared_path = directory.path().join("compared.csv");
+        fs::write(&current_path, "id,name\n1,A\n").expect("la fuente actual debe escribirse");
+        fs::write(&compared_path, "id,amount\n1,10\n")
+            .expect("la fuente comparada debe escribirse");
+        let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel_signal = std::sync::Arc::clone(&cancelled);
+        let cancel_thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            cancel_signal.store(true, std::sync::atomic::Ordering::Release);
+        });
+
+        let error = query_file_sources_scalar_with_cancel(
+            DuckDbFileSourcesScalarQuery {
+                current_path: &current_path,
+                current_format: DuckDbFileFormat::Delimited { delimiter: b',' },
+                compared_path: &compared_path,
+                compared_format: DuckDbFileFormat::Delimited { delimiter: b',' },
+                query: "SELECT SUM(sin(i)) FROM range(100000000) AS r(i)",
+            },
+            move || cancelled.load(std::sync::atomic::Ordering::Acquire),
+        )
+        .expect_err("la validación DuckDB activa debe poder interrumpirse");
+        cancel_thread
+            .join()
+            .expect("la señal de cancelación debe terminar");
 
         assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
     }

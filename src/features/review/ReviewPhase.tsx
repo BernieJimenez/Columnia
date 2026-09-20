@@ -36,7 +36,7 @@ import {
   writeQueryEnginePreference,
 } from "./reviewModel";
 import type { ComparisonStatus } from "./compareModel";
-import type { JoinStatus } from "./joinModel";
+import type { JoinStatus, ReviewMutationStatus } from "./joinModel";
 import { QualitySnapshot } from "./QualitySnapshot";
 import { buildQualityActionPlan } from "./qualityActionPlan";
 import type { QualityActionTarget } from "./qualityActionPlan";
@@ -61,9 +61,12 @@ interface ReviewPhaseProps {
   onResolveConflicts: (decisions: ConflictResolution[]) => void;
   onConflictPageChange: (offset: number) => void | Promise<void>;
   joinStatus: JoinStatus;
+  reviewMutationStatus?: ReviewMutationStatus;
+  reviewMutationCancellationPending?: boolean;
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
+  onCancelReviewMutation?: () => void;
   datasetRevision?: number;
   sqlHistory?: SqlQueryHistoryEntry[];
   onSqlHistoryChange?: (entries: SqlQueryHistoryEntry[]) => void;
@@ -91,9 +94,12 @@ export function ReviewPhase({
   onResolveConflicts,
   onConflictPageChange,
   joinStatus,
+  reviewMutationStatus = { kind: "idle" },
+  reviewMutationCancellationPending = false,
   joinType,
   onJoinTypeChange,
   onJoin,
+  onCancelReviewMutation = () => undefined,
   datasetRevision = 0,
   sqlHistory = [],
   onSqlHistoryChange = () => undefined,
@@ -175,9 +181,12 @@ export function ReviewPhase({
           onResolveConflicts={onResolveConflicts}
           onConflictPageChange={onConflictPageChange}
           joinStatus={joinStatus}
+          reviewMutationStatus={reviewMutationStatus}
+          reviewMutationCancellationPending={reviewMutationCancellationPending}
           joinType={joinType}
           onJoinTypeChange={onJoinTypeChange}
           onJoin={onJoin}
+          onCancelReviewMutation={onCancelReviewMutation}
         />
       </details>
     </>
@@ -195,9 +204,12 @@ function DatasetComparisonSection({
   onResolveConflicts,
   onConflictPageChange,
   joinStatus,
+  reviewMutationStatus,
+  reviewMutationCancellationPending,
   joinType,
   onJoinTypeChange,
   onJoin,
+  onCancelReviewMutation,
 }: {
   status: ComparisonStatus;
   datasetColumns: DatasetColumn[];
@@ -209,9 +221,12 @@ function DatasetComparisonSection({
   onResolveConflicts: (decisions: ConflictResolution[]) => void;
   onConflictPageChange: (offset: number) => void | Promise<void>;
   joinStatus: JoinStatus;
+  reviewMutationStatus: ReviewMutationStatus;
+  reviewMutationCancellationPending: boolean;
   joinType: DatasetJoinType;
   onJoinTypeChange: (joinType: DatasetJoinType) => void;
   onJoin: (joinType: DatasetJoinType) => void;
+  onCancelReviewMutation: () => void;
 }) {
   const [conflictChoices, setConflictChoices] = useState<Record<string, ConflictSource>>({});
   const [conflictPageLoading, setConflictPageLoading] = useState(false);
@@ -232,6 +247,16 @@ function DatasetComparisonSection({
     : new Set<string>();
   const selectedVisibleConflictCellCount = Object.keys(conflictChoices)
     .filter((key) => visibleConflictChoiceKeys.has(key)).length;
+  const reviewMutationBusy = reviewMutationCancellationPending
+    || reviewMutationStatus.kind === "running"
+    || reviewMutationStatus.kind === "finalizing";
+  const activeReviewMutation = reviewMutationStatus.kind === "running"
+    || reviewMutationStatus.kind === "finalizing"
+    ? reviewMutationStatus.mutation
+    : null;
+  const reviewMutationFinalizing = reviewMutationStatus.kind === "finalizing";
+  const reviewMutationCancellationRequested = reviewMutationStatus.kind === "running"
+    && reviewMutationStatus.cancellation === "requested";
   const visibleConflictPageComplete = visibleConflictCellCount > 0 &&
     selectedVisibleConflictCellCount === visibleConflictCellCount;
 
@@ -254,7 +279,7 @@ function DatasetComparisonSection({
         <button
           type="button"
           onClick={onCompare}
-          disabled={status.kind === "loading" || joinStatus.kind === "loading"}
+          disabled={status.kind === "loading" || reviewMutationBusy}
         >
           {status.kind === "loading" ? "Comparando…" : "Elegir dataset para comparar"}
         </button>
@@ -274,7 +299,7 @@ function DatasetComparisonSection({
               <input
                 type="checkbox"
                 checked={keyColumns.includes(column.name)}
-                disabled={joinStatus.kind === "loading"}
+                disabled={reviewMutationBusy || status.kind === "loading"}
                 onChange={() => {
                   onKeyColumnsChange(
                     keyColumns.includes(column.name)
@@ -313,7 +338,7 @@ function DatasetComparisonSection({
                   value={value}
                   checked={joinType === value}
                   onChange={() => onJoinTypeChange(value)}
-                  disabled={joinStatus.kind === "loading"}
+                  disabled={reviewMutationBusy}
                 />
                 <span>
                   <strong>{label}</strong>
@@ -325,10 +350,25 @@ function DatasetComparisonSection({
           <button
             type="button"
             className="primary-action"
-            onClick={() => onJoin(joinType)}
-            disabled={joinStatus.kind === "loading"}
+            onClick={() => activeReviewMutation === "join" ? onCancelReviewMutation() : onJoin(joinType)}
+            disabled={
+              reviewMutationBusy
+              && (activeReviewMutation !== "join"
+                || reviewMutationFinalizing
+                || reviewMutationCancellationRequested)
+            }
           >
-            {joinStatus.kind === "loading" ? "Uniendo datasets…" : "Elegir fuente y unir"}
+          {reviewMutationCancellationPending
+            ? "Esperando cancelación…"
+            : activeReviewMutation === "join"
+              ? reviewMutationStatus.kind === "finalizing"
+                ? "Finalizando unión…"
+                : reviewMutationStatus.kind === "running" && reviewMutationStatus.cancellation === "requested"
+                  ? "Cancelando unión…"
+                  : "Cancelar unión"
+              : activeReviewMutation === "consolidate"
+                ? "Esperando consolidación…"
+                : "Elegir fuente y unir"}
           </button>
         </fieldset>
       )}
@@ -343,6 +383,16 @@ function DatasetComparisonSection({
       {status.kind === "error" && (
         <p className="notice notice--error" role="alert">
           No se pudo comparar la fuente: {status.message}
+        </p>
+      )}
+      {reviewMutationStatus.kind === "running" && reviewMutationStatus.cancellationError && (
+        <p className="notice notice--error" role="alert">
+          No se pudo solicitar la cancelación: {reviewMutationStatus.cancellationError}
+        </p>
+      )}
+      {reviewMutationStatus.kind === "error" && reviewMutationStatus.mutation === "consolidate" && (
+        <p className="notice notice--error" role="alert">
+          No se pudieron consolidar las filas: {reviewMutationStatus.message}
         </p>
       )}
       {status.kind === "ready" && (
@@ -403,7 +453,7 @@ function DatasetComparisonSection({
                     const column = choiceKey.slice(separator + 1);
                     return { conflictIndex, column, source };
                   }))}
-                  disabled={conflictPageLoading || status.comparison.conflictsTruncated || !visibleConflictPageComplete}
+                  disabled={reviewMutationBusy || conflictPageLoading || status.comparison.conflictsTruncated || !visibleConflictPageComplete}
                 >
                   Resolver conflictos
                 </button>
@@ -429,6 +479,7 @@ function DatasetComparisonSection({
                                 type="radio"
                                 name={`conflict-${conflictIndex}-${cell.column}`}
                                 checked={conflictChoices[choiceKey] === "current"}
+                                disabled={reviewMutationBusy}
                                 onChange={() => setConflictChoices((current) => ({ ...current, [choiceKey]: "current" }))}
                               />
                               Conservar activo en {cell.column}
@@ -438,6 +489,7 @@ function DatasetComparisonSection({
                                 type="radio"
                                 name={`conflict-${conflictIndex}-${cell.column}`}
                                 checked={conflictChoices[choiceKey] === "compared"}
+                                disabled={reviewMutationBusy}
                                 onChange={() => setConflictChoices((current) => ({ ...current, [choiceKey]: "compared" }))}
                               />
                               Usar comparado en {cell.column}
@@ -460,7 +512,7 @@ function DatasetComparisonSection({
                   <button
                     type="button"
                     onClick={() => void requestConflictPage(Math.max(0, status.comparison.conflictOffset - CONFLICT_PAGE_SIZE))}
-                    disabled={conflictPageLoading || status.comparison.conflictOffset === 0}
+                    disabled={reviewMutationBusy || conflictPageLoading || status.comparison.conflictOffset === 0}
                   >
                     Conflictos anteriores
                   </button>
@@ -471,7 +523,7 @@ function DatasetComparisonSection({
                   <button
                     type="button"
                     onClick={() => void requestConflictPage(status.comparison.conflictOffset + status.comparison.conflicts.length)}
-                    disabled={conflictPageLoading || !status.comparison.conflictsTruncated || !visibleConflictPageComplete}
+                    disabled={reviewMutationBusy || conflictPageLoading || !status.comparison.conflictsTruncated || !visibleConflictPageComplete}
                   >
                     {conflictPageLoading ? "Cargando conflictos…" : "Siguientes conflictos"}
                   </button>
@@ -480,9 +532,37 @@ function DatasetComparisonSection({
             </section>
           )}
           <div className="comparison-actions">
-            <button type="button" className="secondary-action" onClick={onClear}>Descartar comparación</button>
-            <button type="button" className="primary-action" onClick={onConsolidate} disabled={!status.comparison.canConsolidate}>
-              Consolidar filas
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={onClear}
+              disabled={reviewMutationBusy}
+            >
+              Descartar comparación
+            </button>
+            <button
+              type="button"
+              className="primary-action"
+              onClick={() => activeReviewMutation === "consolidate" ? onCancelReviewMutation() : onConsolidate()}
+              disabled={
+                !status.comparison.canConsolidate
+                || (reviewMutationBusy
+                  && (activeReviewMutation !== "consolidate"
+                    || reviewMutationFinalizing
+                    || reviewMutationCancellationRequested))
+              }
+            >
+              {reviewMutationCancellationPending
+                ? "Esperando cancelación…"
+                : activeReviewMutation === "consolidate"
+                ? reviewMutationStatus.kind === "finalizing"
+                  ? "Finalizando consolidación…"
+                  : reviewMutationStatus.kind === "running" && reviewMutationStatus.cancellation === "requested"
+                    ? "Cancelando consolidación…"
+                    : "Cancelar consolidación"
+                : activeReviewMutation === "join"
+                  ? "Esperando unión…"
+                  : "Consolidar filas"}
             </button>
           </div>
           {!status.comparison.canConsolidate && (

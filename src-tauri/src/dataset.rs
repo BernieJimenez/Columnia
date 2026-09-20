@@ -8,14 +8,11 @@ use std::{
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
-
-#[cfg(test)]
-use std::sync::atomic::AtomicBool;
 
 use ::zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 use calamine::{
@@ -1700,6 +1697,65 @@ struct LoadedDataset {
     history: HistoryManager,
 }
 
+#[derive(Clone)]
+struct DatasetMutationStamp {
+    source_path: Option<PathBuf>,
+    history_source_snapshot_path: Option<PathBuf>,
+    history_cursor_path: Option<PathBuf>,
+    file_name: String,
+    file_size_bytes: u64,
+    row_count: usize,
+    source_backed: bool,
+    frame: DataFrame,
+    history_cursor: usize,
+    history_entry_count: usize,
+    history_next_id: u64,
+    history_current_label: String,
+}
+
+impl DatasetMutationStamp {
+    fn capture(dataset: &LoadedDataset) -> Self {
+        Self {
+            source_path: dataset.source_path.clone(),
+            history_source_snapshot_path: dataset.history.source_snapshot_path.clone(),
+            history_cursor_path: dataset
+                .history
+                .entries
+                .get(dataset.history.cursor)
+                .map(|entry| entry.path.clone()),
+            file_name: dataset.file_name.clone(),
+            file_size_bytes: dataset.file_size_bytes,
+            row_count: dataset.row_count,
+            source_backed: dataset.source_backed,
+            frame: dataset.frame.clone(),
+            history_cursor: dataset.history.cursor,
+            history_entry_count: dataset.history.entries.len(),
+            history_next_id: dataset.history.next_id,
+            history_current_label: dataset.history.current_label.clone(),
+        }
+    }
+
+    fn matches(&self, dataset: &LoadedDataset) -> bool {
+        self.source_path == dataset.source_path
+            && self.history_source_snapshot_path == dataset.history.source_snapshot_path
+            && self.history_cursor_path
+                == dataset
+                    .history
+                    .entries
+                    .get(dataset.history.cursor)
+                    .map(|entry| entry.path.clone())
+            && self.file_name == dataset.file_name
+            && self.file_size_bytes == dataset.file_size_bytes
+            && self.row_count == dataset.row_count
+            && self.source_backed == dataset.source_backed
+            && self.frame.equals_missing(&dataset.frame)
+            && self.history_cursor == dataset.history.cursor
+            && self.history_entry_count == dataset.history.entries.len()
+            && self.history_next_id == dataset.history.next_id
+            && self.history_current_label == dataset.history.current_label
+    }
+}
+
 #[derive(Debug)]
 struct HistoryEntry {
     id: String,
@@ -2672,6 +2728,16 @@ struct PendingComparison {
     key_columns: Vec<String>,
 }
 
+struct ReviewComparisonSnapshot {
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+    identity_path: PathBuf,
+    file_name: String,
+    file_size_bytes: u64,
+    row_count: usize,
+    key_columns: Vec<String>,
+}
+
 #[derive(Default)]
 pub struct DatasetState {
     current: Mutex<Option<LoadedDataset>>,
@@ -2687,6 +2753,9 @@ pub struct DatasetState {
     snapshot_comparison_generation: AtomicU64,
     prepare_generation: AtomicU64,
     prepare_commit_lock: Mutex<()>,
+    review_mutation_generation: AtomicU64,
+    review_mutation_in_flight: AtomicBool,
+    review_mutation_commit_lock: Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -2766,6 +2835,191 @@ impl PrepareCancellation {
     }
 }
 
+struct ReviewMutationGuard {
+    app: AppHandle,
+}
+
+impl Drop for ReviewMutationGuard {
+    fn drop(&mut self) {
+        self.app
+            .state::<DatasetState>()
+            .review_mutation_in_flight
+            .store(false, Ordering::Release);
+    }
+}
+
+#[derive(Clone)]
+struct ReviewMutationCancellation {
+    app: Option<AppHandle>,
+    generation: u64,
+    #[cfg(test)]
+    cancelled_for_test: Option<std::sync::Arc<AtomicBool>>,
+    #[cfg(test)]
+    cancel_at_commit_for_test: bool,
+}
+
+impl ReviewMutationCancellation {
+    fn begin(app: &AppHandle) -> Result<(ReviewMutationGuard, Self), String> {
+        let state = app.state::<DatasetState>();
+        let generation = state.begin_review_mutation()?;
+        Ok((
+            ReviewMutationGuard { app: app.clone() },
+            Self {
+                app: Some(app.clone()),
+                generation,
+                #[cfg(test)]
+                cancelled_for_test: None,
+                #[cfg(test)]
+                cancel_at_commit_for_test: false,
+            },
+        ))
+    }
+
+    #[cfg(test)]
+    fn disabled() -> Self {
+        Self {
+            app: None,
+            generation: 0,
+            cancelled_for_test: None,
+            cancel_at_commit_for_test: false,
+        }
+    }
+
+    #[cfg(test)]
+    fn cancel_at_commit_for_test() -> Self {
+        Self {
+            app: None,
+            generation: 0,
+            cancelled_for_test: Some(std::sync::Arc::new(AtomicBool::new(false))),
+            cancel_at_commit_for_test: true,
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        #[cfg(test)]
+        if self
+            .cancelled_for_test
+            .as_ref()
+            .is_some_and(|cancelled| cancelled.load(Ordering::Acquire))
+        {
+            return true;
+        }
+        self.app.as_ref().is_some_and(|app| {
+            app.state::<DatasetState>()
+                .review_mutation_was_cancelled(self.generation)
+        })
+    }
+
+    fn ensure(&self) -> Result<(), String> {
+        ensure_not_cancelled(self.is_cancelled())
+    }
+
+    fn commit<T>(&self, operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        if let Some(app) = &self.app {
+            let state = app.state::<DatasetState>();
+            let _guard = state
+                .review_mutation_commit_lock
+                .lock()
+                .map_err(|_| "La publicación de Review quedó bloqueada.".to_owned())?;
+            #[cfg(test)]
+            self.cancel_test_operation_at_commit();
+            self.ensure()?;
+            operation()
+        } else {
+            #[cfg(test)]
+            self.cancel_test_operation_at_commit();
+            self.ensure()?;
+            operation()
+        }
+    }
+
+    #[cfg(test)]
+    fn cancel_test_operation_at_commit(&self) {
+        if self.cancel_at_commit_for_test {
+            if let Some(cancelled) = &self.cancelled_for_test {
+                cancelled.store(true, Ordering::Release);
+            }
+        }
+    }
+
+    fn callback(&self) -> impl Fn() -> bool + Send + 'static {
+        let cancellation = self.clone();
+        move || cancellation.is_cancelled()
+    }
+}
+
+fn snapshot_pending_comparison_for_review(
+    state: &DatasetState,
+    cancellation: &ReviewMutationCancellation,
+) -> Result<ReviewComparisonSnapshot, String> {
+    cancellation.ensure()?;
+    let comparison = state
+        .comparison
+        .lock()
+        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    let pending = comparison
+        .as_ref()
+        .ok_or_else(|| "No hay un dataset comparado listo para consolidar.".to_owned())?;
+    let identity_path = pending.snapshot_path.clone();
+    let file_name = pending.file_name.clone();
+    let row_count = pending.row_count;
+    let key_columns = pending.key_columns.clone();
+    let source_size = fs::metadata(&pending.snapshot_path)
+        .map_err(|error| format!("No se pudo inspeccionar el snapshot comparado: {error}"))?
+        .len();
+    if source_size != pending.file_size_bytes {
+        return Err("El snapshot comparado cambió antes de consolidar.".to_owned());
+    }
+
+    // A private copy lets the review operation release the comparison lock
+    // while DuckDB reads it. If another comparison replaces it, publication
+    // checks the original path and rejects the stale candidate.
+    let directory = tempfile::tempdir()
+        .map_err(|error| format!("No se pudo preparar el snapshot de Review: {error}"))?;
+    let mut input = File::open(&pending.snapshot_path)
+        .map_err(|error| format!("No se pudo leer el snapshot comparado: {error}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(directory.path())
+        .map_err(|error| format!("No se pudo copiar el snapshot comparado: {error}"))?;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        cancellation.ensure()?;
+        let bytes_read = input
+            .read(&mut buffer)
+            .map_err(|error| format!("No se pudo leer el snapshot comparado: {error}"))?;
+        if bytes_read == 0 {
+            break;
+        }
+        temporary
+            .as_file_mut()
+            .write_all(&buffer[..bytes_read])
+            .map_err(|error| format!("No se pudo copiar el snapshot comparado: {error}"))?;
+    }
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("No se pudo sincronizar el snapshot comparado: {error}"))?;
+    let path = directory.path().join("compared.parquet");
+    temporary
+        .persist(&path)
+        .map_err(|error| format!("No se pudo publicar el snapshot de Review: {}", error.error))?;
+    let copied_size = fs::metadata(&path)
+        .map_err(|error| format!("No se pudo verificar el snapshot comparado: {error}"))?
+        .len();
+    if copied_size != source_size {
+        return Err("La copia del snapshot comparado quedó incompleta.".to_owned());
+    }
+    cancellation.ensure()?;
+    Ok(ReviewComparisonSnapshot {
+        _directory: directory,
+        path,
+        identity_path,
+        file_name,
+        file_size_bytes: copied_size,
+        row_count,
+        key_columns,
+    })
+}
+
 impl DatasetState {
     pub(crate) fn queue_dropped_path(&self, path: PathBuf) {
         if let Ok(mut pending) = self.pending_drop.lock() {
@@ -2822,6 +3076,16 @@ impl DatasetState {
             .wrapping_add(1)
     }
 
+    fn begin_review_mutation(&self) -> Result<u64, String> {
+        self.review_mutation_in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| "Ya hay una operación de Review en curso.".to_owned())?;
+        Ok(self
+            .review_mutation_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1))
+    }
+
     fn load_was_cancelled(&self, generation: u64) -> bool {
         self.load_generation.load(Ordering::SeqCst) != generation
     }
@@ -2850,6 +3114,10 @@ impl DatasetState {
         self.prepare_generation.load(Ordering::SeqCst) != generation
     }
 
+    fn review_mutation_was_cancelled(&self, generation: u64) -> bool {
+        self.review_mutation_generation.load(Ordering::SeqCst) != generation
+    }
+
     fn remember_last_export(&self, path: PathBuf) {
         if let Ok(mut last_export_path) = self.last_export_path.lock() {
             *last_export_path = Some(path);
@@ -2871,6 +3139,15 @@ impl DatasetState {
                 .lock()
                 .map_err(|_| "La cancelación de preparación quedó bloqueada.".to_owned())?;
             self.prepare_generation.fetch_add(1, Ordering::SeqCst);
+            return Ok(());
+        }
+        if operation == "reviewMutation" {
+            let _guard = self
+                .review_mutation_commit_lock
+                .lock()
+                .map_err(|_| "La cancelación de Review quedó bloqueada.".to_owned())?;
+            self.review_mutation_generation
+                .fetch_add(1, Ordering::SeqCst);
             return Ok(());
         }
         let generation = match operation {
@@ -3716,7 +3993,6 @@ struct SourceBackedJoinContext {
     source_size_bytes: u64,
     schema: DataFrame,
     file_name: String,
-    file_size_bytes: u64,
     row_count: usize,
     original_source_path: PathBuf,
     original_file_size_bytes: u64,
@@ -4490,6 +4766,29 @@ fn validate_source_backed_consolidation(
     current: &DataFrame,
     key_columns: &[String],
 ) -> Result<(), String> {
+    validate_source_backed_consolidation_with_cancellation(
+        current_path,
+        current_format,
+        compared_path,
+        compared_format,
+        current,
+        key_columns,
+        || false,
+    )
+}
+
+fn validate_source_backed_consolidation_with_cancellation<C>(
+    current_path: &Path,
+    current_format: crate::duckdb_query::DuckDbFileFormat,
+    compared_path: &Path,
+    compared_format: crate::duckdb_query::DuckDbFileFormat,
+    current: &DataFrame,
+    key_columns: &[String],
+    is_cancelled: C,
+) -> Result<(), String>
+where
+    C: Fn() -> bool + Send + Clone + 'static,
+{
     if key_columns.is_empty() {
         return Ok(());
     }
@@ -4501,7 +4800,7 @@ fn validate_source_backed_consolidation(
     let duplicate_query = format!(
         "SELECT COUNT(*) FROM (SELECT {group_columns} FROM __columnia_current GROUP BY {group_columns} HAVING COUNT(*) > 1 UNION ALL SELECT {group_columns} FROM __columnia_compared GROUP BY {group_columns} HAVING COUNT(*) > 1) AS duplicate_groups"
     );
-    let duplicate_count = crate::duckdb_query::query_file_sources_scalar(
+    let duplicate_count = crate::duckdb_query::query_file_sources_scalar_with_cancel(
         crate::duckdb_query::DuckDbFileSourcesScalarQuery {
             current_path,
             current_format,
@@ -4509,6 +4808,7 @@ fn validate_source_backed_consolidation(
             compared_format,
             query: &duplicate_query,
         },
+        is_cancelled.clone(),
     )?;
     if duplicate_count > 0 {
         return Err(SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR.to_owned());
@@ -4541,7 +4841,7 @@ fn validate_source_backed_consolidation(
     let conflict_query = format!(
         "SELECT COUNT(*) FROM __columnia_current AS c JOIN __columnia_compared AS r ON {key_conditions} WHERE NOT ({payload_conditions})"
     );
-    let conflict_count = crate::duckdb_query::query_file_sources_scalar(
+    let conflict_count = crate::duckdb_query::query_file_sources_scalar_with_cancel(
         crate::duckdb_query::DuckDbFileSourcesScalarQuery {
             current_path,
             current_format,
@@ -4549,6 +4849,7 @@ fn validate_source_backed_consolidation(
             compared_format,
             query: &conflict_query,
         },
+        is_cancelled,
     )?;
     if conflict_count > 0 {
         return Err(SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR.to_owned());
@@ -5406,7 +5707,6 @@ fn source_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJoi
         source_size_bytes,
         schema: dataset.frame.clone(),
         file_name: dataset.file_name.clone(),
-        file_size_bytes: dataset.file_size_bytes,
         row_count: dataset.row_count,
         original_source_path: dataset.source_path.clone()?,
         original_file_size_bytes: dataset.file_size_bytes,
@@ -5426,7 +5726,6 @@ fn snapshot_backed_join_context(dataset: &LoadedDataset) -> Option<SourceBackedJ
         source_size_bytes,
         schema: dataset.frame.slice(0, 0),
         file_name: dataset.file_name.clone(),
-        file_size_bytes: dataset.file_size_bytes,
         row_count,
         original_source_path: source_path,
         original_file_size_bytes: source_size_bytes,
@@ -9829,12 +10128,15 @@ fn initialize_source_backed_history(
     Ok(history.snapshots_enabled)
 }
 
-fn prepare_source_backed_baseline_snapshot(
+fn prepare_source_backed_baseline_snapshot<C>(
     history: &HistoryManager,
     source_path: &Path,
     source_format: crate::duckdb_query::DuckDbFileFormat,
-    cancellation: Option<&PrepareCancellation>,
-) -> Result<PreparedHistorySnapshot, String> {
+    is_cancelled: C,
+) -> Result<PreparedHistorySnapshot, String>
+where
+    C: Fn() -> bool + Send + Sync + Clone + 'static,
+{
     let mut generated_snapshot_guard = None;
     let snapshot_source = if let Some(snapshot) = history.source_snapshot_path.as_deref() {
         snapshot.to_owned()
@@ -9851,30 +10153,18 @@ fn prepare_source_backed_baseline_snapshot(
         let snapshot = temporary.path().to_owned();
         drop(temporary);
         generated_snapshot_guard = Some(SourceBackedJoinOutputGuard::new(&snapshot));
-        let materialized = if let Some(cancellation) = cancellation {
-            crate::duckdb_query::materialize_file_to_parquet_with_projection(
-                source_path,
-                source_format,
-                &snapshot,
-                "*",
-                cancellation.callback(),
-            )
-        } else {
-            crate::duckdb_query::materialize_file_to_parquet_with_projection(
-                source_path,
-                source_format,
-                &snapshot,
-                "*",
-                || false,
-            )
-        };
+        let materialized = crate::duckdb_query::materialize_file_to_parquet_with_projection(
+            source_path,
+            source_format,
+            &snapshot,
+            "*",
+            is_cancelled.clone(),
+        );
         materialized?;
         snapshot
     };
 
-    let prepared = history.prepare_parquet_snapshot(&snapshot_source, || {
-        cancellation.is_some_and(PrepareCancellation::is_cancelled)
-    });
+    let prepared = history.prepare_parquet_snapshot(&snapshot_source, is_cancelled);
     drop(generated_snapshot_guard);
     prepared
 }
@@ -10127,11 +10417,13 @@ fn publish_source_backed_query(
     let baseline_snapshot = if dataset.history.snapshots_enabled {
         None
     } else {
+        let cancellation_for_baseline = cancellation.clone();
+        let is_cancelled = move || cancellation_for_baseline.is_cancelled();
         Some(prepare_source_backed_baseline_snapshot(
             &dataset.history,
             source_path,
             source_format,
-            Some(&cancellation),
+            is_cancelled,
         )?)
     };
     let prepared_output = dataset
@@ -10343,9 +10635,302 @@ fn publish_source_backed_result_output(
     }))
 }
 
+fn publish_review_source_backed_result_output(
+    dataset: &mut LoadedDataset,
+    comparison: &mut Option<PendingComparison>,
+    context: &SourceBackedJoinContext,
+    expected_stamp: &DatasetMutationStamp,
+    output: SourceBackedResultOutput<'_>,
+    expected_comparison_path: Option<&Path>,
+    expected_comparison_must_be_absent: bool,
+    cancellation: &ReviewMutationCancellation,
+) -> Result<Option<DatasetPreview>, String> {
+    let _output_guard = SourceBackedJoinOutputGuard::new(output.output_path);
+    cancellation.ensure()?;
+    if !expected_stamp.matches(dataset) {
+        return Err("El dataset activo cambió durante la operación de Review.".to_owned());
+    }
+    if let Some(expected_path) = expected_comparison_path {
+        let matches = comparison
+            .as_ref()
+            .is_some_and(|pending| pending.snapshot_path == expected_path);
+        if !matches {
+            return Err("La comparación cambió durante la operación de Review.".to_owned());
+        }
+    } else if expected_comparison_must_be_absent && comparison.is_some() {
+        return Err("La comparación cambió durante la operación de Review.".to_owned());
+    }
+
+    let original_source_path = if context.snapshot_only {
+        let Some(current_entry) = dataset.history.entries.get(dataset.history.cursor) else {
+            return Err("El snapshot activo ya no está disponible.".to_owned());
+        };
+        let current_entry_path = fs::canonicalize(&current_entry.path)
+            .map_err(|_| "El snapshot activo ya no está disponible.".to_owned())?;
+        if current_entry_path != context.source_path {
+            return Err(
+                "El dataset activo cambió durante la preparación source-backed.".to_owned(),
+            );
+        }
+        None
+    } else {
+        let Some(original_source_path) = dataset.source_path.as_ref() else {
+            return Err("La fuente source-backed ya no está disponible.".to_owned());
+        };
+        if original_source_path != &context.original_source_path
+            || dataset.file_size_bytes != context.original_file_size_bytes
+        {
+            return Err(
+                "El dataset activo cambió durante la preparación source-backed.".to_owned(),
+            );
+        }
+        Some(original_source_path)
+    };
+
+    if let Some(original_source_path) = original_source_path {
+        let (_, original_source_size_before, _) = validate_dataset_file(original_source_path)?;
+        if original_source_size_before != context.original_file_size_bytes {
+            return Err(
+                "El archivo source-backed cambió antes de aplicar la operación.".to_owned(),
+            );
+        }
+    }
+    let (_, source_size_before, _) = validate_dataset_file(&context.source_path)?;
+    if source_size_before != context.source_size_bytes {
+        return Err("La fuente source-backed cambió antes de ejecutar la operación.".to_owned());
+    }
+    let (_, compared_size_before, _) = validate_dataset_file(output.compared_path)?;
+    if compared_size_before != output.compared_size_bytes {
+        return Err("El dataset comparado cambió antes de aplicar la operación.".to_owned());
+    }
+
+    cancellation.ensure()?;
+    let output_size = fs::metadata(output.output_path)
+        .map_err(|error| format!("No se pudo verificar la salida source-backed: {error}"))?
+        .len();
+    let output_schema = read_parquet_schema_frame(output.output_path)?;
+    cancellation.ensure()?;
+    let verified_row_count = crate::duckdb_query::count_file_rows(
+        output.output_path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+        cancellation.callback(),
+    )?;
+    if verified_row_count != output.output_row_count {
+        return Err("El conteo del resultado source-backed no coincide con DuckDB.".to_owned());
+    }
+    let page = if output.output_row_count == 0 {
+        output_schema.slice(0, 0)
+    } else {
+        cancellation.ensure()?;
+        let page = collect_lazy_frame_streaming(
+            parquet_scan(output.output_path)?.slice(0, PREVIEW_ROW_LIMIT as IdxSize),
+            "No se pudo leer la vista previa source-backed",
+        )?;
+        cancellation.ensure()?;
+        page
+    };
+
+    let original_source_size_after = original_source_path
+        .map(|path| validate_dataset_file(path).map(|(_, size, _)| size))
+        .transpose()?;
+    let (_, source_size_after, _) = validate_dataset_file(&context.source_path)?;
+    let (_, compared_size_after, _) = validate_dataset_file(output.compared_path)?;
+    if original_source_size_after.is_some_and(|size| size != context.original_file_size_bytes)
+        || source_size_after != context.source_size_bytes
+        || compared_size_after != output.compared_size_bytes
+    {
+        return Err("Una fuente cambió durante la ejecución source-backed.".to_owned());
+    }
+
+    let preview = dataset_preview_from_schema_and_page(
+        output.file_name,
+        output_size,
+        output.output_row_count,
+        &output_schema,
+        &page,
+    )?;
+    cancellation.ensure()?;
+
+    let baseline = if !context.snapshot_only && !dataset.history.snapshots_enabled {
+        let cancellation_for_baseline = cancellation.clone();
+        let is_cancelled = move || cancellation_for_baseline.is_cancelled();
+        Some(prepare_source_backed_baseline_snapshot(
+            &dataset.history,
+            &context.source_path,
+            context.source_format,
+            is_cancelled,
+        )?)
+    } else {
+        None
+    };
+    let prepared_output = dataset
+        .history
+        .prepare_parquet_snapshot(output.output_path, || cancellation.is_cancelled())?;
+    if baseline
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.bytes > dataset.history.disk_budget_bytes)
+        || prepared_output.bytes > dataset.history.disk_budget_bytes
+    {
+        // Let the caller use the eager route if history cannot safely retain a
+        // reversible source-backed cursor. No live history state changed.
+        return Ok(None);
+    }
+
+    let history_commit = cancellation.commit(|| {
+        let history_commit = commit_source_backed_recipe_history(
+            &mut dataset.history,
+            baseline,
+            prepared_output,
+            output.label,
+        )?;
+        let Some((current_path, current_size)) = history_commit.active_snapshot.clone() else {
+            return Err("No se pudo preparar el historial source-backed.".to_owned());
+        };
+        dataset.source_path = Some(current_path);
+        dataset.file_name = output.file_name.to_owned();
+        dataset.file_size_bytes = current_size;
+        dataset.row_count = output.output_row_count;
+        dataset.frame = output_schema;
+        dataset.source_backed = true;
+        dataset.history.source_snapshot_path = None;
+        dataset.profile = None;
+        *comparison = None;
+        Ok(history_commit)
+    })?;
+
+    for path in history_commit.retired_paths {
+        if !dataset
+            .history
+            .entries
+            .iter()
+            .any(|entry| entry.path == path)
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+    let current_size = dataset.file_size_bytes;
+    Ok(Some(DatasetPreview {
+        file_size_bytes: current_size,
+        ..preview
+    }))
+}
+
+fn publish_review_eager_candidate(
+    state: &DatasetState,
+    expected_stamp: &DatasetMutationStamp,
+    expected_comparison_path: Option<&Path>,
+    expected_comparison_must_be_absent: bool,
+    mut candidate: DataFrame,
+    file_name: &str,
+    file_size_bytes: u64,
+    label: &str,
+    cancellation: &ReviewMutationCancellation,
+) -> Result<DatasetPreview, String> {
+    cancellation.ensure()?;
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+    let dataset = current.as_mut().ok_or_else(|| {
+        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+    })?;
+    if !expected_stamp.matches(dataset) {
+        return Err("El dataset activo cambió durante la operación de Review.".to_owned());
+    }
+    let mut comparison = state
+        .comparison
+        .lock()
+        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    if let Some(expected_path) = expected_comparison_path {
+        if !comparison
+            .as_ref()
+            .is_some_and(|pending| pending.snapshot_path == expected_path)
+        {
+            return Err("La comparación cambió durante la operación de Review.".to_owned());
+        }
+    } else if expected_comparison_must_be_absent && comparison.is_some() {
+        return Err("La comparación cambió durante la operación de Review.".to_owned());
+    }
+
+    if dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .any(|name| name.as_str() == "_cambios")
+    {
+        append_audit_label(&mut candidate, label)?;
+    }
+    let preview = dataset_preview_with_size(file_name, file_size_bytes, &candidate)?;
+    let prepared_snapshot = if dataset.history.snapshots_enabled {
+        Some(
+            dataset
+                .history
+                .prepare_frame_snapshot(&candidate, || cancellation.is_cancelled())?,
+        )
+    } else {
+        None
+    };
+    cancellation.ensure()?;
+
+    let previous_source_path = dataset.source_path.clone();
+    let previous_source_snapshot = dataset.history.source_snapshot_path.clone();
+    let mut retired_paths = Vec::new();
+    cancellation.commit(|| {
+        if let Some(prepared_snapshot) = prepared_snapshot {
+            retired_paths = dataset
+                .history
+                .record_prepared_snapshot(prepared_snapshot, label)?;
+        } else {
+            dataset.history.current_label = label.to_owned();
+        }
+        dataset.source_path = None;
+        dataset.history.source_snapshot_path = None;
+        dataset.file_name = file_name.to_owned();
+        dataset.file_size_bytes = file_size_bytes;
+        dataset.row_count = candidate.height();
+        dataset.frame = candidate;
+        dataset.source_backed = false;
+        dataset.profile = None;
+        *comparison = None;
+        Ok(())
+    })?;
+
+    for path in retired_paths {
+        if !dataset
+            .history
+            .entries
+            .iter()
+            .any(|entry| entry.path == path)
+            && previous_source_snapshot.as_deref() != Some(path.as_path())
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+    for path in [previous_source_path, previous_source_snapshot]
+        .into_iter()
+        .flatten()
+    {
+        if path.parent() == Some(dataset.history.directory.path())
+            && dataset.source_path.as_deref() != Some(path.as_path())
+            && !dataset
+                .history
+                .entries
+                .iter()
+                .any(|entry| entry.path == path)
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+    Ok(preview)
+}
+
 fn join_source_backed_dataset(
-    app: &AppHandle,
+    state: &DatasetState,
     request: SourceBackedJoinRequest,
+    expected_stamp: &DatasetMutationStamp,
+    expected_comparison_path: Option<&Path>,
+    expected_comparison_must_be_absent: bool,
+    cancellation: &ReviewMutationCancellation,
 ) -> Result<Option<DatasetPreview>, String> {
     let SourceBackedJoinRequest {
         context,
@@ -10357,6 +10942,7 @@ fn join_source_backed_dataset(
         key_columns,
         join_type,
     } = request;
+    cancellation.ensure()?;
     let (
         _joined_schema,
         dataset_view_query,
@@ -10377,32 +10963,34 @@ fn join_source_backed_dataset(
     let output_path = temporary.path().to_owned();
     drop(temporary);
     let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
-    let output_row_count = match crate::duckdb_query::materialize_file_sources_query_to_parquet(
-        crate::duckdb_query::DuckDbFileSourcesQuery {
-            current_path: &context.source_path,
-            current_format: context.source_format,
-            compared_path: &compared_path,
-            compared_format,
-            dataset_view_query: &dataset_view_query,
-            query: &output_query,
-            destination: &output_path,
-            current_order_column: &current_order_column,
-            compared_order_column: &compared_order_column,
-            max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
-        },
-    ) {
-        Ok(row_count) => row_count,
-        Err(error) if error.contains("supera el límite local") => {
-            let _ = fs::remove_file(&output_path);
-            return Err(error);
-        }
-        Err(_) => {
-            let _ = fs::remove_file(&output_path);
-            return Ok(None);
-        }
-    };
+    let output_row_count =
+        match crate::duckdb_query::materialize_file_sources_query_to_parquet_with_cancel(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &context.source_path,
+                current_format: context.source_format,
+                compared_path: &compared_path,
+                compared_format,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+            },
+            cancellation.callback(),
+        ) {
+            Ok(row_count) => row_count,
+            Err(error) if error.contains("supera el límite local") => {
+                let _ = fs::remove_file(&output_path);
+                return Err(error);
+            }
+            Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
+            Err(_) => {
+                let _ = fs::remove_file(&output_path);
+                return Ok(None);
+            }
+        };
 
-    let state = app.state::<DatasetState>();
     let mut current = state
         .current
         .lock()
@@ -10417,9 +11005,15 @@ fn join_source_backed_dataset(
         context.file_name
     );
     let label = format!("Unir datasets ({})", join_type.label());
-    let preview = publish_source_backed_result_output(
+    let mut comparison = state
+        .comparison
+        .lock()
+        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
+    let preview = publish_review_source_backed_result_output(
         dataset,
+        &mut comparison,
         &context,
+        expected_stamp,
         SourceBackedResultOutput {
             compared_path: &compared_path,
             compared_size_bytes,
@@ -10428,20 +11022,19 @@ fn join_source_backed_dataset(
             file_name: &file_name,
             label: &label,
         },
+        expected_comparison_path,
+        expected_comparison_must_be_absent,
+        cancellation,
     )?;
-    if preview.is_some() {
-        drop(current);
-        *state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
-    }
     Ok(preview)
 }
 
 fn consolidate_source_backed_dataset(
     state: &DatasetState,
     request: SourceBackedConsolidationRequest,
+    expected_stamp: &DatasetMutationStamp,
+    expected_comparison_path: &Path,
+    cancellation: &ReviewMutationCancellation,
 ) -> Result<Option<DatasetPreview>, String> {
     let SourceBackedConsolidationRequest {
         context,
@@ -10452,6 +11045,7 @@ fn consolidate_source_backed_dataset(
         compared_size_bytes,
         key_columns,
     } = request;
+    cancellation.ensure()?;
     let (_, current_size_before, _) = validate_dataset_file(&context.source_path)?;
     if current_size_before != context.source_size_bytes {
         return Err(
@@ -10469,16 +11063,20 @@ fn consolidate_source_backed_dataset(
             &key_columns,
             context.row_count,
         )?;
-    match validate_source_backed_consolidation(
+    let cancellation_for_validation = cancellation.clone();
+    let is_cancelled = move || cancellation_for_validation.is_cancelled();
+    match validate_source_backed_consolidation_with_cancellation(
         &context.source_path,
         context.source_format,
         &compared_path,
         compared_format,
         &context.schema,
         &key_columns,
+        is_cancelled,
     ) {
         Ok(()) => {}
         Err(error) if error == SOURCE_BACKED_CONSOLIDATION_CONFLICT_ERROR => return Err(error),
+        Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
         Err(_) => return Ok(None),
     }
     let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
@@ -10488,24 +11086,27 @@ fn consolidate_source_backed_dataset(
     let output_path = temporary.path().to_owned();
     drop(temporary);
     let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
-    let output_row_count = match crate::duckdb_query::materialize_file_sources_query_to_parquet(
-        crate::duckdb_query::DuckDbFileSourcesQuery {
-            current_path: &context.source_path,
-            current_format: context.source_format,
-            compared_path: &compared_path,
-            compared_format,
-            dataset_view_query: &dataset_view_query,
-            query: &output_query,
-            destination: &output_path,
-            current_order_column: &current_order_column,
-            compared_order_column: &compared_order_column,
-            max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
-        },
-    ) {
-        Ok(row_count) => row_count,
-        Err(error) if error.contains("supera el límite local") => return Err(error),
-        Err(_) => return Ok(None),
-    };
+    let output_row_count =
+        match crate::duckdb_query::materialize_file_sources_query_to_parquet_with_cancel(
+            crate::duckdb_query::DuckDbFileSourcesQuery {
+                current_path: &context.source_path,
+                current_format: context.source_format,
+                compared_path: &compared_path,
+                compared_format,
+                dataset_view_query: &dataset_view_query,
+                query: &output_query,
+                destination: &output_path,
+                current_order_column: &current_order_column,
+                compared_order_column: &compared_order_column,
+                max_rows: Some(LOCAL_QUERY_JOIN_MAX_RESULT_ROWS),
+            },
+            cancellation.callback(),
+        ) {
+            Ok(row_count) => row_count,
+            Err(error) if error.contains("supera el límite local") => return Err(error),
+            Err(error) if error == OPERATION_CANCELLED_MESSAGE => return Err(error),
+            Err(_) => return Ok(None),
+        };
 
     let mut current = state
         .current
@@ -10514,10 +11115,19 @@ fn consolidate_source_backed_dataset(
     let dataset = current.as_mut().ok_or_else(|| {
         "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
     })?;
+    if !expected_stamp.matches(dataset) {
+        return Err("El dataset activo cambió durante la consolidación.".to_owned());
+    }
+    let mut comparison = state
+        .comparison
+        .lock()
+        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
     let file_name = format!("Consolidado · {} + {compared_file_name}", context.file_name);
-    let preview = publish_source_backed_result_output(
+    let preview = publish_review_source_backed_result_output(
         dataset,
+        &mut comparison,
         &context,
+        expected_stamp,
         SourceBackedResultOutput {
             compared_path: &compared_path,
             compared_size_bytes,
@@ -10526,14 +11136,10 @@ fn consolidate_source_backed_dataset(
             file_name: &file_name,
             label: "Consolidar datasets",
         },
+        Some(expected_comparison_path),
+        false,
+        cancellation,
     )?;
-    if preview.is_some() {
-        drop(current);
-        *state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
-    }
     Ok(preview)
 }
 
@@ -21867,16 +22473,30 @@ where
 }
 
 fn load_compare_frame(path: &Path, extension: &str) -> Result<DataFrame, String> {
+    load_compare_frame_with_cancel(path, extension, || false)
+}
+
+fn load_compare_frame_with_cancel<C>(
+    path: &Path,
+    extension: &str,
+    is_cancelled: C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool,
+{
+    ensure_not_cancelled(is_cancelled())?;
     ensure_materialization_budget_for_path(path)?;
-    if spreadsheet_extensions(extension) {
+    let frame = if spreadsheet_extensions(extension) {
         let sheets = inspect_workbook(path)?;
         let sheet = sheets
             .first()
             .ok_or_else(|| "El libro no contiene hojas que se puedan comparar.".to_owned())?;
         load_spreadsheet_sheet(path, sheet, SpreadsheetHeaderMode::FirstRow)
     } else {
-        load_dataset_with_progress(path, |_, _| {}, || false).map(|(frame, _)| frame)
-    }
+        load_dataset_with_progress(path, |_, _| {}, &is_cancelled).map(|(frame, _)| frame)
+    }?;
+    ensure_not_cancelled(is_cancelled())?;
+    Ok(frame)
 }
 
 fn persist_comparison_snapshot(frame: &DataFrame) -> Result<(tempfile::TempDir, PathBuf), String> {
@@ -22389,9 +23009,22 @@ fn read_spilled_key_payload_bucket(
 fn for_each_spilled_key_record<F>(
     spill: &SpilledKeyRows,
     bucket: usize,
+    visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(String, usize) -> Result<(), String>,
+{
+    for_each_spilled_key_record_with_cancel(spill, bucket, &|| false, visit)
+}
+
+fn for_each_spilled_key_record_with_cancel<C, F>(
+    spill: &SpilledKeyRows,
+    bucket: usize,
+    is_cancelled: &C,
     mut visit: F,
 ) -> Result<(), String>
 where
+    C: Fn() -> bool + Sync,
     F: FnMut(String, usize) -> Result<(), String>,
 {
     let path = spill
@@ -22411,7 +23044,11 @@ where
     let file = File::open(path)
         .map_err(|error| format!("No se pudo leer el índice temporal de comparación: {error}"))?;
     let mut reader = BufReader::new(file);
+    let mut record_index = 0usize;
     loop {
+        if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
+            ensure_not_cancelled((*is_cancelled)())?;
+        }
         let mut length_bytes = [0_u8; std::mem::size_of::<u64>()];
         let first_byte = reader.read(&mut length_bytes[..1]).map_err(|error| {
             format!("No se pudo leer el índice temporal de comparación: {error}")
@@ -22438,6 +23075,9 @@ where
             "El índice temporal de comparación contiene una clave inválida.".to_owned()
         })?;
         visit(key, row_index)?;
+        record_index = record_index
+            .checked_add(1)
+            .ok_or_else(|| "La cubeta temporal supera la capacidad local.".to_owned())?;
     }
     Ok(())
 }
@@ -22452,7 +23092,7 @@ where
 {
     let mut record_index = 0usize;
     let mut rows_by_key = HashMap::new();
-    for_each_spilled_key_record(spill, bucket, |key, row_index| {
+    for_each_spilled_key_record_with_cancel(spill, bucket, is_cancelled, |key, row_index| {
         if record_index.is_multiple_of(LOCAL_QUERY_CANCEL_CHECK_ROWS) {
             ensure_not_cancelled((*is_cancelled)())?;
         }
@@ -22825,10 +23465,24 @@ fn compare_keyed_frames(
     key_columns: &[String],
     shared_columns: &[String],
 ) -> Result<KeyComparisonSummary, String> {
+    compare_keyed_frames_with_cancel(current, compared, key_columns, shared_columns, || false)
+}
+
+fn compare_keyed_frames_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    shared_columns: &[String],
+    is_cancelled: C,
+) -> Result<KeyComparisonSummary, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     validate_key_columns(current, compared, key_columns)?;
 
-    let current_rows = spill_key_rows(current, key_columns)?;
-    let compared_rows = spill_key_rows(compared, key_columns)?;
+    let current_rows = spill_key_rows_with_cancel(current, key_columns, &is_cancelled)?;
+    let compared_rows = spill_key_rows_with_cancel(compared, key_columns, &is_cancelled)?;
     let shared_payload_columns = shared_columns
         .iter()
         .filter(|column| !key_columns.contains(column))
@@ -22836,8 +23490,11 @@ fn compare_keyed_frames(
         .collect::<Vec<_>>();
     let mut summary = KeyComparisonSummary::default();
     for bucket in 0..COMPARISON_KEY_BUCKETS {
-        let current_bucket = read_spilled_key_bucket(&current_rows, bucket)?;
-        let compared_bucket = read_spilled_key_bucket(&compared_rows, bucket)?;
+        ensure_not_cancelled(is_cancelled())?;
+        let current_bucket =
+            read_spilled_key_bucket_with_cancel(&current_rows, bucket, &is_cancelled)?;
+        let compared_bucket =
+            read_spilled_key_bucket_with_cancel(&compared_rows, bucket, &is_cancelled)?;
         summary.matched_key_count += current_bucket
             .keys()
             .filter(|key| compared_bucket.contains_key(*key))
@@ -22887,6 +23544,7 @@ fn compare_keyed_frames(
         }
     }
 
+    ensure_not_cancelled(is_cancelled())?;
     Ok(summary)
 }
 
@@ -23882,20 +24540,41 @@ fn rows_with_new_keys(
     compared: &DataFrame,
     key_columns: &[String],
 ) -> Result<DataFrame, String> {
+    rows_with_new_keys_with_cancel(current, compared, key_columns, || false)
+}
+
+fn rows_with_new_keys_with_cancel<C>(
+    current: &DataFrame,
+    compared: &DataFrame,
+    key_columns: &[String],
+    is_cancelled: C,
+) -> Result<DataFrame, String>
+where
+    C: Fn() -> bool + Sync,
+{
+    ensure_not_cancelled(is_cancelled())?;
     validate_key_columns(current, compared, key_columns)?;
-    let current_keys = spill_key_rows(current, key_columns)?;
-    let compared_keys = spill_key_rows(compared, key_columns)?;
+    let current_keys = spill_key_rows_with_cancel(current, key_columns, &is_cancelled)?;
+    let compared_keys = spill_key_rows_with_cancel(compared, key_columns, &is_cancelled)?;
     let mut keep = vec![false; compared.height()];
     for bucket in 0..COMPARISON_KEY_BUCKETS {
-        let current_bucket = read_spilled_key_bucket(&current_keys, bucket)?;
+        ensure_not_cancelled(is_cancelled())?;
+        let current_bucket =
+            read_spilled_key_bucket_with_cancel(&current_keys, bucket, &is_cancelled)?;
         let current_bucket = &current_bucket;
-        for_each_spilled_key_record(&compared_keys, bucket, |signature, row_index| {
-            if let Some(value) = keep.get_mut(row_index) {
-                *value = !current_bucket.contains_key(&signature);
-            }
-            Ok(())
-        })?;
+        for_each_spilled_key_record_with_cancel(
+            &compared_keys,
+            bucket,
+            &is_cancelled,
+            |signature, row_index| {
+                if let Some(value) = keep.get_mut(row_index) {
+                    *value = !current_bucket.contains_key(&signature);
+                }
+                Ok(())
+            },
+        )?;
     }
+    ensure_not_cancelled(is_cancelled())?;
     compared
         .filter(&BooleanChunked::from_slice("new_keys".into(), &keep))
         .map_err(|error| format!("No se pudieron seleccionar las claves nuevas: {error}"))
@@ -24735,43 +25414,55 @@ pub async fn join_dataset(
     key_columns: Vec<String>,
     join_type: DatasetJoinType,
 ) -> Result<Option<DatasetPreview>, String> {
+    let (_review_guard, cancellation) = ReviewMutationCancellation::begin(&app)?;
     let key_columns = normalize_key_columns(Some(key_columns))?;
     if key_columns.is_empty() {
         return Err("Selecciona al menos una columna clave para unir datasets.".to_owned());
     }
-    let source_join_context = {
+    cancellation.ensure()?;
+    let (
+        source_join_context,
+        initial_eager_frame,
+        expected_stamp,
+        current_file_name,
+        current_file_size,
+        expected_comparison_path,
+    ) = {
         let state = app.state::<DatasetState>();
         let current = state
             .current
             .lock()
             .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        current.as_ref().and_then(|dataset| {
-            source_backed_join_context(dataset).or_else(|| snapshot_backed_join_context(dataset))
-        })
-    };
-    let (mut current_frame, current_file_name, current_file_size) =
-        if let Some(context) = source_join_context.as_ref() {
-            (
-                context.schema.clone(),
-                context.file_name.clone(),
-                context.file_size_bytes,
-            )
+        let dataset = current.as_ref().ok_or_else(|| {
+            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+        })?;
+        let context =
+            source_backed_join_context(dataset).or_else(|| snapshot_backed_join_context(dataset));
+        let eager_frame = if context.is_none() {
+            Some(materialized_dataset_frame(dataset)?)
         } else {
-            let state = app.state::<DatasetState>();
-            let mut current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-            let dataset = current.as_mut().ok_or_else(|| {
-                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-            })?;
-            materialize_loaded_dataset(dataset)?;
-            (
-                dataset.frame.clone(),
-                dataset.file_name.clone(),
-                dataset.file_size_bytes,
-            )
+            None
         };
+        let stamp = DatasetMutationStamp::capture(dataset);
+        let file_name = dataset.file_name.clone();
+        let file_size = dataset.file_size_bytes;
+        drop(current);
+        let comparison_path = state
+            .comparison
+            .lock()
+            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?
+            .as_ref()
+            .map(|pending| pending.snapshot_path.clone());
+        (
+            context,
+            eager_frame,
+            stamp,
+            file_name,
+            file_size,
+            comparison_path,
+        )
+    };
+    cancellation.ensure()?;
     let selection = app
         .dialog()
         .file()
@@ -24786,6 +25477,7 @@ pub async fn join_dataset(
     let Some(selection) = selection else {
         return Ok(None);
     };
+    cancellation.ensure()?;
     let path = selection
         .into_path()
         .map_err(|error| format!("No se pudo resolver la ruta seleccionada: {error}"))?;
@@ -24796,17 +25488,22 @@ pub async fn join_dataset(
         .unwrap_or("dataset")
         .to_owned();
 
+    cancellation.ensure()?;
     let compared_source = source_backed_join_source(&path, &extension)?;
+    cancellation.ensure()?;
     if let (Some(context), Some((compared_format, compared_schema))) =
         (source_join_context.clone(), compared_source)
     {
         let app_for_source_join = app.clone();
+        let cancellation_for_source_join = cancellation.clone();
+        let expected_stamp_for_source_join = expected_stamp.clone();
+        let expected_comparison_path_for_source_join = expected_comparison_path.clone();
         let compared_path_for_source_join = path.clone();
         let compared_file_name_for_source_join = compared_file_name.clone();
         let key_columns_for_source_join = key_columns.clone();
         let source_result = tauri::async_runtime::spawn_blocking(move || {
             join_source_backed_dataset(
-                &app_for_source_join,
+                &app_for_source_join.state::<DatasetState>(),
                 SourceBackedJoinRequest {
                     context,
                     compared_path: compared_path_for_source_join,
@@ -24817,6 +25514,10 @@ pub async fn join_dataset(
                     key_columns: key_columns_for_source_join,
                     join_type,
                 },
+                &expected_stamp_for_source_join,
+                expected_comparison_path_for_source_join.as_deref(),
+                expected_comparison_path_for_source_join.is_none(),
+                &cancellation_for_source_join,
             )
         })
         .await
@@ -24824,55 +25525,59 @@ pub async fn join_dataset(
         if source_result.is_some() {
             return Ok(source_result);
         }
-        current_frame = {
-            let state = app.state::<DatasetState>();
-            let mut current = state
-                .current
-                .lock()
-                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-            let dataset = current.as_mut().ok_or_else(|| {
-                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-            })?;
-            materialize_loaded_dataset(dataset)?;
-            dataset.frame.clone()
-        };
     }
 
+    let cancellation_for_eager = cancellation.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let compared_frame = load_compare_frame(&path, &extension)?;
-        let joined = join_frames(&current_frame, &compared_frame, &key_columns, join_type)?;
+        cancellation_for_eager.ensure()?;
+        let current_frame = match initial_eager_frame {
+            Some(frame) => frame,
+            None => {
+                let state = app.state::<DatasetState>();
+                let current = state.current.lock().map_err(|_| {
+                    "La sesión de datos quedó bloqueada inesperadamente.".to_owned()
+                })?;
+                let dataset = current.as_ref().ok_or_else(|| {
+                    "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+                })?;
+                if !expected_stamp.matches(dataset) {
+                    return Err(
+                        "El dataset activo cambió durante la operación de Review.".to_owned()
+                    );
+                }
+                materialized_dataset_frame(dataset)?
+            }
+        };
+        cancellation_for_eager.ensure()?;
+        let compared_frame =
+            load_compare_frame_with_cancel(&path, &extension, cancellation_for_eager.callback())?;
+        let joined = join_frames_on_keys_with_cancel(
+            &current_frame,
+            &compared_frame,
+            &key_columns,
+            &key_columns,
+            join_type,
+            &cancellation_for_eager.callback(),
+        )?;
+        cancellation_for_eager.ensure()?;
         let file_name = format!(
             "Join {} · {} + {compared_file_name}",
             join_type.label(),
             current_file_name
         );
-        let file_size_bytes = current_file_size.saturating_add(file_size_bytes);
-        let state = app.state::<DatasetState>();
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        let dataset = current.as_mut().ok_or_else(|| {
-            "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-        })?;
-        materialize_loaded_dataset(dataset)?;
-        let preview = dataset_preview_with_size(&file_name, file_size_bytes, &joined)?;
-        dataset
-            .history
-            .record(&joined, &format!("Unir datasets ({})", join_type.label()))?;
-        dataset.source_path = None;
-        dataset.file_name = file_name;
-        dataset.file_size_bytes = file_size_bytes;
-        dataset.row_count = joined.height();
-        dataset.frame = joined;
-        dataset.source_backed = false;
-        dataset.profile = None;
-        drop(current);
-        *state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
-        Ok(Some(preview))
+        let output_size = current_file_size.saturating_add(file_size_bytes);
+        publish_review_eager_candidate(
+            &app.state::<DatasetState>(),
+            &expected_stamp,
+            expected_comparison_path.as_deref(),
+            expected_comparison_path.is_none(),
+            joined,
+            &file_name,
+            output_size,
+            &format!("Unir datasets ({})", join_type.label()),
+            &cancellation_for_eager,
+        )
+        .map(Some)
     })
     .await
     .map_err(|error| format!("La unión se interrumpió: {error}"))?
@@ -25381,120 +26086,137 @@ pub fn clear_dataset_comparison(state: State<'_, DatasetState>) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn use_consolidated_dataset(state: State<'_, DatasetState>) -> Result<DatasetPreview, String> {
-    let (compared_file_name, compared_file_size, compared_path, key_columns) = {
-        let comparison = state
-            .comparison
-            .lock()
-            .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())?;
-        let pending = comparison
-            .as_ref()
-            .ok_or_else(|| "No hay un dataset comparado listo para consolidar.".to_owned())?;
-        (
-            pending.file_name.clone(),
-            pending.file_size_bytes,
-            pending.snapshot_path.clone(),
-            pending.key_columns.clone(),
-        )
-    };
-    let source_context = {
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-        current.as_ref().and_then(current_join_context)
-    };
-    if let Some(context) = source_context {
-        let compared_schema = read_parquet_schema_frame(&compared_path)?;
-        let compared_snapshot_size = fs::metadata(&compared_path)
-            .map_err(|error| format!("No se pudo verificar el snapshot comparado: {error}"))?
-            .len();
-        let source_result = consolidate_source_backed_dataset(
-            &state,
-            SourceBackedConsolidationRequest {
-                context,
-                compared_path: compared_path.clone(),
-                compared_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
-                compared_schema,
-                compared_file_name: compared_file_name.clone(),
-                compared_size_bytes: compared_snapshot_size,
-                key_columns: key_columns.clone(),
-            },
-        )?;
-        if let Some(preview) = source_result {
-            return Ok(preview);
+pub async fn use_consolidated_dataset(app: AppHandle) -> Result<DatasetPreview, String> {
+    let (_review_guard, cancellation) = ReviewMutationCancellation::begin(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatasetState>();
+        let comparison = snapshot_pending_comparison_for_review(&state, &cancellation)?;
+        cancellation.ensure()?;
+        let (expected_stamp, source_context) = {
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let dataset = current.as_ref().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            (
+                DatasetMutationStamp::capture(dataset),
+                current_join_context(dataset),
+            )
+        };
+
+        if let Some(context) = source_context {
+            cancellation.ensure()?;
+            let compared_schema = read_parquet_schema_frame(&comparison.path)?;
+            let source_result = consolidate_source_backed_dataset(
+                &state,
+                SourceBackedConsolidationRequest {
+                    context,
+                    compared_path: comparison.path.clone(),
+                    compared_format: crate::duckdb_query::DuckDbFileFormat::Parquet,
+                    compared_schema,
+                    compared_file_name: comparison.file_name.clone(),
+                    compared_size_bytes: comparison.file_size_bytes,
+                    key_columns: comparison.key_columns.clone(),
+                },
+                &expected_stamp,
+                &comparison.identity_path,
+                &cancellation,
+            )?;
+            if let Some(preview) = source_result {
+                return Ok(preview);
+            }
         }
-    }
-    let compared_frame = read_parquet_frame(&compared_path)?;
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
-    let dataset = current.as_mut().ok_or_else(|| {
-        "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
-    })?;
-    materialize_loaded_dataset(dataset)?;
-    if dataset.frame.get_column_names() != compared_frame.get_column_names()
-        || dataset
-            .frame
-            .columns()
-            .iter()
-            .zip(compared_frame.columns())
-            .any(|(left, right)| left.dtype() != right.dtype())
-    {
-        return Err(
-            "Los esquemas no son compatibles. La consolidación requiere las mismas columnas y tipos."
-            .to_owned(),
-        );
-    }
-    if !key_columns.is_empty() {
-        let shared_columns = dataset
-            .frame
-            .get_column_names()
-            .iter()
-            .map(|name| name.to_string())
-            .collect::<Vec<_>>();
-        let key_summary = compare_keyed_frames(
-            &dataset.frame,
-            &compared_frame,
-            &key_columns,
-            &shared_columns,
-        )?;
-        if key_summary.conflicting_key_count > 0 || key_summary.duplicate_key_count > 0 {
+
+        cancellation.ensure()?;
+        let compared_frame = read_parquet_frame(&comparison.path)?;
+        if compared_frame.height() != comparison.row_count {
+            return Err("El snapshot comparado cambió antes de consolidar.".to_owned());
+        }
+        cancellation.ensure()?;
+        let current_frame = {
+            let current = state
+                .current
+                .lock()
+                .map_err(|_| "La sesión de datos quedó bloqueada inesperadamente.".to_owned())?;
+            let dataset = current.as_ref().ok_or_else(|| {
+                "No hay un dataset activo. Selecciona primero un archivo compatible.".to_owned()
+            })?;
+            if !expected_stamp.matches(dataset) {
+                return Err("El dataset activo cambió durante la consolidación.".to_owned());
+            }
+            materialized_dataset_frame(dataset)?
+        };
+        if current_frame.get_column_names() != compared_frame.get_column_names()
+            || current_frame
+                .columns()
+                .iter()
+                .zip(compared_frame.columns())
+                .any(|(left, right)| left.dtype() != right.dtype())
+        {
             return Err(
-                "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar."
-                    .to_owned(),
+                "Los esquemas no son compatibles. La consolidación requiere las mismas columnas y tipos."
+                .to_owned(),
             );
         }
-    }
-    let additions = if key_columns.is_empty() {
-        compared_frame.clone()
-    } else {
-        rows_with_new_keys(&dataset.frame, &compared_frame, &key_columns)?
-    };
-    let mut consolidated = dataset.frame.clone();
-    consolidated
-        .vstack_mut(&additions)
-        .map_err(|error| format!("No se pudieron unir los datasets: {error}"))?;
-    let file_name = format!("Consolidado · {} + {compared_file_name}", dataset.file_name);
-    let file_size_bytes = dataset.file_size_bytes.saturating_add(compared_file_size);
-    let preview = dataset_preview_with_size(&file_name, file_size_bytes, &consolidated)?;
-    dataset
-        .history
-        .record(&consolidated, "Consolidar datasets")?;
-    dataset.source_path = None;
-    dataset.file_name = file_name;
-    dataset.file_size_bytes = file_size_bytes;
-    dataset.row_count = consolidated.height();
-    dataset.frame = consolidated;
-    dataset.source_backed = false;
-    dataset.profile = None;
-    drop(current);
-    *state
-        .comparison
-        .lock()
-        .map_err(|_| "La comparación quedó bloqueada inesperadamente.".to_owned())? = None;
-    Ok(preview)
+        if !comparison.key_columns.is_empty() {
+            let shared_columns = current_frame
+                .get_column_names()
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>();
+            let key_summary = compare_keyed_frames_with_cancel(
+                &current_frame,
+                &compared_frame,
+                &comparison.key_columns,
+                &shared_columns,
+                cancellation.callback(),
+            )?;
+            if key_summary.conflicting_key_count > 0 || key_summary.duplicate_key_count > 0 {
+                return Err(
+                    "No se pueden consolidar claves con conflictos o duplicados. Revisa la comparación antes de continuar."
+                        .to_owned(),
+                );
+            }
+        }
+        cancellation.ensure()?;
+        let additions = if comparison.key_columns.is_empty() {
+            compared_frame.clone()
+        } else {
+            rows_with_new_keys_with_cancel(
+                &current_frame,
+                &compared_frame,
+                &comparison.key_columns,
+                cancellation.callback(),
+            )?
+        };
+        let mut consolidated = current_frame;
+        consolidated
+            .vstack_mut(&additions)
+            .map_err(|error| format!("No se pudieron unir los datasets: {error}"))?;
+        cancellation.ensure()?;
+        let file_name = format!(
+            "Consolidado · {} + {}",
+            expected_stamp.file_name, comparison.file_name
+        );
+        let file_size_bytes = expected_stamp
+            .file_size_bytes
+            .saturating_add(comparison.file_size_bytes);
+        publish_review_eager_candidate(
+            &state,
+            &expected_stamp,
+            Some(&comparison.identity_path),
+            false,
+            consolidated,
+            &file_name,
+            file_size_bytes,
+            "Consolidar datasets",
+            &cancellation,
+        )
+    })
+    .await
+    .map_err(|error| format!("La consolidación se interrumpió: {error}"))?
 }
 
 #[tauri::command]
@@ -35317,11 +36039,17 @@ fn apply_source_backed_projection_recipe_with_cancellation(
     let baseline_snapshot = if dataset.history.snapshots_enabled {
         None
     } else {
+        let cancellation_for_baseline = cancellation.cloned();
+        let is_cancelled = move || {
+            cancellation_for_baseline
+                .as_ref()
+                .is_some_and(PrepareCancellation::is_cancelled)
+        };
         Some(prepare_source_backed_baseline_snapshot(
             &dataset.history,
             &source_path,
             source_format,
-            cancellation,
+            is_cancelled,
         )?)
     };
     let prepared_output = dataset.history.prepare_parquet_snapshot(&output_path, || {

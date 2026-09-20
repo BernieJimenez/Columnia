@@ -2364,6 +2364,192 @@ describe("App", () => {
     expect(legalDetails).not.toHaveAttribute("open");
   });
 
+  it.each([
+    { mutation: "join", outcome: "cancelled" },
+    { mutation: "join", outcome: "error" },
+    { mutation: "consolidate", outcome: "cancelled" },
+    { mutation: "consolidate", outcome: "error" },
+  ] as const)("preserva la comparación al cancelar o fallar $mutation ($outcome)", async ({ mutation, outcome }) => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "actual.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 2,
+      columns: [{ name: "id", dataType: "Int64" }, { name: "valor", dataType: "String" }],
+      rows: [["1", "A"], ["2", "B"]],
+    };
+    mockDatasetLoad(dataset);
+    const comparison = {
+      currentFileName: "actual.csv",
+      comparedFileName: "nuevo.csv",
+      currentRowCount: 2,
+      comparedRowCount: 2,
+      commonRowCount: 1,
+      currentOnlyRowCount: 1,
+      comparedOnlyRowCount: 1,
+      sharedColumns: ["id"],
+      currentOnlyColumns: ["valor"],
+      comparedOnlyColumns: [],
+      schemaCompatible: true,
+      keyColumns: ["id"],
+      matchedKeyCount: 1,
+      currentOnlyKeyCount: 1,
+      comparedOnlyKeyCount: 0,
+      conflictingKeyCount: 0,
+      duplicateKeyCount: 0,
+      conflicts: [],
+      conflictOffset: 0,
+      conflictsTruncated: false,
+      canConsolidate: true,
+    };
+    vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
+    vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
+    let rejectMutation!: (reason: unknown) => void;
+    const mutationPromise = new Promise<DatasetPreview>((_resolve, reject) => {
+      rejectMutation = reject;
+    });
+    const consolidateSpy = vi.spyOn(bridge, "useConsolidatedDataset").mockReturnValue(
+      mutation === "consolidate" ? mutationPromise : Promise.resolve(dataset),
+    );
+    const joinSpy = vi.spyOn(bridge, "joinDataset").mockReturnValue(
+      mutation === "join" ? mutationPromise : Promise.resolve(dataset),
+    );
+    const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockResolvedValue(undefined);
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByText("Comparar con otro dataset"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
+    await screen.findByText("nuevo.csv");
+
+    const startButton = mutation === "join"
+      ? screen.getByRole("button", { name: "Elegir fuente y unir" })
+      : screen.getByRole("button", { name: "Consolidar filas" });
+    fireEvent.click(startButton);
+    await waitFor(() => expect(mutation === "join" ? joinSpy : consolidateSpy).toHaveBeenCalledOnce());
+
+    const cancelLabel = mutation === "join" ? "Cancelar unión" : "Cancelar consolidación";
+    const waitingLabel = mutation === "join" ? "Esperando unión…" : "Esperando consolidación…";
+    expect(screen.getByRole("button", { name: cancelLabel })).toBeEnabled();
+    expect(screen.getByRole("button", { name: waitingLabel })).toBeDisabled();
+    expect(screen.getByText("Filas compartidas")).toBeInTheDocument();
+
+    if (outcome === "cancelled") {
+      fireEvent.click(screen.getByRole("button", { name: cancelLabel }));
+      expect(cancelSpy).toHaveBeenCalledWith("reviewMutation");
+      expect(await screen.findByRole("button", {
+        name: mutation === "join" ? "Cancelando unión…" : "Cancelando consolidación…",
+      })).toBeDisabled();
+    }
+
+    await act(async () => {
+      rejectMutation(outcome === "cancelled"
+        ? "Operación cancelada por el usuario."
+        : new Error("fallo de publicación"));
+      await mutationPromise.catch(() => undefined);
+    });
+
+    expect(screen.getByText("nuevo.csv")).toBeInTheDocument();
+    expect(screen.getByText("Filas compartidas")).toBeInTheDocument();
+    if (outcome === "cancelled") {
+      expect(await screen.findByRole("button", {
+        name: mutation === "join" ? "Elegir fuente y unir" : "Consolidar filas",
+      })).toBeEnabled();
+    } else {
+      expect(await screen.findByText(mutation === "join"
+        ? "No se pudieron unir los datasets: fallo de publicación"
+        : "No se pudieron consolidar las filas: fallo de publicación")).toBeInTheDocument();
+    }
+    if (outcome === "error") expect(cancelSpy).not.toHaveBeenCalled();
+  });
+
+  it("mantiene exclusión mutua hasta que termina una cancelación tardía", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });
+    const dataset: DatasetPreview = {
+      fileName: "actual.csv", fileSizeBytes: 128, rowCount: 2, columnCount: 2,
+      columns: [{ name: "id", dataType: "Int64" }, { name: "valor", dataType: "String" }],
+      rows: [["1", "A"], ["2", "B"]],
+    };
+    const joinedDataset: DatasetPreview = { ...dataset, fileName: "unido.csv" };
+    const secondJoinedDataset: DatasetPreview = { ...dataset, fileName: "unido-segundo.csv" };
+    mockDatasetLoad(dataset);
+    const comparison = {
+      currentFileName: "actual.csv",
+      comparedFileName: "nuevo.csv",
+      currentRowCount: 2,
+      comparedRowCount: 2,
+      commonRowCount: 1,
+      currentOnlyRowCount: 1,
+      comparedOnlyRowCount: 0,
+      sharedColumns: ["id"],
+      currentOnlyColumns: ["valor"],
+      comparedOnlyColumns: [],
+      schemaCompatible: true,
+      keyColumns: ["id"],
+      matchedKeyCount: 1,
+      currentOnlyKeyCount: 1,
+      comparedOnlyKeyCount: 0,
+      conflictingKeyCount: 0,
+      duplicateKeyCount: 0,
+      conflicts: [],
+      conflictOffset: 0,
+      conflictsTruncated: false,
+      canConsolidate: true,
+    };
+    const compareSpy = vi.spyOn(bridge, "compareDataset").mockResolvedValue(comparison);
+    vi.spyOn(bridge, "clearDatasetComparison").mockResolvedValue(undefined);
+    let resolveJoin!: (value: DatasetPreview) => void;
+    const joinPromise = new Promise<DatasetPreview>((resolve) => {
+      resolveJoin = resolve;
+    });
+    const joinSpy = vi.spyOn(bridge, "joinDataset")
+      .mockReturnValueOnce(joinPromise)
+      .mockResolvedValue(secondJoinedDataset);
+    let resolveCancellation!: () => void;
+    const cancellationPromise = new Promise<void>((resolve) => {
+      resolveCancellation = resolve;
+    });
+    const cancelSpy = vi.spyOn(bridge, "cancelOperation").mockReturnValue(cancellationPromise);
+
+    renderAppWithHeaderConfirmation();
+    fireEvent.click(await screen.findByRole("button", { name: "Seleccionar dataset" }));
+    fireEvent.click(await screen.findByText("Comparar con otro dataset"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir dataset para comparar" }));
+    await waitFor(() => expect(compareSpy).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("button", { name: "Elegir fuente y unir" }));
+    await waitFor(() => expect(joinSpy).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar unión" }));
+    expect(cancelSpy).toHaveBeenCalledWith("reviewMutation");
+
+    await act(async () => {
+      resolveJoin(joinedDataset);
+      await joinPromise;
+    });
+    expect(await screen.findByRole("heading", { name: "unido.csv" })).toBeInTheDocument();
+
+    const compareButton = screen.getByRole("button", { name: "Elegir dataset para comparar" });
+    expect(compareButton).toBeDisabled();
+    fireEvent.click(compareButton);
+    expect(compareSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCancellation();
+      await cancellationPromise;
+    });
+    const compareButtonAfterCancellation = screen.getByRole("button", { name: "Elegir dataset para comparar" });
+    expect(compareButtonAfterCancellation).toBeEnabled();
+    fireEvent.click(compareButtonAfterCancellation);
+    await waitFor(() => expect(compareSpy).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("nuevo.csv")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: /id/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir fuente y unir" }));
+    await waitFor(() => expect(joinSpy).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("heading", { name: "unido-segundo.csv" })).toBeInTheDocument();
+  });
+
   it("coordina comparación, descarte, consolidación y unión desde Revisar", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({ name: "Columnia", version: "0.57.0", platform: "windows" });

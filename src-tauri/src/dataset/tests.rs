@@ -23,6 +23,15 @@ fn temporary_csv(contents: &str) -> PathBuf {
     path
 }
 
+fn directory_entries(directory: &std::path::Path) -> Vec<PathBuf> {
+    let mut entries = fs::read_dir(directory)
+        .expect("la carpeta temporal debe poder inspeccionarse")
+        .map(|entry| entry.expect("cada entrada temporal debe leerse").path())
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries
+}
+
 fn import_profile_for_test(
     format: &str,
     sheet_name: Option<&str>,
@@ -2453,7 +2462,10 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
         .source_path
         .as_deref()
         .expect("la versión de limpieza debe conservar un snapshot Parquet");
-    assert_eq!(restored_path, cleanup_snapshot.as_path());
+    assert_eq!(
+        fs::canonicalize(restored_path).expect("el snapshot restaurado debe canonicalizarse"),
+        fs::canonicalize(&cleanup_snapshot).expect("el snapshot limpio debe canonicalizarse")
+    );
     let restored = read_parquet_frame(restored_path).expect("la versión de limpieza debe leerse");
     assert!(restored.equals_missing(&expected_cleanup));
     assert!(dataset
@@ -2466,8 +2478,14 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
     assert_eq!(redo.history.current_index, 2);
     assert!(redo.history.can_undo);
     assert_eq!(
-        dataset.source_path.as_deref(),
-        Some(recipe_snapshot.as_path())
+        fs::canonicalize(
+            dataset
+                .source_path
+                .as_deref()
+                .expect("la receta rehecha debe conservar un snapshot")
+        )
+        .expect("el snapshot rehecho debe canonicalizarse"),
+        fs::canonicalize(&recipe_snapshot).expect("el snapshot de la receta debe canonicalizarse")
     );
     let redone = read_parquet_frame(&recipe_snapshot).expect("la receta rehecha debe leerse");
     assert!(redone.equals_missing(&expected));
@@ -5468,6 +5486,425 @@ fn source_backed_join_publishes_a_reversible_parquet_cursor() {
 }
 
 #[test]
+fn review_source_backed_join_publishes_atomically_and_can_undo() {
+    let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+    let compared_path = temporary_csv("id,segment\n2,B\n3,C\n");
+    let (current_schema, _, current_row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
+    let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
+        .expect("el esquema comparado debe leerse")
+        .expect("la fuente comparada debe ser compatible");
+    let current_size_bytes = fs::metadata(&current_path)
+        .expect("la fuente activa debe conservar sus metadatos")
+        .len();
+    let state = DatasetState::default();
+    *state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible") = Some(LoadedDataset {
+        source_path: Some(current_path.clone()),
+        file_name: "current.csv".to_owned(),
+        file_size_bytes: current_size_bytes,
+        row_count: current_row_count,
+        frame: current_schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    });
+    let expected_stamp = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        DatasetMutationStamp::capture(current.as_ref().expect("el dataset debe existir"))
+    };
+    let compared_size_bytes = fs::metadata(&compared_path)
+        .expect("la fuente comparada debe conservar sus metadatos")
+        .len();
+    let cancellation = ReviewMutationCancellation::disabled();
+
+    let preview = join_source_backed_dataset(
+        &state,
+        SourceBackedJoinRequest {
+            context: {
+                let current = state
+                    .current
+                    .lock()
+                    .expect("el dataset debe estar disponible");
+                source_backed_join_context(current.as_ref().expect("el dataset debe existir"))
+                    .expect("el contexto source-backed debe conservarse")
+            },
+            compared_path: compared_path.clone(),
+            compared_format,
+            compared_schema,
+            compared_file_name: "compared.csv".to_owned(),
+            compared_size_bytes,
+            key_columns: vec!["id".to_owned()],
+            join_type: DatasetJoinType::Full,
+        },
+        &expected_stamp,
+        None,
+        true,
+        &cancellation,
+    )
+    .expect("el JOIN source-backed debe publicarse")
+    .expect("la ruta source-backed debe producir una vista previa");
+
+    assert_eq!(preview.row_count, 3);
+    let mut current = state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible");
+    let dataset = current
+        .as_mut()
+        .expect("el dataset activo debe conservarse");
+    assert!(dataset.source_backed);
+    assert!(dataset.history.state().can_undo);
+    assert_eq!(dataset.history.state().entry_count, 2);
+    assert_eq!(dataset.row_count, 3);
+    let undo = undo_dataset(dataset).expect("el JOIN debe poder deshacerse");
+    assert_eq!(undo.dataset.row_count, 2);
+    assert!(dataset.source_backed);
+    assert_eq!(dataset.row_count, 2);
+    drop(current);
+    assert!(state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible")
+        .is_none());
+    fs::remove_file(current_path).expect("se debe limpiar la fuente activa");
+    fs::remove_file(compared_path).expect("se debe limpiar la fuente comparada");
+}
+
+#[test]
+fn cancelled_review_source_backed_publication_keeps_history_and_cleans_output() {
+    let current_path = temporary_csv("id,city\n1,Santo Domingo\n2,Santiago\n");
+    let compared = df!["id" => &["2", "3"], "city" => &["Santiago", "La Vega"]]
+        .expect("la comparación debe construirse");
+    let (comparison_directory, compared_path) =
+        persist_comparison_snapshot(&compared).expect("el snapshot comparado debe escribirse");
+    let (schema, _, row_count) = source_backed_load(&current_path, "csv", || false)
+        .expect("la fuente activa debe abrirse source-backed");
+    let current_size_bytes = fs::metadata(&current_path)
+        .expect("la fuente debe conservar sus metadatos")
+        .len();
+    let mut dataset = LoadedDataset {
+        source_path: Some(current_path.clone()),
+        file_name: "current.csv".to_owned(),
+        file_size_bytes: current_size_bytes,
+        row_count,
+        frame: schema,
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history: HistoryManager::deferred().expect("el historial debe inicializarse"),
+    };
+    let context =
+        source_backed_join_context(&dataset).expect("el contexto source-backed debe conservarse");
+    let compared_size_bytes = fs::metadata(&compared_path)
+        .expect("el snapshot debe conservar sus metadatos")
+        .len();
+    let comparison_path = compared_path.clone();
+    let mut comparison = Some(PendingComparison {
+        file_name: "compared.parquet".to_owned(),
+        file_size_bytes: compared_size_bytes,
+        row_count: compared.height(),
+        _directory: comparison_directory,
+        snapshot_path: comparison_path.clone(),
+        key_columns: vec!["id".to_owned()],
+    });
+    let expected_stamp = DatasetMutationStamp::capture(&dataset);
+    let history_before = dataset.history.state();
+    let history_files_before_staging = directory_entries(&context.history_directory);
+    let temporary = tempfile::NamedTempFile::with_suffix_in(".parquet", &context.history_directory)
+        .expect("la salida temporal debe crearse");
+    let output_path = temporary.path().to_owned();
+    drop(temporary);
+    let mut output_frame = compared.clone();
+    let mut output_file = File::create(&output_path).expect("el Parquet staged debe crearse");
+    ParquetWriter::new(&mut output_file)
+        .finish(&mut output_frame)
+        .expect("el Parquet staged debe ser válido");
+    drop(output_file);
+    let cancellation = ReviewMutationCancellation::cancel_at_commit_for_test();
+
+    let error = publish_review_source_backed_result_output(
+        &mut dataset,
+        &mut comparison,
+        &context,
+        &expected_stamp,
+        SourceBackedResultOutput {
+            compared_path: &compared_path,
+            compared_size_bytes,
+            output_path: &output_path,
+            output_row_count: compared.height(),
+            file_name: "Join full · current.csv + compared.parquet",
+            label: "Unir datasets (full)",
+        },
+        Some(&comparison_path),
+        false,
+        &cancellation,
+    )
+    .expect_err("una publicación cancelada debe abortar");
+
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert!(cancellation.is_cancelled());
+    assert!(expected_stamp.matches(&dataset));
+    assert_eq!(dataset.history.state(), history_before);
+    assert_eq!(
+        comparison
+            .as_ref()
+            .expect("la comparación debe conservarse")
+            .snapshot_path,
+        comparison_path
+    );
+    assert!(compared_path.exists());
+    assert!(!output_path.exists());
+    assert_eq!(
+        directory_entries(&context.history_directory),
+        history_files_before_staging
+    );
+    assert!(current_path.exists());
+}
+
+#[test]
+fn cancelled_review_eager_publication_keeps_dataset_history_and_comparison() {
+    let current_frame = df!["id" => &[1_i64, 2], "city" => &["Santo Domingo", "Santiago"]]
+        .expect("el dataset activo debe construirse");
+    let compared_frame = df!["id" => &[2_i64, 3], "city" => &["Santiago", "La Vega"]]
+        .expect("la comparación debe construirse");
+    let (comparison_directory, comparison_path) =
+        persist_comparison_snapshot(&compared_frame).expect("el snapshot debe escribirse");
+    let history = HistoryManager::new(&current_frame).expect("el historial debe inicializarse");
+    let state = DatasetState::default();
+    *state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible") = Some(LoadedDataset {
+        source_path: None,
+        file_name: "current.csv".to_owned(),
+        file_size_bytes: 128,
+        row_count: current_frame.height(),
+        frame: current_frame.clone(),
+        source_backed: false,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    });
+    *state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible") = Some(PendingComparison {
+        file_name: "compared.parquet".to_owned(),
+        file_size_bytes: fs::metadata(&comparison_path)
+            .expect("el snapshot debe conservar sus metadatos")
+            .len(),
+        row_count: compared_frame.height(),
+        _directory: comparison_directory,
+        snapshot_path: comparison_path.clone(),
+        key_columns: vec!["id".to_owned()],
+    });
+    let expected_stamp = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        DatasetMutationStamp::capture(current.as_ref().expect("el dataset debe existir"))
+    };
+    let (history_before, cursor_before, entries_before) = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        let dataset = current.as_ref().expect("el dataset debe existir");
+        (
+            dataset.history.state(),
+            dataset.history.cursor,
+            dataset
+                .history
+                .entries
+                .iter()
+                .map(|entry| entry.path.clone())
+                .collect::<Vec<_>>(),
+        )
+    };
+    let history_files_before = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        let dataset = current.as_ref().expect("el dataset debe existir");
+        directory_entries(dataset.history.directory.path())
+    };
+    let candidate =
+        df!["id" => &[1_i64, 2, 3], "city" => &["Santo Domingo", "Santiago", "La Vega"]]
+            .expect("la candidata debe construirse");
+    let cancellation = ReviewMutationCancellation::cancel_at_commit_for_test();
+
+    let error = publish_review_eager_candidate(
+        &state,
+        &expected_stamp,
+        Some(&comparison_path),
+        false,
+        candidate,
+        "Consolidado · current.csv + compared.parquet",
+        256,
+        "Consolidar datasets",
+        &cancellation,
+    )
+    .expect_err("una publicación eager cancelada debe abortar");
+
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert!(cancellation.is_cancelled());
+    let current = state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible");
+    let dataset = current.as_ref().expect("el dataset debe conservarse");
+    assert!(expected_stamp.matches(dataset));
+    assert_eq!(dataset.history.state(), history_before);
+    assert_eq!(dataset.history.cursor, cursor_before);
+    assert_eq!(
+        dataset
+            .history
+            .entries
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect::<Vec<_>>(),
+        entries_before
+    );
+    drop(current);
+    assert!(state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible")
+        .is_some());
+    assert!(comparison_path.exists());
+    let current = state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible");
+    let dataset = current.as_ref().expect("el dataset debe conservarse");
+    assert_eq!(
+        directory_entries(dataset.history.directory.path()),
+        history_files_before
+    );
+}
+
+#[test]
+fn review_mutation_has_an_exclusive_generation_independent_of_prepare() {
+    let state = DatasetState::default();
+    let review_generation = state
+        .begin_review_mutation()
+        .expect("la primera mutación de Review debe adquirir el guard");
+    assert!(state.begin_review_mutation().is_err());
+
+    let _prepare_generation = state.begin_prepare();
+    state
+        .cancel("prepare")
+        .expect("Preparar debe tener su propio canal de cancelación");
+    assert!(!state.review_mutation_was_cancelled(review_generation));
+
+    state
+        .cancel("reviewMutation")
+        .expect("Review debe tener su canal de cancelación independiente");
+    assert!(state.review_mutation_was_cancelled(review_generation));
+    state
+        .review_mutation_in_flight
+        .store(false, Ordering::Release);
+    assert!(state.begin_review_mutation().is_ok());
+}
+
+#[test]
+fn review_eager_publication_is_reversible_and_clears_comparison_on_commit() {
+    let current_frame = df!["id" => &[1_i64, 2], "city" => &["Santo Domingo", "Santiago"]]
+        .expect("el dataset activo debe construirse");
+    let compared_frame = df!["id" => &[2_i64, 3], "city" => &["Santiago", "La Vega"]]
+        .expect("la comparación debe construirse");
+    let (comparison_directory, comparison_path) =
+        persist_comparison_snapshot(&compared_frame).expect("el snapshot debe escribirse");
+    let history = HistoryManager::new(&current_frame).expect("el historial debe inicializarse");
+    let state = DatasetState::default();
+    *state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible") = Some(LoadedDataset {
+        source_path: None,
+        file_name: "current.csv".to_owned(),
+        file_size_bytes: 128,
+        row_count: current_frame.height(),
+        frame: current_frame.clone(),
+        source_backed: false,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    });
+    *state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible") = Some(PendingComparison {
+        file_name: "compared.parquet".to_owned(),
+        file_size_bytes: fs::metadata(&comparison_path)
+            .expect("el snapshot debe conservar sus metadatos")
+            .len(),
+        row_count: compared_frame.height(),
+        _directory: comparison_directory,
+        snapshot_path: comparison_path.clone(),
+        key_columns: vec!["id".to_owned()],
+    });
+    let expected_stamp = {
+        let current = state
+            .current
+            .lock()
+            .expect("el dataset debe estar disponible");
+        DatasetMutationStamp::capture(current.as_ref().expect("el dataset debe existir"))
+    };
+    let mut candidate = current_frame.clone();
+    candidate
+        .vstack_mut(
+            &df!["id" => &[3_i64], "city" => &["La Vega"]].expect("la fila nueva debe construirse"),
+        )
+        .expect("la candidata debe apilarse");
+    let cancellation = ReviewMutationCancellation::disabled();
+
+    let preview = publish_review_eager_candidate(
+        &state,
+        &expected_stamp,
+        Some(&comparison_path),
+        false,
+        candidate.clone(),
+        "Consolidado · current.csv + compared.parquet",
+        256,
+        "Consolidar datasets",
+        &cancellation,
+    )
+    .expect("la candidata eager debe publicarse");
+
+    assert_eq!(preview.row_count, 3);
+    let mut current = state
+        .current
+        .lock()
+        .expect("el dataset debe estar disponible");
+    let dataset = current
+        .as_mut()
+        .expect("el dataset activo debe conservarse");
+    assert!(dataset.frame.equals_missing(&candidate));
+    assert_eq!(dataset.history.state().entry_count, 2);
+    assert!(dataset.history.state().can_undo);
+    let undo = undo_dataset(dataset).expect("la consolidación debe poder deshacerse");
+    assert_eq!(undo.dataset.row_count, 2);
+    assert!(dataset.frame.equals_missing(&current_frame));
+    drop(current);
+    assert!(state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible")
+        .is_none());
+    assert!(!comparison_path.exists());
+}
+
+#[test]
 fn snapshot_backed_join_uses_the_current_history_cursor_without_materializing_active_rows() {
     let compared_path = temporary_csv("id,segment\n2,B\n3,C\n");
     let (compared_format, compared_schema) = source_backed_join_source(&compared_path, "csv")
@@ -6125,6 +6562,25 @@ fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
         .len();
     let compared_schema =
         read_parquet_schema_frame(&compared_path).expect("el esquema comparado debe poder leerse");
+    let expected_stamp = {
+        let current = state
+            .current
+            .lock()
+            .expect("el estado activo debe estar disponible");
+        DatasetMutationStamp::capture(current.as_ref().expect("el dataset debe existir"))
+    };
+    *state
+        .comparison
+        .lock()
+        .expect("la comparación debe estar disponible") = Some(PendingComparison {
+        file_name: "compared.parquet".to_owned(),
+        file_size_bytes: compared_size_bytes,
+        row_count: compared.height(),
+        _directory: compared_directory,
+        snapshot_path: compared_path.clone(),
+        key_columns: vec!["id".to_owned()],
+    });
+    let cancellation = ReviewMutationCancellation::disabled();
     let preview = consolidate_source_backed_dataset(
         &state,
         SourceBackedConsolidationRequest {
@@ -6136,6 +6592,9 @@ fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
             compared_size_bytes,
             key_columns: vec!["id".to_owned()],
         },
+        &expected_stamp,
+        &compared_path,
+        &cancellation,
     )
     .expect("la consolidación snapshot-backed debe poder ejecutarse")
     .expect("la consolidación debe publicarse con historial");
@@ -6166,7 +6625,6 @@ fn snapshot_backed_consolidation_publishes_only_new_keys_reversibly() {
         ]
     );
     drop(active);
-    drop(compared_directory);
     assert!(!compared_path.exists());
 }
 

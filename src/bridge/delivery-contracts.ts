@@ -9,7 +9,8 @@ export type CancellableOperation =
   | "prepare"
   | "query"
   | "temporal"
-  | "snapshotComparison";
+  | "snapshotComparison"
+  | "reviewMutation";
 export type LocalExportFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ExportFormat = LocalExportFormat | "postgresql" | "mysql" | "sqlserver";
 export type PrivacyMode = "none" | "mask" | "hash";
