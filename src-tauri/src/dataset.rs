@@ -746,6 +746,46 @@ pub struct ImportProfile {
     pub schema: Vec<ImportProfileColumn>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportExceptionBaseline {
+    Lexical,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InvalidConversionAction {
+    Review,
+    Nullify,
+    ExcludeRow,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ImportExceptionConversion {
+    Cast {
+        column: String,
+        target: RecipeCastTarget,
+        on_invalid: InvalidConversionAction,
+    },
+    Date {
+        column: String,
+        format: RecipeDateFormat,
+        target: RecipeDateTarget,
+        on_invalid: InvalidConversionAction,
+    },
+}
+
+/// Column conversion decisions are metadata only and are bound to one exact schema.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportExceptionPolicy {
+    pub version: u8,
+    pub baseline: ImportExceptionBaseline,
+    pub schema: Vec<ImportProfileColumn>,
+    pub conversions: Vec<ImportExceptionConversion>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ImportProfileTypeChange {
@@ -809,6 +849,85 @@ pub fn validate_import_profile(profile: &ImportProfile) -> Result<(), String> {
             || !seen.insert(column.name.clone())
     }) {
         return Err("Las columnas del perfil de importación no son válidas.".to_owned());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_import_exception_policy(
+    policy: &ImportExceptionPolicy,
+    import_schema: &[ImportProfileColumn],
+    recipe: Option<&StoredTransformRecipe>,
+) -> Result<(), String> {
+    if policy.version != 1 || policy.baseline != ImportExceptionBaseline::Lexical {
+        return Err("La versión o base de la política de excepciones no es compatible.".to_owned());
+    }
+    if policy.schema != import_schema {
+        return Err(
+            "La política de excepciones debe coincidir con el esquema exacto de entrada."
+                .to_owned(),
+        );
+    }
+    if policy.conversions.is_empty() || policy.conversions.len() > 512 {
+        return Err("La cantidad de decisiones de conversión no es válida.".to_owned());
+    }
+
+    let input_columns = import_schema
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut seen = HashSet::with_capacity(policy.conversions.len());
+    for decision in &policy.conversions {
+        let column = match decision {
+            ImportExceptionConversion::Cast { column, .. }
+            | ImportExceptionConversion::Date { column, .. } => column,
+        };
+        if !input_columns.contains(column.as_str()) || !seen.insert(column.as_str()) {
+            return Err("La política menciona una columna inexistente o repetida.".to_owned());
+        }
+    }
+
+    let recipe = recipe.ok_or_else(|| {
+        "Las decisiones de conversión requieren una receta reutilizable.".to_owned()
+    })?;
+    let expected_columns = recipe
+        .recipe
+        .casts
+        .iter()
+        .filter(|cast| input_columns.contains(cast.column.as_str()))
+        .map(|cast| cast.column.as_str())
+        .chain(
+            recipe
+                .recipe
+                .date_parses
+                .iter()
+                .filter(|parse| input_columns.contains(parse.column.as_str()))
+                .map(|parse| parse.column.as_str()),
+        )
+        .collect::<HashSet<_>>();
+    if seen != expected_columns {
+        return Err("Las decisiones no coinciden con las conversiones de la receta.".to_owned());
+    }
+    for decision in &policy.conversions {
+        let matches_recipe = match decision {
+            ImportExceptionConversion::Cast { column, target, .. } => recipe
+                .recipe
+                .casts
+                .iter()
+                .any(|cast| cast.column == *column && cast.target == *target),
+            ImportExceptionConversion::Date {
+                column,
+                format,
+                target,
+                ..
+            } => recipe.recipe.date_parses.iter().any(|parse| {
+                parse.column == *column && parse.format == *format && parse.target == *target
+            }),
+        };
+        if !matches_recipe {
+            return Err(
+                "El destino o formato de una decisión no coincide con la receta.".to_owned(),
+            );
+        }
     }
     Ok(())
 }

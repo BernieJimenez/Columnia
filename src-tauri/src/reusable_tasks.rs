@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::dataset::{
-    validate_import_profile, validate_reusable_quality_rules, validate_reusable_recipe,
-    ImportProfile, ImportProfileColumn, ImportProfileTypeChange, QualityRule,
-    StoredTransformRecipe,
+    validate_import_exception_policy, validate_import_profile, validate_reusable_quality_rules,
+    validate_reusable_recipe, ImportExceptionPolicy, ImportProfile, ImportProfileColumn,
+    ImportProfileTypeChange, QualityRule, StoredTransformRecipe,
 };
 
 const TASK_SCHEMA_VERSION: i64 = 1;
@@ -24,6 +24,8 @@ pub struct ReusableTask {
     pub name: String,
     pub import_profile: ImportProfile,
     pub recipe: Option<StoredTransformRecipe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exception_policy: Option<ImportExceptionPolicy>,
     pub quality_rules: Vec<QualityRule>,
     pub output_format: String,
     pub privacy_mode: String,
@@ -261,6 +263,13 @@ fn validate_reusable_task(mut task: ReusableTask) -> Result<ReusableTask, String
     if let Some(recipe) = task.recipe.as_ref() {
         validate_reusable_recipe(recipe)?;
     }
+    if let Some(policy) = task.exception_policy.as_ref() {
+        validate_import_exception_policy(
+            policy,
+            &task.import_profile.schema,
+            task.recipe.as_ref(),
+        )?;
+    }
     if !matches!(
         task.output_format.as_str(),
         "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle"
@@ -467,7 +476,10 @@ pub async fn check_reusable_task_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dataset::{ImportDateConvention, ImportNumberConvention, SpreadsheetHeaderMode};
+    use crate::dataset::{
+        ImportDateConvention, ImportExceptionBaseline, ImportExceptionConversion,
+        ImportNumberConvention, InvalidConversionAction, RecipeCastTarget, SpreadsheetHeaderMode,
+    };
     use serde_json::json;
 
     fn task() -> ReusableTask {
@@ -493,10 +505,37 @@ mod tests {
                 ],
             },
             recipe: None,
+            exception_policy: None,
             quality_rules: Vec::new(),
             output_format: "csv".to_owned(),
             privacy_mode: "mask".to_owned(),
         }
+    }
+
+    fn task_with_conversion_policy() -> ReusableTask {
+        let mut task = task();
+        task.recipe = Some(
+            serde_json::from_value(json!({
+                "version": 2,
+                "name": "Conversión mensual",
+                "savedAt": "2026-09-01T10:00:00Z",
+                "recipe": {
+                    "casts": [{ "column": "amount", "target": "decimal" }]
+                }
+            }))
+            .unwrap(),
+        );
+        task.exception_policy = Some(ImportExceptionPolicy {
+            version: 1,
+            baseline: ImportExceptionBaseline::Lexical,
+            schema: task.import_profile.schema.clone(),
+            conversions: vec![ImportExceptionConversion::Cast {
+                column: "amount".to_owned(),
+                target: RecipeCastTarget::Decimal,
+                on_invalid: InvalidConversionAction::Review,
+            }],
+        });
+        task
     }
 
     #[test]
@@ -511,6 +550,58 @@ mod tests {
         with_path["importProfile"]["sourcePath"] = json!("C:/private/input.csv");
         assert!(serde_json::from_value::<ReusableTask>(with_path).is_err());
         assert!(validate_reusable_task(task()).is_ok());
+    }
+
+    #[test]
+    fn conversion_policy_is_versioned_and_bound_to_the_exact_input_schema_and_recipe() {
+        let task = task_with_conversion_policy();
+        assert!(validate_reusable_task(task.clone()).is_ok());
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = TaskStore::initialize(directory.path().join("data")).unwrap();
+        let saved = store.save(None, task.clone()).unwrap();
+        assert_eq!(store.open(saved.id).unwrap(), task);
+
+        let mut changed_schema = task_with_conversion_policy();
+        changed_schema.exception_policy.as_mut().unwrap().schema[0].data_type = "String".to_owned();
+        assert!(validate_reusable_task(changed_schema).is_err());
+
+        let mut changed_target = task_with_conversion_policy();
+        changed_target
+            .exception_policy
+            .as_mut()
+            .unwrap()
+            .conversions[0] = ImportExceptionConversion::Cast {
+            column: "amount".to_owned(),
+            target: RecipeCastTarget::Integer,
+            on_invalid: InvalidConversionAction::Review,
+        };
+        assert!(validate_reusable_task(changed_target).is_err());
+    }
+
+    #[test]
+    fn conversion_policy_rejects_values_paths_and_unrecognized_actions() {
+        let encoded = serde_json::to_value(task_with_conversion_policy()).unwrap();
+        let mut with_value = encoded.clone();
+        with_value["exceptionPolicy"]["conversions"][0]["sampleValue"] = json!("private");
+        assert!(serde_json::from_value::<ReusableTask>(with_value).is_err());
+
+        let mut with_path = encoded.clone();
+        with_path["exceptionPolicy"]["sourcePath"] = json!("C:/private/input.csv");
+        assert!(serde_json::from_value::<ReusableTask>(with_path).is_err());
+
+        let mut invalid_action = encoded;
+        invalid_action["exceptionPolicy"]["conversions"][0]["onInvalid"] = json!("discardSilently");
+        assert!(serde_json::from_value::<ReusableTask>(invalid_action).is_err());
+    }
+
+    #[test]
+    fn legacy_tasks_without_an_exception_policy_still_open() {
+        let mut encoded = serde_json::to_value(task()).unwrap();
+        encoded.as_object_mut().unwrap().remove("exceptionPolicy");
+        let decoded = serde_json::from_value::<ReusableTask>(encoded).unwrap();
+        assert_eq!(decoded.exception_policy, None);
+        assert!(validate_reusable_task(decoded).is_ok());
     }
 
     #[test]

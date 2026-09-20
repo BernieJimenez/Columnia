@@ -1,9 +1,38 @@
 import type { ImportProfile, ImportProfileColumn, ImportProfileTypeChange } from "./dataset-contracts";
-import type { SavedRecipe } from "./recipe-contracts";
+import type {
+  RecipeCastTarget,
+  RecipeDateFormat,
+  RecipeDateTarget,
+  SavedRecipe,
+} from "./recipe-contracts";
 import type { QualityRule } from "./delivery-contracts";
 
 export type ReusableTaskOutputFormat = "csv" | "json" | "parquet" | "sql" | "excel" | "sqlite" | "bundle";
 export type ReusableTaskPrivacyMode = "none" | "mask" | "hash";
+export type ReusableTaskInvalidConversionAction = "review" | "nullify" | "excludeRow";
+
+export type ReusableTaskConversionDecision =
+  | {
+      kind: "cast";
+      column: string;
+      target: RecipeCastTarget;
+      onInvalid: ReusableTaskInvalidConversionAction;
+    }
+  | {
+      kind: "date";
+      column: string;
+      format: RecipeDateFormat;
+      target: RecipeDateTarget;
+      onInvalid: ReusableTaskInvalidConversionAction;
+    };
+
+/** Conversion choices contain column metadata only and are valid for one exact input schema. */
+export interface ReusableTaskExceptionPolicy {
+  version: 1;
+  baseline: "lexical";
+  schema: ImportProfileColumn[];
+  conversions: ReusableTaskConversionDecision[];
+}
 
 /** Local reusable flow settings. No source paths, credentials, destinations, or overwrite consent. */
 export interface ReusableTask {
@@ -11,6 +40,7 @@ export interface ReusableTask {
   name: string;
   importProfile: ImportProfile;
   recipe: SavedRecipe | null;
+  exceptionPolicy?: ReusableTaskExceptionPolicy;
   qualityRules: QualityRule[];
   outputFormat: ReusableTaskOutputFormat;
   privacyMode: ReusableTaskPrivacyMode;

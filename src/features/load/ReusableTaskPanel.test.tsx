@@ -20,6 +20,8 @@ vi.mock("../../bridge", () => bridge);
 
 afterEach(cleanup);
 
+const schema = [{ name: "id", dataType: "Int64" }];
+
 const savedTask: ReusableTask = {
   version: 1,
   name: "Cierre mensual",
@@ -34,6 +36,36 @@ const savedTask: ReusableTask = {
   privacyMode: "mask",
 };
 
+const taskWithConversionPolicy: ReusableTask = {
+  ...savedTask,
+  recipe: {
+    version: 1,
+    name: "Normalizar importes",
+    savedAt: "2026-09-01T10:00:00Z",
+    recipe: {
+      renames: [],
+      casts: [{ column: "id", target: "integer" }],
+      dateParses: [],
+      filters: [],
+      calculatedColumn: null,
+      findReplace: null,
+      keepColumns: null,
+      splitColumn: null,
+      mergeColumns: null,
+      outlierTreatments: [],
+      groupSummary: null,
+      contactNormalizations: [],
+      textExtractions: [],
+    },
+  },
+  exceptionPolicy: {
+    version: 1,
+    baseline: "lexical",
+    schema,
+    conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "review" }],
+  },
+};
+
 const taskSummary: ReusableTaskSummary = {
   id: "task-1",
   name: savedTask.name,
@@ -45,7 +77,6 @@ const taskSummary: ReusableTaskSummary = {
   outputFormat: "csv",
 };
 
-const schema = [{ name: "id", dataType: "Int64" }];
 const readyCompatibility: ReusableTaskSchemaCompatibility = {
   status: "ready",
   missingColumns: [],
@@ -72,6 +103,56 @@ beforeEach(() => {
 });
 
 describe("ReusableTaskPanel", () => {
+  it("muestra las conversiones guardadas como borrador y conserva la confirmación existente", async () => {
+    bridge.openReusableTask.mockResolvedValue(taskWithConversionPolicy);
+    const onApply = vi.fn();
+    render(
+      <ReusableTaskPanel
+        connected
+        blocked={false}
+        schema={schema}
+        draft={draft}
+        onApply={onApply}
+      />,
+    );
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
+
+    expect(await screen.findByText(/1 decisión · base léxica/)).toBeInTheDocument();
+    expect(screen.getByText(/quedan preseleccionadas como borrador/)).toBeInTheDocument();
+    const apply = screen.getByRole("button", { name: "Aplicar al dataset actual" });
+    await waitFor(() => expect(apply).toBeEnabled());
+    fireEvent.click(apply);
+    expect(onApply).toHaveBeenCalledWith(taskWithConversionPolicy);
+  });
+
+  it("no ejecuta silenciosamente una política con acciones incompatibles disponibles", async () => {
+    bridge.openReusableTask.mockResolvedValue({
+      ...taskWithConversionPolicy,
+      exceptionPolicy: {
+        ...taskWithConversionPolicy.exceptionPolicy!,
+        conversions: [{ kind: "cast", column: "id", target: "integer", onInvalid: "excludeRow" }],
+      },
+    });
+    render(
+      <ReusableTaskPanel
+        connected
+        blocked={false}
+        schema={schema}
+        draft={draft}
+        onApply={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Reutilizar una tarea"));
+    fireEvent.change(screen.getByLabelText("Tarea guardada"), { target: { value: taskSummary.id } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("todavía no está disponible");
+    expect(screen.getByRole("button", { name: "Aplicar al dataset actual" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeDisabled();
+  });
+
   it("permanece plegado y revisa una tarea antes de permitir su uso en el dataset actual", async () => {
     const onApply = vi.fn();
     render(

@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import type { ReusableTask, ReusableTaskSchema } from "../../bridge";
+import { exceptionPolicyMatchesSchema } from "./reusableTaskExceptions";
 import { useReusableTasks } from "./useReusableTasks";
 
 interface ReusableTaskPanelProps {
@@ -41,12 +42,17 @@ export function ReusableTaskPanel({
   const reviewIsCurrent = schemaFingerprint !== null
     && reviewedSchema?.taskId === selectedTaskId
     && reviewedSchema.fingerprint === schemaFingerprint;
+  const hasUnsupportedConversionAction = openedTask?.exceptionPolicy?.conversions.some(
+    ({ onInvalid }) => onInvalid !== "review",
+  ) ?? false;
   const canApply = !blocked
     && !reusableTasks.isBusy
     && openedTask !== null
+    && exceptionPolicyMatchesSchema(openedTask.exceptionPolicy, openedTask.importProfile.schema)
+    && !hasUnsupportedConversionAction
     && reviewIsCurrent
     && checkedCompatibility?.status === "ready";
-  const canPrepareImport = !blocked && !reusableTasks.isBusy && openedTask !== null;
+  const canPrepareImport = !blocked && !reusableTasks.isBusy && openedTask !== null && !hasUnsupportedConversionAction;
 
   async function openAndReviewTask(taskId: string) {
     if (!taskId || reusableTasks.isBusy) return;
@@ -156,6 +162,15 @@ export function ReusableTaskPanel({
                     <dt>Preparación</dt>
                     <dd>{openedTask.recipe?.name ?? "Sin receta guardada"}</dd>
                   </div>
+                  {openedTask.exceptionPolicy && (
+                    <div>
+                      <dt>Decisiones de conversión</dt>
+                      <dd>
+                        {openedTask.exceptionPolicy.conversions.length} decisión{openedTask.exceptionPolicy.conversions.length === 1 ? "" : "es"} · base léxica ·
+                        {" "}valores no interpretables requieren revisión
+                      </dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Validación y salida</dt>
                     <dd>
@@ -165,6 +180,16 @@ export function ReusableTaskPanel({
                 </dl>
                 {openedTask.importProfile.schema.length > 0 && (
                   <p>Columnas esperadas: {openedTask.importProfile.schema.map((column) => column.name).join(", ")}</p>
+                )}
+                {openedTask.exceptionPolicy && (
+                  <p className="recipe-hint">
+                    Las conversiones quedan preseleccionadas como borrador. El esquema debe coincidir exactamente y solo se ejecutan al usar la acción actual de aplicar transformaciones.
+                  </p>
+                )}
+                {hasUnsupportedConversionAction && (
+                  <p className="recipe-error" role="alert">
+                    Esta tarea contiene una decisión para valores no interpretables que todavía no está disponible en este flujo. No se aplicará la tarea.
+                  </p>
                 )}
               </div>
             )}

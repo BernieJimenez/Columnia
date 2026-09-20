@@ -16,6 +16,7 @@ import {
 } from "./features/delivery/deliveryModel";
 import { LoadPhase, type LoadRuntimeState } from "./features/load/LoadPhase";
 import { ReusableTaskPanel } from "./features/load/ReusableTaskPanel";
+import { createReusableTaskExceptionPolicy } from "./features/load/reusableTaskExceptions";
 import { ModalDialog } from "./components/ModalDialog";
 import {
   beginDatasetLoad,
@@ -1124,6 +1125,7 @@ export function App() {
         version: 1 as const,
         importProfile: activeImportProfile,
         recipe: recipeDraft,
+        exceptionPolicy: createReusableTaskExceptionPolicy(activeImportProfile.schema, recipeDraft),
         qualityRules: deliveryRules(deliveryContract),
         outputFormat: reusableOutputFormat(exportFormat),
         privacyMode,
@@ -1634,7 +1636,7 @@ export function App() {
           </div>
           {reusableTaskApplicationReview.schemaMismatchConfirmed && (
             <p className="notice" role="note">
-              Confirmaste un esquema distinto. Revisa las columnas de la receta y las reglas antes de continuar; ninguna transformación se ejecutará ahora.
+              Confirmaste un esquema distinto. Las decisiones de conversión ligadas al esquema guardado quedan invalidadas. Revisa las columnas de la receta y las reglas antes de continuar; ninguna transformación se ejecutará ahora.
             </p>
           )}
           <p className="notice" role="note">
