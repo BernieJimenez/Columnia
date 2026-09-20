@@ -86,11 +86,12 @@ describe("useReusableTasks", () => {
     await act(async () => result.current.save(null, reusableTask));
     expect(bridge.saveReusableTask).toHaveBeenCalledWith(null, reusableTask);
     expect(result.current.tasks).toEqual([secondTask, firstTask]);
+    expect(result.current.openedTask).toEqual({ id: secondTask.id, task: reusableTask });
 
     await act(async () => expect(result.current.remove(firstTask.id)).resolves.toBe(true));
     expect(bridge.deleteReusableTask).toHaveBeenCalledWith(firstTask.id);
     expect(result.current.tasks).toEqual([secondTask]);
-    expect(result.current.openedTask).toBeNull();
+    expect(result.current.openedTask).toEqual({ id: secondTask.id, task: reusableTask });
   });
 
   it("ignora ejecuciones dobles mientras una tarea está abriéndose", async () => {

@@ -246,12 +246,18 @@ export function PreparePhase({
         onUndo={onUndo}
         onRedo={onRedo}
       />
-      <RevisionComparison
-        historyStatus={historyStatus}
-        qualityRules={qualityRules}
-        datasetRevision={datasetRevision}
-        busy={changing || profileStatus.kind === "loading"}
-      />
+      <details className="review-tool review-tool--nested prepare-revision-comparison">
+        <summary>
+          <span>Medir el efecto de los cambios</span>
+          <small>Opcional · comparar métricas agregadas entre revisiones</small>
+        </summary>
+        <RevisionComparison
+          historyStatus={historyStatus}
+          qualityRules={qualityRules}
+          datasetRevision={datasetRevision}
+          busy={changing || profileStatus.kind === "loading"}
+        />
+      </details>
       <ChangeFeedback status={changeStatus} onCancel={onCancelPrepare} />
       {planComparison && (
         <section className="revision-comparison__result prepare-plan__result" aria-label="Resultado de la última preparación">

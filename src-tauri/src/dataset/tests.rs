@@ -23,6 +23,25 @@ fn temporary_csv(contents: &str) -> PathBuf {
     path
 }
 
+fn import_profile_for_test(
+    format: &str,
+    sheet_name: Option<&str>,
+    header_mode: Option<SpreadsheetHeaderMode>,
+) -> ImportProfile {
+    ImportProfile {
+        version: 1,
+        format: format.to_owned(),
+        sheet_name: sheet_name.map(str::to_owned),
+        header_mode,
+        date_convention: None,
+        number_convention: None,
+        schema: vec![ImportProfileColumn {
+            name: "column_1".to_owned(),
+            data_type: "String".to_owned(),
+        }],
+    }
+}
+
 #[test]
 fn delimited_header_review_compares_first_row_and_generated_interpretations() {
     let path = temporary_delimited("csv", "id;name\n001;Ana\n002;Luis\n");
@@ -80,6 +99,104 @@ fn delimited_header_review_caps_the_sample_and_rejects_an_oversized_first_row() 
         .expect_err("una primera fila mayor al límite no debe leerse completa");
     assert!(error.contains("64 KiB"));
     fs::remove_file(oversized_header).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn validates_import_profile_options_for_each_supported_format() {
+    for format in ["csv", "tsv"] {
+        let profile = import_profile_for_test(format, None, Some(SpreadsheetHeaderMode::Generated));
+        validate_import_profile(&profile).unwrap_or_else(|error| {
+            panic!("un perfil {format} con encabezados debe ser válido: {error}")
+        });
+
+        let without_header = import_profile_for_test(format, None, None);
+        assert!(validate_import_profile(&without_header).is_err());
+
+        let with_sheet =
+            import_profile_for_test(format, Some("Datos"), Some(SpreadsheetHeaderMode::FirstRow));
+        assert!(validate_import_profile(&with_sheet).is_err());
+    }
+
+    let workbook = import_profile_for_test(
+        "excel",
+        Some("Datos"),
+        Some(SpreadsheetHeaderMode::FirstRow),
+    );
+    validate_import_profile(&workbook).expect("Excel requiere y admite hoja y encabezado");
+    assert!(validate_import_profile(&import_profile_for_test(
+        "excel",
+        None,
+        Some(SpreadsheetHeaderMode::FirstRow),
+    ))
+    .is_err());
+    assert!(
+        validate_import_profile(&import_profile_for_test("excel", Some("Datos"), None,)).is_err()
+    );
+
+    for format in ["json", "parquet"] {
+        let profile = import_profile_for_test(format, None, None);
+        validate_import_profile(&profile).unwrap_or_else(|error| {
+            panic!("un perfil {format} sin opciones de hoja debe ser válido: {error}")
+        });
+
+        assert!(validate_import_profile(&import_profile_for_test(
+            format,
+            None,
+            Some(SpreadsheetHeaderMode::FirstRow),
+        ))
+        .is_err());
+        assert!(
+            validate_import_profile(&import_profile_for_test(format, Some("Datos"), None,))
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn generated_header_csv_profile_reloads_without_consuming_the_first_row() {
+    let path = temporary_delimited("csv", "id,value\n001,first\n");
+    let (frame, preview) =
+        load_dataset_with_header_mode(&path, SpreadsheetHeaderMode::Generated, |_, _| {}, || false)
+            .expect("el CSV debe cargarse usando el modo de encabezados guardado");
+    let profile = ImportProfile {
+        version: 1,
+        format: "csv".to_owned(),
+        sheet_name: None,
+        header_mode: Some(SpreadsheetHeaderMode::Generated),
+        date_convention: None,
+        number_convention: None,
+        schema: preview
+            .columns
+            .iter()
+            .map(|column| ImportProfileColumn {
+                name: column.name.clone(),
+                data_type: column.data_type.clone(),
+            })
+            .collect(),
+    };
+
+    validate_import_profile(&profile)
+        .expect("el perfil CSV guardado con encabezados generados debe ser válido");
+    assert!(import_profile_schema_mismatch(&profile, &frame).is_none());
+    assert_eq!(profile.header_mode, Some(SpreadsheetHeaderMode::Generated));
+    assert_eq!(preview.row_count, 2);
+    assert_eq!(
+        preview
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["column_1", "column_2"]
+    );
+    assert_eq!(
+        preview.rows[0],
+        vec![Some("id".to_owned()), Some("value".to_owned())]
+    );
+    assert_eq!(
+        preview.rows[1],
+        vec![Some("001".to_owned()), Some("first".to_owned())]
+    );
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }
 
 #[test]
@@ -613,11 +730,11 @@ fn loads_json_variants_through_private_parquet_snapshots() {
         r#"[{"id":1,"name":"Ana"},{"id":2,"name":"Luis"}]"#,
     )
     .expect("se debe escribir el JSON de receta");
-    let recipe_snapshot = directory.path().join("recipe.parquet");
+    let history = HistoryManager::deferred().expect("el historial debe inicializarse");
+    let recipe_snapshot = history.directory.path().join("recipe-source.parquet");
     let (schema, _, row_count) =
         source_backed_json_load(&recipe_source, &recipe_snapshot, || false)
             .expect("el JSON de receta debe abrirse mediante snapshot");
-    let history = HistoryManager::deferred().expect("el historial debe inicializarse");
     let file_size_bytes = fs::metadata(&recipe_source)
         .expect("la fuente de receta debe existir")
         .len();
@@ -656,6 +773,14 @@ fn loads_json_variants_through_private_parquet_snapshots() {
     );
     assert!(dataset.source_backed);
     assert_eq!(dataset.frame.height(), 0);
+    assert!(!recipe_snapshot.exists());
+    assert!(dataset.history.source_snapshot_path.is_none());
+    assert_eq!(dataset.history.entries.len(), 2);
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.path.exists()));
 
     let cancelled_source = directory.path().join("cancelled.json");
     fs::write(&cancelled_source, variants[0].1).expect("se debe escribir el JSON cancelado");
@@ -1843,9 +1968,399 @@ fn source_backed_project_snapshot_streams_to_parquet_without_materializing_state
 }
 
 #[test]
+fn source_backed_history_initialization_preserves_prior_state_when_snapshot_copy_fails() {
+    let path = temporary_csv("city,value\nSanto Domingo,1\nSantiago,2\n");
+    let (frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let (schema, _, row_count) =
+        source_backed_load(&path, "csv", || false).expect("el CSV debe inspeccionarse");
+    let file_size_bytes = fs::metadata(&path)
+        .expect("la fuente debe conservar sus metadatos")
+        .len();
+    let mut history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
+    let prior_entry_path = history.entries[0].path.clone();
+    let prior_entry_bytes = fs::read(&prior_entry_path).expect("el snapshot previo debe leerse");
+    history.snapshots_enabled = false;
+    history.degraded_reason = Some("estado degradado previo".to_owned());
+    history.current_label = "revisión previa".to_owned();
+    history.next_id = 0;
+    history.source_snapshot_path = Some(path.with_extension("missing.parquet"));
+
+    let mut dataset = LoadedDataset {
+        source_path: Some(path.clone()),
+        file_name: "history-init.csv".to_owned(),
+        file_size_bytes,
+        row_count,
+        frame: schema.clone(),
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    };
+
+    let error = initialize_source_backed_history(
+        &mut dataset,
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+    )
+    .expect_err("la copia del snapshot inexistente debe fallar");
+
+    assert!(error.contains("snapshot Parquet"));
+    assert_eq!(dataset.source_path.as_deref(), Some(path.as_path()));
+    assert_eq!(dataset.row_count, row_count);
+    assert!(dataset.frame.equals_missing(&schema));
+    assert!(dataset.source_backed);
+    assert!(!dataset.history.snapshots_enabled);
+    assert_eq!(dataset.history.cursor, 0);
+    assert_eq!(dataset.history.next_id, 0);
+    assert_eq!(dataset.history.current_label, "revisión previa");
+    assert_eq!(
+        dataset.history.degraded_reason.as_deref(),
+        Some("estado degradado previo")
+    );
+    assert_eq!(dataset.history.entries.len(), 1);
+    assert_eq!(dataset.history.entries[0].path, prior_entry_path);
+    assert!(prior_entry_path.exists());
+    assert_eq!(
+        fs::read(&prior_entry_path).expect("el snapshot previo debe seguir intacto"),
+        prior_entry_bytes
+    );
+
+    dataset.history.source_snapshot_path = Some(prior_entry_path.clone());
+    assert!(initialize_source_backed_history(
+        &mut dataset,
+        &path,
+        crate::duckdb_query::DuckDbFileFormat::Parquet,
+    )
+    .expect("la inicialización debe evitar la ruta previa ocupada"));
+    assert_eq!(dataset.history.entries.len(), 1);
+    assert_ne!(dataset.history.entries[0].path, prior_entry_path);
+    assert!(dataset.history.entries[0].path.exists());
+    assert!(!prior_entry_path.exists());
+
+    fs::remove_file(path).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn source_backed_history_snapshot_staging_cancels_without_mutating_dataset() {
+    let source = temporary_csv("value\n1\n2\n");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let source_bytes = fs::read(&source).expect("la fuente debe leerse");
+    let history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
+    let initial_entry_path = history.entries[0].path.clone();
+    let initial_entry_bytes = fs::read(&initial_entry_path).expect("el snapshot debe leerse");
+    let initial_directory_entries = fs::read_dir(history.directory.path())
+        .expect("el directorio del historial debe leerse")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    let temporary_source = tempfile::NamedTempFile::new().expect("el candidato debe crearse");
+    let candidate_path = temporary_source.path().to_owned();
+    fs::write(&candidate_path, vec![0x5a; 512 * 1024])
+        .expect("el snapshot de prueba debe ser suficientemente grande");
+    let dataset = LoadedDataset {
+        source_path: Some(source.clone()),
+        file_name: "cancellation.csv".to_owned(),
+        file_size_bytes: source_bytes.len() as u64,
+        row_count: frame.height(),
+        frame: frame.clone(),
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    };
+    let original_cursor = dataset.history.cursor;
+    let original_next_id = dataset.history.next_id;
+    let mut cancellation_checks = 0;
+
+    let error = dataset
+        .history
+        .prepare_parquet_snapshot(&candidate_path, || {
+            cancellation_checks += 1;
+            cancellation_checks == 3
+        })
+        .expect_err("la escritura por bloques debe cancelar el snapshot a mitad de copia");
+
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert!(cancellation_checks >= 3);
+    assert_eq!(dataset.history.cursor, original_cursor);
+    assert_eq!(dataset.history.next_id, original_next_id);
+    assert_eq!(dataset.history.entries.len(), 1);
+    assert_eq!(dataset.history.entries[0].path, initial_entry_path);
+    assert!(initial_entry_path.exists());
+    assert_eq!(
+        fs::read(&initial_entry_path).expect("el snapshot actual debe seguir intacto"),
+        initial_entry_bytes
+    );
+    assert_eq!(dataset.source_path.as_deref(), Some(source.as_path()));
+    assert_eq!(dataset.row_count, frame.height());
+    assert!(dataset.frame.equals_missing(&frame));
+    assert_eq!(
+        fs::read(&source).expect("la fuente debe seguir intacta"),
+        source_bytes
+    );
+    let remaining_directory_entries = fs::read_dir(dataset.history.directory.path())
+        .expect("el directorio del historial debe seguir disponible")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    assert_eq!(remaining_directory_entries, initial_directory_entries);
+
+    let frame_candidate = DataFrame::new(
+        HISTORY_SNAPSHOT_BATCH_ROWS * 2,
+        vec![Column::new(
+            "value".into(),
+            (0..HISTORY_SNAPSHOT_BATCH_ROWS * 2)
+                .map(|value| value as i64)
+                .collect::<Vec<_>>(),
+        )],
+    )
+    .expect("la candidata eager debe construirse");
+    let mut frame_cancellation_checks = 0;
+    let error = dataset
+        .history
+        .prepare_frame_snapshot(&frame_candidate, || {
+            frame_cancellation_checks += 1;
+            frame_cancellation_checks == 2
+        })
+        .expect_err("la escritura por grupos de filas debe admitir cancelación cooperativa");
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert_eq!(frame_cancellation_checks, 2);
+    assert_eq!(dataset.history.cursor, original_cursor);
+    assert_eq!(dataset.history.next_id, original_next_id);
+    assert!(dataset.frame.equals_missing(&frame));
+    let after_frame_cancel_entries = fs::read_dir(dataset.history.directory.path())
+        .expect("el directorio del historial debe seguir disponible")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    assert_eq!(after_frame_cancel_entries, initial_directory_entries);
+
+    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn staged_recipe_cancel_before_commit_preserves_dataset_and_cleans_candidates() {
+    let source = temporary_csv("value\n1\n2\n");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
+    let initial_entry_path = history.entries[0].path.clone();
+    let initial_entry_bytes = fs::read(&initial_entry_path).expect("el snapshot debe leerse");
+    let initial_directory_entries = fs::read_dir(history.directory.path())
+        .expect("el directorio del historial debe leerse")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    let baseline_source = tempfile::NamedTempFile::new().expect("la base temporal debe crearse");
+    fs::write(baseline_source.path(), b"baseline candidate")
+        .expect("la base de prueba debe escribirse");
+    let output_source = tempfile::NamedTempFile::new().expect("la salida temporal debe crearse");
+    fs::write(output_source.path(), b"recipe candidate")
+        .expect("la salida de prueba debe escribirse");
+    let mut dataset = LoadedDataset {
+        source_path: Some(source.clone()),
+        file_name: "cancelled-recipe.csv".to_owned(),
+        file_size_bytes: fs::metadata(&source).unwrap().len(),
+        row_count: frame.height(),
+        frame: frame.clone(),
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    };
+    let baseline = dataset
+        .history
+        .prepare_parquet_snapshot(baseline_source.path(), || false)
+        .expect("la base debe quedar staged antes de cancelar");
+    let output = dataset
+        .history
+        .prepare_parquet_snapshot(output_source.path(), || false)
+        .expect("la receta debe quedar staged antes de cancelar");
+    let cursor = dataset.history.cursor;
+    let next_id = dataset.history.next_id;
+    let cancellation = PrepareCancellation::cancelled_for_test();
+    let error = cancellation
+        .commit(|| {
+            let history_commit = commit_source_backed_recipe_history(
+                &mut dataset.history,
+                Some(baseline),
+                output,
+                "Aplicar receta de transformación",
+            )?;
+            let Some((path, size)) = history_commit.active_snapshot else {
+                return Err("el historial preparado debía publicar una revisión".to_owned());
+            };
+            dataset.source_path = Some(path);
+            dataset.file_size_bytes = size;
+            Ok(())
+        })
+        .expect_err("Cancelar debe ganar antes de publicar las candidatas staged");
+
+    assert_eq!(error, OPERATION_CANCELLED_MESSAGE);
+    assert_eq!(dataset.history.cursor, cursor);
+    assert_eq!(dataset.history.next_id, next_id);
+    assert_eq!(dataset.history.entries.len(), 1);
+    assert_eq!(dataset.history.entries[0].path, initial_entry_path);
+    assert_eq!(
+        fs::read(&initial_entry_path).expect("el snapshot actual debe seguir intacto"),
+        initial_entry_bytes
+    );
+    assert_eq!(dataset.source_path.as_deref(), Some(source.as_path()));
+    assert!(dataset.frame.equals_missing(&frame));
+    let remaining_directory_entries = fs::read_dir(dataset.history.directory.path())
+        .expect("el directorio del historial debe seguir disponible")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    assert_eq!(remaining_directory_entries, initial_directory_entries);
+
+    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn staged_recipe_second_publish_failure_rolls_back_first_snapshot_file() {
+    let source = temporary_csv("value\n1\n2\n");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let mut history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
+    history.snapshots_enabled = false;
+    history.degraded_reason = Some("degradado antes de la receta".to_owned());
+    history.current_label = "etiqueta previa".to_owned();
+    let prior_path = history.entries[0].path.clone();
+    let prior_bytes = fs::read(&prior_path).expect("el snapshot previo debe leerse");
+    let prior_files = fs::read_dir(history.directory.path())
+        .expect("el directorio debe leerse")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    let baseline_source = tempfile::NamedTempFile::new().expect("la base temporal debe crearse");
+    fs::write(baseline_source.path(), b"baseline candidate")
+        .expect("la base de prueba debe escribirse");
+    let output_source = tempfile::NamedTempFile::new().expect("la salida temporal debe crearse");
+    fs::write(output_source.path(), b"recipe candidate")
+        .expect("la salida de prueba debe escribirse");
+    let baseline = history
+        .prepare_parquet_snapshot(baseline_source.path(), || false)
+        .expect("la base debe quedar staged");
+    let output = history
+        .prepare_parquet_snapshot(output_source.path(), || false)
+        .expect("la receta debe quedar staged");
+    let mut publish_count = 0;
+
+    let error = commit_source_backed_recipe_history_with_persist(
+        &mut history,
+        Some(baseline),
+        output,
+        "Aplicar receta de transformación",
+        |prepared, destination| {
+            publish_count += 1;
+            if publish_count == 2 {
+                return Err("fallo de publicación inyectado".to_owned());
+            }
+            prepared
+                .temporary
+                .persist(destination)
+                .map(|_| ())
+                .map_err(|error| error.error.to_string())
+        },
+    )
+    .expect_err("el fallo al publicar la segunda revisión debe abortar la transacción");
+
+    assert!(error.contains("fallo de publicación inyectado"));
+    assert_eq!(publish_count, 2);
+    assert!(!history.snapshots_enabled);
+    assert_eq!(
+        history.degraded_reason.as_deref(),
+        Some("degradado antes de la receta")
+    );
+    assert_eq!(history.current_label, "etiqueta previa");
+    assert_eq!(history.entries.len(), 1);
+    assert_eq!(history.entries[0].path, prior_path);
+    assert!(prior_path.exists());
+    assert_eq!(fs::read(&prior_path).unwrap(), prior_bytes);
+    let remaining_files = fs::read_dir(history.directory.path())
+        .expect("el directorio debe seguir disponible")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    assert_eq!(remaining_files, prior_files);
+
+    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn failed_staged_single_snapshot_publish_preserves_history_label_and_cursor() {
+    let source = temporary_csv("value\n1\n2\n");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let mut history = HistoryManager::new(&frame).expect("el historial debe inicializarse");
+    history.current_label = "etiqueta previa".to_owned();
+    let prior_path = history.entries[0].path.clone();
+    let prior_bytes = fs::read(&prior_path).expect("el snapshot previo debe leerse");
+    let prior_files = fs::read_dir(history.directory.path())
+        .expect("el directorio debe leerse")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    let staged_source = tempfile::NamedTempFile::new().expect("el candidato debe crearse");
+    fs::write(staged_source.path(), b"candidate").expect("el candidato debe escribirse");
+    let prepared = history
+        .prepare_parquet_snapshot(staged_source.path(), || false)
+        .expect("el snapshot debe quedar staged");
+    let prior_cursor = history.cursor;
+    let prior_next_id = history.next_id;
+
+    let error = history
+        .record_prepared_snapshot_with_persist(prepared, "nueva etiqueta", |_, _| {
+            Err("fallo de persistencia inyectado".to_owned())
+        })
+        .expect_err("el fallo de persistencia debe abortar antes de cambiar el historial");
+
+    assert!(error.contains("fallo de persistencia inyectado"));
+    assert_eq!(history.current_label, "etiqueta previa");
+    assert_eq!(history.cursor, prior_cursor);
+    assert_eq!(history.next_id, prior_next_id);
+    assert_eq!(history.entries.len(), 1);
+    assert_eq!(history.entries[0].path, prior_path);
+    assert!(prior_path.exists());
+    assert_eq!(fs::read(&prior_path).unwrap(), prior_bytes);
+    let remaining_files = fs::read_dir(history.directory.path())
+        .expect("el directorio debe seguir disponible")
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<HashSet<_>>();
+    assert_eq!(remaining_files, prior_files);
+
+    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
+fn eager_publication_removes_unreferenced_temporary_source_after_degraded_history() {
+    let source = temporary_csv("value\n1\n2\n");
+    let (frame, _) = load_csv(&source).expect("el CSV debe cargar");
+    let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
+    let previous_source_path = history.directory.path().join("degraded-source.parquet");
+    fs::write(&previous_source_path, b"temporary source")
+        .expect("el snapshot source-backed debe escribirse");
+    let previous_size = fs::metadata(&previous_source_path)
+        .expect("el snapshot debe conservar sus metadatos")
+        .len();
+    let mut history = history;
+    history.degraded_reason = Some("presupuesto de snapshots agotado".to_owned());
+    let mut dataset = LoadedDataset {
+        source_path: Some(previous_source_path.clone()),
+        file_name: "degraded.csv".to_owned(),
+        file_size_bytes: previous_size,
+        row_count: frame.height(),
+        frame: frame.clone(),
+        source_backed: true,
+        delimited_header_mode: None,
+        profile: None,
+        history,
+    };
+
+    publish_candidate(&mut dataset, frame.clone(), "Mutación eager")
+        .expect("la mutación debe publicarse aunque el historial esté degradado");
+
+    assert!(dataset.source_path.is_none());
+    assert!(!previous_source_path.exists());
+    assert_eq!(dataset.row_count, frame.height());
+    assert!(dataset.frame.equals_missing(&frame));
+
+    fs::remove_file(source).expect("se debe limpiar el CSV temporal");
+}
+
+#[test]
 fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
-    let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\n");
-    let (source_frame, _) = load_csv(&path).expect("el CSV debe cargar");
+    let path = temporary_csv("city,temperature\nSanto Domingo,30\nSantiago,28\nSantiago,28\n");
     let (schema, _, row_count) =
         source_backed_load(&path, "csv", || false).expect("la fuente debe inspeccionarse en disco");
     let history = HistoryManager::deferred().expect("el historial diferido debe inicializarse");
@@ -1861,6 +2376,26 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
         profile: None,
         history,
     };
+    let cleanup = remove_duplicates_source_backed(&mut dataset)
+        .expect("la limpieza source-backed debe ejecutarse")
+        .expect("la fuente debe seguir siendo compatible");
+    assert_eq!(cleanup.affected_row_count, 1);
+    let cleanup_snapshot = dataset
+        .source_path
+        .as_deref()
+        .expect("la limpieza debe conservar un snapshot Parquet")
+        .to_owned();
+    let expected_cleanup =
+        read_parquet_frame(&cleanup_snapshot).expect("el snapshot limpio debe leerse");
+    assert_eq!(expected_cleanup.height(), 2);
+    assert_eq!(dataset.history.cursor, 1);
+    assert_eq!(dataset.history.entries.len(), 2);
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.path.exists()));
+
     let recipe = TransformRecipe {
         renames: vec![RecipeRename {
             from: "city".to_owned(),
@@ -1869,7 +2404,7 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
         keep_columns: Some(vec!["city".to_owned()]),
         ..TransformRecipe::default()
     };
-    let expected = apply_recipe_to_frame(&source_frame, &recipe)
+    let expected = apply_recipe_to_frame(&expected_cleanup, &recipe)
         .expect("la receta de proyección debe ser válida")
         .0;
 
@@ -1878,7 +2413,7 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
 
     assert!(dataset.source_backed);
     assert_eq!(dataset.frame.height(), 0);
-    assert_eq!(dataset.row_count, source_frame.height());
+    assert_eq!(dataset.row_count, expected_cleanup.height());
     assert_eq!(dataset.frame.get_column_names(), ["location"]);
     let output_path = dataset
         .source_path
@@ -1892,8 +2427,55 @@ fn source_backed_projection_recipe_writes_parquet_without_materializing_rows() {
     let output = read_parquet_frame(output_path).expect("el Parquet resultante debe leerse");
     assert!(output.equals_missing(&expected));
     assert_eq!(result.dataset.column_count, 1);
-    assert_eq!(result.dataset.row_count, source_frame.height());
-    assert!(!dataset.history.state().can_undo);
+    assert_eq!(result.dataset.row_count, expected_cleanup.height());
+    let history_state = dataset.history.state();
+    assert!(history_state.can_undo);
+    assert_eq!(history_state.entry_count, 3);
+    assert_eq!(history_state.current_index, 2);
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.path.exists()));
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .any(|entry| entry.path == cleanup_snapshot));
+
+    let recipe_snapshot = output_path.to_owned();
+    let undo = undo_dataset(&mut dataset).expect("la receta debe poder deshacerse");
+    assert_eq!(undo.history.current_index, 1);
+    assert!(undo.history.can_redo);
+    assert_eq!(dataset.frame.get_column_names(), ["city", "temperature"]);
+    assert_eq!(dataset.row_count, expected_cleanup.height());
+    let restored_path = dataset
+        .source_path
+        .as_deref()
+        .expect("la versión de limpieza debe conservar un snapshot Parquet");
+    assert_eq!(restored_path, cleanup_snapshot.as_path());
+    let restored = read_parquet_frame(restored_path).expect("la versión de limpieza debe leerse");
+    assert!(restored.equals_missing(&expected_cleanup));
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.path.exists()));
+
+    let redo = redo_dataset(&mut dataset).expect("la receta debe poder rehacerse");
+    assert_eq!(redo.history.current_index, 2);
+    assert!(redo.history.can_undo);
+    assert_eq!(
+        dataset.source_path.as_deref(),
+        Some(recipe_snapshot.as_path())
+    );
+    let redone = read_parquet_frame(&recipe_snapshot).expect("la receta rehecha debe leerse");
+    assert!(redone.equals_missing(&expected));
+    assert!(dataset
+        .history
+        .entries
+        .iter()
+        .all(|entry| entry.path.exists()));
 
     fs::remove_file(path).expect("se debe limpiar el CSV temporal");
 }

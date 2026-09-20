@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../bridge";
-import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, SafeCorrectionOptions, TransformRecipe } from "../../bridge";
+import type { DatasetPreview, DatasetProfile, HistoryState, LoadedRecipe, SafeCorrectionOptions, SnapshotRevisionComparison, TransformRecipe } from "../../bridge";
 import { PreparePhase } from "./PreparePhase";
 import { TransformRecipeEditor } from "./TransformRecipeEditor";
 import { EMPTY_HISTORY } from "./prepareModel";
@@ -218,6 +218,96 @@ const cleaningSignalsProfile: DatasetProfile = {
 };
 
 describe("PreparePhase", () => {
+  it("mantiene el comparador plegado hasta pedirlo y permite ejecutarlo con foco en su resumen", async () => {
+    const history: HistoryState = {
+      ...EMPTY_HISTORY,
+      snapshotsEnabled: true,
+      canUndo: true,
+      currentIndex: 1,
+      entryCount: 2,
+      entries: [
+        { id: "revision-before-0001", index: 0, label: "Dataset cargado", isCurrent: false },
+        { id: "revision-after-0002", index: 1, label: "Cambios aplicados", isCurrent: true },
+      ],
+    };
+    const comparison: SnapshotRevisionComparison = {
+      beforeSnapshotId: "revision-before-0001",
+      afterSnapshotId: "revision-after-0002",
+      beforeLabel: "Dataset cargado",
+      afterLabel: "Cambios aplicados",
+      before: { rowCount: 2, columnCount: 2, nullCount: 0, invalidTypeCount: 0, duplicateRowCount: 0 },
+      after: { rowCount: 2, columnCount: 2, nullCount: 0, invalidTypeCount: 0, duplicateRowCount: 0 },
+      deltas: { rowCount: 0, columnCount: 0, nullCount: 0, invalidTypeCount: 0, duplicateRowCount: 0 },
+      columns: [],
+      quality: {
+        configuredRuleCount: 0,
+        comparableRuleCount: 0,
+        nonComparableRuleCount: 0,
+        improvedRuleCount: 0,
+        degradedRuleCount: 0,
+        beforePassedRuleCount: 0,
+        afterPassedRuleCount: 0,
+        rules: [],
+      },
+    };
+    const compare = vi.spyOn(bridge, "compareHistorySnapshots").mockResolvedValue(comparison);
+    render(<PreparePhase
+      dataset={dataset}
+      profileStatus={{ kind: "idle" }}
+      changeStatus={{ kind: "idle" }}
+      historyStatus={history}
+      recipeDraft={null}
+      recipeSession={0}
+      onCancelProfile={() => undefined}
+      onRemoveDuplicates={() => undefined}
+      onRemoveEmptyRows={() => undefined}
+      onRemoveConstantColumns={() => undefined}
+      onRemoveEmptyColumns={() => undefined}
+      onRemoveHighNullColumns={() => undefined}
+      onNormalizeBooleans={() => undefined}
+      onImputeMissingValues={() => undefined}
+      onEnableRowAudit={() => undefined}
+      onNormalizeColumns={() => undefined}
+      onApplyRecommended={() => undefined}
+      onTrimText={() => undefined}
+      onNormalizeText={() => undefined}
+      onApplyTransforms={() => undefined}
+      onRecipeDraftChange={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />);
+
+    const summary = screen.getByText("Medir el efecto de los cambios").closest("summary");
+    expect(summary).not.toBeNull();
+    const disclosure = summary?.closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(screen.getByRole("region", { name: "Historial de cambios" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeEnabled();
+    const beforeSelector = screen.getByLabelText("Antes");
+    const compareButton = screen.getByRole("button", { name: "Comparar agregados" });
+    expect(beforeSelector).not.toBeVisible();
+    expect(compareButton).not.toBeVisible();
+
+    summary?.focus();
+    expect(summary).toHaveFocus();
+    fireEvent.click(summary!);
+    expect(disclosure).toHaveAttribute("open");
+    expect(summary).toHaveFocus();
+    expect(beforeSelector).toBeVisible();
+    expect(compareButton).toBeVisible();
+    expect(beforeSelector).toHaveValue("revision-before-0001");
+    expect(screen.getByRole("combobox", { name: "Después" })).toHaveValue("revision-after-0002");
+
+    fireEvent.click(compareButton);
+    expect(compare).toHaveBeenCalledWith(
+      "revision-before-0001",
+      "revision-after-0002",
+      [],
+      expect.any(Function),
+    );
+    expect(await screen.findByLabelText("Resultado agregado de revisiones")).toBeInTheDocument();
+  });
+
   it("conserva tabs ARIA y selección explícita para normalizar texto", () => {
     const onNormalizeText = vi.fn();
     render(<PreparePhase

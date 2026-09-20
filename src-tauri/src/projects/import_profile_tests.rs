@@ -100,7 +100,7 @@ fn schema_mismatch_lists_only_column_names_and_types() {
         version: 1,
         format: "csv".to_owned(),
         sheet_name: None,
-        header_mode: None,
+        header_mode: Some(crate::dataset::SpreadsheetHeaderMode::FirstRow),
         date_convention: None,
         number_convention: None,
         schema: vec![crate::dataset::ImportProfileColumn {
@@ -123,7 +123,7 @@ fn schema_mismatch_lists_only_column_names_and_types() {
         version: 1,
         format: "csv".to_owned(),
         sheet_name: None,
-        header_mode: None,
+        header_mode: Some(crate::dataset::SpreadsheetHeaderMode::FirstRow),
         date_convention: Some(crate::dataset::ImportDateConvention::Iso8601),
         number_convention: Some(crate::dataset::ImportNumberConvention::DotDecimalCommaGrouping),
         schema: vec![

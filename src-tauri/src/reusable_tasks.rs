@@ -467,7 +467,7 @@ pub async fn check_reusable_task_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dataset::{ImportDateConvention, ImportNumberConvention};
+    use crate::dataset::{ImportDateConvention, ImportNumberConvention, SpreadsheetHeaderMode};
     use serde_json::json;
 
     fn task() -> ReusableTask {
@@ -478,7 +478,7 @@ mod tests {
                 version: 1,
                 format: "csv".to_owned(),
                 sheet_name: None,
-                header_mode: None,
+                header_mode: Some(SpreadsheetHeaderMode::FirstRow),
                 date_convention: Some(ImportDateConvention::Dmy),
                 number_convention: Some(ImportNumberConvention::DotDecimalCommaGrouping),
                 schema: vec![

@@ -14,6 +14,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(test)]
+use std::sync::atomic::AtomicBool;
+
 use ::zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 use calamine::{
     open_workbook_auto, Data, DataType as CalamineDataType, Dimensions, Range, Reader, Sheets,
@@ -47,6 +50,7 @@ use crate::remote_databases::{self, DatabaseTarget};
 const PREVIEW_ROW_LIMIT: usize = 50;
 const HEADER_REVIEW_ROW_LIMIT: usize = 5;
 const MAX_PAGE_SIZE: usize = 200;
+const HISTORY_SNAPSHOT_BATCH_ROWS: usize = 4_096;
 const SOURCE_BACKED_LOAD_THRESHOLD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 2 * 1024;
 const LOCAL_QUERY_SNAPSHOT_ERROR_PREFIX: &str =
@@ -773,8 +777,15 @@ pub fn validate_import_profile(profile: &ImportProfile) -> Result<(), String> {
     ) {
         return Err("El formato del perfil de importación no es compatible.".to_owned());
     }
-    let is_excel = profile.format == "excel";
-    if is_excel != profile.sheet_name.is_some() || is_excel != profile.header_mode.is_some() {
+    let has_sheet = profile.sheet_name.is_some();
+    let has_header_mode = profile.header_mode.is_some();
+    let options_match_format = match profile.format.as_str() {
+        "excel" => has_sheet && has_header_mode,
+        "csv" | "tsv" => !has_sheet && has_header_mode,
+        "json" | "parquet" => !has_sheet && !has_header_mode,
+        _ => unreachable!("el formato ya fue validado"),
+    };
+    if !options_match_format {
         return Err("Las opciones de hoja del perfil no coinciden con su formato.".to_owned());
     }
     if profile.sheet_name.as_deref().is_some_and(|name| {
@@ -1562,6 +1573,18 @@ struct HistoryEntry {
 }
 
 #[derive(Debug)]
+struct PreparedHistorySnapshot {
+    temporary: tempfile::NamedTempFile,
+    bytes: u64,
+}
+
+#[derive(Debug)]
+struct HistoryCommitResult {
+    active_snapshot: Option<(PathBuf, u64)>,
+    retired_paths: Vec<PathBuf>,
+}
+
+#[derive(Debug)]
 struct HistoryManager {
     directory: tempfile::TempDir,
     source_snapshot_path: Option<PathBuf>,
@@ -1666,9 +1689,13 @@ impl HistoryManager {
     }
 
     fn disable_for_size(&mut self, label: &str, bytes: u64) {
-        for entry in self.entries.drain(..) {
-            let _ = fs::remove_file(entry.path);
+        for path in self.disable_for_size_deferred(label, bytes) {
+            let _ = fs::remove_file(path);
         }
+    }
+
+    fn disable_for_size_deferred(&mut self, label: &str, bytes: u64) -> Vec<PathBuf> {
+        let retired_paths = self.entries.drain(..).map(|entry| entry.path).collect();
         self.cursor = 0;
         self.snapshots_enabled = false;
         self.current_label = label.to_owned();
@@ -1676,6 +1703,7 @@ impl HistoryManager {
             "El snapshot requiere {bytes} bytes y supera el límite local de {} bytes. El cambio se aplicó sin historial reversible.",
             self.disk_budget_bytes
         ));
+        retired_paths
     }
 
     fn record(&mut self, frame: &DataFrame, label: &str) -> Result<(), String> {
@@ -1796,6 +1824,192 @@ impl HistoryManager {
             self.cursor = self.cursor.saturating_sub(1);
         }
         Ok(())
+    }
+
+    fn prepare_parquet_snapshot<C>(
+        &self,
+        source: &Path,
+        mut is_cancelled: C,
+    ) -> Result<PreparedHistorySnapshot, String>
+    where
+        C: FnMut() -> bool,
+    {
+        let mut temporary = tempfile::NamedTempFile::new_in(self.directory.path())
+            .map_err(|error| format!("No se pudo preparar el snapshot Parquet: {error}"))?;
+        let mut input = File::open(source)
+            .map_err(|error| format!("No se pudo leer el snapshot Parquet: {error}"))?;
+        let mut buffer = [0; 64 * 1024];
+        loop {
+            if is_cancelled() {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+            let bytes_read = input
+                .read(&mut buffer)
+                .map_err(|error| format!("No se pudo leer el snapshot Parquet: {error}"))?;
+            if bytes_read == 0 {
+                break;
+            }
+            temporary
+                .as_file_mut()
+                .write_all(&buffer[..bytes_read])
+                .map_err(|error| {
+                    format!("No se pudo copiar el snapshot Parquet al historial: {error}")
+                })?;
+        }
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        temporary.as_file().sync_all().map_err(|error| {
+            format!("No se pudo sincronizar el snapshot Parquet del historial: {error}")
+        })?;
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        let bytes = temporary
+            .as_file()
+            .metadata()
+            .map_err(|error| format!("No se pudo verificar el snapshot Parquet: {error}"))?
+            .len();
+        Ok(PreparedHistorySnapshot { temporary, bytes })
+    }
+
+    fn prepare_frame_snapshot<C>(
+        &self,
+        frame: &DataFrame,
+        mut is_cancelled: C,
+    ) -> Result<PreparedHistorySnapshot, String>
+    where
+        C: FnMut() -> bool,
+    {
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        let mut temporary = tempfile::NamedTempFile::new_in(self.directory.path())
+            .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
+        let schema_frame = frame.slice(0, 0);
+        let schema = schema_frame.schema();
+        let mut writer = ParquetWriter::new(temporary.as_file_mut())
+            .set_parallel(false)
+            .batched(schema)
+            .map_err(|error| format!("No se pudo preparar el snapshot del historial: {error}"))?;
+        let mut offset = 0;
+        while offset < frame.height() {
+            if is_cancelled() {
+                return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+            }
+            let row_count = HISTORY_SNAPSHOT_BATCH_ROWS.min(frame.height() - offset);
+            let batch = frame.slice(offset as i64, row_count);
+            writer.write_batch(&batch).map_err(|error| {
+                format!("No se pudo escribir el snapshot del historial: {error}")
+            })?;
+            offset += row_count;
+        }
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        writer
+            .finish()
+            .map_err(|error| format!("No se pudo cerrar el snapshot del historial: {error}"))?;
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        temporary.as_file().sync_all().map_err(|error| {
+            format!("No se pudo sincronizar el snapshot del historial: {error}")
+        })?;
+        if is_cancelled() {
+            return Err(OPERATION_CANCELLED_MESSAGE.to_owned());
+        }
+        let bytes = temporary
+            .as_file()
+            .metadata()
+            .map_err(|error| format!("No se pudo verificar el snapshot del historial: {error}"))?
+            .len();
+        Ok(PreparedHistorySnapshot { temporary, bytes })
+    }
+
+    fn record_prepared_snapshot(
+        &mut self,
+        prepared: PreparedHistorySnapshot,
+        label: &str,
+    ) -> Result<Vec<PathBuf>, String> {
+        self.record_prepared_snapshot_with_persist(prepared, label, |prepared, destination| {
+            prepared
+                .temporary
+                .persist(destination)
+                .map(|_| ())
+                .map_err(|error| error.error.to_string())
+        })
+    }
+
+    fn record_prepared_snapshot_with_persist<P>(
+        &mut self,
+        prepared: PreparedHistorySnapshot,
+        label: &str,
+        mut persist: P,
+    ) -> Result<Vec<PathBuf>, String>
+    where
+        P: FnMut(PreparedHistorySnapshot, &Path) -> Result<(), String>,
+    {
+        if !self.snapshots_enabled {
+            self.current_label = label.to_owned();
+            return Ok(Vec::new());
+        }
+        if prepared.bytes > self.disk_budget_bytes {
+            return Ok(self.disable_for_size_deferred(label, prepared.bytes));
+        }
+
+        let (id, destination) = self.next_snapshot_destination(self.next_id, &[])?;
+        let bytes = prepared.bytes;
+        persist(prepared, &destination)
+            .map_err(|error| format!("No se pudo publicar el snapshot del historial: {error}"))?;
+
+        self.current_label = label.to_owned();
+        let branch_start = self.cursor.saturating_add(1).min(self.entries.len());
+        let mut retired_paths = self
+            .entries
+            .split_off(branch_start)
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect::<Vec<_>>();
+        self.entries.push(HistoryEntry {
+            id: fresh_history_entry_id(),
+            label: label.to_owned(),
+            path: destination,
+            bytes,
+        });
+        self.cursor = self.entries.len() - 1;
+        self.next_id = id.wrapping_add(1);
+
+        while self.entries.len() > self.max_entries || self.disk_bytes() > self.disk_budget_bytes {
+            let entry = self.entries.remove(0);
+            retired_paths.push(entry.path);
+            self.cursor = self.cursor.saturating_sub(1);
+        }
+        Ok(retired_paths)
+    }
+
+    fn next_snapshot_destination(
+        &self,
+        mut candidate_id: u64,
+        reserved: &[PathBuf],
+    ) -> Result<(u64, PathBuf), String> {
+        loop {
+            let candidate_path = self
+                .directory
+                .path()
+                .join(format!("snapshot-{candidate_id:020}.parquet"));
+            let referenced = self
+                .entries
+                .iter()
+                .any(|entry| entry.path == candidate_path)
+                || reserved.iter().any(|path| path == &candidate_path);
+            if !referenced && !candidate_path.exists() {
+                return Ok((candidate_id, candidate_path));
+            }
+            candidate_id = candidate_id.checked_add(1).ok_or_else(|| {
+                "No se pudo reservar un identificador único para el historial.".to_owned()
+            })?;
+        }
     }
 
     fn restore(&self, index: usize) -> Result<DataFrame, String> {
@@ -2175,17 +2389,36 @@ fn publish_candidate_with_cancellation(
     label: &str,
     cancellation: Option<&PrepareCancellation>,
 ) -> Result<DatasetPreview, String> {
+    let audit_active = dataset
+        .frame
+        .get_column_names()
+        .iter()
+        .any(|name| name.as_str() == "_cambios");
+    if audit_active && label != "Activar trazabilidad por fila" {
+        append_audit_label(&mut candidate, label)?;
+    }
+    let preview = loaded_dataset_preview(dataset, &candidate)?;
+    let prepared_snapshot = if dataset.history.snapshots_enabled {
+        Some(dataset.history.prepare_frame_snapshot(&candidate, || {
+            cancellation.is_some_and(PrepareCancellation::is_cancelled)
+        })?)
+    } else {
+        None
+    };
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
+    let previous_source_path = dataset.source_path.clone();
+    let previous_source_snapshot = dataset.history.source_snapshot_path.clone();
+    let mut retired_paths = Vec::new();
     let publish = || {
-        let audit_active = dataset
-            .frame
-            .get_column_names()
-            .iter()
-            .any(|name| name.as_str() == "_cambios");
-        if audit_active && label != "Activar trazabilidad por fila" {
-            append_audit_label(&mut candidate, label)?;
+        if let Some(prepared_snapshot) = prepared_snapshot {
+            retired_paths = dataset
+                .history
+                .record_prepared_snapshot(prepared_snapshot, label)?;
+        } else {
+            dataset.history.current_label = label.to_owned();
         }
-        let preview = loaded_dataset_preview(dataset, &candidate)?;
-        dataset.history.record(&candidate, label)?;
         // La fuente original solo representa el cursor actual antes de una
         // mutación. Después de publicar una candidata, las consultas deben usar
         // el snapshot/historial o el frame transformado, nunca el archivo viejo.
@@ -2195,13 +2428,40 @@ fn publish_candidate_with_cancellation(
         dataset.frame = candidate;
         dataset.source_backed = false;
         dataset.profile = None;
-        Ok(preview)
+        Ok(())
     };
     if let Some(cancellation) = cancellation {
-        cancellation.commit(publish)
+        cancellation.commit(publish)?;
     } else {
-        publish()
+        publish()?;
     }
+    for path in retired_paths {
+        if !dataset
+            .history
+            .entries
+            .iter()
+            .any(|entry| entry.path == path)
+            && previous_source_snapshot.as_deref() != Some(path.as_path())
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+    for path in [previous_source_path, previous_source_snapshot]
+        .into_iter()
+        .flatten()
+    {
+        if path.parent() == Some(dataset.history.directory.path())
+            && dataset.source_path.as_deref() != Some(path.as_path())
+            && !dataset
+                .history
+                .entries
+                .iter()
+                .any(|entry| entry.path == path)
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+    Ok(preview)
 }
 
 fn append_audit_label(frame: &mut DataFrame, label: &str) -> Result<(), String> {
@@ -2297,6 +2557,8 @@ pub struct DatasetState {
 struct PrepareCancellation {
     app: Option<AppHandle>,
     generation: u64,
+    #[cfg(test)]
+    cancelled_for_test: Option<std::sync::Arc<AtomicBool>>,
 }
 
 impl PrepareCancellation {
@@ -2305,6 +2567,8 @@ impl PrepareCancellation {
         Self {
             app: Some(app.clone()),
             generation,
+            #[cfg(test)]
+            cancelled_for_test: None,
         }
     }
 
@@ -2313,10 +2577,28 @@ impl PrepareCancellation {
         Self {
             app: None,
             generation: 0,
+            cancelled_for_test: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn cancelled_for_test() -> Self {
+        Self {
+            app: None,
+            generation: 0,
+            cancelled_for_test: Some(std::sync::Arc::new(AtomicBool::new(true))),
         }
     }
 
     fn is_cancelled(&self) -> bool {
+        #[cfg(test)]
+        if self
+            .cancelled_for_test
+            .as_ref()
+            .is_some_and(|cancelled| cancelled.load(Ordering::Acquire))
+        {
+            return true;
+        }
         self.app.as_ref().is_some_and(|app| {
             app.state::<DatasetState>()
                 .prepare_was_cancelled(self.generation)
@@ -2337,6 +2619,7 @@ impl PrepareCancellation {
             self.ensure()?;
             operation()
         } else {
+            self.ensure()?;
             operation()
         }
     }
@@ -9357,19 +9640,249 @@ fn initialize_source_backed_history(
         (snapshot, true)
     };
 
-    dataset.history.snapshots_enabled = true;
-    dataset.history.degraded_reason = None;
-    dataset.history.entries.clear();
-    dataset.history.cursor = 0;
-    dataset.history.next_id = 0;
-    let record_result = dataset
-        .history
-        .record_parquet(&snapshot_source, "Dataset original");
+    let history = &mut dataset.history;
+    let previous_snapshots_enabled = history.snapshots_enabled;
+    let previous_degraded_reason = history.degraded_reason.clone();
+    let previous_next_id = history.next_id;
+    let mut candidate_id = previous_next_id;
+    loop {
+        let candidate_path = history
+            .directory
+            .path()
+            .join(format!("snapshot-{candidate_id:020}.parquet"));
+        let already_referenced = history
+            .entries
+            .iter()
+            .any(|entry| entry.path == candidate_path);
+        if !already_referenced && !candidate_path.exists() {
+            break;
+        }
+        candidate_id = candidate_id.checked_add(1).ok_or_else(|| {
+            "No se pudo reservar un identificador único para el historial.".to_owned()
+        })?;
+    }
+    let previous_entries = std::mem::take(&mut history.entries);
+    let previous_cursor = history.cursor;
+    let previous_label = history.current_label.clone();
+
+    history.snapshots_enabled = true;
+    history.degraded_reason = None;
+    history.cursor = 0;
+    history.next_id = candidate_id;
+    let record_result = history.record_parquet(&snapshot_source, "Dataset original");
     if cleanup_snapshot_source {
         let _ = fs::remove_file(snapshot_source);
     }
-    record_result?;
-    Ok(dataset.history.snapshots_enabled)
+    if let Err(error) = record_result {
+        // `record_parquet` only changes the cursor after the snapshot has been
+        // persisted. Restore every in-memory field if copying or persisting the
+        // original fails. Preserve the prior next ID so a retry cannot collide
+        // with any snapshot already referenced by the restored entries.
+        history.snapshots_enabled = previous_snapshots_enabled;
+        history.degraded_reason = previous_degraded_reason;
+        history.entries = previous_entries;
+        history.cursor = previous_cursor;
+        history.next_id = previous_next_id;
+        history.current_label = previous_label;
+        return Err(error);
+    }
+
+    for entry in previous_entries {
+        let _ = fs::remove_file(entry.path);
+    }
+    Ok(history.snapshots_enabled)
+}
+
+fn prepare_source_backed_baseline_snapshot(
+    history: &HistoryManager,
+    source_path: &Path,
+    source_format: crate::duckdb_query::DuckDbFileFormat,
+    cancellation: Option<&PrepareCancellation>,
+) -> Result<PreparedHistorySnapshot, String> {
+    let mut generated_snapshot_guard = None;
+    let snapshot_source = if let Some(snapshot) = history.source_snapshot_path.as_deref() {
+        snapshot.to_owned()
+    } else if matches!(
+        source_format,
+        crate::duckdb_query::DuckDbFileFormat::Parquet
+    ) {
+        source_path.to_owned()
+    } else {
+        let temporary =
+            tempfile::NamedTempFile::with_suffix_in(".parquet", history.directory.path()).map_err(
+                |error| format!("No se pudo preparar la fuente original del historial: {error}"),
+            )?;
+        let snapshot = temporary.path().to_owned();
+        drop(temporary);
+        generated_snapshot_guard = Some(SourceBackedJoinOutputGuard::new(&snapshot));
+        let materialized = if let Some(cancellation) = cancellation {
+            crate::duckdb_query::materialize_file_to_parquet_with_projection(
+                source_path,
+                source_format,
+                &snapshot,
+                "*",
+                cancellation.callback(),
+            )
+        } else {
+            crate::duckdb_query::materialize_file_to_parquet_with_projection(
+                source_path,
+                source_format,
+                &snapshot,
+                "*",
+                || false,
+            )
+        };
+        materialized?;
+        snapshot
+    };
+
+    let prepared = history.prepare_parquet_snapshot(&snapshot_source, || {
+        cancellation.is_some_and(PrepareCancellation::is_cancelled)
+    });
+    drop(generated_snapshot_guard);
+    prepared
+}
+
+fn commit_source_backed_recipe_history(
+    history: &mut HistoryManager,
+    baseline: Option<PreparedHistorySnapshot>,
+    output: PreparedHistorySnapshot,
+    label: &str,
+) -> Result<HistoryCommitResult, String> {
+    commit_source_backed_recipe_history_with_persist(
+        history,
+        baseline,
+        output,
+        label,
+        |prepared, destination| {
+            prepared
+                .temporary
+                .persist(destination)
+                .map(|_| ())
+                .map_err(|error| error.error.to_string())
+        },
+    )
+}
+
+fn commit_source_backed_recipe_history_with_persist<P>(
+    history: &mut HistoryManager,
+    baseline: Option<PreparedHistorySnapshot>,
+    output: PreparedHistorySnapshot,
+    label: &str,
+    mut persist: P,
+) -> Result<HistoryCommitResult, String>
+where
+    P: FnMut(PreparedHistorySnapshot, &Path) -> Result<(), String>,
+{
+    let output_bytes = output.bytes;
+    if baseline.is_none() && !history.snapshots_enabled {
+        return Err("No se pudo preparar el historial source-backed.".to_owned());
+    }
+    if let Some(baseline) = baseline.as_ref() {
+        if baseline.bytes > history.disk_budget_bytes {
+            return Ok(HistoryCommitResult {
+                active_snapshot: None,
+                retired_paths: history
+                    .disable_for_size_deferred("Dataset original", baseline.bytes),
+            });
+        }
+    }
+    if output.bytes > history.disk_budget_bytes {
+        return Ok(HistoryCommitResult {
+            active_snapshot: None,
+            retired_paths: history.disable_for_size_deferred(label, output.bytes),
+        });
+    }
+
+    let (baseline_destination, output_id, output_destination) = if let Some(baseline) =
+        baseline.as_ref()
+    {
+        let (baseline_id, baseline_path) =
+            history.next_snapshot_destination(history.next_id, &[])?;
+        let (output_id, output_path) = history.next_snapshot_destination(
+            baseline_id.checked_add(1).ok_or_else(|| {
+                "No se pudo reservar un identificador único para el historial.".to_owned()
+            })?,
+            std::slice::from_ref(&baseline_path),
+        )?;
+        (
+            Some((baseline_id, baseline_path, baseline.bytes)),
+            output_id,
+            output_path,
+        )
+    } else {
+        let (output_id, output_path) = history.next_snapshot_destination(history.next_id, &[])?;
+        (None, output_id, output_path)
+    };
+
+    let mut installed = Vec::with_capacity(2);
+    if let Some((_, path, _)) = baseline_destination.as_ref() {
+        let baseline = baseline.expect("la línea base debe acompañar su destino");
+        if let Err(error) = persist(baseline, path) {
+            return Err(format!(
+                "No se pudo publicar el snapshot inicial del historial: {error}"
+            ));
+        }
+        installed.push(path.clone());
+    }
+    if let Err(error) = persist(output, &output_destination) {
+        for path in installed {
+            let _ = fs::remove_file(path);
+        }
+        return Err(format!(
+            "No se pudo publicar el snapshot de la receta: {error}"
+        ));
+    }
+
+    let mut retired_paths = Vec::new();
+    if let Some((id, path, bytes)) = baseline_destination {
+        let previous_entries = std::mem::take(&mut history.entries);
+        history.snapshots_enabled = true;
+        history.degraded_reason = None;
+        history.entries.push(HistoryEntry {
+            id: fresh_history_entry_id(),
+            label: "Dataset original".to_owned(),
+            path: path.clone(),
+            bytes,
+        });
+        history.cursor = 0;
+        history.next_id = id.wrapping_add(1);
+        for entry in previous_entries {
+            if entry.path != path && entry.path != output_destination {
+                retired_paths.push(entry.path);
+            }
+        }
+    } else {
+        let branch_start = history.cursor.saturating_add(1).min(history.entries.len());
+        let removed = history.entries.split_off(branch_start);
+        retired_paths.extend(removed.into_iter().map(|entry| entry.path));
+    }
+    history.entries.push(HistoryEntry {
+        id: fresh_history_entry_id(),
+        label: label.to_owned(),
+        path: output_destination,
+        bytes: output_bytes,
+    });
+    history.cursor = history.entries.len() - 1;
+    history.next_id = output_id.wrapping_add(1);
+    history.current_label = label.to_owned();
+
+    while history.entries.len() > history.max_entries
+        || history.disk_bytes() > history.disk_budget_bytes
+    {
+        let entry = history.entries.remove(0);
+        retired_paths.push(entry.path);
+        history.cursor = history.cursor.saturating_sub(1);
+    }
+
+    Ok(HistoryCommitResult {
+        active_snapshot: history
+            .snapshots_enabled
+            .then(|| history.entries.get(history.cursor))
+            .flatten()
+            .map(|entry| (entry.path.clone(), entry.bytes)),
+        retired_paths,
+    })
 }
 
 fn publish_source_backed_query(
@@ -9396,7 +9909,7 @@ fn publish_source_backed_query(
             .map_err(|error| format!("No se pudo preparar la salida source-backed: {error}"))?;
     let output_path = temporary.path().to_owned();
     drop(temporary);
-    let _output_guard = SourceBackedJoinOutputGuard::new(&output_path);
+    let mut output_guard = SourceBackedJoinOutputGuard::new(&output_path);
     match crate::duckdb_query::materialize_file_query_to_parquet_with_cancel(
         source_path,
         source_format,
@@ -9474,23 +9987,37 @@ fn publish_source_backed_query(
         &output_schema,
         &page,
     )?;
-    cancellation.commit(|| {
-        if !initialize_source_backed_history(dataset, source_path, source_format)? {
-            return Ok(None);
-        }
-        dataset.history.record_parquet(&output_path, label)?;
-        if !dataset.history.snapshots_enabled {
-            return Ok(None);
-        }
-        let current_path = dataset
-            .history
-            .entries
-            .last()
-            .map(|entry| entry.path.clone())
-            .ok_or_else(|| "No se pudo publicar la limpieza source-backed.".to_owned())?;
-        let current_size = fs::metadata(&current_path)
-            .map_err(|error| format!("No se pudo verificar el historial source-backed: {error}"))?
-            .len();
+    cancellation.ensure()?;
+    let baseline_snapshot = if dataset.history.snapshots_enabled {
+        None
+    } else {
+        Some(prepare_source_backed_baseline_snapshot(
+            &dataset.history,
+            source_path,
+            source_format,
+            Some(&cancellation),
+        )?)
+    };
+    let prepared_output = dataset
+        .history
+        .prepare_parquet_snapshot(&output_path, || cancellation.is_cancelled())?;
+    cancellation.ensure()?;
+    let previous_source_path = dataset.source_path.clone();
+    let previous_source_snapshot = dataset.history.source_snapshot_path.clone();
+    let mut retired_paths = Vec::new();
+    let mut keep_output = false;
+    let committed = cancellation.commit(|| {
+        let history_commit = commit_source_backed_recipe_history(
+            &mut dataset.history,
+            baseline_snapshot,
+            prepared_output,
+            label,
+        )?;
+        retired_paths = history_commit.retired_paths;
+        let (current_path, current_size) = history_commit.active_snapshot.unwrap_or_else(|| {
+            keep_output = true;
+            (output_path.clone(), output_size)
+        });
         dataset.source_path = Some(current_path);
         dataset.file_size_bytes = current_size;
         dataset.row_count = output_row_count;
@@ -9503,7 +10030,39 @@ fn publish_source_backed_query(
             dataset: preview,
             affected_row_count,
         }))
-    })
+    })?;
+    if committed.is_some() {
+        for path in retired_paths {
+            if !dataset
+                .history
+                .entries
+                .iter()
+                .any(|entry| entry.path == path)
+                && previous_source_snapshot.as_deref() != Some(path.as_path())
+                && previous_source_path.as_deref() != Some(path.as_path())
+            {
+                let _ = fs::remove_file(path);
+            }
+        }
+        for path in [previous_source_path, previous_source_snapshot]
+            .into_iter()
+            .flatten()
+        {
+            if path.parent() == Some(dataset.history.directory.path())
+                && !dataset
+                    .history
+                    .entries
+                    .iter()
+                    .any(|entry| entry.path == path)
+            {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    if keep_output {
+        output_guard.keep();
+    }
+    Ok(committed)
 }
 
 fn publish_source_backed_result_output(
@@ -34374,25 +34933,56 @@ fn apply_source_backed_projection_recipe_with_cancellation(
         &output_schema,
         &page_frame,
     )?;
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
+    let baseline_snapshot = if dataset.history.snapshots_enabled {
+        None
+    } else {
+        Some(prepare_source_backed_baseline_snapshot(
+            &dataset.history,
+            &source_path,
+            source_format,
+            cancellation,
+        )?)
+    };
+    let prepared_output = dataset.history.prepare_parquet_snapshot(&output_path, || {
+        cancellation.is_some_and(PrepareCancellation::is_cancelled)
+    })?;
+    if let Some(cancellation) = cancellation {
+        cancellation.ensure()?;
+    }
     let previous_source_path = dataset.source_path.clone();
+    let previous_source_snapshot = dataset.history.source_snapshot_path.clone();
+    let mut keep_output = false;
+    let mut retired_paths = Vec::new();
     let publish = || {
-        dataset.source_path = Some(output_path.clone());
-        dataset.file_size_bytes = output_size;
+        let history_commit = commit_source_backed_recipe_history(
+            &mut dataset.history,
+            baseline_snapshot,
+            prepared_output,
+            "Aplicar receta de transformación",
+        )?;
+        retired_paths = history_commit.retired_paths;
+        let (active_source_path, active_file_size) =
+            history_commit.active_snapshot.unwrap_or_else(|| {
+                keep_output = true;
+                (output_path.clone(), output_size)
+            });
+
+        dataset.source_path = Some(active_source_path.clone());
+        dataset.file_size_bytes = active_file_size;
         dataset.row_count = output_row_count;
         dataset.frame = output_schema;
         dataset.source_backed = true;
         dataset.history.source_snapshot_path = None;
         dataset.profile = None;
         dataset.history.current_label = "Aplicar receta de transformación".to_owned();
-        if previous_source_path.as_deref().and_then(Path::parent)
-            == Some(dataset.history.directory.path())
-        {
-            if let Some(previous_source_path) = previous_source_path {
-                let _ = fs::remove_file(previous_source_path);
-            }
-        }
         Ok(TransformRecipeResult {
-            dataset: preview,
+            dataset: DatasetPreview {
+                file_size_bytes: active_file_size,
+                ..preview
+            },
             renamed_column_count: plan.renamed_column_count,
             converted_column_count: plan.converted_column_count,
             parsed_date_column_count: plan.parsed_date_column_count,
@@ -34420,7 +35010,25 @@ fn apply_source_backed_projection_recipe_with_cancellation(
     } else {
         publish()?
     };
-    output_guard.keep();
+    for path in retired_paths.into_iter().chain(
+        [previous_source_path, previous_source_snapshot]
+            .into_iter()
+            .flatten(),
+    ) {
+        if path.parent() == Some(dataset.history.directory.path())
+            && dataset.source_path.as_deref() != Some(path.as_path())
+            && !dataset
+                .history
+                .entries
+                .iter()
+                .any(|entry| entry.path == path)
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+    if keep_output {
+        output_guard.keep();
+    }
     Ok(result)
 }
 

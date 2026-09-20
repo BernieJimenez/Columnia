@@ -130,13 +130,23 @@ async function activateWithKeyboard(
 ) {
   await tabTo(page, target, description);
   await expect(target, `${description} debe recibir el foco de teclado`).toBeFocused();
-  const focusStyle = await target.evaluate((element) => {
+  const focusState = await target.evaluate((element) => {
     const style = getComputedStyle(element);
-    return { outline: style.outlineStyle, outlineWidth: style.outlineWidth, boxShadow: style.boxShadow };
+    const bounds = element.getBoundingClientRect();
+    return {
+      outline: style.outlineStyle,
+      outlineWidth: style.outlineWidth,
+      boxShadow: style.boxShadow,
+      fullyVisibleHorizontally: bounds.left >= -1 && bounds.right <= window.innerWidth + 1,
+    };
   });
   expect(
-    focusStyle.outline !== "none" && focusStyle.outlineWidth !== "0px" || focusStyle.boxShadow !== "none",
+    focusState.outline !== "none" && focusState.outlineWidth !== "0px" || focusState.boxShadow !== "none",
     `${description} debe mostrar el indicador de foco`,
+  ).toBe(true);
+  expect(
+    focusState.fullyVisibleHorizontally,
+    `${description} debe quedar visible al recibir foco, incluso con zoom o ventana estrecha`,
   ).toBe(true);
   await page.keyboard.press(key);
 }

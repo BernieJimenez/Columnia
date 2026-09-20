@@ -159,7 +159,8 @@ describe("ReusableTaskPanel", () => {
     expect(onPrepareImport).toHaveBeenCalledWith(taskSummary.id, savedTask);
   });
 
-  it("guarda la configuración actual con solo el nombre y no ofrece borrado", async () => {
+  it("abre y prepara inmediatamente la configuración que acaba de guardar", async () => {
+    const onPrepareImport = vi.fn();
     render(
       <ReusableTaskPanel
         connected
@@ -167,6 +168,7 @@ describe("ReusableTaskPanel", () => {
         schema={schema}
         draft={draft}
         onApply={vi.fn()}
+        onPrepareImport={onPrepareImport}
       />,
     );
     await waitFor(() => expect(bridge.listReusableTasks).toHaveBeenCalledOnce());
@@ -181,7 +183,12 @@ describe("ReusableTaskPanel", () => {
       "role",
       "status",
     );
+    expect(screen.getByText("Configuración que se reutilizará")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preparar próxima importación" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /eliminar/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Preparar próxima importación" }));
+
+    expect(onPrepareImport).toHaveBeenCalledWith("task-2", { ...draft, name: "Cierre semanal" });
   });
 
   it("bloquea los controles de tarea mientras el flujo externo está ocupado", async () => {

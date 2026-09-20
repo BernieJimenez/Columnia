@@ -185,11 +185,14 @@ export function useReusableTasks({
     "save",
     () => saveReusableTask(taskId, task),
     (saved) => {
-      if (catalogStateRef.current !== "ready") return;
-      setTasks((current) => newestFirst([
-        ...current.filter((candidate) => candidate.id !== saved.id),
-        saved,
-      ]));
+      if (catalogStateRef.current === "ready") {
+        setTasks((current) => newestFirst([
+          ...current.filter((candidate) => candidate.id !== saved.id),
+          saved,
+        ]));
+      }
+      setOpenedTask({ id: saved.id, task });
+      setSchemaCheck(null);
     },
   ), [runExclusive]);
 

@@ -348,6 +348,44 @@ describe("App", () => {
     expect(screen.getByRole("combobox", { name: "Protección de datos personales" })).toHaveValue("mask");
   });
 
+  it("reutiliza un perfil CSV con encabezados generados y conserva la primera fila como dato", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
+      name: "Columnia", version: "0.26.0", platform: "windows",
+    });
+    const { task, summary } = reusableTaskFixture();
+    const generatedProfile = {
+      ...task.importProfile,
+      headerMode: "generated" as const,
+      schema: [{ name: "column_1", dataType: "String" }],
+    };
+    const generatedTask = { ...task, importProfile: generatedProfile };
+    const loadSpy = mockDatasetLoad({
+      fileName: "cierre-sin-encabezados.csv",
+      fileSizeBytes: 32,
+      rowCount: 2,
+      columnCount: 1,
+      columns: [{ name: "column_1", dataType: "String" }],
+      rows: [["id"], ["001"]],
+    });
+
+    await prepareReusableTaskBeforeImport(generatedTask, summary);
+
+    const review = await screen.findByRole("dialog", { name: "Revisa la configuración guardada" });
+    await waitFor(() => expect(loadSpy).toHaveBeenCalledOnce());
+    expect(loadSpy).toHaveBeenCalledWith(
+      "selection-test",
+      null,
+      "generated",
+      expect.any(Function),
+      generatedProfile,
+    );
+    fireEvent.click(within(review).getByRole("button", { name: "Seguir sin esos ajustes" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Vista previa" }));
+    expect(await screen.findByRole("cell", { name: "id" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "001" })).toBeInTheDocument();
+  });
+
   it("detiene el reuso ante un esquema distinto y requiere confirmación antes de importar o aplicar los ajustes", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     vi.spyOn(bridge, "getAppInfo").mockResolvedValue({
